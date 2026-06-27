@@ -150,17 +150,20 @@ function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePane
 
 function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): ChartRuntimeState {
   const key = candleKey(snapshot.symbol, snapshot.interval);
+  const dataState = snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
   return {
     ...state,
     candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot) },
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
-        state: snapshot.candles.length ? "ready" : "empty",
-        message: snapshot.candles.length ? undefined : "No candle data",
+        state: dataState,
+        message: snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined),
         source: snapshot.source,
         feed: snapshot.feed,
         isSynthetic: snapshot.isSynthetic,
+        backfillStatus: snapshot.backfillStatus ?? "not_requested",
+        canBackfill: snapshot.canBackfill ?? false,
         updatedAt: now()
       }
     },

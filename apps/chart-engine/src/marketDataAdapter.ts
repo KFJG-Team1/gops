@@ -1,4 +1,6 @@
-import type { CandleData, CandleEvent, CandleEventType, CandleSnapshot } from "./types";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartSnapshotDataStatus } from "./types";
+
+export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -58,6 +60,29 @@ function readCandleEventType(value: unknown): CandleEventType | null {
     : null;
 }
 
+function readDataStatus(value: unknown): ChartSnapshotDataStatus | undefined {
+  return value === "ready" || value === "empty" || value === "error" ? value : undefined;
+}
+
+function readBackfillStatus(value: unknown): BackfillStatus | undefined {
+  return value === "not_requested" ||
+    value === "queued" ||
+    value === "running" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "unavailable"
+    ? value
+    : undefined;
+}
+
+export function isRealtimeControlPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeControlType } {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const type = (payload as Record<string, unknown>).type;
+  return type === "HEARTBEAT" || type === "MARKET_STATUS_UPDATE" || type === "VOLUME_PROFILE_BINS_UPDATE" || type === "ERROR";
+}
+
 function normalizeIndicators(value: unknown): CandleSnapshot["indicators"] {
   if (!value || typeof value !== "object") {
     return { ma: [5, 20, 60], volume: true };
@@ -96,6 +121,11 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     source: readString(source.source) ?? "unknown",
     feed: readString(source.feed) ?? "unknown",
     isSynthetic: isSyntheticMarketPayload(source),
+    snapshotCursor: readString(source.snapshotCursor) ?? undefined,
+    dataStatus: readDataStatus(source.dataStatus),
+    backfillStatus: readBackfillStatus(source.backfillStatus),
+    canBackfill: readBoolean(source.canBackfill) ?? undefined,
+    message: readString(source.message) ?? undefined,
     indicators: normalizeIndicators(source.indicators),
     candles
   };
@@ -118,6 +148,8 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
 
   return {
     type,
+    eventId: readString(source.eventId) ?? undefined,
+    cursor: readString(source.cursor) ?? undefined,
     symbol,
     interval,
     source: readString(source.source) ?? undefined,

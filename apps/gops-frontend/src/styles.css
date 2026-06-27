@@ -527,7 +527,7 @@ textarea {
   color: #777;
 }
 
-.panel-dummy {
+.panel-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -541,8 +541,8 @@ textarea {
   text-align: center;
 }
 
-.panel-dummy span,
-.panel-dummy small {
+.panel-empty span,
+.panel-empty small {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -859,6 +859,7 @@ textarea {
 }
 
 .chart-canvas-wrap {
+  position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -869,6 +870,71 @@ textarea {
   width: 100%;
   height: 100%;
   touch-action: none;
+}
+
+.chart-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  width: min(260px, calc(100% - 28px));
+  padding: 12px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #111;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  color: #111;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.chart-empty-state strong,
+.chart-empty-state span,
+.chart-empty-state small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.chart-empty-state strong {
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.chart-empty-state span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chart-empty-state small {
+  color: #5c5c5c;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.chart-empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chart-backfill-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 82px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .system-area {

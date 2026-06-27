@@ -4,7 +4,7 @@ import { normalizeAgentChatResponse } from "@gops/chart-engine/agentChat";
 import { applyCandleEvent, candleKey } from "@gops/chart-engine/candleStore";
 import { createChartDocument } from "@gops/chart-engine/chartDocuments";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "@gops/chart-engine/commands";
-import { normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
+import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "@gops/chart-engine/runtime";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
@@ -223,6 +223,27 @@ assert.equal(liveMutationResult.candles.length, 2);
 assert.equal(liveMutationResult.candles[1]?.close, 11.2);
 assert.equal(liveMutationResult.candles[1]?.volume, 180);
 
+const cursorEvent = normalizeCandleEvent({
+  type: "CANDLE_CLOSED",
+  eventId: "event-closed-a",
+  cursor: "v1:AAPL:1m:2026-06-25T13:31:00.000Z:abc123",
+  symbol: "AAPL",
+  interval: "1m",
+  data: candleB
+});
+assert.equal(cursorEvent.eventId, "event-closed-a");
+assert.equal(cursorEvent.cursor, "v1:AAPL:1m:2026-06-25T13:31:00.000Z:abc123");
+
+for (const controlPayload of [
+  { type: "HEARTBEAT", symbol: "AAPL", interval: "1m" },
+  { type: "MARKET_STATUS_UPDATE", symbol: "_MARKET", interval: "status", data: { status: "active" } },
+  { type: "VOLUME_PROFILE_BINS_UPDATE", symbol: "AAPL", interval: "1m", data: { bins: [] } },
+  { type: "ERROR", retryable: true, detail: "retry" }
+]) {
+  assert.equal(isRealtimeControlPayload(controlPayload), true);
+  assert.throws(() => normalizeCandleEvent(controlPayload), /Candle event is missing/);
+}
+
 const invalidProposal: ChartProposal = {
   id: "proposal-invalid",
   title: "Invalid mixed actor",
@@ -273,6 +294,30 @@ const syntheticLiveRuntime = chartRuntimeReducer(syntheticRuntime, {
 });
 assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.isSynthetic, true);
 assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "synthetic-demo");
+
+const emptyBackfillSnapshot = normalizeCandleSnapshot({
+  symbol: "INTC",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  dataStatus: "empty",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  message: "No candle data is available for this symbol and interval.",
+  candles: []
+});
+assert.equal(emptyBackfillSnapshot.dataStatus, "empty");
+assert.equal(emptyBackfillSnapshot.backfillStatus, "not_requested");
+assert.equal(emptyBackfillSnapshot.canBackfill, true);
+const emptyBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.snapshot.loaded",
+  snapshot: emptyBackfillSnapshot,
+});
+const emptyBackfillStatus = emptyBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
+assert.equal(emptyBackfillStatus?.state, "empty");
+assert.equal(emptyBackfillStatus?.backfillStatus, "not_requested");
+assert.equal(emptyBackfillStatus?.canBackfill, true);
+assert.match(emptyBackfillStatus?.message ?? "", /No candle data/);
 
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
 const lifecyclePanelB = chartPanel("panel-lifecycle-b", "chart-doc-lifecycle-b", "MSFT");

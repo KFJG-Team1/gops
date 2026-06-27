@@ -33,7 +33,7 @@ import { createPortal } from "react-dom";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
-import { normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
+import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
 import { buildChartProposalRequest, normalizeChartProposal } from "@gops/chart-engine/proposals";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
@@ -48,7 +48,7 @@ import {
 } from "@gops/chart-engine/runtime";
 import { candleKey } from "@gops/chart-engine/candleStore";
 import { SUPPORTED_SYMBOLS, normalizeSupportedSymbol, type SupportedSymbol } from "@gops/chart-engine/symbols";
-import type { ChartLayerKey, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene } from "@gops/chart-engine/types";
+import type { BackfillStatus, ChartLayerKey, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene } from "@gops/chart-engine/types";
 import type { PanelInstance } from "../layout/types";
 import { useElementSize } from "../hooks/useElementSize";
 
@@ -102,6 +102,20 @@ type HoverTooltip = FloatingMenuPosition & {
   placement: "bottom" | "right";
 };
 
+type ChartCursorRef = {
+  symbol: string;
+  interval: string;
+  cursor: string;
+};
+
+type BackfillRequestState = {
+  symbol: string;
+  interval: string;
+  requestId?: string;
+  status: BackfillStatus;
+  message?: string;
+};
+
 function tooltipAttributes(label: string): TooltipAttributes {
   return {
     "aria-label": label,
@@ -116,7 +130,9 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
+  const lastCursorRef = useRef<ChartCursorRef | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
+  const autoBackfillKeysRef = useRef<Set<string>>(new Set());
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
@@ -136,6 +152,8 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
   const [maMenuOpen, setMaMenuOpen] = useState(false);
   const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
+  const [snapshotReloadNonce, setSnapshotReloadNonce] = useState(0);
+  const [backfillRequest, setBackfillRequest] = useState<BackfillRequestState | null>(null);
   const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
   const pendingPreviewKey = pendingPreview ? `${pendingPreview.id}:${pendingPreview.createdAt}` : null;
   const supportedComparisonSymbols = SUPPORTED_SYMBOLS.filter((symbol) => symbol !== document.symbol);
@@ -214,7 +232,23 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
         if (cancelled) {
           return;
         }
-        onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) });
+        const snapshot = normalizeCandleSnapshot(payload);
+        if (snapshot.snapshotCursor) {
+          lastCursorRef.current = {
+            symbol: snapshot.symbol,
+            interval: snapshot.interval,
+            cursor: snapshot.snapshotCursor
+          };
+        }
+        onChartAction({ kind: "chart.snapshot.loaded", snapshot });
+        if (
+          snapshot.symbol === document.symbol &&
+          snapshot.interval === document.timeframe &&
+          snapshot.backfillStatus &&
+          !isActiveBackfillStatus(snapshot.backfillStatus)
+        ) {
+          setBackfillRequest(null);
+        }
       })
       .catch((error: unknown) => {
         if (cancelled || isAbortError(error)) {
@@ -239,25 +273,96 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       cancelled = true;
       controller.abort();
     };
-  }, [document.symbol, document.timeframe, onChartAction]);
+  }, [document.symbol, document.timeframe, onChartAction, snapshotReloadNonce]);
+
+  useEffect(() => {
+    if (
+      !backfillRequest ||
+      backfillRequest.symbol !== document.symbol ||
+      backfillRequest.interval !== document.timeframe ||
+      !isActiveBackfillStatus(backfillRequest.status)
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = () => {
+      const params = new URLSearchParams({
+        symbol: backfillRequest.symbol,
+        interval: backfillRequest.interval
+      });
+      if (backfillRequest.requestId) {
+        params.set("requestId", backfillRequest.requestId);
+      }
+      fetch(`/api/charts/backfill/status?${params.toString()}`)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Backfill status API returned ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+          const status = normalizeBackfillStatusPayload(payload, backfillRequest);
+          setBackfillRequest(status);
+          if (status.status === "succeeded") {
+            setSnapshotReloadNonce((value) => value + 1);
+          }
+          if (isActiveBackfillStatus(status.status)) {
+            timer = window.setTimeout(poll, 1200);
+          }
+        })
+        .catch((error: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          setBackfillRequest({
+            ...backfillRequest,
+            status: "failed",
+            message: error instanceof Error ? error.message : "Backfill status unavailable."
+          });
+        });
+    };
+    timer = window.setTimeout(poll, 700);
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [backfillRequest, document.symbol, document.timeframe]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("WebSocket" in window)) {
       return;
     }
 
-    const params = new URLSearchParams({
-      symbol: document.symbol,
-      interval: document.timeframe
-    });
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let closedByEffect = false;
     let reconnectAttempt = 0;
+    const buildSocketParams = () => {
+      const params = new URLSearchParams({
+        symbol: document.symbol,
+        interval: document.timeframe
+      });
+      const lastCursor = lastCursorRef.current;
+      if (
+        lastCursor &&
+        lastCursor.symbol === document.symbol &&
+        lastCursor.interval === document.timeframe
+      ) {
+        params.set("cursor", lastCursor.cursor);
+      }
+      return params;
+    };
 
     const connect = () => {
       onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
-      socket = new WebSocket(resolveChartSocketUrl(params));
+      socket = new WebSocket(resolveChartSocketUrl(buildSocketParams()));
 
       socket.onopen = () => {
         reconnectAttempt = 0;
@@ -266,7 +371,34 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
 
       socket.onmessage = (event) => {
         try {
-          onChartAction({ kind: "chart.live", event: normalizeCandleEvent(JSON.parse(event.data)) });
+          const payload = JSON.parse(event.data) as unknown;
+          if (isRealtimeControlPayload(payload)) {
+            const type = payload.type;
+            if (type === "ERROR") {
+              onChartAction({
+                kind: "chart.stream.status",
+                symbol: document.symbol,
+                interval: document.timeframe,
+                status: "error",
+                message: readPayloadString(payload.detail) ?? "Realtime stream error."
+              });
+              if (payload.retryable === true) {
+                socket?.close();
+              }
+              return;
+            }
+            onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "live" });
+            return;
+          }
+          const candleEvent = normalizeCandleEvent(payload);
+          if (candleEvent.cursor) {
+            lastCursorRef.current = {
+              symbol: candleEvent.symbol,
+              interval: candleEvent.interval,
+              cursor: candleEvent.cursor
+            };
+          }
+          onChartAction({ kind: "chart.live", event: candleEvent });
         } catch (error) {
           onChartAction({
             kind: "chart.stream.status",
@@ -562,6 +694,74 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       .finally(() => setProposalBusy(false));
   };
 
+  const requestBackfill = () => {
+    if (backfillRequest && isActiveBackfillStatus(backfillRequest.status)) {
+      return;
+    }
+    const optimistic: BackfillRequestState = {
+      symbol: document.symbol,
+      interval: document.timeframe,
+      status: "queued",
+      message: "Backfill queued."
+    };
+    setBackfillRequest(optimistic);
+    fetch("/api/charts/backfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: document.symbol,
+        interval: document.timeframe
+      })
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Backfill API returned ${response.status}`);
+        }
+        return response.json() as Promise<unknown>;
+      })
+      .then((payload) => {
+        const status = normalizeBackfillStatusPayload(payload, optimistic);
+        setBackfillRequest(status);
+        if (status.status === "succeeded") {
+          setSnapshotReloadNonce((value) => value + 1);
+        }
+      })
+      .catch((error: unknown) => {
+        setBackfillRequest({
+          ...optimistic,
+          status: "failed",
+          message: error instanceof Error ? error.message : "Could not request backfill."
+        });
+      });
+  };
+
+  useEffect(() => {
+    const key = `${document.symbol}:${document.timeframe}`;
+    const currentRequestMatches =
+      backfillRequest?.symbol === document.symbol &&
+      backfillRequest?.interval === document.timeframe;
+
+    if (
+      dataStatus.state !== "empty" ||
+      !dataStatus.canBackfill ||
+      autoBackfillKeysRef.current.has(key) ||
+      (currentRequestMatches && isActiveBackfillStatus(backfillRequest.status))
+    ) {
+      return;
+    }
+
+    autoBackfillKeysRef.current.add(key);
+    requestBackfill();
+  }, [
+    backfillRequest?.interval,
+    backfillRequest?.status,
+    backfillRequest?.symbol,
+    dataStatus.canBackfill,
+    dataStatus.state,
+    document.symbol,
+    document.timeframe
+  ]);
+
   const setViewport = (visibleCount: number, rightOffset = document.viewport.rightOffset) => {
     runCommand("chart.viewport.set", {
       visibleCount,
@@ -846,6 +1046,19 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
     window.document.body
   );
 
+  const effectiveBackfill = backfillRequest &&
+    backfillRequest.symbol === document.symbol &&
+    backfillRequest.interval === document.timeframe
+    ? backfillRequest
+    : {
+        symbol: document.symbol,
+        interval: document.timeframe,
+        status: dataStatus.backfillStatus ?? "not_requested",
+        message: dataStatus.message
+      };
+  const backfillActive = isActiveBackfillStatus(effectiveBackfill.status);
+  const showBackfillState = dataStatus.state === "empty";
+
   return (
     <>
     <div
@@ -1036,6 +1249,26 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
             onPointerUp={handlePointerUp}
             onPointerCancel={cancelDrag}
           />
+          {showBackfillState && (
+            <div className="chart-empty-state" role="status">
+              <strong>{document.symbol} {document.timeframe}</strong>
+              <span>{effectiveBackfill.message ?? dataStatus.message ?? "No candle data is available."}</span>
+              <div className="chart-empty-actions">
+                <small>{backfillStatusLabel(effectiveBackfill.status)}</small>
+                {dataStatus.canBackfill && (
+                  <button
+                    type="button"
+                    className="chart-backfill-button"
+                    disabled={backfillActive}
+                    onClick={requestBackfill}
+                  >
+                    <RefreshCcw size={14} />
+                    <span>{backfillActive ? "Backfill" : "Backfill"}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1232,6 +1465,57 @@ function distanceToSegment(x: number, y: number, start: { x: number; y: number }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function readPayloadString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isActiveBackfillStatus(status?: BackfillStatus): boolean {
+  return status === "queued" || status === "running";
+}
+
+function normalizeBackfillStatusPayload(payload: unknown, fallback: BackfillRequestState): BackfillRequestState {
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+  const source = payload as Record<string, unknown>;
+  const status = readBackfillStatus(source.status) ?? fallback.status;
+  return {
+    symbol: readPayloadString(source.symbol) ?? fallback.symbol,
+    interval: readPayloadString(source.interval) ?? fallback.interval,
+    requestId: readPayloadString(source.requestId) ?? fallback.requestId,
+    status,
+    message: readPayloadString(source.error) ?? readPayloadString(source.message) ?? fallback.message
+  };
+}
+
+function readBackfillStatus(value: unknown): BackfillStatus | null {
+  return value === "not_requested" ||
+    value === "queued" ||
+    value === "running" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "unavailable"
+    ? value
+    : null;
+}
+
+function backfillStatusLabel(status?: BackfillStatus): string {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "succeeded":
+      return "Ready";
+    case "failed":
+      return "Failed";
+    case "unavailable":
+      return "Unavailable";
+    default:
+      return "No data";
+  }
 }
 
 function resolveChartSocketUrl(params: URLSearchParams): string {

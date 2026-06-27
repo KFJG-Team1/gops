@@ -137,7 +137,7 @@ export function TopAppBar({
       </div>
 
       <div className="headline-alert-strip" aria-label="Realtime headline and alert message">
-        <span>Realtime headline placeholder</span>
+        <span>Realtime headline feed</span>
         <strong>Alerts and agent messages appear here</strong>
       </div>
 

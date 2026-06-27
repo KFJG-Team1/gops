@@ -109,7 +109,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "aiSummary",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
+          { summary: "AI summary panel" },
           "panel-ai-summary"
         )
       ],
@@ -131,7 +131,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
           "system",
-          { label: "Primary chart placeholder" },
+          { label: "Primary chart" },
           "panel-chart-primary"
         ),
         createPanelInstance(
@@ -166,7 +166,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "aiSummary",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
+          { summary: "AI summary panel" },
           "panel-ai-summary"
         )
       ],
@@ -188,7 +188,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
           "system",
-          { label: "Signal chart placeholder" },
+          { label: "Signal chart" },
           "panel-chart-primary"
         ),
         createPanelInstance(
@@ -209,7 +209,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "aiSummary",
           { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { summary: "Signal summary placeholder" },
+          { summary: "Signal summary" },
           "panel-ai-summary"
         ),
         createPanelInstance(
@@ -243,7 +243,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "chart",
       { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
       "system",
-      { label: "Primary chart placeholder" },
+      { label: "Primary chart" },
       "panel-chart-primary"
     ),
     createPanelInstance(
@@ -278,7 +278,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "aiSummary",
       { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
-      { summary: "LLM summary placeholder" },
+      { summary: "AI summary panel" },
       "panel-ai-summary"
     )
   ];

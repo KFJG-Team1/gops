@@ -59,9 +59,9 @@ function PanelBody({
   }
 
   return (
-    <div className="panel-dummy">
+    <div className="panel-empty">
       <span>{panel.title ?? panel.type}</span>
-      <small>Dummy panel content</small>
+      <small>Panel content not connected yet</small>
     </div>
   );
 }
