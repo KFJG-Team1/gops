@@ -9,26 +9,19 @@ import {
   type AgentChartReference
 } from "@gops/chart-engine/agentReference";
 import { makeChartCommand } from "@gops/chart-engine/commands";
-import { findTargetChartPanel } from "@gops/chart-engine/chartPanelSelection";
 import {
   chartRuntimeReducer,
   createInitialChartRuntimeState,
   getChartDocumentForPanel,
   type ChartRuntimeAction
 } from "@gops/chart-engine/runtime";
-import {
-  DEFAULT_CHART_SYMBOL,
-  getSymbolMeta,
-  normalizeSupportedSymbol,
-  normalizeWatchlistPayload,
-  type SupportedSymbol,
-  type WatchlistSymbol
-} from "@gops/chart-engine/symbols";
+import { DEFAULT_CHART_SYMBOL, getSymbolMeta, normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   createInitialRuntimeState,
   executeCommand,
   makeCommand
 } from "./layout/commands";
+import { findTargetChartPanel } from "./layout/chartPanelSelection";
 import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
 
 type RuntimeAction =
@@ -40,6 +33,11 @@ function mergeSymbolRecords(current: WatchlistSymbol[], incoming: WatchlistSymbo
     bySymbol.set(item.symbol, { ...bySymbol.get(item.symbol), ...item });
   }
   return Array.from(bySymbol.values());
+}
+
+function refreshWatchlistRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
+  const incomingBySymbol = new Map(incoming.map((item) => [item.symbol, item]));
+  return current.map((item) => ({ ...item, ...incomingBySymbol.get(item.symbol) }));
 }
 
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
@@ -63,6 +61,7 @@ export default function App() {
   const [knownSymbols, setKnownSymbols] = useState<WatchlistSymbol[]>([]);
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
   const watchlistSeedAppliedRef = useRef(false);
+  const watchlistEditedRef = useRef(false);
   const userSelectedSymbolRef = useRef(false);
 
   const selectedPanel = useMemo(
@@ -86,30 +85,41 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/charts/symbols")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Symbol API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          const symbols = normalizeWatchlistPayload(payload);
-          setWatchlistSymbols(symbols);
-          setSymbolOptions(symbols);
-          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWatchlistSymbols([]);
-          setSymbolOptions([]);
-        }
-      });
+    const loadWatchlist = () => {
+      fetch("/api/charts/symbols")
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Symbol API returned ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          if (!cancelled) {
+            const symbols = normalizeWatchlistPayload(payload);
+            setWatchlistSymbols((current) => {
+              if (!watchlistEditedRef.current) {
+                return symbols;
+              }
+              return refreshWatchlistRecords(current, symbols);
+            });
+            setSymbolOptions((current) => current.length > 0 ? current : symbols);
+            setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWatchlistSymbols((current) => current);
+            setSymbolOptions((current) => current);
+          }
+        });
+    };
+
+    loadWatchlist();
+    const timer = window.setInterval(loadWatchlist, 15000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -170,6 +180,7 @@ export default function App() {
       return;
     }
 
+    watchlistEditedRef.current = true;
     setWatchlistSymbols((current) => {
       if (current.some((item) => item.symbol === symbol)) {
         return current.filter((item) => item.symbol !== symbol);
@@ -277,16 +288,16 @@ export default function App() {
     });
   };
 
+  const updateAgent = (agentId: string, patch: AgentUpdatePatch) => {
+    setAgents((current) => current.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)));
+  };
+
   const askAgentFromChart = useCallback((panelId: string, chartDocumentId: string) => {
     setSelectedAgentIds(["agent-01"]);
     setAgentChartReference({ panelId, chartDocumentId, draftSeed: DEFAULT_AGENT_DRAFT_SEED });
     setEditingAgentId(undefined);
     setActiveSystemMode("agents");
   }, []);
-
-  const updateAgent = (agentId: string, patch: AgentUpdatePatch) => {
-    setAgents((current) => current.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)));
-  };
 
   const addAgent = () => {
     setAgents((current) => {

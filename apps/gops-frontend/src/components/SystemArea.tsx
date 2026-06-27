@@ -209,8 +209,8 @@ export function SystemArea({
                   <strong>{item.symbol}</strong>
                   <em>{item.name}</em>
                 </span>
-                <small className={typeof item.changePercent === "number" && item.changePercent < 0 ? "market-down" : "market-up"}>
-                  {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "--"}
+                <small className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : undefined}>
+                  {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
                   {typeof item.changePercent === "number" ? ` ${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : ""}
                 </small>
               </button>

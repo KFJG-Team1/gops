@@ -12,7 +12,7 @@ export type CandleData = {
 };
 
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
-export type ChartSnapshotDataStatus = "ready" | "empty" | "error";
+export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
 export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
 
 export type CandleSnapshot = {
@@ -26,6 +26,17 @@ export type CandleSnapshot = {
   backfillStatus?: BackfillStatus;
   canBackfill?: boolean;
   message?: string;
+  requestedLimit?: number;
+  returnedCount?: number;
+  targetStoredCount?: number;
+  targetRangeFrom?: string;
+  storedCandleCount?: number;
+  availableFrom?: string;
+  availableTo?: string;
+  oldestTimestamp?: string;
+  newestTimestamp?: string;
+  hasMoreBefore?: boolean;
+  hasMoreAfter?: boolean;
   indicators: {
     ma: number[];
     volume: boolean;
@@ -165,7 +176,7 @@ export type ChartDocument = {
   updatedAt: string;
 };
 
-export type ChartLoadState = "loading" | "ready" | "empty" | "error";
+export type ChartLoadState = "loading" | "ready" | "partial" | "empty" | "error";
 
 export type ChartDataStatus = {
   state: ChartLoadState;
@@ -175,6 +186,17 @@ export type ChartDataStatus = {
   isSynthetic?: boolean;
   backfillStatus?: BackfillStatus;
   canBackfill?: boolean;
+  requestedLimit?: number;
+  returnedCount?: number;
+  targetStoredCount?: number;
+  targetRangeFrom?: string;
+  storedCandleCount?: number;
+  availableFrom?: string;
+  availableTo?: string;
+  oldestTimestamp?: string;
+  newestTimestamp?: string;
+  hasMoreBefore?: boolean;
+  hasMoreAfter?: boolean;
   updatedAt: string;
 };
 

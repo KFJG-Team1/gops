@@ -1,4 +1,5 @@
 import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument } from "./chartDocuments";
+import { candleLimitFor1Year, candleLimitFor24Hours } from "./intervals";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
 import { normalizeSupportedSymbol } from "./symbols";
 import type {
@@ -246,7 +247,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart symbol.";
       }
       document.symbol = symbol;
-      document.viewport = { rightOffset: 0, visibleCount: document.viewport.visibleCount };
+      document.viewport = { rightOffset: 0, visibleCount: candleLimitFor24Hours(document.timeframe) };
       return null;
     }
     case "chart.timeframe.set": {
@@ -255,14 +256,14 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
-      document.viewport = { rightOffset: 0, visibleCount: document.viewport.visibleCount };
+      document.viewport = { rightOffset: 0, visibleCount: candleLimitFor24Hours(timeframe) };
       return null;
     }
     case "chart.viewport.set": {
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
       document.viewport = {
-        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, 180),
+        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, candleLimitFor1Year(document.timeframe)),
         rightOffset: rightOffset === null ? document.viewport.rightOffset : Math.max(0, Math.round(rightOffset))
       };
       return null;

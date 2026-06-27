@@ -13,6 +13,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
+import { candleLimitFor1Year, candleLimitFor24Hours } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
@@ -358,6 +359,47 @@ const emptyStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(),
 });
 assert.equal(emptyStatusRuntime.dataStatusByKey[candleKey("AMD", "1m")]?.backfillStatus, "queued");
 
+const partialBackfillSnapshot = normalizeCandleSnapshot({
+  symbol: "INTC",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  dataStatus: "partial",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  requestedLimit: 1440,
+  returnedCount: 1,
+  targetStoredCount: 525600,
+  storedCandleCount: 1,
+  hasMoreBefore: true,
+  candles: [candleB]
+});
+assert.equal(partialBackfillSnapshot.dataStatus, "partial");
+const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.snapshot.loaded",
+  snapshot: partialBackfillSnapshot
+});
+const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
+assert.equal(partialBackfillStatus?.state, "partial");
+assert.equal(partialBackfillStatus?.hasMoreBefore, true);
+assert.equal(partialBackfillStatus?.targetStoredCount, 525600);
+
+const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
+  kind: "chart.snapshot.loaded",
+  snapshot: normalizeCandleSnapshot({
+    symbol: "INTC",
+    interval: "1m",
+    source: "alpaca",
+    feed: "sip",
+    dataStatus: "partial",
+    candles: [candleA]
+  })
+});
+assert.deepEqual(
+  mergedSnapshotRuntime.candlesByKey[candleKey("INTC", "1m")]?.map((candle) => candle.timestamp),
+  [candleA.timestamp, candleB.timestamp]
+);
+
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
 const lifecyclePanelB = chartPanel("panel-lifecycle-b", "chart-doc-lifecycle-b", "MSFT");
 const lifecyclePreview: ChartPendingPreview = {
@@ -406,6 +448,13 @@ assert.equal(prunedLifecycleState.errors.some((error) => error.id === "error-glo
 assert.equal(normalizeSupportedSymbol(" nvda "), "NVDA");
 assert.equal(normalizeSupportedSymbol("GOOG"), "GOOG");
 assert.equal(normalizeSupportedSymbol("BAD!"), null);
+
+assert.equal(candleLimitFor24Hours("1m"), 1440);
+assert.equal(candleLimitFor24Hours("5m"), 288);
+assert.equal(candleLimitFor24Hours("10m"), 144);
+assert.equal(candleLimitFor24Hours("1d"), 1);
+assert.equal(candleLimitFor1Year("1m"), 525600);
+assert.equal(candleLimitFor1Year("5m"), 105120);
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [
@@ -659,7 +708,7 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   })
 });
 assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 12, rightOffset: 1 });
-assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: 72, rightOffset: 0 });
+assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: candleLimitFor24Hours("1m"), rightOffset: 0 });
 sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   kind: "chart.live",
   event: {
@@ -805,7 +854,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
 });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.symbol, "AAPL");
 assert.equal(regressionRuntime.documents[regressionDocBId]?.symbol, "MSFT");
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: 72 });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: candleLimitFor24Hours("1m") });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.history.length, 0);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.history.length, 0);
 
@@ -826,7 +875,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
   kind: "chart.command",
   command: makeChartCommand("chart.undo", "user", target(regressionPanelA.id, regressionDocAId))
 });
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: 72 });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: candleLimitFor24Hours("1m") });
 assert.deepEqual(regressionRuntime.documents[regressionDocBId]?.viewport, beforeViewportB);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.future.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.future.length, 0);

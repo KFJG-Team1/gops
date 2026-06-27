@@ -1,4 +1,4 @@
-import { getChartDocumentForPanel, getChartDocumentId, type ChartRuntimePanel, type ChartRuntimeState } from "./runtime";
+import { getChartDocumentForPanel, getChartDocumentId, type ChartRuntimeState } from "./runtime";
 import type { ChartDocument } from "./types";
 
 export const DEFAULT_AGENT_DRAFT_SEED = "차트를 분석해줘";
@@ -9,16 +9,16 @@ export type AgentChartReference = {
   draftSeed?: string;
 };
 
-export type ResolvedAgentChartReference = {
-  panel: ChartRuntimePanel;
+export type ResolvedAgentChartReference<Panel> = {
+  panel: Panel;
   document: ChartDocument;
 };
 
-export function resolveAgentChartReference(
-  panels: readonly ChartRuntimePanel[],
+export function resolveAgentChartReference<Panel extends { id: string; type: string; props: Record<string, unknown>; chartDocumentId?: string }>(
+  panels: readonly Panel[],
   runtime: ChartRuntimeState,
   reference?: AgentChartReference
-): ResolvedAgentChartReference | null {
+): ResolvedAgentChartReference<Panel> | null {
   if (!reference) {
     return null;
   }
@@ -34,8 +34,8 @@ export function resolveAgentChartReference(
   };
 }
 
-export function isAgentChartReferenceAvailable(
-  panels: readonly ChartRuntimePanel[],
+export function isAgentChartReferenceAvailable<Panel extends { id: string; type: string; props: Record<string, unknown>; chartDocumentId?: string }>(
+  panels: readonly Panel[],
   reference?: AgentChartReference
 ): boolean {
   if (!reference) {

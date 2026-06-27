@@ -8,6 +8,7 @@ export * from "./chartDocuments";
 export * from "./chartPanelSelection";
 export * from "./commands";
 export * from "./drawingGeometry";
+export * from "./intervals";
 export * from "./marketDataAdapter";
 export * from "./proposals";
 export * from "./registries";

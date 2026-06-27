@@ -77,7 +77,9 @@ export function buildRenderScene({
     points: series.points.map((point) => ({ ...point, y: percentScale.percentToY(point.percent) }))
   }));
   const slotWidth = plotWidth / Math.max(1, visibleCandles.length);
-  const candleWidth = Math.max(2, Math.min(13, slotWidth * 0.62));
+  const candleWidth = slotWidth < 2
+    ? Math.max(0.2, slotWidth * 0.8)
+    : Math.max(2, Math.min(13, slotWidth * 0.62));
   const last = visibleCandles[visibleCandles.length - 1];
   const first = visibleCandles[0];
   const change = first && last ? ((last.close - first.open) / Math.max(0.0001, first.open)) * 100 : undefined;
@@ -109,7 +111,7 @@ export function buildRenderScene({
       minPercent,
       maxPercent,
       candleWidth,
-      gap: Math.max(1, slotWidth - candleWidth)
+      gap: Math.max(0, slotWidth - candleWidth)
     },
     comparisonSeries: scaledComparisonSeries,
     labels: {
@@ -183,6 +185,11 @@ function buildComparisonSeries({
 
     return { comparison, candles: aligned, points };
   });
+}
+
+function resolveVisibleCount(plotWidth: number, requestedVisibleCount: number): number {
+  void plotWidth;
+  return Math.max(1, Math.floor(requestedVisibleCount));
 }
 
 export function resolveChartSizeVariant(width: number, height: number): RenderScene["variant"] {

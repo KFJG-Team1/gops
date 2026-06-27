@@ -60,7 +60,7 @@ function readCandleEventType(value: unknown): CandleEventType | null {
 }
 
 function readDataStatus(value: unknown): ChartSnapshotDataStatus | undefined {
-  return value === "ready" || value === "empty" || value === "error" ? value : undefined;
+  return value === "ready" || value === "partial" || value === "empty" || value === "error" ? value : undefined;
 }
 
 function readBackfillStatus(value: unknown): BackfillStatus | undefined {
@@ -125,6 +125,17 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     backfillStatus: readBackfillStatus(source.backfillStatus),
     canBackfill: readBoolean(source.canBackfill) ?? undefined,
     message: readString(source.message) ?? undefined,
+    requestedLimit: readNumber(source.requestedLimit) ?? undefined,
+    returnedCount: readNumber(source.returnedCount) ?? undefined,
+    targetStoredCount: readNumber(source.targetStoredCount) ?? undefined,
+    targetRangeFrom: readString(source.targetRangeFrom) ?? undefined,
+    storedCandleCount: readNumber(source.storedCandleCount) ?? undefined,
+    availableFrom: readString(source.availableFrom) ?? undefined,
+    availableTo: readString(source.availableTo) ?? undefined,
+    oldestTimestamp: readString(source.oldestTimestamp) ?? undefined,
+    newestTimestamp: readString(source.newestTimestamp) ?? undefined,
+    hasMoreBefore: readBoolean(source.hasMoreBefore) ?? undefined,
+    hasMoreAfter: readBoolean(source.hasMoreAfter) ?? undefined,
     indicators: normalizeIndicators(source.indicators),
     candles
   };

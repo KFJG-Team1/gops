@@ -137,8 +137,9 @@ export function TopAppBar({
           aria-label="Show searchable symbols"
           aria-expanded={symbolDropdownOpen}
           onClick={() => {
-            const query = readSearchInputValue().toUpperCase();
-            setSearchDraft(query);
+            const value = readSearchInputValue().toUpperCase();
+            const query = value === activeSymbol ? "" : value;
+            setSearchDraft(value);
             setSymbolDropdownQuery(query);
             onSymbolOptionsRequest(query);
             setSymbolDropdownOpen((open) => !open);

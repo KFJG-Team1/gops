@@ -324,6 +324,7 @@ export function PanelCard({
     <article
       className={`panel-card ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} ${panel.layoutPinned ? "pinned" : ""}`}
       data-panel-id={panel.id}
+      data-panel-type={panel.type}
       style={style}
       onClick={() => runPanelCommand("layout.panel.select")}
     >
