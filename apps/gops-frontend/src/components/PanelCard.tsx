@@ -1,9 +1,9 @@
-import { Pin, X } from "lucide-react";
+import { Pin, Star, X } from "lucide-react";
 import { useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
 import { getCandlesForDocument, getChartDocumentForPanel, getStreamStatusForDocument, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
-import { getSymbolMeta, normalizeSupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
+import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
 import { makeCommand } from "../layout/commands";
 import { workspaceColumnCount, workspaceColumnStarts, workspaceRowCount, workspaceRowStarts } from "../layout/gridGeometry";
@@ -19,9 +19,12 @@ type PanelCardProps = {
   onPreviewChange: (preview: LayoutPreviewItem[]) => void;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
+  backfillEligibleSymbols: readonly SupportedSymbol[];
+  knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
+  onToggleWatchlistSymbol: (symbol: string) => void;
 };
 
 type PanelHeaderPresentation = {
@@ -42,12 +45,14 @@ function PanelBody({
   panel,
   chartRuntime,
   chartAutoApplyEnabled,
+  backfillEligibleSymbols,
   onChartAction,
   onAskAgentFromChart
 }: {
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
+  backfillEligibleSymbols: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
 }) {
@@ -57,6 +62,7 @@ function PanelBody({
         panel={panel}
         runtime={chartRuntime}
         autoApplyEnabled={chartAutoApplyEnabled}
+        backfillEligibleSymbols={backfillEligibleSymbols}
         onChartAction={onChartAction}
         onAskAgent={onAskAgentFromChart}
       />
@@ -114,12 +120,12 @@ function changedPanelPreview(current: WorkspaceLayout, next: WorkspaceLayout): L
 function resolvePanelHeaderPresentation(
   panel: PanelInstance,
   chartRuntime: ChartRuntimeState,
-  watchlistSymbols: readonly WatchlistSymbol[]
+  knownSymbols: readonly WatchlistSymbol[]
 ): PanelHeaderPresentation {
   if (panel.type === "chart") {
     const chartDocument = getChartDocumentForPanel(chartRuntime, panel);
     const normalizedSymbol = normalizeSupportedSymbol(chartDocument.symbol);
-    const symbolMeta = watchlistSymbols.find((item) => item.symbol === normalizedSymbol) ?? getSymbolMeta(chartDocument.symbol);
+    const symbolMeta = knownSymbols.find((item) => item.symbol === normalizedSymbol) ?? getSymbolMeta(chartDocument.symbol);
     return {
       title: symbolMeta.symbol,
       description: symbolMeta.name,
@@ -198,13 +204,19 @@ export function PanelCard({
   onPreviewChange,
   chartRuntime,
   chartAutoApplyEnabled,
+  backfillEligibleSymbols,
+  knownSymbols,
   watchlistSymbols,
   onChartAction,
-  onAskAgentFromChart
+  onAskAgentFromChart,
+  onToggleWatchlistSymbol
 }: PanelCardProps) {
   const [dragging, setDragging] = useState(false);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
-  const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, watchlistSymbols);
+  const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, knownSymbols);
+  const chartDocument = panel.type === "chart" ? getChartDocumentForPanel(chartRuntime, panel) : null;
+  const chartSymbol = chartDocument ? normalizeSupportedSymbol(chartDocument.symbol) : null;
+  const chartIsInWatchlist = Boolean(chartSymbol && watchlistSymbols.some((item) => item.symbol === chartSymbol));
 
   const runPanelCommand = (type: LayoutCommand["type"], payload: Record<string, unknown> = {}) => {
     onCommand(makeCommand(type, "user", { panelId: panel.id, ...payload }, commandTarget));
@@ -334,6 +346,20 @@ export function PanelCard({
               <span>{panelHeader.marketMetrics.change}</span>
             </div>
           )}
+          {chartSymbol && (
+            <button
+              className={chartIsInWatchlist ? "panel-watchlist-star active" : "panel-watchlist-star"}
+              title={chartIsInWatchlist ? `Remove ${chartSymbol} from Watch List` : `Add ${chartSymbol} to Watch List`}
+              aria-pressed={chartIsInWatchlist}
+              aria-label={chartIsInWatchlist ? `Remove ${chartSymbol} from Watch List` : `Add ${chartSymbol} to Watch List`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleWatchlistSymbol(chartSymbol);
+              }}
+            >
+              <Star size={15} fill={chartIsInWatchlist ? "currentColor" : "none"} />
+            </button>
+          )}
           <button
             title={panel.layoutPinned ? "Unpin" : "Pin"}
             aria-pressed={Boolean(panel.layoutPinned)}
@@ -360,6 +386,7 @@ export function PanelCard({
         panel={panel}
         chartRuntime={chartRuntime}
         chartAutoApplyEnabled={chartAutoApplyEnabled}
+        backfillEligibleSymbols={backfillEligibleSymbols}
         onChartAction={onChartAction}
         onAskAgentFromChart={onAskAgentFromChart}
       />

@@ -200,6 +200,8 @@ export function SystemArea({
               <button
                 key={item.symbol}
                 className={item.symbol === activeSymbol ? "watchlist-row active" : "watchlist-row"}
+                data-symbol={item.symbol}
+                aria-label={`Load ${item.symbol} ${item.name}`}
                 title={`Load ${item.symbol}`}
                 onClick={() => onSelectSymbol(item.symbol)}
               >
@@ -604,6 +606,8 @@ function PanelCatalogItem({
   return (
     <div
       className="panel-catalog-item"
+      data-panel-catalog-type={panelType}
+      aria-label={`Add ${definition.title} panel`}
       draggable
       role="button"
       tabIndex={0}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { MarketTicker } from "./components/MarketTicker";
 import { TopAppBar } from "./components/TopAppBar";
 import { initialAgentOptions, type AgentOption, type AgentUpdatePatch, type SystemMenuTab, type SystemMode } from "./components/SystemArea";
@@ -17,6 +17,8 @@ import {
   type ChartRuntimeAction
 } from "@gops/chart-engine/runtime";
 import {
+  DEFAULT_CHART_SYMBOL,
+  getSymbolMeta,
   normalizeSupportedSymbol,
   normalizeWatchlistPayload,
   type SupportedSymbol,
@@ -32,6 +34,14 @@ import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
 type RuntimeAction =
   | { kind: "command"; command: LayoutCommand };
 
+function mergeSymbolRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
+  const bySymbol = new Map(current.map((item) => [item.symbol, item]));
+  for (const item of incoming) {
+    bySymbol.set(item.symbol, { ...bySymbol.get(item.symbol), ...item });
+  }
+  return Array.from(bySymbol.values());
+}
+
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
   return executeCommand(state, action.command);
 }
@@ -44,12 +54,16 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SystemMenuTab>("layouts");
   const [agents, setAgents] = useState<AgentOption[]>(initialAgentOptions);
   const [editingAgentId, setEditingAgentId] = useState<string | undefined>();
-  const [activeSymbol, setActiveSymbol] = useState<SupportedSymbol>("AAPL");
+  const [activeSymbol, setActiveSymbol] = useState<SupportedSymbol>(DEFAULT_CHART_SYMBOL);
   const [symbolSearchError, setSymbolSearchError] = useState<string | undefined>();
   const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>([]);
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
+  const [symbolSearchRefreshKey, setSymbolSearchRefreshKey] = useState(0);
   const [symbolOptions, setSymbolOptions] = useState<WatchlistSymbol[]>([]);
+  const [knownSymbols, setKnownSymbols] = useState<WatchlistSymbol[]>([]);
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
+  const watchlistSeedAppliedRef = useRef(false);
+  const userSelectedSymbolRef = useRef(false);
 
   const selectedPanel = useMemo(
     () => state.layout.panels.find((panel) => panel.id === state.layout.selectedPanelId),
@@ -84,6 +98,7 @@ export default function App() {
           const symbols = normalizeWatchlistPayload(payload);
           setWatchlistSymbols(symbols);
           setSymbolOptions(symbols);
+          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
         }
       })
       .catch(() => {
@@ -100,14 +115,10 @@ export default function App() {
 
   useEffect(() => {
     const query = symbolSearchQuery.trim();
-    if (!query) {
-      setSymbolOptions(watchlistSymbols);
-      return undefined;
-    }
 
     let cancelled = false;
     const controller = new AbortController();
-    const params = new URLSearchParams({ q: query, limit: "20" });
+    const params = new URLSearchParams({ q: query, limit: query ? "20" : "100" });
 
     fetch(`/api/market/symbols/search?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
@@ -118,7 +129,9 @@ export default function App() {
       })
       .then((payload) => {
         if (!cancelled) {
-          setSymbolOptions(normalizeWatchlistPayload(payload));
+          const symbols = normalizeWatchlistPayload(payload);
+          setSymbolOptions(symbols);
+          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
         }
       })
       .catch(() => {
@@ -134,7 +147,7 @@ export default function App() {
       cancelled = true;
       controller.abort();
     };
-  }, [symbolSearchQuery, watchlistSymbols]);
+  }, [symbolSearchQuery, symbolSearchRefreshKey, watchlistSymbols]);
 
   const activeChartPanel = useMemo(
     () => findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId),
@@ -147,9 +160,38 @@ export default function App() {
   );
 
   const symbolUniverse = useMemo(
-    () => Array.from(new Set([...watchlistSymbols, ...symbolOptions].map((item) => item.symbol))),
-    [symbolOptions, watchlistSymbols]
+    () => Array.from(new Set(knownSymbols.map((item) => item.symbol))),
+    [knownSymbols]
   );
+
+  const toggleWatchlistSymbol = useCallback((symbolValue: string) => {
+    const symbol = normalizeSupportedSymbol(symbolValue);
+    if (!symbol) {
+      return;
+    }
+
+    setWatchlistSymbols((current) => {
+      if (current.some((item) => item.symbol === symbol)) {
+        return current.filter((item) => item.symbol !== symbol);
+      }
+
+      const known = knownSymbols.find((item) => item.symbol === symbol);
+      const fallback = getSymbolMeta(symbol);
+      return [
+        ...current,
+        known ?? {
+          symbol,
+          name: fallback.name,
+          market: fallback.market
+        }
+      ];
+    });
+  }, [knownSymbols]);
+
+  const refreshSymbolOptions = useCallback((query: string) => {
+    setSymbolSearchQuery(query);
+    setSymbolSearchRefreshKey((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     const normalized = activeChartDocument ? normalizeSupportedSymbol(activeChartDocument.symbol) : null;
@@ -158,13 +200,16 @@ export default function App() {
     }
   }, [activeChartDocument?.symbol, activeSymbol]);
 
-  const selectSymbol = useCallback((value: string): boolean => {
+  const selectSymbol = useCallback((value: string, options?: { source?: "system" | "user" }): boolean => {
     const symbol = normalizeSupportedSymbol(value);
     if (!symbol) {
       setSymbolSearchError("Enter a valid Alpaca stock symbol.");
       return false;
     }
 
+    if (options?.source !== "system") {
+      userSelectedSymbolRef.current = true;
+    }
     setActiveSymbol(symbol);
     setSymbolSearchError(undefined);
 
@@ -184,6 +229,17 @@ export default function App() {
     });
     return true;
   }, [chartRuntime, state.layout.panels, state.layout.selectedPanelId]);
+
+  useEffect(() => {
+    if (watchlistSeedAppliedRef.current || userSelectedSymbolRef.current || watchlistSymbols.length === 0) {
+      return;
+    }
+
+    watchlistSeedAppliedRef.current = true;
+    if (!watchlistSymbols.some((item) => item.symbol === activeSymbol)) {
+      selectSymbol(watchlistSymbols[0].symbol, { source: "system" });
+    }
+  }, [activeSymbol, selectSymbol, watchlistSymbols]);
 
   const closeSystemPanel = () => {
     setSelectedAgentIds([]);
@@ -290,6 +346,7 @@ export default function App() {
         onToggleAgent={toggleAgent}
         onToggleSettings={toggleSettings}
         onSymbolQueryChange={setSymbolSearchQuery}
+        onSymbolOptionsRequest={refreshSymbolOptions}
         onSymbolSearch={selectSymbol}
         onCommand={runCommand}
       />
@@ -309,7 +366,9 @@ export default function App() {
           savedLayouts={state.savedLayouts}
           activeSymbol={activeSymbol}
           watchlistSymbols={watchlistSymbols}
+          knownSymbols={knownSymbols}
           symbolUniverse={symbolUniverse}
+          backfillEligibleSymbols={symbolUniverse}
           chartRuntime={chartRuntime}
           chartAutoApplyEnabled={state.layout.settings.llmLayoutAutoApply}
           onSettingsTabChange={setSettingsTab}
@@ -322,6 +381,7 @@ export default function App() {
           onCommand={runCommand}
           onChartAction={runChartAction}
           onAskAgentFromChart={askAgentFromChart}
+          onToggleWatchlistSymbol={toggleWatchlistSymbol}
         />
       </section>
     </main>

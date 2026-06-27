@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
+import { normalizeBackfillStatusPayload, shouldRequestBackfill } from "../../chart-engine/src/backfill";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -12,11 +13,11 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
-import { normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
+import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
-import { normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
+import { DEFAULT_CHART_SYMBOL, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import {
   createInitialRuntimeState as createInitialLayoutRuntimeState,
@@ -320,6 +321,43 @@ const syntheticLiveRuntime = chartRuntimeReducer(syntheticRuntime, {
 assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.isSynthetic, true);
 assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "synthetic-test");
 
+const heartbeatPayload = { type: "HEARTBEAT", symbol: "NVDA", interval: "1m" };
+assert.equal(isRealtimeControlPayload(heartbeatPayload), true);
+assert.throws(() => normalizeCandleEvent(heartbeatPayload), /missing type, symbol, interval, or data/);
+
+assert.equal(shouldRequestBackfill({
+  state: "empty",
+  message: "No candle data",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}), true);
+assert.equal(shouldRequestBackfill({
+  state: "empty",
+  backfillStatus: "queued",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}), false);
+assert.equal(normalizeBackfillStatusPayload({
+  symbol: "NVDA",
+  interval: "1m",
+  requestId: "backfill:NVDA:1m:test",
+  status: "succeeded"
+}).status, "succeeded");
+
+const emptyStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.data.status",
+  symbol: "AMD",
+  interval: "1m",
+  status: {
+    state: "empty",
+    message: "Historical candle backfill is queued.",
+    backfillStatus: "queued",
+    canBackfill: false
+  }
+});
+assert.equal(emptyStatusRuntime.dataStatusByKey[candleKey("AMD", "1m")]?.backfillStatus, "queued");
+
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
 const lifecyclePanelB = chartPanel("panel-lifecycle-b", "chart-doc-lifecycle-b", "MSFT");
 const lifecyclePreview: ChartPendingPreview = {
@@ -380,6 +418,15 @@ assert.equal(watchlist[0]?.symbol, "AAPL");
 assert.equal(watchlist[0]?.market, "NASDAQ");
 assert.equal(watchlist[0]?.lastPrice, 190.12);
 assert.equal(watchlist.find((item) => item.symbol === "GOOG")?.market, "US");
+
+const seedWatchlist = normalizeWatchlistPayload({
+  symbols: ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"].map((symbol) => ({
+    symbol,
+    name: symbol,
+    market: symbol === "TSM" ? "NYSE" : "NASDAQ"
+  }))
+});
+assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"]);
 
 const frameCell = getWorkspaceDropCell({ left: 10, top: 20, width: 550, height: 500 }, 12, 24);
 assert.deepEqual(frameCell, { col: 1, row: 1 });
@@ -527,7 +574,7 @@ let multiChartRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.ensureDocuments",
   panels: multiChartState.layout.panels
 });
-assert.equal(multiChartRuntime.documents[chartPanels[0]?.chartDocumentId ?? ""]?.symbol, "AAPL");
+assert.equal(multiChartRuntime.documents[chartPanels[0]?.chartDocumentId ?? ""]?.symbol, DEFAULT_CHART_SYMBOL);
 assert.equal(multiChartRuntime.documents[chartPanels[1]?.chartDocumentId ?? ""]?.symbol, "TSLA");
 
 assert.equal(clampRightOffset(120, 72, 160), 88);

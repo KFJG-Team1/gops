@@ -1,5 +1,7 @@
 export type SupportedSymbol = string;
 
+export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "NVDA";
+
 export type SymbolMeta = {
   symbol: SupportedSymbol;
   name: string;
@@ -26,7 +28,7 @@ export function emptyWatchlistSymbols(): WatchlistSymbol[] {
 export function getSymbolMeta(value: string): SymbolMeta {
   const symbol = normalizeSupportedSymbol(value);
   if (!symbol) {
-    return { symbol: "AAPL", name: "AAPL", market: "US" };
+    return { symbol: DEFAULT_CHART_SYMBOL, name: DEFAULT_CHART_SYMBOL, market: "US" };
   }
 
   return { symbol, name: symbol, market: "US" };

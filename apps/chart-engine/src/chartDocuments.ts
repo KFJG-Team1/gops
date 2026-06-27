@@ -1,6 +1,7 @@
 import type { ChartDocument, ChartDocumentSnapshot } from "./types";
+import { DEFAULT_CHART_SYMBOL } from "./symbols";
 
-export function createChartDocument(id: string, symbol = "AAPL", timeframe = "1m"): ChartDocument {
+export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe = "1m"): ChartDocument {
   return {
     id,
     symbol,

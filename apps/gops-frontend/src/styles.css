@@ -116,8 +116,8 @@ textarea {
 .brand-search {
   position: relative;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  gap: 6px;
   align-items: center;
   min-width: 0;
   height: 42px;
@@ -152,7 +152,8 @@ textarea {
   outline: 0;
 }
 
-.top-app-bar .brand-search .search-submit-button {
+.top-app-bar .brand-search .search-submit-button,
+.top-app-bar .brand-search .search-dropdown-button {
   width: 24px;
   min-width: 24px;
   height: 24px;
@@ -162,8 +163,78 @@ textarea {
   background: transparent;
 }
 
-.top-app-bar .brand-search .search-submit-button:hover {
+.top-app-bar .brand-search .search-submit-button:hover,
+.top-app-bar .brand-search .search-dropdown-button:hover,
+.top-app-bar .brand-search .search-dropdown-button.active {
   background: transparent;
+}
+
+.top-app-bar .brand-search .search-dropdown-button.active svg {
+  transform: rotate(180deg);
+}
+
+.symbol-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 20px));
+  max-height: 308px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #111;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 18%);
+}
+
+.top-app-bar .brand-search .symbol-search-option {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 34px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #111;
+  text-align: left;
+}
+
+.top-app-bar .brand-search .symbol-search-option:hover,
+.top-app-bar .brand-search .symbol-search-option[aria-selected="true"] {
+  background: #111;
+  color: #fff;
+}
+
+.symbol-search-option strong,
+.symbol-search-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symbol-search-option strong {
+  font-size: 12px;
+}
+
+.symbol-search-option span,
+.symbol-search-empty {
+  font-size: 10px;
+}
+
+.symbol-search-empty {
+  padding: 8px;
+  color: #666;
+  font-weight: 800;
+  text-align: center;
 }
 
 .search-error-message {
@@ -1257,6 +1328,10 @@ textarea {
 .watchlist-row.active em,
 .watchlist-row.active small {
   color: #fff;
+}
+
+.panel-watchlist-star.active {
+  color: #111;
 }
 
 .settings-section-title {

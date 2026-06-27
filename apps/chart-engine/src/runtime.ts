@@ -1,5 +1,6 @@
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "./candleStore";
 import { createChartDocument } from "./chartDocuments";
+import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import {
   executeChartCommand,
   executeChartCommandGroup,
@@ -43,6 +44,7 @@ export type ChartRuntimeAction =
   | { kind: "chart.proposal.accept"; proposalId: string }
   | { kind: "chart.proposal.reject"; proposalId: string }
   | { kind: "chart.live"; event: CandleEvent }
+  | { kind: "chart.data.status"; symbol: string; interval: string; status: Omit<ChartDataStatus, "updatedAt"> }
   | { kind: "chart.stream.status"; symbol: string; interval: string; status: StreamStatus; message?: string }
   | { kind: "chart.error"; message: string; chartDocumentId?: string };
 
@@ -83,6 +85,11 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
       return rejectProposal(state, action.proposalId);
     case "chart.live":
       return applyLiveEvent(state, action.event);
+    case "chart.data.status":
+      return setDataStatus(state, action.symbol, action.interval, {
+        ...action.status,
+        updatedAt: now()
+      });
     case "chart.stream.status":
       return setStreamStatus(state, action.symbol, action.interval, action.status, action.message);
     case "chart.error":
@@ -629,7 +636,7 @@ function addError(errors: ChartRuntimeError[], message: string, chartDocumentId?
 function readPanelSymbol(panel: ChartRuntimePanel): string {
   return typeof panel.props.symbol === "string" && panel.props.symbol.trim()
     ? panel.props.symbol.trim().toUpperCase()
-    : "AAPL";
+    : DEFAULT_CHART_SYMBOL;
 }
 
 function readPanelTimeframe(panel: ChartRuntimePanel): string {

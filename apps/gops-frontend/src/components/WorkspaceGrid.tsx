@@ -27,7 +27,9 @@ type WorkspaceGridProps = {
   savedLayouts: SavedLayoutRecord[];
   activeSymbol: SupportedSymbol;
   watchlistSymbols: WatchlistSymbol[];
+  knownSymbols: WatchlistSymbol[];
   symbolUniverse: readonly SupportedSymbol[];
+  backfillEligibleSymbols: readonly SupportedSymbol[];
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   onSettingsTabChange: (tab: SystemMenuTab) => void;
@@ -40,6 +42,7 @@ type WorkspaceGridProps = {
   onCommand: (command: LayoutCommand) => void;
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
+  onToggleWatchlistSymbol: (symbol: string) => void;
 };
 
 function placementStyle(placement: PanelPlacement) {
@@ -96,7 +99,9 @@ export function WorkspaceGrid({
   savedLayouts,
   activeSymbol,
   watchlistSymbols,
+  knownSymbols,
   symbolUniverse,
+  backfillEligibleSymbols,
   chartRuntime,
   chartAutoApplyEnabled,
   onSettingsTabChange,
@@ -108,7 +113,8 @@ export function WorkspaceGrid({
   onSelectSymbol,
   onCommand,
   onChartAction,
-  onAskAgentFromChart
+  onAskAgentFromChart,
+  onToggleWatchlistSymbol
 }: WorkspaceGridProps) {
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreviewItem[]>([]);
   const workspacePanels = layout.panels.filter((panel) => panel.placement.group === "workspace");
@@ -190,9 +196,12 @@ export function WorkspaceGrid({
           onPreviewChange={setLayoutPreview}
           chartRuntime={chartRuntime}
           chartAutoApplyEnabled={chartAutoApplyEnabled}
+          backfillEligibleSymbols={backfillEligibleSymbols}
+          knownSymbols={knownSymbols}
           watchlistSymbols={watchlistSymbols}
           onChartAction={onChartAction}
           onAskAgentFromChart={onAskAgentFromChart}
+          onToggleWatchlistSymbol={onToggleWatchlistSymbol}
         />
       ))}
 

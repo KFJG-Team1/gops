@@ -29,11 +29,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
+import { isActiveBackfillStatus, normalizeBackfillStatusPayload, shouldRequestBackfill } from "@gops/chart-engine/backfill";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
 import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
-import { normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
+import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
 import { clampRightOffset, dragDeltaToRightOffset, normalizeViewport, zoomViewport } from "@gops/chart-engine/viewport";
@@ -66,6 +67,7 @@ type ChartPanelProps = {
   panel: PanelInstance;
   runtime: ChartRuntimeState;
   autoApplyEnabled: boolean;
+  backfillEligibleSymbols: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgent: (panelId: string, chartDocumentId: string) => void;
 };
@@ -115,7 +117,7 @@ function tooltipAttributes(label: string): TooltipAttributes {
   };
 }
 
-export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartPanelProps) {
+export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onAskAgent }: ChartPanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<RenderScene | null>(null);
@@ -123,6 +125,7 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
+  const backfillRequestsRef = useRef<Set<string>>(new Set());
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
@@ -140,6 +143,7 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
   const [comparisonDraft, setComparisonDraft] = useState("");
   const [comparisonOptions, setComparisonOptions] = useState<SupportedSymbol[]>([]);
   const [maMenuOpen, setMaMenuOpen] = useState(false);
+  const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
   const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
   const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
@@ -154,6 +158,14 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
     const key = candleKey(symbol, document.timeframe);
     return `${key}:${runtime.candlesByKey[key]?.length ? "ready" : "missing"}`;
   }).join("|");
+  const documentDataKey = candleKey(document.symbol, document.timeframe);
+  const backfillEligibleKey = backfillEligibleSymbols.join("|");
+  const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
+  const backfillPreparing = dataStatus.state === "empty" &&
+    backfillEligible &&
+    (shouldRequestBackfill(dataStatus) ||
+      backfillRequestsRef.current.has(documentDataKey) ||
+      isActiveBackfillStatus(dataStatus.backfillStatus));
   const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
   const sceneDocument = useMemo(
     () => (transientViewport || transientDrawings)
@@ -290,7 +302,141 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
       cancelled = true;
       controller.abort();
     };
-  }, [document.symbol, document.timeframe, onChartAction]);
+  }, [document.symbol, document.timeframe, onChartAction, snapshotReloadToken]);
+
+  useEffect(() => {
+    const key = candleKey(document.symbol, document.timeframe);
+    if (
+      !backfillEligibleSymbols.includes(document.symbol) ||
+      !shouldRequestBackfill(dataStatus) ||
+      backfillRequestsRef.current.has(key)
+    ) {
+      return undefined;
+    }
+
+    backfillRequestsRef.current.add(key);
+    let cancelled = false;
+    let pollTimer: number | undefined;
+    const controller = new AbortController();
+
+    const applyBackfillStatus = (payload: unknown) => {
+      const status = normalizeBackfillStatusPayload(payload);
+      if (cancelled) {
+        return;
+      }
+
+      if (status.status === "succeeded") {
+        setSnapshotReloadToken((current) => current + 1);
+        return;
+      }
+
+      if (isActiveBackfillStatus(status.status)) {
+        pollTimer = window.setTimeout(() => {
+          pollBackfillStatus(status.requestId);
+        }, 1200);
+        return;
+      }
+
+      onChartAction({
+        kind: "chart.data.status",
+        symbol: document.symbol,
+        interval: document.timeframe,
+        status: {
+          state: status.status === "failed" || status.status === "unavailable" ? "error" : "empty",
+          message: backfillStatusMessage(status.status, status.error),
+          source: dataStatus.source,
+          feed: dataStatus.feed,
+          isSynthetic: dataStatus.isSynthetic,
+          backfillStatus: status.status,
+          canBackfill: !isActiveBackfillStatus(status.status) && status.status !== "unavailable"
+        }
+      });
+    };
+
+    const pollBackfillStatus = (requestId?: string) => {
+      const params = new URLSearchParams({
+        symbol: document.symbol,
+        interval: document.timeframe
+      });
+      if (requestId) {
+        params.set("requestId", requestId);
+      }
+
+      fetch(`/api/charts/backfill/status?${params.toString()}`, { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Backfill status API returned ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then(applyBackfillStatus)
+        .catch((error: unknown) => {
+          if (cancelled || isAbortError(error)) {
+            return;
+          }
+          backfillRequestsRef.current.delete(key);
+          onChartAction({
+            kind: "chart.data.status",
+            symbol: document.symbol,
+            interval: document.timeframe,
+            status: {
+              state: "error",
+              message: error instanceof Error ? error.message : "Backfill status check failed.",
+              source: dataStatus.source,
+              feed: dataStatus.feed,
+              isSynthetic: dataStatus.isSynthetic,
+              backfillStatus: "failed",
+              canBackfill: true
+            }
+          });
+        });
+    };
+
+    fetch("/api/charts/backfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        symbol: document.symbol,
+        interval: document.timeframe
+      })
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Backfill API returned ${response.status}`);
+        }
+        return response.json() as Promise<unknown>;
+      })
+      .then(applyBackfillStatus)
+      .catch((error: unknown) => {
+        if (cancelled || isAbortError(error)) {
+          return;
+        }
+        backfillRequestsRef.current.delete(key);
+        onChartAction({
+          kind: "chart.data.status",
+          symbol: document.symbol,
+          interval: document.timeframe,
+          status: {
+            state: "error",
+            message: error instanceof Error ? error.message : "Backfill request failed.",
+            source: dataStatus.source,
+            feed: dataStatus.feed,
+            isSynthetic: dataStatus.isSynthetic,
+            backfillStatus: "failed",
+            canBackfill: true
+          }
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (pollTimer) {
+        window.clearTimeout(pollTimer);
+      }
+    };
+  }, [backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, onChartAction]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("WebSocket" in window)) {
@@ -317,7 +463,30 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
 
       socket.onmessage = (event) => {
         try {
-          onChartAction({ kind: "chart.live", event: normalizeCandleEvent(JSON.parse(event.data)) });
+          const payload = JSON.parse(event.data);
+          if (isRealtimeControlPayload(payload)) {
+            if (payload.type === "HEARTBEAT" || payload.type === "MARKET_STATUS_UPDATE") {
+              onChartAction({
+                kind: "chart.stream.status",
+                symbol: document.symbol,
+                interval: document.timeframe,
+                status: "live"
+              });
+              return;
+            }
+            if (payload.type === "ERROR") {
+              onChartAction({
+                kind: "chart.stream.status",
+                symbol: document.symbol,
+                interval: document.timeframe,
+                status: payload.retryable === true ? "stale" : "error",
+                message: typeof payload.detail === "string" ? payload.detail : "Live candle stream error."
+              });
+              return;
+            }
+            return;
+          }
+          onChartAction({ kind: "chart.live", event: normalizeCandleEvent(payload) });
         } catch (error) {
           onChartAction({
             kind: "chart.stream.status",
@@ -363,8 +532,8 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
 
   const scene = useMemo(() => {
     const nextScene = buildRenderScene({
-      state: dataStatus.state,
-      message: dataStatus.message,
+      state: backfillPreparing ? "loading" : dataStatus.state,
+      message: backfillPreparing ? "Preparing candle data..." : dataStatus.message,
       document: sceneDocument,
       candles,
       width: size.width,
@@ -381,7 +550,7 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
     });
     sceneRef.current = nextScene;
     return nextScene;
-  }, [candles, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
+  }, [backfillPreparing, candles, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
 
   useEffect(() => {
     const controllers: AbortController[] = [];
@@ -1401,6 +1570,16 @@ function distanceToSegment(x: number, y: number, start: { x: number; y: number }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function backfillStatusMessage(status: string, error?: string): string {
+  if (status === "failed") {
+    return error || "Historical candle backfill failed.";
+  }
+  if (status === "unavailable") {
+    return error || "Historical candle backfill is unavailable.";
+  }
+  return "No candle data is available for this symbol and interval.";
 }
 
 function resolveChartSocketUrl(params: URLSearchParams): string {

@@ -1,5 +1,5 @@
-import { Redo2, Search, Undo2, WandSparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, Redo2, Search, Undo2, WandSparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { layoutPresentationSnapshotsEqual, makeCommand } from "../layout/commands";
 import type { LayoutCommand, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
@@ -21,6 +21,7 @@ type TopAppBarProps = {
   onToggleAgent: (agentId: string) => void;
   onToggleSettings: () => void;
   onSymbolQueryChange: (query: string) => void;
+  onSymbolOptionsRequest: (query: string) => void;
   onSymbolSearch: (symbol: string) => boolean;
   onCommand: (command: LayoutCommand) => void;
 };
@@ -46,15 +47,33 @@ export function TopAppBar({
   onToggleAgent,
   onToggleSettings,
   onSymbolQueryChange,
+  onSymbolOptionsRequest,
   onSymbolSearch,
   onCommand
 }: TopAppBarProps) {
   const favoriteLayouts = [1, 2, 3, 4].map((slot) => savedLayouts.find((record) => record.favoriteSlot === slot));
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchDraft, setSearchDraft] = useState<string>(activeSymbol);
+  const [symbolDropdownQuery, setSymbolDropdownQuery] = useState<string>(activeSymbol);
+  const [symbolDropdownOpen, setSymbolDropdownOpen] = useState(false);
+  const filteredSymbolOptions = useMemo(() => {
+    const query = symbolDropdownQuery.trim().toUpperCase();
+    return symbolOptions
+      .filter((item) => !query || item.symbol.includes(query))
+      .slice(0, 40);
+  }, [symbolDropdownQuery, symbolOptions]);
 
   useEffect(() => {
     setSearchDraft(activeSymbol);
   }, [activeSymbol]);
+
+  const submitSymbol = (value: string) => {
+    if (onSymbolSearch(value)) {
+      setSymbolDropdownOpen(false);
+    }
+  };
+
+  const readSearchInputValue = () => searchInputRef.current?.value ?? searchDraft;
 
   return (
     <header
@@ -69,14 +88,22 @@ export function TopAppBar({
         className={symbolSearchError ? "brand-search has-error" : "brand-search"}
         onSubmit={(event) => {
           event.preventDefault();
-          onSymbolSearch(searchDraft);
+          const submittedSymbol = new FormData(event.currentTarget).get("symbolSearch");
+          submitSymbol(typeof submittedSymbol === "string" ? submittedSymbol : searchDraft);
+        }}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+            setSymbolDropdownOpen(false);
+          }
         }}
       >
         <span className="brand-mark">GOPS</span>
         <span className="search-divider" />
         <input
+          ref={searchInputRef}
+          name="symbolSearch"
           value={searchDraft}
-          list="gops-symbol-options"
           placeholder="Search symbol"
           aria-label="Search symbol"
           aria-invalid={Boolean(symbolSearchError)}
@@ -84,19 +111,70 @@ export function TopAppBar({
           onChange={(event) => {
             const value = event.target.value.toUpperCase();
             setSearchDraft(value);
+            if (symbolDropdownOpen) {
+              setSymbolDropdownQuery(value);
+            }
             onSymbolQueryChange(value);
           }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              submitSymbol(event.currentTarget.value);
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setSymbolDropdownOpen(true);
+            }
+            if (event.key === "Escape") {
+              setSymbolDropdownOpen(false);
+            }
+          }}
         />
+        <button
+          type="button"
+          className={symbolDropdownOpen ? "search-dropdown-button active" : "search-dropdown-button"}
+          title="Show searchable symbols"
+          aria-label="Show searchable symbols"
+          aria-expanded={symbolDropdownOpen}
+          onClick={() => {
+            const query = readSearchInputValue().toUpperCase();
+            setSearchDraft(query);
+            setSymbolDropdownQuery(query);
+            onSymbolOptionsRequest(query);
+            setSymbolDropdownOpen((open) => !open);
+          }}
+        >
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
         <button type="submit" className="search-submit-button" title="Search symbol">
           <Search size={15} aria-hidden="true" />
         </button>
-        <datalist id="gops-symbol-options">
-          {symbolOptions.map((item) => (
-            <option key={item.symbol} value={item.symbol}>
-              {item.name}
-            </option>
-          ))}
-        </datalist>
+        {symbolDropdownOpen && (
+          <div className="symbol-search-dropdown" role="listbox" aria-label="Searchable symbols">
+            {filteredSymbolOptions.map((item) => (
+              <button
+                key={item.symbol}
+                type="button"
+                role="option"
+                className="symbol-search-option"
+                aria-selected={item.symbol === activeSymbol}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setSearchDraft(item.symbol);
+                  setSymbolDropdownQuery(item.symbol);
+                  onSymbolQueryChange(item.symbol);
+                  submitSymbol(item.symbol);
+                }}
+              >
+                <strong>{item.symbol}</strong>
+                <span>{item.name}</span>
+              </button>
+            ))}
+            {filteredSymbolOptions.length === 0 && (
+              <span className="symbol-search-empty">No matching symbols</span>
+            )}
+          </div>
+        )}
         {symbolSearchError && <span className="search-error-message">{symbolSearchError}</span>}
       </form>
 
