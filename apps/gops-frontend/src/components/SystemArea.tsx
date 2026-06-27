@@ -1,16 +1,16 @@
 import { Bell, LoaderCircle, Menu, Plus, RotateCcw, SendHorizontal, Star, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { getChartAgentAccess } from "../chart/agentAccess";
-import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "../chart/agentChat";
-import { buildChartAgentContext } from "../chart/proposals";
-import type { SupportedSymbol, WatchlistSymbol } from "../chart/symbols";
+import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
+import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
+import { buildChartAgentContext } from "@gops/chart-engine/proposals";
+import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
   getChartDocumentForPanel,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
-} from "../chart/runtime";
+} from "@gops/chart-engine/runtime";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { getPanelDefinition } from "../layout/panelRegistry";
 import {

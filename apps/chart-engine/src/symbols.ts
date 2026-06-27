@@ -1,6 +1,19 @@
-export const SUPPORTED_SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA", "SPY"] as const;
+export const SEMICONDUCTOR_SYMBOLS = [
+  "NVDA", "AMD", "AVGO", "INTC", "QCOM", "TXN", "MU", "ADI", "MRVL", "MCHP",
+  "MPWR", "ON", "NXPI", "SWKS", "QRVO", "LSCC", "ALGM", "DIOD", "CRUS", "POWI",
+  "SLAB", "SIMO", "HIMX", "AMBA", "CEVA", "RMBS", "MTSI", "AOSL", "MXL", "SYNA",
+  "SMTC", "SGH", "SITM", "PI", "LASR", "IPGP", "COHR", "LITE", "WOLF", "NVTS",
+  "CRDO", "ALAB", "MRAM", "GSIT", "ATOM", "QUIK", "PXLW", "INDI", "SKYT", "TSM",
+  "UMC", "GFS", "ASX", "STM", "ARM", "ASML", "AMAT", "LRCX", "KLAC", "TER",
+  "ONTO", "MKSI", "ENTG", "UCTT", "ICHR", "VECO", "ACMR", "NVMI", "CAMT", "COHU",
+  "FORM", "KLIC", "AEHR", "ACLS", "AMKR", "PLAB", "TSEM", "IMOS", "SNPS", "CDNS",
+  "ASYS", "INTT", "AXTI", "WDC", "STX", "KEYS", "OSIS", "NVEC", "OLED", "FN",
+  "FLEX", "SANM", "JBL", "CLS", "VSH", "VICR", "BELFB", "CTS", "MEI", "ARW"
+] as const;
 
-export type SupportedSymbol = typeof SUPPORTED_SYMBOLS[number];
+export const SUPPORTED_SYMBOLS = SEMICONDUCTOR_SYMBOLS;
+
+export type SupportedSymbol = string;
 
 export type SymbolMeta = {
   symbol: SupportedSymbol;
@@ -14,30 +27,31 @@ export type WatchlistSymbol = SymbolMeta & {
   volume?: number;
 };
 
-const supportedSymbolSet = new Set<string>(SUPPORTED_SYMBOLS);
+const symbolPattern = /^[A-Z][A-Z0-9]{0,9}(\.[A-Z])?$/;
 
-const defaultSymbols: SymbolMeta[] = [
-  { symbol: "AAPL", name: "Apple Inc.", market: "NASDAQ" },
-  { symbol: "MSFT", name: "Microsoft Corp.", market: "NASDAQ" },
-  { symbol: "NVDA", name: "NVIDIA Corp.", market: "NASDAQ" },
-  { symbol: "TSLA", name: "Tesla Inc.", market: "NASDAQ" },
-  { symbol: "SPY", name: "SPDR S&P 500 ETF", market: "NYSEARCA" }
-];
+const defaultSymbols: SymbolMeta[] = SEMICONDUCTOR_SYMBOLS.map((symbol) => ({
+  symbol,
+  name: symbol,
+  market: "US"
+}));
 
 export function normalizeSupportedSymbol(value: string): SupportedSymbol | null {
   const symbol = value.trim().toUpperCase();
-  return supportedSymbolSet.has(symbol) ? (symbol as SupportedSymbol) : null;
+  return symbolPattern.test(symbol) ? symbol : null;
 }
 
 export function defaultWatchlistSymbols(): WatchlistSymbol[] {
-  return defaultSymbols.map((item) => ({ ...item }));
+  return defaultSymbols.slice(0, 20).map((item) => ({ ...item }));
 }
 
 export function getSymbolMeta(value: string): SymbolMeta {
   const symbol = normalizeSupportedSymbol(value);
-  const fallbackSymbol = symbol ?? "AAPL";
-  const fallback = defaultSymbols.find((item) => item.symbol === fallbackSymbol) ?? defaultSymbols[0];
-  return fallback ? { ...fallback } : { symbol: "AAPL", name: "AAPL", market: "UNKNOWN" };
+  if (!symbol) {
+    return { symbol: "AAPL", name: "AAPL", market: "US" };
+  }
+
+  const fallback = defaultSymbols.find((item) => item.symbol === symbol);
+  return fallback ? { ...fallback } : { symbol, name: symbol, market: "US" };
 }
 
 export function getSymbolName(value: string): string {
@@ -55,9 +69,12 @@ export function normalizeWatchlistPayload(payload: unknown): WatchlistSymbol[] {
   const normalized = records
     .map(normalizeWatchlistRecord)
     .filter((item): item is WatchlistSymbol => Boolean(item));
-  const bySymbol = new Map(normalized.map((item) => [item.symbol, item]));
 
-  return defaultSymbols.map((fallback) => bySymbol.get(fallback.symbol) ?? { ...fallback });
+  if (normalized.length) {
+    return normalized;
+  }
+
+  return defaultWatchlistSymbols();
 }
 
 function normalizeWatchlistRecord(record: unknown): WatchlistSymbol | null {

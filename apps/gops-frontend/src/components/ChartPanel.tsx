@@ -30,14 +30,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
-import { drawChartScene } from "../chart/canvasRenderer";
-import { makeChartCommand } from "../chart/commands";
-import { chartToolRegistry, drawingNeedsTwoAnchors } from "../chart/registries";
-import { normalizeCandleEvent, normalizeCandleSnapshot } from "../chart/marketDataAdapter";
-import { buildChartProposalRequest, normalizeChartProposal } from "../chart/proposals";
-import { buildRenderScene } from "../chart/renderScene";
-import { createCoordinateTransform } from "../chart/scales";
-import { clampRightOffset, dragDeltaToRightOffset } from "../chart/viewport";
+import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
+import { makeChartCommand } from "@gops/chart-engine/commands";
+import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
+import { normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
+import { buildChartProposalRequest, normalizeChartProposal } from "@gops/chart-engine/proposals";
+import { buildRenderScene } from "@gops/chart-engine/renderScene";
+import { createCoordinateTransform } from "@gops/chart-engine/scales";
+import { clampRightOffset, dragDeltaToRightOffset } from "@gops/chart-engine/viewport";
 import {
   getCandlesForDocument,
   getChartDocumentForPanel,
@@ -45,12 +45,12 @@ import {
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
-} from "../chart/runtime";
-import { candleKey } from "../chart/candleStore";
-import { SUPPORTED_SYMBOLS, normalizeSupportedSymbol, type SupportedSymbol } from "../chart/symbols";
-import type { ChartLayerKey, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene } from "../chart/types";
-import { useElementSize } from "../chart/useElementSize";
+} from "@gops/chart-engine/runtime";
+import { candleKey } from "@gops/chart-engine/candleStore";
+import { SUPPORTED_SYMBOLS, normalizeSupportedSymbol, type SupportedSymbol } from "@gops/chart-engine/symbols";
+import type { ChartLayerKey, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene } from "@gops/chart-engine/types";
 import type { PanelInstance } from "../layout/types";
+import { useElementSize } from "../hooks/useElementSize";
 
 const baseLayerControls: Array<{ layer: ChartLayerKey; label: string; icon: "candle" | "volume" }> = [
   { layer: "candles", label: "Candle", icon: "candle" },

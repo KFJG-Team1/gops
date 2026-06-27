@@ -14,13 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@gops/chart-engine": ["../chart-engine/src/index.ts"],
-      "@gops/chart-engine/*": ["../chart-engine/src/*"]
-    }
+    "jsx": "react-jsx"
   },
-  "include": ["src", "../chart-engine/src"],
-  "references": []
+  "include": ["src"]
 }

@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { getChartAgentAccess } from "../src/chart/agentAccess";
-import { normalizeAgentChatResponse } from "../src/chart/agentChat";
-import { applyCandleEvent, candleKey } from "../src/chart/candleStore";
-import { createChartDocument } from "../src/chart/chartDocuments";
-import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../src/chart/commands";
-import { normalizeCandleSnapshot } from "../src/chart/marketDataAdapter";
-import { buildRenderScene } from "../src/chart/renderScene";
-import { chartRuntimeReducer, createInitialChartRuntimeState } from "../src/chart/runtime";
-import { createCoordinateTransform } from "../src/chart/scales";
-import { normalizeSupportedSymbol, normalizeWatchlistPayload } from "../src/chart/symbols";
-import type { CandleData, ChartPendingPreview, ChartProposal } from "../src/chart/types";
+import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
+import { normalizeAgentChatResponse } from "@gops/chart-engine/agentChat";
+import { applyCandleEvent, candleKey } from "@gops/chart-engine/candleStore";
+import { createChartDocument } from "@gops/chart-engine/chartDocuments";
+import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "@gops/chart-engine/commands";
+import { normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
+import { buildRenderScene } from "@gops/chart-engine/renderScene";
+import { chartRuntimeReducer, createInitialChartRuntimeState } from "@gops/chart-engine/runtime";
+import { createCoordinateTransform } from "@gops/chart-engine/scales";
+import { normalizeSupportedSymbol, normalizeWatchlistPayload } from "@gops/chart-engine/symbols";
+import type { CandleData, ChartPendingPreview, ChartProposal } from "@gops/chart-engine/types";
 import {
   createInitialRuntimeState as createInitialLayoutRuntimeState,
   executeCommand as executeLayoutCommand,
@@ -23,7 +23,7 @@ import {
 } from "../src/layout/panelCatalogDrop";
 import { createPanelInstance } from "../src/layout/seed";
 import type { PanelInstance, PanelPlacement, PanelType, WorkspaceLayout } from "../src/layout/types";
-import { clampRightOffset, dragDeltaToRightOffset } from "../src/chart/viewport";
+import { clampRightOffset, dragDeltaToRightOffset } from "@gops/chart-engine/viewport";
 
 function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
@@ -139,7 +139,7 @@ if (noOpResult.ok) {
 
 const unsupportedSymbolResult = executeChartCommand(
   documentA,
-  makeChartCommand("chart.symbol.set", "user", target("panel-a", documentA.id), { symbol: "GOOG" })
+  makeChartCommand("chart.symbol.set", "user", target("panel-a", documentA.id), { symbol: "BAD SYMBOL" })
 );
 assert.equal(unsupportedSymbolResult.ok, false);
 
@@ -320,7 +320,8 @@ assert.equal(prunedLifecycleState.errors.some((error) => error.id === "error-lif
 assert.equal(prunedLifecycleState.errors.some((error) => error.id === "error-global"), true);
 
 assert.equal(normalizeSupportedSymbol(" nvda "), "NVDA");
-assert.equal(normalizeSupportedSymbol("GOOG"), null);
+assert.equal(normalizeSupportedSymbol("GOOG"), "GOOG");
+assert.equal(normalizeSupportedSymbol("bad symbol"), null);
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [
@@ -328,12 +329,11 @@ const watchlist = normalizeWatchlistPayload({
     { symbol: "GOOG", name: "Alphabet", lastPrice: 1 }
   ]
 });
-assert.equal(watchlist.length, 5);
+assert.equal(watchlist.length, 2);
 assert.equal(watchlist[0]?.symbol, "AAPL");
 assert.equal(watchlist[0]?.market, "NASDAQ");
-assert.equal(watchlist.find((item) => item.symbol === "SPY")?.market, "NYSEARCA");
 assert.equal(watchlist[0]?.lastPrice, 190.12);
-assert.equal(watchlist.some((item) => item.symbol === "GOOG"), false);
+assert.equal(watchlist.some((item) => item.symbol === "GOOG"), true);
 
 const frameCell = getWorkspaceDropCell({ left: 10, top: 20, width: 550, height: 500 }, 12, 24);
 assert.deepEqual(frameCell, { col: 1, row: 1 });
@@ -684,8 +684,8 @@ const unsupportedComparisonResult = executeChartCommand(
   makeChartCommand("chart.comparison.add", "user", target("panel-a", documentA.id), {
     comparison: {
       id: "comparison-unsupported-test",
-      symbol: "GOOG",
-      label: "GOOG",
+      symbol: "BAD SYMBOL",
+      label: "BAD SYMBOL",
       scaleMode: "percent",
       base: { mode: "visibleRangeStart" },
       style: { color: "#111111" }

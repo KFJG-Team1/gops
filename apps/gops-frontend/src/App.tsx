@@ -3,13 +3,13 @@ import { MarketTicker } from "./components/MarketTicker";
 import { TopAppBar } from "./components/TopAppBar";
 import { initialAgentOptions, type AgentOption, type SystemMenuTab, type SystemMode } from "./components/SystemArea";
 import { WorkspaceGrid } from "./components/WorkspaceGrid";
-import { makeChartCommand } from "./chart/commands";
+import { makeChartCommand } from "@gops/chart-engine/commands";
 import {
   chartRuntimeReducer,
   createInitialChartRuntimeState,
   getChartDocumentForPanel,
   type ChartRuntimeAction
-} from "./chart/runtime";
+} from "@gops/chart-engine/runtime";
 import {
   SUPPORTED_SYMBOLS,
   defaultWatchlistSymbols,
@@ -17,7 +17,7 @@ import {
   normalizeWatchlistPayload,
   type SupportedSymbol,
   type WatchlistSymbol
-} from "./chart/symbols";
+} from "@gops/chart-engine/symbols";
 import {
   createInitialRuntimeState,
   executeCommand,
@@ -103,7 +103,7 @@ export default function App() {
   const selectSymbol = useCallback((value: string): boolean => {
     const symbol = normalizeSupportedSymbol(value);
     if (!symbol) {
-      setSymbolSearchError(`Supported symbols: ${SUPPORTED_SYMBOLS.join(", ")}`);
+      setSymbolSearchError("Enter a valid Alpaca stock symbol.");
       return false;
     }
 

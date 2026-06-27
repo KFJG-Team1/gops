@@ -1,6 +1,6 @@
 import { Redo2, Search, Undo2, WandSparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { SupportedSymbol } from "../chart/symbols";
+import type { SupportedSymbol } from "@gops/chart-engine/symbols";
 import { layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import type { LayoutCommand, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 import { SystemOrbRail, type AgentOption } from "./SystemArea";

@@ -1,23 +1,33 @@
-# Chart Engine
+# GOPS Chart Engine
 
-팀원 차트 엔진 코드가 들어올 자리입니다.
+조현호 담당 차트 엔진 패키지입니다. React 화면 코드와 분리된 브라우저 TypeScript 엔진으로 두며, 프론트는 `@gops/chart-engine/*` 경로로 import합니다.
 
-현재 임시 프론트는 제거했습니다. 차트 엔진은 Alpaca 원본이나 Kafka Raw Topic을 직접 읽지 않고,
-Chart API의 REST 응답과 WebSocket Gateway의 실시간 메시지만 사용합니다.
+## 책임
 
-초기 로딩:
+- `ChartDocument`, viewport, drawing, indicator display state 관리
+- candle snapshot/live event 정규화
+- command/proposal validation과 reducer
+- scale 계산, render scene 생성, Canvas 2D renderer
+- symbol/watchlist 클라이언트 정규화
+
+React hook과 화면 component는 `apps/gops-frontend/`에 둡니다.
+
+## 수정 가능
 
 ```text
-GET /api/charts/candles?symbol=AAPL&interval=1m&startTime=...&endTime=...&ma=5,20,60
+apps/chart-engine/src/
+apps/chart-engine/package.json
+apps/chart-engine/tsconfig.json
+shared/chart-contract/
 ```
 
-실시간 수신:
+## 수정 전 협의
 
 ```text
-LIVE_CANDLE_UPDATE
-CANDLE_CLOSED
-CANDLE_CORRECTED
-TRADE_TICK
+apps/gops-frontend/src/components/
+services/07-api-websocket/
+packages/alfaka/
+infra/
 ```
 
-프론트 라우팅, canvas/WebGL/chart library 선택, interaction model은 팀원 구현에서 결정합니다.
+차트 엔진은 Alpaca, Kafka, S3를 직접 읽지 않습니다. 초기 과거 데이터는 GOPS backend의 REST API가 내려주고, 실시간 데이터는 WebSocket event로 받습니다.

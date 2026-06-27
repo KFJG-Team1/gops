@@ -5,7 +5,6 @@ import {
   executeChartCommandGroup,
   validateChartProposal
 } from "./commands";
-import type { PanelInstance } from "../layout/types";
 import type {
   CandleEvent,
   CandleSnapshot,
@@ -23,8 +22,15 @@ import type {
 
 export type { ChartRuntimeState } from "./types";
 
+export type ChartRuntimePanel = {
+  id: string;
+  type: string;
+  props: Record<string, unknown>;
+  chartDocumentId?: string;
+};
+
 export type ChartRuntimeAction =
-  | { kind: "chart.ensureDocuments"; panels: PanelInstance[] }
+  | { kind: "chart.ensureDocuments"; panels: ChartRuntimePanel[] }
   | { kind: "chart.snapshot.loaded"; snapshot: CandleSnapshot }
   | { kind: "chart.snapshot.failed"; symbol: string; interval: string; message: string }
   | { kind: "chart.command"; command: ChartCommand }
@@ -82,12 +88,12 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
   }
 }
 
-export function getChartDocumentForPanel(state: ChartRuntimeState, panel: PanelInstance): ChartDocument {
+export function getChartDocumentForPanel(state: ChartRuntimeState, panel: ChartRuntimePanel): ChartDocument {
   const chartDocumentId = getChartDocumentId(panel);
   return state.documents[chartDocumentId] ?? createChartDocument(chartDocumentId, readPanelSymbol(panel), readPanelTimeframe(panel));
 }
 
-export function getChartDocumentId(panel: PanelInstance): string {
+export function getChartDocumentId(panel: ChartRuntimePanel): string {
   return panel.chartDocumentId ?? `${panel.id}-chartDocument`;
 }
 
@@ -107,7 +113,7 @@ export function getStreamStatusForDocument(state: ChartRuntimeState, document: C
   return state.streamStatusByKey[candleKey(document.symbol, document.timeframe)] ?? "connecting";
 }
 
-function ensureChartDocuments(state: ChartRuntimeState, panels: PanelInstance[]): ChartRuntimeState {
+function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
   const chartPanels = panels.filter((panel) => panel.type === "chart");
   const activeDocumentIds = new Set(chartPanels.map(getChartDocumentId));
   const documents: ChartRuntimeState["documents"] = {};
@@ -613,13 +619,13 @@ function addError(errors: ChartRuntimeError[], message: string, chartDocumentId?
   ].slice(0, 10);
 }
 
-function readPanelSymbol(panel: PanelInstance): string {
+function readPanelSymbol(panel: ChartRuntimePanel): string {
   return typeof panel.props.symbol === "string" && panel.props.symbol.trim()
     ? panel.props.symbol.trim().toUpperCase()
     : "AAPL";
 }
 
-function readPanelTimeframe(panel: PanelInstance): string {
+function readPanelTimeframe(panel: ChartRuntimePanel): string {
   return panel.props.timeframe === "5m" || panel.props.timeframe === "10m" ? panel.props.timeframe : "1m";
 }
 

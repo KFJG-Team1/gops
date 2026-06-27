@@ -1,7 +1,7 @@
 import { useState, type DragEvent } from "react";
 import type { LayoutCommand, LayoutPreviewItem, PanelPlacement, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
-import type { ChartRuntimeAction, ChartRuntimeState } from "../chart/runtime";
-import type { SupportedSymbol, WatchlistSymbol } from "../chart/symbols";
+import type { ChartRuntimeAction, ChartRuntimeState } from "@gops/chart-engine/runtime";
+import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { makeCommand } from "../layout/commands";
 import {
   createPanelDropCommand,
