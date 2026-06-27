@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
+import { candleLimitFor1Year, candleLimitFor24Hours } from "@gops/chart-engine/intervals";
 import { normalizeAgentChatResponse } from "@gops/chart-engine/agentChat";
 import { applyCandleEvent, candleKey } from "@gops/chart-engine/candleStore";
 import { createChartDocument } from "@gops/chart-engine/chartDocuments";
@@ -319,6 +320,47 @@ assert.equal(emptyBackfillStatus?.backfillStatus, "not_requested");
 assert.equal(emptyBackfillStatus?.canBackfill, true);
 assert.match(emptyBackfillStatus?.message ?? "", /No candle data/);
 
+const partialBackfillSnapshot = normalizeCandleSnapshot({
+  symbol: "INTC",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  dataStatus: "partial",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  requestedLimit: 1440,
+  returnedCount: 1,
+  targetStoredCount: 525600,
+  storedCandleCount: 1,
+  hasMoreBefore: true,
+  candles: [candleB]
+});
+assert.equal(partialBackfillSnapshot.dataStatus, "partial");
+const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.snapshot.loaded",
+  snapshot: partialBackfillSnapshot
+});
+const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
+assert.equal(partialBackfillStatus?.state, "partial");
+assert.equal(partialBackfillStatus?.hasMoreBefore, true);
+assert.equal(partialBackfillStatus?.targetStoredCount, 525600);
+
+const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
+  kind: "chart.snapshot.loaded",
+  snapshot: normalizeCandleSnapshot({
+    symbol: "INTC",
+    interval: "1m",
+    source: "alpaca",
+    feed: "sip",
+    dataStatus: "partial",
+    candles: [candleA]
+  })
+});
+assert.deepEqual(
+  mergedSnapshotRuntime.candlesByKey[candleKey("INTC", "1m")]?.map((candle) => candle.timestamp),
+  [candleA.timestamp, candleB.timestamp]
+);
+
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
 const lifecyclePanelB = chartPanel("panel-lifecycle-b", "chart-doc-lifecycle-b", "MSFT");
 const lifecyclePreview: ChartPendingPreview = {
@@ -367,6 +409,13 @@ assert.equal(prunedLifecycleState.errors.some((error) => error.id === "error-glo
 assert.equal(normalizeSupportedSymbol(" nvda "), "NVDA");
 assert.equal(normalizeSupportedSymbol("GOOG"), "GOOG");
 assert.equal(normalizeSupportedSymbol("bad symbol"), null);
+
+assert.equal(candleLimitFor24Hours("1m"), 1440);
+assert.equal(candleLimitFor24Hours("5m"), 288);
+assert.equal(candleLimitFor24Hours("10m"), 144);
+assert.equal(candleLimitFor24Hours("1d"), 1);
+assert.equal(candleLimitFor1Year("1m"), 525600);
+assert.equal(candleLimitFor1Year("5m"), 105120);
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [

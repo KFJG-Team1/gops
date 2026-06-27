@@ -82,13 +82,13 @@ export function createTimeScale({
     slotWidth,
     candleCenter,
     logicalToX,
-    xToLogical: (x: number) => visibleStartIndex + (x - left) / Math.max(1, slotWidth),
+    xToLogical: (x: number) => visibleStartIndex + (x - left) / Math.max(0.0001, slotWidth),
     timestampToX: (timestamp: string) => {
       const logicalIndex = timestampIndex.get(timestamp);
       return typeof logicalIndex === "number" ? logicalToX(logicalIndex) : null;
     },
     xToNearestCandle: (x: number) => {
-      const visibleIndex = Math.max(0, Math.min(visibleCandles.length - 1, Math.round((x - left - slotWidth / 2) / Math.max(1, slotWidth))));
+      const visibleIndex = Math.max(0, Math.min(visibleCandles.length - 1, Math.round((x - left - slotWidth / 2) / Math.max(0.0001, slotWidth))));
       return visibleCandles[visibleIndex];
     }
   };

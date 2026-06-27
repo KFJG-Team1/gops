@@ -10,6 +10,6 @@ export function dragDeltaToRightOffset(
   visibleCount: number,
   candleCount: number
 ): number {
-  const slotDelta = Math.round(dragPixels / Math.max(1, slotWidth));
+  const slotDelta = Math.round(dragPixels / Math.max(0.0001, slotWidth));
   return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount);
 }

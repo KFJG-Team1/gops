@@ -151,9 +151,10 @@ function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePane
 function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): ChartRuntimeState {
   const key = candleKey(snapshot.symbol, snapshot.interval);
   const dataState = snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
+  const current = state.candlesByKey[key] ?? [];
   return {
     ...state,
-    candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot) },
+    candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot, current) },
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
@@ -164,6 +165,17 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         isSynthetic: snapshot.isSynthetic,
         backfillStatus: snapshot.backfillStatus ?? "not_requested",
         canBackfill: snapshot.canBackfill ?? false,
+        requestedLimit: snapshot.requestedLimit,
+        returnedCount: snapshot.returnedCount,
+        targetStoredCount: snapshot.targetStoredCount,
+        targetRangeFrom: snapshot.targetRangeFrom,
+        storedCandleCount: snapshot.storedCandleCount,
+        availableFrom: snapshot.availableFrom,
+        availableTo: snapshot.availableTo,
+        oldestTimestamp: snapshot.oldestTimestamp,
+        newestTimestamp: snapshot.newestTimestamp,
+        hasMoreBefore: snapshot.hasMoreBefore,
+        hasMoreAfter: snapshot.hasMoreAfter,
         updatedAt: now()
       }
     },

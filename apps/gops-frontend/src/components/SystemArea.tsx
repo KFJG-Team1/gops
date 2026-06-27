@@ -2,11 +2,16 @@ import { Bell, LoaderCircle, Menu, Plus, RotateCcw, SendHorizontal, Star, Trash2
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
 import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
+import {
+  DEFAULT_AGENT_DRAFT_SEED,
+  resolveAgentChartReference,
+  resolveAgentSendContent,
+  type AgentChartReference
+} from "@gops/chart-engine/agentReference";
 import { buildChartAgentContext } from "@gops/chart-engine/proposals";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
-  getChartDocumentForPanel,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
@@ -32,6 +37,8 @@ export type AgentOption = {
   iconUrl: string;
 };
 
+export type AgentUpdatePatch = Partial<Pick<AgentOption, "label" | "description" | "iconUrl">>;
+
 export const initialAgentOptions: AgentOption[] = [
   { id: "agent-01", label: "Chart Agent", description: "LLM chart operator. It explains intent and sends chart commands.", iconUrl: "/assets/agent-icons/agent-01.svg" },
   { id: "agent-02", label: "Agent 02", description: "News and context assistant.", iconUrl: "/assets/agent-icons/agent-02.svg" },
@@ -54,13 +61,14 @@ type SystemAreaProps = {
   chartAutoApplyEnabled: boolean;
   agents: AgentOption[];
   selectedAgentIds: string[];
+  referencedChartTarget?: AgentChartReference;
   editingAgentId?: string;
   savedLayouts: SavedLayoutRecord[];
   activeSymbol: SupportedSymbol;
   watchlistSymbols: WatchlistSymbol[];
   onSettingsTabChange: (tab: SystemMenuTab) => void;
   onEditAgent: (agentId?: string) => void;
-  onUpdateAgent: (agentId: string, patch: Partial<Pick<AgentOption, "label" | "description">>) => void;
+  onUpdateAgent: (agentId: string, patch: AgentUpdatePatch) => void;
   onAddAgent: () => void;
   onDeleteAgent: (agentId: string) => void;
   onCloseSystemPanel: () => void;
@@ -78,7 +86,7 @@ type SettingsPanelProps = {
   savedLayouts: SavedLayoutRecord[];
   onSettingsTabChange: (tab: SystemMenuTab) => void;
   onEditAgent: (agentId?: string) => void;
-  onUpdateAgent: (agentId: string, patch: Partial<Pick<AgentOption, "label" | "description">>) => void;
+  onUpdateAgent: (agentId: string, patch: AgentUpdatePatch) => void;
   onAddAgent: () => void;
   onDeleteAgent: (agentId: string) => void;
   onCommand: (command: LayoutCommand) => void;
@@ -92,6 +100,7 @@ export function SystemArea({
   chartAutoApplyEnabled,
   agents,
   selectedAgentIds,
+  referencedChartTarget,
   editingAgentId,
   savedLayouts,
   activeSymbol,
@@ -154,6 +163,7 @@ export function SystemArea({
             selectedAgents={selectedAgents}
             activeAgents={activeAgents}
             chartAgentAccess={chartAgentAccess}
+            referencedChartTarget={referencedChartTarget}
             onChartAction={onChartAction}
           />
         </div>
@@ -191,8 +201,8 @@ export function SystemArea({
                   <strong>{item.symbol}</strong>
                   <em>{item.name}</em>
                 </span>
-                <small className={typeof item.changePercent === "number" && item.changePercent < 0 ? "market-down" : "market-up"}>
-                  {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "--"}
+                <small className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : undefined}>
+                  {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
                   {typeof item.changePercent === "number" ? ` ${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : ""}
                 </small>
               </button>
@@ -211,6 +221,7 @@ function AgentChatPanel({
   selectedAgents,
   activeAgents,
   chartAgentAccess,
+  referencedChartTarget,
   onChartAction
 }: {
   layout: WorkspaceLayout;
@@ -219,14 +230,15 @@ function AgentChatPanel({
   selectedAgents: AgentOption[];
   activeAgents: AgentOption[];
   chartAgentAccess: ReturnType<typeof getChartAgentAccess>;
+  referencedChartTarget?: AgentChartReference;
   onChartAction: (action: ChartRuntimeAction) => void;
 }) {
-  const chartPanel = useMemo(
-    () => layout.panels.find((panel) => panel.type === "chart" && panel.id === layout.selectedPanelId) ??
-      layout.panels.find((panel) => panel.type === "chart"),
-    [layout.panels, layout.selectedPanelId]
+  const resolvedReference = useMemo(
+    () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
+    [chartRuntime, layout.panels, referencedChartTarget]
   );
-  const chartDocument = chartPanel ? getChartDocumentForPanel(chartRuntime, chartPanel) : null;
+  const chartPanel = resolvedReference?.panel ?? null;
+  const chartDocument = resolvedReference?.document ?? null;
   const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
   const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -234,6 +246,8 @@ function AgentChatPanel({
   const [sending, setSending] = useState(false);
   const [agentError, setAgentError] = useState(false);
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
+  const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
+  const draftSeed = referencedChartTarget?.draftSeed ?? DEFAULT_AGENT_DRAFT_SEED;
   const introAgent = activeAgents[0] ?? selectedAgents[0] ?? orchestratorAgent;
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
@@ -242,19 +256,21 @@ function AgentChatPanel({
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
   const disabledMessage = chartAgentAccess.reason === "orchestration"
-    ? "멀티에이전트 모드에서는 차트 채팅을 비활성화합니다. 차트 수정은 Agent 01 단독 선택에서만 가능합니다."
-    : "이 에이전트는 현재 차트 수정 권한이 없습니다. 소개만 표시됩니다.";
-  const sendDisabled = !target || !draft.trim() || sending;
+    ? "Multi-agent mode cannot send chart requests yet."
+    : chartAgentAccess.reason === "no-chart-agent"
+      ? "This agent does not have chart request access yet."
+      : "Use Ask Agent on a chart panel to select a chart.";
+  const sendDisabled = !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
 
   useEffect(() => {
     setMessages([]);
     setDraft("");
     setSending(false);
     setAgentError(false);
-  }, [selectedAgentKey]);
+  }, [selectedAgentKey, referencedChartKey]);
 
   const sendMessage = () => {
-    const content = draft.trim();
+    const content = resolveAgentSendContent(draft, draftSeed);
     if (!content || !target || !chartPanel || !chartDocument || sending) {
       return;
     }
@@ -293,9 +309,7 @@ function AgentChatPanel({
           onChartAction({ kind: "chart.proposal.received", proposal: result.proposal, autoApply: autoApplyEnabled });
           nextMessages.push(createChatMessage(
             "system",
-            autoApplyEnabled
-              ? "Chart commands were applied through the chart runtime."
-              : "Chart proposal is waiting for review in the chart panel."
+            chartProposalStatusMessage(result.proposal, autoApplyEnabled)
           ));
         }
         setMessages((current) => [...current, ...nextMessages]);
@@ -337,7 +351,7 @@ function AgentChatPanel({
         <div className="agent-chat-input-row">
           <textarea
             value={draft}
-            placeholder={target ? "Ask Agent 01 to change the chart" : disabledMessage}
+            placeholder={target ? draftSeed : disabledMessage}
             disabled={!target || sending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -354,6 +368,25 @@ function AgentChatPanel({
       </div>
     </div>
   );
+}
+
+function chartProposalStatusMessage(
+  proposal: ReturnType<typeof normalizeAgentChatResponse>["proposal"],
+  autoApplyEnabled: boolean
+): string {
+  const hasPreviewCommands = proposal?.commands.some((command) =>
+    command.type.startsWith("chart.drawing.") ||
+    command.type.startsWith("chart.comparison.") ||
+    command.type === "chart.measurement.add"
+  );
+
+  if (hasPreviewCommands) {
+    return "Chart preview is ready. Use Preview and Apply in the chart panel.";
+  }
+
+  return autoApplyEnabled
+    ? "Chart command sent to the chart runtime."
+    : "Chart command proposal is waiting in the chart panel.";
 }
 
 export function SystemOrbRail({

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { MarketTicker } from "./components/MarketTicker";
 import { TopAppBar } from "./components/TopAppBar";
-import { initialAgentOptions, type AgentOption, type SystemMenuTab, type SystemMode } from "./components/SystemArea";
+import { initialAgentOptions, type AgentOption, type AgentUpdatePatch, type SystemMenuTab, type SystemMode } from "./components/SystemArea";
 import { WorkspaceGrid } from "./components/WorkspaceGrid";
+import {
+  DEFAULT_AGENT_DRAFT_SEED,
+  isAgentChartReferenceAvailable,
+  type AgentChartReference
+} from "@gops/chart-engine/agentReference";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import {
   chartRuntimeReducer,
@@ -23,6 +28,7 @@ import {
   executeCommand,
   makeCommand
 } from "./layout/commands";
+import { findTargetChartPanel } from "./layout/chartPanelSelection";
 import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
 
 type RuntimeAction =
@@ -43,6 +49,7 @@ export default function App() {
   const [activeSymbol, setActiveSymbol] = useState<SupportedSymbol>("AAPL");
   const [symbolSearchError, setSymbolSearchError] = useState<string | undefined>();
   const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>(defaultWatchlistSymbols);
+  const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
 
   const selectedPanel = useMemo(
     () => state.layout.panels.find((panel) => panel.id === state.layout.selectedPanelId),
@@ -57,34 +64,45 @@ export default function App() {
   }, [state.layout.panels]);
 
   useEffect(() => {
+    if (agentChartReference && !isAgentChartReferenceAvailable(state.layout.panels, agentChartReference)) {
+      setAgentChartReference(undefined);
+    }
+  }, [agentChartReference, state.layout.panels]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/charts/symbols")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Symbol API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setWatchlistSymbols(normalizeWatchlistPayload(payload));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWatchlistSymbols(defaultWatchlistSymbols());
-        }
-      });
+    const loadWatchlist = () => {
+      fetch("/api/charts/symbols")
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Symbol API returned ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          if (!cancelled) {
+            setWatchlistSymbols(normalizeWatchlistPayload(payload));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWatchlistSymbols(defaultWatchlistSymbols());
+          }
+        });
+    };
+
+    loadWatchlist();
+    const timer = window.setInterval(loadWatchlist, 15000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
   const activeChartPanel = useMemo(
-    () => state.layout.panels.find((panel) => panel.type === "chart" && panel.id === state.layout.selectedPanelId) ??
-      state.layout.panels.find((panel) => panel.type === "chart"),
+    () => findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId),
     [state.layout.panels, state.layout.selectedPanelId]
   );
 
@@ -110,8 +128,7 @@ export default function App() {
     setActiveSymbol(symbol);
     setSymbolSearchError(undefined);
 
-    const chartPanel = state.layout.panels.find((panel) => panel.type === "chart" && panel.id === state.layout.selectedPanelId) ??
-      state.layout.panels.find((panel) => panel.type === "chart");
+    const chartPanel = findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId);
     if (!chartPanel) {
       return true;
     }
@@ -130,12 +147,14 @@ export default function App() {
 
   const closeSystemPanel = () => {
     setSelectedAgentIds([]);
+    setAgentChartReference(undefined);
     setEditingAgentId(undefined);
     setActiveSystemMode("watchlist");
   };
 
   const toggleSettings = () => {
     setSelectedAgentIds([]);
+    setAgentChartReference(undefined);
     setEditingAgentId(undefined);
     setSettingsTab("layouts");
     setActiveSystemMode((current) => (current === "settings" ? "watchlist" : "settings"));
@@ -143,6 +162,7 @@ export default function App() {
 
   const toggleNotifications = () => {
     setSelectedAgentIds([]);
+    setAgentChartReference(undefined);
     setEditingAgentId(undefined);
     setActiveSystemMode((current) => (current === "notifications" ? "watchlist" : "notifications"));
   };
@@ -153,14 +173,24 @@ export default function App() {
         ? current.filter((id) => id !== agentId)
         : [...current, agentId];
 
+      if (next.length === 0) {
+        setAgentChartReference(undefined);
+      }
       setActiveSystemMode(next.length === 0 ? "watchlist" : "agents");
       return next;
     });
   };
 
-  const updateAgent = (agentId: string, patch: Partial<Pick<AgentOption, "label" | "description">>) => {
+  const updateAgent = (agentId: string, patch: AgentUpdatePatch) => {
     setAgents((current) => current.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)));
   };
+
+  const askAgentFromChart = useCallback((panelId: string, chartDocumentId: string) => {
+    setSelectedAgentIds(["agent-01"]);
+    setAgentChartReference({ panelId, chartDocumentId, draftSeed: DEFAULT_AGENT_DRAFT_SEED });
+    setEditingAgentId(undefined);
+    setActiveSystemMode("agents");
+  }, []);
 
   const addAgent = () => {
     setAgents((current) => {
@@ -233,6 +263,7 @@ export default function App() {
           settingsTab={settingsTab}
           agents={agents}
           selectedAgentIds={selectedAgentIds}
+          referencedChartTarget={agentChartReference}
           editingAgentId={editingAgentId}
           savedLayouts={state.savedLayouts}
           activeSymbol={activeSymbol}
@@ -248,6 +279,7 @@ export default function App() {
           onSelectSymbol={selectSymbol}
           onCommand={runCommand}
           onChartAction={runChartAction}
+          onAskAgentFromChart={askAgentFromChart}
         />
       </section>
     </main>

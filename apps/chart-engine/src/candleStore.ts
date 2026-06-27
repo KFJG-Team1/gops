@@ -10,8 +10,12 @@ export function candleKey(symbol: string, interval: string): string {
   return `${symbol.toUpperCase()}::${interval}`;
 }
 
-export function applySnapshotToCandles(snapshot: CandleSnapshot): CandleData[] {
-  return [...snapshot.candles].sort(compareCandles);
+export function applySnapshotToCandles(snapshot: CandleSnapshot, current: CandleData[] = []): CandleData[] {
+  const byTimestamp = new Map<string, CandleData>();
+  [...current, ...snapshot.candles].forEach((candle) => {
+    byTimestamp.set(candle.timestamp, candle);
+  });
+  return [...byTimestamp.values()].sort(compareCandles);
 }
 
 export function applyCandleEvent(current: CandleData[], event: CandleEvent): CandleMergeResult {

@@ -33,8 +33,8 @@ import { createPortal } from "react-dom";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
+import { candleLimitFor1Year, candleLimitFor24Hours } from "@gops/chart-engine/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
-import { buildChartProposalRequest, normalizeChartProposal } from "@gops/chart-engine/proposals";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
 import { clampRightOffset, dragDeltaToRightOffset } from "@gops/chart-engine/viewport";
@@ -68,6 +68,7 @@ type ChartPanelProps = {
   runtime: ChartRuntimeState;
   autoApplyEnabled: boolean;
   onChartAction: (action: ChartRuntimeAction) => void;
+  onAskAgent: (panelId: string, chartDocumentId: string) => void;
 };
 
 type DragAnchor = {
@@ -123,7 +124,7 @@ function tooltipAttributes(label: string): TooltipAttributes {
   };
 }
 
-export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: ChartPanelProps) {
+export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartPanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<RenderScene | null>(null);
@@ -132,6 +133,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const lastCursorRef = useRef<ChartCursorRef | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
+  const rangeRequestsRef = useRef<Set<string>>(new Set());
   const autoBackfillKeysRef = useRef<Set<string>>(new Set());
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
@@ -143,7 +145,6 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
-  const [proposalBusy, setProposalBusy] = useState(false);
   const [previewPulseKey, setPreviewPulseKey] = useState<string | null>(null);
   const [labelEditorOpen, setLabelEditorOpen] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
@@ -170,7 +171,6 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       : document,
     [document, transientDrawings, transientViewport]
   );
-
   const target = useMemo(
     () => ({ panelId: panel.id, chartDocumentId: document.id }),
     [document.id, panel.id]
@@ -216,7 +216,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       symbol: document.symbol,
       interval: document.timeframe,
       ma: "5,20,60",
-      limit: "160"
+      limit: String(candleLimitFor24Hours(document.timeframe))
     });
 
     onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
@@ -444,7 +444,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
 
   const scene = useMemo(() => {
     const nextScene = buildRenderScene({
-      state: dataStatus.state,
+      state: dataStatus.state === "partial" ? "ready" : dataStatus.state,
       message: dataStatus.message,
       document: sceneDocument,
       candles,
@@ -491,7 +491,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
         symbol,
         interval: document.timeframe,
         ma: "5,20,60",
-        limit: "160"
+        limit: String(candleLimitFor24Hours(document.timeframe))
       });
       fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
         .then((response) => {
@@ -520,6 +520,89 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       controllers.forEach((controller) => controller.abort());
     };
   }, [comparisonAvailabilityKey, comparisonSymbolsKey, document.id, document.timeframe, onChartAction]);
+
+  useEffect(() => {
+    if (!candles.length || !dataStatus.hasMoreBefore) {
+      return undefined;
+    }
+
+    const oneYearLimit = candleLimitFor1Year(document.timeframe);
+    const dailyLimit = candleLimitFor24Hours(document.timeframe);
+    const targetVisibleCount = Math.min(oneYearLimit, Math.max(1, document.viewport.visibleCount));
+    const visibleEnd = Math.max(0, candles.length - document.viewport.rightOffset);
+    const visibleStart = Math.max(0, visibleEnd - targetVisibleCount);
+    const userZoomedPastDefault = targetVisibleCount > dailyLimit;
+    const userPannedIntoHistory = document.viewport.rightOffset > 0;
+    const isLookingPastLoadedRange = userZoomedPastDefault && targetVisibleCount > candles.length;
+    const isNearLoadedOldest =
+      userPannedIntoHistory &&
+      visibleStart <= Math.max(24, Math.ceil(targetVisibleCount * 0.1));
+
+    if (!isLookingPastLoadedRange && !isNearLoadedOldest) {
+      return undefined;
+    }
+
+    const oldest = candles[0]?.timestamp;
+    if (!oldest) {
+      return undefined;
+    }
+
+    const missingVisibleCount = Math.max(0, targetVisibleCount - candles.length);
+    const remainingCapacity = Math.max(0, oneYearLimit - candles.length);
+    if (remainingCapacity <= 0) {
+      return undefined;
+    }
+    const pageLimit = Math.min(remainingCapacity, Math.max(dailyLimit, missingVisibleCount + dailyLimit));
+    const requestKey = `${document.symbol}:${document.timeframe}:before:${oldest}`;
+    if (rangeRequestsRef.current.has(requestKey)) {
+      return undefined;
+    }
+
+    rangeRequestsRef.current.add(requestKey);
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      symbol: document.symbol,
+      interval: document.timeframe,
+      ma: "5,20,60",
+      limit: String(pageLimit),
+      before: oldest
+    });
+
+    fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Historical range API returned ${response.status}`);
+        }
+        return response.json() as Promise<unknown>;
+      })
+      .then((payload) => onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) }))
+      .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          return;
+        }
+        onChartAction({
+          kind: "chart.error",
+          chartDocumentId: document.id,
+          message: error instanceof Error ? error.message : "Historical range data unavailable."
+        });
+      })
+      .finally(() => {
+        rangeRequestsRef.current.delete(requestKey);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    candles,
+    dataStatus.hasMoreBefore,
+    document.id,
+    document.symbol,
+    document.timeframe,
+    document.viewport.rightOffset,
+    document.viewport.visibleCount,
+    onChartAction
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -657,43 +740,6 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
     }
   };
 
-  const requestProposal = () => {
-    if (proposalBusy) {
-      return;
-    }
-    setProposalBusy(true);
-    const context = buildChartProposalRequest({
-      panelId: panel.id,
-      document,
-      scene: sceneRef.current ?? scene,
-      streamStatus
-    });
-
-    fetch("/api/llm/chart-proposal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context })
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Chart proposal API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        const proposal = normalizeChartProposal(payload, target);
-        onChartAction({ kind: "chart.proposal.received", proposal, autoApply: autoApplyEnabled });
-      })
-      .catch((error: unknown) => {
-        onChartAction({
-          kind: "chart.error",
-          chartDocumentId: document.id,
-          message: error instanceof Error ? error.message : "Could not request chart proposal"
-        });
-      })
-      .finally(() => setProposalBusy(false));
-  };
-
   const requestBackfill = () => {
     if (backfillRequest && isActiveBackfillStatus(backfillRequest.status)) {
       return;
@@ -742,7 +788,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       backfillRequest?.interval === document.timeframe;
 
     if (
-      dataStatus.state !== "empty" ||
+      !["empty", "partial"].includes(dataStatus.state) ||
       !dataStatus.canBackfill ||
       autoBackfillKeysRef.current.has(key) ||
       (currentRequestMatches && isActiveBackfillStatus(backfillRequest.status))
@@ -783,14 +829,15 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
 
   const resetViewport = () => {
     runCommand("chart.viewport.set", {
-      visibleCount: 72,
+      visibleCount: candleLimitFor24Hours(document.timeframe),
       rightOffset: 0
     });
   };
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    const delta = event.deltaY > 0 ? 8 : -8;
+    const step = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
+    const delta = event.deltaY > 0 ? step : -step;
     runCommand("chart.viewport.set", {
       visibleCount: document.viewport.visibleCount + delta,
       rightOffset: document.viewport.rightOffset
@@ -1058,6 +1105,7 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
       };
   const backfillActive = isActiveBackfillStatus(effectiveBackfill.status);
   const showBackfillState = dataStatus.state === "empty";
+  const viewportStep = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
 
   return (
     <>
@@ -1087,10 +1135,10 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
         </div>
 
         <div className="chart-tool-group" aria-label="Viewport tools">
-          <button {...tooltipAttributes("Zoom in")} onClick={() => setViewport(document.viewport.visibleCount - 12)}>
+          <button {...tooltipAttributes("Zoom in")} onClick={() => setViewport(document.viewport.visibleCount - viewportStep)}>
             <ZoomIn size={14} />
           </button>
-          <button {...tooltipAttributes("Zoom out")} onClick={() => setViewport(document.viewport.visibleCount + 12)}>
+          <button {...tooltipAttributes("Zoom out")} onClick={() => setViewport(document.viewport.visibleCount + viewportStep)}>
             <ZoomOut size={14} />
           </button>
           <button {...tooltipAttributes("Pan left")} onClick={() => panViewport(12)}>
@@ -1192,7 +1240,13 @@ export function ChartPanel({ panel, runtime, autoApplyEnabled, onChartAction }: 
               <RotateCw size={14} />
             </button>
           </div>
-          <button {...tooltipAttributes("Ask Agent 01 for chart proposal")} disabled={proposalBusy} onClick={requestProposal}>
+          <button
+            {...tooltipAttributes("Ask Agent 01")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAskAgent(panel.id, document.id);
+            }}
+          >
             <Bot size={14} />
           </button>
           <div className="chart-tool-group chart-preview-actions" aria-label="Preview actions">

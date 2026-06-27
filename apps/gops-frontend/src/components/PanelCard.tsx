@@ -20,6 +20,7 @@ type PanelCardProps = {
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   onChartAction: (action: ChartRuntimeAction) => void;
+  onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
 };
 
 type PanelHeaderPresentation = {
@@ -40,12 +41,14 @@ function PanelBody({
   panel,
   chartRuntime,
   chartAutoApplyEnabled,
-  onChartAction
+  onChartAction,
+  onAskAgentFromChart
 }: {
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   onChartAction: (action: ChartRuntimeAction) => void;
+  onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
 }) {
   if (panel.type === "chart") {
     return (
@@ -54,6 +57,7 @@ function PanelBody({
         runtime={chartRuntime}
         autoApplyEnabled={chartAutoApplyEnabled}
         onChartAction={onChartAction}
+        onAskAgent={onAskAgentFromChart}
       />
     );
   }
@@ -163,7 +167,8 @@ export function PanelCard({
   onPreviewChange,
   chartRuntime,
   chartAutoApplyEnabled,
-  onChartAction
+  onChartAction,
+  onAskAgentFromChart
 }: PanelCardProps) {
   const [dragging, setDragging] = useState(false);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
@@ -275,6 +280,7 @@ export function PanelCard({
     <article
       className={`panel-card ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} ${panel.layoutPinned ? "pinned" : ""}`}
       data-panel-id={panel.id}
+      data-panel-type={panel.type}
       style={style}
       onClick={() => runPanelCommand("layout.panel.select")}
     >
@@ -324,6 +330,7 @@ export function PanelCard({
         chartRuntime={chartRuntime}
         chartAutoApplyEnabled={chartAutoApplyEnabled}
         onChartAction={onChartAction}
+        onAskAgentFromChart={onAskAgentFromChart}
       />
     </article>
   );

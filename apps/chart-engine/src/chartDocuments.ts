@@ -1,3 +1,4 @@
+import { candleLimitFor24Hours } from "./intervals";
 import type { ChartDocument, ChartDocumentSnapshot } from "./types";
 
 export function createChartDocument(id: string, symbol = "AAPL", timeframe = "1m"): ChartDocument {
@@ -7,7 +8,7 @@ export function createChartDocument(id: string, symbol = "AAPL", timeframe = "1m
     timeframe,
     viewport: {
       rightOffset: 0,
-      visibleCount: 72
+      visibleCount: candleLimitFor24Hours(timeframe)
     },
     panes: [
       { id: "price", heightRatio: 0.74 },
