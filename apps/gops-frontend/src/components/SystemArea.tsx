@@ -26,6 +26,7 @@ import {
   PANEL_CATALOG_TYPES
 } from "../layout/panelCatalogDrop";
 import type { FavoriteLayoutSlot, LayoutCommand, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
+import { OrderTicket } from "./OrderTicket";
 
 export type SystemMode = "watchlist" | "settings" | "agents" | "notifications";
 
@@ -220,6 +221,7 @@ export function SystemArea({
                 </span>
               </button>
             ))}
+            <OrderTicket activeSymbol={activeSymbol} />
           </div>
         </div>
       )}

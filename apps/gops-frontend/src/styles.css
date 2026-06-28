@@ -1357,6 +1357,141 @@ textarea {
   color: #777;
 }
 
+.order-ticket {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #111;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.order-ticket-header,
+.order-status-box > div,
+.order-event-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.order-ticket-header strong,
+.order-ticket-header span,
+.order-status-box strong,
+.order-status-box span,
+.order-event-row strong,
+.order-event-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-ticket-header strong {
+  font-size: 12px;
+}
+
+.order-ticket-header span,
+.order-status-box span,
+.order-event-row span {
+  color: #555;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.order-side-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.order-side-control button,
+.order-submit-button {
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.order-side-control button.active,
+.order-submit-button:not(:disabled) {
+  color: #fff;
+  background: #111;
+}
+
+.order-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  min-width: 0;
+}
+
+.order-field-grid label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.order-field-grid label:first-child,
+.order-field-grid label:last-child {
+  grid-column: 1 / -1;
+}
+
+.order-field-grid span {
+  color: #555;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.order-field-grid input,
+.order-field-grid select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.order-status-box,
+.order-event-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid #d2d2d2;
+}
+
+.order-status-box strong,
+.order-event-row strong {
+  font-size: 10px;
+}
+
+.order-error {
+  min-width: 0;
+  overflow: hidden;
+  color: #8a1f1f;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spin {
+  animation: order-spin 0.9s linear infinite;
+}
+
+@keyframes order-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .panel-watchlist-star.active {
   color: #111;
 }
