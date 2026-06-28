@@ -1,5 +1,5 @@
 import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument } from "./chartDocuments";
-import { candleLimitFor1Year, candleLimitFor24Hours } from "./intervals";
+import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
 import { normalizeSupportedSymbol } from "./symbols";
 import type {
@@ -247,7 +247,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart symbol.";
       }
       document.symbol = symbol;
-      document.viewport = { rightOffset: 0, visibleCount: candleLimitFor24Hours(document.timeframe) };
+      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(document.timeframe) };
       return null;
     }
     case "chart.timeframe.set": {
@@ -256,14 +256,14 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
-      document.viewport = { rightOffset: 0, visibleCount: candleLimitFor24Hours(timeframe) };
+      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(timeframe) };
       return null;
     }
     case "chart.viewport.set": {
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
       document.viewport = {
-        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, candleLimitFor1Year(document.timeframe)),
+        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, maxRequestBarsForInterval(document.timeframe)),
         rightOffset: rightOffset === null ? document.viewport.rightOffset : Math.max(0, Math.round(rightOffset))
       };
       return null;
@@ -519,8 +519,8 @@ function readSymbol(value: unknown): string | null {
   return normalizeSupportedSymbol(value);
 }
 
-function readTimeframe(value: unknown): "1m" | "5m" | "10m" | null {
-  return value === "1m" || value === "5m" || value === "10m" ? value : null;
+function readTimeframe(value: unknown) {
+  return normalizeChartInterval(value);
 }
 
 function readLayer(value: unknown): ChartLayerKey | null {

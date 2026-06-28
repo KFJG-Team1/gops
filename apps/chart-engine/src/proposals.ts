@@ -1,7 +1,7 @@
 import { chartCapabilities } from "./capabilities";
 import { makeChartCommand } from "./commands";
 import { normalizeSupportedSymbol } from "./symbols";
-import type { CandleData, ChartCommand, ChartCommandType, ChartDocument, ChartProposal, RenderScene, StreamStatus } from "./types";
+import type { CandleData, ChartCommand, ChartCommandType, ChartDataStatus, ChartDocument, ChartProposal, RenderScene, StreamStatus } from "./types";
 
 const proposalCommandTypes: ChartCommandType[] = [
   "chart.symbol.set",
@@ -27,6 +27,14 @@ export type ChartProposalRequestContext = {
     low?: string;
     change?: string;
     lastPrice?: string;
+  };
+  dataStatus: {
+    state: ChartDataStatus["state"];
+    message?: string;
+    backfillStatus?: ChartDataStatus["backfillStatus"];
+    canBackfill?: boolean;
+    candleCount: number;
+    hasVisibleCandles: boolean;
   };
   streamStatus: StreamStatus;
   supportedSymbols: readonly string[];
@@ -63,6 +71,12 @@ export function buildChartProposalRequest({
       change: scene?.labels.change,
       lastPrice: scene?.labels.lastPrice
     },
+    dataStatus: {
+      state: scene?.state === "ready" || scene?.state === "partial" || scene?.state === "empty" || scene?.state === "error" ? scene.state : "loading",
+      message: scene?.message,
+      candleCount: scene?.candles.length ?? 0,
+      hasVisibleCandles: Boolean(scene?.candles.length)
+    },
     streamStatus,
     supportedSymbols: normalizeSymbolUniverse(symbolUniverse),
     capabilities: chartCapabilities
@@ -73,12 +87,14 @@ export function buildChartAgentContext({
   panelId,
   document,
   candles,
+  dataStatus,
   streamStatus,
   symbolUniverse
 }: {
   panelId: string;
   document: ChartDocument;
   candles: CandleData[];
+  dataStatus?: ChartDataStatus;
   streamStatus: StreamStatus;
   symbolUniverse?: readonly string[];
 }): ChartProposalRequestContext {
@@ -108,6 +124,14 @@ export function buildChartAgentContext({
       low: lows.length ? Math.min(...lows).toFixed(2) : undefined,
       change: typeof change === "number" ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : undefined,
       lastPrice: last ? last.close.toFixed(2) : undefined
+    },
+    dataStatus: {
+      state: dataStatus?.state ?? (candles.length > 0 ? "ready" : "loading"),
+      message: dataStatus?.message,
+      backfillStatus: dataStatus?.backfillStatus,
+      canBackfill: dataStatus?.canBackfill,
+      candleCount: candles.length,
+      hasVisibleCandles: visibleCandles.length > 0
     },
     streamStatus,
     supportedSymbols: normalizeSymbolUniverse(symbolUniverse),

@@ -48,7 +48,35 @@ function drawState(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.font = "12px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(scene.message ?? scene.state, scene.width / 2, scene.height / 2);
+  const lines = wrapCanvasText(ctx, scene.message ?? scene.state, Math.max(120, scene.width - 72));
+  const lineHeight = 18;
+  const startY = scene.height / 2 - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((line, index) => {
+    ctx.fillText(line, scene.width / 2, startY + index * lineHeight);
+  });
+}
+
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  words.forEach((word) => {
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+      return;
+    }
+    if (current) {
+      lines.push(current);
+      current = word;
+      return;
+    }
+    lines.push(word);
+  });
+  if (current) {
+    lines.push(current);
+  }
+  return lines.length ? lines : [text];
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, scene: RenderScene) {

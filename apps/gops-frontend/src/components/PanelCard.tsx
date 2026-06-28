@@ -2,7 +2,7 @@ import { Pin, Star, X } from "lucide-react";
 import { useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
-import { getCandlesForDocument, getChartDocumentForPanel, getStreamStatusForDocument, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
+import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
 import { makeCommand } from "../layout/commands";
@@ -167,15 +167,11 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
 }
 
 function resolveChartHeaderMetrics(chartRuntime: ChartRuntimeState, chartDocument: ChartDocument): PanelMarketMetrics {
-  const streamStatus = getStreamStatusForDocument(chartRuntime, chartDocument);
   const offlineMetrics: PanelMarketMetrics = {
     price: "-",
     change: "-",
     direction: "offline"
   };
-  if (streamStatus !== "live") {
-    return offlineMetrics;
-  }
 
   const candles = getCandlesForDocument(chartRuntime, chartDocument);
   const visibleEnd = Math.max(0, candles.length - Math.max(0, chartDocument.viewport.rightOffset));

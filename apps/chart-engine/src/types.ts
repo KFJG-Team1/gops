@@ -14,17 +14,40 @@ export type CandleData = {
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
 export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
+export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
+
+export type ChartCoverage = {
+  state: ChartCoverageState;
+  reasonCode?: string;
+  message?: string;
+  sourceInterval?: string;
+  backfillStatus?: BackfillStatus;
+  requestedLimit?: number;
+  returnedCount?: number;
+  storedCandleCount?: number;
+  targetStoredCount?: number;
+  targetRangeFrom?: string;
+  availableFrom?: string;
+  availableTo?: string;
+  invalidRowCount?: number;
+  renderable?: boolean;
+  minimumReturnedCount?: number;
+  minimumRenderableSourceBars?: number;
+  returnedSpanSeconds?: number;
+  maxRenderableSpanSeconds?: number;
+  renderabilityReasonCode?: string;
+};
 
 export type CandleSnapshot = {
   symbol: string;
   interval: string;
   source: string;
   feed: string;
-  isSynthetic?: boolean;
   snapshotCursor?: string;
   dataStatus?: ChartSnapshotDataStatus;
   backfillStatus?: BackfillStatus;
   canBackfill?: boolean;
+  sourceInterval?: string;
   message?: string;
   requestedLimit?: number;
   returnedCount?: number;
@@ -37,6 +60,7 @@ export type CandleSnapshot = {
   newestTimestamp?: string;
   hasMoreBefore?: boolean;
   hasMoreAfter?: boolean;
+  coverage?: ChartCoverage;
   indicators: {
     ma: number[];
     volume: boolean;
@@ -52,7 +76,6 @@ export type CandleEvent = {
   interval: string;
   source?: string;
   feed?: string;
-  isSynthetic?: boolean;
   data: CandleData;
 };
 
@@ -183,9 +206,9 @@ export type ChartDataStatus = {
   message?: string;
   source?: string;
   feed?: string;
-  isSynthetic?: boolean;
   backfillStatus?: BackfillStatus;
   canBackfill?: boolean;
+  sourceInterval?: string;
   requestedLimit?: number;
   returnedCount?: number;
   targetStoredCount?: number;
@@ -197,6 +220,7 @@ export type ChartDataStatus = {
   newestTimestamp?: string;
   hasMoreBefore?: boolean;
   hasMoreAfter?: boolean;
+  coverage?: ChartCoverage;
   updatedAt: string;
 };
 

@@ -1,15 +1,16 @@
-import { candleLimitFor24Hours } from "./intervals";
+import { defaultVisibleBarsForInterval, normalizeChartInterval, type ChartInterval } from "./intervals";
 import type { ChartDocument, ChartDocumentSnapshot } from "./types";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 
-export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe = "1m"): ChartDocument {
+export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe: ChartInterval | string = "1m"): ChartDocument {
+  const resolvedTimeframe = normalizeChartInterval(timeframe) ?? "1m";
   return {
     id,
     symbol,
-    timeframe,
+    timeframe: resolvedTimeframe,
     viewport: {
       rightOffset: 0,
-      visibleCount: candleLimitFor24Hours(timeframe)
+      visibleCount: defaultVisibleBarsForInterval(resolvedTimeframe)
     },
     panes: [
       { id: "price", heightRatio: 0.74 },

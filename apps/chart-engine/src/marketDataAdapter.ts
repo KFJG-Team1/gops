@@ -1,4 +1,5 @@
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartSnapshotDataStatus } from "./types";
+import { normalizeChartInterval } from "./intervals";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartSnapshotDataStatus } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
@@ -12,11 +13,6 @@ function readString(value: unknown): string | null {
 
 function readBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
-}
-
-function isSyntheticMarketPayload(source: Record<string, unknown>): boolean {
-  const feed = readString(source.feed)?.toLowerCase() ?? "";
-  return readBoolean(source.isSynthetic) === true || feed.includes("synthetic");
 }
 
 function normalizeCandle(value: unknown): CandleData | null {
@@ -74,6 +70,42 @@ function readBackfillStatus(value: unknown): BackfillStatus | undefined {
     : undefined;
 }
 
+function readCoverageState(value: unknown): ChartCoverageState | undefined {
+  return value === "complete" || value === "partial" || value === "empty" || value === "unavailable" ? value : undefined;
+}
+
+function normalizeCoverage(value: unknown): ChartCoverage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const state = readCoverageState(source.state);
+  if (!state) {
+    return undefined;
+  }
+  return {
+    state,
+    reasonCode: readString(source.reasonCode) ?? undefined,
+    message: readString(source.message) ?? undefined,
+    sourceInterval: readString(source.sourceInterval) ?? undefined,
+    backfillStatus: readBackfillStatus(source.backfillStatus),
+    requestedLimit: readNumber(source.requestedLimit) ?? undefined,
+    returnedCount: readNumber(source.returnedCount) ?? undefined,
+    storedCandleCount: readNumber(source.storedCandleCount) ?? undefined,
+    targetStoredCount: readNumber(source.targetStoredCount) ?? undefined,
+    targetRangeFrom: readString(source.targetRangeFrom) ?? undefined,
+    availableFrom: readString(source.availableFrom) ?? undefined,
+    availableTo: readString(source.availableTo) ?? undefined,
+    invalidRowCount: readNumber(source.invalidRowCount) ?? undefined,
+    renderable: readBoolean(source.renderable) ?? undefined,
+    minimumReturnedCount: readNumber(source.minimumReturnedCount) ?? undefined,
+    minimumRenderableSourceBars: readNumber(source.minimumRenderableSourceBars) ?? undefined,
+    returnedSpanSeconds: readNumber(source.returnedSpanSeconds) ?? undefined,
+    maxRenderableSpanSeconds: readNumber(source.maxRenderableSpanSeconds) ?? undefined,
+    renderabilityReasonCode: readString(source.renderabilityReasonCode) ?? undefined
+  };
+}
+
 export function isRealtimeControlPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeControlType } {
   if (!payload || typeof payload !== "object") {
     return false;
@@ -105,7 +137,7 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
 
   const source = payload as Record<string, unknown>;
   const symbol = readString(source.symbol);
-  const interval = readString(source.interval);
+  const interval = normalizeChartInterval(readString(source.interval) ?? "");
   const candles = Array.isArray(source.candles)
     ? source.candles.map(normalizeCandle).filter((item): item is CandleData => Boolean(item))
     : [];
@@ -119,11 +151,11 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     interval,
     source: readString(source.source) ?? "unknown",
     feed: readString(source.feed) ?? "unknown",
-    isSynthetic: isSyntheticMarketPayload(source),
     snapshotCursor: readString(source.snapshotCursor) ?? undefined,
     dataStatus: readDataStatus(source.dataStatus),
     backfillStatus: readBackfillStatus(source.backfillStatus),
     canBackfill: readBoolean(source.canBackfill) ?? undefined,
+    sourceInterval: readString(source.sourceInterval) ?? undefined,
     message: readString(source.message) ?? undefined,
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,
     returnedCount: readNumber(source.returnedCount) ?? undefined,
@@ -136,6 +168,7 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     newestTimestamp: readString(source.newestTimestamp) ?? undefined,
     hasMoreBefore: readBoolean(source.hasMoreBefore) ?? undefined,
     hasMoreAfter: readBoolean(source.hasMoreAfter) ?? undefined,
+    coverage: normalizeCoverage(source.coverage),
     indicators: normalizeIndicators(source.indicators),
     candles
   };
@@ -149,7 +182,7 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
   const source = payload as Record<string, unknown>;
   const type = readCandleEventType(source.type);
   const symbol = readString(source.symbol);
-  const interval = readString(source.interval);
+  const interval = normalizeChartInterval(readString(source.interval) ?? "");
   const candle = normalizeCandle(source.data);
 
   if (!type || !symbol || !interval || !candle) {
@@ -164,7 +197,6 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
     interval,
     source: readString(source.source) ?? undefined,
     feed: readString(source.feed) ?? undefined,
-    isSynthetic: isSyntheticMarketPayload(source),
     data: candle
   };
 }

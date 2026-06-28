@@ -1,20 +1,61 @@
-const lookbackMinutes24h = 24 * 60;
-const lookbackDays1y = 365;
-const lookbackMinutes1y = lookbackMinutes24h * lookbackDays1y;
+export const chartIntervals = ["1m", "5m", "10m", "1D", "1W", "1M"] as const;
 
-const intervalMinutes: Record<string, number> = {
-  "1m": 1,
-  "5m": 5,
-  "10m": 10,
-  "1d": lookbackMinutes24h
+export type ChartInterval = typeof chartIntervals[number];
+
+const minutesPerTradingDay = 390;
+const tradingDaysPerYear = 252;
+const higherTimeframeYears = 5;
+
+const defaultVisibleBars: Record<ChartInterval, number> = {
+  "1m": 390,
+  "5m": 390,
+  "10m": 390,
+  "1D": 250,
+  "1W": 260,
+  "1M": 120
 };
 
-export function candleLimitFor24Hours(interval: string): number {
-  const minutes = intervalMinutes[interval] ?? 1;
-  return Math.max(1, Math.floor(lookbackMinutes24h / Math.max(1, minutes)));
+const backfillTargetBars: Record<ChartInterval, number> = {
+  "1m": minutesPerTradingDay * tradingDaysPerYear,
+  "5m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 5),
+  "10m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 10),
+  "1D": tradingDaysPerYear * higherTimeframeYears,
+  "1W": 52 * higherTimeframeYears,
+  "1M": 12 * higherTimeframeYears
+};
+
+const maxRequestBars: Record<ChartInterval, number> = Object.fromEntries(
+  chartIntervals.map((interval) => [
+    interval,
+    Math.max(defaultVisibleBars[interval], backfillTargetBars[interval])
+  ])
+) as Record<ChartInterval, number>;
+
+export function normalizeChartInterval(value: unknown): ChartInterval | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "1d") {
+    return "1D";
+  }
+  if (trimmed === "1w") {
+    return "1W";
+  }
+  if (trimmed === "1mo" || trimmed === "1MO" || trimmed === "1month") {
+    return "1M";
+  }
+  return chartIntervals.includes(trimmed as ChartInterval) ? trimmed as ChartInterval : null;
 }
 
-export function candleLimitFor1Year(interval: string): number {
-  const minutes = intervalMinutes[interval] ?? 1;
-  return Math.max(1, Math.floor(lookbackMinutes1y / Math.max(1, minutes)));
+export function defaultVisibleBarsForInterval(interval: string): number {
+  return defaultVisibleBars[normalizeChartInterval(interval) ?? "1m"];
+}
+
+export function backfillTargetBarsForInterval(interval: string): number {
+  return backfillTargetBars[normalizeChartInterval(interval) ?? "1m"];
+}
+
+export function maxRequestBarsForInterval(interval: string): number {
+  return maxRequestBars[normalizeChartInterval(interval) ?? "1m"];
 }

@@ -1,5 +1,6 @@
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "./candleStore";
 import { createChartDocument } from "./chartDocuments";
+import { normalizeChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import {
   executeChartCommand,
@@ -173,9 +174,9 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         message: snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined),
         source: snapshot.source,
         feed: snapshot.feed,
-        isSynthetic: snapshot.isSynthetic,
         backfillStatus: snapshot.backfillStatus ?? "not_requested",
         canBackfill: snapshot.canBackfill ?? false,
+        sourceInterval: snapshot.sourceInterval,
         requestedLimit: snapshot.requestedLimit,
         returnedCount: snapshot.returnedCount,
         targetStoredCount: snapshot.targetStoredCount,
@@ -187,10 +188,10 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         newestTimestamp: snapshot.newestTimestamp,
         hasMoreBefore: snapshot.hasMoreBefore,
         hasMoreAfter: snapshot.hasMoreAfter,
+        coverage: snapshot.coverage,
         updatedAt: now()
       }
     },
-    streamStatusByKey: { ...state.streamStatusByKey, [key]: "live" },
     journal: addJournal(state.journal, "chart.data.snapshot", "system", "applied", `${snapshot.symbol} ${snapshot.interval} snapshot loaded.`)
   };
 }
@@ -222,7 +223,6 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
         state: "ready",
         source: event.source ?? previousStatus?.source,
         feed: event.feed ?? previousStatus?.feed,
-        isSynthetic: event.isSynthetic ?? previousStatus?.isSynthetic,
         updatedAt: now()
       }
     },
@@ -584,8 +584,7 @@ function setDataStatus(
   const key = candleKey(symbol, interval);
   return {
     ...state,
-    dataStatusByKey: { ...state.dataStatusByKey, [key]: status },
-    streamStatusByKey: { ...state.streamStatusByKey, [key]: status.state === "error" ? "error" : state.streamStatusByKey[key] ?? "connecting" }
+    dataStatusByKey: { ...state.dataStatusByKey, [key]: status }
   };
 }
 
@@ -652,7 +651,7 @@ function readPanelSymbol(panel: ChartRuntimePanel): string {
 }
 
 function readPanelTimeframe(panel: ChartRuntimePanel): string {
-  return panel.props.timeframe === "5m" || panel.props.timeframe === "10m" ? panel.props.timeframe : "1m";
+  return normalizeChartInterval(panel.props.timeframe) ?? "1m";
 }
 
 function now() {

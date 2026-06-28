@@ -12,6 +12,7 @@ import { buildChartAgentContext } from "@gops/chart-engine/proposals";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
+  getDataStatusForDocument,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
@@ -205,14 +206,18 @@ export function SystemArea({
                 title={`Load ${item.symbol}`}
                 onClick={() => onSelectSymbol(item.symbol)}
               >
-                <span>
+                <span className="watchlist-symbol-cell">
                   <strong>{item.symbol}</strong>
                   <em>{item.name}</em>
                 </span>
-                <small className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : undefined}>
-                  {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
-                  {typeof item.changePercent === "number" ? ` ${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : ""}
-                </small>
+                <span className="watchlist-quote-cell">
+                  <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+                    {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+                  </strong>
+                  <em>
+                    {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
+                  </em>
+                </span>
               </button>
             ))}
           </div>
@@ -250,6 +255,7 @@ function AgentChatPanel({
   const chartPanel = resolvedReference?.panel ?? null;
   const chartDocument = resolvedReference?.document ?? null;
   const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
+  const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
   const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -302,6 +308,7 @@ function AgentChatPanel({
           panelId: chartPanel.id,
           document: chartDocument,
           candles,
+          dataStatus,
           streamStatus,
           symbolUniverse
         })

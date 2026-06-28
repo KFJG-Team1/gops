@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
-import { normalizeBackfillStatusPayload, shouldRequestBackfill } from "../../chart-engine/src/backfill";
+import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldRequestBackfill } from "../../chart-engine/src/backfill";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -13,8 +13,9 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
-import { candleLimitFor1Year, candleLimitFor24Hours } from "../../chart-engine/src/intervals";
+import { backfillTargetBarsForInterval, defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
+import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
@@ -290,37 +291,55 @@ const invalidProposal: ChartProposal = {
 
 assert.match(validateChartProposal(invalidProposal) ?? "", /llm actor/);
 
-const syntheticSnapshot = normalizeCandleSnapshot({
+const fixtureSnapshot = normalizeCandleSnapshot({
   symbol: "NVDA",
   interval: "5m",
-  source: "test-harness",
-  feed: "synthetic-test",
-  isSynthetic: true,
+  source: "alpaca",
+  feed: "sip",
   candles: [candleA],
 });
-assert.equal(syntheticSnapshot.isSynthetic, true);
-assert.equal(syntheticSnapshot.feed, "synthetic-test");
+assert.equal(fixtureSnapshot.feed, "sip");
 
-const syntheticRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
-  kind: "chart.snapshot.loaded",
-  snapshot: syntheticSnapshot,
+const legacyDailySnapshot = normalizeCandleSnapshot({
+  symbol: "NVDA",
+  interval: "1d",
+  source: "alpaca",
+  feed: "sip",
+  candles: [candleA],
 });
-assert.equal(syntheticRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.state, "ready");
-assert.equal(syntheticRuntime.candlesByKey[candleKey("NVDA", "5m")]?.length, 1);
-const syntheticLiveRuntime = chartRuntimeReducer(syntheticRuntime, {
+assert.equal(legacyDailySnapshot.interval, "1D");
+
+const fixtureRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.snapshot.loaded",
+  snapshot: fixtureSnapshot,
+});
+assert.equal(fixtureRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.state, "ready");
+assert.equal(fixtureRuntime.candlesByKey[candleKey("NVDA", "5m")]?.length, 1);
+assert.equal(fixtureRuntime.streamStatusByKey[candleKey("NVDA", "5m")], undefined);
+const streamErrorThenSnapshotRuntime = chartRuntimeReducer(chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.stream.status",
+  symbol: "NVDA",
+  interval: "5m",
+  status: "error",
+  message: "Live stream is unavailable."
+}), {
+  kind: "chart.snapshot.loaded",
+  snapshot: fixtureSnapshot,
+});
+assert.equal(streamErrorThenSnapshotRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.state, "ready");
+assert.equal(streamErrorThenSnapshotRuntime.streamStatusByKey[candleKey("NVDA", "5m")], "error");
+const liveRuntime = chartRuntimeReducer(fixtureRuntime, {
   kind: "chart.live",
   event: {
     type: "LIVE_CANDLE_UPDATE",
     symbol: "NVDA",
     interval: "5m",
-    source: "test-harness",
-    feed: "synthetic-test",
-    isSynthetic: true,
+    source: "alpaca",
+    feed: "sip",
     data: { ...candleA, close: 11.4, high: 11.6 }
   }
 });
-assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.isSynthetic, true);
-assert.equal(syntheticLiveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "synthetic-test");
+assert.equal(liveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "sip");
 
 const heartbeatPayload = { type: "HEARTBEAT", symbol: "NVDA", interval: "1m" };
 assert.equal(isRealtimeControlPayload(heartbeatPayload), true);
@@ -339,12 +358,77 @@ assert.equal(shouldRequestBackfill({
   canBackfill: true,
   updatedAt: new Date().toISOString()
 }), false);
+assert.equal(isPreparingCandleData({
+  state: "empty",
+  message: "No candle data",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}, true), true);
+assert.equal(isPreparingCandleData({
+  state: "empty",
+  backfillStatus: "queued",
+  canBackfill: false,
+  updatedAt: new Date().toISOString()
+}, true), true);
+assert.equal(isPreparingCandleData({
+  state: "empty",
+  backfillStatus: "failed",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}, true), false);
 assert.equal(normalizeBackfillStatusPayload({
   symbol: "NVDA",
-  interval: "1m",
+  interval: "1W",
+  sourceInterval: "1D",
   requestId: "backfill:NVDA:1m:test",
   status: "succeeded"
 }).status, "succeeded");
+assert.equal(normalizeBackfillStatusPayload({
+  symbol: "NVDA",
+  interval: "1W",
+  sourceInterval: "1D",
+  requestId: "backfill:NVDA:1D:test",
+  status: "queued"
+}).sourceInterval, "1D");
+assert.equal(shouldRequestBackfill({
+  state: "empty",
+  message: "Backfill completed, but no stored 1m candles were found for NVDA.",
+  backfillStatus: "succeeded",
+  canBackfill: false,
+  coverage: {
+    state: "empty",
+    reasonCode: "backfill_succeeded_without_complete_coverage",
+    sourceInterval: "1m"
+  },
+  updatedAt: new Date().toISOString()
+}), false);
+assert.equal(isChartDataRenderable({
+  state: "partial",
+  message: "Sparse daily coverage should not render like a normal chart.",
+  coverage: {
+    state: "partial",
+    reasonCode: "insufficient_source_bars",
+    sourceInterval: "1D",
+    renderable: false,
+    minimumRenderableSourceBars: 60,
+    storedCandleCount: 8
+  },
+  updatedAt: new Date().toISOString()
+}), false);
+assert.equal(isChartDataRenderable({
+  state: "partial",
+  message: "Enough partial intraday candles may still be inspectable.",
+  coverage: {
+    state: "partial",
+    reasonCode: "backfill_succeeded_without_complete_coverage",
+    sourceInterval: "1m",
+    renderable: true,
+    minimumRenderableSourceBars: 30,
+    storedCandleCount: 99
+  },
+  updatedAt: new Date().toISOString()
+}), true);
 
 const emptyStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.data.status",
@@ -358,6 +442,33 @@ const emptyStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(),
   }
 });
 assert.equal(emptyStatusRuntime.dataStatusByKey[candleKey("AMD", "1m")]?.backfillStatus, "queued");
+assert.equal(emptyStatusRuntime.streamStatusByKey[candleKey("AMD", "1m")], undefined);
+
+const derivedSourceStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.data.status",
+  symbol: "AMD",
+  interval: "1W",
+  status: {
+    state: "empty",
+    message: "Weekly candles are waiting for daily backfill.",
+    backfillStatus: "queued",
+    canBackfill: false,
+    sourceInterval: "1D"
+  }
+});
+assert.equal(derivedSourceStatusRuntime.dataStatusByKey[candleKey("AMD", "1W")]?.sourceInterval, "1D");
+
+const liveThenDataErrorRuntime = chartRuntimeReducer(liveRuntime, {
+  kind: "chart.data.status",
+  symbol: "NVDA",
+  interval: "5m",
+  status: {
+    state: "error",
+    message: "Snapshot unavailable while live socket remains separate.",
+    updatedAt: new Date().toISOString()
+  }
+});
+assert.equal(liveThenDataErrorRuntime.streamStatusByKey[candleKey("NVDA", "5m")], "live");
 
 const partialBackfillSnapshot = normalizeCandleSnapshot({
   symbol: "INTC",
@@ -367,14 +478,27 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   dataStatus: "partial",
   backfillStatus: "not_requested",
   canBackfill: true,
-  requestedLimit: 1440,
+  requestedLimit: 390,
   returnedCount: 1,
-  targetStoredCount: 525600,
+  targetStoredCount: 98280,
   storedCandleCount: 1,
   hasMoreBefore: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "stored_range_incomplete",
+    sourceInterval: "1m",
+    returnedCount: 1,
+    storedCandleCount: 1,
+    targetStoredCount: 98280,
+    renderable: false,
+    minimumReturnedCount: 20,
+    minimumRenderableSourceBars: 30
+  },
   candles: [candleB]
 });
 assert.equal(partialBackfillSnapshot.dataStatus, "partial");
+assert.equal(partialBackfillSnapshot.coverage?.reasonCode, "stored_range_incomplete");
+assert.equal(partialBackfillSnapshot.coverage?.renderable, false);
 const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.snapshot.loaded",
   snapshot: partialBackfillSnapshot
@@ -382,7 +506,44 @@ const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeStat
 const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
 assert.equal(partialBackfillStatus?.state, "partial");
 assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 525600);
+assert.equal(partialBackfillStatus?.targetStoredCount, 98280);
+assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 98280);
+
+const agentContextWithStreamError = buildChartAgentContext({
+  panelId: "panel-agent-context",
+  document: createChartDocument("chart-doc-agent-context", "NVDA", "1m"),
+  candles: [candleA, candleB],
+  dataStatus: {
+    state: "ready",
+    updatedAt: new Date().toISOString()
+  },
+  streamStatus: "error",
+  symbolUniverse: ["NVDA", "AMD"]
+});
+assert.equal(agentContextWithStreamError.dataStatus.state, "ready");
+assert.equal(agentContextWithStreamError.dataStatus.candleCount, 2);
+assert.equal(agentContextWithStreamError.dataStatus.hasVisibleCandles, true);
+assert.equal(agentContextWithStreamError.streamStatus, "error");
+
+const proposalScene = buildRenderScene({
+  state: "ready",
+  document: createChartDocument("chart-doc-proposal-scene", "NVDA", "1m"),
+  candles: [candleA, candleB],
+  width: 640,
+  height: 320,
+  streamStatus: "error"
+});
+const proposalRequestWithCandles = buildChartProposalRequest({
+  panelId: "panel-proposal-scene",
+  document: proposalScene.document,
+  scene: proposalScene,
+  streamStatus: "error",
+  symbolUniverse: ["NVDA", "AMD"]
+});
+assert.equal(proposalRequestWithCandles.dataStatus.state, "ready");
+assert.equal(proposalRequestWithCandles.dataStatus.candleCount, 2);
+assert.equal(proposalRequestWithCandles.dataStatus.hasVisibleCandles, true);
+assert.equal(proposalRequestWithCandles.streamStatus, "error");
 
 const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
   kind: "chart.snapshot.loaded",
@@ -449,12 +610,35 @@ assert.equal(normalizeSupportedSymbol(" nvda "), "NVDA");
 assert.equal(normalizeSupportedSymbol("GOOG"), "GOOG");
 assert.equal(normalizeSupportedSymbol("BAD!"), null);
 
-assert.equal(candleLimitFor24Hours("1m"), 1440);
-assert.equal(candleLimitFor24Hours("5m"), 288);
-assert.equal(candleLimitFor24Hours("10m"), 144);
-assert.equal(candleLimitFor24Hours("1d"), 1);
-assert.equal(candleLimitFor1Year("1m"), 525600);
-assert.equal(candleLimitFor1Year("5m"), 105120);
+assert.equal(normalizeChartInterval("1d"), "1D");
+assert.equal(normalizeChartInterval("1w"), "1W");
+assert.equal(normalizeChartInterval("1mo"), "1M");
+assert.equal(normalizeChartInterval("bad"), null);
+assert.equal(defaultVisibleBarsForInterval("1m"), 390);
+assert.equal(defaultVisibleBarsForInterval("5m"), 390);
+assert.equal(defaultVisibleBarsForInterval("10m"), 390);
+assert.equal(defaultVisibleBarsForInterval("1D"), 250);
+assert.equal(defaultVisibleBarsForInterval("1W"), 260);
+assert.equal(defaultVisibleBarsForInterval("1M"), 120);
+assert.equal(backfillTargetBarsForInterval("1m"), 98280);
+assert.equal(backfillTargetBarsForInterval("5m"), 19656);
+assert.equal(backfillTargetBarsForInterval("10m"), 9828);
+assert.equal(backfillTargetBarsForInterval("1D"), 1260);
+assert.equal(backfillTargetBarsForInterval("1W"), 260);
+assert.equal(backfillTargetBarsForInterval("1M"), 60);
+assert.equal(maxRequestBarsForInterval("1M"), 120);
+for (const timeframe of ["1D", "1W", "1M"]) {
+  const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
+  const timeframeResult = executeChartCommand(
+    timeframeDocument,
+    makeChartCommand("chart.timeframe.set", "user", target("panel-timeframe", timeframeDocument.id), { timeframe })
+  );
+  assert.equal(timeframeResult.ok, true);
+  if (timeframeResult.ok) {
+    assert.equal(timeframeResult.document.timeframe, timeframe);
+    assert.equal(timeframeResult.document.viewport.visibleCount, defaultVisibleBarsForInterval(timeframe));
+  }
+}
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [
@@ -693,7 +877,6 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
     interval: "1m",
     source: "alpaca",
     feed: "sip",
-    isSynthetic: false,
     indicators: { ma: [5, 20, 60], volume: true },
     candles: [candleA, candleB]
   }
@@ -708,7 +891,7 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   })
 });
 assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 12, rightOffset: 1 });
-assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: candleLimitFor24Hours("1m"), rightOffset: 0 });
+assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: defaultVisibleBarsForInterval("1m"), rightOffset: 0 });
 sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   kind: "chart.live",
   event: {
@@ -854,7 +1037,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
 });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.symbol, "AAPL");
 assert.equal(regressionRuntime.documents[regressionDocBId]?.symbol, "MSFT");
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: candleLimitFor24Hours("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.history.length, 0);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.history.length, 0);
 
@@ -875,7 +1058,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
   kind: "chart.command",
   command: makeChartCommand("chart.undo", "user", target(regressionPanelA.id, regressionDocAId))
 });
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: candleLimitFor24Hours("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
 assert.deepEqual(regressionRuntime.documents[regressionDocBId]?.viewport, beforeViewportB);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.future.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.future.length, 0);

@@ -29,12 +29,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
-import { isActiveBackfillStatus, normalizeBackfillStatusPayload, shouldRequestBackfill } from "@gops/chart-engine/backfill";
+import { isActiveBackfillStatus, isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldRequestBackfill } from "@gops/chart-engine/backfill";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
 import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
-import { candleLimitFor1Year, candleLimitFor24Hours } from "@gops/chart-engine/intervals";
+import { chartIntervals, defaultVisibleBarsForInterval, maxRequestBarsForInterval } from "@gops/chart-engine/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
@@ -163,11 +163,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const documentDataKey = candleKey(document.symbol, document.timeframe);
   const backfillEligibleKey = backfillEligibleSymbols.join("|");
   const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
-  const backfillPreparing = dataStatus.state === "empty" &&
-    backfillEligible &&
-    (shouldRequestBackfill(dataStatus) ||
-      backfillRequestsRef.current.has(documentDataKey) ||
-      isActiveBackfillStatus(dataStatus.backfillStatus));
+  const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
+  const chartDataRenderable = isChartDataRenderable(dataStatus);
   const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
   const sceneDocument = useMemo(
     () => (transientViewport || transientDrawings)
@@ -262,7 +259,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       symbol: document.symbol,
       interval: document.timeframe,
       ma: "5,20,60",
-      limit: String(candleLimitFor24Hours(document.timeframe))
+      limit: String(defaultVisibleBarsForInterval(document.timeframe))
     });
 
     onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
@@ -289,13 +286,6 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           symbol: document.symbol,
           interval: document.timeframe,
           message: "Market data is unavailable."
-        });
-        onChartAction({
-          kind: "chart.stream.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: "error",
-          message: "Market data stream is offline."
         });
       });
 
@@ -327,6 +317,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       }
 
       if (status.status === "succeeded") {
+        backfillRequestsRef.current.delete(key);
         setSnapshotReloadToken((current) => current + 1);
         return;
       }
@@ -338,6 +329,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         return;
       }
 
+      backfillRequestsRef.current.delete(key);
       onChartAction({
         kind: "chart.data.status",
         symbol: document.symbol,
@@ -347,9 +339,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           message: backfillStatusMessage(status.status, status.error),
           source: dataStatus.source,
           feed: dataStatus.feed,
-          isSynthetic: dataStatus.isSynthetic,
           backfillStatus: status.status,
-          canBackfill: !isActiveBackfillStatus(status.status) && status.status !== "unavailable"
+          canBackfill: !isActiveBackfillStatus(status.status) && status.status !== "unavailable",
+          sourceInterval: status.sourceInterval
         }
       });
     };
@@ -385,9 +377,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
               message: error instanceof Error ? error.message : "Backfill status check failed.",
               source: dataStatus.source,
               feed: dataStatus.feed,
-              isSynthetic: dataStatus.isSynthetic,
               backfillStatus: "failed",
-              canBackfill: true
+              canBackfill: true,
+              sourceInterval: dataStatus.sourceInterval ?? document.timeframe
             }
           });
         });
@@ -423,9 +415,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             message: error instanceof Error ? error.message : "Backfill request failed.",
             source: dataStatus.source,
             feed: dataStatus.feed,
-            isSynthetic: dataStatus.isSynthetic,
             backfillStatus: "failed",
-            canBackfill: true
+            canBackfill: true,
+            sourceInterval: dataStatus.sourceInterval ?? document.timeframe
           }
         });
       });
@@ -533,7 +525,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
   const scene = useMemo(() => {
     const nextScene = buildRenderScene({
-      state: backfillPreparing ? "loading" : dataStatus.state === "partial" ? "ready" : dataStatus.state,
+      state: backfillPreparing ? "loading" : chartDataRenderable ? "ready" : dataStatus.state,
       message: backfillPreparing ? "Preparing candle data..." : dataStatus.message,
       document: sceneDocument,
       candles,
@@ -551,7 +543,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     });
     sceneRef.current = nextScene;
     return nextScene;
-  }, [backfillPreparing, candles, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
+  }, [backfillPreparing, candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
 
   useEffect(() => {
     const controllers: AbortController[] = [];
@@ -580,7 +572,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         symbol,
         interval: document.timeframe,
         ma: "5,20,60",
-        limit: String(candleLimitFor24Hours(document.timeframe))
+        limit: String(defaultVisibleBarsForInterval(document.timeframe))
       });
       fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
         .then((response) => {
@@ -615,12 +607,12 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return undefined;
     }
 
-    const oneYearLimit = candleLimitFor1Year(document.timeframe);
-    const dailyLimit = candleLimitFor24Hours(document.timeframe);
-    const targetVisibleCount = Math.min(oneYearLimit, Math.max(1, document.viewport.visibleCount));
+    const targetLimit = maxRequestBarsForInterval(document.timeframe);
+    const defaultVisibleCount = defaultVisibleBarsForInterval(document.timeframe);
+    const targetVisibleCount = Math.min(targetLimit, Math.max(1, document.viewport.visibleCount));
     const visibleEnd = Math.max(0, candles.length - document.viewport.rightOffset);
     const visibleStart = Math.max(0, visibleEnd - targetVisibleCount);
-    const userZoomedPastDefault = targetVisibleCount > dailyLimit;
+    const userZoomedPastDefault = targetVisibleCount > defaultVisibleCount;
     const userPannedIntoHistory = document.viewport.rightOffset > 0;
     const isLookingPastLoadedRange = userZoomedPastDefault && targetVisibleCount > candles.length;
     const isNearLoadedOldest =
@@ -637,11 +629,11 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     }
 
     const missingVisibleCount = Math.max(0, targetVisibleCount - candles.length);
-    const remainingCapacity = Math.max(0, oneYearLimit - candles.length);
+    const remainingCapacity = Math.max(0, targetLimit - candles.length);
     if (remainingCapacity <= 0) {
       return undefined;
     }
-    const pageLimit = Math.min(remainingCapacity, Math.max(dailyLimit, missingVisibleCount + dailyLimit));
+    const pageLimit = Math.min(remainingCapacity, Math.max(defaultVisibleCount, missingVisibleCount + defaultVisibleCount));
     const requestKey = `${document.symbol}:${document.timeframe}:before:${oldest}`;
     if (rangeRequestsRef.current.has(requestKey)) {
       return undefined;
@@ -890,7 +882,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
   const resetViewport = () => {
     runCommand("chart.viewport.set", {
-      visibleCount: candleLimitFor24Hours(document.timeframe),
+      visibleCount: defaultVisibleBarsForInterval(document.timeframe),
       rightOffset: 0
     });
   };
@@ -1203,9 +1195,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             aria-label="Chart timeframe"
             onChange={(event) => runCommand("chart.timeframe.set", { timeframe: event.target.value })}
           >
-            <option value="1m">1m</option>
-            <option value="5m">5m</option>
-            <option value="10m">10m</option>
+            {chartIntervals.map((interval) => (
+              <option key={interval} value={interval}>{interval}</option>
+            ))}
           </select>
         </div>
 
@@ -1660,11 +1652,17 @@ function isAbortError(error: unknown): boolean {
 }
 
 function backfillStatusMessage(status: string, error?: string): string {
+  if (status === "queued" || status === "running") {
+    return "Preparing candle data...";
+  }
   if (status === "failed") {
     return error || "Historical candle backfill failed.";
   }
   if (status === "unavailable") {
     return error || "Historical candle backfill is unavailable.";
+  }
+  if (status === "succeeded") {
+    return "Backfill completed, but no stored candles were found for this chart.";
   }
   return "No candle data is available for this symbol and interval.";
 }
