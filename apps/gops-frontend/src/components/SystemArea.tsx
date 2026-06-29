@@ -12,13 +12,16 @@ import { buildChartAgentContext } from "@gops/chart-engine/proposals";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
+  getChartDocumentForPanel,
   getDataStatusForDocument,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
+import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
+import { findTargetChartPanel } from "../layout/chartPanelSelection";
 import { getPanelDefinition } from "../layout/panelRegistry";
 import {
   createPanelDropCommand,
@@ -42,18 +45,11 @@ export type AgentOption = {
 export type AgentUpdatePatch = Partial<Pick<AgentOption, "label" | "description" | "iconUrl">>;
 
 export const initialAgentOptions: AgentOption[] = [
-  { id: "agent-01", label: "Chart Agent", description: "LLM chart operator. It explains intent and sends chart commands.", iconUrl: "/assets/agent-icons/agent-01.svg" },
-  { id: "agent-02", label: "Agent 02", description: "News and context assistant.", iconUrl: "/assets/agent-icons/agent-02.svg" },
-  { id: "agent-03", label: "Agent 03", description: "Signal review assistant.", iconUrl: "/assets/agent-icons/agent-03.svg" },
-  { id: "agent-04", label: "Agent 04", description: "Portfolio watch assistant.", iconUrl: "/assets/agent-icons/agent-04.svg" }
+  { id: "agent-01", label: "Chart Agent", description: "Analyzes chart context and keeps the existing chart command flow.", iconUrl: "/assets/agent-icons/agent-01.svg" },
+  { id: "agent-02", label: "News Agent", description: "Checks market news context and provider evidence.", iconUrl: "/assets/agent-icons/agent-02.svg" },
+  { id: "agent-03", label: "Macro Agent", description: "Reviews macro indicators and market-wide numeric signals.", iconUrl: "/assets/agent-icons/agent-03.svg" },
+  { id: "agent-04", label: "Ontology Agent", description: "Analyzes company relationship and sector impact context.", iconUrl: "/assets/agent-icons/agent-04.svg" }
 ];
-
-const orchestratorAgent: AgentOption = {
-  id: "orchestrator",
-  label: "Orchestrator",
-  description: "Automatically coordinates multi-agent mode.",
-  iconUrl: "/assets/agent-icons/agent-12.svg"
-};
 
 type SystemAreaProps = {
   mode: SystemMode;
@@ -120,10 +116,9 @@ export function SystemArea({
   onChartAction
 }: SystemAreaProps) {
   const selectedAgents = agents.filter((agent) => selectedAgentIds.includes(agent.id));
-  const activeAgents = selectedAgents.length > 1 ? [orchestratorAgent, ...selectedAgents] : selectedAgents;
   const chartAgentAccess = getChartAgentAccess(selectedAgents);
   const agentHeaderTitle = selectedAgents.length > 1
-    ? "Orchestration"
+    ? "Multi-agent Analysis"
     : selectedAgents[0]?.label ?? "LLM Agent";
   const agentHeaderDetail = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
@@ -165,7 +160,6 @@ export function SystemArea({
             chartRuntime={chartRuntime}
             autoApplyEnabled={chartAutoApplyEnabled}
             selectedAgents={selectedAgents}
-            activeAgents={activeAgents}
             chartAgentAccess={chartAgentAccess}
             referencedChartTarget={referencedChartTarget}
             symbolUniverse={symbolUniverse}
@@ -233,7 +227,6 @@ function AgentChatPanel({
   chartRuntime,
   autoApplyEnabled,
   selectedAgents,
-  activeAgents,
   chartAgentAccess,
   referencedChartTarget,
   symbolUniverse,
@@ -243,7 +236,6 @@ function AgentChatPanel({
   chartRuntime: ChartRuntimeState;
   autoApplyEnabled: boolean;
   selectedAgents: AgentOption[];
-  activeAgents: AgentOption[];
   chartAgentAccess: ReturnType<typeof getChartAgentAccess>;
   referencedChartTarget?: AgentChartReference;
   symbolUniverse: readonly SupportedSymbol[];
@@ -254,34 +246,46 @@ function AgentChatPanel({
     () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
     [chartRuntime, layout.panels, referencedChartTarget]
   );
-  const chartPanel = resolvedReference?.panel ?? null;
-  const chartDocument = resolvedReference?.document ?? null;
-  const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
-  const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
-  const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
+  const orchestrationMode = selectedAgents.length > 1;
+  const hasNonChartAgent = selectedAgents.some((agent) => agent.id !== "agent-01");
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [agentError, setAgentError] = useState(false);
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
-  const draftSeed = referencedChartTarget?.draftSeed ?? DEFAULT_AGENT_DRAFT_SEED;
-  const introAgent = activeAgents[0] ?? selectedAgents[0] ?? orchestratorAgent;
+  const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
+  const draftContent = resolveAgentSendContent(draft, draftSeed);
+  const routeIntentMode = isAgentAnalysisIntent(draftContent);
+  const agentAnalysisMode = orchestrationMode || hasNonChartAgent || routeIntentMode;
+  const fallbackChartPanel = useMemo(
+    () => agentAnalysisMode ? findTargetChartPanel(layout.panels, layout.selectedPanelId) : null,
+    [agentAnalysisMode, layout.panels, layout.selectedPanelId]
+  );
+  const fallbackChartDocument = fallbackChartPanel ? getChartDocumentForPanel(chartRuntime, fallbackChartPanel) : null;
+  const chartPanel = resolvedReference?.panel ?? fallbackChartPanel;
+  const chartDocument = resolvedReference?.document ?? fallbackChartDocument;
+  const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
+  const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
+  const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
+  const introAgent = selectedAgents[0];
+  const introLabel = selectedAgents.length > 1 ? "Multi-agent Analysis" : introAgent?.label ?? "LLM Agent";
+  const introIconUrl = introAgent?.iconUrl ?? "/assets/agent-icons/agent-01.svg";
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
-    : introAgent.description;
-  const target = chartAgentAccess.enabled && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
+    : introAgent?.description ?? "Select an agent";
+  const target = (chartAgentAccess.enabled || agentAnalysisMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
   const authRequired = authEnabled && !user;
   const disabledMessage = authRequired
     ? "Sign in with Google to use agents."
-    : chartAgentAccess.reason === "orchestration"
-    ? "멀티에이전트 모드에서는 아직 차트 요청을 보낼 수 없습니다."
+    : agentAnalysisMode
+    ? "차트 패널을 선택하거나 차트에서 Ask Agent를 눌러 분석할 차트를 지정하세요."
     : chartAgentAccess.reason === "no-chart-agent"
       ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
       : "차트 패널에서 Ask Agent를 눌러 분석할 차트를 지정하세요.";
-  const sendDisabled = authRequired || authLoading || !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
+  const sendDisabled = authRequired || authLoading || !target || !draftContent.trim() || sending;
 
   useEffect(() => {
     setMessages([]);
@@ -307,21 +311,57 @@ function AgentChatPanel({
     setDraft("");
     setSending(true);
     setAgentError(false);
+    const chartContext = buildChartAgentContext({
+      panelId: chartPanel.id,
+      document: chartDocument,
+      candles,
+      dataStatus,
+      streamStatus,
+      symbolUniverse
+    });
+    const requestMessagePayload = requestMessages.map((message) => ({ role: message.role, content: message.content }));
+
+    if (shouldUseAgentAnalysisEndpoint(selectedAgents, content)) {
+      fetch("/api/agents/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildAgentAnalysisRequest({
+          agentIds: selectedAgents.map((agent) => agent.id),
+          messages: requestMessages,
+          symbol: chartDocument.symbol,
+          intent: content,
+          chartContext,
+          routerMode: "hybrid"
+        }))
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(await readApiErrorMessage(response, "Agent orchestration API"));
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          const report = normalizeAgentAnalysisReport(payload);
+          setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
+        })
+        .catch((error: unknown) => {
+          setAgentError(true);
+          setMessages((current) => [
+            ...current,
+            createChatMessage("assistant", error instanceof Error ? error.message : "Agent orchestration failed.")
+          ]);
+        })
+        .finally(() => setSending(false));
+      return;
+    }
 
     fetch("/api/llm/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         agentIds: selectedAgents.map((agent) => agent.id),
-        messages: requestMessages.map((message) => ({ role: message.role, content: message.content })),
-        context: buildChartAgentContext({
-          panelId: chartPanel.id,
-          document: chartDocument,
-          candles,
-          dataStatus,
-          streamStatus,
-          symbolUniverse
-        })
+        messages: requestMessagePayload,
+        context: chartContext
       })
     })
       .then(async (response) => {
@@ -354,8 +394,8 @@ function AgentChatPanel({
       <div className={messages.length === 0 ? "agent-chat-messages empty" : "agent-chat-messages"} aria-label="LLM chart chat messages">
         {messages.length === 0 && (
           <div className="agent-chat-empty-state">
-            <img src={introAgent.iconUrl} alt="" />
-            <strong>{introAgent.label}</strong>
+            <img src={introIconUrl} alt="" />
+            <strong>{introLabel}</strong>
             <span>{introDescription}</span>
             {!target && <small>{disabledMessage}</small>}
             {authRequired && (
@@ -417,6 +457,61 @@ function chartProposalStatusMessage(
   return autoApplyEnabled
     ? "Chart command sent to the chart runtime."
     : "Chart command proposal is waiting in the chart panel.";
+}
+
+function shouldUseAgentAnalysisEndpoint(selectedAgents: AgentOption[], content: string): boolean {
+  return selectedAgents.length > 1 ||
+    selectedAgents.some((agent) => agent.id !== "agent-01") ||
+    isAgentAnalysisIntent(content);
+}
+
+function isAgentAnalysisIntent(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return [
+    "뉴스",
+    "기사",
+    "보도",
+    "헤드라인",
+    "거시",
+    "금리",
+    "관계",
+    "공급망",
+    "경쟁사",
+    "섹터",
+    "급등",
+    "급락",
+    "극락",
+    "이상",
+    "변동",
+    "원인",
+    "왜",
+    "news",
+    "headline",
+    "article",
+    "macro",
+    "rate",
+    "relationship",
+    "ontology",
+    "surge",
+    "spike",
+    "why"
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function defaultDraftSeedForAgents(selectedAgents: AgentOption[]): string {
+  if (selectedAgents.length > 1) {
+    return "주가 변동 원인 분석해줘";
+  }
+  switch (selectedAgents[0]?.id) {
+    case "agent-02":
+      return "뉴스 보여줘";
+    case "agent-03":
+      return "거시 경제 영향 분석해줘";
+    case "agent-04":
+      return "기업 관계 영향 분석해줘";
+    default:
+      return DEFAULT_AGENT_DRAFT_SEED;
+  }
 }
 
 export function SystemOrbRail({
