@@ -21,6 +21,7 @@ export type PanelType =
   | "agentChat"
   | "symbolSummary"
   | "indicatorCompare"
+  | "orderTicket"
   | "aiSummary"
   | "notifications";
 

@@ -143,6 +143,17 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     variants: variantDefinitions,
     commands: layoutCommands
   },
+  orderTicket: {
+    type: "orderTicket",
+    title: "Order",
+    allowedZones: workspaceZones,
+    defaultPlacement: workspacePlacement("context", 4, 4, 1, 2),
+    minSpan: { colSpan: 1, rowSpan: 2 },
+    maxSpan: { colSpan: 4, rowSpan: 5 },
+    defaultWeight: 7,
+    variants: variantDefinitions,
+    commands: layoutCommands
+  },
   aiSummary: {
     type: "aiSummary",
     title: "AI Summary",

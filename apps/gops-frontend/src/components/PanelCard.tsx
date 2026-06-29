@@ -2,6 +2,7 @@ import { Pin, Star, X } from "lucide-react";
 import { useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
+import { OrderTicket } from "./OrderTicket";
 import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
@@ -19,6 +20,7 @@ type PanelCardProps = {
   onPreviewChange: (preview: LayoutPreviewItem[]) => void;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
+  activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
   knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
@@ -45,6 +47,7 @@ function PanelBody({
   panel,
   chartRuntime,
   chartAutoApplyEnabled,
+  activeSymbol,
   backfillEligibleSymbols,
   onChartAction,
   onAskAgentFromChart
@@ -52,6 +55,7 @@ function PanelBody({
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
+  activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
@@ -67,6 +71,10 @@ function PanelBody({
         onAskAgent={onAskAgentFromChart}
       />
     );
+  }
+
+  if (panel.type === "orderTicket") {
+    return <OrderTicket activeSymbol={activeSymbol} />;
   }
 
   return (
@@ -153,6 +161,8 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
       return "Symbol snapshot";
     case "indicatorCompare":
       return "Indicator compare";
+    case "orderTicket":
+      return "Order entry";
     case "aiSummary":
       return "AI notes";
     case "notifications":
@@ -200,6 +210,7 @@ export function PanelCard({
   onPreviewChange,
   chartRuntime,
   chartAutoApplyEnabled,
+  activeSymbol,
   backfillEligibleSymbols,
   knownSymbols,
   watchlistSymbols,
@@ -383,6 +394,7 @@ export function PanelCard({
         panel={panel}
         chartRuntime={chartRuntime}
         chartAutoApplyEnabled={chartAutoApplyEnabled}
+        activeSymbol={activeSymbol}
         backfillEligibleSymbols={backfillEligibleSymbols}
         onChartAction={onChartAction}
         onAskAgentFromChart={onAskAgentFromChart}

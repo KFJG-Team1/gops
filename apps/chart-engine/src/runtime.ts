@@ -55,6 +55,7 @@ export function createInitialChartRuntimeState(): ChartRuntimeState {
     candlesByKey: {},
     dataStatusByKey: {},
     streamStatusByKey: {},
+    streamMessageByKey: {},
     pendingPreviewByDocumentId: {},
     pendingProposals: [],
     journal: [],
@@ -123,6 +124,10 @@ export function getDataStatusForDocument(state: ChartRuntimeState, document: Cha
 
 export function getStreamStatusForDocument(state: ChartRuntimeState, document: ChartDocument): StreamStatus {
   return state.streamStatusByKey[candleKey(document.symbol, document.timeframe)] ?? "connecting";
+}
+
+export function getStreamMessageForDocument(state: ChartRuntimeState, document: ChartDocument): string | undefined {
+  return state.streamMessageByKey?.[candleKey(document.symbol, document.timeframe)];
 }
 
 function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
@@ -596,9 +601,16 @@ function setStreamStatus(
   message?: string
 ): ChartRuntimeState {
   const key = candleKey(symbol, interval);
+  const streamMessageByKey = { ...(state.streamMessageByKey ?? {}) };
+  if (message) {
+    streamMessageByKey[key] = message;
+  } else {
+    delete streamMessageByKey[key];
+  }
   return {
     ...state,
     streamStatusByKey: { ...state.streamStatusByKey, [key]: status },
+    streamMessageByKey,
     journal: message ? addJournal(state.journal, "chart.data.live", "system", status === "error" ? "failed" : "applied", message) : state.journal
   };
 }

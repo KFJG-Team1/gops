@@ -10,18 +10,24 @@ export type BackfillStatusPayload = {
 };
 
 const activeBackfillStatuses = new Set<BackfillStatus>(["queued", "running"]);
+const terminalBackfillStatuses = new Set<BackfillStatus>(["succeeded", "failed", "unavailable"]);
 
 export function isActiveBackfillStatus(status?: BackfillStatus): boolean {
   return Boolean(status && activeBackfillStatuses.has(status));
 }
 
 export function shouldRequestBackfill(status: ChartDataStatus): boolean {
-  return status.state === "empty" &&
+  const needsSourceData =
+    status.state === "empty" ||
+    status.state === "error" ||
+    (status.state === "partial" && status.coverage?.renderable !== true);
+  return needsSourceData &&
     status.canBackfill === true &&
-    !isActiveBackfillStatus(status.backfillStatus) &&
-    status.backfillStatus !== "succeeded" &&
-    status.backfillStatus !== "failed" &&
-    status.backfillStatus !== "unavailable";
+    !isActiveBackfillStatus(status.backfillStatus);
+}
+
+export function shouldForceBackfill(status: ChartDataStatus): boolean {
+  return Boolean(status.backfillStatus && terminalBackfillStatuses.has(status.backfillStatus));
 }
 
 export function isPreparingCandleData(

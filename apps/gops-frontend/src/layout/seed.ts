@@ -29,9 +29,11 @@ export function createPanelInstance(
       : type === "watchlist"
         ? [{ kind: "watchlist", id: `watchlist-${crypto.randomUUID()}` }]
         : type === "newsFeed"
-          ? [{ kind: "newsQuery", id: `news-${crypto.randomUUID()}` }]
-          : type === "agentChat" || type === "agentStatus"
-            ? [{ kind: "agentThread", id: `agent-${crypto.randomUUID()}` }]
+        ? [{ kind: "newsQuery", id: `news-${crypto.randomUUID()}` }]
+        : type === "agentChat" || type === "agentStatus"
+          ? [{ kind: "agentThread", id: `agent-${crypto.randomUUID()}` }]
+          : type === "orderTicket"
+            ? [{ kind: "orderTicket", id: `orderTicket-${crypto.randomUUID()}` }]
             : undefined;
 
   const chartRef = resourceRefs?.find((ref) => ref.kind === "chartDocument");
@@ -272,11 +274,11 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "panel-symbol-summary"
     ),
     createPanelInstance(
-      "aiSummary",
+      "orderTicket",
       { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
-      { summary: "LLM summary placeholder" },
-      "panel-ai-summary"
+      {},
+      "panel-order"
     )
   ];
 

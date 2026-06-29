@@ -9,6 +9,7 @@ export const PANEL_CATALOG_TYPES: PanelType[] = [
   "newsFeed",
   "symbolSummary",
   "aiSummary",
+  "orderTicket",
   "watchlist",
   "indicatorCompare",
   "proposalReview",

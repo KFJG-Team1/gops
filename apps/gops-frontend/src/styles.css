@@ -684,6 +684,44 @@ textarea {
   display: none;
 }
 
+.chart-stream-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  min-width: 42px;
+  max-width: 72px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid #b8b8b8;
+  border-radius: 5px;
+  color: #444;
+  background: #f8f8f8;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-stream-status.live {
+  border-color: #0f7a3a;
+  color: #0f7a3a;
+  background: #edf8f0;
+}
+
+.chart-stream-status.idle {
+  border-color: #9a6a14;
+  color: #7b520d;
+  background: #fff7e6;
+}
+
+.chart-stream-status.stale,
+.chart-stream-status.error {
+  border-color: #b42318;
+  color: #9f1f15;
+  background: #fff0ee;
+}
+
 .chart-symbol-control,
 .chart-tool-group {
   display: flex;
@@ -793,7 +831,9 @@ textarea {
 .chart-right-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  min-width: 0;
   padding-left: 4px;
   background: #fff;
 }
@@ -1359,12 +1399,15 @@ textarea {
 
 .order-ticket {
   display: grid;
+  align-content: start;
   gap: 8px;
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   padding: 8px;
-  border: 1px solid #111;
-  border-radius: 6px;
-  background: #fff;
+  overflow: auto;
+  background: transparent;
 }
 
 .order-ticket-header,

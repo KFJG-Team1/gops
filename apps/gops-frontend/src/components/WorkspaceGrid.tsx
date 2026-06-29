@@ -196,6 +196,7 @@ export function WorkspaceGrid({
           onPreviewChange={setLayoutPreview}
           chartRuntime={chartRuntime}
           chartAutoApplyEnabled={chartAutoApplyEnabled}
+          activeSymbol={activeSymbol}
           backfillEligibleSymbols={backfillEligibleSymbols}
           knownSymbols={knownSymbols}
           watchlistSymbols={watchlistSymbols}

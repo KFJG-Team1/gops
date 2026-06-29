@@ -79,7 +79,7 @@ export type CandleEvent = {
   data: CandleData;
 };
 
-export type StreamStatus = "connecting" | "live" | "stale" | "error";
+export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
 export type ChartLayerKey = "candles" | "volume" | "ma5" | "ma20" | "ma60";
 
@@ -270,6 +270,7 @@ export type ChartRuntimeState = {
   candlesByKey: Record<string, CandleData[]>;
   dataStatusByKey: Record<string, ChartDataStatus>;
   streamStatusByKey: Record<string, StreamStatus>;
+  streamMessageByKey?: Record<string, string>;
   pendingPreviewByDocumentId: Record<string, ChartPendingPreview>;
   pendingProposals: ChartProposal[];
   journal: ChartCommandJournalEntry[];

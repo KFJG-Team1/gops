@@ -217,7 +217,9 @@ function mergeDefaultAndStoredLayouts(stored: SavedLayoutRecord[]): SavedLayoutR
     const storedDefault = stored.find(
       (record) => record.kind === "default" && record.defaultKey === defaultRecord.defaultKey
     );
-    return storedDefault ?? defaultRecord;
+    return storedDefault && layoutPresentationSnapshotsEqual(storedDefault.layout, defaultRecord.layout)
+      ? storedDefault
+      : defaultRecord;
   });
   const users = stored.filter((record) => record.kind === "user").slice(0, MAX_USER_LAYOUTS);
   return [...mergedDefaults, ...users];

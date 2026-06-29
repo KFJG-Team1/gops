@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
-import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldRequestBackfill } from "../../chart-engine/src/backfill";
+import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "../../chart-engine/src/backfill";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -33,8 +33,10 @@ import {
   createPanelDropPreview,
   findMaxEmptyWorkspaceRect,
   findWorkspacePanelAtCell,
-  getWorkspaceDropCell
+  getWorkspaceDropCell,
+  PANEL_CATALOG_TYPES
 } from "../src/layout/panelCatalogDrop";
+import { getPanelDefinition } from "../src/layout/panelRegistry";
 import { createPanelInstance, createPresetLayout } from "../src/layout/seed";
 import type { PanelInstance, PanelPlacement, PanelType, WorkspaceLayout } from "../src/layout/types";
 import {
@@ -128,10 +130,60 @@ const initialLayoutRuntime = createInitialLayoutRuntimeState();
 assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
+assert.equal(getPanelDefinition("orderTicket").title, "Order");
+assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
+const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
+assert.equal(orderPanelInstance.type, "orderTicket");
+assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
+const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
+assert.equal(chartPresetOrderPanel?.type, "orderTicket");
+assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
 const chartPresetRuntimeCopy = createPresetLayout("chart");
 const chartPresetSavedCopy = createPresetLayout("chart");
 assert.equal(layoutSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), false);
 assert.equal(layoutPresentationSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), true);
+
+const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const fakeLocalStorageRecords = new Map<string, string>();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => fakeLocalStorageRecords.get(key) ?? null,
+    setItem: (key: string, value: string) => fakeLocalStorageRecords.set(key, value),
+    removeItem: (key: string) => fakeLocalStorageRecords.delete(key),
+    clear: () => fakeLocalStorageRecords.clear()
+  }
+});
+
+try {
+  const staleChartDefault = createPresetLayout("chart");
+  const staleOrderPlacement = staleChartDefault.panels.find((panel) => panel.id === "panel-order")?.placement ?? testPlacement(4, 4, 1, 2);
+  staleChartDefault.panels = staleChartDefault.panels.map((panel) =>
+    panel.id === "panel-order"
+      ? createPanelInstance("aiSummary", staleOrderPlacement, "system", { summary: "LLM summary placeholder" }, "panel-ai-summary")
+      : panel
+  );
+  fakeLocalStorageRecords.set("gops.savedLayouts.v1", JSON.stringify([{
+    id: "default-chart",
+    name: "Chart",
+    version: 1,
+    savedAt: "2026-06-26T00:00:00.000Z",
+    kind: "default",
+    defaultKey: "chart",
+    layout: staleChartDefault
+  }]));
+
+  const runtimeWithStaleDefault = createInitialLayoutRuntimeState();
+  const mergedChartDefault = runtimeWithStaleDefault.savedLayouts.find((record) => record.kind === "default" && record.defaultKey === "chart");
+  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-order" && panel.type === "orderTicket"), true);
+  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-ai-summary"), false);
+} finally {
+  if (originalLocalStorageDescriptor) {
+    Object.defineProperty(globalThis, "localStorage", originalLocalStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "localStorage");
+  }
+}
 
 const selectedSavedPanel = testPanel("selected-saved-chart", "chart", testPlacement(1, 1));
 const selectedSavedLayout = testLayout([selectedSavedPanel], selectedSavedPanel.id);
@@ -328,6 +380,22 @@ const streamErrorThenSnapshotRuntime = chartRuntimeReducer(chartRuntimeReducer(c
 });
 assert.equal(streamErrorThenSnapshotRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.state, "ready");
 assert.equal(streamErrorThenSnapshotRuntime.streamStatusByKey[candleKey("NVDA", "5m")], "error");
+const streamIdleThenSnapshotRuntime = chartRuntimeReducer(chartRuntimeReducer(createInitialChartRuntimeState(), {
+  kind: "chart.stream.status",
+  symbol: "NVDA",
+  interval: "5m",
+  status: "idle",
+  message: "Live stream is connected; waiting for market data."
+}), {
+  kind: "chart.snapshot.loaded",
+  snapshot: fixtureSnapshot,
+});
+assert.equal(streamIdleThenSnapshotRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.state, "ready");
+assert.equal(streamIdleThenSnapshotRuntime.streamStatusByKey[candleKey("NVDA", "5m")], "idle");
+assert.equal(
+  streamIdleThenSnapshotRuntime.streamMessageByKey?.[candleKey("NVDA", "5m")],
+  "Live stream is connected; waiting for market data."
+);
 const liveRuntime = chartRuntimeReducer(fixtureRuntime, {
   kind: "chart.live",
   event: {
@@ -376,7 +444,32 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "failed",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), false);
+}, true), true);
+assert.equal(shouldRequestBackfill({
+  state: "empty",
+  message: "Alpaca credentials are not configured.",
+  backfillStatus: "unavailable",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}), true);
+assert.equal(shouldForceBackfill({
+  state: "empty",
+  backfillStatus: "unavailable",
+  canBackfill: true,
+  updatedAt: new Date().toISOString()
+}), true);
+assert.equal(shouldRequestBackfill({
+  state: "partial",
+  backfillStatus: "succeeded",
+  canBackfill: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "insufficient_source_bars",
+    sourceInterval: "1D",
+    renderable: false
+  },
+  updatedAt: new Date().toISOString()
+}), true);
 assert.equal(normalizeBackfillStatusPayload({
   symbol: "NVDA",
   interval: "1W",
@@ -395,14 +488,14 @@ assert.equal(shouldRequestBackfill({
   state: "empty",
   message: "Backfill completed, but no stored 1m candles were found for NVDA.",
   backfillStatus: "succeeded",
-  canBackfill: false,
+  canBackfill: true,
   coverage: {
     state: "empty",
     reasonCode: "backfill_succeeded_without_complete_coverage",
     sourceInterval: "1m"
   },
   updatedAt: new Date().toISOString()
-}), false);
+}), true);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Sparse daily coverage should not render like a normal chart.",
@@ -544,6 +637,16 @@ assert.equal(proposalRequestWithCandles.dataStatus.state, "ready");
 assert.equal(proposalRequestWithCandles.dataStatus.candleCount, 2);
 assert.equal(proposalRequestWithCandles.dataStatus.hasVisibleCandles, true);
 assert.equal(proposalRequestWithCandles.streamStatus, "error");
+
+const idleProposalScene = buildRenderScene({
+  state: "ready",
+  document: createChartDocument("chart-doc-idle-scene", "NVDA", "1m"),
+  candles: [candleA, candleB],
+  width: 640,
+  height: 320,
+  streamStatus: "idle"
+});
+assert.equal(idleProposalScene.labels.streamStatus, "idle");
 
 const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
   kind: "chart.snapshot.loaded",
@@ -706,6 +809,14 @@ const replaceCommand = createPanelDropCommand({
   targetPanelId: replaceTarget.id
 });
 assert.equal(replaceCommand?.type, "layout.panel.replace");
+const orderReplaceCommand = createPanelDropCommand({
+  layout: replaceLayout,
+  panelType: "orderTicket",
+  activeSymbol: "MSFT",
+  targetPanelId: replaceTarget.id
+});
+assert.equal(orderReplaceCommand?.type, "layout.panel.replace");
+assert.equal(orderReplaceCommand?.payload.panelType, "orderTicket");
 const replacePreview = createPanelDropPreview({
   layout: replaceLayout,
   panelType: "chart",
@@ -809,6 +920,23 @@ let multiChartRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
 });
 assert.equal(multiChartRuntime.documents[chartPanels[0]?.chartDocumentId ?? ""]?.symbol, DEFAULT_CHART_SYMBOL);
 assert.equal(multiChartRuntime.documents[chartPanels[1]?.chartDocumentId ?? ""]?.symbol, "TSLA");
+
+const orderAddState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.add", "user", {
+    panelType: "orderTicket",
+    placement: testPlacement(4, 4, 1, 2)
+  })
+);
+assert.equal(orderAddState.layout.panels[0]?.type, "orderTicket");
+assert.equal(orderAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "orderTicket");
 
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);

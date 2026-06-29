@@ -29,7 +29,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
-import { isActiveBackfillStatus, isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldRequestBackfill } from "@gops/chart-engine/backfill";
+import { isActiveBackfillStatus, isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "@gops/chart-engine/backfill";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
@@ -43,13 +43,14 @@ import {
   getCandlesForDocument,
   getChartDocumentForPanel,
   getDataStatusForDocument,
+  getStreamMessageForDocument,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
 import { candleKey } from "@gops/chart-engine/candleStore";
 import { normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
-import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene } from "@gops/chart-engine/types";
+import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
 import { useElementSize } from "../hooks/useElementSize";
 import type { PanelInstance } from "../layout/types";
 
@@ -111,11 +112,32 @@ type HoverTooltip = FloatingMenuPosition & {
   placement: "bottom" | "right";
 };
 
+const liveIdleMessage = "Live stream is connected; waiting for market data.";
+const liveRecentlyIdleMessage = "No new live candles recently; chart is using stored candles.";
+const liveIdleDelayMs = 45_000;
+
 function tooltipAttributes(label: string): TooltipAttributes {
   return {
     "aria-label": label,
     "data-tooltip": label
   };
+}
+
+function streamStatusLabel(status: StreamStatus): string {
+  switch (status) {
+    case "connecting":
+      return "Connecting";
+    case "idle":
+      return "Idle";
+    case "live":
+      return "Live";
+    case "stale":
+      return "Stale";
+    case "error":
+      return "Error";
+    default:
+      return "Unknown";
+  }
 }
 
 export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onAskAgent }: ChartPanelProps) {
@@ -127,12 +149,14 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
   const backfillRequestsRef = useRef<Set<string>>(new Set());
+  const terminalBackfillRetryRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
   const dataStatus = getDataStatusForDocument(runtime, document);
   const streamStatus = getStreamStatusForDocument(runtime, document);
+  const streamMessage = getStreamMessageForDocument(runtime, document);
   const pendingPreview = runtime.pendingPreviewByDocumentId[document.id];
   const [crosshairPoint, setCrosshairPoint] = useState<{ x: number; y: number } | undefined>();
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
@@ -297,15 +321,22 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
   useEffect(() => {
     const key = candleKey(document.symbol, document.timeframe);
+    const sourceInterval = dataStatus.sourceInterval ?? document.timeframe;
+    const forceBackfill = shouldForceBackfill(dataStatus);
+    const terminalRetryKey = `${document.symbol}:${sourceInterval}`;
     if (
       !backfillEligibleSymbols.includes(document.symbol) ||
       !shouldRequestBackfill(dataStatus) ||
-      backfillRequestsRef.current.has(key)
+      backfillRequestsRef.current.has(key) ||
+      (forceBackfill && terminalBackfillRetryRef.current.has(terminalRetryKey))
     ) {
       return undefined;
     }
 
     backfillRequestsRef.current.add(key);
+    if (forceBackfill) {
+      terminalBackfillRetryRef.current.add(terminalRetryKey);
+    }
     let cancelled = false;
     let pollTimer: number | undefined;
     const controller = new AbortController();
@@ -391,7 +422,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       signal: controller.signal,
       body: JSON.stringify({
         symbol: document.symbol,
-        interval: document.timeframe
+        interval: document.timeframe,
+        force: forceBackfill
       })
     })
       .then((response) => {
@@ -442,8 +474,34 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     });
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
+    let idleTimer: number | undefined;
     let closedByEffect = false;
     let reconnectAttempt = 0;
+    let sawLiveCandle = false;
+
+    const clearIdleTimer = () => {
+      if (idleTimer) {
+        window.clearTimeout(idleTimer);
+        idleTimer = undefined;
+      }
+    };
+
+    const markIdle = (message = liveIdleMessage) => {
+      onChartAction({
+        kind: "chart.stream.status",
+        symbol: document.symbol,
+        interval: document.timeframe,
+        status: "idle",
+        message
+      });
+    };
+
+    const scheduleIdle = (message = liveRecentlyIdleMessage) => {
+      clearIdleTimer();
+      idleTimer = window.setTimeout(() => {
+        markIdle(message);
+      }, liveIdleDelayMs);
+    };
 
     const connect = () => {
       onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
@@ -451,7 +509,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
       socket.onopen = () => {
         reconnectAttempt = 0;
-        onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "live" });
+        sawLiveCandle = false;
+        markIdle();
+        scheduleIdle();
       };
 
       socket.onmessage = (event) => {
@@ -459,12 +519,10 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           const payload = JSON.parse(event.data);
           if (isRealtimeControlPayload(payload)) {
             if (payload.type === "HEARTBEAT" || payload.type === "MARKET_STATUS_UPDATE") {
-              onChartAction({
-                kind: "chart.stream.status",
-                symbol: document.symbol,
-                interval: document.timeframe,
-                status: "live"
-              });
+              if (!sawLiveCandle) {
+                markIdle();
+              }
+              scheduleIdle();
               return;
             }
             if (payload.type === "ERROR") {
@@ -479,8 +537,11 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             }
             return;
           }
+          sawLiveCandle = true;
+          scheduleIdle();
           onChartAction({ kind: "chart.live", event: normalizeCandleEvent(payload) });
         } catch (error) {
+          clearIdleTimer();
           onChartAction({
             kind: "chart.stream.status",
             symbol: document.symbol,
@@ -492,6 +553,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       };
 
       socket.onerror = () => {
+        clearIdleTimer();
         onChartAction({
           kind: "chart.stream.status",
           symbol: document.symbol,
@@ -502,6 +564,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       };
 
       socket.onclose = () => {
+        clearIdleTimer();
         if (closedByEffect) {
           return;
         }
@@ -519,6 +582,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
+      clearIdleTimer();
       socket?.close();
     };
   }, [document.symbol, document.timeframe, onChartAction]);
@@ -1284,6 +1348,13 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         </div>
 
         <div className="chart-right-actions" aria-label="Chart proposal actions">
+          <span
+            className={`chart-stream-status ${streamStatus}`}
+            title={streamMessage ?? `Live stream status: ${streamStatusLabel(streamStatus)}`}
+            aria-label={`Live stream status: ${streamStatusLabel(streamStatus)}`}
+          >
+            {streamStatusLabel(streamStatus)}
+          </span>
           <div className="chart-tool-group chart-comparison-tools" aria-label="Comparison tools">
             <div className="chart-popover-anchor">
               <button
