@@ -3,6 +3,7 @@ export type AgentEvidenceItem = {
   status: string;
   title?: string;
   summary?: string;
+  url?: string;
 };
 
 export type AgentFinding = {
@@ -21,11 +22,41 @@ export type NotificationDecision = {
   reason?: string;
 };
 
+export type IntentRoute = {
+  source: string;
+  intentType: string;
+  selectedRoles: string[];
+  confidence?: number;
+  reason?: string;
+};
+
+export type FinalAnswerSection = {
+  title: string;
+  bullets: string[];
+};
+
+export type FinalAnswerCitation = {
+  provider: string;
+  title: string;
+  url?: string;
+  publishedAt?: string;
+};
+
+export type FinalAnswer = {
+  title: string;
+  summary: string;
+  sections: FinalAnswerSection[];
+  citations: FinalAnswerCitation[];
+  limitations: string[];
+};
+
 export type AgentAnalysisReport = {
   analysisId: string;
   summary: string;
   symbol?: string;
   status?: string;
+  route?: IntentRoute | null;
+  finalAnswer?: FinalAnswer | null;
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
   notificationDecision?: NotificationDecision | null;
@@ -37,6 +68,7 @@ export type AgentAnalysisRequestInput = {
   symbol: string;
   intent: string;
   chartContext: unknown;
+  routerMode?: "hybrid" | "rules" | "strict-llm";
 };
 
 export type AgentAnalysisMessage = {
@@ -50,14 +82,16 @@ export function buildAgentAnalysisRequest({
   messages,
   symbol,
   intent,
-  chartContext
+  chartContext,
+  routerMode = "hybrid"
 }: AgentAnalysisRequestInput) {
   return {
     agentIds,
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
     symbol,
     intent,
-    chartContext
+    chartContext,
+    routerMode
   };
 }
 
@@ -78,6 +112,8 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     summary,
     symbol: readString(source.symbol) ?? undefined,
     status: readString(source.status) ?? undefined,
+    route: normalizeRoute(source.route),
+    finalAnswer: normalizeFinalAnswer(source.finalAnswer),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision)
@@ -85,7 +121,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 }
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
-  const lines = [report.summary];
+  const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer) : [report.summary];
   const findings = report.findings
     .filter((finding) => finding.summary && isVisibleAgentFinding(finding))
     .slice(0, 4);
@@ -128,6 +164,28 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   return lines.join("\n");
 }
 
+function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
+  const lines = [finalAnswer.title, finalAnswer.summary];
+  for (const section of finalAnswer.sections.slice(0, 3)) {
+    if (!section.title || section.bullets.length === 0) {
+      continue;
+    }
+    lines.push("", section.title);
+    lines.push(...section.bullets.slice(0, 5).map((bullet) => `- ${bullet}`));
+  }
+  if (finalAnswer.citations.length) {
+    lines.push("", "근거 링크:");
+    lines.push(...finalAnswer.citations.slice(0, 5).map((citation) =>
+      `- ${citation.title}${citation.url ? ` (${citation.url})` : ""}`
+    ));
+  }
+  if (finalAnswer.limitations.length) {
+    lines.push("", "제한 사항:");
+    lines.push(...finalAnswer.limitations.slice(0, 5).map((limitation) => `- ${limitation}`));
+  }
+  return lines;
+}
+
 function normalizeFinding(value: unknown): AgentFinding | null {
   const source = readObject(value);
   const agentId = readString(source?.agentId);
@@ -157,7 +215,68 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
     provider,
     status,
     title: readString(source.title) ?? undefined,
-    summary: readString(source.summary) ?? undefined
+    summary: readString(source.summary) ?? undefined,
+    url: readString(source.url) ?? undefined
+  };
+}
+
+function normalizeRoute(value: unknown): IntentRoute | null {
+  const source = readObject(value);
+  const routeSource = readString(source?.source);
+  const intentType = readString(source?.intentType);
+  const selectedRoles = readArray(source?.selectedRoles).map(readString).filter((item): item is string => Boolean(item));
+  if (!source || !routeSource || !intentType) {
+    return null;
+  }
+  return {
+    source: routeSource,
+    intentType,
+    selectedRoles,
+    confidence: typeof source.confidence === "number" ? source.confidence : undefined,
+    reason: readString(source.reason) ?? undefined
+  };
+}
+
+function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
+  const source = readObject(value);
+  const title = readString(source?.title);
+  const summary = readString(source?.summary);
+  if (!source || !title || !summary) {
+    return null;
+  }
+  return {
+    title,
+    summary,
+    sections: readArray(source.sections).map(normalizeFinalAnswerSection).filter((item): item is FinalAnswerSection => Boolean(item)),
+    citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item)),
+    limitations: readArray(source.limitations).map(readString).filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeFinalAnswerSection(value: unknown): FinalAnswerSection | null {
+  const source = readObject(value);
+  const title = readString(source?.title);
+  if (!source || !title) {
+    return null;
+  }
+  return {
+    title,
+    bullets: readArray(source.bullets).map(readString).filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeFinalAnswerCitation(value: unknown): FinalAnswerCitation | null {
+  const source = readObject(value);
+  const provider = readString(source?.provider);
+  const title = readString(source?.title);
+  if (!source || !provider || !title) {
+    return null;
+  }
+  return {
+    provider,
+    title,
+    url: readString(source.url) ?? undefined,
+    publishedAt: readString(source.publishedAt) ?? undefined
   };
 }
 

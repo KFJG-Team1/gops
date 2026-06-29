@@ -1082,7 +1082,8 @@ assert.deepEqual(agentAnalysisRequest, {
   messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
-  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  routerMode: "hybrid"
 });
 
 const agentAnalysisReport = normalizeAgentAnalysisReport({
@@ -1090,6 +1091,20 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
   symbol: "NVDA",
   status: "completed",
   summary: "NVDA has a watch price_surge signal.",
+  route: {
+    source: "rule",
+    intentType: "market-move",
+    selectedRoles: ["chart", "news"],
+    confidence: 0.9,
+    reason: "Matched intent keyword."
+  },
+  finalAnswer: {
+    title: "NVDA market-move 분석",
+    summary: "NVDA 요청은 chart, news 역할로 라우팅했고, 저장된 provider 근거 1건을 확인했습니다.",
+    sections: [{ title: "확인된 근거", bullets: ["Headline: News summary"] }],
+    citations: [{ provider: "news", title: "Headline", url: "https://example.com/news" }],
+    limitations: ["Macro provider not configured."]
+  },
   findings: [
     { agentId: "chart-agent", role: "chart-analysis", summary: "Chart shows a visible breakout.", evidence: [] },
     { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] },
@@ -1107,7 +1122,9 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
   }
 });
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
-assert.match(agentAnalysisMessage, /NVDA has a watch price_surge signal\./);
+assert.match(agentAnalysisMessage, /NVDA market-move 분석/);
+assert.match(agentAnalysisMessage, /저장된 provider 근거 1건/);
+assert.match(agentAnalysisMessage, /Headline: News summary/);
 assert.match(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
 assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
 assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);

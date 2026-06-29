@@ -245,9 +245,20 @@ function AgentChatPanel({
     [chartRuntime, layout.panels, referencedChartTarget]
   );
   const orchestrationMode = selectedAgents.length > 1;
+  const hasNonChartAgent = selectedAgents.some((agent) => agent.id !== "agent-01");
+  const [messages, setMessages] = useState<AgentChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [agentError, setAgentError] = useState(false);
+  const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
+  const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
+  const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
+  const draftContent = resolveAgentSendContent(draft, draftSeed);
+  const routeIntentMode = isAgentAnalysisIntent(draftContent);
+  const agentAnalysisMode = orchestrationMode || hasNonChartAgent || routeIntentMode;
   const fallbackChartPanel = useMemo(
-    () => orchestrationMode ? findTargetChartPanel(layout.panels, layout.selectedPanelId) : null,
-    [layout.panels, layout.selectedPanelId, orchestrationMode]
+    () => agentAnalysisMode ? findTargetChartPanel(layout.panels, layout.selectedPanelId) : null,
+    [agentAnalysisMode, layout.panels, layout.selectedPanelId]
   );
   const fallbackChartDocument = fallbackChartPanel ? getChartDocumentForPanel(chartRuntime, fallbackChartPanel) : null;
   const chartPanel = resolvedReference?.panel ?? fallbackChartPanel;
@@ -255,28 +266,21 @@ function AgentChatPanel({
   const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
   const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
   const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
-  const [messages, setMessages] = useState<AgentChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [agentError, setAgentError] = useState(false);
-  const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
-  const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
-  const draftSeed = referencedChartTarget?.draftSeed ?? DEFAULT_AGENT_DRAFT_SEED;
   const introAgent = selectedAgents[0];
   const introLabel = selectedAgents.length > 1 ? "Multi-agent Analysis" : introAgent?.label ?? "LLM Agent";
   const introIconUrl = introAgent?.iconUrl ?? "/assets/agent-icons/agent-01.svg";
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
     : introAgent?.description ?? "Select an agent";
-  const target = (chartAgentAccess.enabled || orchestrationMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
+  const target = (chartAgentAccess.enabled || agentAnalysisMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
-  const disabledMessage = orchestrationMode
+  const disabledMessage = agentAnalysisMode
     ? "차트 패널을 선택하거나 차트에서 Ask Agent를 눌러 분석할 차트를 지정하세요."
     : chartAgentAccess.reason === "no-chart-agent"
       ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
       : "차트 패널에서 Ask Agent를 눌러 분석할 차트를 지정하세요.";
-  const sendDisabled = !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
+  const sendDisabled = !target || !draftContent.trim() || sending;
 
   useEffect(() => {
     setMessages([]);
@@ -307,7 +311,7 @@ function AgentChatPanel({
     });
     const requestMessagePayload = requestMessages.map((message) => ({ role: message.role, content: message.content }));
 
-    if (orchestrationMode) {
+    if (shouldUseAgentAnalysisEndpoint(selectedAgents, content)) {
       fetch("/api/agents/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,7 +320,8 @@ function AgentChatPanel({
           messages: requestMessages,
           symbol: chartDocument.symbol,
           intent: content,
-          chartContext
+          chartContext,
+          routerMode: "hybrid"
         }))
       })
         .then(async (response) => {
@@ -437,6 +442,61 @@ function chartProposalStatusMessage(
   return autoApplyEnabled
     ? "Chart command sent to the chart runtime."
     : "Chart command proposal is waiting in the chart panel.";
+}
+
+function shouldUseAgentAnalysisEndpoint(selectedAgents: AgentOption[], content: string): boolean {
+  return selectedAgents.length > 1 ||
+    selectedAgents.some((agent) => agent.id !== "agent-01") ||
+    isAgentAnalysisIntent(content);
+}
+
+function isAgentAnalysisIntent(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return [
+    "뉴스",
+    "기사",
+    "보도",
+    "헤드라인",
+    "거시",
+    "금리",
+    "관계",
+    "공급망",
+    "경쟁사",
+    "섹터",
+    "급등",
+    "급락",
+    "극락",
+    "이상",
+    "변동",
+    "원인",
+    "왜",
+    "news",
+    "headline",
+    "article",
+    "macro",
+    "rate",
+    "relationship",
+    "ontology",
+    "surge",
+    "spike",
+    "why"
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function defaultDraftSeedForAgents(selectedAgents: AgentOption[]): string {
+  if (selectedAgents.length > 1) {
+    return "주가 변동 원인 분석해줘";
+  }
+  switch (selectedAgents[0]?.id) {
+    case "agent-02":
+      return "뉴스 보여줘";
+    case "agent-03":
+      return "거시 경제 영향 분석해줘";
+    case "agent-04":
+      return "기업 관계 영향 분석해줘";
+    default:
+      return DEFAULT_AGENT_DRAFT_SEED;
+  }
 }
 
 export function SystemOrbRail({
