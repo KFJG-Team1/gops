@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/auth/me");
       if (!response.ok) {
-        throw new Error(`Auth API returned ${response.status}`);
+        throw new Error(`인증 API 응답 오류 ${response.status}`);
       }
       const payload = await response.json() as unknown;
       const next = normalizeAuthPayload(payload);
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (caught) {
       setAuthEnabled(true);
       setUser(null);
-      setError(caught instanceof Error ? caught.message : "Auth check failed.");
+      setError(caught instanceof Error ? caught.message : "인증 상태를 확인하지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -60,11 +60,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/auth/logout", { method: "POST" });
       if (!response.ok && response.status !== 204) {
-        throw new Error(`Logout API returned ${response.status}`);
+        throw new Error(`로그아웃 API 응답 오류 ${response.status}`);
       }
       setUser(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Logout failed.");
+      setError(caught instanceof Error ? caught.message : "로그아웃에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -116,4 +116,3 @@ function normalizeUser(value: unknown): AuthUser | null {
     picture: typeof source.picture === "string" ? source.picture : null
   };
 }
-

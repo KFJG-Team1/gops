@@ -4,12 +4,16 @@ import type { SupportedSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
 
 type OrderSide = "buy" | "sell";
-type OrderMarket = "overseas" | "domestic";
+type OrderMarket = "overseas";
+type OrderType = "limit" | "market";
+type OrderValidity = "day" | "gtc";
 
 type OrderFormState = {
   market: OrderMarket;
   symbol: string;
   side: OrderSide;
+  orderType: OrderType;
+  validity: OrderValidity;
   qty: string;
   price: string;
   exchange: string;
@@ -45,9 +49,26 @@ const DEFAULT_FORM: OrderFormState = {
   market: "overseas",
   symbol: "AAPL",
   side: "buy",
+  orderType: "limit",
+  validity: "day",
   qty: "1",
   price: "145.00",
   exchange: "NASD"
+};
+
+const marketLabels: Record<OrderMarket, string> = {
+  overseas: "해외주식"
+};
+
+const sideLabels: Record<OrderSide, string> = {
+  buy: "매수",
+  sell: "매도"
+};
+
+const socketStateLabels: Record<"idle" | "open" | "closed", string> = {
+  idle: "대기",
+  open: "연결됨",
+  closed: "종료"
 };
 
 function makeIdempotencyKey() {
@@ -62,8 +83,46 @@ function websocketUrl(orderId: string) {
   return `${protocol}//${window.location.host}/ws/orders/${orderId}`;
 }
 
-function toOrderMarket(value: string): OrderMarket {
-  return value === "domestic" ? "domestic" : "overseas";
+function toOrderType(value: string): OrderType {
+  return value === "market" ? "market" : "limit";
+}
+
+function toOrderValidity(value: string): OrderValidity {
+  return value === "gtc" ? "gtc" : "day";
+}
+
+function orderStatusLabel(status?: string): string {
+  switch (status?.toLowerCase()) {
+    case "accepted":
+      return "접수";
+    case "submitted":
+      return "전송";
+    case "filled":
+      return "체결";
+    case "rejected":
+      return "거부";
+    case "cancelled":
+    case "canceled":
+      return "취소";
+    case "pending":
+      return "대기";
+    default:
+      return status ? status.toUpperCase() : "주문 가능";
+  }
+}
+
+function formatOrderAmount(qty: string, price: string): string {
+  const quantity = Number(qty);
+  const limitPrice = Number(price);
+  if (!Number.isFinite(quantity) || !Number.isFinite(limitPrice)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(quantity * limitPrice);
 }
 
 export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol }) {
@@ -99,13 +158,13 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
     socket.onopen = () => setSocketState("open");
     socket.onclose = () => setSocketState("closed");
     socket.onerror = () => {
-      setError("Order stream unavailable.");
+      setError("주문 스트림에 연결할 수 없습니다.");
       setSocketState("closed");
     };
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as OrderSocketPayload;
       if (payload.type === "error") {
-        setError(payload.detail ?? "Order stream error.");
+        setError(payload.detail ?? "주문 스트림 오류가 발생했습니다.");
         return;
       }
       if (payload.order) {
@@ -126,6 +185,7 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
     setSubmitting(true);
     setError(undefined);
     const idempotencyKey = makeIdempotencyKey();
+    const orderDivision = form.orderType === "market" ? "01" : "00";
     try {
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -140,72 +200,114 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
           qty: form.qty,
           price: form.price,
           exchange: form.exchange,
-          order_division: "00",
+          order_division: orderDivision,
           actor_id: "gops-frontend",
           role: "trader"
         })
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.detail ?? (response.status === 401 ? "Sign in with Google to submit orders." : `Order API returned ${response.status}`));
+        throw new Error(payload.detail ?? (response.status === 401 ? "주문하려면 Google 로그인이 필요합니다." : `주문 API 오류 ${response.status}`));
       }
       setOrder(payload);
       setEvents([]);
       connectSocket(payload.order_id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Order request failed.");
+      setError(caught instanceof Error ? caught.message : "주문 요청에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  const estimatedAmount = form.orderType === "market" ? "시장가" : formatOrderAmount(form.qty, form.price);
+
   return (
-    <section className="order-ticket" aria-label="Order ticket">
+    <section className="order-ticket" data-order-side={form.side} aria-label="주문 패널">
       <div className="order-ticket-header">
-        <strong>Order</strong>
-        <span>{authEnabled && !user ? "Sign in" : order?.status ?? "Ready"}</span>
+        <div>
+          <strong>{sideLabels[form.side]} 주문</strong>
+          <span>{form.symbol} · {marketLabels[form.market]}</span>
+        </div>
+        <em>{authEnabled && !user ? "로그인 필요" : orderStatusLabel(order?.status)}</em>
       </div>
 
-      <div className="order-side-control" role="group" aria-label="Order side">
+      <div className="order-account-strip">
+        <div>
+          <span>계좌</span>
+          <strong>모의투자</strong>
+        </div>
+        <div>
+          <span>시장</span>
+          <strong>{marketLabels[form.market]}</strong>
+        </div>
+        <div>
+          <span>통화</span>
+          <strong>USD</strong>
+        </div>
+      </div>
+
+      <div className="order-side-control" role="group" aria-label="매수 매도 선택">
         <button className={form.side === "buy" ? "active" : ""} type="button" onClick={() => setForm((current) => ({ ...current, side: "buy" }))}>
-          Buy
+          매수
         </button>
         <button className={form.side === "sell" ? "active" : ""} type="button" onClick={() => setForm((current) => ({ ...current, side: "sell" }))}>
-          Sell
+          매도
         </button>
       </div>
 
       <div className="order-field-grid">
         <label>
-          <span>Market</span>
-          <select value={form.market} onChange={(event) => setForm((current) => ({ ...current, market: toOrderMarket(event.target.value) }))}>
-            <option value="overseas">Overseas</option>
-            <option value="domestic">Domestic</option>
-          </select>
-        </label>
-        <label>
-          <span>Symbol</span>
+          <span>종목</span>
           <input value={form.symbol} onChange={(event) => updateTextField("symbol", event.target.value)} />
         </label>
         <label>
-          <span>Qty</span>
+          <span>주문유형</span>
+          <select value={form.orderType} onChange={(event) => setForm((current) => ({ ...current, orderType: toOrderType(event.target.value) }))}>
+            <option value="limit">지정가</option>
+            <option value="market">시장가</option>
+          </select>
+        </label>
+        <label>
+          <span>유효기간</span>
+          <select value={form.validity} onChange={(event) => setForm((current) => ({ ...current, validity: toOrderValidity(event.target.value) }))}>
+            <option value="day">당일</option>
+            <option value="gtc">취소 전까지</option>
+          </select>
+        </label>
+        <label>
+          <span>수량</span>
           <input inputMode="decimal" value={form.qty} onChange={(event) => updateTextField("qty", event.target.value)} />
         </label>
         <label>
-          <span>Price</span>
-          <input inputMode="decimal" value={form.price} onChange={(event) => updateTextField("price", event.target.value)} />
+          <span>주문가</span>
+          <input inputMode="decimal" value={form.price} disabled={form.orderType === "market"} onChange={(event) => updateTextField("price", event.target.value)} />
         </label>
         <label>
-          <span>Exchange</span>
+          <span>거래소</span>
           <input value={form.exchange} onChange={(event) => updateTextField("exchange", event.target.value)} />
         </label>
+      </div>
+
+      <div className="order-summary-box">
+        <div>
+          <span>주문 구분</span>
+          <strong>{sideLabels[form.side]} · {form.orderType === "market" ? "시장가" : "지정가"}</strong>
+        </div>
+        <div>
+          <span>주문 조건</span>
+          <strong>{form.validity === "gtc" ? "취소 전까지" : "당일"} · {form.exchange}</strong>
+        </div>
+        <div className="order-summary-total">
+          <span>예상 금액</span>
+          <strong>{estimatedAmount}</strong>
+        </div>
       </div>
 
       <button className="order-submit-button" type="button" disabled={submitting || authLoading} onClick={submitOrder}>
         {authEnabled && !user
           ? <LogIn size={14} />
           : submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
-        {authEnabled && !user ? "Sign in" : "Submit"}
+        {authEnabled && !user ? "로그인" : submitting ? "전송 중" : `${sideLabels[form.side]} 주문 전송`}
       </button>
 
       {error && <div className="order-error">{error}</div>}
@@ -213,16 +315,16 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
       {order && (
         <div className="order-status-box">
           <div>
-            <span>Status</span>
-            <strong>{order.status}</strong>
+            <span>상태</span>
+            <strong>{orderStatusLabel(order.status)}</strong>
           </div>
           <div>
-            <span>Order ID</span>
+            <span>주문번호</span>
             <strong>{order.order_id}</strong>
           </div>
           <div>
-            <span>Stream</span>
-            <strong>{socketState}</strong>
+            <span>스트림</span>
+            <strong>{socketStateLabels[socketState]}</strong>
           </div>
         </div>
       )}

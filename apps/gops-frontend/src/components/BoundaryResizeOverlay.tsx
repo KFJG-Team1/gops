@@ -1,5 +1,4 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
-import { makeCommand } from "../layout/commands";
+import { type PointerEvent as ReactPointerEvent } from "react";
 import {
   columnLinePercent,
   columnSpanPercent,
@@ -7,94 +6,151 @@ import {
   workspaceColumnCount,
   workspaceRowCount
 } from "../layout/gridGeometry";
-import { applyBoundaryResize, getBoundaryResizeGuides, type BoundaryResizeGuide } from "../layout/reflow";
-import type { LayoutCommand, LayoutPreviewItem, WorkspaceLayout } from "../layout/types";
+import { getBoundaryResizeGuides, type BoundaryResizeGuide } from "../layout/reflow";
+import type { LayoutPreviewItem, WorkspaceLayout } from "../layout/types";
+
+export type ContinuousGridTracks = {
+  columns?: number[];
+  rows?: number[];
+};
 
 type BoundaryResizeOverlayProps = {
   layout: WorkspaceLayout;
-  onCommand: (command: LayoutCommand) => void;
   onPreviewChange: (preview: LayoutPreviewItem[]) => void;
+  onTrackResize: (axis: BoundaryResizeGuide["axis"], tracks: number[]) => void;
+  tracks: ContinuousGridTracks;
 };
 
-function guideStyle(guide: BoundaryResizeGuide) {
+function trackLinePercent(tracks: number[] | undefined, line: number, fallback: () => number): number {
+  if (!tracks?.length) {
+    return fallback();
+  }
+
+  const total = tracks.reduce((sum, track) => sum + track, 0);
+  if (total <= 0) {
+    return fallback();
+  }
+
+  return (tracks.slice(0, Math.max(0, line - 1)).reduce((sum, track) => sum + track, 0) / total) * 100;
+}
+
+function trackSpanPercent(tracks: number[] | undefined, start: number, span: number, fallback: () => number): number {
+  if (!tracks?.length) {
+    return fallback();
+  }
+
+  const total = tracks.reduce((sum, track) => sum + track, 0);
+  if (total <= 0) {
+    return fallback();
+  }
+
+  return (tracks.slice(Math.max(0, start - 1), Math.max(0, start - 1 + span)).reduce((sum, track) => sum + track, 0) / total) * 100;
+}
+
+function guideStyle(guide: BoundaryResizeGuide, tracks: ContinuousGridTracks) {
   if (guide.axis === "x") {
     return {
-      left: `${columnLinePercent(guide.line)}%`,
-      top: `${rowLinePercent(guide.segmentStart)}%`,
-      height: `${(guide.segmentSpan / workspaceRowCount) * 100}%`
+      left: `${trackLinePercent(tracks.columns, guide.line, () => columnLinePercent(guide.line))}%`,
+      top: `${trackLinePercent(tracks.rows, guide.segmentStart, () => rowLinePercent(guide.segmentStart))}%`,
+      height: `${trackSpanPercent(tracks.rows, guide.segmentStart, guide.segmentSpan, () => (guide.segmentSpan / workspaceRowCount) * 100)}%`
     };
   }
 
   return {
-    left: `${columnLinePercent(guide.segmentStart)}%`,
-    top: `${rowLinePercent(guide.line)}%`,
-    width: `${columnSpanPercent(guide.segmentStart, guide.segmentSpan)}%`
+    left: `${trackLinePercent(tracks.columns, guide.segmentStart, () => columnLinePercent(guide.segmentStart))}%`,
+    top: `${trackLinePercent(tracks.rows, guide.line, () => rowLinePercent(guide.line))}%`,
+    width: `${trackSpanPercent(tracks.columns, guide.segmentStart, guide.segmentSpan, () => columnSpanPercent(guide.segmentStart, guide.segmentSpan))}%`
   };
 }
 
-function nearestLine(lines: number[], value: number): number {
-  let bestLine = 1;
-  let bestDistance = Number.POSITIVE_INFINITY;
+function trackPositions(tracks: number[]): number[] {
+  const positions = [0];
+  let nextPosition = 0;
 
-  lines.forEach((linePosition, index) => {
-    const distance = Math.abs(linePosition - value);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestLine = index + 1;
-    }
-  });
-
-  return bestLine;
-}
-
-function linePositions(axis: BoundaryResizeGuide["axis"], rect: DOMRect): number[] {
-  if (axis === "x") {
-    return Array.from({ length: workspaceColumnCount + 1 }, (_, index) =>
-      (columnLinePercent(index + 1) / 100) * rect.width
-    );
+  for (const track of tracks) {
+    nextPosition += track;
+    positions.push(nextPosition);
   }
 
-  return Array.from({ length: workspaceRowCount + 1 }, (_, index) =>
-    (rowLinePercent(index + 1) / 100) * rect.height
-  );
+  return positions;
 }
 
-function resolveDelta(
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseGridTracks(value: string): number[] {
+  return value
+    .split(" ")
+    .map((track) => Number.parseFloat(track))
+    .filter((track) => Number.isFinite(track) && track > 0);
+}
+
+function setTrackVariables(frame: HTMLElement, axis: BoundaryResizeGuide["axis"], tracks: number[]) {
+  tracks.forEach((track, index) => {
+    frame.style.setProperty(`--frame-${axis === "x" ? "col" : "row"}-${index + 1}`, `${track}px`);
+  });
+}
+
+function clearTrackVariables(frame: HTMLElement) {
+  for (let index = 1; index <= workspaceColumnCount + 1; index += 1) {
+    frame.style.removeProperty(`--frame-col-${index}`);
+  }
+
+  for (let index = 1; index <= workspaceRowCount; index += 1) {
+    frame.style.removeProperty(`--frame-row-${index}`);
+  }
+}
+
+function continuousGuideOffset(
   guide: BoundaryResizeGuide,
-  frameRect: DOMRect,
+  baseTracks: number[],
   startX: number,
   startY: number,
   latestX: number,
   latestY: number
-) {
+): number {
   const rawDelta = guide.axis === "x" ? latestX - startX : latestY - startY;
-  const lines = linePositions(guide.axis, frameRect);
+  const lines = trackPositions(baseTracks);
   const startLinePosition = lines[guide.line - 1];
-  const requested = nearestLine(lines, startLinePosition + rawDelta) - guide.line;
-
-  if (requested < 0 && guide.canDecrease) {
-    return requested;
-  }
-
-  if (requested > 0 && guide.canIncrease) {
-    return requested;
-  }
-
-  return 0;
+  const min = guide.canDecrease ? lines[0] - startLinePosition : 0;
+  const max = guide.canIncrease ? lines[lines.length - 1] - startLinePosition : 0;
+  return clamp(rawDelta, min, max);
 }
 
-function changedPanelPreview(current: WorkspaceLayout, next: WorkspaceLayout): LayoutPreviewItem[] {
-  return next.panels.flatMap((nextPanel) => {
-    const currentPanel = current.panels.find((item) => item.id === nextPanel.id);
-    if (!currentPanel || JSON.stringify(currentPanel.placement) === JSON.stringify(nextPanel.placement)) {
-      return [];
+function resizeTracks(
+  guide: BoundaryResizeGuide,
+  baseTracks: number[],
+  offset: number
+): number[] {
+  const beforeIndex = guide.line - 2;
+  const afterIndex = guide.line - 1;
+  const before = baseTracks[beforeIndex];
+  const after = baseTracks[afterIndex];
+
+  if (before === undefined || after === undefined) {
+    return baseTracks;
+  }
+
+  const minTrackSize = guide.axis === "x" ? 96 : 72;
+  const minOffset = guide.canDecrease ? minTrackSize - before : 0;
+  const maxOffset = guide.canIncrease ? after - minTrackSize : 0;
+  const clampedOffset = clamp(offset, minOffset, maxOffset);
+
+  return baseTracks.map((track, index) => {
+    if (index === beforeIndex) {
+      return before + clampedOffset;
     }
 
-    return [{ panelId: nextPanel.id, placement: nextPanel.placement }];
+    if (index === afterIndex) {
+      return after - clampedOffset;
+    }
+
+    return track;
   });
 }
 
-export function BoundaryResizeOverlay({ layout, onCommand, onPreviewChange }: BoundaryResizeOverlayProps) {
+export function BoundaryResizeOverlay({ layout, onPreviewChange, onTrackResize, tracks }: BoundaryResizeOverlayProps) {
   const guides = getBoundaryResizeGuides(layout);
 
   const beginDrag = (guide: BoundaryResizeGuide, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -109,7 +165,6 @@ export function BoundaryResizeOverlay({ layout, onCommand, onPreviewChange }: Bo
     if (!(frame instanceof HTMLElement)) {
       return;
     }
-    const frameRect = frame.getBoundingClientRect();
     target.setPointerCapture?.(event.pointerId);
 
     const startX = event.clientX;
@@ -117,23 +172,35 @@ export function BoundaryResizeOverlay({ layout, onCommand, onPreviewChange }: Bo
     let latestX = startX;
     let latestY = startY;
     let finished = false;
+    let moved = false;
+    let latestTracks: number[] = [];
+    let resizeFrame: number | null = null;
+    const computedFrameStyle = getComputedStyle(frame);
+    const baseTracks = parseGridTracks(guide.axis === "x" ? computedFrameStyle.gridTemplateColumns : computedFrameStyle.gridTemplateRows);
+    latestTracks = baseTracks;
+    setTrackVariables(frame, guide.axis, baseTracks);
+    frame.classList.add("resizing-grid");
+    onPreviewChange([]);
 
-    const updatePreview = (clientX: number, clientY: number) => {
-      const delta = resolveDelta(guide, frameRect, startX, startY, clientX, clientY);
-      if (delta === 0) {
-        onPreviewChange([]);
-        return delta;
+    const scheduleTrackResize = () => {
+      if (resizeFrame !== null) {
+        return;
       }
 
-      const result = applyBoundaryResize(layout, guide.axis, guide.line, guide.segmentStart, guide.segmentSpan, delta);
-      onPreviewChange(result.ok ? changedPanelPreview(layout, result.layout) : []);
-      return delta;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        onTrackResize(guide.axis, latestTracks);
+      });
     };
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       latestX = moveEvent.clientX;
       latestY = moveEvent.clientY;
-      updatePreview(latestX, latestY);
+      const offset = continuousGuideOffset(guide, baseTracks, startX, startY, latestX, latestY);
+      latestTracks = resizeTracks(guide, baseTracks, offset);
+      moved = moved || Math.abs(offset) > 0.5;
+      setTrackVariables(frame, guide.axis, latestTracks);
+      scheduleTrackResize();
     };
 
     const handlePointerUp = () => {
@@ -152,22 +219,20 @@ export function BoundaryResizeOverlay({ layout, onCommand, onPreviewChange }: Bo
       target.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = null;
+      }
+      frame.classList.remove("resizing-grid");
       onPreviewChange([]);
 
-      const delta = updatePreview(latestX, latestY);
-      onPreviewChange([]);
-      if (delta === 0) {
+      if (!moved) {
+        clearTrackVariables(frame);
         return;
       }
 
-      onCommand(makeCommand("layout.boundary.resize", "user", {
-        group: "workspace",
-        axis: guide.axis,
-        line: guide.line,
-        segmentStart: guide.segmentStart,
-        segmentSpan: guide.segmentSpan,
-        delta
-      }));
+      setTrackVariables(frame, guide.axis, latestTracks);
+      onTrackResize(guide.axis, latestTracks);
     };
 
     target.addEventListener("pointermove", handlePointerMove);
@@ -177,18 +242,18 @@ export function BoundaryResizeOverlay({ layout, onCommand, onPreviewChange }: Bo
   };
 
   return (
-    <div className="boundary-overlay" aria-label="Resizable panel boundaries">
+    <div className="boundary-overlay" aria-label="패널 경계 조정">
       {guides.map((guide) => (
-        <button
-          key={guide.id}
-          type="button"
-          className={`boundary-guide ${guide.axis === "x" ? "vertical" : "horizontal"}`}
-          style={guideStyle(guide)}
-          title="Resize shared panel boundary"
-          onPointerDown={(event) => beginDrag(guide, event)}
-        >
-          <span />
-        </button>
+        <div key={guide.id} className={`boundary-guide-slot ${guide.axis === "x" ? "vertical" : "horizontal"}`} style={guideStyle(guide, tracks)}>
+          <button
+            type="button"
+            className={`boundary-guide ${guide.axis === "x" ? "vertical" : "horizontal"}`}
+            title="패널 경계 조정"
+            onPointerDown={(event) => beginDrag(guide, event)}
+          >
+            <span />
+          </button>
+        </div>
       ))}
     </div>
   );

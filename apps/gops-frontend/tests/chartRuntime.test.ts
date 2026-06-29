@@ -131,7 +131,7 @@ const initialLayoutRuntime = createInitialLayoutRuntimeState();
 assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
-assert.equal(getPanelDefinition("orderTicket").title, "Order");
+assert.equal(getPanelDefinition("orderTicket").title, "주문");
 assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
 const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
 assert.equal(orderPanelInstance.type, "orderTicket");

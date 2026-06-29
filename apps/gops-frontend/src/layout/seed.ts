@@ -76,21 +76,21 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "notifications",
           { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
           "system",
-          { label: "Market and agent alerts" },
+          { label: "시장 및 AI 알림" },
           "panel-notifications"
         ),
         createPanelInstance(
           "newsFeed",
           { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
           "system",
-          { query: "market pulse" },
+          { query: "시장 흐름" },
           "panel-news-primary"
         ),
         createPanelInstance(
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { label: "Chart preview" },
+          { label: "차트 미리보기" },
           "panel-chart-preview"
         ),
         createPanelInstance(
@@ -104,14 +104,14 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "proposalReview",
           { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
           "system",
-          { status: "No pending layout proposal" },
+          { status: "대기 중인 레이아웃 제안 없음" },
           "panel-proposal"
         ),
         createPanelInstance(
           "aiSummary",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
+          { summary: "AI 요약 준비 중" },
           "panel-ai-summary"
         )
       ]
@@ -125,21 +125,21 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "notifications",
           { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
           "system",
-          { label: "Market and agent alerts" },
+          { label: "시장 및 AI 알림" },
           "panel-notifications"
         ),
         createPanelInstance(
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
           "system",
-          { label: "Primary chart placeholder" },
+          { label: "메인 차트" },
           "panel-chart-primary"
         ),
         createPanelInstance(
           "newsFeed",
           { group: "workspace", zone: "main", col: 3, row: 1, colSpan: 1, rowSpan: 3 },
           "system",
-          { query: "market pulse" },
+          { query: "시장 흐름" },
           "panel-news"
         ),
         createPanelInstance(
@@ -153,21 +153,21 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "indicatorCompare",
           { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { label: "Indicator comparison" },
+          { label: "지표 비교" },
           "panel-indicator-compare"
         ),
         createPanelInstance(
           "proposalReview",
           { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
           "system",
-          { status: "No pending layout proposal" },
+          { status: "대기 중인 레이아웃 제안 없음" },
           "panel-proposal"
         ),
         createPanelInstance(
           "aiSummary",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
+          { summary: "AI 요약 준비 중" },
           "panel-ai-summary"
         )
       ]
@@ -181,21 +181,21 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "notifications",
           { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
           "system",
-          { label: "Signal and market alerts" },
+          { label: "시그널 및 시장 알림" },
           "panel-notifications"
         ),
         createPanelInstance(
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
           "system",
-          { label: "Signal chart placeholder" },
+          { label: "시그널 차트" },
           "panel-chart-primary"
         ),
         createPanelInstance(
           "indicatorCompare",
           { group: "workspace", zone: "main", col: 3, row: 1, colSpan: 1, rowSpan: 3 },
           "system",
-          { label: "Indicator comparison" },
+          { label: "지표 비교" },
           "panel-indicator-compare"
         ),
         createPanelInstance(
@@ -209,14 +209,14 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
           "aiSummary",
           { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { summary: "Signal summary placeholder" },
+          { summary: "시그널 요약 준비 중" },
           "panel-ai-summary"
         ),
         createPanelInstance(
           "proposalReview",
           { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 2 },
           "system",
-          { status: "No pending signal proposal" },
+          { status: "대기 중인 시그널 제안 없음" },
           "panel-proposal"
         ),
         createPanelInstance(
@@ -235,21 +235,21 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "notifications",
       { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
       "system",
-      { label: "Market and agent alerts" },
+      { label: "시장 및 AI 알림" },
       "panel-notifications"
     ),
     createPanelInstance(
       "chart",
       { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
       "system",
-      { label: "Primary chart placeholder" },
+      { label: "메인 차트" },
       "panel-chart-primary"
     ),
     createPanelInstance(
       "proposalReview",
       { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
       "system",
-      { status: "No pending chart proposal" },
+      { status: "대기 중인 차트 제안 없음" },
       "panel-proposal"
     ),
     createPanelInstance(
@@ -263,7 +263,7 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "newsFeed",
       { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
       "system",
-      { query: "market pulse" },
+      { query: "시장 흐름" },
       "panel-news"
     ),
     createPanelInstance(
@@ -292,10 +292,10 @@ export function createSeedLayout(): WorkspaceLayout {
 export function createDefaultLayoutRecords(): SavedLayoutRecord[] {
   const now = new Date().toISOString();
   const defaults: Array<{ key: DefaultLayoutKey; name: string }> = [
-    { key: "chart", name: "Chart" },
-    { key: "news", name: "News" },
-    { key: "overview", name: "Overview" },
-    { key: "signals", name: "Signals" }
+    { key: "chart", name: "차트" },
+    { key: "news", name: "뉴스" },
+    { key: "overview", name: "개요" },
+    { key: "signals", name: "시그널" }
   ];
 
   return defaults.map(({ key, name }) => ({

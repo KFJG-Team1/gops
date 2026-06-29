@@ -55,8 +55,8 @@ import { useElementSize } from "../hooks/useElementSize";
 import type { PanelInstance } from "../layout/types";
 
 const baseLayerControls: Array<{ layer: ChartLayerKey; label: string; icon: "candle" | "volume" }> = [
-  { layer: "candles", label: "Candle", icon: "candle" },
-  { layer: "volume", label: "Volume", icon: "volume" }
+  { layer: "candles", label: "캔들", icon: "candle" },
+  { layer: "volume", label: "거래량", icon: "volume" }
 ];
 
 const movingAverageLayers: Array<{ layer: ChartLayerKey; label: string }> = [
@@ -97,9 +97,9 @@ type TooltipAttributes = {
 };
 
 const trendLineExtensionOptions: Array<{ value: ChartLineExtension; label: string }> = [
-  { value: "segment", label: "Segment (two endpoints)" },
-  { value: "ray", label: "Ray (extends one way)" },
-  { value: "line", label: "Line (extends both ways)" }
+  { value: "segment", label: "구간선" },
+  { value: "ray", label: "한쪽 연장선" },
+  { value: "line", label: "양방향 연장선" }
 ];
 
 type FloatingMenuPosition = {
@@ -112,8 +112,8 @@ type HoverTooltip = FloatingMenuPosition & {
   placement: "bottom" | "right";
 };
 
-const liveIdleMessage = "Live stream is connected; waiting for market data.";
-const liveRecentlyIdleMessage = "No new live candles recently; chart is using stored candles.";
+const liveIdleMessage = "실시간 스트림은 연결됐고 시장 데이터를 기다리는 중입니다.";
+const liveRecentlyIdleMessage = "최근 새 실시간 캔들이 없어 저장된 캔들을 사용 중입니다.";
 const liveIdleDelayMs = 45_000;
 
 function tooltipAttributes(label: string): TooltipAttributes {
@@ -126,17 +126,44 @@ function tooltipAttributes(label: string): TooltipAttributes {
 function streamStatusLabel(status: StreamStatus): string {
   switch (status) {
     case "connecting":
-      return "Connecting";
+      return "연결 중";
     case "idle":
-      return "Idle";
+      return "대기";
     case "live":
-      return "Live";
+      return "실시간";
     case "stale":
-      return "Stale";
+      return "지연";
     case "error":
-      return "Error";
+      return "오류";
     default:
-      return "Unknown";
+      return "알 수 없음";
+  }
+}
+
+function chartToolLabel(toolId: ChartToolMode): string {
+  switch (toolId) {
+    case "select":
+      return "선택";
+    case "pan":
+      return "이동";
+    case "draw-horizontalLine":
+      return "수평선";
+    case "draw-verticalMarker":
+      return "마커";
+    case "draw-trendLine":
+      return "추세선";
+    case "draw-textLabel":
+      return "텍스트";
+    case "draw-pointMarker":
+      return "포인트";
+    case "draw-arrow":
+      return "화살표";
+    case "draw-rangeBox":
+      return "범위";
+    case "draw-measurement":
+      return "측정";
+    default:
+      return "도구";
   }
 }
 
@@ -250,7 +277,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     fetch(`/api/market/symbols/search?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Symbol search API returned ${response.status}`);
+          throw new Error(`종목 검색 API 응답 오류 ${response.status}`);
         }
         return response.json() as Promise<unknown>;
       })
@@ -291,7 +318,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Candle API returned ${response.status}`);
+          throw new Error(`캔들 API 응답 오류 ${response.status}`);
         }
         return response.json() as Promise<unknown>;
       })
@@ -309,7 +336,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           kind: "chart.snapshot.failed",
           symbol: document.symbol,
           interval: document.timeframe,
-          message: "Market data is unavailable."
+          message: "시장 데이터를 불러올 수 없습니다."
         });
       });
 
@@ -389,7 +416,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       fetch(`/api/charts/backfill/status?${params.toString()}`, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`Backfill status API returned ${response.status}`);
+            throw new Error(`백필 상태 API 응답 오류 ${response.status}`);
           }
           return response.json() as Promise<unknown>;
         })
@@ -428,7 +455,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Backfill API returned ${response.status}`);
+          throw new Error(`백필 API 응답 오류 ${response.status}`);
         }
         return response.json() as Promise<unknown>;
       })
@@ -641,7 +668,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`Comparison candle API returned ${response.status}`);
+            throw new Error(`비교 캔들 API 응답 오류 ${response.status}`);
           }
           return response.json() as Promise<unknown>;
         })
@@ -716,7 +743,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Historical range API returned ${response.status}`);
+          throw new Error(`과거 구간 API 응답 오류 ${response.status}`);
         }
         return response.json() as Promise<unknown>;
       })
@@ -1138,7 +1165,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           className="chart-dropdown chart-floating-dropdown chart-ma-menu"
           style={{ top: floatingMenuPosition.top, left: floatingMenuPosition.left }}
           role="menu"
-          aria-label="Moving average visibility"
+          aria-label="이동평균 표시"
         >
           {movingAverageLayers.map(({ layer, label }) => (
             <label key={layer} className="chart-checkbox-row">
@@ -1163,11 +1190,11 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         >
           <input
             value={labelDraft}
-            aria-label="Selected drawing text"
+            aria-label="선택한 드로잉 텍스트"
             autoFocus
             onChange={(event) => setLabelDraft(event.target.value)}
           />
-          <button type="submit" {...tooltipAttributes("Save drawing text")}>
+          <button type="submit" {...tooltipAttributes("드로잉 텍스트 저장")}>
             <Check size={13} />
           </button>
         </form>
@@ -1184,12 +1211,12 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           <input
             value={comparisonDraft}
             list={`comparison-symbol-options-${document.id}`}
-            placeholder="Symbol"
-            aria-label="Comparison symbol"
+            placeholder="종목"
+            aria-label="비교 종목"
             autoFocus
             onChange={(event) => setComparisonDraft(event.target.value.toUpperCase())}
           />
-          <button type="submit" {...tooltipAttributes("Add comparison")}>
+          <button type="submit" {...tooltipAttributes("비교 추가")}>
             <Check size={13} />
           </button>
           <datalist id={`comparison-symbol-options-${document.id}`}>
@@ -1206,7 +1233,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
                   type="button"
                   className={added ? "active" : ""}
                   aria-pressed={added}
-                  aria-label={added ? `Remove ${symbol} comparison` : `Add ${symbol} comparison`}
+                  aria-label={added ? `${symbol} 비교 제거` : `${symbol} 비교 추가`}
                   onClick={() => toggleComparison(symbol)}
                 >
                   {symbol}
@@ -1214,7 +1241,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
               );
             })}
             {comparisonOptions.length === 0 && (
-              <span className="chart-comparison-empty">No symbol results</span>
+              <span className="chart-comparison-empty">검색 결과가 없습니다</span>
             )}
           </div>
         </form>
@@ -1248,15 +1275,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       onPointerLeave={() => setHoverTooltip(null)}
       onPointerDown={() => setHoverTooltip(null)}
     >
-      <div className="chart-toolbar" aria-label="Chart editing tools">
+      <div className="chart-toolbar" aria-label="차트 편집 도구">
         <div className="chart-toolbar-scroll">
-        <div className="chart-symbol-control" title="Viewport and timeframe">
-          <button {...tooltipAttributes("Reset viewport")} onClick={resetViewport}>
+        <div className="chart-symbol-control" title="화면 범위와 주기">
+          <button {...tooltipAttributes("화면 초기화")} onClick={resetViewport}>
             <RefreshCcw size={14} />
           </button>
           <select
             value={document.timeframe}
-            aria-label="Chart timeframe"
+            aria-label="차트 주기"
             onChange={(event) => runCommand("chart.timeframe.set", { timeframe: event.target.value })}
           >
             {chartIntervals.map((interval) => (
@@ -1265,27 +1292,27 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           </select>
         </div>
 
-        <div className="chart-tool-group" aria-label="Viewport tools">
-          <button {...tooltipAttributes("Zoom in")} onClick={() => zoomBy(-viewportStep)}>
+        <div className="chart-tool-group" aria-label="화면 도구">
+          <button {...tooltipAttributes("확대")} onClick={() => zoomBy(-viewportStep)}>
             <ZoomIn size={14} />
           </button>
-          <button {...tooltipAttributes("Zoom out")} onClick={() => zoomBy(viewportStep)}>
+          <button {...tooltipAttributes("축소")} onClick={() => zoomBy(viewportStep)}>
             <ZoomOut size={14} />
           </button>
-          <button {...tooltipAttributes("Pan left")} onClick={() => panViewport(12)}>
+          <button {...tooltipAttributes("왼쪽 이동")} onClick={() => panViewport(12)}>
             <MoveLeft size={14} />
           </button>
-          <button {...tooltipAttributes("Pan right")} onClick={() => panViewport(-12)}>
+          <button {...tooltipAttributes("오른쪽 이동")} onClick={() => panViewport(-12)}>
             <MoveRight size={14} />
           </button>
         </div>
 
-        <div className="chart-tool-group" aria-label="Layer tools">
+        <div className="chart-tool-group" aria-label="레이어 도구">
           {baseLayerControls.map(({ layer, label, icon }) => (
             <button
               key={layer}
               className={document.layers[layer] ? "active chart-layer-button" : "chart-layer-button"}
-              {...tooltipAttributes(`${label} visibility`)}
+              {...tooltipAttributes(`${label} 표시`)}
               onClick={() => runCommand("chart.layer.visibility.set", { layer, visible: !document.layers[layer] })}
             >
               <LayerIcon icon={icon} visible={document.layers[layer]} />
@@ -1294,7 +1321,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           <div className="chart-popover-anchor">
             <button
               className={hasActiveMovingAverage ? "active chart-layer-button" : "chart-layer-button"}
-              {...tooltipAttributes("Moving averages")}
+              {...tooltipAttributes("이동평균")}
               onClick={(event) => {
                 placeFloatingMenu(event.currentTarget, 128);
                 setMaMenuOpen((open) => !open);
@@ -1307,10 +1334,10 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           </div>
         </div>
 
-        <div className="chart-tool-group chart-selected-drawing-tools" aria-label="Selected drawing tools">
+        <div className="chart-tool-group chart-selected-drawing-tools" aria-label="선택한 드로잉 도구">
           <div className="chart-popover-anchor">
             <button
-              {...tooltipAttributes("Edit selected drawing text")}
+              {...tooltipAttributes("선택한 드로잉 텍스트 수정")}
               disabled={!selectedDrawing}
               onClick={(event) => {
                 placeFloatingMenu(event.currentTarget, 190);
@@ -1323,21 +1350,21 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             </button>
           </div>
           <button
-            {...tooltipAttributes("Edit selected drawing style")}
+            {...tooltipAttributes("선택한 드로잉 스타일 수정")}
             disabled={!selectedDrawing}
             onClick={updateSelectedDrawingStyle}
           >
             <Palette size={14} />
           </button>
           <button
-            {...tooltipAttributes("Erase selected drawing")}
+            {...tooltipAttributes("선택한 드로잉 삭제")}
             disabled={!selectedDrawing}
             onClick={removeSelectedDrawing}
           >
             <Eraser size={14} />
           </button>
           <button
-            {...tooltipAttributes("Delete all drawings")}
+            {...tooltipAttributes("모든 드로잉 삭제")}
             disabled={document.drawings.length === 0}
             onClick={clearAllDrawings}
           >
@@ -1347,18 +1374,18 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
         </div>
 
-        <div className="chart-right-actions" aria-label="Chart proposal actions">
+        <div className="chart-right-actions" aria-label="차트 제안 동작">
           <span
             className={`chart-stream-status ${streamStatus}`}
-            title={streamMessage ?? `Live stream status: ${streamStatusLabel(streamStatus)}`}
-            aria-label={`Live stream status: ${streamStatusLabel(streamStatus)}`}
+            title={streamMessage ?? `실시간 스트림 상태: ${streamStatusLabel(streamStatus)}`}
+            aria-label={`실시간 스트림 상태: ${streamStatusLabel(streamStatus)}`}
           >
             {streamStatusLabel(streamStatus)}
           </span>
-          <div className="chart-tool-group chart-comparison-tools" aria-label="Comparison tools">
+          <div className="chart-tool-group chart-comparison-tools" aria-label="비교 도구">
             <div className="chart-popover-anchor">
               <button
-                {...tooltipAttributes("Add comparison")}
+                {...tooltipAttributes("비교 추가")}
                 onClick={(event) => {
                   placeFloatingMenu(event.currentTarget, 190);
                   setComparisonPickerOpen((open) => !open);
@@ -1370,16 +1397,17 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
               </button>
             </div>
           </div>
-          <div className="chart-tool-group chart-history-tools" aria-label="Chart command tools">
-            <button {...tooltipAttributes("Chart undo")} disabled={document.history.length === 0} onClick={() => runCommand("chart.undo")}>
+          <div className="chart-tool-group chart-history-tools" aria-label="차트 명령 도구">
+            <button {...tooltipAttributes("차트 실행 취소")} disabled={document.history.length === 0} onClick={() => runCommand("chart.undo")}>
               <RotateCcw size={14} />
             </button>
-            <button {...tooltipAttributes("Chart redo")} disabled={document.future.length === 0} onClick={() => runCommand("chart.redo")}>
+            <button {...tooltipAttributes("차트 다시 실행")} disabled={document.future.length === 0} onClick={() => runCommand("chart.redo")}>
               <RotateCw size={14} />
             </button>
           </div>
           <button
-            {...tooltipAttributes("Ask Agent 01")}
+            className="chart-ai-entry-button"
+            {...tooltipAttributes("AI에게 묻기")}
             onClick={(event) => {
               event.stopPropagation();
               onAskAgent(panel.id, document.id);
@@ -1387,14 +1415,14 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           >
             <Bot size={14} />
           </button>
-          <div className="chart-tool-group chart-preview-actions" aria-label="Preview actions">
+          <div className="chart-tool-group chart-preview-actions" aria-label="미리보기 동작">
             <button
               className={[
                 "chart-preview-button",
                 pendingPreview?.visible ? "active" : "",
                 previewPulseKey && previewPulseKey === pendingPreviewKey ? "pulse" : ""
               ].filter(Boolean).join(" ")}
-              {...tooltipAttributes(pendingPreview?.visible ? "Hide preview" : "Show preview")}
+              {...tooltipAttributes(pendingPreview?.visible ? "미리보기 숨기기" : "미리보기 보기")}
               disabled={!pendingPreview}
               onClick={() => runCommand("chart.preview.toggle", { previewVisible: !pendingPreview?.visible })}
             >
@@ -1402,7 +1430,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             </button>
             <button
               className="chart-apply-preview-button"
-              {...tooltipAttributes("Apply preview")}
+              {...tooltipAttributes("미리보기 적용")}
               disabled={!pendingPreview?.visible}
               onClick={() => runCommand("chart.preview.apply")}
             >
@@ -1413,18 +1441,18 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       </div>
 
       <div className="chart-body">
-        <div className="chart-drawing-rail" aria-label="Drawing tools">
+        <div className="chart-drawing-rail" aria-label="드로잉 도구">
           {chartToolRegistry.map((tool) => (
             <div className="chart-tool-slot" key={tool.id}>
               <button
                 className={document.interactionState.mode === tool.id ? "active" : ""}
-                {...tooltipAttributes(tool.label)}
+                {...tooltipAttributes(chartToolLabel(tool.id))}
                 onClick={() => setDocumentToolMode(tool.id)}
               >
                 <DrawingToolIcon toolId={tool.id} />
               </button>
               {tool.id === "draw-trendLine" && document.interactionState.mode === "draw-trendLine" && (
-                <div className="chart-trend-extension-menu" aria-label="Trend line mode">
+                <div className="chart-trend-extension-menu" aria-label="추세선 모드">
                   {trendLineExtensionOptions.map((option) => (
                     <button
                       key={option.value}
@@ -1444,7 +1472,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         <div className="chart-canvas-wrap" ref={canvasWrapRef}>
           <canvas
             ref={canvasRef}
-            aria-label={`${document.symbol} candlestick chart`}
+            aria-label={`${document.symbol} 캔들 차트`}
             onWheel={handleWheel}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -1612,17 +1640,17 @@ function defaultDrawingStyle(type: DrawingType, trendLineExtension: ChartLineExt
 function defaultDrawingLabel(type?: DrawingType) {
   switch (type) {
     case "horizontalLine":
-      return "Level";
+      return "기준선";
     case "verticalMarker":
-      return "Event";
+      return "이벤트";
     case "textLabel":
-      return "Note";
+      return "메모";
     case "pointMarker":
-      return "Point";
+      return "포인트";
     case "rangeBox":
-      return "Range";
+      return "범위";
     case "measurement":
-      return "Measure";
+      return "측정";
     default:
       return undefined;
   }

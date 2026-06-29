@@ -131,7 +131,7 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const x = candleCenter(scene, index);
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
-    const color = candle.close >= candle.open ? "rgba(15, 138, 75, 0.32)" : "rgba(179, 58, 58, 0.32)";
+    const color = candle.close >= candle.open ? "rgba(22, 168, 107, 0.26)" : "rgba(233, 75, 91, 0.24)";
 
     ctx.fillStyle = color;
     ctx.fillRect(x - scene.scales.candleWidth / 2, y, scene.scales.candleWidth, height);
@@ -208,7 +208,7 @@ function drawPreviewComparisons(ctx: CanvasRenderingContext2D, scene: RenderScen
   ctx.font = "11px Inter, system-ui, sans-serif";
   ctx.textAlign = "left";
   previewComparisons.forEach((comparison, index) => {
-    ctx.fillText(`Preview comparison: ${comparison.label ?? comparison.symbol}`, scene.plot.left, scene.plot.top + 16 + index * 15);
+    ctx.fillText(`비교 미리보기: ${comparison.label ?? comparison.symbol}`, scene.plot.left, scene.plot.top + 16 + index * 15);
   });
   ctx.restore();
 }
@@ -252,7 +252,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
     } else if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0]) {
       circle(ctx, points[0].x, points[0].y, drawing.type === "pointMarker" ? 4 : 3);
       ctx.fill();
-      drawDrawingLabel(ctx, drawing.label ?? (drawing.type === "textLabel" ? "Note" : ""), points[0].x + 7, points[0].y - 7, drawing);
+      drawDrawingLabel(ctx, drawing.label ?? (drawing.type === "textLabel" ? "메모" : ""), points[0].x + 7, points[0].y - 7, drawing);
     }
 
     if (selected && points.length > 0) {
@@ -284,14 +284,14 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, label: string | undefin
 function measurementLabel(drawing: DrawingEntity, scene: RenderScene): string {
   const [start, end] = drawing.anchors;
   if (typeof start?.price !== "number" || typeof end?.price !== "number") {
-    return drawing.label ?? "Measurement";
+    return drawing.label ?? "측정";
   }
   const delta = end.price - start.price;
   const percent = (delta / Math.max(0.0001, start.price)) * 100;
   const startIndex = scene.allCandles.findIndex((candle) => candle.timestamp === start.timestamp);
   const endIndex = scene.allCandles.findIndex((candle) => candle.timestamp === end.timestamp);
   const bars = startIndex >= 0 && endIndex >= 0 ? Math.abs(endIndex - startIndex) : 0;
-  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars} bars`;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars}봉`;
 }
 
 function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
