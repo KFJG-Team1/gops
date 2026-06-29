@@ -12,12 +12,15 @@ import { buildChartAgentContext } from "@gops/chart-engine/proposals";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
+  getChartDocumentForPanel,
   getDataStatusForDocument,
   getStreamStatusForDocument,
   type ChartRuntimeAction,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
+import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
+import { findTargetChartPanel } from "../layout/chartPanelSelection";
 import { getPanelDefinition } from "../layout/panelRegistry";
 import {
   createPanelDropCommand,
@@ -252,8 +255,14 @@ function AgentChatPanel({
     () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
     [chartRuntime, layout.panels, referencedChartTarget]
   );
-  const chartPanel = resolvedReference?.panel ?? null;
-  const chartDocument = resolvedReference?.document ?? null;
+  const orchestrationMode = selectedAgents.length > 1;
+  const fallbackChartPanel = useMemo(
+    () => orchestrationMode ? findTargetChartPanel(layout.panels, layout.selectedPanelId) : null,
+    [layout.panels, layout.selectedPanelId, orchestrationMode]
+  );
+  const fallbackChartDocument = fallbackChartPanel ? getChartDocumentForPanel(chartRuntime, fallbackChartPanel) : null;
+  const chartPanel = resolvedReference?.panel ?? fallbackChartPanel;
+  const chartDocument = resolvedReference?.document ?? fallbackChartDocument;
   const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
   const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
   const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
@@ -268,11 +277,11 @@ function AgentChatPanel({
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
     : introAgent.description;
-  const target = chartAgentAccess.enabled && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
+  const target = (chartAgentAccess.enabled || orchestrationMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
-  const disabledMessage = chartAgentAccess.reason === "orchestration"
-    ? "멀티에이전트 모드에서는 아직 차트 요청을 보낼 수 없습니다."
+  const disabledMessage = orchestrationMode
+    ? "차트 패널을 선택하거나 차트에서 Ask Agent를 눌러 분석할 차트를 지정하세요."
     : chartAgentAccess.reason === "no-chart-agent"
       ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
       : "차트 패널에서 Ask Agent를 눌러 분석할 차트를 지정하세요.";
@@ -297,21 +306,56 @@ function AgentChatPanel({
     setDraft("");
     setSending(true);
     setAgentError(false);
+    const chartContext = buildChartAgentContext({
+      panelId: chartPanel.id,
+      document: chartDocument,
+      candles,
+      dataStatus,
+      streamStatus,
+      symbolUniverse
+    });
+    const requestMessagePayload = requestMessages.map((message) => ({ role: message.role, content: message.content }));
+
+    if (orchestrationMode) {
+      fetch("/api/agents/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildAgentAnalysisRequest({
+          agentIds: selectedAgents.map((agent) => agent.id),
+          messages: requestMessages,
+          symbol: chartDocument.symbol,
+          intent: content,
+          chartContext
+        }))
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(await readApiErrorMessage(response, "Agent orchestration API"));
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          const report = normalizeAgentAnalysisReport(payload);
+          setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
+        })
+        .catch((error: unknown) => {
+          setAgentError(true);
+          setMessages((current) => [
+            ...current,
+            createChatMessage("assistant", error instanceof Error ? error.message : "Agent orchestration failed.")
+          ]);
+        })
+        .finally(() => setSending(false));
+      return;
+    }
 
     fetch("/api/llm/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         agentIds: selectedAgents.map((agent) => agent.id),
-        messages: requestMessages.map((message) => ({ role: message.role, content: message.content })),
-        context: buildChartAgentContext({
-          panelId: chartPanel.id,
-          document: chartDocument,
-          candles,
-          dataStatus,
-          streamStatus,
-          symbolUniverse
-        })
+        messages: requestMessagePayload,
+        context: chartContext
       })
     })
       .then(async (response) => {

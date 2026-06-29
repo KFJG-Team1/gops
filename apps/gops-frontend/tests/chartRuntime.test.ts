@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
+import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
 import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "../../chart-engine/src/backfill";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
@@ -1068,6 +1069,52 @@ const chatOnlyResult = normalizeAgentChatResponse({
 }, target("panel-a", documentA.id));
 assert.equal(chatOnlyResult.reply, "No chart command is needed.");
 assert.equal(chatOnlyResult.proposal, undefined);
+
+const agentAnalysisRequest = buildAgentAnalysisRequest({
+  agentIds: ["agent-01", "agent-02"],
+  messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
+});
+assert.deepEqual(agentAnalysisRequest, {
+  agentIds: ["agent-01", "agent-02"],
+  messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
+});
+
+const agentAnalysisReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-1",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA has a watch price_surge signal.",
+  findings: [
+    { agentId: "chart-agent", role: "chart-analysis", summary: "Chart shows a visible breakout.", evidence: [] },
+    { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] }
+  ],
+  providerEvidence: [
+    { provider: "news", status: "no-data", summary: "News provider is not configured." },
+    { provider: "macro", status: "no-data", summary: "Macro provider is not configured." }
+  ],
+  notificationDecision: {
+    level: "watch",
+    title: "NVDA price surge",
+    message: "Smoke event for Docker validation.",
+    reason: "Notification level follows the strongest attached market event severity."
+  }
+});
+const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
+assert.match(agentAnalysisMessage, /NVDA has a watch price_surge signal\./);
+assert.match(agentAnalysisMessage, /chart-analysis: Chart shows a visible breakout\./);
+assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
+assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
+assert.match(agentAnalysisMessage, /Notification: WATCH - NVDA price surge/);
+assert.throws(
+  () => normalizeAgentAnalysisReport({ findings: [] }),
+  /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
+);
 
 assert.deepEqual(getChartAgentAccess([{ id: "agent-01" }]), { enabled: true, reason: "agent-01" });
 assert.deepEqual(getChartAgentAccess([{ id: "agent-02" }]), { enabled: false, reason: "no-chart-agent" });
