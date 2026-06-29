@@ -44,18 +44,11 @@ export type AgentOption = {
 export type AgentUpdatePatch = Partial<Pick<AgentOption, "label" | "description" | "iconUrl">>;
 
 export const initialAgentOptions: AgentOption[] = [
-  { id: "agent-01", label: "Chart Agent", description: "LLM chart operator. It explains intent and sends chart commands.", iconUrl: "/assets/agent-icons/agent-01.svg" },
-  { id: "agent-02", label: "Agent 02", description: "News and context assistant.", iconUrl: "/assets/agent-icons/agent-02.svg" },
-  { id: "agent-03", label: "Agent 03", description: "Signal review assistant.", iconUrl: "/assets/agent-icons/agent-03.svg" },
-  { id: "agent-04", label: "Agent 04", description: "Portfolio watch assistant.", iconUrl: "/assets/agent-icons/agent-04.svg" }
+  { id: "agent-01", label: "Chart Agent", description: "Analyzes chart context and keeps the existing chart command flow.", iconUrl: "/assets/agent-icons/agent-01.svg" },
+  { id: "agent-02", label: "News Agent", description: "Checks market news context and provider evidence.", iconUrl: "/assets/agent-icons/agent-02.svg" },
+  { id: "agent-03", label: "Macro Agent", description: "Reviews macro indicators and market-wide numeric signals.", iconUrl: "/assets/agent-icons/agent-03.svg" },
+  { id: "agent-04", label: "Ontology Agent", description: "Analyzes company relationship and sector impact context.", iconUrl: "/assets/agent-icons/agent-04.svg" }
 ];
-
-const orchestratorAgent: AgentOption = {
-  id: "orchestrator",
-  label: "Orchestrator",
-  description: "Automatically coordinates multi-agent mode.",
-  iconUrl: "/assets/agent-icons/agent-12.svg"
-};
 
 type SystemAreaProps = {
   mode: SystemMode;
@@ -122,10 +115,9 @@ export function SystemArea({
   onChartAction
 }: SystemAreaProps) {
   const selectedAgents = agents.filter((agent) => selectedAgentIds.includes(agent.id));
-  const activeAgents = selectedAgents.length > 1 ? [orchestratorAgent, ...selectedAgents] : selectedAgents;
   const chartAgentAccess = getChartAgentAccess(selectedAgents);
   const agentHeaderTitle = selectedAgents.length > 1
-    ? "Orchestration"
+    ? "Multi-agent Analysis"
     : selectedAgents[0]?.label ?? "LLM Agent";
   const agentHeaderDetail = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
@@ -167,7 +159,6 @@ export function SystemArea({
             chartRuntime={chartRuntime}
             autoApplyEnabled={chartAutoApplyEnabled}
             selectedAgents={selectedAgents}
-            activeAgents={activeAgents}
             chartAgentAccess={chartAgentAccess}
             referencedChartTarget={referencedChartTarget}
             symbolUniverse={symbolUniverse}
@@ -235,7 +226,6 @@ function AgentChatPanel({
   chartRuntime,
   autoApplyEnabled,
   selectedAgents,
-  activeAgents,
   chartAgentAccess,
   referencedChartTarget,
   symbolUniverse,
@@ -245,7 +235,6 @@ function AgentChatPanel({
   chartRuntime: ChartRuntimeState;
   autoApplyEnabled: boolean;
   selectedAgents: AgentOption[];
-  activeAgents: AgentOption[];
   chartAgentAccess: ReturnType<typeof getChartAgentAccess>;
   referencedChartTarget?: AgentChartReference;
   symbolUniverse: readonly SupportedSymbol[];
@@ -273,10 +262,12 @@ function AgentChatPanel({
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
   const draftSeed = referencedChartTarget?.draftSeed ?? DEFAULT_AGENT_DRAFT_SEED;
-  const introAgent = activeAgents[0] ?? selectedAgents[0] ?? orchestratorAgent;
+  const introAgent = selectedAgents[0];
+  const introLabel = selectedAgents.length > 1 ? "Multi-agent Analysis" : introAgent?.label ?? "LLM Agent";
+  const introIconUrl = introAgent?.iconUrl ?? "/assets/agent-icons/agent-01.svg";
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
-    : introAgent.description;
+    : introAgent?.description ?? "Select an agent";
   const target = (chartAgentAccess.enabled || orchestrationMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
@@ -388,8 +379,8 @@ function AgentChatPanel({
       <div className={messages.length === 0 ? "agent-chat-messages empty" : "agent-chat-messages"} aria-label="LLM chart chat messages">
         {messages.length === 0 && (
           <div className="agent-chat-empty-state">
-            <img src={introAgent.iconUrl} alt="" />
-            <strong>{introAgent.label}</strong>
+            <img src={introIconUrl} alt="" />
+            <strong>{introLabel}</strong>
             <span>{introDescription}</span>
             {!target && <small>{disabledMessage}</small>}
           </div>

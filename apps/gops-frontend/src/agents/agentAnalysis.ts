@@ -86,10 +86,19 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const lines = [report.summary];
-  const findings = report.findings.filter((finding) => finding.summary).slice(0, 7);
+  const findings = report.findings
+    .filter((finding) => finding.summary && isVisibleAgentFinding(finding))
+    .slice(0, 4);
   if (findings.length) {
-    lines.push("", "Role findings:");
+    lines.push("", "Agent findings:");
     lines.push(...findings.map((finding) => `- ${labelForRole(finding)}: ${finding.summary}`));
+  }
+
+  const unusualEventFinding = report.findings.find((finding) =>
+    finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
+  );
+  if (unusualEventFinding) {
+    lines.push("", `이상 이벤트: ${unusualEventFinding.summary}`);
   }
 
   const noDataEvidence = report.providerEvidence
@@ -102,13 +111,18 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
 
   const decision = report.notificationDecision;
   if (decision && ["watch", "alert", "critical"].includes(decision.level)) {
-    lines.push("", `Notification: ${decision.level.toUpperCase()}${decision.title ? ` - ${decision.title}` : ""}`);
+    lines.push("", `알림 판단: ${decision.level.toUpperCase()}${decision.title ? ` - ${decision.title}` : ""}`);
     if (decision.message) {
       lines.push(decision.message);
     }
     if (decision.reason) {
-      lines.push(`Reason: ${decision.reason}`);
+      lines.push(`근거: ${decision.reason}`);
     }
+  }
+
+  const verificationFinding = report.findings.find((finding) => finding.role === "verification-guardrail" && finding.summary);
+  if (verificationFinding) {
+    lines.push("", `검증 결과: ${verificationFinding.summary}`);
   }
 
   return lines.join("\n");
@@ -162,7 +176,22 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
 }
 
 function labelForRole(finding: AgentFinding): string {
-  return finding.role || finding.agentId;
+  const labels: Record<string, string> = {
+    "chart-analysis": "Chart Agent",
+    "news-analysis": "News Agent",
+    "macro-analysis": "Macro Agent",
+    "company-relationship-analysis": "Ontology Agent"
+  };
+  return labels[finding.role] ?? finding.role ?? finding.agentId;
+}
+
+function isVisibleAgentFinding(finding: AgentFinding): boolean {
+  return [
+    "chart-analysis",
+    "news-analysis",
+    "macro-analysis",
+    "company-relationship-analysis"
+  ].includes(finding.role);
 }
 
 function labelForProvider(provider: string): string {

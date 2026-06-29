@@ -1092,7 +1092,8 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
   summary: "NVDA has a watch price_surge signal.",
   findings: [
     { agentId: "chart-agent", role: "chart-analysis", summary: "Chart shows a visible breakout.", evidence: [] },
-    { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] }
+    { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] },
+    { agentId: "verification-guardrail-agent", role: "verification-guardrail", summary: "No trading-action guardrail violation detected.", evidence: [] }
   ],
   providerEvidence: [
     { provider: "news", status: "no-data", summary: "News provider is not configured." },
@@ -1107,10 +1108,12 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
 });
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA has a watch price_surge signal\./);
-assert.match(agentAnalysisMessage, /chart-analysis: Chart shows a visible breakout\./);
+assert.match(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
 assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
 assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
-assert.match(agentAnalysisMessage, /Notification: WATCH - NVDA price surge/);
+assert.match(agentAnalysisMessage, /알림 판단: WATCH - NVDA price surge/);
+assert.match(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
 assert.throws(
   () => normalizeAgentAnalysisReport({ findings: [] }),
   /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
