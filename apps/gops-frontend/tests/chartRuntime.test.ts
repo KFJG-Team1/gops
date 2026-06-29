@@ -1099,10 +1099,13 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     reason: "Matched intent keyword."
   },
   finalAnswer: {
-    title: "NVDA market-move 분석",
-    summary: "NVDA 요청은 chart, news 역할로 라우팅했고, 저장된 provider 근거 1건을 확인했습니다.",
+    title: "NVDA 주가 변동 원인 분석",
+    summary: "차트, 뉴스, 기업 관계 근거를 종합해 NVDA의 변동 원인을 정리했습니다.",
     sections: [{ title: "확인된 근거", bullets: ["Headline: News summary"] }],
-    citations: [{ provider: "news", title: "Headline", url: "https://example.com/news" }],
+    citations: [
+      { provider: "news", title: "Headline", url: "https://example.com/news" },
+      { provider: "ontology", title: "URL 없는 온톨로지 근거" }
+    ],
     limitations: ["Macro provider not configured."]
   },
   findings: [
@@ -1112,7 +1115,13 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
   ],
   providerEvidence: [
     { provider: "news", status: "no-data", summary: "News provider is not configured." },
-    { provider: "macro", status: "no-data", summary: "Macro provider is not configured." }
+    { provider: "macro", status: "no-data", summary: "Macro provider is not configured." },
+    {
+      provider: "ontology",
+      status: "no-data",
+      summary: "GraphDB에서 NVDA의 직접 지배/자회사 관계 근거는 확인되지 않았습니다.",
+      raw: { relationType: "no-direct-control" }
+    }
   ],
   notificationDecision: {
     level: "watch",
@@ -1122,14 +1131,19 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
   }
 });
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
-assert.match(agentAnalysisMessage, /NVDA market-move 분석/);
-assert.match(agentAnalysisMessage, /저장된 provider 근거 1건/);
+assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
+assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
 assert.match(agentAnalysisMessage, /Headline: News summary/);
-assert.match(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
+assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
+assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
 assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
 assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
+assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
+assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
 assert.match(agentAnalysisMessage, /알림 판단: WATCH - NVDA price surge/);
-assert.match(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
 assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
 assert.throws(
   () => normalizeAgentAnalysisReport({ findings: [] }),

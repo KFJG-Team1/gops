@@ -4,6 +4,7 @@ export type AgentEvidenceItem = {
   title?: string;
   summary?: string;
   url?: string;
+  raw?: Record<string, unknown>;
 };
 
 export type AgentFinding = {
@@ -13,6 +14,7 @@ export type AgentFinding = {
   rationale?: string;
   confidence?: number;
   evidence: AgentEvidenceItem[];
+  tags: string[];
 };
 
 export type NotificationDecision = {
@@ -122,13 +124,6 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer) : [report.summary];
-  const findings = report.findings
-    .filter((finding) => finding.summary && isVisibleAgentFinding(finding))
-    .slice(0, 4);
-  if (findings.length) {
-    lines.push("", "Agent findings:");
-    lines.push(...findings.map((finding) => `- ${labelForRole(finding)}: ${finding.summary}`));
-  }
 
   const unusualEventFinding = report.findings.find((finding) =>
     finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
@@ -140,9 +135,15 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const noDataEvidence = report.providerEvidence
     .filter((item) => item.status === "no-data")
     .slice(0, 5);
-  if (noDataEvidence.length) {
+  const ontologyNoData = noDataEvidence.filter(isOntologyRelationshipNoData);
+  const providerNoData = noDataEvidence.filter((item) => !isOntologyRelationshipNoData(item));
+  if (ontologyNoData.length) {
+    lines.push("", "확인되지 않은 내용:");
+    lines.push(...ontologyNoData.map((item) => `- ${item.summary ?? "온톨로지 관계 근거가 확인되지 않았습니다."}`));
+  }
+  if (providerNoData.length) {
     lines.push("", "Provider status:");
-    lines.push(...noDataEvidence.map((item) => `- ${labelForProvider(item.provider)} provider 미연결: ${item.summary ?? "데이터가 아직 연결되지 않았습니다."}`));
+    lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${item.summary ?? "데이터가 아직 연결되지 않았습니다."}`));
   }
 
   const decision = report.notificationDecision;
@@ -156,9 +157,11 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     }
   }
 
-  const verificationFinding = report.findings.find((finding) => finding.role === "verification-guardrail" && finding.summary);
+  const verificationFinding = report.findings.find((finding) =>
+    finding.role === "verification-guardrail" && finding.summary && isVerificationWarning(finding)
+  );
   if (verificationFinding) {
-    lines.push("", `검증 결과: ${verificationFinding.summary}`);
+    lines.push("", `검증 경고: ${verificationFinding.summary}`);
   }
 
   return lines.join("\n");
@@ -173,10 +176,11 @@ function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
     lines.push("", section.title);
     lines.push(...section.bullets.slice(0, 5).map((bullet) => `- ${bullet}`));
   }
-  if (finalAnswer.citations.length) {
+  const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url));
+  if (linkedCitations.length) {
     lines.push("", "근거 링크:");
-    lines.push(...finalAnswer.citations.slice(0, 5).map((citation) =>
-      `- ${citation.title}${citation.url ? ` (${citation.url})` : ""}`
+    lines.push(...linkedCitations.slice(0, 5).map((citation) =>
+      `- ${citation.title} (${citation.url})`
     ));
   }
   if (finalAnswer.limitations.length) {
@@ -200,7 +204,8 @@ function normalizeFinding(value: unknown): AgentFinding | null {
     summary,
     rationale: readString(source.rationale) ?? undefined,
     confidence: typeof source.confidence === "number" ? source.confidence : undefined,
-    evidence: readArray(source.evidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item))
+    evidence: readArray(source.evidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
+    tags: readArray(source.tags).map(readString).filter((item): item is string => Boolean(item))
   };
 }
 
@@ -216,7 +221,8 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
     status,
     title: readString(source.title) ?? undefined,
     summary: readString(source.summary) ?? undefined,
-    url: readString(source.url) ?? undefined
+    url: readString(source.url) ?? undefined,
+    raw: readObject(source.raw) ?? undefined
   };
 }
 
@@ -294,25 +300,6 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   };
 }
 
-function labelForRole(finding: AgentFinding): string {
-  const labels: Record<string, string> = {
-    "chart-analysis": "Chart Agent",
-    "news-analysis": "News Agent",
-    "macro-analysis": "Macro Agent",
-    "company-relationship-analysis": "Ontology Agent"
-  };
-  return labels[finding.role] ?? finding.role ?? finding.agentId;
-}
-
-function isVisibleAgentFinding(finding: AgentFinding): boolean {
-  return [
-    "chart-analysis",
-    "news-analysis",
-    "macro-analysis",
-    "company-relationship-analysis"
-  ].includes(finding.role);
-}
-
 function labelForProvider(provider: string): string {
   const labels: Record<string, string> = {
     news: "뉴스",
@@ -320,6 +307,30 @@ function labelForProvider(provider: string): string {
     ontology: "온톨로지"
   };
   return labels[provider] ?? provider;
+}
+
+function providerNoDataLabel(item: AgentEvidenceItem): string {
+  const relationType = typeof item.raw?.relationType === "string" ? item.raw.relationType : "";
+  if (item.provider === "ontology" && relationType === "graphdb-unavailable") {
+    return "GraphDB 연결 실패";
+  }
+  return `${labelForProvider(item.provider)} provider 미연결`;
+}
+
+function isOntologyRelationshipNoData(item: AgentEvidenceItem): boolean {
+  if (item.provider !== "ontology") {
+    return false;
+  }
+  const relationType = typeof item.raw?.relationType === "string" ? item.raw.relationType : "";
+  return ["no-direct-control", "no-ontology-evidence"].includes(relationType);
+}
+
+function isVerificationWarning(finding: AgentFinding): boolean {
+  const normalized = finding.summary.trim().toLowerCase();
+  if (!normalized || normalized.startsWith("no trading-action guardrail violation detected")) {
+    return false;
+  }
+  return true;
 }
 
 function readArray(value: unknown): unknown[] {
