@@ -1,6 +1,7 @@
-import { LoaderCircle, SendHorizontal } from "lucide-react";
+import { LoaderCircle, LogIn, SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SupportedSymbol } from "@gops/chart-engine/symbols";
+import { useAuth } from "../auth/AuthProvider";
 
 type OrderSide = "buy" | "sell";
 type OrderMarket = "overseas" | "domestic";
@@ -66,6 +67,7 @@ function toOrderMarket(value: string): OrderMarket {
 }
 
 export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol }) {
+  const { authEnabled, user, loading: authLoading, login } = useAuth();
   const [form, setForm] = useState<OrderFormState>({ ...DEFAULT_FORM, symbol: activeSymbol });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -116,6 +118,11 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
   };
 
   const submitOrder = async () => {
+    if (authEnabled && !user) {
+      login();
+      return;
+    }
+
     setSubmitting(true);
     setError(undefined);
     const idempotencyKey = makeIdempotencyKey();
@@ -140,7 +147,7 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.detail ?? `Order API returned ${response.status}`);
+        throw new Error(payload.detail ?? (response.status === 401 ? "Sign in with Google to submit orders." : `Order API returned ${response.status}`));
       }
       setOrder(payload);
       setEvents([]);
@@ -156,7 +163,7 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
     <section className="order-ticket" aria-label="Order ticket">
       <div className="order-ticket-header">
         <strong>Order</strong>
-        <span>{order?.status ?? "Ready"}</span>
+        <span>{authEnabled && !user ? "Sign in" : order?.status ?? "Ready"}</span>
       </div>
 
       <div className="order-side-control" role="group" aria-label="Order side">
@@ -194,9 +201,11 @@ export function OrderTicket({ activeSymbol }: { activeSymbol: SupportedSymbol })
         </label>
       </div>
 
-      <button className="order-submit-button" type="button" disabled={submitting} onClick={submitOrder}>
-        {submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
-        Submit
+      <button className="order-submit-button" type="button" disabled={submitting || authLoading} onClick={submitOrder}>
+        {authEnabled && !user
+          ? <LogIn size={14} />
+          : submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
+        {authEnabled && !user ? "Sign in" : "Submit"}
       </button>
 
       {error && <div className="order-error">{error}</div>}

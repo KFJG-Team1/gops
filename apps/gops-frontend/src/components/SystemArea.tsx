@@ -1,4 +1,4 @@
-import { Bell, LoaderCircle, Menu, Plus, RotateCcw, SendHorizontal, Star, Trash2, X } from "lucide-react";
+import { Bell, LoaderCircle, LogIn, Menu, Plus, RotateCcw, SendHorizontal, Star, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
 import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
@@ -18,6 +18,7 @@ import {
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
+import { useAuth } from "../auth/AuthProvider";
 import { getPanelDefinition } from "../layout/panelRegistry";
 import {
   createPanelDropCommand,
@@ -248,6 +249,7 @@ function AgentChatPanel({
   symbolUniverse: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
 }) {
+  const { authEnabled, user, loading: authLoading, login } = useAuth();
   const resolvedReference = useMemo(
     () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
     [chartRuntime, layout.panels, referencedChartTarget]
@@ -271,12 +273,15 @@ function AgentChatPanel({
   const target = chartAgentAccess.enabled && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
-  const disabledMessage = chartAgentAccess.reason === "orchestration"
+  const authRequired = authEnabled && !user;
+  const disabledMessage = authRequired
+    ? "Sign in with Google to use agents."
+    : chartAgentAccess.reason === "orchestration"
     ? "멀티에이전트 모드에서는 아직 차트 요청을 보낼 수 없습니다."
     : chartAgentAccess.reason === "no-chart-agent"
       ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
       : "차트 패널에서 Ask Agent를 눌러 분석할 차트를 지정하세요.";
-  const sendDisabled = !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
+  const sendDisabled = authRequired || authLoading || !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
 
   useEffect(() => {
     setMessages([]);
@@ -286,6 +291,11 @@ function AgentChatPanel({
   }, [selectedAgentKey, referencedChartKey]);
 
   const sendMessage = () => {
+    if (authRequired) {
+      login();
+      return;
+    }
+
     const content = resolveAgentSendContent(draft, draftSeed);
     if (!content || !target || !chartPanel || !chartDocument || sending) {
       return;
@@ -348,6 +358,11 @@ function AgentChatPanel({
             <strong>{introAgent.label}</strong>
             <span>{introDescription}</span>
             {!target && <small>{disabledMessage}</small>}
+            {authRequired && (
+              <button className="agent-auth-button" type="button" onClick={login}>
+                <LogIn size={14} /> Sign in
+              </button>
+            )}
           </div>
         )}
         {target && messages.map((message) => (
@@ -366,8 +381,8 @@ function AgentChatPanel({
         <div className="agent-chat-input-row">
           <textarea
             value={draft}
-            placeholder={target ? draftSeed : disabledMessage}
-            disabled={!target || sending}
+            placeholder={authRequired ? disabledMessage : target ? draftSeed : disabledMessage}
+            disabled={authRequired || !target || sending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -376,7 +391,7 @@ function AgentChatPanel({
               }
             }}
           />
-          <button title={target ? "Send chart request" : disabledMessage} disabled={sendDisabled} onClick={sendMessage}>
+          <button title={authRequired ? "Sign in with Google" : target ? "Send chart request" : disabledMessage} disabled={sendDisabled} onClick={sendMessage}>
             {sending ? <LoaderCircle size={15} /> : <SendHorizontal size={15} />}
           </button>
         </div>

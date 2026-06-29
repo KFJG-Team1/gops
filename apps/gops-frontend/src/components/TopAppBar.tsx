@@ -1,6 +1,7 @@
-import { ChevronDown, Redo2, Search, Undo2, WandSparkles } from "lucide-react";
+import { ChevronDown, LogIn, LogOut, Redo2, Search, Undo2, WandSparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
+import { useAuth } from "../auth/AuthProvider";
 import { layoutPresentationSnapshotsEqual, makeCommand } from "../layout/commands";
 import type { LayoutCommand, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 import { SystemOrbRail, type AgentOption } from "./SystemArea";
@@ -51,6 +52,7 @@ export function TopAppBar({
   onSymbolSearch,
   onCommand
 }: TopAppBarProps) {
+  const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const favoriteLayouts = [1, 2, 3, 4].map((slot) => savedLayouts.find((record) => record.favoriteSlot === slot));
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchDraft, setSearchDraft] = useState<string>(activeSymbol);
@@ -221,6 +223,27 @@ export function TopAppBar({
             <WandSparkles size={18} />
           </button>
         </div>
+        {authEnabled && (
+          <div className="toolbar-group account-toolbar" aria-label="Account">
+            <span className="account-label" title={user?.email ?? "Signed out"}>
+              {user?.name || user?.email || "Guest"}
+            </span>
+            <button
+              title={user ? "Sign out" : "Sign in with Google"}
+              aria-label={user ? "Sign out" : "Sign in with Google"}
+              disabled={authLoading}
+              onClick={() => {
+                if (user) {
+                  void logout();
+                } else {
+                  login();
+                }
+              }}
+            >
+              {user ? <LogOut size={16} /> : <LogIn size={16} />}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="headline-alert-strip" aria-label="Realtime headline and alert message">
