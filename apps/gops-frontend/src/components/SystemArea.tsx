@@ -1,4 +1,4 @@
-import { Bell, Bot, Cog, LoaderCircle, LogIn, Plus, RotateCcw, SendHorizontal, Star, Trash2, X } from "lucide-react";
+import { Bell, Bot, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
 import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
@@ -34,6 +34,16 @@ import type { FavoriteLayoutSlot, LayoutCommand, PanelType, SavedLayoutRecord, W
 export type SystemMode = "watchlist" | "settings" | "agents" | "notifications";
 
 export type SystemMenuTab = "layouts" | "panels" | "agent" | "menu";
+
+type SettingsOverlayKey = "account" | "keyboard" | "dataSources" | "help";
+
+type RegisteredBrokerAccount = {
+  accountName: string;
+  demoAccountLast8: string;
+  registeredAt: string;
+};
+
+const REGISTERED_ACCOUNT_STORAGE_KEY = "gops.settings.registeredBrokerAccount";
 
 export type AgentOption = {
   id: string;
@@ -171,8 +181,7 @@ export function SystemArea({
       {mode === "notifications" && (
         <div className="system-mode-content">
           <div className="system-mode-header">
-            <strong>알림</strong>
-            <span>알림 설정</span>
+            <strong>알림설정</strong>
           </div>
           <div className="menu-settings-list">
             {["레이아웃 제안", "시장 알림", "AI 상태", "리스크 알림"].map((item) => (
@@ -575,6 +584,29 @@ function SettingsPanel({
   onDeleteAgent,
   onCommand
 }: SettingsPanelProps) {
+  const [activeOverlay, setActiveOverlay] = useState<SettingsOverlayKey | null>(null);
+  const [registeredAccount, setRegisteredAccount] = useState<RegisteredBrokerAccount | null>(() => readRegisteredBrokerAccount());
+
+  useEffect(() => {
+    if (!activeOverlay) {
+      return;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveOverlay(null);
+      }
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [activeOverlay]);
+
+  const registerAccount = (account: RegisteredBrokerAccount) => {
+    setRegisteredAccount(account);
+    writeRegisteredBrokerAccount(account);
+  };
+
   return (
     <div className="settings-panel">
       <div className="settings-tabs">
@@ -611,13 +643,307 @@ function SettingsPanel({
 
       {settingsTab === "menu" && (
         <div className="menu-settings-list">
-          {["계정", "작업 화면", "데이터 소스", "키보드", "도움말"].map((item) => (
-            <button key={item}>{item}</button>
-          ))}
+          <button
+            className={activeOverlay === "account" ? "active" : ""}
+            aria-pressed={activeOverlay === "account"}
+            onClick={() => setActiveOverlay("account")}
+          >
+            <User size={14} /> <span>계정</span>
+          </button>
+          <button
+            className={activeOverlay === "keyboard" ? "active" : ""}
+            aria-pressed={activeOverlay === "keyboard"}
+            onClick={() => setActiveOverlay("keyboard")}
+          >
+            <Keyboard size={14} /> <span>키보드</span>
+          </button>
+          <button
+            className={activeOverlay === "dataSources" ? "active" : ""}
+            aria-pressed={activeOverlay === "dataSources"}
+            onClick={() => setActiveOverlay("dataSources")}
+          >
+            <Database size={14} /> <span>데이터 소스</span>
+          </button>
+          <button
+            className={activeOverlay === "help" ? "active" : ""}
+            aria-pressed={activeOverlay === "help"}
+            onClick={() => setActiveOverlay("help")}
+          >
+            <CircleHelp size={14} /> <span>도움말</span>
+          </button>
         </div>
+      )}
+
+      {activeOverlay && (
+        <SettingsOverlay
+          activeOverlay={activeOverlay}
+          registeredAccount={registeredAccount}
+          onRegisterAccount={registerAccount}
+          onClose={() => setActiveOverlay(null)}
+        />
       )}
     </div>
   );
+}
+
+function SettingsOverlay({
+  activeOverlay,
+  registeredAccount,
+  onRegisterAccount,
+  onClose
+}: {
+  activeOverlay: SettingsOverlayKey;
+  registeredAccount: RegisteredBrokerAccount | null;
+  onRegisterAccount: (account: RegisteredBrokerAccount) => void;
+  onClose: () => void;
+}) {
+  const title = settingsOverlayTitle(activeOverlay);
+
+  return (
+    <div className="settings-overlay-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="settings-overlay-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="settings-overlay-header">
+          <div>
+            <strong>{title}</strong>
+          </div>
+          <button className="settings-overlay-close" type="button" title="닫기" aria-label="닫기" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </header>
+
+        {activeOverlay === "account" && (
+          <AccountSettingsOverlay registeredAccount={registeredAccount} onRegisterAccount={onRegisterAccount} />
+        )}
+        {activeOverlay === "keyboard" && <KeyboardSettingsOverlay />}
+        {activeOverlay === "dataSources" && <DataSourceSettingsOverlay />}
+        {activeOverlay === "help" && <HelpSettingsOverlay />}
+      </section>
+    </div>
+  );
+}
+
+function AccountSettingsOverlay({
+  registeredAccount,
+  onRegisterAccount
+}: {
+  registeredAccount: RegisteredBrokerAccount | null;
+  onRegisterAccount: (account: RegisteredBrokerAccount) => void;
+}) {
+  const { authEnabled, user, loading, login, logout } = useAuth();
+  const [accountDraft, setAccountDraft] = useState({
+    accountName: registeredAccount?.accountName ?? "",
+    demoAccountLast8: registeredAccount?.demoAccountLast8 ?? "",
+    secretKey: ""
+  });
+
+  useEffect(() => {
+    setAccountDraft({
+      accountName: registeredAccount?.accountName ?? "",
+      demoAccountLast8: registeredAccount?.demoAccountLast8 ?? "",
+      secretKey: ""
+    });
+  }, [registeredAccount]);
+
+  const saveAccount = () => {
+    const accountName = accountDraft.accountName.trim() || "모의투자";
+    const demoAccountLast8 = accountDraft.demoAccountLast8.trim();
+    onRegisterAccount({
+      accountName,
+      demoAccountLast8,
+      registeredAt: new Date().toISOString()
+    });
+    setAccountDraft((current) => ({ ...current, secretKey: "" }));
+  };
+
+  return (
+    <div className="settings-overlay-body account-overlay-body">
+      <section className="settings-overlay-section">
+        <div className="account-profile-row">
+          {user?.picture ? <img src={user.picture} alt="" /> : <span className="account-profile-placeholder"><User size={18} /></span>}
+          <div>
+            <strong>{user?.name ?? user?.email ?? (authEnabled ? "로그인되어 있지 않음" : "로컬 사용자")}</strong>
+            <span>{user?.email ?? (authEnabled ? "Google 로그인 필요" : "인증 비활성")}</span>
+          </div>
+        </div>
+        <div className="settings-overlay-actions">
+          {authEnabled && !user && (
+            <button className="settings-overlay-login" type="button" onClick={login} disabled={loading}>
+              <LogIn size={14} /> 로그인
+            </button>
+          )}
+          {user && (
+            <button className="settings-overlay-danger" type="button" onClick={() => void logout()} disabled={loading}>
+              <LogOut size={14} /> 로그아웃
+            </button>
+          )}
+        </div>
+      </section>
+
+      {user && (
+        <section className="settings-overlay-section">
+          <div className="settings-overlay-section-title">
+            <CreditCard size={15} />
+            <span>계좌</span>
+          </div>
+          <div className={registeredAccount ? "account-registration-card registered" : "account-registration-card"}>
+            <strong>{registeredAccount ? registeredAccount.accountName : "등록된 계좌 없음"}</strong>
+            <span>{registeredAccount ? `모의투자 통장 뒷 8자리 ${registeredAccount.demoAccountLast8 || "-"}` : "계좌를 등록하면 주문 화면에서 사용할 계좌 기준을 확인할 수 있습니다"}</span>
+          </div>
+          <div className="account-registration-form">
+            <label>
+              <span>계좌 이름</span>
+              <input
+                value={accountDraft.accountName}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, accountName: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>모의투자 통장 뒷 8자리</span>
+              <input
+                value={accountDraft.demoAccountLast8}
+                inputMode="numeric"
+                maxLength={8}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, demoAccountLast8: event.target.value.replace(/\D/g, "").slice(0, 8) }))}
+              />
+            </label>
+            <label>
+              <span>시크릿 키</span>
+              <input
+                type="password"
+                value={accountDraft.secretKey}
+                autoComplete="off"
+                onChange={(event) => setAccountDraft((current) => ({ ...current, secretKey: event.target.value }))}
+              />
+            </label>
+            <button type="button" className="account-register-button" onClick={saveAccount}>
+              <CreditCard size={14} /> {registeredAccount ? "계좌 수정" : "계좌 등록"}
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function KeyboardSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["Esc", "오버레이 닫기"],
+          ["Enter", "검색 또는 입력 적용"],
+          ["Drag", "패널 이동"],
+          ["Shift + Enter", "AI 입력 줄바꿈"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataSourceSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["시세", "Alpaca / ClickHouse / Redis"],
+          ["주문", "KIS 모의투자"],
+          ["AI", "GOPS Agent Gateway"],
+          ["상태", "로컬 런타임 연결 기준"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HelpSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["작업 화면", "패널을 드래그해서 배치를 바꿀 수 있습니다"],
+          ["차트", "종목 검색 후 차트 패널에 바로 반영됩니다"],
+          ["주문", "현재 v1은 KIS 모의투자 기준입니다"],
+          ["AI", "차트 패널에서 AI에게 묻기를 눌러 분석 대상을 지정합니다"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function settingsOverlayTitle(activeOverlay: SettingsOverlayKey): string {
+  switch (activeOverlay) {
+    case "account":
+      return "계정";
+    case "keyboard":
+      return "키보드";
+    case "dataSources":
+      return "데이터 소스";
+    case "help":
+      return "도움말";
+    default:
+      return "환경 설정";
+  }
+}
+
+function readRegisteredBrokerAccount(): RegisteredBrokerAccount | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(REGISTERED_ACCOUNT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<RegisteredBrokerAccount>;
+    if (
+      typeof parsed.accountName !== "string" ||
+      typeof parsed.demoAccountLast8 !== "string" ||
+      typeof parsed.registeredAt !== "string"
+    ) {
+      return null;
+    }
+    return {
+      accountName: parsed.accountName,
+      demoAccountLast8: parsed.demoAccountLast8,
+      registeredAt: parsed.registeredAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRegisteredBrokerAccount(account: RegisteredBrokerAccount) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(REGISTERED_ACCOUNT_STORAGE_KEY, JSON.stringify(account));
+  } catch {
+    // Registration is a frontend-only convenience until a durable account API exists.
+  }
 }
 
 function PanelsCatalog({

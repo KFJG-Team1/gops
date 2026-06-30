@@ -7058,3 +7058,402 @@ body,
   background-image: none !important;
   box-shadow: none !important;
 }
+
+/* GOPS frontend surface and settings overlay pass */
+:root {
+  --gops-panel-plain: #ffffff;
+  --gops-panel-border-strong: rgba(213, 222, 235, 0.92);
+  --gops-panel-shadow-strong:
+    0 3px 8px rgba(21, 32, 50, 0.045),
+    0 1px 3px rgba(21, 32, 50, 0.028),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --gops-settings-blue: #2563eb;
+}
+
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card,
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-type],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-end-row],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card:not([data-panel-type="chart"])[data-panel-row],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="1"],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="4"],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="5"],
+.system-area.system-area.system-area,
+.system-area.system-area.system-area[data-system-mode] {
+  border-color: var(--gops-panel-border-strong) !important;
+  background: var(--gops-panel-plain) !important;
+  background-color: var(--gops-panel-plain) !important;
+  background-image: none !important;
+  box-shadow: var(--gops-panel-shadow-strong) !important;
+}
+
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card:hover,
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="1"]:hover,
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="4"]:hover,
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card[data-panel-row="5"]:hover,
+.system-area.system-area.system-area:hover {
+  box-shadow: var(--gops-panel-shadow-strong) !important;
+}
+
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card.dragging,
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card.dragging[data-panel-row],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card.dragging[data-panel-type],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card.dragging[data-panel-row="4"],
+.layout-frame.layout-frame.layout-frame .panel-card.panel-card.dragging[data-panel-row="5"] {
+  background: var(--gops-panel-plain) !important;
+  background-image: none !important;
+  box-shadow: 0 6px 14px rgba(21, 32, 50, 0.075), 0 2px 6px rgba(21, 32, 50, 0.05) !important;
+}
+
+.top-app-bar .system-orb:not(.ai-entry):not(.selected):not(:active),
+.top-app-bar .system-orb:not(.ai-entry):not(.selected):not(:active):hover {
+  border-color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button.active,
+.system-area[data-system-mode="settings"] .settings-tabs button:active:not(:disabled),
+.system-area[data-system-mode="settings"] .menu-settings-list button.active,
+.system-area[data-system-mode="settings"] .menu-settings-list button:active:not(:disabled) {
+  color: var(--gops-blue-deep) !important;
+  background: rgba(244, 248, 253, 0.82) !important;
+  background-image: none !important;
+  box-shadow: var(--gops-control-pressed) !important;
+  transform: none !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button,
+.system-area[data-system-mode="settings"] .layout-record-row,
+.system-area[data-system-mode="settings"] .layout-record-row button,
+.system-area[data-system-mode="settings"] .panel-catalog-item,
+.system-area[data-system-mode="settings"] .agent-settings-row,
+.system-area[data-system-mode="settings"] .agent-settings-row button,
+.system-area[data-system-mode="settings"] .add-layout-button,
+.system-area[data-system-mode="settings"] .menu-settings-list button {
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button.active svg,
+.system-area[data-system-mode="settings"] .settings-tabs button:active:not(:disabled) svg,
+.system-area[data-system-mode="settings"] .menu-settings-list button.active svg,
+.system-area[data-system-mode="settings"] .menu-settings-list button:active:not(:disabled) svg {
+  color: var(--gops-settings-blue) !important;
+}
+
+.system-area[data-system-mode="settings"] .menu-settings-list button {
+  justify-content: flex-start !important;
+  gap: 7px !important;
+  text-align: left !important;
+}
+
+.system-area[data-system-mode="settings"] .menu-settings-list button span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.settings-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(18, 25, 38, 0.48);
+  backdrop-filter: blur(2px);
+}
+
+.settings-overlay-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(218, 226, 238, 0.96);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.28), 0 10px 24px rgba(15, 23, 42, 0.14);
+}
+
+.settings-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid rgba(226, 233, 243, 0.88);
+  background: #fff;
+}
+
+.settings-overlay-header div,
+.settings-overlay-section,
+.settings-overlay-list-row,
+.account-profile-row,
+.account-registration-card,
+.account-registration-form label {
+  min-width: 0;
+}
+
+.settings-overlay-header strong,
+.settings-overlay-header span,
+.settings-overlay-section-title span,
+.settings-overlay-list-row strong,
+.settings-overlay-list-row span,
+.account-profile-row strong,
+.account-profile-row span,
+.account-registration-card strong,
+.account-registration-card span,
+.account-registration-card em,
+.account-registration-form label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-overlay-header strong {
+  display: block;
+  color: #263244;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.settings-overlay-header span {
+  display: block;
+  margin-top: 2px;
+  color: #8b96a7;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.settings-overlay-close {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.system-area:has(.settings-overlay-backdrop) > .system-panel-close {
+  display: none !important;
+}
+
+.settings-overlay-body {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 18px 18px;
+  overflow: auto;
+}
+
+.account-overlay-body {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-overlay-section {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(226, 233, 243, 0.72);
+}
+
+.settings-overlay-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-overlay-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #263244;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-profile-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.account-profile-row img,
+.account-profile-placeholder {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(218, 226, 238, 0.90);
+  border-radius: 999px;
+  background: #f5f7fa;
+}
+
+.account-profile-row img {
+  display: block;
+  object-fit: cover;
+}
+
+.account-profile-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #7b8798;
+}
+
+.account-profile-row .account-profile-placeholder {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.account-profile-row .account-profile-placeholder svg {
+  display: block;
+}
+
+.account-profile-row strong,
+.account-registration-card strong {
+  display: block;
+  color: #263244;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-profile-row span,
+.account-registration-card span,
+.account-registration-card em,
+.account-registration-form label span,
+.settings-overlay-list-row span {
+  display: block;
+  color: #7a8698;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.settings-overlay-error {
+  color: #b42318;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-overlay-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-overlay-actions button,
+.account-register-button {
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-overlay-danger {
+  color: #b42318;
+}
+
+.settings-overlay-login,
+.settings-overlay-login:hover:not(:disabled),
+.settings-overlay-login:active:not(:disabled) {
+  border-color: #111 !important;
+  color: #fff !important;
+  background: #111 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.account-registration-card {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(226, 233, 243, 0.88);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.account-registration-card.registered {
+  border-color: rgba(37, 99, 235, 0.20);
+  background: #f6f9ff;
+}
+
+.account-registration-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.account-registration-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.account-registration-form input {
+  width: 100%;
+  min-width: 0;
+  height: 31px;
+  min-height: 31px;
+  padding: 0 8px;
+  border-color: rgba(211, 221, 235, 0.96);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.account-register-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.settings-overlay-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-overlay-list-row {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(226, 233, 243, 0.72);
+}
+
+.settings-overlay-list-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-overlay-list-row strong {
+  color: #263244;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 560px) {
+  .settings-overlay-backdrop {
+    padding: 12px;
+  }
+
+  .settings-overlay-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .account-registration-form,
+  .settings-overlay-list-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-register-button {
+    justify-self: stretch;
+  }
+}
