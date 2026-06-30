@@ -63,6 +63,23 @@ const CHART_HEADER_COMPANY_NAMES: Record<string, string> = {
   TSM: "Taiwan Semiconductor"
 };
 
+function panelGeometryKey(panel: PanelInstance, systemColumnVisible: boolean): string {
+  const placement = panel.placement;
+  return [
+    systemColumnVisible ? "system-open" : "system-closed",
+    placement.group,
+    placement.zone,
+    placement.col,
+    placement.row,
+    placement.colSpan,
+    placement.rowSpan
+  ].join(":");
+}
+
+function isAnimationInFlight(animation: Animation | null): boolean {
+  return animation?.playState === "running" || animation?.playState === "paused";
+}
+
 function PanelBody({
   panel,
   chartRuntime,
@@ -406,8 +423,10 @@ export function PanelCard({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLElement | null>(null);
   const previousRectRef = useRef<DOMRect | null>(null);
+  const previousGeometryKeyRef = useRef<string | null>(null);
   const movementAnimationRef = useRef<Animation | null>(null);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
+  const geometryKey = panelGeometryKey(panel, systemColumnVisible);
   const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, knownSymbols);
   const chartDocument = panel.type === "chart" ? getChartDocumentForPanel(chartRuntime, panel) : null;
   const chartSymbol = chartDocument ? normalizeSupportedSymbol(chartDocument.symbol) : null;
@@ -543,23 +562,40 @@ export function PanelCard({
       return;
     }
 
-    const nextRect = element.getBoundingClientRect();
+    const visualRect = element.getBoundingClientRect();
+    let nextRect = visualRect;
     const previousRect = previousRectRef.current;
+    const previousGeometryKey = previousGeometryKeyRef.current;
     const frameIsResizing = element.closest(".layout-frame")?.classList.contains("resizing-grid") ?? false;
     if (dragging) {
       return;
     }
 
-    previousRectRef.current = nextRect;
+    const geometryChanged = Boolean(previousGeometryKey && previousGeometryKey !== geometryKey);
+    const animationInFlight = isAnimationInFlight(movementAnimationRef.current);
+    const animationStartRect = animationInFlight ? visualRect : previousRect;
 
-    if (frameIsResizing || !previousRect) {
+    if (geometryChanged && animationInFlight) {
+      movementAnimationRef.current?.cancel();
+      movementAnimationRef.current = null;
+      nextRect = element.getBoundingClientRect();
+    }
+
+    if (!geometryChanged && animationInFlight) {
       return;
     }
 
-    const deltaX = previousRect.left - nextRect.left;
-    const deltaY = previousRect.top - nextRect.top;
-    const deltaWidth = previousRect.width - nextRect.width;
-    const deltaHeight = previousRect.height - nextRect.height;
+    previousRectRef.current = nextRect;
+    previousGeometryKeyRef.current = geometryKey;
+
+    if (frameIsResizing || !animationStartRect || !geometryChanged) {
+      return;
+    }
+
+    const deltaX = animationStartRect.left - nextRect.left;
+    const deltaY = animationStartRect.top - nextRect.top;
+    const deltaWidth = animationStartRect.width - nextRect.width;
+    const deltaHeight = animationStartRect.height - nextRect.height;
     const shouldAnimate =
       Math.abs(deltaX) > 0.5 ||
       Math.abs(deltaY) > 0.5 ||
@@ -575,13 +611,13 @@ export function PanelCard({
       return;
     }
 
-    const clipRight = Math.max(0, nextRect.width - previousRect.width);
-    const clipBottom = Math.max(0, nextRect.height - previousRect.height);
+    const clipRight = Math.max(0, nextRect.width - animationStartRect.width);
+    const clipBottom = Math.max(0, nextRect.height - animationStartRect.height);
     const hasResize = Math.abs(deltaWidth) > 0.5 || Math.abs(deltaHeight) > 0.5;
     const startClip = hasResize ? `inset(0 ${clipRight}px ${clipBottom}px 0 round 18px)` : "inset(0 0 0 0 round 18px)";
 
     movementAnimationRef.current?.cancel();
-    movementAnimationRef.current = element.animate(
+    const movementAnimation = element.animate(
       [
         {
           transformOrigin: "top left",
@@ -602,6 +638,17 @@ export function PanelCard({
         fill: "both"
       }
     );
+    movementAnimationRef.current = movementAnimation;
+    movementAnimation.onfinish = () => {
+      if (movementAnimationRef.current === movementAnimation) {
+        movementAnimationRef.current = null;
+      }
+    };
+    movementAnimation.oncancel = () => {
+      if (movementAnimationRef.current === movementAnimation) {
+        movementAnimationRef.current = null;
+      }
+    };
   });
 
   useLayoutEffect(() => {

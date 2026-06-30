@@ -15,9 +15,7 @@ import {
   getChartDocumentForPanel,
   type ChartRuntimeAction
 } from "@gops/chart-engine/runtime";
-import { isRealtimeControlPayload, normalizeCandleEvent } from "@gops/chart-engine/marketDataAdapter";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, getSymbolMeta, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload, type HotRankingSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
-import type { CandleEvent } from "@gops/chart-engine/types";
 import {
   applyLayoutProposal,
   createInitialRuntimeState,
@@ -86,66 +84,6 @@ function watchlistRequestUrl(symbols: readonly WatchlistSymbol[]): string {
   return `/api/charts/watchlist${query ? `?${query}` : ""}`;
 }
 
-function applyRealtimeQuote(records: WatchlistSymbol[], event: CandleEvent, volumeDelta: number): WatchlistSymbol[] {
-  return records.map((item) => item.symbol === event.symbol ? quoteFromLiveEvent(item, event, volumeDelta) : item);
-}
-
-function applyRealtimeHotQuote(records: HotRankingSymbol[], event: CandleEvent, volumeDelta: number): HotRankingSymbol[] {
-  return records.map((item) => item.symbol === event.symbol ? quoteFromLiveEvent(item, event, volumeDelta) as HotRankingSymbol : item);
-}
-
-type LiveCandleVolume = {
-  timestamp: string;
-  volume: number;
-};
-
-function quoteFromLiveEvent<T extends WatchlistSymbol>(item: T, event: CandleEvent, volumeDelta: number): T {
-  const close = event.data.close;
-  const previousPrice = item.lastPrice;
-  const previousChange = item.changePercent;
-  let changePercent = previousChange;
-  if (typeof previousPrice === "number" && typeof previousChange === "number" && previousPrice !== 0) {
-    const baseline = previousPrice / (1 + previousChange / 100);
-    if (baseline) {
-      changePercent = ((close - baseline) / baseline) * 100;
-    }
-  } else if (event.data.open) {
-    changePercent = ((close - event.data.open) / event.data.open) * 100;
-  }
-
-  const currentVolume = typeof item.volume === "number" ? item.volume : 0;
-  const sessionDollarVolume = "sessionDollarVolume" in item && typeof item.sessionDollarVolume === "number"
-    ? item.sessionDollarVolume + volumeDelta * close
-    : undefined;
-
-  return {
-    ...item,
-    lastPrice: close,
-    changePercent,
-    volume: currentVolume + volumeDelta,
-    ...(typeof sessionDollarVolume === "number" ? { sessionDollarVolume } : {})
-  };
-}
-
-function liveVolumeDelta(event: CandleEvent, volumeMemory: Map<string, LiveCandleVolume>): number {
-  const key = `${event.symbol}:${event.interval}`;
-  const previous = volumeMemory.get(key);
-  volumeMemory.set(key, { timestamp: event.data.timestamp, volume: event.data.volume });
-  if (!previous || previous.timestamp !== event.data.timestamp) {
-    return Math.max(0, event.data.volume);
-  }
-  return Math.max(0, event.data.volume - previous.volume);
-}
-
-function resolveChartSocketUrl(symbol: string, interval = "1m"): string {
-  const params = new URLSearchParams({ symbol, interval });
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const isViteDevServer = window.location.hostname === "127.0.0.1" &&
-    (window.location.port === "5173" || window.location.port === "5174");
-  const host = isViteDevServer ? "127.0.0.1:8000" : window.location.host;
-  return `${protocol}//${host}/ws/charts?${params.toString()}`;
-}
-
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
   if (action.kind === "agentLayoutProposal") {
     return applyLayoutProposal(state, action.proposal);
@@ -172,7 +110,6 @@ export default function App() {
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
   const watchlistSeedAppliedRef = useRef(false);
   const watchlistSymbolsRef = useRef<WatchlistSymbol[]>(watchlistSymbols);
-  const liveCandleVolumeRef = useRef<Map<string, LiveCandleVolume>>(new Map());
   const userSelectedSymbolRef = useRef(false);
 
   const selectedPanel = useMemo(
@@ -270,61 +207,6 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, []);
-
-  const quoteStreamSymbolsKey = useMemo(() => {
-    const symbols = new Set<string>();
-    watchlistSymbols.forEach((item) => symbols.add(item.symbol));
-    hotRankingSymbols.forEach((item) => symbols.add(item.symbol));
-    return Array.from(symbols).slice(0, 40).join("|");
-  }, [hotRankingSymbols, watchlistSymbols]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !("WebSocket" in window) || !quoteStreamSymbolsKey) {
-      return undefined;
-    }
-
-    const sockets: WebSocket[] = [];
-    const reconnectTimers: number[] = [];
-    let closed = false;
-    const symbols = quoteStreamSymbolsKey.split("|").filter(Boolean);
-    const connect = (symbol: string) => {
-      if (closed) {
-        return;
-      }
-      const socket = new WebSocket(resolveChartSocketUrl(symbol, "1m"));
-      sockets.push(socket);
-      socket.onmessage = (message) => {
-        try {
-          const payload = JSON.parse(message.data);
-          if (isRealtimeControlPayload(payload)) {
-            return;
-          }
-          const event = normalizeCandleEvent(payload);
-          if (event.interval !== "1m") {
-            return;
-          }
-          const volumeMemory = liveCandleVolumeRef.current;
-          const volumeDelta = liveVolumeDelta(event, volumeMemory);
-          setWatchlistSymbols((current) => applyRealtimeQuote(current, event, volumeDelta));
-          setHotRankingSymbols((current) => applyRealtimeHotQuote(current, event, volumeDelta));
-        } catch {
-          // Ignore malformed auxiliary quote events; chart panels surface stream errors separately.
-        }
-      };
-      socket.onclose = () => {
-        if (!closed) {
-          reconnectTimers.push(window.setTimeout(() => connect(symbol), 3000));
-        }
-      };
-    };
-    symbols.forEach(connect);
-
-    return () => {
-      closed = true;
-      reconnectTimers.forEach((timer) => window.clearTimeout(timer));
-      sockets.forEach((socket) => socket.close());
-    };
-  }, [quoteStreamSymbolsKey]);
 
   useEffect(() => {
     const query = symbolSearchQuery.trim();
