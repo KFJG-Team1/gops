@@ -1,4 +1,4 @@
-import { GripVertical, Pin, Star, X } from "lucide-react";
+import { ExternalLink, GripVertical, Pin, Star, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
@@ -105,11 +105,163 @@ function PanelBody({
     return <HotRankingPanel activeSymbol={activeSymbol} symbols={hotRankingSymbols} onSelectSymbol={onSelectSymbol} />;
   }
 
+  if (panel.type === "newsFeed") {
+    return <EmbeddedNewsFeed panel={panel} activeSymbol={activeSymbol} />;
+  }
+
   return (
     <div className="panel-placeholder">
       <small>준비 중인 패널입니다</small>
     </div>
   );
+}
+
+type NewsPanelItem = {
+  title: string;
+  summary?: string;
+  localizedTitle?: string;
+  localizedSummary?: string;
+  originalTitle?: string;
+  originalSummary?: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  symbol?: string;
+  symbols: string[];
+  eventType?: string;
+  impactDirection?: string;
+  relevanceScore?: number;
+  importanceScore?: number;
+};
+
+function EmbeddedNewsFeed({
+  panel,
+  activeSymbol
+}: {
+  panel: PanelInstance;
+  activeSymbol: SupportedSymbol;
+}) {
+  const [mode, setMode] = useState<"latest" | "major">("latest");
+  const latestNews = readNewsItems(panel.props.latestNews);
+  const majorNews = readNewsItems(panel.props.majorNews);
+  const items = mode === "latest" ? latestNews : majorNews;
+  const panelSymbol = readString(panel.props.symbol) ?? activeSymbol;
+
+  if (!latestNews.length && !majorNews.length) {
+    return (
+      <div className="panel-placeholder panel-placeholder-muted">
+        <small>{panelSymbol} 뉴스 분석을 실행하면 주요 뉴스가 표시됩니다</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel-news-feed" aria-label={`${panelSymbol} 뉴스`}>
+      <div className="panel-news-toolbar" role="tablist" aria-label="뉴스 보기">
+        <button className={mode === "latest" ? "active" : ""} type="button" onClick={() => setMode("latest")}>
+          최신뉴스
+        </button>
+        <button className={mode === "major" ? "active" : ""} type="button" onClick={() => setMode("major")}>
+          주요뉴스
+        </button>
+      </div>
+      <div className="panel-news-list">
+        {items.map((item, index) => (
+          <article key={`${item.url ?? item.title}-${index}`} className="panel-news-row">
+            <div className="panel-news-row-main">
+              {item.url ? (
+                <a href={item.url} target="_blank" rel="noreferrer" title={item.originalTitle ?? item.title}>
+                  {item.title}
+                  <ExternalLink size={12} aria-hidden="true" />
+                </a>
+              ) : (
+                <strong>{item.title}</strong>
+              )}
+              {item.summary && <p>{item.summary}</p>}
+            </div>
+            <div className="panel-news-meta">
+              <span>{item.symbol ?? panelSymbol}</span>
+              <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+              <span>{item.source ?? "news"}</span>
+              {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function readNewsItems(value: unknown): NewsPanelItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const items: NewsPanelItem[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const source = item as Record<string, unknown>;
+    const title = readString(source.title);
+    if (!title) {
+      continue;
+    }
+    items.push({
+      title,
+      summary: readString(source.summary) ?? undefined,
+      localizedTitle: readString(source.localizedTitle) ?? undefined,
+      localizedSummary: readString(source.localizedSummary) ?? undefined,
+      originalTitle: readString(source.originalTitle) ?? undefined,
+      originalSummary: readString(source.originalSummary) ?? undefined,
+      url: readString(source.url) ?? undefined,
+      source: readString(source.source) ?? undefined,
+      publishedAt: readString(source.publishedAt) ?? undefined,
+      symbol: readString(source.symbol) ?? undefined,
+      symbols: Array.isArray(source.symbols) ? source.symbols.map(readString).filter((symbol): symbol is string => Boolean(symbol)) : [],
+      eventType: readString(source.eventType) ?? undefined,
+      impactDirection: readString(source.impactDirection) ?? undefined,
+      relevanceScore: readNumber(source.relevanceScore) ?? undefined,
+      importanceScore: readNumber(source.importanceScore) ?? undefined
+    });
+  }
+  return items;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function impactDirectionText(value?: string): string {
+  switch (value) {
+    case "positive":
+      return "긍정";
+    case "negative":
+      return "부정";
+    case "mixed":
+      return "혼재";
+    default:
+      return "보류";
+  }
+}
+
+function relativeTimeText(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value.slice(0, 10);
+  }
+  const diffMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (diffMinutes < 60) {
+    return `${diffMinutes}분 전`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}시간 전`;
+  }
+  return `${Math.floor(diffHours / 24)}일 전`;
 }
 
 function getGridMetrics(target: EventTarget | null, systemColumnVisible: boolean) {

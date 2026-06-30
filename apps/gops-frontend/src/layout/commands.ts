@@ -416,6 +416,25 @@ function applyReplace(state: LayoutRuntimeState, command: LayoutCommand): Layout
   return withLayoutHistory(state, command, nextLayout, `${panel.title ?? panel.id} replaced with ${replacement.title}.`);
 }
 
+function applyPanelPropsUpdate(state: LayoutRuntimeState, command: LayoutCommand): LayoutRuntimeState {
+  const panel = findPanel(state.layout, command.target?.panelId ?? command.payload.panelId);
+  if (!panel) {
+    return fail(state, command, "Panel not found.");
+  }
+
+  const props = readRecord(command.payload.props);
+  const nextPanel = {
+    ...panel,
+    props: {
+      ...panel.props,
+      ...props
+    },
+    updatedAt: now()
+  };
+  const nextLayout = updatePanel(state.layout, nextPanel);
+  return withLayoutHistory(state, command, nextLayout, `${nextPanel.title ?? nextPanel.id} props updated.`, false);
+}
+
 function applyPin(state: LayoutRuntimeState, command: LayoutCommand, value: boolean): LayoutRuntimeState {
   const panel = findPanel(state.layout, command.target?.panelId ?? command.payload.panelId);
   if (!panel) {
@@ -856,6 +875,8 @@ export function executeCommand(
       return applyBoundaryResizeCommand(state, command);
     case "layout.panel.replace":
       return applyReplace(state, command);
+    case "layout.panel.props.update":
+      return applyPanelPropsUpdate(state, command);
     case "layout.panel.pin":
       return applyPin(state, command, true);
     case "layout.panel.unpin":
