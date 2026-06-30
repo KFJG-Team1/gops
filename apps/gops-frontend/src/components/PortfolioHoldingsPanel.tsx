@@ -3,8 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 
 type SortMode = "custom" | "value" | "return";
-type ValueMode = "marketValue" | "currentPrice";
-type CurrencyMode = "krw" | "foreign";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -14,8 +12,6 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [sortMode, setSortMode] = useState<SortMode>("value");
-  const [valueMode, setValueMode] = useState<ValueMode>("marketValue");
-  const [currencyMode, setCurrencyMode] = useState<CurrencyMode>("krw");
 
   const loadHoldings = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
     if (showRefreshing) {
@@ -51,32 +47,24 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
     };
   }, [loadHoldings]);
 
-  const positions = useMemo(() => sortPositions(payload?.positions ?? [], sortMode, currencyMode), [payload?.positions, sortMode, currencyMode]);
+  const positions = useMemo(() => sortPositions(payload?.positions ?? [], sortMode), [payload?.positions, sortMode]);
   const account = payload?.account;
-  const totalValue = currencyMode === "krw" ? account?.totalValueKrw : account?.totalValueForeign;
-  const totalCurrency = currencyMode === "krw" ? "KRW" : account?.currency ?? "USD";
-  const pnlValue = currencyMode === "krw" ? account?.unrealizedPnlKrw : account?.unrealizedPnlForeign;
+  const totalValue = account?.totalValueKrw;
+  const pnlValue = account?.unrealizedPnlKrw;
   const pnlDirection = directionClass(pnlValue ?? account?.unrealizedPnlRate);
 
   return (
     <section className="portfolio-holdings-panel" aria-label="내 투자 패널">
-      <div className="portfolio-cash-grid">
-        <div className="portfolio-cash-card">
-          <span>원화</span>
+      <div className="portfolio-summary">
+        <span className="portfolio-summary-label">내 투자</span>
+        <strong className="portfolio-summary-value">{formatMoney(totalValue, "KRW")}</strong>
+        <em className={`portfolio-summary-change ${pnlDirection}`}>
+          {formatSignedMoney(pnlValue, "KRW")} {formatSignedPercent(account?.unrealizedPnlRate)}
+        </em>
+        <div className="portfolio-summary-meta">
+          <span>예수금</span>
           <strong>{formatMoney(account?.cashKrw, "KRW")}</strong>
         </div>
-        <div className="portfolio-cash-card">
-          <span>달러</span>
-          <strong>{formatMoney(account?.cashForeign, "USD")}</strong>
-        </div>
-      </div>
-
-      <div className="portfolio-summary">
-        <span>내 투자</span>
-        <strong>{formatMoney(totalValue, totalCurrency)}</strong>
-        <em className={pnlDirection}>
-          {formatSignedMoney(pnlValue, totalCurrency)} {formatSignedPercent(account?.unrealizedPnlRate)}
-        </em>
       </div>
 
       <div className="portfolio-toolbar">
@@ -85,22 +73,6 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
           <option value="return">수익률 순</option>
           <option value="custom">직접 설정한 순</option>
         </select>
-        <div className="portfolio-segmented" aria-label="표시 값">
-          <button className={valueMode === "currentPrice" ? "active" : ""} type="button" onClick={() => setValueMode("currentPrice")}>
-            현재가
-          </button>
-          <button className={valueMode === "marketValue" ? "active" : ""} type="button" onClick={() => setValueMode("marketValue")}>
-            평가금
-          </button>
-        </div>
-        <div className="portfolio-segmented portfolio-currency-toggle" aria-label="통화">
-          <button className={currencyMode === "foreign" ? "active" : ""} type="button" onClick={() => setCurrencyMode("foreign")}>
-            $
-          </button>
-          <button className={currencyMode === "krw" ? "active" : ""} type="button" onClick={() => setCurrencyMode("krw")}>
-            원
-          </button>
-        </div>
         <button className="portfolio-refresh-button" type="button" title="보유종목 새로고침" onClick={() => void loadHoldings(undefined, true)}>
           {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
         </button>
@@ -134,9 +106,9 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
                 <em>{formatQuantity(position.quantity)}주</em>
               </span>
               <span className="portfolio-position-value">
-                <strong>{formatPositionValue(position, valueMode, currencyMode)}</strong>
+                <strong>{formatPositionValue(position)}</strong>
                 <em className={directionClass(position.unrealizedPnlRate)}>
-                  {formatSignedMoney(currencyMode === "krw" ? position.unrealizedPnlKrw : position.unrealizedPnlForeign, currencyMode === "krw" ? "KRW" : position.currency ?? "USD")} {formatSignedPercent(position.unrealizedPnlRate)}
+                  {formatSignedMoney(position.unrealizedPnlKrw, "KRW")} {formatSignedPercent(position.unrealizedPnlRate)}
                 </em>
               </span>
             </button>
@@ -147,8 +119,7 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
   );
 }
 
-function sortPositions(positions: PortfolioPosition[], sortMode: SortMode, currencyMode: CurrencyMode) {
-  const valueKey = currencyMode === "krw" ? "marketValueKrw" : "marketValueForeign";
+function sortPositions(positions: PortfolioPosition[], sortMode: SortMode) {
   return [...positions].sort((left, right) => {
     if (sortMode === "return") {
       return (right.unrealizedPnlRate ?? -Infinity) - (left.unrealizedPnlRate ?? -Infinity);
@@ -156,7 +127,7 @@ function sortPositions(positions: PortfolioPosition[], sortMode: SortMode, curre
     if (sortMode === "custom") {
       return left.symbol.localeCompare(right.symbol);
     }
-    return ((right[valueKey] as number | null | undefined) ?? -Infinity) - ((left[valueKey] as number | null | undefined) ?? -Infinity);
+    return (right.marketValueKrw ?? -Infinity) - (left.marketValueKrw ?? -Infinity);
   });
 }
 
@@ -201,12 +172,8 @@ function formatQuantity(value: number | null | undefined) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 6 }).format(value);
 }
 
-function formatPositionValue(position: PortfolioPosition, valueMode: ValueMode, currencyMode: CurrencyMode) {
-  const currency = currencyMode === "krw" ? "KRW" : position.currency ?? "USD";
-  if (valueMode === "currentPrice") {
-    return formatMoney(position.currentPrice, currency);
-  }
-  return formatMoney(currencyMode === "krw" ? position.marketValueKrw : position.marketValueForeign, currency);
+function formatPositionValue(position: PortfolioPosition) {
+  return formatMoney(position.marketValueKrw, "KRW");
 }
 
 function directionClass(value: number | null | undefined) {
