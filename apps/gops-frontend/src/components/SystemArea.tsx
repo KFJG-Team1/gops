@@ -1,7 +1,6 @@
 import { Bell, Bot, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
-import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
+import { createChatMessage, type AgentChatMessage } from "@gops/chart-engine/agentChat";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   resolveAgentChartReference,
@@ -15,10 +14,9 @@ import {
   getChartDocumentForPanel,
   getDataStatusForDocument,
   getStreamStatusForDocument,
-  type ChartRuntimeAction,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
-import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
+import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
 import { findTargetChartPanel } from "../layout/chartPanelSelection";
@@ -29,7 +27,7 @@ import {
   PANEL_CATALOG_MIME,
   PANEL_CATALOG_TYPES
 } from "../layout/panelCatalogDrop";
-import type { FavoriteLayoutSlot, LayoutCommand, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
+import type { FavoriteLayoutSlot, LayoutCommand, LayoutProposal, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 
 export type SystemMode = "watchlist" | "settings" | "agents" | "notifications";
 
@@ -55,7 +53,7 @@ export type AgentOption = {
 export type AgentUpdatePatch = Partial<Pick<AgentOption, "label" | "description" | "iconUrl">>;
 
 export const initialAgentOptions: AgentOption[] = [
-  { id: "agent-01", label: "차트 AI", description: "차트 의도를 해석하고 명령을 제안합니다.", iconUrl: "/assets/agent-icons/agent-01.svg" },
+  { id: "agent-01", label: "AI 어시스턴트", description: "무엇을 도와드릴까요?", iconUrl: "/assets/agent-icons/agent-01.svg" },
   { id: "agent-02", label: "뉴스 AI", description: "뉴스와 시장 맥락을 정리합니다.", iconUrl: "/assets/agent-icons/agent-02.svg" },
   { id: "agent-03", label: "시그널 AI", description: "신호와 조건을 검토합니다.", iconUrl: "/assets/agent-icons/agent-03.svg" },
   { id: "agent-04", label: "포트폴리오 AI", description: "관심 종목과 포트폴리오를 추적합니다.", iconUrl: "/assets/agent-icons/agent-04.svg" }
@@ -66,7 +64,6 @@ type SystemAreaProps = {
   settingsTab: SystemMenuTab;
   layout: WorkspaceLayout;
   chartRuntime: ChartRuntimeState;
-  chartAutoApplyEnabled: boolean;
   agents: AgentOption[];
   selectedAgentIds: string[];
   referencedChartTarget?: AgentChartReference;
@@ -83,7 +80,7 @@ type SystemAreaProps = {
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
   onCommand: (command: LayoutCommand) => void;
-  onChartAction: (action: ChartRuntimeAction) => void;
+  onLayoutProposal: (proposal: LayoutProposal) => void;
 };
 
 type SettingsPanelProps = {
@@ -106,7 +103,6 @@ export function SystemArea({
   settingsTab,
   layout,
   chartRuntime,
-  chartAutoApplyEnabled,
   agents,
   selectedAgentIds,
   referencedChartTarget,
@@ -123,24 +119,21 @@ export function SystemArea({
   onCloseSystemPanel,
   onSelectSymbol,
   onCommand,
-  onChartAction
+  onLayoutProposal
 }: SystemAreaProps) {
   const selectedAgents = agents.filter((agent) => selectedAgentIds.includes(agent.id));
-  const chartAgentAccess = getChartAgentAccess(selectedAgents);
   const agentHeaderTitle = selectedAgents.length > 1
     ? "AI 오케스트레이션"
     : selectedAgents[0]?.label ?? "AI 에이전트";
   const agentHeaderDetail = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
-    : selectedAgents[0]?.description ?? "에이전트를 선택하세요";
+    : "";
 
   return (
     <aside className="system-area" data-system-mode={mode} aria-label="시스템 패널">
-      {mode !== "watchlist" && (
-        <button className="system-panel-close" title="시스템 패널 닫기" onClick={onCloseSystemPanel}>
-          <X size={16} />
-        </button>
-      )}
+      <button className="system-panel-close" title="시스템 패널 닫기" onClick={onCloseSystemPanel}>
+        <X size={16} />
+      </button>
 
       {mode === "settings" && (
         <SettingsPanel
@@ -163,17 +156,15 @@ export function SystemArea({
         <div className="system-mode-content agent-mode-content">
           <div className="system-mode-header agent-header">
             <strong>{agentHeaderTitle}</strong>
-            <span>{agentHeaderDetail}</span>
+            {agentHeaderDetail && <span>{agentHeaderDetail}</span>}
           </div>
           <AgentChatPanel
             layout={layout}
             chartRuntime={chartRuntime}
-            autoApplyEnabled={chartAutoApplyEnabled}
             selectedAgents={selectedAgents}
-            chartAgentAccess={chartAgentAccess}
             referencedChartTarget={referencedChartTarget}
             symbolUniverse={symbolUniverse}
-            onChartAction={onChartAction}
+            onLayoutProposal={onLayoutProposal}
           />
         </div>
       )}
@@ -233,29 +224,23 @@ export function SystemArea({
 function AgentChatPanel({
   layout,
   chartRuntime,
-  autoApplyEnabled,
   selectedAgents,
-  chartAgentAccess,
   referencedChartTarget,
   symbolUniverse,
-  onChartAction
+  onLayoutProposal
 }: {
   layout: WorkspaceLayout;
   chartRuntime: ChartRuntimeState;
-  autoApplyEnabled: boolean;
   selectedAgents: AgentOption[];
-  chartAgentAccess: ReturnType<typeof getChartAgentAccess>;
   referencedChartTarget?: AgentChartReference;
   symbolUniverse: readonly SupportedSymbol[];
-  onChartAction: (action: ChartRuntimeAction) => void;
+  onLayoutProposal: (proposal: LayoutProposal) => void;
 }) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const resolvedReference = useMemo(
     () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
     [chartRuntime, layout.panels, referencedChartTarget]
   );
-  const orchestrationMode = selectedAgents.length > 1;
-  const hasNonChartAgent = selectedAgents.some((agent) => agent.id !== "agent-01");
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -264,11 +249,9 @@ function AgentChatPanel({
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
   const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
   const draftContent = resolveAgentSendContent(draft, draftSeed);
-  const routeIntentMode = isAgentAnalysisIntent(draftContent);
-  const agentAnalysisMode = orchestrationMode || hasNonChartAgent || routeIntentMode;
   const fallbackChartPanel = useMemo(
-    () => agentAnalysisMode ? findTargetChartPanel(layout.panels, layout.selectedPanelId) : null,
-    [agentAnalysisMode, layout.panels, layout.selectedPanelId]
+    () => findTargetChartPanel(layout.panels, layout.selectedPanelId),
+    [layout.panels, layout.selectedPanelId]
   );
   const fallbackChartDocument = fallbackChartPanel ? getChartDocumentForPanel(chartRuntime, fallbackChartPanel) : null;
   const chartPanel = resolvedReference?.panel ?? fallbackChartPanel;
@@ -282,17 +265,13 @@ function AgentChatPanel({
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
     : introAgent?.description ?? "에이전트를 선택하세요";
-  const target = (chartAgentAccess.enabled || agentAnalysisMode) && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
+  const target = chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
   const authRequired = authEnabled && !user;
   const disabledMessage = authRequired
     ? "AI를 사용하려면 Google 로그인이 필요합니다."
-    : agentAnalysisMode
-    ? "차트 패널을 선택하거나 차트에서 AI에게 묻기를 눌러 분석할 차트를 지정하세요."
-    : chartAgentAccess.reason === "no-chart-agent"
-      ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
-      : "차트 패널에서 AI에게 묻기를 눌러 분석할 차트를 지정하세요.";
+    : "차트 패널을 선택하거나 차트에서 AI에게 묻기를 눌러 분석할 차트를 지정하세요.";
   const sendDisabled = authRequired || authLoading || !target || !draftContent.trim() || sending;
 
   useEffect(() => {
@@ -327,71 +306,39 @@ function AgentChatPanel({
       streamStatus,
       symbolUniverse
     });
-    const requestMessagePayload = requestMessages.map((message) => ({ role: message.role, content: message.content }));
 
-    if (shouldUseAgentAnalysisEndpoint(selectedAgents, content)) {
-      fetch("/api/agents/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildAgentAnalysisRequest({
-          agentIds: selectedAgents.map((agent) => agent.id),
-          messages: requestMessages,
-          symbol: chartDocument.symbol,
-          intent: content,
-          chartContext,
-          routerMode: "hybrid"
-        }))
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(await readApiErrorMessage(response, "Agent orchestration API"));
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then((payload) => {
-          const report = normalizeAgentAnalysisReport(payload);
-          setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
-        })
-        .catch((error: unknown) => {
-          setAgentError(true);
-          setMessages((current) => [
-            ...current,
-            createChatMessage("assistant", error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.")
-          ]);
-        })
-        .finally(() => setSending(false));
-      return;
-    }
-
-    fetch("/api/llm/chat", {
+    fetch("/api/agents/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify(buildAgentAnalysisRequest({
         agentIds: selectedAgents.map((agent) => agent.id),
-        messages: requestMessagePayload,
-        context: chartContext
-      })
+        messages: requestMessages,
+        symbol: chartDocument.symbol,
+        intent: content,
+        chartContext,
+        layoutContext: buildAgentLayoutContext(layout),
+        routerMode: "hybrid"
+      }))
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(await readApiErrorMessage(response, "AI 채팅 API"));
+          throw new Error(await readApiErrorMessage(response, "Agent orchestration API"));
         }
         return response.json() as Promise<unknown>;
       })
       .then((payload) => {
-        const result = normalizeAgentChatResponse(payload, target);
-        const nextMessages = [createChatMessage("assistant", result.reply)];
-        if (result.proposal) {
-          onChartAction({ kind: "chart.proposal.received", proposal: result.proposal, autoApply: autoApplyEnabled });
-          nextMessages.push(createChatMessage("system", chartProposalStatusMessage(result.proposal, autoApplyEnabled)));
+        const report = normalizeAgentAnalysisReport(payload);
+        const layoutProposal = report.layoutProposal;
+        if (layoutProposal?.autoApply !== false && layoutProposal?.commands.length) {
+          onLayoutProposal(layoutProposal);
         }
-        setMessages((current) => [...current, ...nextMessages]);
+        setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
       })
       .catch((error: unknown) => {
         setAgentError(true);
         setMessages((current) => [
           ...current,
-          createChatMessage("assistant", error instanceof Error ? error.message : "AI 채팅 요청에 실패했습니다.")
+          createChatMessage("assistant", error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.")
         ]);
       })
       .finally(() => setSending(false));
@@ -448,32 +395,7 @@ function AgentChatPanel({
   );
 }
 
-function chartProposalStatusMessage(
-  proposal: ReturnType<typeof normalizeAgentChatResponse>["proposal"],
-  autoApplyEnabled: boolean
-): string {
-  const hasPreviewCommands = proposal?.commands.some((command) =>
-    command.type.startsWith("chart.drawing.") ||
-    command.type.startsWith("chart.comparison.") ||
-    command.type === "chart.measurement.add"
-  );
-
-  if (hasPreviewCommands) {
-    return "차트 미리보기가 준비되었습니다. 차트 패널에서 확인 후 적용하세요.";
-  }
-
-  return autoApplyEnabled
-    ? "차트 명령을 적용했습니다."
-    : "차트 명령 제안이 패널에서 대기 중입니다.";
-}
-
-function shouldUseAgentAnalysisEndpoint(selectedAgents: AgentOption[], content: string): boolean {
-  return selectedAgents.length > 1 ||
-    selectedAgents.some((agent) => agent.id !== "agent-01") ||
-    isAgentAnalysisIntent(content);
-}
-
-function isAgentAnalysisIntent(content: string): boolean {
+export function isAgentAnalysisIntent(content: string): boolean {
   const normalized = content.toLowerCase();
   return [
     "뉴스",
@@ -483,6 +405,7 @@ function isAgentAnalysisIntent(content: string): boolean {
     "거시",
     "금리",
     "관계",
+    "온톨로지",
     "공급망",
     "경쟁사",
     "섹터",
@@ -524,16 +447,20 @@ function defaultDraftSeedForAgents(selectedAgents: AgentOption[]): string {
 
 export function SystemOrbRail({
   aiActive,
+  watchlistActive,
   settingsActive,
   notificationsActive,
   onTogglePrimaryAgent,
+  onToggleWatchlist,
   onToggleNotifications,
   onToggleSettings
 }: {
   aiActive: boolean;
+  watchlistActive: boolean;
   settingsActive: boolean;
   notificationsActive: boolean;
   onTogglePrimaryAgent: () => void;
+  onToggleWatchlist: () => void;
   onToggleNotifications: () => void;
   onToggleSettings: () => void;
 }) {
@@ -549,13 +476,13 @@ export function SystemOrbRail({
         <span>AI</span>
       </button>
       <button
-        className={settingsActive ? "system-orb environment-settings selected" : "system-orb environment-settings"}
-        aria-label="환경 설정"
-        title="환경 설정"
-        aria-pressed={settingsActive}
-        onClick={onToggleSettings}
+        className={watchlistActive ? "system-orb watchlist-entry selected" : "system-orb watchlist-entry"}
+        aria-label="관심 종목"
+        title="관심 종목"
+        aria-pressed={watchlistActive}
+        onClick={onToggleWatchlist}
       >
-        <Cog size={19} />
+        <Star size={18} fill={watchlistActive ? "currentColor" : "none"} />
       </button>
       <button
         className={notificationsActive ? "system-orb selected" : "system-orb"}
@@ -565,6 +492,15 @@ export function SystemOrbRail({
         onClick={onToggleNotifications}
       >
         <Bell size={19} />
+      </button>
+      <button
+        className={settingsActive ? "system-orb environment-settings selected" : "system-orb environment-settings"}
+        aria-label="환경 설정"
+        title="환경 설정"
+        aria-pressed={settingsActive}
+        onClick={onToggleSettings}
+      >
+        <Cog size={19} />
       </button>
     </div>
   );
@@ -1066,22 +1002,16 @@ function catalogDescription(panelType: PanelType): string {
       return "차트 작업 공간";
     case "newsFeed":
       return "시장 뉴스";
-    case "symbolSummary":
-      return "종목 요약";
-    case "aiSummary":
-      return "AI 요약";
-    case "watchlist":
-      return "관심 종목";
     case "hotRanking":
-      return "거래대금 Top 20";
+      return "거래대금 Top 10";
     case "indicatorCompare":
       return "지표 비교";
+    case "aiSummary":
+      return "AI 요약";
     case "orderTicket":
       return "주문 입력";
-    case "proposalReview":
-      return "제안 검토";
-    case "notifications":
-      return "알림";
+    case "ontologyGraph":
+      return "기업 관계";
     default:
       return "작업 패널";
   }

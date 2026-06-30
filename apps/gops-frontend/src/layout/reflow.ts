@@ -521,9 +521,7 @@ function applyPanelMoveStepWithPacking(
 
   const normalizedRequested = normalizeWorkspacePlacement({
     ...panel.placement,
-    ...requestedPlacement,
-    colSpan: panel.placement.colSpan,
-    rowSpan: panel.placement.rowSpan
+    ...requestedPlacement
   });
   const movedPanel = withPlacement(panel, normalizedRequested);
   const validation = validatePlacement(next, movedPanel, normalizedRequested);
@@ -698,9 +696,7 @@ function applyFreeRelocationPacking(
 
   const target = normalizeWorkspacePlacement({
     ...panel.placement,
-    ...requestedPlacement,
-    colSpan: panel.placement.colSpan,
-    rowSpan: panel.placement.rowSpan
+    ...requestedPlacement
   });
   const movedPanel = withPlacement(panel, target);
   const validation = validatePlacement(next, movedPanel, target);
@@ -747,14 +743,14 @@ function targetPlacementsNear(
   target: PanelPlacement
 ): PanelPlacement[] {
   const bounds = layout.zones[panel.placement.group];
-  const maxCol = bounds.columns - panel.placement.colSpan + 1;
-  const maxRow = bounds.rows - panel.placement.rowSpan + 1;
+  const maxCol = bounds.columns - target.colSpan + 1;
+  const maxRow = bounds.rows - target.rowSpan + 1;
   const placements: PanelPlacement[] = [];
 
   for (let row = 1; row <= maxRow; row += 1) {
     for (let col = 1; col <= maxCol; col += 1) {
       const placement = normalizeWorkspacePlacement({
-        ...panel.placement,
+        ...target,
         col,
         row
       });
@@ -816,9 +812,7 @@ export function applyPanelMoveWithPacking(
 
   const target = normalizeWorkspacePlacement({
     ...panel.placement,
-    ...requestedPlacement,
-    colSpan: panel.placement.colSpan,
-    rowSpan: panel.placement.rowSpan
+    ...requestedPlacement
   });
   const directResult = applyPanelMoveStepWithPacking(next, panelId, target);
   if (directResult.ok) {

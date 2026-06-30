@@ -14,17 +14,12 @@ export type DefaultLayoutKey = "chart" | "news" | "overview" | "signals";
 
 export type PanelType =
   | "chart"
-  | "watchlist"
   | "hotRanking"
   | "newsFeed"
-  | "proposalReview"
-  | "agentStatus"
-  | "agentChat"
-  | "symbolSummary"
   | "indicatorCompare"
   | "orderTicket"
   | "aiSummary"
-  | "notifications";
+  | "ontologyGraph";
 
 export type PanelPlacement = {
   group: GridGroup;
@@ -106,6 +101,8 @@ export type LayoutCommandType =
   | "layout.panel.pin"
   | "layout.panel.unpin"
   | "layout.panel.select"
+  | "layout.panel.priority.set"
+  | "layout.panels.arrange"
   | "layout.boundary.resize"
   | "layout.reflow"
   | "layout.undo"
@@ -155,6 +152,8 @@ export type LayoutProposal = {
   id: string;
   title: string;
   rationale: string;
+  autoApply?: boolean;
+  panelPriorities?: Array<{ panelId: string; panelType?: PanelType | string; layoutWeight: number; reason?: string }>;
   commands: LayoutCommand[];
   createdAt: string;
 };

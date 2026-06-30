@@ -19,15 +19,17 @@ import { isRealtimeControlPayload, normalizeCandleEvent } from "@gops/chart-engi
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, getSymbolMeta, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload, type HotRankingSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { CandleEvent } from "@gops/chart-engine/types";
 import {
+  applyLayoutProposal,
   createInitialRuntimeState,
   executeCommand,
   makeCommand
 } from "./layout/commands";
 import { findTargetChartPanel } from "./layout/chartPanelSelection";
-import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
+import type { LayoutCommand, LayoutProposal, LayoutRuntimeState } from "./layout/types";
 
 type RuntimeAction =
-  | { kind: "command"; command: LayoutCommand };
+  | { kind: "command"; command: LayoutCommand }
+  | { kind: "agentLayoutProposal"; proposal: LayoutProposal };
 
 const WATCHLIST_STORAGE_KEY = "gops.watchlistSymbols.v1";
 
@@ -145,13 +147,16 @@ function resolveChartSocketUrl(symbol: string, interval = "1m"): string {
 }
 
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
+  if (action.kind === "agentLayoutProposal") {
+    return applyLayoutProposal(state, action.proposal);
+  }
   return executeCommand(state, action.command);
 }
 
 export default function App() {
   const [state, dispatch] = useReducer(runtimeReducer, undefined, createInitialRuntimeState);
   const [chartRuntime, chartDispatch] = useReducer(chartRuntimeReducer, undefined, createInitialChartRuntimeState);
-  const [activeSystemMode, setActiveSystemMode] = useState<SystemMode>("watchlist");
+  const [activeSystemMode, setActiveSystemMode] = useState<SystemMode | null>(null);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [settingsTab, setSettingsTab] = useState<SystemMenuTab>("layouts");
   const [agents, setAgents] = useState<AgentOption[]>(initialAgentOptions);
@@ -176,6 +181,7 @@ export default function App() {
   );
 
   const runCommand = useCallback((command: LayoutCommand) => dispatch({ kind: "command", command }), []);
+  const runLayoutProposal = useCallback((proposal: LayoutProposal) => dispatch({ kind: "agentLayoutProposal", proposal }), []);
   const runChartAction = useCallback((action: ChartRuntimeAction) => chartDispatch(action), []);
 
   useEffect(() => {
@@ -222,21 +228,6 @@ export default function App() {
         });
     };
 
-    fetch("/api/charts/watchlist", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: watchlistSymbolsRef.current.map((item) => item.symbol) })
-    })
-      .then((response) => response.ok ? response.json() as Promise<unknown> : null)
-      .then((payload) => {
-        if (!cancelled && payload) {
-          const symbols = normalizeWatchlistPayload(payload);
-          setWatchlistSymbols((current) => refreshWatchlistRecords(current, symbols));
-          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
-        }
-      })
-      .catch(() => undefined);
-
     loadWatchlist();
     const timer = window.setInterval(loadWatchlist, 15000);
 
@@ -250,7 +241,7 @@ export default function App() {
     let cancelled = false;
 
     const loadHotRanking = () => {
-      fetch("/api/charts/hot-symbols?limit=20")
+      fetch("/api/charts/hot-symbols?limit=10")
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Hot ranking API returned ${response.status}`);
@@ -490,7 +481,14 @@ export default function App() {
     setSelectedAgentIds([]);
     setAgentChartReference(undefined);
     setEditingAgentId(undefined);
-    setActiveSystemMode("watchlist");
+    setActiveSystemMode(null);
+  };
+
+  const toggleWatchlist = () => {
+    setSelectedAgentIds([]);
+    setAgentChartReference(undefined);
+    setEditingAgentId(undefined);
+    setActiveSystemMode((current) => (current === "watchlist" ? null : "watchlist"));
   };
 
   const toggleSettings = () => {
@@ -498,14 +496,14 @@ export default function App() {
     setAgentChartReference(undefined);
     setEditingAgentId(undefined);
     setSettingsTab("layouts");
-    setActiveSystemMode((current) => (current === "settings" ? "watchlist" : "settings"));
+    setActiveSystemMode((current) => (current === "settings" ? null : "settings"));
   };
 
   const toggleNotifications = () => {
     setSelectedAgentIds([]);
     setAgentChartReference(undefined);
     setEditingAgentId(undefined);
-    setActiveSystemMode((current) => (current === "notifications" ? "watchlist" : "notifications"));
+    setActiveSystemMode((current) => (current === "notifications" ? null : "notifications"));
   };
 
   const togglePrimaryAgent = () => {
@@ -516,7 +514,7 @@ export default function App() {
     if (primaryAgentActive) {
       setSelectedAgentIds([]);
       setAgentChartReference(undefined);
-      setActiveSystemMode("watchlist");
+      setActiveSystemMode(null);
       return;
     }
 
@@ -564,7 +562,7 @@ export default function App() {
     setAgents((current) => current.filter((agent) => agent.id !== agentId));
     setSelectedAgentIds((current) => {
       const next = current.filter((id) => id !== agentId);
-      setActiveSystemMode((mode) => (mode === "agents" ? (next.length === 0 ? "watchlist" : "agents") : mode));
+      setActiveSystemMode((mode) => (mode === "agents" ? (next.length === 0 ? null : "agents") : mode));
       return next;
     });
     setEditingAgentId(undefined);
@@ -574,6 +572,7 @@ export default function App() {
     <main className="app-shell">
       <TopAppBar
         aiActive={activeSystemMode === "agents" && selectedAgentIds.includes("agent-01")}
+        watchlistActive={activeSystemMode === "watchlist"}
         settingsActive={activeSystemMode === "settings"}
         notificationsActive={activeSystemMode === "notifications"}
         activeSymbol={activeSymbol}
@@ -581,6 +580,7 @@ export default function App() {
         symbolSearchError={symbolSearchError}
         onToggleNotifications={toggleNotifications}
         onTogglePrimaryAgent={togglePrimaryAgent}
+        onToggleWatchlist={toggleWatchlist}
         onToggleSettings={toggleSettings}
         onSymbolQueryChange={setSymbolSearchQuery}
         onSymbolOptionsRequest={refreshSymbolOptions}
@@ -615,6 +615,7 @@ export default function App() {
           onCloseSystemPanel={closeSystemPanel}
           onSelectSymbol={selectSymbol}
           onCommand={runCommand}
+          onLayoutProposal={runLayoutProposal}
           onChartAction={runChartAction}
           onAskAgentFromChart={askAgentFromChart}
           onToggleWatchlistSymbol={toggleWatchlistSymbol}

@@ -7,6 +7,7 @@ import { SystemOrbRail } from "./SystemArea";
 
 type TopAppBarProps = {
   aiActive: boolean;
+  watchlistActive: boolean;
   settingsActive: boolean;
   notificationsActive: boolean;
   activeSymbol: SupportedSymbol;
@@ -14,6 +15,7 @@ type TopAppBarProps = {
   symbolSearchError?: string;
   onToggleNotifications: () => void;
   onTogglePrimaryAgent: () => void;
+  onToggleWatchlist: () => void;
   onToggleSettings: () => void;
   onSymbolQueryChange: (query: string) => void;
   onSymbolOptionsRequest: (query: string) => void;
@@ -28,6 +30,7 @@ function isInteractiveTopBarTarget(target: EventTarget | null): boolean {
 
 export function TopAppBar({
   aiActive,
+  watchlistActive,
   settingsActive,
   notificationsActive,
   activeSymbol,
@@ -35,6 +38,7 @@ export function TopAppBar({
   symbolSearchError,
   onToggleNotifications,
   onTogglePrimaryAgent,
+  onToggleWatchlist,
   onToggleSettings,
   onSymbolQueryChange,
   onSymbolOptionsRequest,
@@ -170,9 +174,11 @@ export function TopAppBar({
 
       <SystemOrbRail
         aiActive={aiActive}
+        watchlistActive={watchlistActive}
         settingsActive={settingsActive}
         notificationsActive={notificationsActive}
         onTogglePrimaryAgent={onTogglePrimaryAgent}
+        onToggleWatchlist={onToggleWatchlist}
         onToggleNotifications={onToggleNotifications}
         onToggleSettings={onToggleSettings}
       />

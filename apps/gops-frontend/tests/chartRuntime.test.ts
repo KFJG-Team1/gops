@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import {
@@ -10,7 +12,7 @@ import {
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "../../chart-engine/src/backfill";
-import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
+import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -30,7 +32,9 @@ import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
+import { isAgentAnalysisIntent } from "../src/components/SystemArea";
 import {
+  applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
   executeCommand as executeLayoutCommand,
   layoutPresentationSnapshotsEqual,
@@ -140,12 +144,15 @@ assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
 assert.equal(getPanelDefinition("orderTicket").title, "주문");
-assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
 assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
-assert.equal(PANEL_CATALOG_TYPES.includes("hotRanking"), true);
+assert.equal(getPanelDefinition("ontologyGraph").title, "온톨로지");
+assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "orderTicket", "ontologyGraph"]);
 const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
 assert.equal(orderPanelInstance.type, "orderTicket");
 assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
+const ontologyPanelInstance = createPanelInstance("ontologyGraph", testPlacement(4, 1, 1, 2), "system", {}, "test-ontology");
+assert.equal(ontologyPanelInstance.type, "ontologyGraph");
+assert.equal(ontologyPanelInstance.resourceRefs?.[0]?.kind, "ontologyGraph");
 const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
 assert.equal(chartPresetOrderPanel?.type, "orderTicket");
 assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
@@ -174,7 +181,7 @@ try {
   const staleOrderPlacement = staleChartDefault.panels.find((panel) => panel.id === "panel-order")?.placement ?? testPlacement(4, 4, 1, 2);
   staleChartDefault.panels = staleChartDefault.panels.map((panel) =>
     panel.id === "panel-order"
-      ? createPanelInstance("aiSummary", staleOrderPlacement, "system", { summary: "LLM summary placeholder" }, "panel-ai-summary")
+      ? createPanelInstance("newsFeed", staleOrderPlacement, "system", { query: "stale default" }, "panel-stale-news")
       : panel
   );
   fakeLocalStorageRecords.set("gops.savedLayouts.v1", JSON.stringify([{
@@ -190,7 +197,7 @@ try {
   const runtimeWithStaleDefault = createInitialLayoutRuntimeState();
   const mergedChartDefault = runtimeWithStaleDefault.savedLayouts.find((record) => record.kind === "default" && record.defaultKey === "chart");
   assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-order" && panel.type === "orderTicket"), true);
-  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-ai-summary"), false);
+  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-stale-news"), false);
 } finally {
   if (originalLocalStorageDescriptor) {
     Object.defineProperty(globalThis, "localStorage", originalLocalStorageDescriptor);
@@ -976,6 +983,128 @@ assert.equal(sameTypeResult.history.length, 0);
 assert.equal(sameTypeResult.journal.length, 0);
 assert.equal(sameTypeResult.layout.panels[0]?.chartDocumentId, sameTypeTarget.chartDocumentId);
 
+const priorityTarget = testPanel("priority-news", "newsFeed", testPlacement(1, 1), false);
+const priorityState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([priorityTarget]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.priority.set", "user", { panelId: priorityTarget.id, layoutWeight: 100 })
+);
+assert.equal(priorityState.layout.panels[0]?.layoutWeight, 100);
+assert.equal(priorityState.history.length, 1);
+
+const resizeMoveTarget = testPanel("resize-move-order", "orderTicket", testPlacement(4, 4, 1, 2));
+const resizeMoveState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([resizeMoveTarget]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.move", "user", {
+    panelId: resizeMoveTarget.id,
+    placement: testPlacement(1, 1, 3, 5)
+  }, { panelId: resizeMoveTarget.id })
+);
+const resizedMovePanel = resizeMoveState.layout.panels.find((panel) => panel.id === resizeMoveTarget.id);
+assert.deepEqual(resizedMovePanel && pickPlacement(resizedMovePanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
+
+const arrangeOrderPanel = testPanel("arrange-order", "orderTicket", testPlacement(4, 4, 1, 2));
+const arrangeState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([
+      testPanel("arrange-chart", "chart", testPlacement(1, 1, 3, 3)),
+      testPanel("arrange-news", "newsFeed", testPlacement(1, 4, 2, 2)),
+      testPanel("arrange-ontology", "ontologyGraph", testPlacement(4, 1, 1, 2)),
+      arrangeOrderPanel
+    ], arrangeOrderPanel.id),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panels.arrange", "user", {
+    placements: [
+      { panelId: arrangeOrderPanel.id, placement: testPlacement(1, 1, 3, 5), layoutWeight: 100 },
+      { panelId: "arrange-chart", placement: testPlacement(4, 1), layoutWeight: 40 },
+      { panelId: "arrange-news", placement: testPlacement(4, 2), layoutWeight: 40 },
+      { panelId: "arrange-ontology", placement: testPlacement(4, 3), layoutWeight: 40 }
+    ]
+  })
+);
+const arrangedOrderPanel = arrangeState.layout.panels.find((panel) => panel.id === arrangeOrderPanel.id);
+assert.deepEqual(arrangedOrderPanel && pickPlacement(arrangedOrderPanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
+assert.equal(arrangedOrderPanel?.layoutWeight, 100);
+assert.equal(arrangeState.history.length, 1);
+
+const pinnedArrangePanel = testPanel("pinned-arrange-news", "newsFeed", testPlacement(2, 2), true);
+const pinnedArrangeState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([pinnedArrangePanel]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panels.arrange", "user", {
+    placements: [
+      { panelId: pinnedArrangePanel.id, placement: testPlacement(1, 1), layoutWeight: 100 }
+    ]
+  })
+);
+assert.deepEqual(pickPlacement(pinnedArrangeState.layout.panels[0]?.placement), { col: 2, row: 2, colSpan: 1, rowSpan: 1 });
+assert.equal(pinnedArrangeState.history.length, 0);
+assert.equal(pinnedArrangeState.errors.at(-1)?.message.includes("Pinned panel cannot be arranged"), true);
+
+const autoProposalTarget = testPanel("auto-proposal-news", "newsFeed", testPlacement(1, 1), false);
+const autoProposalBaseState = {
+  ...createInitialLayoutRuntimeState(),
+  layout: testLayout([autoProposalTarget]),
+  history: [],
+  future: [],
+  journal: [],
+  errors: [],
+  pendingProposals: []
+};
+const autoProposalState = applyLayoutProposal(autoProposalBaseState, {
+  id: "layout-proposal-auto",
+  title: "Agent analysis workspace",
+  rationale: "Test auto proposal.",
+  autoApply: true,
+  panelPriorities: [],
+  commands: [
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 95 })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+});
+assert.equal(autoProposalState.layout.panels[0]?.layoutWeight, 95);
+assert.equal(autoProposalState.pendingProposals.length, 0);
+assert.equal(autoProposalState.journal[0]?.status, "applied");
+
+const failedProposalState = applyLayoutProposal(autoProposalBaseState, {
+  id: "layout-proposal-fail",
+  title: "Broken agent layout",
+  rationale: "Test rollback.",
+  autoApply: true,
+  panelPriorities: [],
+  commands: [
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 96 }),
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "missing-panel", layoutWeight: 97 })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+});
+assert.equal(failedProposalState.layout.panels[0]?.layoutWeight, autoProposalTarget.layoutWeight);
+assert.equal(failedProposalState.errors.length, 1);
+
 const primaryChart = testPanel("primary-chart", "chart", testPlacement(1, 1, 2, 2), false);
 const multiChartLayout = testLayout([primaryChart]);
 const multiChartState = executeLayoutCommand(
@@ -1151,6 +1280,12 @@ const chatOnlyResult = normalizeAgentChatResponse({
 assert.equal(chatOnlyResult.reply, "No chart command is needed.");
 assert.equal(chatOnlyResult.proposal, undefined);
 
+const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/SystemArea.tsx", import.meta.url)), "utf-8");
+assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
+assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
+assert.match(systemAreaSource, /\/api\/agents\/analyze/);
+assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
+
 const agentAnalysisRequest = buildAgentAnalysisRequest({
   agentIds: ["agent-01", "agent-02"],
   messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
@@ -1166,6 +1301,22 @@ assert.deepEqual(agentAnalysisRequest, {
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
   routerMode: "hybrid"
 });
+
+const agentLayoutContext = buildAgentLayoutContext(createPresetLayout("chart"));
+const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
+assert.equal(agentLayoutOrderPanel?.title, "주문");
+assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
+assert.equal(Array.isArray(agentLayoutOrderPanel?.aliases), true);
+const agentAnalysisRequestWithLayout = buildAgentAnalysisRequest({
+  agentIds: ["agent-02"],
+  messages: [{ role: "user", content: "뉴스 보여줘" }],
+  symbol: "NVDA",
+  intent: "뉴스 보여줘",
+  chartContext: {},
+  layoutContext: agentLayoutContext
+});
+assert.deepEqual((agentAnalysisRequestWithLayout as { layoutContext?: unknown }).layoutContext, agentLayoutContext);
 
 const agentAnalysisReport = normalizeAgentAnalysisReport({
   analysisId: "analysis-1",
@@ -1209,8 +1360,29 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     title: "NVDA price surge",
     message: "Smoke event for Docker validation.",
     reason: "Notification level follows the strongest attached market event severity."
+  },
+  layoutProposal: {
+    id: "layout-proposal-1",
+    title: "Agent analysis workspace",
+    rationale: "Prioritized newsFeed for the current user intent.",
+    autoApply: true,
+    panelPriorities: [
+      { panelId: "panel-news", panelType: "newsFeed", layoutWeight: 100, reason: "Primary panel for the current user intent." }
+    ],
+    commands: [
+      {
+        id: "cmd-priority-news",
+        type: "layout.panel.priority.set",
+        actor: "llm",
+        payload: { panelId: "panel-news", layoutWeight: 100 },
+        createdAt: "2026-06-29T00:00:00.000Z"
+      }
+    ],
+    createdAt: "2026-06-29T00:00:00.000Z"
   }
 });
+assert.equal(agentAnalysisReport.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+assert.equal(agentAnalysisReport.layoutProposal?.panelPriorities?.[0]?.layoutWeight, 100);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);

@@ -15,7 +15,9 @@ const layoutCommands = [
   "layout.panel.replace",
   "layout.panel.pin",
   "layout.panel.unpin",
-  "layout.panel.select"
+  "layout.panel.select",
+  "layout.panel.priority.set",
+  "layout.panels.arrange"
 ];
 
 const variantDefinitions = {
@@ -43,15 +45,6 @@ const workspacePlacement = (
   rowSpan
 });
 
-const agentPlacement = (row: number, rowSpan = 1): PanelPlacement => ({
-  group: "agentRail",
-  zone: "agentRail",
-  col: 1,
-  row,
-  colSpan: 1,
-  rowSpan
-});
-
 export const panelRegistry: Record<PanelType, PanelDefinition> = {
   chart: {
     type: "chart",
@@ -61,17 +54,6 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     minSpan: { colSpan: 1, rowSpan: 1 },
     maxSpan: { colSpan: 4, rowSpan: 5 },
     defaultWeight: 9,
-    variants: variantDefinitions,
-    commands: layoutCommands
-  },
-  watchlist: {
-    type: "watchlist",
-    title: "관심 종목",
-    allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("main", 1, 4, 1, 2),
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    maxSpan: { colSpan: 4, rowSpan: 5 },
-    defaultWeight: 4,
     variants: variantDefinitions,
     commands: layoutCommands
   },
@@ -90,53 +72,7 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     type: "newsFeed",
     title: "시장 뉴스",
     allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("main", 2, 4, 2, 2),
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    maxSpan: { colSpan: 4, rowSpan: 5 },
-    defaultWeight: 5,
-    variants: variantDefinitions,
-    commands: layoutCommands
-  },
-  proposalReview: {
-    type: "proposalReview",
-    title: "제안 검토",
-    allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("context", 4, 1, 1, 2),
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    maxSpan: { colSpan: 4, rowSpan: 5 },
-    defaultWeight: 6,
-    variants: variantDefinitions,
-    commands: layoutCommands
-  },
-  agentStatus: {
-    type: "agentStatus",
-    title: "AI 상태",
-    allowedZones: ["agentRail"],
-    defaultPlacement: agentPlacement(1),
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    maxSpan: { colSpan: 1, rowSpan: 2 },
-    defaultWeight: 3,
-    variants: variantDefinitions,
-    commands: layoutCommands,
-    iconUrl: "/assets/agent-icons/agent-01.svg"
-  },
-  agentChat: {
-    type: "agentChat",
-    title: "AI 채팅",
-    allowedZones: ["agentRail", "context"],
-    defaultPlacement: agentPlacement(2, 2),
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    maxSpan: { colSpan: 1, rowSpan: 3 },
-    defaultWeight: 5,
-    variants: variantDefinitions,
-    commands: layoutCommands,
-    iconUrl: "/assets/agent-icons/agent-02.svg"
-  },
-  symbolSummary: {
-    type: "symbolSummary",
-    title: "종목 요약",
-    allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("context", 4, 3, 1, 1),
+    defaultPlacement: workspacePlacement("main", 3, 4, 1, 2),
     minSpan: { colSpan: 1, rowSpan: 1 },
     maxSpan: { colSpan: 4, rowSpan: 5 },
     defaultWeight: 5,
@@ -147,7 +83,7 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     type: "indicatorCompare",
     title: "지표 비교",
     allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("main", 1, 4, 2, 2),
+    defaultPlacement: workspacePlacement("main", 1, 4, 1, 2),
     minSpan: { colSpan: 1, rowSpan: 1 },
     maxSpan: { colSpan: 4, rowSpan: 5 },
     defaultWeight: 6,
@@ -168,7 +104,7 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
   aiSummary: {
     type: "aiSummary",
     title: "AI 요약",
-    allowedZones: [...workspaceZones, "agentRail"],
+    allowedZones: workspaceZones,
     defaultPlacement: workspacePlacement("context", 4, 4, 1, 2),
     minSpan: { colSpan: 1, rowSpan: 1 },
     maxSpan: { colSpan: 4, rowSpan: 5 },
@@ -177,16 +113,17 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     commands: layoutCommands,
     iconUrl: "/assets/agent-icons/agent-03.svg"
   },
-  notifications: {
-    type: "notifications",
-    title: "알림",
+  ontologyGraph: {
+    type: "ontologyGraph",
+    title: "온톨로지",
     allowedZones: workspaceZones,
-    defaultPlacement: workspacePlacement("context", 4, 1, 1, 1),
+    defaultPlacement: workspacePlacement("context", 4, 1, 1, 2),
     minSpan: { colSpan: 1, rowSpan: 1 },
     maxSpan: { colSpan: 4, rowSpan: 5 },
-    defaultWeight: 7,
+    defaultWeight: 6,
     variants: variantDefinitions,
-    commands: layoutCommands
+    commands: layoutCommands,
+    iconUrl: "/assets/agent-icons/agent-04.svg"
   }
 };
 

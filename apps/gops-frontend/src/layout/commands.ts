@@ -27,6 +27,8 @@ const proposedCommands = new Set<LayoutCommandType>([
   "layout.panel.replace",
   "layout.panel.pin",
   "layout.panel.unpin",
+  "layout.panel.priority.set",
+  "layout.panels.arrange",
   "layout.reflow"
 ]);
 
@@ -139,10 +141,62 @@ function readBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? { ...(value as Record<string, unknown>) }
     : {};
+}
+
+function readPlacement(value: unknown): PanelPlacement | null {
+  const source = readRecord(value);
+  const group = source.group === "agentRail" ? "agentRail" : "workspace";
+  const col = readNumber(source.col);
+  const row = readNumber(source.row);
+  const colSpan = readNumber(source.colSpan);
+  const rowSpan = readNumber(source.rowSpan);
+  if (col === null || row === null || colSpan === null || rowSpan === null) {
+    return null;
+  }
+  return normalizeWorkspacePlacement({
+    group,
+    zone: group === "agentRail" ? "agentRail" : workspaceZone(col, colSpan),
+    col,
+    row,
+    colSpan,
+    rowSpan
+  });
+}
+
+function workspaceZone(col: number, colSpan: number): PanelPlacement["zone"] {
+  if (col === 4 && colSpan === 1) {
+    return "context";
+  }
+  if (col + colSpan - 1 <= 3) {
+    return "main";
+  }
+  return "mainContext";
+}
+
+function normalizeWorkspacePlacement(placement: PanelPlacement): PanelPlacement {
+  if (placement.group !== "workspace") {
+    return placement;
+  }
+  return {
+    ...placement,
+    zone: workspaceZone(placement.col, placement.colSpan)
+  };
+}
+
+function placementsEqual(left: PanelPlacement, right: PanelPlacement): boolean {
+  return left.group === right.group &&
+    left.col === right.col &&
+    left.row === right.row &&
+    left.colSpan === right.colSpan &&
+    left.rowSpan === right.rowSpan;
 }
 
 function readFavoriteSlot(value: unknown): FavoriteLayoutSlot | null {
@@ -404,6 +458,71 @@ function applySelect(state: LayoutRuntimeState, command: LayoutCommand): LayoutR
     "applied",
     `${panel.title ?? panel.id} selected.`
   );
+}
+
+function applyPrioritySet(state: LayoutRuntimeState, command: LayoutCommand): LayoutRuntimeState {
+  const panel = findPanel(state.layout, command.target?.panelId ?? command.payload.panelId);
+  if (!panel) {
+    return fail(state, command, "Panel not found.");
+  }
+
+  const layoutWeight = readNumber(command.payload.layoutWeight);
+  if (layoutWeight === null) {
+    return fail(state, command, "Panel priority must be a finite number.");
+  }
+
+  if (panel.layoutWeight === layoutWeight) {
+    return state;
+  }
+
+  const nextPanel = { ...panel, layoutWeight, updatedAt: now() };
+  const nextLayout = updatePanel(state.layout, nextPanel);
+  return withLayoutHistory(state, command, nextLayout, `${nextPanel.title ?? nextPanel.id} priority updated.`);
+}
+
+function applyArrange(state: LayoutRuntimeState, command: LayoutCommand): LayoutRuntimeState {
+  const placements = Array.isArray(command.payload.placements) ? command.payload.placements : [];
+  if (!placements.length) {
+    return fail(state, command, "Panel arrangement is empty.");
+  }
+
+  let nextLayout = cloneLayout(state.layout);
+  for (const item of placements) {
+    const source = readRecord(item);
+    const panelId = readString(source.panelId);
+    const placement = readPlacement(source.placement);
+    if (!panelId || !placement) {
+      return fail(state, command, "Panel arrangement contains an invalid placement.");
+    }
+
+    const panel = findPanel(nextLayout, panelId);
+    if (!panel) {
+      return fail(state, command, "Panel not found.");
+    }
+
+    if (panel.layoutPinned && !placementsEqual(panel.placement, placement)) {
+      return fail(state, command, `Pinned panel cannot be arranged: ${panel.title ?? panel.id}.`);
+    }
+
+    const layoutWeight = readNumber(source.layoutWeight);
+    nextLayout = updatePanel(nextLayout, {
+      ...panel,
+      placement,
+      ...(layoutWeight === null ? {} : { layoutWeight }),
+      updatedAt: now()
+    });
+  }
+
+  const result = reflowLayout(nextLayout);
+  if (!result.ok) {
+    return fail(state, command, result.message);
+  }
+
+  if (layoutPresentationSnapshotsEqual(state.layout, result.layout)) {
+    return state;
+  }
+
+  return withLayoutHistory(state, command, result.layout, "Panel arrangement applied.");
 }
 
 function applyReflow(state: LayoutRuntimeState, command: LayoutCommand): LayoutRuntimeState {
@@ -683,6 +802,29 @@ export function createInitialRuntimeState(): LayoutRuntimeState {
   return error ? addError(state, error) : state;
 }
 
+export function applyLayoutProposal(state: LayoutRuntimeState, proposal: LayoutProposal): LayoutRuntimeState {
+  const proposalCommand: LayoutCommand = {
+    id: `cmd-${crypto.randomUUID()}`,
+    type: "layout.proposal.accept",
+    actor: "llm",
+    payload: { proposalId: proposal.id },
+    createdAt: now()
+  };
+  let nextState = state;
+
+  for (const childCommand of proposal.commands) {
+    const previousJournalId = nextState.journal[0]?.id;
+    const candidateState = executeCommand(nextState, childCommand, { forceApplyLlm: true });
+    const newJournalEntry = candidateState.journal[0];
+    if (newJournalEntry?.status === "failed" && newJournalEntry.id !== previousJournalId) {
+      return fail(state, proposalCommand, "Agent layout proposal failed to apply atomically.");
+    }
+    nextState = candidateState;
+  }
+
+  return addJournal(nextState, proposalCommand, "applied", `${proposal.title} applied.`);
+}
+
 export function executeCommand(
   state: LayoutRuntimeState,
   command: LayoutCommand,
@@ -720,6 +862,10 @@ export function executeCommand(
       return applyPin(state, command, false);
     case "layout.panel.select":
       return applySelect(state, command);
+    case "layout.panel.priority.set":
+      return applyPrioritySet(state, command);
+    case "layout.panels.arrange":
+      return applyArrange(state, command);
     case "layout.reflow":
       return applyReflow(state, command);
     case "layout.undo":

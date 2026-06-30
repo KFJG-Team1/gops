@@ -1,3 +1,6 @@
+import type { CommandActor, LayoutCommand, LayoutCommandType, LayoutProposal, PanelType, WorkspaceLayout } from "../layout/types";
+import { getPanelDefinition } from "../layout/panelRegistry";
+
 export type AgentEvidenceItem = {
   provider: string;
   status: string;
@@ -62,6 +65,7 @@ export type AgentAnalysisReport = {
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
   notificationDecision?: NotificationDecision | null;
+  layoutProposal?: LayoutProposal | null;
 };
 
 export type AgentAnalysisRequestInput = {
@@ -70,6 +74,7 @@ export type AgentAnalysisRequestInput = {
   symbol: string;
   intent: string;
   chartContext: unknown;
+  layoutContext?: unknown;
   routerMode?: "hybrid" | "rules" | "strict-llm";
 };
 
@@ -79,21 +84,55 @@ export type AgentAnalysisMessage = {
   [key: string]: unknown;
 };
 
+const panelAliases: Record<PanelType, string[]> = {
+  chart: ["차트", "캔들", "가격 그래프", "chart"],
+  newsFeed: ["뉴스", "시장 뉴스", "기사", "헤드라인", "news"],
+  hotRanking: ["Hot Ranking", "거래대금", "거래대금 순위", "랭킹", "ranking"],
+  indicatorCompare: ["지표", "지표 비교", "인디케이터", "거시", "indicator"],
+  orderTicket: ["주문", "주문 입력", "주문창", "매수창", "매도창", "order", "ticket"],
+  aiSummary: ["AI 요약", "요약", "AI 어시스턴트", "assistant"],
+  ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"]
+};
+
 export function buildAgentAnalysisRequest({
   agentIds,
   messages,
   symbol,
   intent,
   chartContext,
+  layoutContext,
   routerMode = "hybrid"
 }: AgentAnalysisRequestInput) {
-  return {
+  const request = {
     agentIds,
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
     symbol,
     intent,
     chartContext,
     routerMode
+  };
+  return layoutContext === undefined ? request : { ...request, layoutContext };
+}
+
+export function buildAgentLayoutContext(layout: WorkspaceLayout) {
+  return {
+    version: layout.version,
+    selectedPanelId: layout.selectedPanelId,
+    panels: layout.panels.map((panel) => {
+      const definition = getPanelDefinition(panel.type);
+      return {
+        id: panel.id,
+        type: panel.type,
+        title: panel.title ?? definition.title,
+        variant: panel.variant,
+        placement: panel.placement,
+        layoutPinned: Boolean(panel.layoutPinned),
+        layoutWeight: panel.layoutWeight,
+        minSpan: definition.minSpan,
+        maxSpan: definition.maxSpan,
+        aliases: panelAliases[panel.type]
+      };
+    })
   };
 }
 
@@ -118,7 +157,8 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     finalAnswer: normalizeFinalAnswer(source.finalAnswer),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
-    notificationDecision: normalizeNotification(source.notificationDecision)
+    notificationDecision: normalizeNotification(source.notificationDecision),
+    layoutProposal: normalizeLayoutProposal(source.layoutProposal)
   };
 }
 
@@ -300,6 +340,107 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   };
 }
 
+const layoutCommandTypes: LayoutCommandType[] = [
+  "layout.panel.add",
+  "layout.panel.remove",
+  "layout.panel.move",
+  "layout.panel.replace",
+  "layout.panel.pin",
+  "layout.panel.unpin",
+  "layout.panel.select",
+  "layout.panel.priority.set",
+  "layout.panels.arrange",
+  "layout.boundary.resize",
+  "layout.reflow",
+  "layout.undo",
+  "layout.redo",
+  "layout.save",
+  "layout.update",
+  "layout.delete",
+  "layout.load",
+  "layout.favorite.set",
+  "layout.default.restore",
+  "layout.reset",
+  "layout.autoApply.set",
+  "layout.proposal.accept",
+  "layout.proposal.reject"
+];
+
+function normalizeLayoutProposal(value: unknown): LayoutProposal | null {
+  const source = readObject(value);
+  const title = readString(source?.title);
+  const rationale = readString(source?.rationale);
+  if (!source || !title || !rationale) {
+    return null;
+  }
+
+  return {
+    id: readString(source.id) ?? `layout-proposal-${Date.now()}`,
+    title,
+    rationale,
+    autoApply: typeof source.autoApply === "boolean" ? source.autoApply : true,
+    panelPriorities: readArray(source.panelPriorities)
+      .map(normalizePanelPriority)
+      .filter((item): item is NonNullable<LayoutProposal["panelPriorities"]>[number] => Boolean(item)),
+    commands: readArray(source.commands)
+      .map(normalizeLayoutCommand)
+      .filter((item): item is LayoutCommand => Boolean(item)),
+    createdAt: readString(source.createdAt) ?? new Date().toISOString()
+  };
+}
+
+function normalizePanelPriority(value: unknown): NonNullable<LayoutProposal["panelPriorities"]>[number] | null {
+  const source = readObject(value);
+  const panelId = readString(source?.panelId);
+  const layoutWeight = readNumber(source?.layoutWeight);
+  if (!source || !panelId || layoutWeight === null) {
+    return null;
+  }
+  return {
+    panelId,
+    panelType: readString(source.panelType) ?? undefined,
+    layoutWeight,
+    reason: readString(source.reason) ?? undefined
+  };
+}
+
+function normalizeLayoutCommand(value: unknown): LayoutCommand | null {
+  const source = readObject(value);
+  const type = readLayoutCommandType(source?.type);
+  const payload = readObject(source?.payload);
+  if (!source || !type || !payload) {
+    return null;
+  }
+
+  const target = readObject(source.target);
+  const proposalId = readString(source.proposalId) ?? undefined;
+  return {
+    id: readString(source.id) ?? `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type,
+    actor: readCommandActor(source.actor) ?? "llm",
+    target: target ? {
+      panelId: readString(target.panelId) ?? undefined,
+      group: target.group === "workspace" || target.group === "agentRail" ? target.group : undefined,
+      zone: target.zone === "main" || target.zone === "context" || target.zone === "mainContext" || target.zone === "agentRail"
+        ? target.zone
+        : undefined
+    } : undefined,
+    payload,
+    createdAt: readString(source.createdAt) ?? new Date().toISOString(),
+    ...(proposalId ? { proposalId } : {})
+  };
+}
+
+function readLayoutCommandType(value: unknown): LayoutCommandType | null {
+  return typeof value === "string" && layoutCommandTypes.includes(value as LayoutCommandType)
+    ? value as LayoutCommandType
+    : null;
+}
+
+function readCommandActor(value: unknown): CommandActor | null {
+  return value === "user" || value === "llm" || value === "system" ? value : null;
+}
+
 function labelForProvider(provider: string): string {
   const labels: Record<string, string> = {
     news: "뉴스",
@@ -343,6 +484,10 @@ function readObject(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function invalidReportError(): Error {

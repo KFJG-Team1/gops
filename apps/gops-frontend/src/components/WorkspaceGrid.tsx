@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type DragEvent } from "react";
-import type { LayoutCommand, LayoutPreviewItem, PanelPlacement, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
+import { useEffect, useState, type CSSProperties, type DragEvent } from "react";
+import type { LayoutCommand, LayoutPreviewItem, LayoutProposal, PanelPlacement, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 import type { ChartRuntimeAction, ChartRuntimeState } from "@gops/chart-engine/runtime";
 import type { AgentChartReference } from "@gops/chart-engine/agentReference";
 import type { HotRankingSymbol, SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
@@ -20,7 +20,7 @@ const SYMBOL_DRAG_MIME = "application/x-gops-symbol";
 type WorkspaceGridProps = {
   layout: WorkspaceLayout;
   selectedPanelId?: string;
-  systemMode: SystemMode;
+  systemMode: SystemMode | null;
   settingsTab: SystemMenuTab;
   agents: AgentOption[];
   selectedAgentIds: string[];
@@ -43,6 +43,7 @@ type WorkspaceGridProps = {
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
   onCommand: (command: LayoutCommand) => void;
+  onLayoutProposal: (proposal: LayoutProposal) => void;
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onToggleWatchlistSymbol: (symbol: string) => void;
@@ -133,6 +134,7 @@ export function WorkspaceGrid({
   onCloseSystemPanel,
   onSelectSymbol,
   onCommand,
+  onLayoutProposal,
   onChartAction,
   onAskAgentFromChart,
   onToggleWatchlistSymbol
@@ -140,6 +142,12 @@ export function WorkspaceGrid({
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreviewItem[]>([]);
   const [gridTracks, setGridTracks] = useState<ContinuousGridTracks>({});
   const workspacePanels = layout.panels.filter((panel) => panel.placement.group === "workspace");
+  const systemPanelOpen = Boolean(systemMode);
+
+  useEffect(() => {
+    setGridTracks((current) => current.columns ? { rows: current.rows } : current);
+  }, [systemPanelOpen]);
+
   const handlePanelCatalogDragOver = (event: DragEvent<HTMLDivElement>) => {
     const draggedSymbol = readDraggedSymbol(event.dataTransfer);
     if (draggedSymbol) {
@@ -161,7 +169,7 @@ export function WorkspaceGrid({
       return;
     }
 
-    const cell = getWorkspaceDropCell(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
+    const cell = getWorkspaceDropCell(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, systemPanelOpen);
     const targetPanelId = findDropTargetPanelId(event.target);
     const preview = createPanelDropPreview({ layout, panelType, activeSymbol, cell, targetPanelId });
     event.dataTransfer.dropEffect = preview?.kind === "blocked" ? "none" : "copy";
@@ -191,7 +199,7 @@ export function WorkspaceGrid({
       return;
     }
 
-    const cell = getWorkspaceDropCell(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
+    const cell = getWorkspaceDropCell(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, systemPanelOpen);
     const targetPanelId = findDropTargetPanelId(event.target);
     const command = createPanelDropCommand({
       layout,
@@ -208,7 +216,7 @@ export function WorkspaceGrid({
 
   return (
     <div
-      className="layout-frame"
+      className={`layout-frame ${systemPanelOpen ? "system-panel-open" : "system-panel-closed"}`}
       style={trackStyle(gridTracks)}
       onDragOver={handlePanelCatalogDragOver}
       onDrop={handlePanelCatalogDrop}
@@ -243,8 +251,9 @@ export function WorkspaceGrid({
           hotRankingSymbols={hotRankingSymbols}
           onChartAction={onChartAction}
           onAskAgentFromChart={onAskAgentFromChart}
-          onToggleWatchlistSymbol={onToggleWatchlistSymbol}
           onSelectSymbol={onSelectSymbol}
+          onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+          systemColumnVisible={systemPanelOpen}
         />
       ))}
 
@@ -265,32 +274,34 @@ export function WorkspaceGrid({
         onTrackResize={(axis, tracks) => {
           setGridTracks((current) => axis === "x" ? { ...current, columns: tracks } : { ...current, rows: tracks });
         }}
+        systemColumnVisible={systemPanelOpen}
       />
 
-      <SystemArea
-        mode={systemMode}
-        settingsTab={settingsTab}
-        layout={layout}
-        chartRuntime={chartRuntime}
-        chartAutoApplyEnabled={chartAutoApplyEnabled}
-        agents={agents}
-        selectedAgentIds={selectedAgentIds}
-        referencedChartTarget={referencedChartTarget}
-        editingAgentId={editingAgentId}
-        savedLayouts={savedLayouts}
-        activeSymbol={activeSymbol}
-        watchlistSymbols={watchlistSymbols}
-        symbolUniverse={symbolUniverse}
-        onSettingsTabChange={onSettingsTabChange}
-        onEditAgent={onEditAgent}
-        onUpdateAgent={onUpdateAgent}
-        onAddAgent={onAddAgent}
-        onDeleteAgent={onDeleteAgent}
-        onCloseSystemPanel={onCloseSystemPanel}
-        onSelectSymbol={onSelectSymbol}
-        onCommand={onCommand}
-        onChartAction={onChartAction}
-      />
+      {systemMode && (
+        <SystemArea
+          mode={systemMode}
+          settingsTab={settingsTab}
+          layout={layout}
+          chartRuntime={chartRuntime}
+          agents={agents}
+          selectedAgentIds={selectedAgentIds}
+          referencedChartTarget={referencedChartTarget}
+          editingAgentId={editingAgentId}
+          savedLayouts={savedLayouts}
+          activeSymbol={activeSymbol}
+          watchlistSymbols={watchlistSymbols}
+          symbolUniverse={symbolUniverse}
+          onSettingsTabChange={onSettingsTabChange}
+          onEditAgent={onEditAgent}
+          onUpdateAgent={onUpdateAgent}
+          onAddAgent={onAddAgent}
+          onDeleteAgent={onDeleteAgent}
+          onCloseSystemPanel={onCloseSystemPanel}
+          onSelectSymbol={onSelectSymbol}
+          onCommand={onCommand}
+          onLayoutProposal={onLayoutProposal}
+        />
+      )}
     </div>
   );
 }
