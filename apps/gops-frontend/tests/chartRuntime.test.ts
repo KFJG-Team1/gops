@@ -1448,6 +1448,40 @@ assert.equal(
   1
 );
 
+const agentNewsPanelUpdateReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-panel-update",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA 뉴스 분석 완료",
+  findings: [],
+  providerEvidence: [],
+  layoutProposal: {
+    title: "Agent analysis workspace",
+    rationale: "Update existing news panel.",
+    commands: [
+      {
+        type: "layout.panel.props.update",
+        target: { panelId: "panel-news" },
+        payload: {
+          panelId: "panel-news",
+          props: {
+            symbol: "NVDA",
+            latestNews: [
+              {
+                title: "NVDA shares rise after earnings",
+                symbols: ["NVDA"],
+                impactDirection: "positive"
+              }
+            ],
+            majorNews: []
+          }
+        }
+      }
+    ]
+  }
+});
+assert.equal(agentNewsPanelUpdateReport.layoutProposal?.commands[0]?.type, "layout.panel.props.update");
+
 const newsPropsPanel = testPanel("news-props", "newsFeed", testPlacement(2, 2, 2, 2));
 const newsPropsState = executeLayoutCommand(
   {
@@ -1468,6 +1502,21 @@ const newsPropsState = executeLayoutCommand(
 );
 assert.equal((newsPropsState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
 assert.equal(newsPropsState.history.length, 0);
+
+const newsProposalPanel = testPanel("panel-news", "newsFeed", testPlacement(2, 2, 2, 2));
+const newsProposalState = applyLayoutProposal(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([newsProposalPanel]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  agentNewsPanelUpdateReport.layoutProposal!
+);
+assert.equal((newsProposalState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
+assert.equal(newsProposalState.errors.length, 0);
 
 assert.deepEqual(getChartAgentAccess([{ id: "agent-01" }]), { enabled: true, reason: "agent-01" });
 assert.deepEqual(getChartAgentAccess([{ id: "agent-02" }]), { enabled: false, reason: "no-chart-agent" });

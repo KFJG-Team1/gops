@@ -25,6 +25,7 @@ const proposedCommands = new Set<LayoutCommandType>([
   "layout.panel.move",
   "layout.boundary.resize",
   "layout.panel.replace",
+  "layout.panel.props.update",
   "layout.panel.pin",
   "layout.panel.unpin",
   "layout.panel.priority.set",
