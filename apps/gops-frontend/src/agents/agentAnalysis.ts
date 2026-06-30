@@ -90,6 +90,7 @@ const panelAliases: Record<PanelType, string[]> = {
   hotRanking: ["Hot Ranking", "거래대금", "거래대금 순위", "랭킹", "ranking"],
   indicatorCompare: ["지표", "지표 비교", "인디케이터", "거시", "indicator"],
   orderTicket: ["주문", "주문 입력", "주문창", "매수창", "매도창", "order", "ticket"],
+  portfolioHoldings: ["내 투자", "보유종목", "잔고", "계좌", "포트폴리오", "portfolio", "holdings", "balance"],
   aiSummary: ["AI 요약", "요약", "AI 어시스턴트", "assistant"],
   ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"]
 };

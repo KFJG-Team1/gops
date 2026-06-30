@@ -10,6 +10,7 @@ export const PANEL_CATALOG_TYPES: PanelType[] = [
   "hotRanking",
   "indicatorCompare",
   "aiSummary",
+  "portfolioHoldings",
   "orderTicket",
   "ontologyGraph"
 ];

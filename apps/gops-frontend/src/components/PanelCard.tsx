@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
 import { OrderTicket } from "./OrderTicket";
+import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
 import { getSymbolMeta, normalizeSupportedSymbol, type HotRankingSymbol, type SupportedSymbol, type SymbolMeta, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
@@ -101,6 +102,10 @@ function PanelBody({
     return <OrderTicket activeSymbol={activeSymbol} />;
   }
 
+  if (panel.type === "portfolioHoldings") {
+    return <PortfolioHoldingsPanel onSelectSymbol={onSelectSymbol} />;
+  }
+
   if (panel.type === "hotRanking") {
     return <HotRankingPanel activeSymbol={activeSymbol} symbols={hotRankingSymbols} onSelectSymbol={onSelectSymbol} />;
   }
@@ -184,6 +189,8 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
       return "지표 비교";
     case "orderTicket":
       return "주문 입력";
+    case "portfolioHoldings":
+      return "모의투자 보유종목";
     case "aiSummary":
       return "AI 요약";
     case "ontologyGraph":

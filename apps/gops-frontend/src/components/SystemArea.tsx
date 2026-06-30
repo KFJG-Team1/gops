@@ -1010,6 +1010,8 @@ function catalogDescription(panelType: PanelType): string {
       return "AI 요약";
     case "orderTicket":
       return "주문 입력";
+    case "portfolioHoldings":
+      return "모의투자 보유종목";
     case "ontologyGraph":
       return "기업 관계";
     default:
