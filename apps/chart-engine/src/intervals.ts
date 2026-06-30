@@ -9,12 +9,12 @@ const intradayPreloadTargetTradingDays = 315;
 const intradayPreloadTargetBars = minutesPerTradingDay * intradayPreloadTargetTradingDays;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
-  "1m": 390,
-  "5m": 390,
-  "10m": 390,
-  "1D": 250,
-  "1W": 260,
-  "1M": 120
+  "1m": 120,
+  "5m": 120,
+  "10m": 96,
+  "1D": 120,
+  "1W": 104,
+  "1M": 72
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {

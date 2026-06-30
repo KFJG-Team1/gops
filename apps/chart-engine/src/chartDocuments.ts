@@ -29,9 +29,9 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       text: "#667085",
       bullish: "#16a86b",
       bearish: "#e94b5b",
-      ma5: "#2f6fed",
-      ma20: "#c58a1f",
-      ma60: "#7b61d1",
+      ma5: "#2478f2",
+      ma20: "#c98210",
+      ma60: "#7557d9",
       volume: "#9ca3af"
     },
     interactionState: {

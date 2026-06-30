@@ -35,7 +35,7 @@ import {
   isPreparingCandleData,
   firstGapBackfillWindow,
   normalizeBackfillStatusPayload,
-  rangeBackfillWindow,
+  rangeBackfillWindowForSnapshot,
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "@gops/chart-engine/backfill";
@@ -58,7 +58,7 @@ import {
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
 import { candleKey } from "@gops/chart-engine/candleStore";
-import { normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
+import { getSymbolMeta, normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
 import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
 import { useElementSize } from "../hooks/useElementSize";
 import type { PanelInstance } from "../layout/types";
@@ -226,6 +226,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
   const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
   const chartDataRenderable = isChartDataRenderable(dataStatus);
+  const chartDataNotice = candles.length > 0 && isActiveBackfillStatus(dataStatus.backfillStatus)
+    ? dataStatus.message ?? "Loading earlier candles..."
+    : undefined;
   const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
   const sceneDocument = useMemo(
     () => (transientViewport || transientDrawings)
@@ -622,9 +625,23 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   }, [document.symbol, document.timeframe, onChartAction]);
 
   const scene = useMemo(() => {
+    const hasVisibleCandles = candles.length > 0;
+    const hasActiveBackfill = isActiveBackfillStatus(dataStatus.backfillStatus);
+    const sceneState = backfillPreparing && !hasVisibleCandles
+      ? "loading"
+      : hasVisibleCandles && (chartDataRenderable || hasActiveBackfill || dataStatus.state === "partial")
+        ? "ready"
+        : chartDataRenderable
+          ? "ready"
+          : dataStatus.state;
+    const sceneMessage = sceneState === "ready"
+      ? undefined
+      : backfillPreparing
+        ? "Preparing candle data..."
+        : dataStatus.message;
     const nextScene = buildRenderScene({
-      state: backfillPreparing ? "loading" : chartDataRenderable ? "ready" : dataStatus.state,
-      message: backfillPreparing ? "Preparing candle data..." : dataStatus.message,
+      state: sceneState,
+      message: sceneMessage,
       document: sceneDocument,
       candles,
       width: size.width,
@@ -641,7 +658,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     });
     sceneRef.current = nextScene;
     return nextScene;
-  }, [backfillPreparing, candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
+  }, [backfillPreparing, candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.backfillStatus, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
 
   useEffect(() => {
     const controllers: AbortController[] = [];
@@ -748,11 +765,13 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     });
     let pollTimer: number | undefined;
     let rangeBackfillStarted = false;
+    let activeRangeBackfillKey = requestKey;
 
     const applyRangeBackfillStatus = (payload: unknown) => {
       const status = normalizeBackfillStatusPayload(payload);
+      const terminalKey = activeRangeBackfillKey;
       if (status.status === "succeeded") {
-        rangeBackfillTerminalRef.current.add(requestKey);
+        rangeBackfillTerminalRef.current.add(terminalKey);
         rangeRequestsRef.current.delete(requestKey);
         setRangeReloadToken((current) => current + 1);
         return;
@@ -781,7 +800,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         return;
       }
 
-      rangeBackfillTerminalRef.current.add(requestKey);
+      rangeBackfillTerminalRef.current.add(terminalKey);
       rangeRequestsRef.current.delete(requestKey);
       onChartAction({
         kind: "chart.error",
@@ -811,7 +830,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           if (isAbortError(error)) {
             return;
           }
-          rangeBackfillTerminalRef.current.add(requestKey);
+          rangeBackfillTerminalRef.current.add(activeRangeBackfillKey);
           rangeRequestsRef.current.delete(requestKey);
           onChartAction({
             kind: "chart.error",
@@ -821,15 +840,20 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         });
     };
 
-    const requestRangeBackfill = () => {
-      if (!backfillEligibleSymbols.includes(document.symbol) || rangeBackfillTerminalRef.current.has(requestKey)) {
+    const requestRangeBackfill = (snapshot: ReturnType<typeof normalizeCandleSnapshot>) => {
+      if (!backfillEligibleSymbols.includes(document.symbol)) {
         return;
       }
-      const windowRange = rangeBackfillWindow(document.timeframe, oldest, pageLimit);
+      const windowRange = rangeBackfillWindowForSnapshot(snapshot, document.timeframe, oldest, pageLimit);
       if (!windowRange) {
         return;
       }
+      const fillKey = `${requestKey}:fill:${windowRange.start}:${windowRange.end}`;
+      if (rangeBackfillTerminalRef.current.has(fillKey)) {
+        return;
+      }
 
+      activeRangeBackfillKey = fillKey;
       rangeBackfillStarted = true;
       fetch("/api/charts/backfill", {
         method: "POST",
@@ -854,7 +878,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           if (isAbortError(error)) {
             return;
           }
-          rangeBackfillTerminalRef.current.add(requestKey);
+          rangeBackfillTerminalRef.current.add(activeRangeBackfillKey);
           rangeRequestsRef.current.delete(requestKey);
           onChartAction({
             kind: "chart.error",
@@ -875,7 +899,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         const snapshot = normalizeCandleSnapshot(payload);
         onChartAction({ kind: "chart.snapshot.loaded", snapshot });
         if (shouldRequestRangeBackfill(snapshot)) {
-          requestRangeBackfill();
+          requestRangeBackfill(snapshot);
         }
       })
       .catch((error: unknown) => {
@@ -1403,6 +1427,12 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   );
 
   const viewportStep = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
+  const chartHeaderMeta = getSymbolMeta(document.symbol);
+  const chartHeaderCompany = chartHeaderMeta.name && chartHeaderMeta.name !== chartHeaderMeta.symbol
+    ? chartHeaderMeta.name
+    : "";
+  const chartHeaderChangeValue = Number.parseFloat((scene.labels.change ?? "0").replace("%", ""));
+  const chartHeaderDirection = Number.isFinite(chartHeaderChangeValue) && chartHeaderChangeValue < 0 ? "down" : "up";
 
   return (
     <>
@@ -1419,6 +1449,18 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       onPointerLeave={() => setHoverTooltip(null)}
       onPointerDown={() => setHoverTooltip(null)}
     >
+      <div className="chart-market-header" aria-label="차트 종목 정보">
+        <div className="chart-market-line">
+          <strong className="chart-market-symbol">{document.symbol}</strong>
+          {chartHeaderCompany ? <span className="chart-market-company">{chartHeaderCompany}</span> : null}
+          {scene.labels.lastPrice ? <strong className="chart-market-price">${scene.labels.lastPrice}</strong> : null}
+          {scene.labels.change ? (
+            <span className={`chart-market-change ${chartHeaderDirection}`}>
+              {scene.labels.change}
+            </span>
+          ) : null}
+        </div>
+      </div>
       <div className="chart-toolbar" aria-label="차트 편집 도구">
         <div className="chart-toolbar-scroll">
         <div className="chart-symbol-control" title="화면 범위와 주기">
@@ -1519,6 +1561,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         </div>
 
         <div className="chart-right-actions" aria-label="차트 제안 동작">
+          {chartDataNotice ? (
+            <span
+              className="chart-data-status backfill"
+              title={chartDataNotice}
+              aria-label={chartDataNotice}
+            >
+              백필중
+            </span>
+          ) : null}
           <span
             className={`chart-stream-status ${streamStatus}`}
             title={streamMessage ?? `실시간 스트림 상태: ${streamStatusLabel(streamStatus)}`}

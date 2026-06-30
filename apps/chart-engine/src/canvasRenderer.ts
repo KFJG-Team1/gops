@@ -84,8 +84,8 @@ function drawGrid(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.strokeStyle = scene.document.style.grid;
   ctx.lineWidth = 1;
 
-  for (let index = 0; index <= 4; index += 1) {
-    const y = top + ((priceBottom - top) * index) / 4;
+  for (let index = 0; index <= 5; index += 1) {
+    const y = top + ((priceBottom - top) * index) / 5;
     line(ctx, left, y, right, y);
   }
 
@@ -131,7 +131,7 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const x = candleCenter(scene, index);
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
-    const color = candle.close >= candle.open ? "rgba(22, 168, 107, 0.26)" : "rgba(233, 75, 91, 0.24)";
+    const color = colorWithAlpha(candle.close >= candle.open ? scene.document.style.bullish : scene.document.style.bearish, 0.24);
 
     ctx.fillStyle = color;
     ctx.fillRect(x - scene.scales.candleWidth / 2, y, scene.scales.candleWidth, height);
@@ -302,23 +302,18 @@ function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.textBaseline = "middle";
 
   ctx.textAlign = "right";
-  for (let index = 0; index <= 4; index += 1) {
-    const ratio = index / 4;
+  for (let index = 0; index <= 5; index += 1) {
+    const ratio = index / 5;
     const value = scene.scales.maxPrice - (scene.scales.maxPrice - scene.scales.minPrice) * ratio;
     const y = top + (priceBottom - top) * ratio;
     ctx.fillText(value.toFixed(2), priceLabelX, y);
   }
 
-  const first = scene.candles[0];
-  const last = scene.candles[scene.candles.length - 1];
-  ctx.textAlign = "left";
-  if (first) {
-    ctx.fillText(formatTime(first), left, bottom + 12);
-  }
-  ctx.textAlign = "right";
-  if (last) {
-    ctx.fillText(formatTime(last), right, bottom + 12);
-  }
+  const ticks = buildTimeTicks(scene, 6);
+  ticks.forEach((tick, index) => {
+    ctx.textAlign = index === 0 ? "left" : index === ticks.length - 1 ? "right" : "center";
+    ctx.fillText(formatTime(tick.candle), tick.x, bottom + 13);
+  });
 }
 
 function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -400,10 +395,50 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
 }
 
 function formatTime(candle: CandleData): string {
-  return new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC"
-  }).format(new Date(candle.timestamp));
+    timeZone: "Asia/Seoul"
+  }).formatToParts(new Date(candle.timestamp));
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${read("month")}.${read("day")} ${read("hour")}:${read("minute")}`;
+}
+
+function buildTimeTicks(scene: RenderScene, targetCount: number): Array<{ candle: CandleData; x: number }> {
+  if (scene.candles.length === 0) {
+    return [];
+  }
+  const count = Math.min(targetCount, scene.candles.length);
+  if (count === 1) {
+    return [{ candle: scene.candles[0], x: scene.plot.left }];
+  }
+  const seen = new Set<number>();
+  return Array.from({ length: count }, (_, index) => {
+    const candleIndex = Math.round((index * (scene.candles.length - 1)) / (count - 1));
+    const uniqueIndex = seen.has(candleIndex)
+      ? Math.min(scene.candles.length - 1, Math.max(0, candleIndex + index - seen.size))
+      : candleIndex;
+    seen.add(uniqueIndex);
+    const x = index === 0
+      ? scene.plot.left
+      : index === count - 1
+        ? scene.plot.right
+        : candleCenter(scene, uniqueIndex);
+    return { candle: scene.candles[uniqueIndex], x };
+  }).filter((tick): tick is { candle: CandleData; x: number } => Boolean(tick.candle));
+}
+
+function colorWithAlpha(hex: string, alpha: number): string {
+  const normalized = hex.trim().replace(/^#/, "");
+  if (!/^[\da-fA-F]{6}$/.test(normalized)) {
+    return `rgba(102, 112, 133, ${alpha})`;
+  }
+  const value = Number.parseInt(normalized, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }

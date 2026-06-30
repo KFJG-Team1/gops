@@ -45,6 +45,19 @@ export function rangeBackfillWindow(interval: string, beforeTimestamp: string, p
   };
 }
 
+export function firstSnapshotGapBackfillWindow(snapshot: CandleSnapshot): { start: string; end: string } | null {
+  return firstValidGapRange(snapshot.coverage?.gapRanges);
+}
+
+export function rangeBackfillWindowForSnapshot(
+  snapshot: CandleSnapshot,
+  interval: string,
+  beforeTimestamp: string,
+  pageLimit: number
+): { start: string; end: string } | null {
+  return firstSnapshotGapBackfillWindow(snapshot) ?? rangeBackfillWindow(interval, beforeTimestamp, pageLimit);
+}
+
 export function shouldForceBackfill(status: ChartDataStatus): boolean {
   void status;
   return false;
@@ -82,11 +95,7 @@ export function isChartDataRenderable(status: ChartDataStatus): boolean {
 }
 
 export function firstGapBackfillWindow(status: ChartDataStatus): { start: string; end: string } | null {
-  const range = status.coverage?.gapRanges?.find((item) => Boolean(item.start && item.end));
-  if (!range) {
-    return null;
-  }
-  return { start: range.start, end: range.end };
+  return firstValidGapRange(status.coverage?.gapRanges);
 }
 
 function hasExplicitGapRange(status: ChartDataStatus): boolean {
@@ -127,6 +136,14 @@ function readBackfillStatus(value: unknown): BackfillStatus | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function firstValidGapRange(ranges?: Array<{ start?: string; end?: string }>): { start: string; end: string } | null {
+  const range = ranges?.find((item) => Boolean(item.start && item.end));
+  if (!range?.start || !range.end) {
+    return null;
+  }
+  return { start: range.start, end: range.end };
 }
 
 function intervalBackfillSpanMs(interval: string, units: number): number {

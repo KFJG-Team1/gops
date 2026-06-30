@@ -712,21 +712,14 @@ export function PanelCard({
         >
           <GripVertical size={15} />
         </button>
-        <div className={panelHeader.kind === "chart" ? "panel-title-block chart-title-block" : "panel-title-block"}>
+        <div className={panelHeader.kind === "chart" ? "panel-title-block chart-title-block chart-title-block-empty" : "panel-title-block"}>
           {panelHeader.kind === "chart" ? (
-            <>
-              <strong>{panelHeader.title}</strong>
-              {panelHeader.description && (
-                <div className="panel-chart-meta">
-                  <span>{panelHeader.description}</span>
-                </div>
-              )}
-            </>
+            null
           ) : (
             <span>{panelHeader.description}</span>
           )}
         </div>
-        {panelHeader.marketMetrics && (
+        {panelHeader.kind !== "chart" && panelHeader.marketMetrics && (
           <div className={`panel-market-metrics panel-market-metrics-static ${panelHeader.marketMetrics.direction}`}>
             <strong>{panelHeader.marketMetrics.price}</strong>
             <span>{panelHeader.marketMetrics.change}</span>

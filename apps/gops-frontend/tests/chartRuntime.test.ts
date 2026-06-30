@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import {
+  firstSnapshotGapBackfillWindow,
   isChartDataRenderable,
   isPreparingCandleData,
   normalizeBackfillStatusPayload,
   rangeBackfillWindow,
+  rangeBackfillWindowForSnapshot,
   shouldForceBackfill,
   shouldRequestBackfill,
   shouldRequestRangeBackfill
@@ -386,6 +388,23 @@ assert.deepEqual(
   }, [candleB]).map((candle) => candle.close),
   [11.5]
 );
+const prependedSnapshotCandles = applySnapshotToCandles({
+  symbol: "AAPL",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  indicators: { ma: [5, 20, 60], volume: true },
+  candles: [
+    { ...candleA, timestamp: "2026-06-25T13:29:00.000Z", close: 9.8 },
+    { ...candleA, close: 10.7 }
+  ]
+}, [candleA, candleB]);
+assert.deepEqual(prependedSnapshotCandles.map((candle) => candle.timestamp), [
+  "2026-06-25T13:29:00.000Z",
+  "2026-06-25T13:30:00.000Z",
+  "2026-06-25T13:31:00.000Z"
+]);
+assert.equal(prependedSnapshotCandles[1]?.close, 10.7);
 
 const invalidProposal: ChartProposal = {
   id: "proposal-invalid",
@@ -724,6 +743,41 @@ assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
   start: "2026-06-25T05:30:00.000Z",
   end: "2026-06-25T13:30:00.000Z"
 });
+const sparseGapSnapshot = normalizeCandleSnapshot({
+  symbol: "AAPL",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  dataStatus: "partial",
+  backfillStatus: "not_requested",
+  repairStatus: "gapfill_required",
+  canBackfill: true,
+  hasMoreBefore: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    repairStatus: "gapfill_required",
+    sourceInterval: "1m",
+    returnedCount: 120,
+    renderable: false,
+    gapRanges: [
+      {
+        start: "2026-06-25T13:01:00.000Z",
+        end: "2026-06-25T13:09:00.000Z",
+        missingCount: 8
+      }
+    ]
+  },
+  candles: [candleA, candleB]
+});
+assert.deepEqual(firstSnapshotGapBackfillWindow(sparseGapSnapshot), {
+  start: "2026-06-25T13:01:00.000Z",
+  end: "2026-06-25T13:09:00.000Z"
+});
+assert.deepEqual(rangeBackfillWindowForSnapshot(sparseGapSnapshot, "1m", "2026-06-25T13:30:00.000Z", 120), {
+  start: "2026-06-25T13:01:00.000Z",
+  end: "2026-06-25T13:09:00.000Z"
+});
 
 const agentContextWithStreamError = buildChartAgentContext({
   panelId: "panel-agent-context",
@@ -840,19 +894,19 @@ assert.equal(normalizeChartInterval("1d"), "1D");
 assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.equal(defaultVisibleBarsForInterval("1m"), 390);
-assert.equal(defaultVisibleBarsForInterval("5m"), 390);
-assert.equal(defaultVisibleBarsForInterval("10m"), 390);
-assert.equal(defaultVisibleBarsForInterval("1D"), 250);
-assert.equal(defaultVisibleBarsForInterval("1W"), 260);
-assert.equal(defaultVisibleBarsForInterval("1M"), 120);
+assert.equal(defaultVisibleBarsForInterval("1m"), 120);
+assert.equal(defaultVisibleBarsForInterval("5m"), 120);
+assert.equal(defaultVisibleBarsForInterval("10m"), 96);
+assert.equal(defaultVisibleBarsForInterval("1D"), 120);
+assert.equal(defaultVisibleBarsForInterval("1W"), 104);
+assert.equal(defaultVisibleBarsForInterval("1M"), 72);
 assert.equal(backfillTargetBarsForInterval("1m"), 122850);
 assert.equal(backfillTargetBarsForInterval("5m"), 24570);
 assert.equal(backfillTargetBarsForInterval("10m"), 12285);
 assert.equal(backfillTargetBarsForInterval("1D"), 756);
 assert.equal(backfillTargetBarsForInterval("1W"), 156);
 assert.equal(backfillTargetBarsForInterval("1M"), 36);
-assert.equal(maxRequestBarsForInterval("1M"), 120);
+assert.equal(maxRequestBarsForInterval("1M"), 72);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
