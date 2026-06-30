@@ -63,6 +63,19 @@ const CHART_HEADER_COMPANY_NAMES: Record<string, string> = {
   TSM: "Taiwan Semiconductor"
 };
 
+function panelGeometryKey(panel: PanelInstance, systemColumnVisible: boolean): string {
+  const placement = panel.placement;
+  return [
+    systemColumnVisible ? "system-open" : "system-closed",
+    placement.group,
+    placement.zone,
+    placement.col,
+    placement.row,
+    placement.colSpan,
+    placement.rowSpan
+  ].join(":");
+}
+
 function PanelBody({
   panel,
   chartRuntime,
@@ -254,8 +267,10 @@ export function PanelCard({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLElement | null>(null);
   const previousRectRef = useRef<DOMRect | null>(null);
+  const previousGeometryKeyRef = useRef<string | null>(null);
   const movementAnimationRef = useRef<Animation | null>(null);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
+  const geometryKey = panelGeometryKey(panel, systemColumnVisible);
   const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, knownSymbols);
   const chartDocument = panel.type === "chart" ? getChartDocumentForPanel(chartRuntime, panel) : null;
   const chartSymbol = chartDocument ? normalizeSupportedSymbol(chartDocument.symbol) : null;
@@ -393,14 +408,16 @@ export function PanelCard({
 
     const nextRect = element.getBoundingClientRect();
     const previousRect = previousRectRef.current;
+    const previousGeometryKey = previousGeometryKeyRef.current;
     const frameIsResizing = element.closest(".layout-frame")?.classList.contains("resizing-grid") ?? false;
     if (dragging) {
       return;
     }
 
     previousRectRef.current = nextRect;
+    previousGeometryKeyRef.current = geometryKey;
 
-    if (frameIsResizing || !previousRect) {
+    if (frameIsResizing || !previousRect || !previousGeometryKey || previousGeometryKey === geometryKey) {
       return;
     }
 
@@ -450,7 +467,7 @@ export function PanelCard({
         fill: "both"
       }
     );
-  });
+  }, [dragging, geometryKey]);
 
   useLayoutEffect(() => {
     return () => movementAnimationRef.current?.cancel();
