@@ -1,6 +1,6 @@
 import { normalizeChartInterval } from "./intervals";
 import { canonicalTimestamp } from "./time";
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartSnapshotDataStatus, RepairStatus } from "./types";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, RepairStatus } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
@@ -122,8 +122,34 @@ function normalizeCoverage(value: unknown): ChartCoverage | undefined {
     minimumRenderableSourceBars: readNumber(source.minimumRenderableSourceBars) ?? undefined,
     returnedSpanSeconds: readNumber(source.returnedSpanSeconds) ?? undefined,
     maxRenderableSpanSeconds: readNumber(source.maxRenderableSpanSeconds) ?? undefined,
-    renderabilityReasonCode: readString(source.renderabilityReasonCode) ?? undefined
+    renderabilityReasonCode: readString(source.renderabilityReasonCode) ?? undefined,
+    gapRanges: normalizeGapRanges(source.gapRanges)
   };
+}
+
+function normalizeGapRanges(value: unknown): ChartGapRange[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const ranges = value
+    .map((item): ChartGapRange | null => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+      const source = item as Record<string, unknown>;
+      const start = readString(source.start);
+      const end = readString(source.end);
+      if (!start || !end) {
+        return null;
+      }
+      return {
+        start,
+        end,
+        missingCount: readNumber(source.missingCount) ?? undefined
+      };
+    })
+    .filter((item): item is ChartGapRange => Boolean(item));
+  return ranges.length ? ranges : undefined;
 }
 
 export function isRealtimeControlPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeControlType } {

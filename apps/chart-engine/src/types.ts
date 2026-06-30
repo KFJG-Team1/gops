@@ -21,6 +21,12 @@ export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded
 export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
 
+export type ChartGapRange = {
+  start: string;
+  end: string;
+  missingCount?: number;
+};
+
 export type ChartCoverage = {
   state: ChartCoverageState;
   reasonCode?: string;
@@ -42,6 +48,7 @@ export type ChartCoverage = {
   returnedSpanSeconds?: number;
   maxRenderableSpanSeconds?: number;
   renderabilityReasonCode?: string;
+  gapRanges?: ChartGapRange[];
 };
 
 export type CandleSnapshot = {

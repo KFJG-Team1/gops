@@ -482,7 +482,7 @@ assert.equal(shouldRequestBackfill({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldRequestBackfill({
   state: "empty",
   backfillStatus: "queued",
@@ -495,7 +495,7 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), true);
+}, true), false);
 assert.equal(isPreparingCandleData({
   state: "empty",
   backfillStatus: "queued",
@@ -507,20 +507,20 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "failed",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), true);
+}, true), false);
 assert.equal(shouldRequestBackfill({
   state: "empty",
   message: "Alpaca credentials are not configured.",
   backfillStatus: "unavailable",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldForceBackfill({
   state: "empty",
   backfillStatus: "unavailable",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldRequestBackfill({
   state: "partial",
   backfillStatus: "succeeded",
@@ -530,6 +530,19 @@ assert.equal(shouldRequestBackfill({
     reasonCode: "insufficient_source_bars",
     sourceInterval: "1D",
     renderable: false
+  },
+  updatedAt: new Date().toISOString()
+}), false);
+assert.equal(shouldRequestBackfill({
+  state: "partial",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    sourceInterval: "1m",
+    renderable: false,
+    gapRanges: [{ start: "2026-06-30T15:22:00.000Z", end: "2026-06-30T15:31:00.000Z", missingCount: 9 }]
   },
   updatedAt: new Date().toISOString()
 }), true);
@@ -572,7 +585,7 @@ assert.equal(shouldRequestBackfill({
     sourceInterval: "1m"
   },
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Sparse daily coverage should not render like a normal chart.",
@@ -586,6 +599,20 @@ assert.equal(isChartDataRenderable({
   },
   updatedAt: new Date().toISOString()
 }), false);
+assert.equal(isChartDataRenderable({
+  state: "partial",
+  message: "Sparse intraday gap can remain visible while gapfill repairs the range.",
+  returnedCount: 120,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    sourceInterval: "1m",
+    renderable: false,
+    returnedCount: 120,
+    gapRanges: [{ start: "2026-06-30T15:22:00.000Z", end: "2026-06-30T15:31:00.000Z", missingCount: 9 }]
+  },
+  updatedAt: new Date().toISOString()
+}), true);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Enough partial intraday candles may still be inspectable.",

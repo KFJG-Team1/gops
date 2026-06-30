@@ -33,9 +33,9 @@ import {
   isActiveBackfillStatus,
   isChartDataRenderable,
   isPreparingCandleData,
+  firstGapBackfillWindow,
   normalizeBackfillStatusPayload,
   rangeBackfillWindow,
-  shouldForceBackfill,
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "@gops/chart-engine/backfill";
@@ -185,7 +185,6 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
   const backfillRequestsRef = useRef<Set<string>>(new Set());
-  const terminalBackfillRetryRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
   const rangeBackfillTerminalRef = useRef<Set<string>>(new Set());
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
@@ -358,23 +357,18 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   }, [document.symbol, document.timeframe, onChartAction, snapshotReloadToken]);
 
   useEffect(() => {
-    const key = candleKey(document.symbol, document.timeframe);
-    const sourceInterval = dataStatus.sourceInterval ?? document.timeframe;
-    const forceBackfill = shouldForceBackfill(dataStatus);
-    const terminalRetryKey = `${document.symbol}:${sourceInterval}`;
+    const gapWindow = firstGapBackfillWindow(dataStatus);
+    const key = `${candleKey(document.symbol, document.timeframe)}:gap:${gapWindow?.start ?? "none"}:${gapWindow?.end ?? "none"}`;
     if (
       !backfillEligibleSymbols.includes(document.symbol) ||
       !shouldRequestBackfill(dataStatus) ||
-      backfillRequestsRef.current.has(key) ||
-      (forceBackfill && terminalBackfillRetryRef.current.has(terminalRetryKey))
+      !gapWindow ||
+      backfillRequestsRef.current.has(key)
     ) {
       return undefined;
     }
 
     backfillRequestsRef.current.add(key);
-    if (forceBackfill) {
-      terminalBackfillRetryRef.current.add(terminalRetryKey);
-    }
     let cancelled = false;
     let pollTimer: number | undefined;
     const controller = new AbortController();
@@ -461,7 +455,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       body: JSON.stringify({
         symbol: document.symbol,
         interval: document.timeframe,
-        force: forceBackfill
+        start: gapWindow.start,
+        end: gapWindow.end,
+        mode: "queue"
       })
     })
       .then((response) => {

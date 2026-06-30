@@ -10,18 +10,12 @@ export type BackfillStatusPayload = {
 };
 
 const activeBackfillStatuses = new Set<BackfillStatus>(["queued", "running"]);
-const terminalBackfillStatuses = new Set<BackfillStatus>(["succeeded", "failed", "unavailable"]);
-
 export function isActiveBackfillStatus(status?: BackfillStatus): boolean {
   return Boolean(status && activeBackfillStatuses.has(status));
 }
 
 export function shouldRequestBackfill(status: ChartDataStatus): boolean {
-  const needsSourceData =
-    status.state === "empty" ||
-    status.state === "error" ||
-    (status.state === "partial" && status.coverage?.renderable !== true);
-  return needsSourceData &&
+  return hasExplicitGapRange(status) &&
     status.canBackfill === true &&
     !isActiveBackfillStatus(status.backfillStatus);
 }
@@ -52,7 +46,8 @@ export function rangeBackfillWindow(interval: string, beforeTimestamp: string, p
 }
 
 export function shouldForceBackfill(status: ChartDataStatus): boolean {
-  return Boolean(status.backfillStatus && terminalBackfillStatuses.has(status.backfillStatus));
+  void status;
+  return false;
 }
 
 export function isPreparingCandleData(
@@ -76,7 +71,26 @@ export function isChartDataRenderable(status: ChartDataStatus): boolean {
   if (status.state !== "partial") {
     return false;
   }
-  return status.coverage ? status.coverage.renderable === true : true;
+  const coverage = status.coverage;
+  if (
+    (coverage?.renderabilityReasonCode ?? coverage?.reasonCode) === "returned_window_sparse" &&
+    (status.returnedCount ?? coverage?.returnedCount ?? 0) > 0
+  ) {
+    return true;
+  }
+  return coverage ? coverage.renderable === true : true;
+}
+
+export function firstGapBackfillWindow(status: ChartDataStatus): { start: string; end: string } | null {
+  const range = status.coverage?.gapRanges?.find((item) => Boolean(item.start && item.end));
+  if (!range) {
+    return null;
+  }
+  return { start: range.start, end: range.end };
+}
+
+function hasExplicitGapRange(status: ChartDataStatus): boolean {
+  return Boolean(firstGapBackfillWindow(status));
 }
 
 export function normalizeBackfillStatusPayload(payload: unknown): BackfillStatusPayload {
