@@ -345,7 +345,7 @@ export default function App() {
     fetch(`/api/market/symbols/search?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Symbol search API returned ${response.status}`);
+          throw new Error(`종목 검색 API 응답 오류 ${response.status}`);
         }
         return response.json() as Promise<unknown>;
       })
@@ -448,7 +448,7 @@ export default function App() {
   const selectSymbol = useCallback((value: string, options?: { source?: "system" | "user" }): boolean => {
     const symbol = normalizeSupportedSymbol(value);
     if (!symbol) {
-      setSymbolSearchError("Enter a valid Alpaca stock symbol.");
+      setSymbolSearchError("유효한 종목 코드를 입력하세요.");
       return false;
     }
 
@@ -508,18 +508,21 @@ export default function App() {
     setActiveSystemMode((current) => (current === "notifications" ? "watchlist" : "notifications"));
   };
 
-  const toggleAgent = (agentId: string) => {
-    setSelectedAgentIds((current) => {
-      const next = current.includes(agentId)
-        ? current.filter((id) => id !== agentId)
-        : [...current, agentId];
+  const togglePrimaryAgent = () => {
+    const primaryAgentId = "agent-01";
+    const primaryAgentActive = activeSystemMode === "agents" && selectedAgentIds.includes(primaryAgentId);
 
-      if (next.length === 0) {
-        setAgentChartReference(undefined);
-      }
-      setActiveSystemMode(next.length === 0 ? "watchlist" : "agents");
-      return next;
-    });
+    setEditingAgentId(undefined);
+    if (primaryAgentActive) {
+      setSelectedAgentIds([]);
+      setAgentChartReference(undefined);
+      setActiveSystemMode("watchlist");
+      return;
+    }
+
+    setSelectedAgentIds([primaryAgentId]);
+    setAgentChartReference(undefined);
+    setActiveSystemMode("agents");
   };
 
   const updateAgent = (agentId: string, patch: AgentUpdatePatch) => {
@@ -549,8 +552,8 @@ export default function App() {
         ...current,
         {
           id: `agent-${String(nextNumber).padStart(2, "0")}`,
-          label: `Agent ${String(nextNumber).padStart(2, "0")}`,
-          description: "New workspace assistant.",
+          label: `AI ${String(nextNumber).padStart(2, "0")}`,
+          description: "새 작업 보조 AI입니다.",
           iconUrl: `/assets/agent-icons/agent-${String(nextNumber).padStart(2, "0")}.svg`
         }
       ];
@@ -570,25 +573,14 @@ export default function App() {
   return (
     <main className="app-shell">
       <TopAppBar
-        layout={state.layout}
-        savedLayouts={state.savedLayouts}
-        autoEnabled={state.layout.settings.llmLayoutAutoApply}
-        agents={agents}
-        selectedAgentIds={selectedAgentIds}
+        aiActive={activeSystemMode === "agents" && selectedAgentIds.includes("agent-01")}
         settingsActive={activeSystemMode === "settings"}
         notificationsActive={activeSystemMode === "notifications"}
         activeSymbol={activeSymbol}
         symbolOptions={symbolOptions}
         symbolSearchError={symbolSearchError}
-        onToggleAuto={() =>
-          runCommand(
-            makeCommand("layout.autoApply.set", "user", {
-              value: !state.layout.settings.llmLayoutAutoApply
-            })
-          )
-        }
         onToggleNotifications={toggleNotifications}
-        onToggleAgent={toggleAgent}
+        onTogglePrimaryAgent={togglePrimaryAgent}
         onToggleSettings={toggleSettings}
         onSymbolQueryChange={setSymbolSearchQuery}
         onSymbolOptionsRequest={refreshSymbolOptions}
@@ -596,9 +588,7 @@ export default function App() {
         onCommand={runCommand}
       />
 
-      <MarketTicker />
-
-      <section className="workspace-area" aria-label="GOPS layout workspace">
+      <section className="workspace-area" aria-label="GOPS 작업 화면">
         <WorkspaceGrid
           layout={state.layout}
           selectedPanelId={selectedPanel?.id}
@@ -630,6 +620,8 @@ export default function App() {
           onToggleWatchlistSymbol={toggleWatchlistSymbol}
         />
       </section>
+
+      <MarketTicker />
     </main>
   );
 }

@@ -10,6 +10,7 @@ import {
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "../../chart-engine/src/backfill";
+import { buildAgentAnalysisRequest, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -138,7 +139,7 @@ const initialLayoutRuntime = createInitialLayoutRuntimeState();
 assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
-assert.equal(getPanelDefinition("orderTicket").title, "Order");
+assert.equal(getPanelDefinition("orderTicket").title, "주문");
 assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
 assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
 assert.equal(PANEL_CATALOG_TYPES.includes("hotRanking"), true);
@@ -1149,6 +1150,86 @@ const chatOnlyResult = normalizeAgentChatResponse({
 }, target("panel-a", documentA.id));
 assert.equal(chatOnlyResult.reply, "No chart command is needed.");
 assert.equal(chatOnlyResult.proposal, undefined);
+
+const agentAnalysisRequest = buildAgentAnalysisRequest({
+  agentIds: ["agent-01", "agent-02"],
+  messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
+});
+assert.deepEqual(agentAnalysisRequest, {
+  agentIds: ["agent-01", "agent-02"],
+  messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  routerMode: "hybrid"
+});
+
+const agentAnalysisReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-1",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA has a watch price_surge signal.",
+  route: {
+    source: "rule",
+    intentType: "market-move",
+    selectedRoles: ["chart", "news"],
+    confidence: 0.9,
+    reason: "Matched intent keyword."
+  },
+  finalAnswer: {
+    title: "NVDA 주가 변동 원인 분석",
+    summary: "차트, 뉴스, 기업 관계 근거를 종합해 NVDA의 변동 원인을 정리했습니다.",
+    sections: [{ title: "확인된 근거", bullets: ["Headline: News summary"] }],
+    citations: [
+      { provider: "news", title: "Headline", url: "https://example.com/news" },
+      { provider: "ontology", title: "URL 없는 온톨로지 근거" }
+    ],
+    limitations: ["Macro provider not configured."]
+  },
+  findings: [
+    { agentId: "chart-agent", role: "chart-analysis", summary: "Chart shows a visible breakout.", evidence: [] },
+    { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] },
+    { agentId: "verification-guardrail-agent", role: "verification-guardrail", summary: "No trading-action guardrail violation detected.", evidence: [] }
+  ],
+  providerEvidence: [
+    { provider: "news", status: "no-data", summary: "News provider is not configured." },
+    { provider: "macro", status: "no-data", summary: "Macro provider is not configured." },
+    {
+      provider: "ontology",
+      status: "no-data",
+      summary: "GraphDB에서 NVDA의 직접 지배/자회사 관계 근거는 확인되지 않았습니다.",
+      raw: { relationType: "no-direct-control" }
+    }
+  ],
+  notificationDecision: {
+    level: "watch",
+    title: "NVDA price surge",
+    message: "Smoke event for Docker validation.",
+    reason: "Notification level follows the strongest attached market event severity."
+  }
+});
+const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
+assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
+assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
+assert.match(agentAnalysisMessage, /Headline: News summary/);
+assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
+assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
+assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
+assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
+assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
+assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
+assert.match(agentAnalysisMessage, /알림 판단: WATCH - NVDA price surge/);
+assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
+assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
+assert.throws(
+  () => normalizeAgentAnalysisReport({ findings: [] }),
+  /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
+);
 
 assert.deepEqual(getChartAgentAccess([{ id: "agent-01" }]), { enabled: true, reason: "agent-01" });
 assert.deepEqual(getChartAgentAccess([{ id: "agent-02" }]), { enabled: false, reason: "no-chart-agent" });

@@ -1,5 +1,5 @@
 import { Pin, Star, X } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
 import { OrderTicket } from "./OrderTicket";
@@ -30,6 +30,8 @@ type PanelCardProps = {
   onToggleWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
 };
+
+const SYMBOL_DRAG_MIME = "application/x-gops-symbol";
 
 type PanelHeaderPresentation = {
   title: string;
@@ -86,7 +88,7 @@ function PanelBody({
   }
 
   if (panel.type === "watchlist") {
-    return <WatchlistPanel activeSymbol={activeSymbol} symbols={watchlistSymbols} onSelectSymbol={onSelectSymbol} />;
+    return <EmbeddedWatchlist activeSymbol={activeSymbol} watchlistSymbols={watchlistSymbols} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (panel.type === "hotRanking") {
@@ -95,8 +97,57 @@ function PanelBody({
 
   return (
     <div className="panel-placeholder">
-      <span>{panel.title ?? panel.type}</span>
-      <small>Placeholder panel content</small>
+      <small>준비 중인 패널입니다</small>
+    </div>
+  );
+}
+
+function EmbeddedWatchlist({
+  activeSymbol,
+  watchlistSymbols,
+  onSelectSymbol
+}: {
+  activeSymbol: SupportedSymbol;
+  watchlistSymbols: readonly WatchlistSymbol[];
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  if (watchlistSymbols.length === 0) {
+    return (
+      <div className="panel-placeholder panel-placeholder-muted">
+        <small>관심 종목을 불러오면 여기서 차트로 바로 가져올 수 있습니다</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel-watchlist-list" aria-label="관심 종목 차트 불러오기">
+      {watchlistSymbols.map((item) => (
+        <button
+          key={item.symbol}
+          className={item.symbol === activeSymbol ? "panel-watchlist-row active" : "panel-watchlist-row"}
+          type="button"
+          draggable
+          title={`${item.symbol} 차트로 가져오기`}
+          aria-label={`${item.symbol} 차트로 가져오기`}
+          onClick={() => onSelectSymbol(item.symbol)}
+          onDragStart={(event) => {
+            event.dataTransfer.setData(SYMBOL_DRAG_MIME, item.symbol);
+            event.dataTransfer.setData("text/plain", item.symbol);
+            event.dataTransfer.effectAllowed = "copy";
+          }}
+        >
+          <span className="watchlist-symbol-cell">
+            <strong>{item.symbol}</strong>
+            <em>{item.name}</em>
+          </span>
+          <span className="watchlist-quote-cell">
+            <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+              {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+            </strong>
+            <em>{typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "차트"}</em>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -130,17 +181,6 @@ function nearestStartIndex(starts: number[], value: number, maxIndex: number): n
   return bestIndex;
 }
 
-function changedPanelPreview(current: WorkspaceLayout, next: WorkspaceLayout): LayoutPreviewItem[] {
-  return next.panels.flatMap((nextPanel) => {
-    const currentPanel = current.panels.find((item) => item.id === nextPanel.id);
-    if (!currentPanel || JSON.stringify(currentPanel.placement) === JSON.stringify(nextPanel.placement)) {
-      return [];
-    }
-
-    return [{ panelId: nextPanel.id, placement: nextPanel.placement }];
-  });
-}
-
 function resolvePanelHeaderPresentation(
   panel: PanelInstance,
   chartRuntime: ChartRuntimeState,
@@ -168,29 +208,29 @@ function resolvePanelHeaderPresentation(
 function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
   switch (panelType) {
     case "watchlist":
-      return "Tracked symbols";
+      return "관심 종목";
     case "hotRanking":
-      return "Dollar volume Top 20";
+      return "거래대금 Top 20";
     case "newsFeed":
-      return "Market news";
+      return "시장 뉴스";
     case "proposalReview":
-      return "Agent proposals";
+      return "AI 제안";
     case "symbolSummary":
-      return "Symbol snapshot";
+      return "종목 요약";
     case "indicatorCompare":
-      return "Indicator compare";
+      return "지표 비교";
     case "orderTicket":
-      return "Order entry";
+      return "주문 입력";
     case "aiSummary":
-      return "AI notes";
+      return "AI 요약";
     case "notifications":
-      return "Alerts";
+      return "알림";
     case "agentStatus":
-      return "Agent status";
+      return "AI 상태";
     case "agentChat":
-      return "Agent chat";
+      return "AI 채팅";
     default:
-      return "Workspace panel";
+      return "작업 패널";
   }
 }
 
@@ -251,6 +291,10 @@ export function PanelCard({
   onSelectSymbol
 }: PanelCardProps) {
   const [dragging, setDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const panelRef = useRef<HTMLElement | null>(null);
+  const previousRectRef = useRef<DOMRect | null>(null);
+  const movementAnimationRef = useRef<Animation | null>(null);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
   const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, knownSymbols);
   const chartDocument = panel.type === "chart" ? getChartDocumentForPanel(chartRuntime, panel) : null;
@@ -275,6 +319,7 @@ export function PanelCard({
     event.stopPropagation();
     const interactionTarget = event.currentTarget;
     interactionTarget.setPointerCapture?.(event.pointerId);
+    setDragOffset({ x: 0, y: 0 });
     setDragging(true);
 
     const startX = event.clientX;
@@ -284,7 +329,7 @@ export function PanelCard({
     let latestY = startY;
     let finished = false;
 
-    const updatePreview = (clientX: number, clientY: number) => {
+    const resolveTargetCell = (clientX: number, clientY: number) => {
       const startColPx = metrics.columnStarts[startPlacement.col - 1];
       const startRowPx = metrics.rowStarts[startPlacement.row - 1];
       const nextCol = nearestStartIndex(
@@ -299,7 +344,6 @@ export function PanelCard({
       ) + 1;
 
       if (nextCol === startPlacement.col && nextRow === startPlacement.row) {
-        onPreviewChange([]);
         return { col: nextCol, row: nextRow };
       }
 
@@ -308,14 +352,13 @@ export function PanelCard({
         col: nextCol,
         row: nextRow
       });
-      onPreviewChange(result.ok ? changedPanelPreview(layout, result.layout) : []);
-      return { col: nextCol, row: nextRow };
+      return result.ok ? { col: nextCol, row: nextRow } : { col: startPlacement.col, row: startPlacement.row };
     };
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       latestX = moveEvent.clientX;
       latestY = moveEvent.clientY;
-      updatePreview(latestX, latestY);
+      setDragOffset({ x: latestX - startX, y: latestY - startY });
     };
 
     const handlePointerUp = () => {
@@ -335,10 +378,10 @@ export function PanelCard({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       setDragging(false);
+      setDragOffset({ x: 0, y: 0 });
       onPreviewChange([]);
 
-      const { col: nextCol, row: nextRow } = updatePreview(latestX, latestY);
-      onPreviewChange([]);
+      const { col: nextCol, row: nextRow } = resolveTargetCell(latestX, latestY);
 
       if (nextCol === startPlacement.col && nextRow === startPlacement.row) {
         return;
@@ -359,22 +402,97 @@ export function PanelCard({
     window.addEventListener("pointerup", handlePointerUp, { once: true });
   };
 
+  useLayoutEffect(() => {
+    const element = panelRef.current;
+    if (!element) {
+      return;
+    }
+
+    const nextRect = element.getBoundingClientRect();
+    const previousRect = previousRectRef.current;
+    previousRectRef.current = nextRect;
+
+    const frameIsResizing = element.closest(".layout-frame")?.classList.contains("resizing-grid") ?? false;
+    if (dragging || frameIsResizing || !previousRect) {
+      return;
+    }
+
+    const deltaX = previousRect.left - nextRect.left;
+    const deltaY = previousRect.top - nextRect.top;
+    const deltaWidth = previousRect.width - nextRect.width;
+    const deltaHeight = previousRect.height - nextRect.height;
+    const shouldAnimate =
+      Math.abs(deltaX) > 0.5 ||
+      Math.abs(deltaY) > 0.5 ||
+      Math.abs(deltaWidth) > 0.5 ||
+      Math.abs(deltaHeight) > 0.5;
+
+    if (!shouldAnimate) {
+      return;
+    }
+
+    const clipRight = Math.max(0, nextRect.width - previousRect.width);
+    const clipBottom = Math.max(0, nextRect.height - previousRect.height);
+    const hasResize = Math.abs(deltaWidth) > 0.5 || Math.abs(deltaHeight) > 0.5;
+    const startClip = hasResize ? `inset(0 ${clipRight}px ${clipBottom}px 0 round 18px)` : "inset(0 0 0 0 round 18px)";
+
+    movementAnimationRef.current?.cancel();
+    movementAnimationRef.current = element.animate(
+      [
+        {
+          transformOrigin: "top left",
+          transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`,
+          clipPath: startClip,
+          opacity: 0.98
+        },
+        {
+          transformOrigin: "top left",
+          transform: "translate3d(0, 0, 0)",
+          clipPath: "inset(0 0 0 0 round 18px)",
+          opacity: 1
+        }
+      ],
+      {
+        duration: 540,
+        easing: "cubic-bezier(0.18, 0.82, 0.18, 1)",
+        fill: "both"
+      }
+    );
+  });
+
+  useLayoutEffect(() => {
+    return () => movementAnimationRef.current?.cancel();
+  }, []);
+
+  const panelStyle: CSSProperties = dragging
+    ? {
+        ...style,
+        zIndex: 40,
+        transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)`
+      }
+    : style;
+
   return (
     <article
+      ref={panelRef}
       className={`panel-card ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} ${panel.layoutPinned ? "pinned" : ""}`}
       data-panel-id={panel.id}
       data-panel-type={panel.type}
-      style={style}
+      data-panel-row={panel.placement.row}
+      data-panel-end-row={panel.placement.row + panel.placement.rowSpan - 1}
+      style={panelStyle}
       onClick={() => runPanelCommand("layout.panel.select")}
     >
       <header className="panel-header" onPointerDown={beginDrag}>
         <div className={panelHeader.kind === "chart" ? "panel-title-block chart-title-block" : "panel-title-block"}>
-          <strong>{panelHeader.title}</strong>
           {panelHeader.kind === "chart" ? (
-            <div className="panel-chart-meta">
-              <span>{panelHeader.description}</span>
-              <em>{panelHeader.market}</em>
-            </div>
+            <>
+              <strong>{panelHeader.title}</strong>
+              <div className="panel-chart-meta">
+                <span>{panelHeader.description}</span>
+                <em>{panelHeader.market}</em>
+              </div>
+            </>
           ) : (
             <span>{panelHeader.description}</span>
           )}
@@ -389,9 +507,9 @@ export function PanelCard({
           {chartSymbol && (
             <button
               className={chartIsInWatchlist ? "panel-watchlist-star active" : "panel-watchlist-star"}
-              title={chartIsInWatchlist ? `Remove ${chartSymbol} from Watch List` : `Add ${chartSymbol} to Watch List`}
+              title={chartIsInWatchlist ? `${chartSymbol} 관심 종목 제거` : `${chartSymbol} 관심 종목 추가`}
               aria-pressed={chartIsInWatchlist}
-              aria-label={chartIsInWatchlist ? `Remove ${chartSymbol} from Watch List` : `Add ${chartSymbol} to Watch List`}
+              aria-label={chartIsInWatchlist ? `${chartSymbol} 관심 종목 제거` : `${chartSymbol} 관심 종목 추가`}
               onClick={(event) => {
                 event.stopPropagation();
                 onToggleWatchlistSymbol(chartSymbol);
@@ -401,7 +519,7 @@ export function PanelCard({
             </button>
           )}
           <button
-            title={panel.layoutPinned ? "Unpin" : "Pin"}
+            title={panel.layoutPinned ? "고정 해제" : "패널 고정"}
             aria-pressed={Boolean(panel.layoutPinned)}
             onClick={(event) => {
               event.stopPropagation();
@@ -411,7 +529,7 @@ export function PanelCard({
             <Pin size={14} fill={panel.layoutPinned ? "currentColor" : "none"} />
           </button>
           <button
-            title="Remove"
+            title="패널 제거"
             onClick={(event) => {
               event.stopPropagation();
               runPanelCommand("layout.panel.remove");

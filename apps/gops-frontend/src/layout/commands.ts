@@ -269,8 +269,10 @@ function applyRemove(state: LayoutRuntimeState, command: LayoutCommand): LayoutR
     panels: state.layout.panels.filter((item) => item.id !== panel.id),
     selectedPanelId: state.layout.selectedPanelId === panel.id ? undefined : state.layout.selectedPanelId
   };
+  const reflowResult = reflowLayout(nextLayout);
+  const compactedLayout = reflowResult.ok ? reflowResult.layout : nextLayout;
 
-  return withLayoutHistory(state, command, nextLayout, `${panel.title ?? panel.id} removed.`);
+  return withLayoutHistory(state, command, compactedLayout, `${panel.title ?? panel.id} removed.`);
 }
 
 function applyMove(state: LayoutRuntimeState, command: LayoutCommand): LayoutRuntimeState {

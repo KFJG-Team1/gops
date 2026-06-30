@@ -21,7 +21,7 @@ function formatPercent(value: number): string {
 
 export function MarketTicker({ items = defaultTickerItems }: { items?: MarketTickerItem[] }) {
   return (
-    <div className="market-ticker" aria-label="Market movement summary">
+    <div className="market-ticker" aria-label="시장 지표 요약">
       <div className="market-ticker-position">
         <div className="market-ticker-track">
           <span className="market-ticker-group">
