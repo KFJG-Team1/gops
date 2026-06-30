@@ -13,6 +13,7 @@ import {
   shouldRequestRangeBackfill
 } from "../../chart-engine/src/backfill";
 import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
+import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -139,20 +140,39 @@ function pickPlacement(placement?: PanelPlacement | null) {
   };
 }
 
+function fakeApiResponse(input: { ok: boolean; status: number; body: string; contentType?: string }) {
+  return {
+    ok: input.ok,
+    status: input.status,
+    statusText: "",
+    headers: {
+      get: (name: string) => name.toLowerCase() === "content-type" ? input.contentType ?? "application/json" : null
+    },
+    text: async () => input.body
+  };
+}
+
 const initialLayoutRuntime = createInitialLayoutRuntimeState();
 assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
 assert.equal(getPanelDefinition("orderTicket").title, "주문");
+assert.equal(getPanelDefinition("portfolioHoldings").title, "내 투자");
 assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
 assert.equal(getPanelDefinition("ontologyGraph").title, "온톨로지");
-assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "orderTicket", "ontologyGraph"]);
+assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "portfolioHoldings", "orderTicket", "ontologyGraph"]);
 const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
 assert.equal(orderPanelInstance.type, "orderTicket");
 assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
+const portfolioPanelInstance = createPanelInstance("portfolioHoldings", testPlacement(1, 4, 1, 2), "system", {}, "test-portfolio");
+assert.equal(portfolioPanelInstance.type, "portfolioHoldings");
+assert.equal(portfolioPanelInstance.resourceRefs?.[0]?.kind, "portfolioView");
 const ontologyPanelInstance = createPanelInstance("ontologyGraph", testPlacement(4, 1, 1, 2), "system", {}, "test-ontology");
 assert.equal(ontologyPanelInstance.type, "ontologyGraph");
 assert.equal(ontologyPanelInstance.resourceRefs?.[0]?.kind, "ontologyGraph");
+const chartPresetPortfolioPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-portfolio");
+assert.equal(chartPresetPortfolioPanel?.type, "portfolioHoldings");
+assert.deepEqual(pickPlacement(chartPresetPortfolioPanel?.placement), { col: 1, row: 4, colSpan: 1, rowSpan: 2 });
 const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
 assert.equal(chartPresetOrderPanel?.type, "orderTicket");
 assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
@@ -1149,6 +1169,23 @@ const orderAddState = executeLayoutCommand(
 assert.equal(orderAddState.layout.panels[0]?.type, "orderTicket");
 assert.equal(orderAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "orderTicket");
 
+const portfolioAddState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.add", "user", {
+    panelType: "portfolioHoldings",
+    placement: testPlacement(1, 4, 1, 2)
+  })
+);
+assert.equal(portfolioAddState.layout.panels[0]?.type, "portfolioHoldings");
+assert.equal(portfolioAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "portfolioView");
+
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
@@ -1308,6 +1345,30 @@ assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
 assert.equal(Array.isArray(agentLayoutOrderPanel?.aliases), true);
+const agentLayoutPortfolioPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "portfolioHoldings");
+assert.equal(agentLayoutPortfolioPanel?.title, "내 투자");
+assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.equal((agentLayoutPortfolioPanel?.aliases as string[] | undefined)?.includes("보유종목"), true);
+
+const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
+  ok: true,
+  status: 200,
+  body: JSON.stringify({
+    status: "ok",
+    account: { market: "overseas", currency: "USD" },
+    positions: [{ symbol: "MU" }]
+  })
+}));
+assert.equal(parsedHoldings.positions[0]?.symbol, "MU");
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: false, status: 503, body: "" })),
+  /보유종목 API 오류 503/
+);
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: true, status: 200, body: "" })),
+  /보유종목 API 응답이 비어 있습니다/
+);
+
 const agentAnalysisRequestWithLayout = buildAgentAnalysisRequest({
   agentIds: ["agent-02"],
   messages: [{ role: "user", content: "뉴스 보여줘" }],

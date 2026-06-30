@@ -18,6 +18,7 @@ export type PanelType =
   | "newsFeed"
   | "indicatorCompare"
   | "orderTicket"
+  | "portfolioHoldings"
   | "aiSummary"
   | "ontologyGraph";
 
