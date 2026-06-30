@@ -33,7 +33,7 @@ import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
-import { isAgentAnalysisIntent } from "../src/components/SystemArea";
+import { agentProgressLabel, isAgentAnalysisIntent } from "../src/components/SystemArea";
 import {
   applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
@@ -1322,6 +1322,9 @@ assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
 assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
 assert.match(systemAreaSource, /\/api\/agents\/analyze/);
 assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
+assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
+assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
+assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
 
 const agentAnalysisRequest = buildAgentAnalysisRequest({
   agentIds: ["agent-01", "agent-02"],
@@ -1422,6 +1425,14 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     message: "Smoke event for Docker validation.",
     reason: "Notification level follows the strongest attached market event severity."
   },
+  timing: {
+    totalMs: 1120,
+    cacheHit: true,
+    cacheLayer: "analysis",
+    newsFetchMs: 180,
+    roleAnalysisMs: 820,
+    finalAnswerMs: 120
+  },
   layoutProposal: {
     id: "layout-proposal-1",
     title: "Agent analysis workspace",
@@ -1459,6 +1470,8 @@ assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guar
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
 assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
+assert.match(agentAnalysisMessage, /검색 0\.2초 \/ 전체 1\.1초/);
+assert.doesNotMatch(agentAnalysisMessage, /캐시 사용/);
 assert.throws(
   () => normalizeAgentAnalysisReport({ findings: [] }),
   /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./

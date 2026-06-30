@@ -245,6 +245,9 @@ function AgentChatPanel({
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [activeRequestContent, setActiveRequestContent] = useState("");
+  const [progressStartedAt, setProgressStartedAt] = useState<number | null>(null);
+  const [progressElapsedSeconds, setProgressElapsedSeconds] = useState(0);
   const [agentError, setAgentError] = useState(false);
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
@@ -269,6 +272,9 @@ function AgentChatPanel({
   const target = chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
+  const progressLabel = sending
+    ? agentProgressLabel(progressElapsedSeconds, selectedAgents, activeRequestContent)
+    : "";
   const authRequired = authEnabled && !user;
   const disabledMessage = authRequired
     ? "AI를 사용하려면 Google 로그인이 필요합니다."
@@ -279,8 +285,21 @@ function AgentChatPanel({
     setMessages([]);
     setDraft("");
     setSending(false);
+    setActiveRequestContent("");
+    setProgressStartedAt(null);
+    setProgressElapsedSeconds(0);
     setAgentError(false);
   }, [selectedAgentKey, referencedChartKey]);
+
+  useEffect(() => {
+    if (!sending || progressStartedAt === null) {
+      return;
+    }
+    const updateElapsed = () => setProgressElapsedSeconds((Date.now() - progressStartedAt) / 1000);
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(timer);
+  }, [progressStartedAt, sending]);
 
   const sendMessage = () => {
     if (authRequired) {
@@ -298,6 +317,9 @@ function AgentChatPanel({
     setMessages(requestMessages);
     setDraft("");
     setSending(true);
+    setActiveRequestContent(content);
+    setProgressStartedAt(Date.now());
+    setProgressElapsedSeconds(0);
     setAgentError(false);
     const chartContext = buildChartAgentContext({
       panelId: chartPanel.id,
@@ -342,7 +364,11 @@ function AgentChatPanel({
           createChatMessage("assistant", error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.")
         ]);
       })
-      .finally(() => setSending(false));
+      .finally(() => {
+        setSending(false);
+        setProgressStartedAt(null);
+        setProgressElapsedSeconds(0);
+      });
   };
 
   return (
@@ -371,6 +397,11 @@ function AgentChatPanel({
         <div className="agent-chat-reference">
           <div className="agent-chat-reference-list" aria-label="AI 참조 대상">
             <span className="agent-chat-reference-token">{chartDocument ? chartDocument.symbol : "차트 없음"}</span>
+            {sending && (
+              <span className="agent-chat-progress" aria-live="polite">
+                {progressLabel}... {progressElapsedSeconds.toFixed(1)}초
+              </span>
+            )}
           </div>
           <span className={`agent-chat-signal ${signalState}`} title={signalLabel} aria-label={signalLabel} />
         </div>
@@ -428,6 +459,19 @@ export function isAgentAnalysisIntent(content: string): boolean {
     "spike",
     "why"
   ].some((keyword) => normalized.includes(keyword));
+}
+
+export function agentProgressLabel(elapsedSeconds: number, selectedAgents: AgentOption[], content: string): string {
+  const normalized = content.toLowerCase();
+  const newsRequest = selectedAgents.some((agent) => agent.id === "agent-02") ||
+    ["뉴스", "기사", "헤드라인", "news", "headline", "article"].some((keyword) => normalized.includes(keyword));
+  if (elapsedSeconds < 3) {
+    return newsRequest ? "뉴스 검색 중" : "근거 확인 중";
+  }
+  if (elapsedSeconds < 8) {
+    return "근거 분석 중";
+  }
+  return "답변 정리 중";
 }
 
 function defaultDraftSeedForAgents(selectedAgents: AgentOption[]): string {

@@ -81,6 +81,15 @@ export type AgentNewsPanelData = {
   majorNews: AgentNewsPanelItem[];
 };
 
+export type AgentAnalysisTiming = {
+  totalMs?: number;
+  cacheHit?: boolean;
+  cacheLayer?: string;
+  newsFetchMs?: number;
+  roleAnalysisMs?: number;
+  finalAnswerMs?: number;
+};
+
 export type AgentAnalysisReport = {
   analysisId: string;
   summary: string;
@@ -92,6 +101,7 @@ export type AgentAnalysisReport = {
   providerEvidence: AgentEvidenceItem[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: LayoutProposal | null;
+  timing?: AgentAnalysisTiming | null;
 };
 
 export type AgentAnalysisRequestInput = {
@@ -185,7 +195,8 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
-    layoutProposal: normalizeLayoutProposal(source.layoutProposal)
+    layoutProposal: normalizeLayoutProposal(source.layoutProposal),
+    timing: normalizeTiming(source.timing)
   };
 }
 
@@ -229,6 +240,11 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   );
   if (verificationFinding) {
     lines.push("", `검증 경고: ${verificationFinding.summary}`);
+  }
+
+  const timingSummary = formatTimingSummary(report.timing);
+  if (timingSummary) {
+    lines.push("", timingSummary);
   }
 
   return lines.join("\n");
@@ -365,6 +381,21 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
     title: readString(source.title) ?? undefined,
     message: readString(source.message) ?? undefined,
     reason: readString(source.reason) ?? undefined
+  };
+}
+
+function normalizeTiming(value: unknown): AgentAnalysisTiming | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+  return {
+    totalMs: readNumber(source.totalMs) ?? undefined,
+    cacheHit: readBoolean(source.cacheHit) ?? undefined,
+    cacheLayer: readString(source.cacheLayer) ?? undefined,
+    newsFetchMs: readNumber(source.newsFetchMs) ?? undefined,
+    roleAnalysisMs: readNumber(source.roleAnalysisMs) ?? undefined,
+    finalAnswerMs: readNumber(source.finalAnswerMs) ?? undefined
   };
 }
 
@@ -517,6 +548,31 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function formatTimingSummary(timing?: AgentAnalysisTiming | null): string | null {
+  if (!timing) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (typeof timing.newsFetchMs === "number") {
+    parts.push(`검색 ${formatMilliseconds(timing.newsFetchMs)}`);
+  }
+  if (typeof timing.totalMs === "number") {
+    parts.push(`전체 ${formatMilliseconds(timing.totalMs)}`);
+  }
+  if (!parts.length) {
+    return null;
+  }
+  return parts.join(" / ");
+}
+
+function formatMilliseconds(ms: number): string {
+  return `${(Math.max(0, ms) / 1000).toFixed(1)}초`;
 }
 
 function invalidReportError(): Error {
