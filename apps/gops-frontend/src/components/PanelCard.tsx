@@ -25,9 +25,12 @@ type PanelCardProps = {
   knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
+  orderChartSymbols: readonly WatchlistSymbol[];
+  symbolOptions: readonly WatchlistSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
+  onSymbolOptionsRequest: (query: string) => void;
   onToggleWatchlistSymbol: (symbol: string) => void;
   systemColumnVisible: boolean;
 };
@@ -87,9 +90,12 @@ function PanelBody({
   activeSymbol,
   backfillEligibleSymbols,
   hotRankingSymbols,
+  orderChartSymbols,
+  symbolOptions,
   onChartAction,
   onAskAgentFromChart,
-  onSelectSymbol
+  onSelectSymbol,
+  onSymbolOptionsRequest
 }: {
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
@@ -97,9 +103,12 @@ function PanelBody({
   activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
+  orderChartSymbols: readonly WatchlistSymbol[];
+  symbolOptions: readonly WatchlistSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
+  onSymbolOptionsRequest: (query: string) => void;
 }) {
   if (panel.type === "chart") {
     return (
@@ -115,7 +124,14 @@ function PanelBody({
   }
 
   if (panel.type === "orderTicket") {
-    return <OrderTicket activeSymbol={activeSymbol} />;
+    return (
+      <OrderTicket
+        activeSymbol={activeSymbol}
+        chartSymbols={orderChartSymbols}
+        symbolOptions={symbolOptions}
+        onSymbolOptionsRequest={onSymbolOptionsRequest}
+      />
+    );
   }
 
   if (panel.type === "hotRanking") {
@@ -413,9 +429,12 @@ export function PanelCard({
   knownSymbols,
   watchlistSymbols,
   hotRankingSymbols,
+  orderChartSymbols,
+  symbolOptions,
   onChartAction,
   onAskAgentFromChart,
   onSelectSymbol,
+  onSymbolOptionsRequest,
   onToggleWatchlistSymbol,
   systemColumnVisible
 }: PanelCardProps) {
@@ -750,9 +769,12 @@ export function PanelCard({
         activeSymbol={activeSymbol}
         backfillEligibleSymbols={backfillEligibleSymbols}
         hotRankingSymbols={hotRankingSymbols}
+        orderChartSymbols={orderChartSymbols}
+        symbolOptions={symbolOptions}
         onChartAction={onChartAction}
         onAskAgentFromChart={onAskAgentFromChart}
         onSelectSymbol={onSelectSymbol}
+        onSymbolOptionsRequest={onSymbolOptionsRequest}
       />
     </article>
   );
