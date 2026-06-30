@@ -700,13 +700,13 @@ export function PanelCard({
             <span>{panelHeader.description}</span>
           )}
         </div>
+        {panelHeader.marketMetrics && (
+          <div className={`panel-market-metrics panel-market-metrics-static ${panelHeader.marketMetrics.direction}`}>
+            <strong>{panelHeader.marketMetrics.price}</strong>
+            <span>{panelHeader.marketMetrics.change}</span>
+          </div>
+        )}
         <div className="panel-actions" onPointerDown={(event) => event.stopPropagation()}>
-          {panelHeader.marketMetrics && (
-            <div className={`panel-market-metrics ${panelHeader.marketMetrics.direction}`}>
-              <strong>{panelHeader.marketMetrics.price}</strong>
-              <span>{panelHeader.marketMetrics.change}</span>
-            </div>
-          )}
           {chartSymbol && (
             <button
               className={chartIsInWatchlist ? "panel-watchlist-star active" : "panel-watchlist-star"}

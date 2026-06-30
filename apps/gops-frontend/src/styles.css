@@ -7503,3 +7503,104 @@ select:focus-visible {
     minmax(0, var(--frame-col-4, 1.32fr))
     minmax(0, var(--frame-col-5, 1.22fr)) !important;
 }
+
+/* GOPS merge focus: keep the fifth system column, while detail panels stay modal overlays. */
+.layout-frame.system-panel-open .system-area[data-system-mode] {
+  grid-column: 5 !important;
+  grid-row: 1 / span 5 !important;
+  min-width: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row,
+button.watchlist-row.hot-ranking-row:hover:not(:disabled),
+button.watchlist-row.hot-ranking-row:active:not(:disabled),
+button.watchlist-row.hot-ranking-row:focus,
+button.watchlist-row.hot-ranking-row:focus-visible,
+button.watchlist-row.hot-ranking-row.active {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(56px, 66px) !important;
+  align-items: center !important;
+  column-gap: 6px !important;
+  min-width: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row .hot-rank-cell,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell strong,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell em,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell strong,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell em {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell {
+  display: grid !important;
+  grid-auto-rows: min-content !important;
+  row-gap: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell {
+  justify-items: end !important;
+  max-width: 66px !important;
+  text-align: right !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static {
+  position: relative !important;
+  z-index: 2 !important;
+  flex: 0 1 88px !important;
+  margin-left: auto !important;
+  margin-right: 7px !important;
+  opacity: 1 !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static strong,
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static span {
+  max-width: 100% !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-actions {
+  margin-left: 0 !important;
+}
+
+.settings-overlay-backdrop[data-settings-overlay="account"] .settings-overlay-dialog {
+  min-height: min(420px, calc(100vh - 32px)) !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button:not(.active):hover:not(:disabled),
+.system-area[data-system-mode="settings"] .menu-settings-list button:not(.active):hover:not(:disabled),
+.system-area[data-system-mode="notifications"] .menu-settings-list button:hover:not(:disabled) {
+  color: #4f5d73 !important;
+  background: rgba(126, 139, 158, 0.08) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button.active:hover:not(:disabled),
+.system-area[data-system-mode="settings"] .menu-settings-list button.active:hover:not(:disabled) {
+  color: var(--gops-blue-deep) !important;
+  background: rgba(244, 248, 253, 0.82) !important;
+  background-image: none !important;
+  box-shadow: var(--gops-control-pressed) !important;
+  transform: none !important;
+}
+
+@media (max-width: 560px) {
+  .settings-overlay-backdrop[data-settings-overlay="account"] .settings-overlay-dialog {
+    min-height: min(420px, calc(100vh - 24px)) !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .layout-frame.system-panel-open .system-area[data-system-mode] {
+    grid-column: 1 / -1 !important;
+    grid-row: 1 / span 5 !important;
+  }
+}
