@@ -8,6 +8,135 @@
   text-rendering: optimizeLegibility;
 }
 
+.panel-news-feed {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+}
+
+.panel-news-toolbar {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.04);
+  padding: 2px;
+}
+
+.panel-news-toolbar button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
+.panel-news-toolbar button.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.panel-news-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.panel-news-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 2px 2px 10px;
+}
+
+.panel-news-row-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-news-row-main a,
+.panel-news-row-main strong {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.panel-news-row-main a:hover {
+  color: #2563eb;
+}
+
+.panel-news-row-main p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.panel-news-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.panel-news-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.news-impact {
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+}
+
+.news-impact.positive {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.news-impact.negative {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.news-impact.mixed {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -7634,4 +7763,105 @@ select:focus-visible {
     minmax(0, var(--frame-col-3, 1fr))
     minmax(0, var(--frame-col-4, 1.32fr))
     minmax(0, var(--frame-col-5, 1.22fr)) !important;
+}
+
+/* GOPS merge focus: keep the fifth system column, while detail panels stay modal overlays. */
+.layout-frame.system-panel-open .system-area[data-system-mode] {
+  grid-column: 5 !important;
+  grid-row: 1 / span 5 !important;
+  min-width: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row,
+button.watchlist-row.hot-ranking-row:hover:not(:disabled),
+button.watchlist-row.hot-ranking-row:active:not(:disabled),
+button.watchlist-row.hot-ranking-row:focus,
+button.watchlist-row.hot-ranking-row:focus-visible,
+button.watchlist-row.hot-ranking-row.active {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(56px, 66px) !important;
+  align-items: center !important;
+  column-gap: 6px !important;
+  min-width: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row .hot-rank-cell,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell strong,
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell em,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell strong,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell em {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+button.watchlist-row.hot-ranking-row .watchlist-symbol-cell,
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell {
+  display: grid !important;
+  grid-auto-rows: min-content !important;
+  row-gap: 0 !important;
+}
+
+button.watchlist-row.hot-ranking-row .watchlist-quote-cell {
+  justify-items: end !important;
+  max-width: 66px !important;
+  text-align: right !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static {
+  position: relative !important;
+  z-index: 2 !important;
+  flex: 0 1 88px !important;
+  margin-left: auto !important;
+  margin-right: 7px !important;
+  opacity: 1 !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static strong,
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-market-metrics-static span {
+  max-width: 100% !important;
+}
+
+.layout-frame.layout-frame .panel-card.panel-card[data-panel-type="chart"] .panel-actions {
+  margin-left: 0 !important;
+}
+
+.settings-overlay-backdrop[data-settings-overlay="account"] .settings-overlay-dialog {
+  min-height: min(420px, calc(100vh - 32px)) !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button:not(.active):hover:not(:disabled),
+.system-area[data-system-mode="settings"] .menu-settings-list button:not(.active):hover:not(:disabled),
+.system-area[data-system-mode="notifications"] .menu-settings-list button:hover:not(:disabled) {
+  color: #4f5d73 !important;
+  background: rgba(126, 139, 158, 0.08) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.system-area[data-system-mode="settings"] .settings-tabs button.active:hover:not(:disabled),
+.system-area[data-system-mode="settings"] .menu-settings-list button.active:hover:not(:disabled) {
+  color: var(--gops-blue-deep) !important;
+  background: rgba(244, 248, 253, 0.82) !important;
+  background-image: none !important;
+  box-shadow: var(--gops-control-pressed) !important;
+  transform: none !important;
+}
+
+@media (max-width: 560px) {
+  .settings-overlay-backdrop[data-settings-overlay="account"] .settings-overlay-dialog {
+    min-height: min(420px, calc(100vh - 24px)) !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .layout-frame.system-panel-open .system-area[data-system-mode] {
+    grid-column: 1 / -1 !important;
+    grid-row: 1 / span 5 !important;
+  }
 }

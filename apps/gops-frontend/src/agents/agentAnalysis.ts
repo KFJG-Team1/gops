@@ -7,6 +7,7 @@ export type AgentEvidenceItem = {
   title?: string;
   summary?: string;
   url?: string;
+  observedAt?: string;
   raw?: Record<string, unknown>;
 };
 
@@ -53,6 +54,31 @@ export type FinalAnswer = {
   sections: FinalAnswerSection[];
   citations: FinalAnswerCitation[];
   limitations: string[];
+};
+
+export type AgentNewsPanelItem = {
+  title: string;
+  summary?: string;
+  localizedTitle?: string;
+  localizedSummary?: string;
+  originalTitle?: string;
+  originalSummary?: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  symbol?: string;
+  symbols: string[];
+  eventType?: string;
+  impactDirection?: string;
+  relevanceScore?: number;
+  importanceScore?: number;
+};
+
+export type AgentNewsPanelData = {
+  symbol?: string;
+  updatedAt?: string;
+  latestNews: AgentNewsPanelItem[];
+  majorNews: AgentNewsPanelItem[];
 };
 
 export type AgentAnalysisReport = {
@@ -263,6 +289,7 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
     title: readString(source.title) ?? undefined,
     summary: readString(source.summary) ?? undefined,
     url: readString(source.url) ?? undefined,
+    observedAt: readString(source.observedAt) ?? undefined,
     raw: readObject(source.raw) ?? undefined
   };
 }
@@ -346,6 +373,7 @@ const layoutCommandTypes: LayoutCommandType[] = [
   "layout.panel.remove",
   "layout.panel.move",
   "layout.panel.replace",
+  "layout.panel.props.update",
   "layout.panel.pin",
   "layout.panel.unpin",
   "layout.panel.select",

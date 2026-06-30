@@ -1,5 +1,6 @@
 import { Bell, Bot, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { createChatMessage, type AgentChatMessage } from "@gops/chart-engine/agentChat";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
@@ -635,8 +636,13 @@ function SettingsOverlay({
 }) {
   const title = settingsOverlayTitle(activeOverlay);
 
-  return (
-    <div className="settings-overlay-backdrop" role="presentation" onMouseDown={onClose}>
+  const overlay = (
+    <div
+      className="settings-overlay-backdrop"
+      data-settings-overlay={activeOverlay}
+      role="presentation"
+      onMouseDown={onClose}
+    >
       <section
         className="settings-overlay-dialog"
         role="dialog"
@@ -662,6 +668,8 @@ function SettingsOverlay({
       </section>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }
 
 function AccountSettingsOverlay({

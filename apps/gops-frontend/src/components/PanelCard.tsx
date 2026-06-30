@@ -1,4 +1,4 @@
-import { GripVertical, Pin, Star, X } from "lucide-react";
+import { ExternalLink, GripVertical, Pin, Star, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
@@ -64,6 +64,23 @@ const CHART_HEADER_COMPANY_NAMES: Record<string, string> = {
   TSM: "Taiwan Semiconductor"
 };
 
+function panelGeometryKey(panel: PanelInstance, systemColumnVisible: boolean): string {
+  const placement = panel.placement;
+  return [
+    systemColumnVisible ? "system-open" : "system-closed",
+    placement.group,
+    placement.zone,
+    placement.col,
+    placement.row,
+    placement.colSpan,
+    placement.rowSpan
+  ].join(":");
+}
+
+function isAnimationInFlight(animation: Animation | null): boolean {
+  return animation?.playState === "running" || animation?.playState === "paused";
+}
+
 function PanelBody({
   panel,
   chartRuntime,
@@ -110,11 +127,163 @@ function PanelBody({
     return <HotRankingPanel activeSymbol={activeSymbol} symbols={hotRankingSymbols} onSelectSymbol={onSelectSymbol} />;
   }
 
+  if (panel.type === "newsFeed") {
+    return <EmbeddedNewsFeed panel={panel} activeSymbol={activeSymbol} />;
+  }
+
   return (
     <div className="panel-placeholder">
       <small>준비 중인 패널입니다</small>
     </div>
   );
+}
+
+type NewsPanelItem = {
+  title: string;
+  summary?: string;
+  localizedTitle?: string;
+  localizedSummary?: string;
+  originalTitle?: string;
+  originalSummary?: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  symbol?: string;
+  symbols: string[];
+  eventType?: string;
+  impactDirection?: string;
+  relevanceScore?: number;
+  importanceScore?: number;
+};
+
+function EmbeddedNewsFeed({
+  panel,
+  activeSymbol
+}: {
+  panel: PanelInstance;
+  activeSymbol: SupportedSymbol;
+}) {
+  const [mode, setMode] = useState<"latest" | "major">("latest");
+  const latestNews = readNewsItems(panel.props.latestNews);
+  const majorNews = readNewsItems(panel.props.majorNews);
+  const items = mode === "latest" ? latestNews : majorNews;
+  const panelSymbol = readString(panel.props.symbol) ?? activeSymbol;
+
+  if (!latestNews.length && !majorNews.length) {
+    return (
+      <div className="panel-placeholder panel-placeholder-muted">
+        <small>{panelSymbol} 뉴스 분석을 실행하면 주요 뉴스가 표시됩니다</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel-news-feed" aria-label={`${panelSymbol} 뉴스`}>
+      <div className="panel-news-toolbar" role="tablist" aria-label="뉴스 보기">
+        <button className={mode === "latest" ? "active" : ""} type="button" onClick={() => setMode("latest")}>
+          최신뉴스
+        </button>
+        <button className={mode === "major" ? "active" : ""} type="button" onClick={() => setMode("major")}>
+          주요뉴스
+        </button>
+      </div>
+      <div className="panel-news-list">
+        {items.map((item, index) => (
+          <article key={`${item.url ?? item.title}-${index}`} className="panel-news-row">
+            <div className="panel-news-row-main">
+              {item.url ? (
+                <a href={item.url} target="_blank" rel="noreferrer" title={item.originalTitle ?? item.title}>
+                  {item.title}
+                  <ExternalLink size={12} aria-hidden="true" />
+                </a>
+              ) : (
+                <strong>{item.title}</strong>
+              )}
+              {item.summary && <p>{item.summary}</p>}
+            </div>
+            <div className="panel-news-meta">
+              <span>{item.symbol ?? panelSymbol}</span>
+              <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+              <span>{item.source ?? "news"}</span>
+              {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function readNewsItems(value: unknown): NewsPanelItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const items: NewsPanelItem[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const source = item as Record<string, unknown>;
+    const title = readString(source.title);
+    if (!title) {
+      continue;
+    }
+    items.push({
+      title,
+      summary: readString(source.summary) ?? undefined,
+      localizedTitle: readString(source.localizedTitle) ?? undefined,
+      localizedSummary: readString(source.localizedSummary) ?? undefined,
+      originalTitle: readString(source.originalTitle) ?? undefined,
+      originalSummary: readString(source.originalSummary) ?? undefined,
+      url: readString(source.url) ?? undefined,
+      source: readString(source.source) ?? undefined,
+      publishedAt: readString(source.publishedAt) ?? undefined,
+      symbol: readString(source.symbol) ?? undefined,
+      symbols: Array.isArray(source.symbols) ? source.symbols.map(readString).filter((symbol): symbol is string => Boolean(symbol)) : [],
+      eventType: readString(source.eventType) ?? undefined,
+      impactDirection: readString(source.impactDirection) ?? undefined,
+      relevanceScore: readNumber(source.relevanceScore) ?? undefined,
+      importanceScore: readNumber(source.importanceScore) ?? undefined
+    });
+  }
+  return items;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function impactDirectionText(value?: string): string {
+  switch (value) {
+    case "positive":
+      return "긍정";
+    case "negative":
+      return "부정";
+    case "mixed":
+      return "혼재";
+    default:
+      return "보류";
+  }
+}
+
+function relativeTimeText(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value.slice(0, 10);
+  }
+  const diffMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (diffMinutes < 60) {
+    return `${diffMinutes}분 전`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}시간 전`;
+  }
+  return `${Math.floor(diffHours / 24)}일 전`;
 }
 
 function getGridMetrics(target: EventTarget | null, systemColumnVisible: boolean) {
@@ -261,8 +430,10 @@ export function PanelCard({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLElement | null>(null);
   const previousRectRef = useRef<DOMRect | null>(null);
+  const previousGeometryKeyRef = useRef<string | null>(null);
   const movementAnimationRef = useRef<Animation | null>(null);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
+  const geometryKey = panelGeometryKey(panel, systemColumnVisible);
   const panelHeader = resolvePanelHeaderPresentation(panel, chartRuntime, knownSymbols);
   const chartDocument = panel.type === "chart" ? getChartDocumentForPanel(chartRuntime, panel) : null;
   const chartSymbol = chartDocument ? normalizeSupportedSymbol(chartDocument.symbol) : null;
@@ -398,23 +569,40 @@ export function PanelCard({
       return;
     }
 
-    const nextRect = element.getBoundingClientRect();
+    const visualRect = element.getBoundingClientRect();
+    let nextRect = visualRect;
     const previousRect = previousRectRef.current;
+    const previousGeometryKey = previousGeometryKeyRef.current;
     const frameIsResizing = element.closest(".layout-frame")?.classList.contains("resizing-grid") ?? false;
     if (dragging) {
       return;
     }
 
-    previousRectRef.current = nextRect;
+    const geometryChanged = Boolean(previousGeometryKey && previousGeometryKey !== geometryKey);
+    const animationInFlight = isAnimationInFlight(movementAnimationRef.current);
+    const animationStartRect = animationInFlight ? visualRect : previousRect;
 
-    if (frameIsResizing || !previousRect) {
+    if (geometryChanged && animationInFlight) {
+      movementAnimationRef.current?.cancel();
+      movementAnimationRef.current = null;
+      nextRect = element.getBoundingClientRect();
+    }
+
+    if (!geometryChanged && animationInFlight) {
       return;
     }
 
-    const deltaX = previousRect.left - nextRect.left;
-    const deltaY = previousRect.top - nextRect.top;
-    const deltaWidth = previousRect.width - nextRect.width;
-    const deltaHeight = previousRect.height - nextRect.height;
+    previousRectRef.current = nextRect;
+    previousGeometryKeyRef.current = geometryKey;
+
+    if (frameIsResizing || !animationStartRect || !geometryChanged) {
+      return;
+    }
+
+    const deltaX = animationStartRect.left - nextRect.left;
+    const deltaY = animationStartRect.top - nextRect.top;
+    const deltaWidth = animationStartRect.width - nextRect.width;
+    const deltaHeight = animationStartRect.height - nextRect.height;
     const shouldAnimate =
       Math.abs(deltaX) > 0.5 ||
       Math.abs(deltaY) > 0.5 ||
@@ -430,13 +618,13 @@ export function PanelCard({
       return;
     }
 
-    const clipRight = Math.max(0, nextRect.width - previousRect.width);
-    const clipBottom = Math.max(0, nextRect.height - previousRect.height);
+    const clipRight = Math.max(0, nextRect.width - animationStartRect.width);
+    const clipBottom = Math.max(0, nextRect.height - animationStartRect.height);
     const hasResize = Math.abs(deltaWidth) > 0.5 || Math.abs(deltaHeight) > 0.5;
     const startClip = hasResize ? `inset(0 ${clipRight}px ${clipBottom}px 0 round 18px)` : "inset(0 0 0 0 round 18px)";
 
     movementAnimationRef.current?.cancel();
-    movementAnimationRef.current = element.animate(
+    const movementAnimation = element.animate(
       [
         {
           transformOrigin: "top left",
@@ -457,6 +645,17 @@ export function PanelCard({
         fill: "both"
       }
     );
+    movementAnimationRef.current = movementAnimation;
+    movementAnimation.onfinish = () => {
+      if (movementAnimationRef.current === movementAnimation) {
+        movementAnimationRef.current = null;
+      }
+    };
+    movementAnimation.oncancel = () => {
+      if (movementAnimationRef.current === movementAnimation) {
+        movementAnimationRef.current = null;
+      }
+    };
   });
 
   useLayoutEffect(() => {
@@ -508,13 +707,13 @@ export function PanelCard({
             <span>{panelHeader.description}</span>
           )}
         </div>
+        {panelHeader.marketMetrics && (
+          <div className={`panel-market-metrics panel-market-metrics-static ${panelHeader.marketMetrics.direction}`}>
+            <strong>{panelHeader.marketMetrics.price}</strong>
+            <span>{panelHeader.marketMetrics.change}</span>
+          </div>
+        )}
         <div className="panel-actions" onPointerDown={(event) => event.stopPropagation()}>
-          {panelHeader.marketMetrics && (
-            <div className={`panel-market-metrics ${panelHeader.marketMetrics.direction}`}>
-              <strong>{panelHeader.marketMetrics.price}</strong>
-              <span>{panelHeader.marketMetrics.change}</span>
-            </div>
-          )}
           {chartSymbol && (
             <button
               className={chartIsInWatchlist ? "panel-watchlist-star active" : "panel-watchlist-star"}
