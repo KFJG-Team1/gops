@@ -59,7 +59,7 @@ export function TopAppBar({
   const filteredSymbolOptions = useMemo(() => {
     const query = symbolDropdownQuery.trim().toUpperCase();
     return symbolOptions
-      .filter((item) => !query || item.symbol.includes(query))
+      .filter((item) => !query || item.symbol.includes(query) || item.name.toUpperCase().includes(query))
       .slice(0, 40);
   }, [symbolDropdownQuery, symbolOptions]);
 

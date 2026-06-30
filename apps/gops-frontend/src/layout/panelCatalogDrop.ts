@@ -11,6 +11,7 @@ export const PANEL_CATALOG_TYPES: PanelType[] = [
   "aiSummary",
   "orderTicket",
   "watchlist",
+  "hotRanking",
   "indicatorCompare",
   "proposalReview",
   "notifications"

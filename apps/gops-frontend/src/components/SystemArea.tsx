@@ -644,6 +644,8 @@ function catalogDescription(panelType: PanelType): string {
       return "AI summary";
     case "watchlist":
       return "Ticker list";
+    case "hotRanking":
+      return "Top dollar volume";
     case "indicatorCompare":
       return "Indicator compare";
     case "orderTicket":

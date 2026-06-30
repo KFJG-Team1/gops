@@ -1302,6 +1302,22 @@ textarea {
   text-align: left;
 }
 
+.hot-ranking-panel {
+  min-height: 0;
+  height: 100%;
+}
+
+.hot-ranking-row {
+  grid-template-columns: minmax(34px, auto) minmax(0, 1fr) auto;
+}
+
+.hot-rank-cell {
+  color: #555;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .watchlist-empty {
   color: #777;
   font-size: 11px;

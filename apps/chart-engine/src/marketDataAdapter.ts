@@ -1,5 +1,6 @@
 import { normalizeChartInterval } from "./intervals";
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartSnapshotDataStatus } from "./types";
+import { canonicalTimestamp } from "./time";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartSnapshotDataStatus, RepairStatus } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
@@ -21,7 +22,7 @@ function normalizeCandle(value: unknown): CandleData | null {
   }
 
   const source = value as Record<string, unknown>;
-  const timestamp = readString(source.timestamp);
+  const timestamp = canonicalTimestamp(readString(source.timestamp) ?? "");
   const open = readNumber(source.open);
   const high = readNumber(source.high);
   const low = readNumber(source.low);
@@ -30,6 +31,10 @@ function normalizeCandle(value: unknown): CandleData | null {
   const ma5 = readNumber(source.ma5);
   const ma20 = readNumber(source.ma20);
   const ma60 = readNumber(source.ma60);
+  const sourceInterval = readString(source.sourceInterval);
+  const feedProfile = readString(source.feedProfile);
+  const marketSession = readString(source.marketSession);
+  const updatedAt = readString(source.updatedAt);
 
   if (!timestamp || open === null || high === null || low === null || close === null || volume === null) {
     return null;
@@ -43,6 +48,10 @@ function normalizeCandle(value: unknown): CandleData | null {
     close,
     volume,
     isClosed: typeof source.isClosed === "boolean" ? source.isClosed : true,
+    ...(sourceInterval ? { sourceInterval } : {}),
+    ...(feedProfile ? { feedProfile } : {}),
+    ...(marketSession ? { marketSession } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
     ...(ma5 !== null ? { ma5 } : {}),
     ...(ma20 !== null ? { ma20 } : {}),
     ...(ma60 !== null ? { ma60 } : {})
@@ -70,6 +79,16 @@ function readBackfillStatus(value: unknown): BackfillStatus | undefined {
     : undefined;
 }
 
+function readRepairStatus(value: unknown): RepairStatus | undefined {
+  return value === "none" ||
+    value === "gapfill_required" ||
+    value === "gapfill_active" ||
+    value === "gapfill_failed" ||
+    value === "history_preload_required"
+    ? value
+    : undefined;
+}
+
 function readCoverageState(value: unknown): ChartCoverageState | undefined {
   return value === "complete" || value === "partial" || value === "empty" || value === "unavailable" ? value : undefined;
 }
@@ -87,6 +106,7 @@ function normalizeCoverage(value: unknown): ChartCoverage | undefined {
     state,
     reasonCode: readString(source.reasonCode) ?? undefined,
     message: readString(source.message) ?? undefined,
+    repairStatus: readRepairStatus(source.repairStatus),
     sourceInterval: readString(source.sourceInterval) ?? undefined,
     backfillStatus: readBackfillStatus(source.backfillStatus),
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,
@@ -151,9 +171,12 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     interval,
     source: readString(source.source) ?? "unknown",
     feed: readString(source.feed) ?? "unknown",
+    feedProfile: readString(source.feedProfile) ?? undefined,
+    marketSession: readString(source.marketSession) ?? undefined,
     snapshotCursor: readString(source.snapshotCursor) ?? undefined,
     dataStatus: readDataStatus(source.dataStatus),
     backfillStatus: readBackfillStatus(source.backfillStatus),
+    repairStatus: readRepairStatus(source.repairStatus),
     canBackfill: readBoolean(source.canBackfill) ?? undefined,
     sourceInterval: readString(source.sourceInterval) ?? undefined,
     message: readString(source.message) ?? undefined,
@@ -195,8 +218,11 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
     cursor: readString(source.cursor) ?? undefined,
     symbol,
     interval,
+    sourceInterval: readString(source.sourceInterval) ?? undefined,
     source: readString(source.source) ?? undefined,
     feed: readString(source.feed) ?? undefined,
+    feedProfile: readString(source.feedProfile) ?? undefined,
+    marketSession: readString(source.marketSession) ?? undefined,
     data: candle
   };
 }

@@ -15,7 +15,9 @@ import {
   getChartDocumentForPanel,
   type ChartRuntimeAction
 } from "@gops/chart-engine/runtime";
-import { DEFAULT_CHART_SYMBOL, getSymbolMeta, normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
+import { isRealtimeControlPayload, normalizeCandleEvent } from "@gops/chart-engine/marketDataAdapter";
+import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, getSymbolMeta, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload, type HotRankingSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
+import type { CandleEvent } from "@gops/chart-engine/types";
 import {
   createInitialRuntimeState,
   executeCommand,
@@ -26,6 +28,8 @@ import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
 
 type RuntimeAction =
   | { kind: "command"; command: LayoutCommand };
+
+const WATCHLIST_STORAGE_KEY = "gops.watchlistSymbols.v1";
 
 function mergeSymbolRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
   const bySymbol = new Map(current.map((item) => [item.symbol, item]));
@@ -38,6 +42,106 @@ function mergeSymbolRecords(current: WatchlistSymbol[], incoming: WatchlistSymbo
 function refreshWatchlistRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
   const incomingBySymbol = new Map(incoming.map((item) => [item.symbol, item]));
   return current.map((item) => ({ ...item, ...incomingBySymbol.get(item.symbol) }));
+}
+
+function initialWatchlistSymbols(): WatchlistSymbol[] {
+  const stored = readStoredWatchlistSymbols();
+  return stored ?? defaultWatchlistSymbols();
+}
+
+function readStoredWatchlistSymbols(): WatchlistSymbol[] | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const raw = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const records = Array.isArray(parsed)
+      ? parsed.map((item) => typeof item === "string" ? getSymbolMeta(item) : item)
+      : [];
+    return normalizeWatchlistPayload({ symbols: records });
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredWatchlistSymbols(symbols: WatchlistSymbol[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(symbols.map((item) => item.symbol)));
+}
+
+function watchlistRequestUrl(symbols: readonly WatchlistSymbol[]): string {
+  const params = new URLSearchParams();
+  if (symbols.length) {
+    params.set("symbols", symbols.map((item) => item.symbol).join(","));
+  }
+  const query = params.toString();
+  return `/api/charts/watchlist${query ? `?${query}` : ""}`;
+}
+
+function applyRealtimeQuote(records: WatchlistSymbol[], event: CandleEvent, volumeDelta: number): WatchlistSymbol[] {
+  return records.map((item) => item.symbol === event.symbol ? quoteFromLiveEvent(item, event, volumeDelta) : item);
+}
+
+function applyRealtimeHotQuote(records: HotRankingSymbol[], event: CandleEvent, volumeDelta: number): HotRankingSymbol[] {
+  return records.map((item) => item.symbol === event.symbol ? quoteFromLiveEvent(item, event, volumeDelta) as HotRankingSymbol : item);
+}
+
+type LiveCandleVolume = {
+  timestamp: string;
+  volume: number;
+};
+
+function quoteFromLiveEvent<T extends WatchlistSymbol>(item: T, event: CandleEvent, volumeDelta: number): T {
+  const close = event.data.close;
+  const previousPrice = item.lastPrice;
+  const previousChange = item.changePercent;
+  let changePercent = previousChange;
+  if (typeof previousPrice === "number" && typeof previousChange === "number" && previousPrice !== 0) {
+    const baseline = previousPrice / (1 + previousChange / 100);
+    if (baseline) {
+      changePercent = ((close - baseline) / baseline) * 100;
+    }
+  } else if (event.data.open) {
+    changePercent = ((close - event.data.open) / event.data.open) * 100;
+  }
+
+  const currentVolume = typeof item.volume === "number" ? item.volume : 0;
+  const sessionDollarVolume = "sessionDollarVolume" in item && typeof item.sessionDollarVolume === "number"
+    ? item.sessionDollarVolume + volumeDelta * close
+    : undefined;
+
+  return {
+    ...item,
+    lastPrice: close,
+    changePercent,
+    volume: currentVolume + volumeDelta,
+    ...(typeof sessionDollarVolume === "number" ? { sessionDollarVolume } : {})
+  };
+}
+
+function liveVolumeDelta(event: CandleEvent, volumeMemory: Map<string, LiveCandleVolume>): number {
+  const key = `${event.symbol}:${event.interval}`;
+  const previous = volumeMemory.get(key);
+  volumeMemory.set(key, { timestamp: event.data.timestamp, volume: event.data.volume });
+  if (!previous || previous.timestamp !== event.data.timestamp) {
+    return Math.max(0, event.data.volume);
+  }
+  return Math.max(0, event.data.volume - previous.volume);
+}
+
+function resolveChartSocketUrl(symbol: string, interval = "1m"): string {
+  const params = new URLSearchParams({ symbol, interval });
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const isViteDevServer = window.location.hostname === "127.0.0.1" &&
+    (window.location.port === "5173" || window.location.port === "5174");
+  const host = isViteDevServer ? "127.0.0.1:8000" : window.location.host;
+  return `${protocol}//${host}/ws/charts?${params.toString()}`;
 }
 
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
@@ -54,14 +158,16 @@ export default function App() {
   const [editingAgentId, setEditingAgentId] = useState<string | undefined>();
   const [activeSymbol, setActiveSymbol] = useState<SupportedSymbol>(DEFAULT_CHART_SYMBOL);
   const [symbolSearchError, setSymbolSearchError] = useState<string | undefined>();
-  const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>([]);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>(initialWatchlistSymbols);
+  const [hotRankingSymbols, setHotRankingSymbols] = useState<HotRankingSymbol[]>([]);
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
   const [symbolSearchRefreshKey, setSymbolSearchRefreshKey] = useState(0);
   const [symbolOptions, setSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [knownSymbols, setKnownSymbols] = useState<WatchlistSymbol[]>([]);
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
   const watchlistSeedAppliedRef = useRef(false);
-  const watchlistEditedRef = useRef(false);
+  const watchlistSymbolsRef = useRef<WatchlistSymbol[]>(watchlistSymbols);
+  const liveCandleVolumeRef = useRef<Map<string, LiveCandleVolume>>(new Map());
   const userSelectedSymbolRef = useRef(false);
 
   const selectedPanel = useMemo(
@@ -83,13 +189,18 @@ export default function App() {
   }, [agentChartReference, state.layout.panels]);
 
   useEffect(() => {
+    watchlistSymbolsRef.current = watchlistSymbols;
+    setKnownSymbols((current) => mergeSymbolRecords(current, watchlistSymbols));
+  }, [watchlistSymbols]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadWatchlist = () => {
-      fetch("/api/charts/symbols")
+      fetch(watchlistRequestUrl(watchlistSymbolsRef.current))
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`Symbol API returned ${response.status}`);
+            throw new Error(`Watch List API returned ${response.status}`);
           }
           return response.json() as Promise<unknown>;
         })
@@ -97,9 +208,6 @@ export default function App() {
           if (!cancelled) {
             const symbols = normalizeWatchlistPayload(payload);
             setWatchlistSymbols((current) => {
-              if (!watchlistEditedRef.current) {
-                return symbols;
-              }
               return refreshWatchlistRecords(current, symbols);
             });
             setSymbolOptions((current) => current.length > 0 ? current : symbols);
@@ -114,6 +222,21 @@ export default function App() {
         });
     };
 
+    fetch("/api/charts/watchlist", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: watchlistSymbolsRef.current.map((item) => item.symbol) })
+    })
+      .then((response) => response.ok ? response.json() as Promise<unknown> : null)
+      .then((payload) => {
+        if (!cancelled && payload) {
+          const symbols = normalizeWatchlistPayload(payload);
+          setWatchlistSymbols((current) => refreshWatchlistRecords(current, symbols));
+          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
+        }
+      })
+      .catch(() => undefined);
+
     loadWatchlist();
     const timer = window.setInterval(loadWatchlist, 15000);
 
@@ -122,6 +245,95 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHotRanking = () => {
+      fetch("/api/charts/hot-symbols?limit=20")
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Hot ranking API returned ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          if (!cancelled) {
+            const symbols = normalizeHotRankingPayload(payload);
+            setHotRankingSymbols(symbols);
+            setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setHotRankingSymbols((current) => current);
+          }
+        });
+    };
+
+    loadHotRanking();
+    const timer = window.setInterval(loadHotRanking, 60000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const quoteStreamSymbolsKey = useMemo(() => {
+    const symbols = new Set<string>();
+    watchlistSymbols.forEach((item) => symbols.add(item.symbol));
+    hotRankingSymbols.forEach((item) => symbols.add(item.symbol));
+    return Array.from(symbols).slice(0, 40).join("|");
+  }, [hotRankingSymbols, watchlistSymbols]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("WebSocket" in window) || !quoteStreamSymbolsKey) {
+      return undefined;
+    }
+
+    const sockets: WebSocket[] = [];
+    const reconnectTimers: number[] = [];
+    let closed = false;
+    const symbols = quoteStreamSymbolsKey.split("|").filter(Boolean);
+    const connect = (symbol: string) => {
+      if (closed) {
+        return;
+      }
+      const socket = new WebSocket(resolveChartSocketUrl(symbol, "1m"));
+      sockets.push(socket);
+      socket.onmessage = (message) => {
+        try {
+          const payload = JSON.parse(message.data);
+          if (isRealtimeControlPayload(payload)) {
+            return;
+          }
+          const event = normalizeCandleEvent(payload);
+          if (event.interval !== "1m") {
+            return;
+          }
+          const volumeMemory = liveCandleVolumeRef.current;
+          const volumeDelta = liveVolumeDelta(event, volumeMemory);
+          setWatchlistSymbols((current) => applyRealtimeQuote(current, event, volumeDelta));
+          setHotRankingSymbols((current) => applyRealtimeHotQuote(current, event, volumeDelta));
+        } catch {
+          // Ignore malformed auxiliary quote events; chart panels surface stream errors separately.
+        }
+      };
+      socket.onclose = () => {
+        if (!closed) {
+          reconnectTimers.push(window.setTimeout(() => connect(symbol), 3000));
+        }
+      };
+    };
+    symbols.forEach(connect);
+
+    return () => {
+      closed = true;
+      reconnectTimers.forEach((timer) => window.clearTimeout(timer));
+      sockets.forEach((socket) => socket.close());
+    };
+  }, [quoteStreamSymbolsKey]);
 
   useEffect(() => {
     const query = symbolSearchQuery.trim();
@@ -174,30 +386,52 @@ export default function App() {
     [knownSymbols]
   );
 
+  const syncWatchlistSymbols = useCallback((symbols: WatchlistSymbol[]) => {
+    writeStoredWatchlistSymbols(symbols);
+    fetch("/api/charts/watchlist", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: symbols.map((item) => item.symbol) })
+    })
+      .then((response) => response.ok ? response.json() as Promise<unknown> : null)
+      .then((payload) => {
+        if (!payload) {
+          return;
+        }
+        const summaries = normalizeWatchlistPayload(payload);
+        setWatchlistSymbols((current) => refreshWatchlistRecords(current, summaries));
+        setKnownSymbols((current) => mergeSymbolRecords(current, summaries));
+      })
+      .catch(() => undefined);
+  }, []);
+
   const toggleWatchlistSymbol = useCallback((symbolValue: string) => {
     const symbol = normalizeSupportedSymbol(symbolValue);
     if (!symbol) {
       return;
     }
 
-    watchlistEditedRef.current = true;
     setWatchlistSymbols((current) => {
+      let next: WatchlistSymbol[];
       if (current.some((item) => item.symbol === symbol)) {
-        return current.filter((item) => item.symbol !== symbol);
+        next = current.filter((item) => item.symbol !== symbol);
+      } else {
+        const known = knownSymbols.find((item) => item.symbol === symbol);
+        const fallback = getSymbolMeta(symbol);
+        next = [
+          ...current,
+          known ?? {
+            symbol,
+            name: fallback.name,
+            market: fallback.market
+          }
+        ];
       }
 
-      const known = knownSymbols.find((item) => item.symbol === symbol);
-      const fallback = getSymbolMeta(symbol);
-      return [
-        ...current,
-        known ?? {
-          symbol,
-          name: fallback.name,
-          market: fallback.market
-        }
-      ];
+      syncWatchlistSymbols(next);
+      return next;
     });
-  }, [knownSymbols]);
+  }, [knownSymbols, syncWatchlistSymbols]);
 
   const refreshSymbolOptions = useCallback((query: string) => {
     setSymbolSearchQuery(query);
@@ -377,6 +611,7 @@ export default function App() {
           savedLayouts={state.savedLayouts}
           activeSymbol={activeSymbol}
           watchlistSymbols={watchlistSymbols}
+          hotRankingSymbols={hotRankingSymbols}
           knownSymbols={knownSymbols}
           symbolUniverse={symbolUniverse}
           backfillEligibleSymbols={symbolUniverse}

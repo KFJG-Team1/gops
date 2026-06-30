@@ -179,7 +179,10 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         message: snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined),
         source: snapshot.source,
         feed: snapshot.feed,
+        feedProfile: snapshot.feedProfile,
+        marketSession: snapshot.marketSession,
         backfillStatus: snapshot.backfillStatus ?? "not_requested",
+        repairStatus: snapshot.repairStatus,
         canBackfill: snapshot.canBackfill ?? false,
         sourceInterval: snapshot.sourceInterval,
         requestedLimit: snapshot.requestedLimit,
@@ -225,9 +228,13 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
-        state: "ready",
+        ...previousStatus,
+        state: previousStatus?.state === "partial" && previousStatus.coverage?.renderable !== true ? "partial" : "ready",
         source: event.source ?? previousStatus?.source,
         feed: event.feed ?? previousStatus?.feed,
+        feedProfile: event.feedProfile ?? event.data.feedProfile ?? previousStatus?.feedProfile,
+        marketSession: event.marketSession ?? event.data.marketSession ?? previousStatus?.marketSession,
+        sourceInterval: event.sourceInterval ?? event.data.sourceInterval ?? previousStatus?.sourceInterval,
         updatedAt: now()
       }
     },

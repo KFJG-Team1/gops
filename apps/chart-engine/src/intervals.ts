@@ -4,7 +4,9 @@ export type ChartInterval = typeof chartIntervals[number];
 
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
-const higherTimeframeYears = 5;
+const historicalTargetYears = 3;
+const intradayPreloadTargetTradingDays = 315;
+const intradayPreloadTargetBars = minutesPerTradingDay * intradayPreloadTargetTradingDays;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 390,
@@ -16,12 +18,12 @@ const defaultVisibleBars: Record<ChartInterval, number> = {
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": minutesPerTradingDay * tradingDaysPerYear,
-  "5m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 5),
-  "10m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 10),
-  "1D": tradingDaysPerYear * higherTimeframeYears,
-  "1W": 52 * higherTimeframeYears,
-  "1M": 12 * higherTimeframeYears
+  "1m": intradayPreloadTargetBars,
+  "5m": Math.ceil(intradayPreloadTargetBars / 5),
+  "10m": Math.ceil(intradayPreloadTargetBars / 10),
+  "1D": tradingDaysPerYear * historicalTargetYears,
+  "1W": 52 * historicalTargetYears,
+  "1M": 12 * historicalTargetYears
 };
 
 const maxRequestBars: Record<ChartInterval, number> = Object.fromEntries(

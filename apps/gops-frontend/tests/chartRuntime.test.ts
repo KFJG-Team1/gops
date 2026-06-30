@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
-import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "../../chart-engine/src/backfill";
+import {
+  isChartDataRenderable,
+  isPreparingCandleData,
+  normalizeBackfillStatusPayload,
+  rangeBackfillWindow,
+  shouldForceBackfill,
+  shouldRequestBackfill,
+  shouldRequestRangeBackfill
+} from "../../chart-engine/src/backfill";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
   resolveAgentChartReference,
   resolveAgentSendContent
 } from "../../chart-engine/src/agentReference";
-import { applyCandleEvent, candleKey } from "../../chart-engine/src/candleStore";
+import { applyCandleEvent, applySnapshotToCandles, candleKey } from "../../chart-engine/src/candleStore";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
@@ -19,7 +27,7 @@ import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-e
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
-import { DEFAULT_CHART_SYMBOL, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
+import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import {
   createInitialRuntimeState as createInitialLayoutRuntimeState,
@@ -132,12 +140,17 @@ assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
 assert.equal(getPanelDefinition("orderTicket").title, "Order");
 assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
+assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
+assert.equal(PANEL_CATALOG_TYPES.includes("hotRanking"), true);
 const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
 assert.equal(orderPanelInstance.type, "orderTicket");
 assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
 const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
 assert.equal(chartPresetOrderPanel?.type, "orderTicket");
 assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
+const chartPresetHotPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-hot-ranking");
+assert.equal(chartPresetHotPanel?.type, "hotRanking");
+assert.deepEqual(pickPlacement(chartPresetHotPanel?.placement), { col: 2, row: 4, colSpan: 1, rowSpan: 2 });
 const chartPresetRuntimeCopy = createPresetLayout("chart");
 const chartPresetSavedCopy = createPresetLayout("chart");
 assert.equal(layoutSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), false);
@@ -323,6 +336,28 @@ assert.equal(liveMutationResult.applied, true);
 assert.equal(liveMutationResult.candles.length, 2);
 assert.equal(liveMutationResult.candles[1]?.close, 11.2);
 assert.equal(liveMutationResult.candles[1]?.volume, 180);
+assert.equal(liveMutationResult.candles[1]?.timestamp, "2026-06-25T13:31:00.000Z");
+
+const duplicateBucketResult = applyCandleEvent([candleB], {
+  type: "LIVE_CANDLE_UPDATE",
+  symbol: "AAPL",
+  interval: "1m",
+  data: { ...candleB, timestamp: "2026-06-25T13:31:00.000Z", close: 11.4 }
+});
+assert.equal(duplicateBucketResult.applied, true);
+assert.equal(duplicateBucketResult.candles.length, 1);
+assert.equal(duplicateBucketResult.candles[0]?.close, 11.4);
+assert.deepEqual(
+  applySnapshotToCandles({
+    symbol: "AAPL",
+    interval: "1m",
+    source: "alpaca",
+    feed: "sip",
+    indicators: { ma: [5, 20, 60], volume: true },
+    candles: [{ ...candleB, timestamp: "2026-06-25T13:31:00.000Z", close: 11.5 }]
+  }, [candleB]).map((candle) => candle.close),
+  [11.5]
+);
 
 const invalidProposal: ChartProposal = {
   id: "proposal-invalid",
@@ -470,6 +505,20 @@ assert.equal(shouldRequestBackfill({
   },
   updatedAt: new Date().toISOString()
 }), true);
+assert.equal(shouldRequestBackfill({
+  state: "ready",
+  backfillStatus: "not_requested",
+  repairStatus: "history_preload_required",
+  canBackfill: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "stored_range_incomplete",
+    repairStatus: "history_preload_required",
+    sourceInterval: "1m",
+    renderable: true
+  },
+  updatedAt: new Date().toISOString()
+}), false);
 assert.equal(normalizeBackfillStatusPayload({
   symbol: "NVDA",
   interval: "1W",
@@ -570,19 +619,21 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   feed: "sip",
   dataStatus: "partial",
   backfillStatus: "not_requested",
+  repairStatus: "gapfill_required",
   canBackfill: true,
   requestedLimit: 390,
   returnedCount: 1,
-  targetStoredCount: 98280,
+  targetStoredCount: 122850,
   storedCandleCount: 1,
   hasMoreBefore: true,
   coverage: {
     state: "partial",
     reasonCode: "stored_range_incomplete",
+    repairStatus: "gapfill_required",
     sourceInterval: "1m",
     returnedCount: 1,
     storedCandleCount: 1,
-    targetStoredCount: 98280,
+    targetStoredCount: 122850,
     renderable: false,
     minimumReturnedCount: 20,
     minimumRenderableSourceBars: 30
@@ -590,7 +641,9 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   candles: [candleB]
 });
 assert.equal(partialBackfillSnapshot.dataStatus, "partial");
+assert.equal(partialBackfillSnapshot.repairStatus, "gapfill_required");
 assert.equal(partialBackfillSnapshot.coverage?.reasonCode, "stored_range_incomplete");
+assert.equal(partialBackfillSnapshot.coverage?.repairStatus, "gapfill_required");
 assert.equal(partialBackfillSnapshot.coverage?.renderable, false);
 const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.snapshot.loaded",
@@ -599,8 +652,23 @@ const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeStat
 const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
 assert.equal(partialBackfillStatus?.state, "partial");
 assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 98280);
-assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 98280);
+assert.equal(partialBackfillStatus?.targetStoredCount, 122850);
+assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 122850);
+assert.equal(partialBackfillStatus?.repairStatus, "gapfill_required");
+assert.equal(shouldRequestRangeBackfill(partialBackfillSnapshot), true);
+assert.equal(shouldRequestRangeBackfill({
+  ...partialBackfillSnapshot,
+  dataStatus: "partial",
+  repairStatus: "history_preload_required",
+  coverage: {
+    ...partialBackfillSnapshot.coverage,
+    renderable: true
+  }
+}), false);
+assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
+  start: "2026-06-25T05:30:00.000Z",
+  end: "2026-06-25T13:30:00.000Z"
+});
 
 const agentContextWithStreamError = buildChartAgentContext({
   panelId: "panel-agent-context",
@@ -661,7 +729,7 @@ const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
 });
 assert.deepEqual(
   mergedSnapshotRuntime.candlesByKey[candleKey("INTC", "1m")]?.map((candle) => candle.timestamp),
-  [candleA.timestamp, candleB.timestamp]
+  ["2026-06-25T13:30:00.000Z", "2026-06-25T13:31:00.000Z"]
 );
 
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
@@ -723,12 +791,12 @@ assert.equal(defaultVisibleBarsForInterval("10m"), 390);
 assert.equal(defaultVisibleBarsForInterval("1D"), 250);
 assert.equal(defaultVisibleBarsForInterval("1W"), 260);
 assert.equal(defaultVisibleBarsForInterval("1M"), 120);
-assert.equal(backfillTargetBarsForInterval("1m"), 98280);
-assert.equal(backfillTargetBarsForInterval("5m"), 19656);
-assert.equal(backfillTargetBarsForInterval("10m"), 9828);
-assert.equal(backfillTargetBarsForInterval("1D"), 1260);
-assert.equal(backfillTargetBarsForInterval("1W"), 260);
-assert.equal(backfillTargetBarsForInterval("1M"), 60);
+assert.equal(backfillTargetBarsForInterval("1m"), 122850);
+assert.equal(backfillTargetBarsForInterval("5m"), 24570);
+assert.equal(backfillTargetBarsForInterval("10m"), 12285);
+assert.equal(backfillTargetBarsForInterval("1D"), 756);
+assert.equal(backfillTargetBarsForInterval("1W"), 156);
+assert.equal(backfillTargetBarsForInterval("1M"), 36);
 assert.equal(maxRequestBarsForInterval("1M"), 120);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
@@ -756,13 +824,26 @@ assert.equal(watchlist[0]?.lastPrice, 190.12);
 assert.equal(watchlist.find((item) => item.symbol === "GOOG")?.market, "US");
 
 const seedWatchlist = normalizeWatchlistPayload({
-  symbols: ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"].map((symbol) => ({
+  symbols: ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"].map((symbol) => ({
     symbol,
     name: symbol,
-    market: symbol === "TSM" ? "NYSE" : "NASDAQ"
+    market: "NASDAQ"
   }))
 });
-assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"]);
+assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]);
+assert.deepEqual(defaultWatchlistSymbols().map((item) => item.symbol), ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "BRK.B", "JPM", "UNH"]);
+
+const hotRanking = normalizeHotRankingPayload({
+  ranking: { method: "current_session_dollar_volume", universe: "sp500" },
+  symbols: [
+    { rank: 1, symbol: "nvda", name: "Nvidia", market: "nasdaq", sessionDollarVolume: 123000000, changePercent: 1.2 },
+    { symbol: "bad" }
+  ]
+});
+assert.equal(hotRanking.length, 1);
+assert.equal(hotRanking[0]?.symbol, "NVDA");
+assert.equal(hotRanking[0]?.rank, 1);
+assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const frameCell = getWorkspaceDropCell({ left: 10, top: 20, width: 550, height: 500 }, 12, 24);
 assert.deepEqual(frameCell, { col: 1, row: 1 });

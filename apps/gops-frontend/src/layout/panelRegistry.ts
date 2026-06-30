@@ -75,6 +75,17 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     variants: variantDefinitions,
     commands: layoutCommands
   },
+  hotRanking: {
+    type: "hotRanking",
+    title: "Hot Ranking",
+    allowedZones: workspaceZones,
+    defaultPlacement: workspacePlacement("main", 2, 4, 1, 2),
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    maxSpan: { colSpan: 4, rowSpan: 5 },
+    defaultWeight: 5,
+    variants: variantDefinitions,
+    commands: layoutCommands
+  },
   newsFeed: {
     type: "newsFeed",
     title: "News Feed",

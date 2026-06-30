@@ -4,7 +4,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
 import { OrderTicket } from "./OrderTicket";
 import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
-import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
+import { getSymbolMeta, normalizeSupportedSymbol, type HotRankingSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
 import { makeCommand } from "../layout/commands";
 import { workspaceColumnCount, workspaceColumnStarts, workspaceRowCount, workspaceRowStarts } from "../layout/gridGeometry";
@@ -24,9 +24,11 @@ type PanelCardProps = {
   backfillEligibleSymbols: readonly SupportedSymbol[];
   knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
+  hotRankingSymbols: readonly HotRankingSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onToggleWatchlistSymbol: (symbol: string) => void;
+  onSelectSymbol: (symbol: string) => boolean;
 };
 
 type PanelHeaderPresentation = {
@@ -49,16 +51,22 @@ function PanelBody({
   chartAutoApplyEnabled,
   activeSymbol,
   backfillEligibleSymbols,
+  watchlistSymbols,
+  hotRankingSymbols,
   onChartAction,
-  onAskAgentFromChart
+  onAskAgentFromChart,
+  onSelectSymbol
 }: {
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
+  watchlistSymbols: readonly WatchlistSymbol[];
+  hotRankingSymbols: readonly HotRankingSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
+  onSelectSymbol: (symbol: string) => boolean;
 }) {
   if (panel.type === "chart") {
     return (
@@ -75,6 +83,14 @@ function PanelBody({
 
   if (panel.type === "orderTicket") {
     return <OrderTicket activeSymbol={activeSymbol} />;
+  }
+
+  if (panel.type === "watchlist") {
+    return <WatchlistPanel activeSymbol={activeSymbol} symbols={watchlistSymbols} onSelectSymbol={onSelectSymbol} />;
+  }
+
+  if (panel.type === "hotRanking") {
+    return <HotRankingPanel activeSymbol={activeSymbol} symbols={hotRankingSymbols} onSelectSymbol={onSelectSymbol} />;
   }
 
   return (
@@ -139,7 +155,7 @@ function resolvePanelHeaderPresentation(
       description: symbolMeta.name,
       market: symbolMeta.market,
       kind: "chart",
-      marketMetrics: resolveChartHeaderMetrics(chartRuntime, chartDocument)
+      marketMetrics: resolveChartHeaderMetrics(chartRuntime, chartDocument, symbolMeta)
     };
   }
 
@@ -153,6 +169,8 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
   switch (panelType) {
     case "watchlist":
       return "Tracked symbols";
+    case "hotRanking":
+      return "Dollar volume Top 20";
     case "newsFeed":
       return "Market news";
     case "proposalReview":
@@ -176,12 +194,24 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
   }
 }
 
-function resolveChartHeaderMetrics(chartRuntime: ChartRuntimeState, chartDocument: ChartDocument): PanelMarketMetrics {
+function resolveChartHeaderMetrics(
+  chartRuntime: ChartRuntimeState,
+  chartDocument: ChartDocument,
+  quote?: WatchlistSymbol
+): PanelMarketMetrics {
   const offlineMetrics: PanelMarketMetrics = {
     price: "-",
     change: "-",
     direction: "offline"
   };
+
+  if (typeof quote?.lastPrice === "number" && typeof quote.changePercent === "number") {
+    return {
+      price: quote.lastPrice.toFixed(2),
+      change: `${quote.changePercent >= 0 ? "+" : ""}${quote.changePercent.toFixed(2)}%`,
+      direction: quote.changePercent > 0 ? "up" : quote.changePercent < 0 ? "down" : "flat"
+    };
+  }
 
   const candles = getCandlesForDocument(chartRuntime, chartDocument);
   const visibleEnd = Math.max(0, candles.length - Math.max(0, chartDocument.viewport.rightOffset));
@@ -214,9 +244,11 @@ export function PanelCard({
   backfillEligibleSymbols,
   knownSymbols,
   watchlistSymbols,
+  hotRankingSymbols,
   onChartAction,
   onAskAgentFromChart,
-  onToggleWatchlistSymbol
+  onToggleWatchlistSymbol,
+  onSelectSymbol
 }: PanelCardProps) {
   const [dragging, setDragging] = useState(false);
   const commandTarget = { panelId: panel.id, group: panel.placement.group, zone: panel.placement.zone };
@@ -396,9 +428,112 @@ export function PanelCard({
         chartAutoApplyEnabled={chartAutoApplyEnabled}
         activeSymbol={activeSymbol}
         backfillEligibleSymbols={backfillEligibleSymbols}
+        watchlistSymbols={watchlistSymbols}
+        hotRankingSymbols={hotRankingSymbols}
         onChartAction={onChartAction}
         onAskAgentFromChart={onAskAgentFromChart}
+        onSelectSymbol={onSelectSymbol}
       />
     </article>
   );
+}
+
+function WatchlistPanel({
+  activeSymbol,
+  symbols,
+  onSelectSymbol
+}: {
+  activeSymbol: SupportedSymbol;
+  symbols: readonly WatchlistSymbol[];
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  return (
+    <div className="hot-ranking-panel">
+      <div className="watchlist-list">
+        {symbols.length === 0 && (
+          <div className="watchlist-empty">Watch List unavailable</div>
+        )}
+        {symbols.map((item) => (
+          <button
+            key={item.symbol}
+            className={item.symbol === activeSymbol ? "watchlist-row active" : "watchlist-row"}
+            data-symbol={item.symbol}
+            aria-label={`Load ${item.symbol} ${item.name}`}
+            title={`Load ${item.symbol}`}
+            onClick={() => onSelectSymbol(item.symbol)}
+          >
+            <span className="watchlist-symbol-cell">
+              <strong>{item.symbol}</strong>
+              <em>{item.name}</em>
+            </span>
+            <span className="watchlist-quote-cell">
+              <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+                {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+              </strong>
+              <em>
+                {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
+              </em>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HotRankingPanel({
+  activeSymbol,
+  symbols,
+  onSelectSymbol
+}: {
+  activeSymbol: SupportedSymbol;
+  symbols: readonly HotRankingSymbol[];
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  return (
+    <div className="hot-ranking-panel">
+      <div className="watchlist-list">
+        {symbols.length === 0 && (
+          <div className="watchlist-empty">Hot symbols unavailable</div>
+        )}
+        {symbols.map((item) => (
+          <button
+            key={`${item.rank}-${item.symbol}`}
+            className={item.symbol === activeSymbol ? "watchlist-row active hot-ranking-row" : "watchlist-row hot-ranking-row"}
+            data-symbol={item.symbol}
+            aria-label={`Load ${item.symbol} rank ${item.rank}`}
+            title={`Load ${item.symbol}`}
+            onClick={() => onSelectSymbol(item.symbol)}
+          >
+            <span className="hot-rank-cell">#{item.rank}</span>
+            <span className="watchlist-symbol-cell">
+              <strong>{item.symbol}</strong>
+              <em>{item.name}</em>
+            </span>
+            <span className="watchlist-quote-cell">
+              <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+                {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+              </strong>
+              <em>
+                {typeof item.sessionDollarVolume === "number" ? compactDollarVolume(item.sessionDollarVolume) : "No volume"}
+              </em>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function compactDollarVolume(value: number): string {
+  if (value >= 1_000_000_000) {
+    return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (value >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${(value / 1_000).toFixed(1)}K`;
+  }
+  return `$${value.toFixed(0)}`;
 }

@@ -2,7 +2,7 @@ import { useState, type DragEvent } from "react";
 import type { LayoutCommand, LayoutPreviewItem, PanelPlacement, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 import type { ChartRuntimeAction, ChartRuntimeState } from "@gops/chart-engine/runtime";
 import type { AgentChartReference } from "@gops/chart-engine/agentReference";
-import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
+import type { HotRankingSymbol, SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { makeCommand } from "../layout/commands";
 import {
   createPanelDropCommand,
@@ -27,6 +27,7 @@ type WorkspaceGridProps = {
   savedLayouts: SavedLayoutRecord[];
   activeSymbol: SupportedSymbol;
   watchlistSymbols: WatchlistSymbol[];
+  hotRankingSymbols: HotRankingSymbol[];
   knownSymbols: WatchlistSymbol[];
   symbolUniverse: readonly SupportedSymbol[];
   backfillEligibleSymbols: readonly SupportedSymbol[];
@@ -99,6 +100,7 @@ export function WorkspaceGrid({
   savedLayouts,
   activeSymbol,
   watchlistSymbols,
+  hotRankingSymbols,
   knownSymbols,
   symbolUniverse,
   backfillEligibleSymbols,
@@ -200,9 +202,11 @@ export function WorkspaceGrid({
           backfillEligibleSymbols={backfillEligibleSymbols}
           knownSymbols={knownSymbols}
           watchlistSymbols={watchlistSymbols}
+          hotRankingSymbols={hotRankingSymbols}
           onChartAction={onChartAction}
           onAskAgentFromChart={onAskAgentFromChart}
           onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+          onSelectSymbol={onSelectSymbol}
         />
       ))}
 

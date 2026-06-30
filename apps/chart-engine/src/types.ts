@@ -6,6 +6,10 @@ export type CandleData = {
   close: number;
   volume: number;
   isClosed: boolean;
+  sourceInterval?: string;
+  feedProfile?: string;
+  marketSession?: string;
+  updatedAt?: string;
   ma5?: number;
   ma20?: number;
   ma60?: number;
@@ -14,12 +18,14 @@ export type CandleData = {
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
 export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
+export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
 
 export type ChartCoverage = {
   state: ChartCoverageState;
   reasonCode?: string;
   message?: string;
+  repairStatus?: RepairStatus;
   sourceInterval?: string;
   backfillStatus?: BackfillStatus;
   requestedLimit?: number;
@@ -43,9 +49,12 @@ export type CandleSnapshot = {
   interval: string;
   source: string;
   feed: string;
+  feedProfile?: string;
+  marketSession?: string;
   snapshotCursor?: string;
   dataStatus?: ChartSnapshotDataStatus;
   backfillStatus?: BackfillStatus;
+  repairStatus?: RepairStatus;
   canBackfill?: boolean;
   sourceInterval?: string;
   message?: string;
@@ -74,8 +83,11 @@ export type CandleEvent = {
   cursor?: string;
   symbol: string;
   interval: string;
+  sourceInterval?: string;
   source?: string;
   feed?: string;
+  feedProfile?: string;
+  marketSession?: string;
   data: CandleData;
 };
 
@@ -206,7 +218,10 @@ export type ChartDataStatus = {
   message?: string;
   source?: string;
   feed?: string;
+  feedProfile?: string;
+  marketSession?: string;
   backfillStatus?: BackfillStatus;
+  repairStatus?: RepairStatus;
   canBackfill?: boolean;
   sourceInterval?: string;
   requestedLimit?: number;

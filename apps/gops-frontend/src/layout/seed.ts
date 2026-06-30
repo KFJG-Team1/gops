@@ -260,8 +260,15 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "panel-watchlist"
     ),
     createPanelInstance(
+      "hotRanking",
+      { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 1, rowSpan: 2 },
+      "system",
+      { source: "market-data" },
+      "panel-hot-ranking"
+    ),
+    createPanelInstance(
       "newsFeed",
-      { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
+      { group: "workspace", zone: "main", col: 3, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
       { query: "market pulse" },
       "panel-news"

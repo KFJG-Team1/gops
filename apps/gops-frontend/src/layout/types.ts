@@ -15,6 +15,7 @@ export type DefaultLayoutKey = "chart" | "news" | "overview" | "signals";
 export type PanelType =
   | "chart"
   | "watchlist"
+  | "hotRanking"
   | "newsFeed"
   | "proposalReview"
   | "agentStatus"
