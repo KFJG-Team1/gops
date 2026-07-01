@@ -4,9 +4,8 @@ export type ChartInterval = typeof chartIntervals[number];
 
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
-const historicalTargetYears = 3;
-const intradayPreloadTargetTradingDays = 315;
-const intradayPreloadTargetBars = minutesPerTradingDay * intradayPreloadTargetTradingDays;
+const historicalTargetYears = 6;
+const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * historicalTargetYears;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 120,
@@ -18,20 +17,22 @@ const defaultVisibleBars: Record<ChartInterval, number> = {
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": intradayPreloadTargetBars,
-  "5m": Math.ceil(intradayPreloadTargetBars / 5),
-  "10m": Math.ceil(intradayPreloadTargetBars / 10),
+  "1m": intradayLazyTargetBars,
+  "5m": Math.ceil(intradayLazyTargetBars / 5),
+  "10m": Math.ceil(intradayLazyTargetBars / 10),
   "1D": tradingDaysPerYear * historicalTargetYears,
   "1W": 52 * historicalTargetYears,
   "1M": 12 * historicalTargetYears
 };
 
-const maxRequestBars: Record<ChartInterval, number> = Object.fromEntries(
-  chartIntervals.map((interval) => [
-    interval,
-    Math.max(defaultVisibleBars[interval], backfillTargetBars[interval])
-  ])
-) as Record<ChartInterval, number>;
+const maxRequestBars: Record<ChartInterval, number> = {
+  "1m": 1500,
+  "5m": 1200,
+  "10m": 1000,
+  "1D": 500,
+  "1W": 312,
+  "1M": 72
+};
 
 export function normalizeChartInterval(value: unknown): ChartInterval | null {
   if (typeof value !== "string") {

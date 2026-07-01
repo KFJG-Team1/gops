@@ -27,6 +27,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
+import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
 import { backfillTargetBarsForInterval, defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
@@ -405,6 +406,24 @@ assert.deepEqual(prependedSnapshotCandles.map((candle) => candle.timestamp), [
   "2026-06-25T13:31:00.000Z"
 ]);
 assert.equal(prependedSnapshotCandles[1]?.close, 10.7);
+const overnightContinuity = applyDisplayContinuity([
+  { ...candleA, timestamp: "2026-07-01T05:00:00.000Z", close: 101, marketSession: "overnight" },
+  { ...candleB, timestamp: "2026-07-01T05:03:00.000Z", close: 102, marketSession: "overnight" }
+], "1m");
+assert.deepEqual(overnightContinuity.map((candle) => candle.timestamp), [
+  "2026-07-01T05:00:00.000Z",
+  "2026-07-01T05:01:00.000Z",
+  "2026-07-01T05:02:00.000Z",
+  "2026-07-01T05:03:00.000Z"
+]);
+assert.equal(overnightContinuity[1]?.displayOnly, true);
+assert.equal(overnightContinuity[1]?.volume, 0);
+assert.equal(overnightContinuity[1]?.close, 101);
+const regularContinuity = applyDisplayContinuity([
+  { ...candleA, timestamp: "2026-06-25T14:30:00.000Z", close: 201, marketSession: "regular" },
+  { ...candleB, timestamp: "2026-06-25T14:33:00.000Z", close: 202, marketSession: "regular" }
+], "1m");
+assert.equal(regularContinuity.length, 2);
 
 const invalidProposal: ChartProposal = {
   id: "proposal-invalid",
@@ -697,7 +716,7 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   canBackfill: true,
   requestedLimit: 390,
   returnedCount: 1,
-  targetStoredCount: 122850,
+  targetStoredCount: 589680,
   storedCandleCount: 1,
   hasMoreBefore: true,
   coverage: {
@@ -707,7 +726,7 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
     sourceInterval: "1m",
     returnedCount: 1,
     storedCandleCount: 1,
-    targetStoredCount: 122850,
+    targetStoredCount: 589680,
     renderable: false,
     minimumReturnedCount: 20,
     minimumRenderableSourceBars: 30
@@ -726,8 +745,8 @@ const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeStat
 const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
 assert.equal(partialBackfillStatus?.state, "partial");
 assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 122850);
-assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 122850);
+assert.equal(partialBackfillStatus?.targetStoredCount, 589680);
+assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 589680);
 assert.equal(partialBackfillStatus?.repairStatus, "gapfill_required");
 assert.equal(shouldRequestRangeBackfill(partialBackfillSnapshot), true);
 assert.equal(shouldRequestRangeBackfill({
@@ -900,12 +919,17 @@ assert.equal(defaultVisibleBarsForInterval("10m"), 96);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 72);
-assert.equal(backfillTargetBarsForInterval("1m"), 122850);
-assert.equal(backfillTargetBarsForInterval("5m"), 24570);
-assert.equal(backfillTargetBarsForInterval("10m"), 12285);
-assert.equal(backfillTargetBarsForInterval("1D"), 756);
-assert.equal(backfillTargetBarsForInterval("1W"), 156);
-assert.equal(backfillTargetBarsForInterval("1M"), 36);
+assert.equal(backfillTargetBarsForInterval("1m"), 589680);
+assert.equal(backfillTargetBarsForInterval("5m"), 117936);
+assert.equal(backfillTargetBarsForInterval("10m"), 58968);
+assert.equal(backfillTargetBarsForInterval("1D"), 1512);
+assert.equal(backfillTargetBarsForInterval("1W"), 312);
+assert.equal(backfillTargetBarsForInterval("1M"), 72);
+assert.equal(maxRequestBarsForInterval("1m"), 1500);
+assert.equal(maxRequestBarsForInterval("5m"), 1200);
+assert.equal(maxRequestBarsForInterval("10m"), 1000);
+assert.equal(maxRequestBarsForInterval("1D"), 500);
+assert.equal(maxRequestBarsForInterval("1W"), 312);
 assert.equal(maxRequestBarsForInterval("1M"), 72);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");

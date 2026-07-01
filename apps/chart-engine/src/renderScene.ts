@@ -1,4 +1,5 @@
 import { createPercentScale, createTimeScale } from "./scales";
+import { applyDisplayContinuity } from "./displayContinuity";
 import type { CandleData, ChartCrosshair, ChartDocument, ChartLoadState, ChartPendingPreview, RenderScene, StreamStatus } from "./types";
 import { resolveViewportVisibleCount } from "./viewport";
 
@@ -40,7 +41,8 @@ export function buildRenderScene({
   const rightOffset = Math.min(Math.max(0, document.viewport.rightOffset), Math.max(0, candles.length - 1));
   const visibleEnd = Math.max(0, candles.length - rightOffset);
   const visibleStart = Math.max(0, visibleEnd - visibleCount);
-  const visibleCandles = candles.slice(visibleStart, visibleEnd);
+  const rawVisibleCandles = candles.slice(visibleStart, visibleEnd);
+  const visibleCandles = applyDisplayContinuity(rawVisibleCandles, document.timeframe);
   const timeScale = createTimeScale({
     candles,
     visibleCandles,

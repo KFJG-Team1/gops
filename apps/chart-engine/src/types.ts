@@ -10,6 +10,8 @@ export type CandleData = {
   feedProfile?: string;
   marketSession?: string;
   updatedAt?: string;
+  displayOnly?: boolean;
+  synthetic?: boolean;
   ma5?: number;
   ma20?: number;
   ma60?: number;

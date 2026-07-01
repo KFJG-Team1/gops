@@ -113,11 +113,16 @@ function drawCandles(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const bodyTop = Math.min(openY, closeY);
     const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
 
+    ctx.save();
+    if (candle.displayOnly || candle.synthetic) {
+      ctx.globalAlpha = 0.42;
+    }
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = 1;
     line(ctx, x, highY, x, lowY);
     ctx.fillRect(x - scene.scales.candleWidth / 2, bodyTop, scene.scales.candleWidth, bodyHeight);
+    ctx.restore();
   });
 }
 
@@ -128,6 +133,9 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
 
   const volumeHeight = scene.plot.bottom - scene.plot.volumeTop;
   scene.candles.forEach((candle, index) => {
+    if (candle.volume <= 0) {
+      return;
+    }
     const x = candleCenter(scene, index);
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
