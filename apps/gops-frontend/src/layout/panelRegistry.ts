@@ -101,6 +101,17 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     variants: variantDefinitions,
     commands: layoutCommands
   },
+  portfolioHoldings: {
+    type: "portfolioHoldings",
+    title: "내 투자",
+    allowedZones: workspaceZones,
+    defaultPlacement: workspacePlacement("main", 1, 4, 1, 2),
+    minSpan: { colSpan: 1, rowSpan: 2 },
+    maxSpan: { colSpan: 4, rowSpan: 5 },
+    defaultWeight: 7,
+    variants: variantDefinitions,
+    commands: layoutCommands
+  },
   aiSummary: {
     type: "aiSummary",
     title: "AI 요약",

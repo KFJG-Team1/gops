@@ -32,6 +32,8 @@ export function createPanelInstance(
       ? [{ kind: "ontologyGraph", id: `ontology-${crypto.randomUUID()}` }]
       : type === "orderTicket"
       ? [{ kind: "orderTicket", id: `orderTicket-${crypto.randomUUID()}` }]
+      : type === "portfolioHoldings"
+      ? [{ kind: "portfolioView", id: `portfolio-${crypto.randomUUID()}` }]
       : undefined;
 
   const chartRef = resourceRefs?.find((ref) => ref.kind === "chartDocument");
@@ -237,11 +239,11 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "panel-chart-dev-log"
     ),
     createPanelInstance(
-      "indicatorCompare",
+      "portfolioHoldings",
       { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
-      { label: "지표 비교" },
-      "panel-indicator-compare"
+      { source: "kis-demo" },
+      "panel-portfolio"
     ),
     createPanelInstance(
       "hotRanking",

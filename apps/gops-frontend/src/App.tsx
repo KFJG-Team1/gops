@@ -12,6 +12,7 @@ import { makeChartCommand } from "@gops/chart-engine/commands";
 import {
   chartRuntimeReducer,
   createInitialChartRuntimeState,
+  getCandlesForDocument,
   getChartDocumentForPanel,
   type ChartRuntimeAction
 } from "@gops/chart-engine/runtime";
@@ -726,6 +727,34 @@ export default function App() {
     [symbolUniverseKey]
   );
 
+  const orderChartSymbols = useMemo(() => {
+    const bySymbol = new Map<SupportedSymbol, WatchlistSymbol>();
+    for (const panel of state.layout.panels) {
+      if (panel.type !== "chart") {
+        continue;
+      }
+      const chartDocument = getChartDocumentForPanel(chartRuntime, panel);
+      const symbol = normalizeSupportedSymbol(chartDocument.symbol);
+      if (!symbol || bySymbol.has(symbol)) {
+        continue;
+      }
+      const candles = getCandlesForDocument(chartRuntime, chartDocument);
+      const latestCandle = candles[candles.length - 1];
+      const latestClose = latestCandle && Number.isFinite(latestCandle.close) ? latestCandle.close : undefined;
+      const known = knownSymbols.find((item) => item.symbol === symbol);
+      const fallback = getSymbolMeta(symbol);
+      bySymbol.set(symbol, {
+        symbol,
+        name: known?.name ?? fallback.name,
+        market: known?.market ?? fallback.market,
+        lastPrice: typeof known?.lastPrice === "number" ? known.lastPrice : latestClose,
+        changePercent: known?.changePercent,
+        volume: known?.volume
+      });
+    }
+    return Array.from(bySymbol.values());
+  }, [chartRuntime, knownSymbols, state.layout.panels]);
+
   const syncWatchlistSymbols = useCallback((symbols: WatchlistSymbol[]) => {
     writeStoredWatchlistSymbols(symbols);
     putWatchlistSymbols(symbols)
@@ -947,6 +976,8 @@ export default function App() {
           watchlistSymbols={watchlistSymbols}
           hotRankingSymbols={hotRankingSymbols}
           knownSymbols={knownSymbols}
+          orderChartSymbols={orderChartSymbols}
+          symbolOptions={symbolOptions}
           symbolUniverse={symbolUniverse}
           backfillEligibleSymbols={symbolUniverse}
           chartRuntime={chartRuntime}
@@ -959,6 +990,7 @@ export default function App() {
           onDeleteAgent={deleteAgent}
           onCloseSystemPanel={closeSystemPanel}
           onSelectSymbol={selectSymbol}
+          onSymbolOptionsRequest={refreshSymbolOptions}
           onCommand={runCommand}
           onLayoutProposal={runLayoutProposal}
           onChartAction={runChartAction}

@@ -7,6 +7,7 @@ export type AgentEvidenceItem = {
   title?: string;
   summary?: string;
   url?: string;
+  observedAt?: string;
   raw?: Record<string, unknown>;
 };
 
@@ -55,6 +56,40 @@ export type FinalAnswer = {
   limitations: string[];
 };
 
+export type AgentNewsPanelItem = {
+  title: string;
+  summary?: string;
+  localizedTitle?: string;
+  localizedSummary?: string;
+  originalTitle?: string;
+  originalSummary?: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  symbol?: string;
+  symbols: string[];
+  eventType?: string;
+  impactDirection?: string;
+  relevanceScore?: number;
+  importanceScore?: number;
+};
+
+export type AgentNewsPanelData = {
+  symbol?: string;
+  updatedAt?: string;
+  latestNews: AgentNewsPanelItem[];
+  majorNews: AgentNewsPanelItem[];
+};
+
+export type AgentAnalysisTiming = {
+  totalMs?: number;
+  cacheHit?: boolean;
+  cacheLayer?: string;
+  newsFetchMs?: number;
+  roleAnalysisMs?: number;
+  finalAnswerMs?: number;
+};
+
 export type AgentAnalysisReport = {
   analysisId: string;
   summary: string;
@@ -66,6 +101,7 @@ export type AgentAnalysisReport = {
   providerEvidence: AgentEvidenceItem[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: LayoutProposal | null;
+  timing?: AgentAnalysisTiming | null;
 };
 
 export type AgentAnalysisRequestInput = {
@@ -90,6 +126,7 @@ const panelAliases: Record<PanelType, string[]> = {
   hotRanking: ["Hot Ranking", "거래대금", "거래대금 순위", "랭킹", "ranking"],
   indicatorCompare: ["지표", "지표 비교", "인디케이터", "거시", "indicator"],
   orderTicket: ["주문", "주문 입력", "주문창", "매수창", "매도창", "order", "ticket"],
+  portfolioHoldings: ["내 투자", "보유종목", "잔고", "계좌", "포트폴리오", "portfolio", "holdings", "balance"],
   aiSummary: ["AI 요약", "요약", "AI 어시스턴트", "assistant"],
   ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"],
   chartDevLog: ["차트 로그", "진단 로그", "개발 로그", "chart dev log", "diagnostics"]
@@ -159,7 +196,8 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
-    layoutProposal: normalizeLayoutProposal(source.layoutProposal)
+    layoutProposal: normalizeLayoutProposal(source.layoutProposal),
+    timing: normalizeTiming(source.timing)
   };
 }
 
@@ -203,6 +241,11 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   );
   if (verificationFinding) {
     lines.push("", `검증 경고: ${verificationFinding.summary}`);
+  }
+
+  const timingSummary = formatTimingSummary(report.timing);
+  if (timingSummary) {
+    lines.push("", timingSummary);
   }
 
   return lines.join("\n");
@@ -263,6 +306,7 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
     title: readString(source.title) ?? undefined,
     summary: readString(source.summary) ?? undefined,
     url: readString(source.url) ?? undefined,
+    observedAt: readString(source.observedAt) ?? undefined,
     raw: readObject(source.raw) ?? undefined
   };
 }
@@ -341,11 +385,27 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   };
 }
 
+function normalizeTiming(value: unknown): AgentAnalysisTiming | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+  return {
+    totalMs: readNumber(source.totalMs) ?? undefined,
+    cacheHit: readBoolean(source.cacheHit) ?? undefined,
+    cacheLayer: readString(source.cacheLayer) ?? undefined,
+    newsFetchMs: readNumber(source.newsFetchMs) ?? undefined,
+    roleAnalysisMs: readNumber(source.roleAnalysisMs) ?? undefined,
+    finalAnswerMs: readNumber(source.finalAnswerMs) ?? undefined
+  };
+}
+
 const layoutCommandTypes: LayoutCommandType[] = [
   "layout.panel.add",
   "layout.panel.remove",
   "layout.panel.move",
   "layout.panel.replace",
+  "layout.panel.props.update",
   "layout.panel.pin",
   "layout.panel.unpin",
   "layout.panel.select",
@@ -489,6 +549,31 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function formatTimingSummary(timing?: AgentAnalysisTiming | null): string | null {
+  if (!timing) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (typeof timing.newsFetchMs === "number") {
+    parts.push(`검색 ${formatMilliseconds(timing.newsFetchMs)}`);
+  }
+  if (typeof timing.totalMs === "number") {
+    parts.push(`전체 ${formatMilliseconds(timing.totalMs)}`);
+  }
+  if (!parts.length) {
+    return null;
+  }
+  return parts.join(" / ");
+}
+
+function formatMilliseconds(ms: number): string {
+  return `${(Math.max(0, ms) / 1000).toFixed(1)}초`;
 }
 
 function invalidReportError(): Error {

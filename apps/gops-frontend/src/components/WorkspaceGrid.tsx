@@ -32,6 +32,8 @@ type WorkspaceGridProps = {
   watchlistSymbols: WatchlistSymbol[];
   hotRankingSymbols: HotRankingSymbol[];
   knownSymbols: WatchlistSymbol[];
+  orderChartSymbols: WatchlistSymbol[];
+  symbolOptions: WatchlistSymbol[];
   symbolUniverse: readonly SupportedSymbol[];
   backfillEligibleSymbols: readonly SupportedSymbol[];
   chartRuntime: ChartRuntimeState;
@@ -44,6 +46,7 @@ type WorkspaceGridProps = {
   onDeleteAgent: (agentId: string) => void;
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
+  onSymbolOptionsRequest: (query: string) => void;
   onCommand: (command: LayoutCommand) => void;
   onLayoutProposal: (proposal: LayoutProposal) => void;
   onChartAction: (action: ChartRuntimeAction) => void;
@@ -125,6 +128,8 @@ export function WorkspaceGrid({
   watchlistSymbols,
   hotRankingSymbols,
   knownSymbols,
+  orderChartSymbols,
+  symbolOptions,
   symbolUniverse,
   backfillEligibleSymbols,
   chartRuntime,
@@ -137,6 +142,7 @@ export function WorkspaceGrid({
   onDeleteAgent,
   onCloseSystemPanel,
   onSelectSymbol,
+  onSymbolOptionsRequest,
   onCommand,
   onLayoutProposal,
   onChartAction,
@@ -255,10 +261,13 @@ export function WorkspaceGrid({
           knownSymbols={knownSymbols}
           watchlistSymbols={watchlistSymbols}
           hotRankingSymbols={hotRankingSymbols}
+          orderChartSymbols={orderChartSymbols}
+          symbolOptions={symbolOptions}
           onChartAction={onChartAction}
           onChartDevLog={onChartDevLog}
           onAskAgentFromChart={onAskAgentFromChart}
           onSelectSymbol={onSelectSymbol}
+          onSymbolOptionsRequest={onSymbolOptionsRequest}
           onToggleWatchlistSymbol={onToggleWatchlistSymbol}
           systemColumnVisible={systemPanelOpen}
         />

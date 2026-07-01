@@ -12,12 +12,25 @@ import { normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engin
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
 import { candleKey } from "../../chart-engine/src/candleStore";
 import { buildTimeAxisLayout, formatAxisTickLabel, formatCrosshairTimestamp } from "../../chart-engine/src/time";
+import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
 import { chartDevLogHighlights, createChartDevLogEntry, summarizeChartCoverage } from "../src/diagnostics/chartDevLog";
 import { createInitialRuntimeState } from "../src/layout/commands";
 import { PANEL_CATALOG_TYPES } from "../src/layout/panelCatalogDrop";
 import { panelRegistry } from "../src/layout/panelRegistry";
 import { createDefaultLayoutRecords, createPresetLayout } from "../src/layout/seed";
 import type { SavedLayoutRecord } from "../src/layout/types";
+
+function fakeApiResponse(input: { ok: boolean; status: number; body: string; contentType?: string }) {
+  return {
+    ok: input.ok,
+    status: input.status,
+    statusText: "",
+    headers: {
+      get: (name: string) => name.toLowerCase() === "content-type" ? input.contentType ?? "application/json" : null
+    },
+    text: async () => input.body
+  };
+}
 
 assert.equal(rangeBackfillBufferMultiplier, 2);
 assert.equal(rangeBackfillBufferMultiplierForInterval("1m"), 3);
@@ -28,6 +41,9 @@ assert.equal(rangeBackfillBufferMultiplierForInterval("1W"), 2);
 assert.equal(rangeBackfillBufferMultiplierForInterval("1M"), 2);
 assert.equal(minimumBackfillSourceBarsForInterval("1m"), 390);
 assert.equal(minimumBackfillSourceBarsForInterval("1D"), 250);
+assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "portfolioHoldings", "orderTicket", "ontologyGraph", "chartDevLog"]);
+assert.equal(panelRegistry.portfolioHoldings.title, "내 투자");
+assert.equal(panelRegistry.orderTicket.title, "주문");
 assert.equal(panelRegistry.chartDevLog.title, "Chart Dev Log");
 assert.deepEqual(panelRegistry.chartDevLog.defaultPlacement, {
   group: "workspace",
@@ -39,11 +55,39 @@ assert.deepEqual(panelRegistry.chartDevLog.defaultPlacement, {
 });
 assert.equal(PANEL_CATALOG_TYPES.includes("chartDevLog"), true);
 assert.equal(createPresetLayout("chart").panels.some((panel) => panel.type === "chartDevLog"), true);
+const chartPresetPortfolioPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-portfolio");
+assert.equal(chartPresetPortfolioPanel?.type, "portfolioHoldings");
+assert.deepEqual(chartPresetPortfolioPanel?.placement, { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 1, rowSpan: 2 });
+assert.equal(chartPresetPortfolioPanel?.resourceRefs?.[0]?.kind, "portfolioView");
+const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
+assert.equal(chartPresetOrderPanel?.type, "orderTicket");
+assert.deepEqual(chartPresetOrderPanel?.placement, { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 });
+assert.equal(chartPresetOrderPanel?.resourceRefs?.[0]?.kind, "orderTicket");
 assert.equal(
   createDefaultLayoutRecords()
     .find((record) => record.defaultKey === "chart")
     ?.layout.panels.some((panel) => panel.type === "chartDevLog"),
   true
+);
+
+const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
+  ok: true,
+  status: 200,
+  body: JSON.stringify({
+    status: "ok",
+    source: "kis-demo",
+    account: { cashForeign: 1199 },
+    positions: [{ symbol: "MU", quantity: 10 }]
+  })
+}));
+assert.equal(parsedHoldings.positions[0]?.symbol, "MU");
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: false, status: 503, body: "" })),
+  /보유종목 API 오류 503/
+);
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: true, status: 200, body: "" })),
+  /보유종목 API 응답이 비어 있습니다/
 );
 
 const localStorageMemory = new Map<string, string>();
