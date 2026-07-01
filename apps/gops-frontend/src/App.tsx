@@ -18,6 +18,7 @@ import {
 import { isRealtimeControlPayload, normalizeCandleEvent } from "@gops/chart-engine/marketDataAdapter";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, getSymbolMeta, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload, type HotRankingSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { CandleEvent } from "@gops/chart-engine/types";
+import { CHART_DEV_LOG_LIMIT, createChartDevLogEntry, summarizeChartCoverage, type ChartDevLogEntry, type ChartDevLogInput, type ChartDevLogLevel } from "./diagnostics/chartDevLog";
 import {
   applyLayoutProposal,
   createInitialRuntimeState,
@@ -77,6 +78,14 @@ function writeStoredWatchlistSymbols(symbols: WatchlistSymbol[]): void {
   window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(symbols.map((item) => item.symbol)));
 }
 
+function putWatchlistSymbols(symbols: readonly WatchlistSymbol[]): Promise<unknown | null> {
+  return fetch("/api/charts/watchlist", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols: symbols.map((item) => item.symbol) })
+  }).then((response) => response.ok ? response.json() as Promise<unknown> : null);
+}
+
 function watchlistRequestUrl(symbols: readonly WatchlistSymbol[]): string {
   const params = new URLSearchParams();
   if (symbols.length) {
@@ -98,6 +107,14 @@ type LiveCandleVolume = {
   timestamp: string;
   volume: number;
 };
+
+type PendingQuoteEvent = {
+  event: CandleEvent;
+  volumeDelta: number;
+};
+
+const QUOTE_UI_FLUSH_INTERVAL_MS = 1000;
+const QUOTE_DEV_LOG_INTERVAL_MS = 10000;
 
 function quoteFromLiveEvent<T extends WatchlistSymbol>(item: T, event: CandleEvent, volumeDelta: number): T {
   const close = event.data.close;
@@ -137,13 +154,17 @@ function liveVolumeDelta(event: CandleEvent, volumeMemory: Map<string, LiveCandl
   return Math.max(0, event.data.volume - previous.volume);
 }
 
-function resolveChartSocketUrl(symbol: string, interval = "1m"): string {
-  const params = new URLSearchParams({ symbol, interval });
+function resolveQuoteSocketUrl(symbols: readonly string[], interval = "1m"): string {
+  const params = new URLSearchParams({
+    symbols: symbols.join(","),
+    interval,
+    maxHz: "1"
+  });
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const isViteDevServer = window.location.hostname === "127.0.0.1" &&
     (window.location.port === "5173" || window.location.port === "5174");
   const host = isViteDevServer ? "127.0.0.1:8000" : window.location.host;
-  return `${protocol}//${host}/ws/charts?${params.toString()}`;
+  return `${protocol}//${host}/ws/quotes?${params.toString()}`;
 }
 
 function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
@@ -151,6 +172,144 @@ function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): Layou
     return applyLayoutProposal(state, action.proposal);
   }
   return executeCommand(state, action.command);
+}
+
+function chartRuntimeActionToDevLog(action: ChartRuntimeAction): ChartDevLogInput | null {
+  switch (action.kind) {
+    case "chart.snapshot.loaded": {
+      const snapshot = action.snapshot;
+      return {
+        level: snapshot.dataStatus === "error" ? "warn" : "info",
+        category: "chart-data",
+        message: "Candle snapshot loaded",
+        symbol: snapshot.symbol,
+        interval: snapshot.interval,
+        details: {
+          candleCount: snapshot.candles.length,
+          returnedCount: snapshot.returnedCount,
+          storedCandleCount: snapshot.storedCandleCount,
+          dataStatus: snapshot.dataStatus,
+          backfillStatus: snapshot.backfillStatus,
+          repairStatus: snapshot.repairStatus,
+          source: snapshot.source,
+          feed: snapshot.feed,
+          sourceInterval: snapshot.sourceInterval,
+          requestedLimit: snapshot.requestedLimit,
+          requestedRange: snapshot.requestedRange,
+          availableFrom: snapshot.availableFrom,
+          availableTo: snapshot.availableTo,
+          noDataBefore: snapshot.noDataBefore,
+          oldestTimestamp: snapshot.oldestTimestamp,
+          newestTimestamp: snapshot.newestTimestamp,
+          hasMoreBefore: snapshot.hasMoreBefore,
+          coverageSummary: summarizeChartCoverage(snapshot.coverage)
+        }
+      };
+    }
+    case "chart.snapshot.failed":
+      return {
+        level: "error",
+        category: "chart-data",
+        message: action.message,
+        symbol: action.symbol,
+        interval: action.interval
+      };
+    case "chart.data.status":
+      return {
+        level: chartDataLogLevel(action.status.state, action.status.backfillStatus),
+        category: "backfill",
+        message: action.status.message ?? `Chart data status: ${action.status.state}`,
+        symbol: action.symbol,
+        interval: action.interval,
+        details: {
+          state: action.status.state,
+          backfillStatus: action.status.backfillStatus,
+          canBackfill: action.status.canBackfill,
+          source: action.status.source,
+          feed: action.status.feed,
+          sourceInterval: action.status.sourceInterval,
+          requestedRange: action.status.requestedRange,
+          hasMoreBefore: action.status.hasMoreBefore,
+          availableFrom: action.status.availableFrom,
+          availableTo: action.status.availableTo,
+          noDataBefore: action.status.noDataBefore,
+          repairStatus: action.status.repairStatus,
+          coverageSummary: summarizeChartCoverage(action.status.coverage),
+          coverage: action.status.coverage
+        }
+      };
+    case "chart.stream.status":
+      return {
+        level: chartStreamLogLevel(action.status),
+        category: "stream",
+        message: `Stream status: ${action.status}`,
+        symbol: action.symbol,
+        interval: action.interval,
+        details: action.message ? { message: action.message } : undefined
+      };
+    case "chart.command":
+      if (action.command.type !== "chart.symbol.set" && action.command.type !== "chart.timeframe.set") {
+        return null;
+      }
+      return {
+        level: "debug",
+        category: "runtime",
+        message: `Chart command: ${action.command.type}`,
+        chartDocumentId: action.command.target.chartDocumentId,
+        panelId: action.command.target.panelId,
+        details: {
+          actor: action.command.actor,
+          historyScope: action.command.historyScope,
+          payload: action.command.payload
+        }
+      };
+    case "chart.command.group":
+      return {
+        level: "debug",
+        category: "runtime",
+        message: action.label,
+        details: {
+          commandCount: action.commands.length,
+          proposalId: action.proposalId
+        }
+      };
+    case "chart.error":
+      return {
+        level: "error",
+        category: "runtime",
+        message: action.message,
+        chartDocumentId: action.chartDocumentId
+      };
+    default:
+      return null;
+  }
+}
+
+function chartDataLogLevel(state: string, backfillStatus?: string): ChartDevLogLevel {
+  if (state === "error" || backfillStatus === "failed" || backfillStatus === "unavailable") {
+    return "error";
+  }
+  if (state === "empty" || backfillStatus === "queued" || backfillStatus === "running") {
+    return "warn";
+  }
+  return "info";
+}
+
+function chartStreamLogLevel(status: string): ChartDevLogLevel {
+  if (status === "error") {
+    return "error";
+  }
+  if (status === "stale") {
+    return "warn";
+  }
+  return status === "live" ? "info" : "debug";
+}
+
+function chartActionDedupeKey(action: ChartRuntimeAction): string | null {
+  if (action.kind === "chart.data.status" || action.kind === "chart.stream.status") {
+    return `${action.kind}:${action.symbol}:${action.interval}`;
+  }
+  return null;
 }
 
 export default function App() {
@@ -165,15 +324,44 @@ export default function App() {
   const [symbolSearchError, setSymbolSearchError] = useState<string | undefined>();
   const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>(initialWatchlistSymbols);
   const [hotRankingSymbols, setHotRankingSymbols] = useState<HotRankingSymbol[]>([]);
+  const [chartDevLogs, setChartDevLogs] = useState<ChartDevLogEntry[]>([]);
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
   const [symbolSearchRefreshKey, setSymbolSearchRefreshKey] = useState(0);
   const [symbolOptions, setSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [knownSymbols, setKnownSymbols] = useState<WatchlistSymbol[]>([]);
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
   const watchlistSeedAppliedRef = useRef(false);
+  const initialWatchlistSyncedRef = useRef(false);
   const watchlistSymbolsRef = useRef<WatchlistSymbol[]>(watchlistSymbols);
   const liveCandleVolumeRef = useRef<Map<string, LiveCandleVolume>>(new Map());
+  const pendingQuoteEventsRef = useRef<Map<string, PendingQuoteEvent>>(new Map());
   const userSelectedSymbolRef = useRef(false);
+  const chartDevLogDedupeRef = useRef<Map<string, string>>(new Map());
+
+  const appendChartDevLog = useCallback((entry: ChartDevLogInput) => {
+    setChartDevLogs((current) => [
+      createChartDevLogEntry(entry),
+      ...current
+    ].slice(0, CHART_DEV_LOG_LIMIT));
+  }, []);
+
+  const appendChartActionDevLog = useCallback((action: ChartRuntimeAction) => {
+    const entry = chartRuntimeActionToDevLog(action);
+    if (!entry) {
+      return;
+    }
+
+    const dedupeKey = chartActionDedupeKey(action);
+    if (dedupeKey) {
+      const signature = `${entry.level}|${entry.message}|${JSON.stringify(entry.details ?? {})}`;
+      if (chartDevLogDedupeRef.current.get(dedupeKey) === signature) {
+        return;
+      }
+      chartDevLogDedupeRef.current.set(dedupeKey, signature);
+    }
+
+    appendChartDevLog(entry);
+  }, [appendChartDevLog]);
 
   const selectedPanel = useMemo(
     () => state.layout.panels.find((panel) => panel.id === state.layout.selectedPanelId),
@@ -182,11 +370,14 @@ export default function App() {
 
   const runCommand = useCallback((command: LayoutCommand) => dispatch({ kind: "command", command }), []);
   const runLayoutProposal = useCallback((proposal: LayoutProposal) => dispatch({ kind: "agentLayoutProposal", proposal }), []);
-  const runChartAction = useCallback((action: ChartRuntimeAction) => chartDispatch(action), []);
+  const runChartAction = useCallback((action: ChartRuntimeAction) => {
+    appendChartActionDevLog(action);
+    chartDispatch(action);
+  }, [appendChartActionDevLog]);
 
   useEffect(() => {
-    chartDispatch({ kind: "chart.ensureDocuments", panels: state.layout.panels });
-  }, [state.layout.panels]);
+    runChartAction({ kind: "chart.ensureDocuments", panels: state.layout.panels });
+  }, [runChartAction, state.layout.panels]);
 
   useEffect(() => {
     if (agentChartReference && !isAgentChartReferenceAvailable(state.layout.panels, agentChartReference)) {
@@ -197,6 +388,24 @@ export default function App() {
   useEffect(() => {
     watchlistSymbolsRef.current = watchlistSymbols;
     setKnownSymbols((current) => mergeSymbolRecords(current, watchlistSymbols));
+  }, [watchlistSymbols]);
+
+  useEffect(() => {
+    if (initialWatchlistSyncedRef.current) {
+      return;
+    }
+
+    initialWatchlistSyncedRef.current = true;
+    putWatchlistSymbols(watchlistSymbols)
+      .then((payload) => {
+        if (!payload) {
+          return;
+        }
+        const summaries = normalizeWatchlistPayload(payload);
+        setWatchlistSymbols((current) => refreshWatchlistRecords(current, summaries));
+        setKnownSymbols((current) => mergeSymbolRecords(current, summaries));
+      })
+      .catch(() => undefined);
   }, [watchlistSymbols]);
 
   useEffect(() => {
@@ -253,11 +462,29 @@ export default function App() {
             const symbols = normalizeHotRankingPayload(payload);
             setHotRankingSymbols(symbols);
             setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
+            appendChartDevLog({
+              level: symbols.length >= 10 ? "info" : "warn",
+              category: "stream",
+              message: "Hot ranking loaded",
+              details: {
+                requestedLimit: 10,
+                symbolCount: symbols.length,
+                symbols: symbols.map((item) => item.symbol)
+              }
+            });
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!cancelled) {
             setHotRankingSymbols((current) => current);
+            appendChartDevLog({
+              level: "error",
+              category: "stream",
+              message: "Hot ranking request failed",
+              details: {
+                error: error instanceof Error ? error.message : String(error)
+              }
+            });
           }
         });
     };
@@ -269,7 +496,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [appendChartDevLog]);
 
   const quoteStreamSymbolsKey = useMemo(() => {
     const symbols = new Set<string>();
@@ -283,16 +510,92 @@ export default function App() {
       return undefined;
     }
 
-    const sockets: WebSocket[] = [];
     const reconnectTimers: number[] = [];
     let closed = false;
+    let receivedCount = 0;
+    let coalescedCount = 0;
+    let devLogReceivedCount = 0;
+    let devLogCoalescedCount = 0;
+    let devLogFlushCount = 0;
+    let devLogFlushedSymbols = 0;
+    let invalidQuoteEventLogged = false;
     const symbols = quoteStreamSymbolsKey.split("|").filter(Boolean);
-    const connect = (symbol: string) => {
+    const flushQuoteEvents = () => {
+      const pendingEvents = Array.from(pendingQuoteEventsRef.current.values());
+      pendingQuoteEventsRef.current.clear();
+      if (!pendingEvents.length) {
+        return;
+      }
+      setWatchlistSymbols((current) => pendingEvents.reduce(
+        (next, item) => applyRealtimeQuote(next, item.event, item.volumeDelta),
+        current
+      ));
+      setHotRankingSymbols((current) => pendingEvents.reduce(
+        (next, item) => applyRealtimeHotQuote(next, item.event, item.volumeDelta),
+        current
+      ));
+      devLogReceivedCount += receivedCount;
+      devLogCoalescedCount += coalescedCount;
+      devLogFlushCount += 1;
+      devLogFlushedSymbols += pendingEvents.length;
+      receivedCount = 0;
+      coalescedCount = 0;
+    };
+    const flushQuoteDevLog = () => {
+      if (devLogCoalescedCount <= 0) {
+        devLogReceivedCount = 0;
+        devLogFlushCount = 0;
+        devLogFlushedSymbols = 0;
+        return;
+      }
+      appendChartDevLog({
+        level: "debug",
+        category: "stream",
+        message: "Quote UI events coalesced",
+        details: {
+          symbolCount: symbols.length,
+          flushCount: devLogFlushCount,
+          flushedSymbols: devLogFlushedSymbols,
+          receivedCount: devLogReceivedCount,
+          coalescedCount: devLogCoalescedCount,
+          intervalMs: QUOTE_DEV_LOG_INTERVAL_MS
+        }
+      });
+      devLogReceivedCount = 0;
+      devLogCoalescedCount = 0;
+      devLogFlushCount = 0;
+      devLogFlushedSymbols = 0;
+    };
+    const flushTimer = window.setInterval(flushQuoteEvents, QUOTE_UI_FLUSH_INTERVAL_MS);
+    const devLogTimer = window.setInterval(flushQuoteDevLog, QUOTE_DEV_LOG_INTERVAL_MS);
+    let socket: WebSocket | undefined;
+    const connect = () => {
       if (closed) {
         return;
       }
-      const socket = new WebSocket(resolveChartSocketUrl(symbol, "1m"));
-      sockets.push(socket);
+      appendChartDevLog({
+        level: "debug",
+        category: "stream",
+        message: "Opening quote websocket",
+        details: {
+          symbolCount: symbols.length,
+          interval: "1m",
+          maxHz: 1
+        }
+      });
+      socket = new WebSocket(resolveQuoteSocketUrl(symbols, "1m"));
+      socket.onopen = () => {
+        appendChartDevLog({
+          level: "info",
+          category: "stream",
+          message: "Quote websocket opened",
+          details: {
+            symbolCount: symbols.length,
+            interval: "1m",
+            maxHz: 1
+          }
+        });
+      };
       socket.onmessage = (message) => {
         try {
           const payload = JSON.parse(message.data);
@@ -305,26 +608,68 @@ export default function App() {
           }
           const volumeMemory = liveCandleVolumeRef.current;
           const volumeDelta = liveVolumeDelta(event, volumeMemory);
-          setWatchlistSymbols((current) => applyRealtimeQuote(current, event, volumeDelta));
-          setHotRankingSymbols((current) => applyRealtimeHotQuote(current, event, volumeDelta));
-        } catch {
-          // Ignore malformed auxiliary quote events; chart panels surface stream errors separately.
+          const previous = pendingQuoteEventsRef.current.get(event.symbol);
+          if (previous) {
+            coalescedCount += 1;
+          }
+          receivedCount += 1;
+          pendingQuoteEventsRef.current.set(event.symbol, {
+            event,
+            volumeDelta: (previous?.volumeDelta ?? 0) + volumeDelta
+          });
+        } catch (error) {
+          if (!invalidQuoteEventLogged) {
+            invalidQuoteEventLogged = true;
+            appendChartDevLog({
+              level: "warn",
+              category: "stream",
+              message: "Invalid auxiliary quote event ignored",
+              details: {
+                error: error instanceof Error ? error.message : String(error)
+              }
+            });
+          }
         }
+      };
+      socket.onerror = () => {
+        appendChartDevLog({
+          level: "warn",
+          category: "stream",
+          message: "Quote websocket transport error; reconnecting",
+          details: {
+            symbolCount: symbols.length,
+            interval: "1m",
+            maxHz: 1
+          }
+        });
       };
       socket.onclose = () => {
         if (!closed) {
-          reconnectTimers.push(window.setTimeout(() => connect(symbol), 3000));
+          appendChartDevLog({
+            level: "warn",
+            category: "stream",
+            message: "Quote websocket closed; reconnect scheduled",
+            details: {
+              symbolCount: symbols.length,
+              reconnectDelayMs: 3000
+            }
+          });
+          reconnectTimers.push(window.setTimeout(connect, 3000));
         }
       };
     };
-    symbols.forEach(connect);
+    connect();
 
     return () => {
       closed = true;
+      flushQuoteEvents();
+      flushQuoteDevLog();
+      window.clearInterval(flushTimer);
+      window.clearInterval(devLogTimer);
       reconnectTimers.forEach((timer) => window.clearTimeout(timer));
-      sockets.forEach((socket) => socket.close());
+      socket?.close();
     };
-  }, [quoteStreamSymbolsKey]);
+  }, [appendChartDevLog, quoteStreamSymbolsKey]);
 
   useEffect(() => {
     const query = symbolSearchQuery.trim();
@@ -350,7 +695,7 @@ export default function App() {
       .catch(() => {
         if (!cancelled) {
           const normalizedQuery = query.toUpperCase();
-          setSymbolOptions(watchlistSymbols.filter((item) =>
+          setSymbolOptions(watchlistSymbolsRef.current.filter((item) =>
             item.symbol.includes(normalizedQuery) || item.name.toUpperCase().includes(normalizedQuery)
           ));
         }
@@ -360,7 +705,7 @@ export default function App() {
       cancelled = true;
       controller.abort();
     };
-  }, [symbolSearchQuery, symbolSearchRefreshKey, watchlistSymbols]);
+  }, [symbolSearchQuery, symbolSearchRefreshKey]);
 
   const activeChartPanel = useMemo(
     () => findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId),
@@ -372,19 +717,18 @@ export default function App() {
     [activeChartPanel, chartRuntime]
   );
 
-  const symbolUniverse = useMemo(
-    () => Array.from(new Set(knownSymbols.map((item) => item.symbol))),
+  const symbolUniverseKey = useMemo(
+    () => Array.from(new Set(knownSymbols.map((item) => item.symbol))).join("|"),
     [knownSymbols]
+  );
+  const symbolUniverse = useMemo(
+    () => symbolUniverseKey.split("|").filter(Boolean) as SupportedSymbol[],
+    [symbolUniverseKey]
   );
 
   const syncWatchlistSymbols = useCallback((symbols: WatchlistSymbol[]) => {
     writeStoredWatchlistSymbols(symbols);
-    fetch("/api/charts/watchlist", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: symbols.map((item) => item.symbol) })
-    })
-      .then((response) => response.ok ? response.json() as Promise<unknown> : null)
+    putWatchlistSymbols(symbols)
       .then((payload) => {
         if (!payload) {
           return;
@@ -455,8 +799,8 @@ export default function App() {
     }
 
     const chartDocument = getChartDocumentForPanel(chartRuntime, chartPanel);
-    chartDispatch({ kind: "chart.ensureDocuments", panels: state.layout.panels });
-    chartDispatch({
+    runChartAction({ kind: "chart.ensureDocuments", panels: state.layout.panels });
+    runChartAction({
       kind: "chart.command",
       command: makeChartCommand("chart.symbol.set", "user", {
         panelId: chartPanel.id,
@@ -464,7 +808,7 @@ export default function App() {
       }, { symbol }, undefined, "external")
     });
     return true;
-  }, [chartRuntime, state.layout.panels, state.layout.selectedPanelId]);
+  }, [chartRuntime, runChartAction, state.layout.panels, state.layout.selectedPanelId]);
 
   useEffect(() => {
     if (watchlistSeedAppliedRef.current || userSelectedSymbolRef.current || watchlistSymbols.length === 0) {
@@ -606,6 +950,7 @@ export default function App() {
           symbolUniverse={symbolUniverse}
           backfillEligibleSymbols={symbolUniverse}
           chartRuntime={chartRuntime}
+          chartDevLogs={chartDevLogs}
           chartAutoApplyEnabled={state.layout.settings.llmLayoutAutoApply}
           onSettingsTabChange={setSettingsTab}
           onEditAgent={setEditingAgentId}
@@ -617,6 +962,7 @@ export default function App() {
           onCommand={runCommand}
           onLayoutProposal={runLayoutProposal}
           onChartAction={runChartAction}
+          onChartDevLog={appendChartDevLog}
           onAskAgentFromChart={askAgentFromChart}
           onToggleWatchlistSymbol={toggleWatchlistSymbol}
         />

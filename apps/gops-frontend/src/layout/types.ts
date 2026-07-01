@@ -19,7 +19,8 @@ export type PanelType =
   | "indicatorCompare"
   | "orderTicket"
   | "aiSummary"
-  | "ontologyGraph";
+  | "ontologyGraph"
+  | "chartDevLog";
 
 export type PanelPlacement = {
   group: GridGroup;

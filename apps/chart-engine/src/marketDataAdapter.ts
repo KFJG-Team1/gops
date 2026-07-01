@@ -1,6 +1,6 @@
 import { normalizeChartInterval } from "./intervals";
 import { canonicalTimestamp } from "./time";
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartSnapshotDataStatus, RepairStatus } from "./types";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartRequestedRange, ChartSnapshotDataStatus, RepairStatus } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
@@ -83,8 +83,7 @@ function readRepairStatus(value: unknown): RepairStatus | undefined {
   return value === "none" ||
     value === "gapfill_required" ||
     value === "gapfill_active" ||
-    value === "gapfill_failed" ||
-    value === "history_preload_required"
+    value === "gapfill_failed"
     ? value
     : undefined;
 }
@@ -112,18 +111,40 @@ function normalizeCoverage(value: unknown): ChartCoverage | undefined {
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,
     returnedCount: readNumber(source.returnedCount) ?? undefined,
     storedCandleCount: readNumber(source.storedCandleCount) ?? undefined,
-    targetStoredCount: readNumber(source.targetStoredCount) ?? undefined,
-    targetRangeFrom: readString(source.targetRangeFrom) ?? undefined,
     availableFrom: readString(source.availableFrom) ?? undefined,
     availableTo: readString(source.availableTo) ?? undefined,
+    noDataBefore: readString(source.noDataBefore) ?? undefined,
+    requestedRange: normalizeRequestedRange(source.requestedRange),
     invalidRowCount: readNumber(source.invalidRowCount) ?? undefined,
     renderable: readBoolean(source.renderable) ?? undefined,
     minimumReturnedCount: readNumber(source.minimumReturnedCount) ?? undefined,
     minimumRenderableSourceBars: readNumber(source.minimumRenderableSourceBars) ?? undefined,
+    expectedRequestedRangeBars: readNumber(source.expectedRequestedRangeBars) ?? undefined,
     returnedSpanSeconds: readNumber(source.returnedSpanSeconds) ?? undefined,
     maxRenderableSpanSeconds: readNumber(source.maxRenderableSpanSeconds) ?? undefined,
     renderabilityReasonCode: readString(source.renderabilityReasonCode) ?? undefined
   };
+}
+
+function normalizeRequestedRange(value: unknown): ChartRequestedRange | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const range: ChartRequestedRange = {};
+  const before = readString(source.before);
+  const from = readString(source.from);
+  const to = readString(source.to);
+  if (before) {
+    range.before = before;
+  }
+  if (from) {
+    range.from = from;
+  }
+  if (to) {
+    range.to = to;
+  }
+  return Object.keys(range).length ? range : undefined;
 }
 
 export function isRealtimeControlPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeControlType } {
@@ -182,11 +203,11 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     message: readString(source.message) ?? undefined,
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,
     returnedCount: readNumber(source.returnedCount) ?? undefined,
-    targetStoredCount: readNumber(source.targetStoredCount) ?? undefined,
-    targetRangeFrom: readString(source.targetRangeFrom) ?? undefined,
     storedCandleCount: readNumber(source.storedCandleCount) ?? undefined,
     availableFrom: readString(source.availableFrom) ?? undefined,
     availableTo: readString(source.availableTo) ?? undefined,
+    noDataBefore: readString(source.noDataBefore) ?? undefined,
+    requestedRange: normalizeRequestedRange(source.requestedRange),
     oldestTimestamp: readString(source.oldestTimestamp) ?? undefined,
     newestTimestamp: readString(source.newestTimestamp) ?? undefined,
     hasMoreBefore: readBoolean(source.hasMoreBefore) ?? undefined,
@@ -206,6 +227,7 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
   const type = readCandleEventType(source.type);
   const symbol = readString(source.symbol);
   const interval = normalizeChartInterval(readString(source.interval) ?? "");
+  const sourceInterval = normalizeChartInterval(readString(source.sourceInterval) ?? "");
   const candle = normalizeCandle(source.data);
 
   if (!type || !symbol || !interval || !candle) {
@@ -218,7 +240,7 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
     cursor: readString(source.cursor) ?? undefined,
     symbol,
     interval,
-    sourceInterval: readString(source.sourceInterval) ?? undefined,
+    sourceInterval: sourceInterval ?? interval,
     source: readString(source.source) ?? undefined,
     feed: readString(source.feed) ?? undefined,
     feedProfile: readString(source.feedProfile) ?? undefined,

@@ -91,7 +91,8 @@ const panelAliases: Record<PanelType, string[]> = {
   indicatorCompare: ["지표", "지표 비교", "인디케이터", "거시", "indicator"],
   orderTicket: ["주문", "주문 입력", "주문창", "매수창", "매도창", "order", "ticket"],
   aiSummary: ["AI 요약", "요약", "AI 어시스턴트", "assistant"],
-  ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"]
+  ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"],
+  chartDevLog: ["차트 로그", "진단 로그", "개발 로그", "chart dev log", "diagnostics"]
 };
 
 export function buildAgentAnalysisRequest({

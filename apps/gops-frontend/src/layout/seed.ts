@@ -230,11 +230,11 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
       "panel-ontology"
     ),
     createPanelInstance(
-      "aiSummary",
+      "chartDevLog",
       { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
       "system",
-      { summary: "AI 요약 준비 중" },
-      "panel-ai-summary"
+      {},
+      "panel-chart-dev-log"
     ),
     createPanelInstance(
       "indicatorCompare",

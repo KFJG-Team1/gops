@@ -7,7 +7,7 @@ await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
 
 try {
   await build({
-    entryPoints: [fileURLToPath(new URL("../tests/chartRuntime.test.ts", import.meta.url))],
+    entryPoints: [fileURLToPath(new URL("../tests/rangeBackfill.test.ts", import.meta.url))],
     outfile: fileURLToPath(outfile),
     bundle: true,
     platform: "node",

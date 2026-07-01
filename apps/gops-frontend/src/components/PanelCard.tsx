@@ -1,11 +1,13 @@
 import { GripVertical, Pin, Star, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { ChartDevLogPanel } from "./ChartDevLogPanel";
 import { ChartPanel } from "./ChartPanel";
 import { OrderTicket } from "./OrderTicket";
 import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
 import { getSymbolMeta, normalizeSupportedSymbol, type HotRankingSymbol, type SupportedSymbol, type SymbolMeta, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
+import type { ChartDevLogEntry, ChartDevLogInput } from "../diagnostics/chartDevLog";
 import { makeCommand } from "../layout/commands";
 import { workspaceColumnCount, workspaceColumnStarts, workspaceRowCount, workspaceRowStarts } from "../layout/gridGeometry";
 import { applyPanelMoveWithPacking } from "../layout/reflow";
@@ -22,10 +24,12 @@ type PanelCardProps = {
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
+  chartDevLogs: readonly ChartDevLogEntry[];
   knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
+  onChartDevLog: (entry: ChartDevLogInput) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
   onToggleWatchlistSymbol: (symbol: string) => void;
@@ -48,29 +52,16 @@ type PanelMarketMetrics = {
 
 const DRAG_START_THRESHOLD_PX = 5;
 const PANEL_MOVE_ANIMATION_MS = 540;
-const CHART_HEADER_COMPANY_NAMES: Record<string, string> = {
-  AAPL: "Apple",
-  AMD: "Advanced Micro Devices",
-  AMZN: "Amazon",
-  ASML: "ASML Holding",
-  AVGO: "Broadcom",
-  GOOGL: "Alphabet",
-  META: "Meta Platforms",
-  MSFT: "Microsoft",
-  MU: "Micron Technology",
-  NVDA: "NVIDIA",
-  TSLA: "Tesla",
-  TSM: "Taiwan Semiconductor"
-};
-
 function PanelBody({
   panel,
   chartRuntime,
   chartAutoApplyEnabled,
   activeSymbol,
   backfillEligibleSymbols,
+  chartDevLogs,
   hotRankingSymbols,
   onChartAction,
+  onChartDevLog,
   onAskAgentFromChart,
   onSelectSymbol
 }: {
@@ -79,8 +70,10 @@ function PanelBody({
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
+  chartDevLogs: readonly ChartDevLogEntry[];
   hotRankingSymbols: readonly HotRankingSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
+  onChartDevLog: (entry: ChartDevLogInput) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
 }) {
@@ -92,9 +85,14 @@ function PanelBody({
         autoApplyEnabled={chartAutoApplyEnabled}
         backfillEligibleSymbols={backfillEligibleSymbols}
         onChartAction={onChartAction}
+        onDevLog={onChartDevLog}
         onAskAgent={onAskAgentFromChart}
       />
     );
+  }
+
+  if (panel.type === "chartDevLog") {
+    return <ChartDevLogPanel entries={chartDevLogs} chartRuntime={chartRuntime} />;
   }
 
   if (panel.type === "orderTicket") {
@@ -171,7 +169,7 @@ function resolveChartHeaderCompanyName(symbolMeta: Pick<SymbolMeta, "symbol" | "
     return companyName;
   }
 
-  return CHART_HEADER_COMPANY_NAMES[symbolMeta.symbol] ?? "";
+  return symbolMeta.name !== symbolMeta.symbol ? symbolMeta.name : "";
 }
 
 function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
@@ -188,6 +186,8 @@ function panelHeaderSubtitle(panelType: PanelInstance["type"]): string {
       return "AI 요약";
     case "ontologyGraph":
       return "기업 관계";
+    case "chartDevLog":
+      return "차트 진단 로그";
     default:
       return "작업 패널";
   }
@@ -241,10 +241,12 @@ export function PanelCard({
   chartAutoApplyEnabled,
   activeSymbol,
   backfillEligibleSymbols,
+  chartDevLogs,
   knownSymbols,
   watchlistSymbols,
   hotRankingSymbols,
   onChartAction,
+  onChartDevLog,
   onAskAgentFromChart,
   onSelectSymbol,
   onToggleWatchlistSymbol,
@@ -550,8 +552,10 @@ export function PanelCard({
         chartAutoApplyEnabled={chartAutoApplyEnabled}
         activeSymbol={activeSymbol}
         backfillEligibleSymbols={backfillEligibleSymbols}
+        chartDevLogs={chartDevLogs}
         hotRankingSymbols={hotRankingSymbols}
         onChartAction={onChartAction}
+        onChartDevLog={onChartDevLog}
         onAskAgentFromChart={onAskAgentFromChart}
         onSelectSymbol={onSelectSymbol}
       />

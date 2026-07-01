@@ -11,7 +11,8 @@ export const PANEL_CATALOG_TYPES: PanelType[] = [
   "indicatorCompare",
   "aiSummary",
   "orderTicket",
-  "ontologyGraph"
+  "ontologyGraph",
+  "chartDevLog"
 ];
 
 export type WorkspaceDropCell = {

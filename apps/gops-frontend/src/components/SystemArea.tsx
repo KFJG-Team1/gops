@@ -1012,6 +1012,8 @@ function catalogDescription(panelType: PanelType): string {
       return "주문 입력";
     case "ontologyGraph":
       return "기업 관계";
+    case "chartDevLog":
+      return "차트 진단 로그";
     default:
       return "작업 패널";
   }

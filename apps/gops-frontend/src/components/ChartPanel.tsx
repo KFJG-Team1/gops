@@ -26,7 +26,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -34,8 +34,9 @@ import {
   isChartDataRenderable,
   isPreparingCandleData,
   normalizeBackfillStatusPayload,
+  historicalRangeReadRequest,
+  planHistoricalRangeLoad,
   rangeBackfillWindow,
-  shouldForceBackfill,
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "@gops/chart-engine/backfill";
@@ -43,7 +44,12 @@ import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
 import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
-import { chartIntervals, defaultVisibleBarsForInterval, maxRequestBarsForInterval } from "@gops/chart-engine/intervals";
+import {
+  chartIntervals,
+  defaultVisibleBarsForInterval,
+  minimumBackfillSourceBarsForInterval,
+  rangeBackfillBufferMultiplierForInterval
+} from "@gops/chart-engine/intervals";
 import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
@@ -60,6 +66,7 @@ import {
 import { candleKey } from "@gops/chart-engine/candleStore";
 import { normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
 import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
+import { summarizeChartCoverage, type ChartDevLogInput } from "../diagnostics/chartDevLog";
 import { useElementSize } from "../hooks/useElementSize";
 import type { PanelInstance } from "../layout/types";
 
@@ -80,6 +87,7 @@ type ChartPanelProps = {
   autoApplyEnabled: boolean;
   backfillEligibleSymbols: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
+  onDevLog?: (entry: ChartDevLogInput) => void;
   onAskAgent: (panelId: string, chartDocumentId: string) => void;
 };
 
@@ -121,9 +129,21 @@ type HoverTooltip = FloatingMenuPosition & {
   placement: "bottom" | "right";
 };
 
+type ChartRequestIdentity = {
+  documentId: string;
+  symbol: SupportedSymbol;
+  interval: string;
+};
+
+type RangeRequestResource = {
+  controller: AbortController;
+  pollTimer?: number;
+};
+
 const liveIdleMessage = "실시간 스트림은 연결됐고 시장 데이터를 기다리는 중입니다.";
 const liveRecentlyIdleMessage = "최근 새 실시간 캔들이 없어 저장된 캔들을 사용 중입니다.";
 const liveIdleDelayMs = 45_000;
+const historicalRangeRequestDebounceMs = 180;
 
 function tooltipAttributes(label: string): TooltipAttributes {
   return {
@@ -176,18 +196,19 @@ function chartToolLabel(toolId: ChartToolMode): string {
   }
 }
 
-export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onAskAgent }: ChartPanelProps) {
+export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onDevLog, onAskAgent }: ChartPanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<RenderScene | null>(null);
+  const renderLogKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
   const backfillRequestsRef = useRef<Set<string>>(new Set());
-  const terminalBackfillRetryRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
-  const rangeBackfillTerminalRef = useRef<Set<string>>(new Set());
+  const rangeRequestResourcesRef = useRef<Map<string, RangeRequestResource>>(new Map());
+  const chartRequestIdentityRef = useRef<ChartRequestIdentity | null>(null);
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
@@ -223,11 +244,16 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     return `${key}:${runtime.candlesByKey[key]?.length ? "ready" : "missing"}`;
   }).join("|");
   const documentDataKey = candleKey(document.symbol, document.timeframe);
-  const backfillEligibleKey = backfillEligibleSymbols.join("|");
   const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
+  const initialBackfillNeeded = shouldRequestBackfill(dataStatus);
   const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
   const chartDataRenderable = isChartDataRenderable(dataStatus);
   const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
+  chartRequestIdentityRef.current = {
+    documentId: document.id,
+    symbol: document.symbol,
+    interval: document.timeframe
+  };
   const sceneDocument = useMemo(
     () => (transientViewport || transientDrawings)
       ? { ...document, viewport: transientViewport ?? document.viewport, drawings: transientDrawings ?? document.drawings }
@@ -238,6 +264,29 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     () => ({ panelId: panel.id, chartDocumentId: document.id }),
     [document.id, panel.id]
   );
+  const logChartDev = useCallback((entry: ChartDevLogInput) => {
+    // DEV-ONLY: 차트/backfill 개발 완료 후 이 진단 로그 호출부는 제거한다.
+    onDevLog?.({
+      symbol: document.symbol,
+      interval: document.timeframe,
+      chartDocumentId: document.id,
+      panelId: panel.id,
+      ...entry
+    });
+  }, [document.id, document.symbol, document.timeframe, onDevLog, panel.id]);
+
+  useEffect(() => {
+    return () => {
+      for (const [requestKey, resource] of rangeRequestResourcesRef.current.entries()) {
+        if (resource.pollTimer) {
+          window.clearTimeout(resource.pollTimer);
+        }
+        resource.controller.abort();
+        rangeRequestsRef.current.delete(requestKey);
+      }
+      rangeRequestResourcesRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!pendingPreviewKey) {
@@ -324,6 +373,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       limit: String(defaultVisibleBarsForInterval(document.timeframe))
     });
 
+    logChartDev({
+      level: "info",
+      category: "chart-data",
+      message: "Requesting candle snapshot",
+      details: {
+        limit: defaultVisibleBarsForInterval(document.timeframe),
+        movingAverages: "5,20,60"
+      }
+    });
     onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
 
     fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
@@ -337,12 +395,45 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         if (cancelled) {
           return;
         }
-        onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) });
+        const snapshot = normalizeCandleSnapshot(payload);
+        logChartDev({
+          level: snapshot.candles.length ? "info" : "warn",
+          category: "chart-data",
+          message: "Candle snapshot response received",
+          symbol: snapshot.symbol,
+          interval: snapshot.interval,
+          details: {
+            candleCount: snapshot.candles.length,
+            returnedCount: snapshot.returnedCount,
+            storedCandleCount: snapshot.storedCandleCount,
+            dataStatus: snapshot.dataStatus,
+            backfillStatus: snapshot.backfillStatus,
+            repairStatus: snapshot.repairStatus,
+            sourceInterval: snapshot.sourceInterval,
+            requestedRange: snapshot.requestedRange,
+            oldestTimestamp: snapshot.oldestTimestamp,
+            newestTimestamp: snapshot.newestTimestamp,
+            availableFrom: snapshot.availableFrom,
+            availableTo: snapshot.availableTo,
+            noDataBefore: snapshot.noDataBefore,
+            hasMoreBefore: snapshot.hasMoreBefore,
+            coverageSummary: summarizeChartCoverage(snapshot.coverage)
+          }
+        });
+        onChartAction({ kind: "chart.snapshot.loaded", snapshot });
       })
       .catch((error: unknown) => {
         if (cancelled || isAbortError(error)) {
           return;
         }
+        logChartDev({
+          level: "error",
+          category: "chart-data",
+          message: "Candle snapshot request failed",
+          details: {
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
         onChartAction({
           kind: "chart.snapshot.failed",
           symbol: document.symbol,
@@ -355,35 +446,68 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       cancelled = true;
       controller.abort();
     };
-  }, [document.symbol, document.timeframe, onChartAction, snapshotReloadToken]);
+  }, [document.symbol, document.timeframe, logChartDev, onChartAction, snapshotReloadToken]);
 
   useEffect(() => {
     const key = candleKey(document.symbol, document.timeframe);
-    const sourceInterval = dataStatus.sourceInterval ?? document.timeframe;
-    const forceBackfill = shouldForceBackfill(dataStatus);
-    const terminalRetryKey = `${document.symbol}:${sourceInterval}`;
+    const minimumSourceBars = minimumBackfillSourceBarsForInterval(document.timeframe);
+    const bufferMultiplier = rangeBackfillBufferMultiplierForInterval(document.timeframe);
+    const windowRange = rangeBackfillWindow(
+      document.timeframe,
+      new Date().toISOString(),
+      defaultVisibleBarsForInterval(document.timeframe),
+      { bufferMultiplier, minimumSourceBars }
+    );
     if (
-      !backfillEligibleSymbols.includes(document.symbol) ||
-      !shouldRequestBackfill(dataStatus) ||
-      backfillRequestsRef.current.has(key) ||
-      (forceBackfill && terminalBackfillRetryRef.current.has(terminalRetryKey))
+      !backfillEligible ||
+      !initialBackfillNeeded ||
+      !windowRange ||
+      backfillRequestsRef.current.has(key)
     ) {
       return undefined;
     }
 
     backfillRequestsRef.current.add(key);
-    if (forceBackfill) {
-      terminalBackfillRetryRef.current.add(terminalRetryKey);
-    }
     let cancelled = false;
     let pollTimer: number | undefined;
     const controller = new AbortController();
+
+    logChartDev({
+      level: "info",
+      category: "backfill",
+      message: "Initial backfill requested",
+      details: {
+        key,
+        requestedInterval: document.timeframe,
+        sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+        start: windowRange.start,
+        end: windowRange.end,
+        dataState: dataStatus.state,
+        requestedBars: defaultVisibleBarsForInterval(document.timeframe),
+        bufferMultiplier,
+        minimumSourceBars
+      }
+    });
 
     const applyBackfillStatus = (payload: unknown) => {
       const status = normalizeBackfillStatusPayload(payload);
       if (cancelled) {
         return;
       }
+
+      logChartDev({
+        level: backfillDevLogLevel(status.status),
+        category: "backfill",
+        message: `Initial backfill status: ${status.status}`,
+        details: {
+          requestId: status.requestId,
+          requestedInterval: status.interval ?? document.timeframe,
+          error: status.error,
+          sourceInterval: status.sourceInterval,
+          resultSummary: summarizeBackfillResult(status.result),
+          result: status.result
+        }
+      });
 
       if (status.status === "succeeded") {
         backfillRequestsRef.current.delete(key);
@@ -437,6 +561,16 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             return;
           }
           backfillRequestsRef.current.delete(key);
+          logChartDev({
+            level: "error",
+            category: "backfill",
+            message: "Initial backfill status check failed",
+            details: {
+              requestedInterval: document.timeframe,
+              sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          });
           onChartAction({
             kind: "chart.data.status",
             symbol: document.symbol,
@@ -461,7 +595,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       body: JSON.stringify({
         symbol: document.symbol,
         interval: document.timeframe,
-        force: forceBackfill
+        start: windowRange.start,
+        end: windowRange.end
       })
     })
       .then((response) => {
@@ -476,6 +611,18 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           return;
         }
         backfillRequestsRef.current.delete(key);
+        logChartDev({
+          level: "error",
+          category: "backfill",
+          message: "Initial backfill request failed",
+          details: {
+            requestedInterval: document.timeframe,
+            sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+            start: windowRange.start,
+            end: windowRange.end,
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
         onChartAction({
           kind: "chart.data.status",
           symbol: document.symbol,
@@ -499,10 +646,29 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         window.clearTimeout(pollTimer);
       }
     };
-  }, [backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, onChartAction]);
+  }, [
+    backfillEligible,
+    dataStatus.backfillStatus,
+    dataStatus.canBackfill,
+    dataStatus.feed,
+    dataStatus.repairStatus,
+    dataStatus.source,
+    dataStatus.sourceInterval,
+    dataStatus.state,
+    document.symbol,
+    document.timeframe,
+    initialBackfillNeeded,
+    logChartDev,
+    onChartAction
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("WebSocket" in window)) {
+      logChartDev({
+        level: "warn",
+        category: "stream",
+        message: "WebSocket API unavailable"
+      });
       return;
     }
 
@@ -542,12 +708,25 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
 
     const connect = () => {
+      logChartDev({
+        level: "debug",
+        category: "stream",
+        message: "Opening chart websocket",
+        details: {
+          reconnectAttempt
+        }
+      });
       onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
       socket = new WebSocket(resolveChartSocketUrl(params));
 
       socket.onopen = () => {
         reconnectAttempt = 0;
         sawLiveCandle = false;
+        logChartDev({
+          level: "info",
+          category: "stream",
+          message: "Chart websocket opened"
+        });
         markIdle();
         scheduleIdle();
       };
@@ -564,6 +743,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
               return;
             }
             if (payload.type === "ERROR") {
+              logChartDev({
+                level: payload.retryable === true ? "warn" : "error",
+                category: "stream",
+                message: "Chart websocket control error",
+                details: {
+                  retryable: payload.retryable,
+                  detail: payload.detail
+                }
+              });
               onChartAction({
                 kind: "chart.stream.status",
                 symbol: document.symbol,
@@ -580,6 +768,14 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           onChartAction({ kind: "chart.live", event: normalizeCandleEvent(payload) });
         } catch (error) {
           clearIdleTimer();
+          logChartDev({
+            level: "error",
+            category: "stream",
+            message: "Invalid live candle event",
+            details: {
+              error: error instanceof Error ? error.message : String(error)
+            }
+          });
           onChartAction({
             kind: "chart.stream.status",
             symbol: document.symbol,
@@ -592,12 +788,17 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
       socket.onerror = () => {
         clearIdleTimer();
+        logChartDev({
+          level: "warn",
+          category: "stream",
+          message: "Chart websocket transport error; reconnecting"
+        });
         onChartAction({
           kind: "chart.stream.status",
           symbol: document.symbol,
           interval: document.timeframe,
-          status: "error",
-          message: "Live candle stream error."
+          status: "stale",
+          message: "Live candle stream reconnecting..."
         });
       };
 
@@ -608,6 +809,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         }
         onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "stale" });
         const delay = Math.min(3000, 600 + reconnectAttempt * 400);
+        logChartDev({
+          level: "warn",
+          category: "stream",
+          message: "Chart websocket closed; reconnect scheduled",
+          details: {
+            reconnectAttempt,
+            delayMs: delay
+          }
+        });
         reconnectAttempt += 1;
         reconnectTimer = window.setTimeout(connect, delay);
       };
@@ -623,7 +833,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       clearIdleTimer();
       socket?.close();
     };
-  }, [document.symbol, document.timeframe, onChartAction]);
+  }, [document.symbol, document.timeframe, logChartDev, onChartAction]);
 
   const scene = useMemo(() => {
     const nextScene = buildRenderScene({
@@ -709,63 +919,162 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return undefined;
     }
 
-    const targetLimit = maxRequestBarsForInterval(document.timeframe);
-    const defaultVisibleCount = defaultVisibleBarsForInterval(document.timeframe);
-    const targetVisibleCount = Math.min(targetLimit, Math.max(1, document.viewport.visibleCount));
-    const visibleEnd = Math.max(0, candles.length - document.viewport.rightOffset);
-    const visibleStart = Math.max(0, visibleEnd - targetVisibleCount);
-    const userZoomedPastDefault = targetVisibleCount > defaultVisibleCount;
-    const userPannedIntoHistory = document.viewport.rightOffset > 0;
-    const isLookingPastLoadedRange = userZoomedPastDefault && targetVisibleCount > candles.length;
-    const isNearLoadedOldest =
-      userPannedIntoHistory &&
-      visibleStart <= Math.max(24, Math.ceil(targetVisibleCount * 0.1));
-
-    if (!isLookingPastLoadedRange && !isNearLoadedOldest) {
+    const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
+    const rangeViewport = normalizeViewport(document.viewport, candles.length, plotWidth);
+    const rangePlan = planHistoricalRangeLoad({
+      symbol: document.symbol,
+      interval: document.timeframe,
+      candleCount: candles.length,
+      oldestTimestamp: candles[0]?.timestamp,
+      rightOffset: rangeViewport.rightOffset,
+      visibleCount: rangeViewport.visibleCount,
+      hasMoreBefore: dataStatus.hasMoreBefore,
+      noDataBefore: dataStatus.noDataBefore
+    });
+    if (!rangePlan) {
       return undefined;
     }
 
-    const oldest = candles[0]?.timestamp;
-    if (!oldest) {
-      return undefined;
-    }
-
-    const missingVisibleCount = Math.max(0, targetVisibleCount - candles.length);
-    const remainingCapacity = Math.max(0, targetLimit - candles.length);
-    if (remainingCapacity <= 0) {
-      return undefined;
-    }
-    const pageLimit = Math.min(remainingCapacity, Math.max(defaultVisibleCount, missingVisibleCount + defaultVisibleCount));
-    const requestKey = `${document.symbol}:${document.timeframe}:before:${oldest}`;
+    const {
+      requestKey,
+      before,
+      pageLimit,
+      plannedBackfillRange,
+      defaultVisibleCount,
+      minimumSourceBars,
+      targetVisibleCount,
+      visibleEnd,
+      visibleStart,
+      bufferedVisibleCount,
+      bufferMultiplier,
+      loadedOldestLookaheadCount,
+      candleCount,
+      userZoomedPastDefault,
+      userPannedIntoHistory,
+      isLookingPastLoadedRange,
+      isNearLoadedOldest
+    } = rangePlan;
+    const historicalReadRequest = historicalRangeReadRequest(rangePlan);
     if (rangeRequestsRef.current.has(requestKey)) {
       return undefined;
     }
 
     rangeRequestsRef.current.add(requestKey);
-    const controller = new AbortController();
+    const requestIdentity: ChartRequestIdentity = {
+      documentId: document.id,
+      symbol: document.symbol,
+      interval: document.timeframe
+    };
+    logChartDev({
+      level: "info",
+      category: "backfill",
+      message: "Historical range requested",
+      details: {
+        requestKey,
+        requestedInterval: document.timeframe,
+        sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+        oldest: before,
+        visibleStart,
+        visibleEnd,
+        targetVisibleCount,
+        bufferedVisibleCount,
+        bufferMultiplier,
+        loadedOldestLookaheadCount,
+        defaultVisibleCount,
+        minimumSourceBars,
+        pageLimit,
+        plannedBackfillRange,
+        historicalReadRequest,
+        rangeViewport,
+        requestedViewport: document.viewport,
+        candleCount,
+        userZoomedPastDefault,
+        userPannedIntoHistory,
+        isLookingPastLoadedRange,
+        isNearLoadedOldest
+      }
+    });
     const params = new URLSearchParams({
       symbol: document.symbol,
       interval: document.timeframe,
       ma: "5,20,60",
-      limit: String(pageLimit),
-      before: oldest
+      limit: String(historicalReadRequest.limit)
     });
-    let pollTimer: number | undefined;
+    if (historicalReadRequest.from && historicalReadRequest.to) {
+      params.set("from", historicalReadRequest.from);
+      params.set("to", historicalReadRequest.to);
+    } else if (historicalReadRequest.before) {
+      params.set("before", historicalReadRequest.before);
+    }
+    const controller = new AbortController();
+    const resource: RangeRequestResource = { controller };
+    rangeRequestResourcesRef.current.set(requestKey, resource);
+    let debounceTimer: number | undefined;
     let rangeBackfillStarted = false;
+    let cancelled = false;
+
+    const isCurrentRangeRequest = () => {
+      const current = chartRequestIdentityRef.current;
+      return !cancelled &&
+        current?.documentId === requestIdentity.documentId &&
+        current.symbol === requestIdentity.symbol &&
+        current.interval === requestIdentity.interval &&
+        rangeRequestResourcesRef.current.get(requestKey) === resource;
+    };
+
+    const releaseRangeRequest = (abort = false) => {
+      const currentResource = rangeRequestResourcesRef.current.get(requestKey);
+      if (currentResource !== resource) {
+        return;
+      }
+      if (resource.pollTimer) {
+        window.clearTimeout(resource.pollTimer);
+        resource.pollTimer = undefined;
+      }
+      if (abort) {
+        resource.controller.abort();
+      }
+      rangeRequestResourcesRef.current.delete(requestKey);
+      rangeRequestsRef.current.delete(requestKey);
+    };
+
+    const scheduleRangeStatusPoll = (requestId?: string) => {
+      if (resource.pollTimer) {
+        window.clearTimeout(resource.pollTimer);
+      }
+      resource.pollTimer = window.setTimeout(() => {
+        resource.pollTimer = undefined;
+        pollRangeBackfillStatus(requestId);
+      }, 1200);
+    };
 
     const applyRangeBackfillStatus = (payload: unknown) => {
       const status = normalizeBackfillStatusPayload(payload);
+      if (!isCurrentRangeRequest()) {
+        return;
+      }
+      logChartDev({
+        level: backfillDevLogLevel(status.status),
+        category: "backfill",
+        message: `Range backfill status: ${status.status}`,
+        details: {
+          requestId: status.requestId,
+          requestedInterval: status.interval ?? document.timeframe,
+          error: status.error,
+          sourceInterval: status.sourceInterval,
+          resultSummary: summarizeBackfillResult(status.result),
+          result: status.result,
+          requestKey
+        }
+      });
       if (status.status === "succeeded") {
-        rangeBackfillTerminalRef.current.add(requestKey);
-        rangeRequestsRef.current.delete(requestKey);
+        releaseRangeRequest();
         setRangeReloadToken((current) => current + 1);
         return;
       }
 
       if (isActiveBackfillStatus(status.status)) {
-        pollTimer = window.setTimeout(() => {
-          pollRangeBackfillStatus(status.requestId);
-        }, 1200);
+        scheduleRangeStatusPoll(status.requestId);
         onChartAction({
           kind: "chart.data.status",
           symbol: document.symbol,
@@ -785,8 +1094,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         return;
       }
 
-      rangeBackfillTerminalRef.current.add(requestKey);
-      rangeRequestsRef.current.delete(requestKey);
+      releaseRangeRequest();
       onChartAction({
         kind: "chart.error",
         chartDocumentId: document.id,
@@ -795,6 +1103,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
 
     const pollRangeBackfillStatus = (requestId?: string) => {
+      if (!isCurrentRangeRequest()) {
+        return;
+      }
       const statusParams = new URLSearchParams({
         symbol: document.symbol,
         interval: document.timeframe
@@ -812,11 +1123,21 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         })
         .then(applyRangeBackfillStatus)
         .catch((error: unknown) => {
-          if (isAbortError(error)) {
+          if (isAbortError(error) || !isCurrentRangeRequest()) {
             return;
           }
-          rangeBackfillTerminalRef.current.add(requestKey);
-          rangeRequestsRef.current.delete(requestKey);
+          releaseRangeRequest();
+          logChartDev({
+            level: "error",
+            category: "backfill",
+            message: "Range backfill status check failed",
+            details: {
+              requestKey,
+              requestedInterval: document.timeframe,
+              sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          });
           onChartAction({
             kind: "chart.error",
             chartDocumentId: document.id,
@@ -826,15 +1147,56 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
 
     const requestRangeBackfill = () => {
-      if (!backfillEligibleSymbols.includes(document.symbol) || rangeBackfillTerminalRef.current.has(requestKey)) {
+      if (!isCurrentRangeRequest()) {
         return;
       }
-      const windowRange = rangeBackfillWindow(document.timeframe, oldest, pageLimit);
+      if (!backfillEligible) {
+        logChartDev({
+          level: "warn",
+          category: "backfill",
+          message: "Range backfill skipped: symbol is not eligible",
+          details: {
+            requestKey,
+            requestedInterval: document.timeframe,
+            sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+            plannedBackfillRange
+          }
+        });
+        return;
+      }
+      const windowRange = plannedBackfillRange;
       if (!windowRange) {
+        logChartDev({
+          level: "warn",
+          category: "backfill",
+          message: "Range backfill skipped: no request window",
+          details: {
+            requestKey,
+            requestedInterval: document.timeframe,
+            sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+            oldest: before,
+            targetVisibleCount,
+            minimumSourceBars,
+            pageLimit
+          }
+        });
         return;
       }
 
       rangeBackfillStarted = true;
+      logChartDev({
+        level: "info",
+        category: "backfill",
+        message: "Range backfill requested",
+        details: {
+          requestKey,
+          requestedInterval: document.timeframe,
+          sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+          start: windowRange.start,
+          end: windowRange.end,
+          minimumSourceBars
+        }
+      });
       fetch("/api/charts/backfill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -843,8 +1205,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
           symbol: document.symbol,
           interval: document.timeframe,
           start: windowRange.start,
-          end: windowRange.end,
-          mode: "queue"
+          end: windowRange.end
         })
       })
         .then((response) => {
@@ -855,11 +1216,21 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         })
         .then(applyRangeBackfillStatus)
         .catch((error: unknown) => {
-          if (isAbortError(error)) {
+          if (isAbortError(error) || !isCurrentRangeRequest()) {
             return;
           }
-          rangeBackfillTerminalRef.current.add(requestKey);
-          rangeRequestsRef.current.delete(requestKey);
+          releaseRangeRequest();
+          logChartDev({
+            level: "error",
+            category: "backfill",
+            message: "Range backfill request failed",
+            details: {
+              requestKey,
+              requestedInterval: document.timeframe,
+              sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          });
           onChartAction({
             kind: "chart.error",
             chartDocumentId: document.id,
@@ -868,47 +1239,103 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         });
     };
 
-    fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`과거 구간 API 응답 오류 ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        const snapshot = normalizeCandleSnapshot(payload);
-        onChartAction({ kind: "chart.snapshot.loaded", snapshot });
-        if (shouldRequestRangeBackfill(snapshot)) {
-          requestRangeBackfill();
-        }
-      })
-      .catch((error: unknown) => {
-        if (isAbortError(error)) {
-          return;
-        }
-        onChartAction({
-          kind: "chart.error",
-          chartDocumentId: document.id,
-          message: error instanceof Error ? error.message : "Historical range data unavailable."
+    debounceTimer = window.setTimeout(() => {
+      fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`과거 구간 API 응답 오류 ${response.status}`);
+          }
+          return response.json() as Promise<unknown>;
+        })
+        .then((payload) => {
+          if (!isCurrentRangeRequest()) {
+            return;
+          }
+          const snapshot = normalizeCandleSnapshot(payload);
+          const needsBackfill = shouldRequestRangeBackfill(snapshot);
+          logChartDev({
+            level: snapshot.candles.length ? "info" : "warn",
+            category: "chart-data",
+            message: "Historical range response received",
+            symbol: snapshot.symbol,
+            interval: snapshot.interval,
+            details: {
+              requestKey,
+              sourceInterval: snapshot.sourceInterval,
+              before,
+              pageLimit,
+              plannedBackfillRange,
+              historicalReadRequest,
+              candleCount: snapshot.candles.length,
+              returnedCount: snapshot.returnedCount,
+              storedCandleCount: snapshot.storedCandleCount,
+              availableFrom: snapshot.availableFrom,
+              availableTo: snapshot.availableTo,
+              noDataBefore: snapshot.noDataBefore,
+              snapshotSource: snapshot.source,
+              dataStatus: snapshot.dataStatus,
+              backfillStatus: snapshot.backfillStatus,
+              repairStatus: snapshot.repairStatus,
+              requestedRange: snapshot.requestedRange,
+              hasMoreBefore: snapshot.hasMoreBefore,
+              coverageSummary: summarizeChartCoverage(snapshot.coverage),
+              needsBackfill
+            }
+          });
+          onChartAction({ kind: "chart.snapshot.loaded", snapshot });
+          if (needsBackfill) {
+            requestRangeBackfill();
+          }
+        })
+        .catch((error: unknown) => {
+          if (isAbortError(error) || !isCurrentRangeRequest()) {
+            return;
+          }
+          logChartDev({
+            level: "error",
+            category: "chart-data",
+            message: "Historical range request failed",
+            details: {
+              requestKey,
+              requestedInterval: document.timeframe,
+              sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
+              before,
+              pageLimit,
+              historicalReadRequest,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          });
+          onChartAction({
+            kind: "chart.error",
+            chartDocumentId: document.id,
+            message: error instanceof Error ? error.message : "Historical range data unavailable."
+          });
+        })
+        .finally(() => {
+          if (rangeBackfillStarted) {
+            return;
+          }
+          releaseRangeRequest();
         });
-      })
-      .finally(() => {
-        if (rangeBackfillStarted) {
-          return;
-        }
-        rangeRequestsRef.current.delete(requestKey);
-      });
+    }, historicalRangeRequestDebounceMs);
 
     return () => {
-      controller.abort();
-      rangeRequestsRef.current.delete(requestKey);
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
+      if (debounceTimer) {
+        window.clearTimeout(debounceTimer);
       }
+      const current = chartRequestIdentityRef.current;
+      const sameChartIdentity = current?.documentId === requestIdentity.documentId &&
+        current.symbol === requestIdentity.symbol &&
+        current.interval === requestIdentity.interval;
+      if (rangeBackfillStarted && sameChartIdentity) {
+        return;
+      }
+      cancelled = true;
+      releaseRangeRequest(true);
     };
   }, [
     candles,
-    backfillEligibleSymbols,
+    backfillEligible,
     dataStatus.hasMoreBefore,
     dataStatus.coverage,
     dataStatus.feed,
@@ -920,17 +1347,92 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     document.timeframe,
     document.viewport.rightOffset,
     document.viewport.visibleCount,
+    logChartDev,
     onChartAction,
-    rangeReloadToken
+    rangeReloadToken,
+    scene.plot.left,
+    scene.plot.right
   ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.width <= 0 || size.height <= 0) {
+      const renderKey = `skip:${Boolean(canvas)}:${size.width}:${size.height}`;
+      if (renderLogKeyRef.current !== renderKey) {
+        renderLogKeyRef.current = renderKey;
+        logChartDev({
+          level: "warn",
+          category: "render",
+          message: "Chart render skipped",
+          details: {
+            hasCanvas: Boolean(canvas),
+            width: size.width,
+            height: size.height
+          }
+        });
+      }
       return;
     }
-    drawChartScene(canvas, scene);
-  }, [scene, size.height, size.width]);
+
+    if (scene.state !== "ready" || scene.candles.length === 0) {
+      const renderKey = `state:${scene.state}:${scene.candles.length}:${size.width}:${size.height}:${scene.message ?? ""}`;
+      if (renderLogKeyRef.current !== renderKey) {
+        renderLogKeyRef.current = renderKey;
+        logChartDev({
+          level: scene.state === "error" ? "error" : "warn",
+          category: "render",
+          message: "Chart render is not ready",
+          details: {
+            state: scene.state,
+            message: scene.message,
+            candleCount: scene.candles.length,
+            width: size.width,
+            height: size.height
+          }
+        });
+      }
+    }
+
+    try {
+      drawChartScene(canvas, scene);
+      if (scene.state === "ready" && scene.candles.length > 0) {
+        const renderKey = `ready:${document.symbol}:${document.timeframe}:${scene.candles.length}:${size.width}:${size.height}`;
+        if (renderLogKeyRef.current !== renderKey) {
+          renderLogKeyRef.current = renderKey;
+          logChartDev({
+            level: "debug",
+            category: "render",
+            message: "Chart scene rendered",
+            details: {
+              candleCount: scene.candles.length,
+              width: size.width,
+              height: size.height
+            }
+          });
+        }
+      }
+    } catch (error) {
+      const renderKey = `error:${document.symbol}:${document.timeframe}:${size.width}:${size.height}`;
+      renderLogKeyRef.current = renderKey;
+      logChartDev({
+        level: "error",
+        category: "render",
+        message: "Chart render failed",
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+          state: scene.state,
+          candleCount: scene.candles.length,
+          width: size.width,
+          height: size.height
+        }
+      });
+      onChartAction({
+        kind: "chart.error",
+        chartDocumentId: document.id,
+        message: error instanceof Error ? error.message : "Chart render failed."
+      });
+    }
+  }, [document.id, document.symbol, document.timeframe, logChartDev, onChartAction, scene, size.height, size.width]);
 
   const placeFloatingMenu = (element: HTMLElement, width = 190) => {
     const rect = element.getBoundingClientRect();
@@ -1810,8 +2312,6 @@ function comparisonColor(symbol: SupportedSymbol) {
       return "#2563eb";
     case "MSFT":
       return "#7c3aed";
-    case "NVDA":
-      return "#16a34a";
     case "TSLA":
       return "#dc2626";
     case "SPY":
@@ -1898,6 +2398,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function backfillDevLogLevel(status: string): ChartDevLogInput["level"] {
+  if (status === "failed" || status === "unavailable") {
+    return "error";
+  }
+  if (status === "queued" || status === "running") {
+    return "warn";
+  }
+  return "info";
+}
+
 function backfillStatusMessage(status: string, error?: string): string {
   if (status === "queued" || status === "running") {
     return "Preparing candle data...";
@@ -1912,6 +2422,43 @@ function backfillStatusMessage(status: string, error?: string): string {
     return "Backfill completed, but no stored candles were found for this chart.";
   }
   return "No candle data is available for this symbol and interval.";
+}
+
+function summarizeBackfillResult(result?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!result) {
+    return undefined;
+  }
+  return {
+    source: result.source,
+    rawRowCount: result.rawRowCount,
+    processedRowCount: result.processedRowCount,
+    materializedRowCount: result.materializedRowCount,
+    skippedInvalidRowCount: result.skippedInvalidRowCount,
+    materializedSource: result.materializedSource,
+    archiveStatus: result.archiveStatus,
+    archiveRowCount: result.archiveRowCount,
+    archiveObjectCount: result.archiveObjectCount,
+    clickhouseCoveredBeforeLoad: result.clickhouseCoveredBeforeLoad,
+    skipped: result.skipped,
+    reason: result.reason,
+    noDataBefore: result.noDataBefore,
+    partialHistoryBoundary: result.partialHistoryBoundary,
+    missingBeforeCount: result.missingBeforeCount,
+    fetchRangeCount: Array.isArray(result.fetchRanges) ? result.fetchRanges.length : undefined,
+    gapRangeCount: Array.isArray(result.gapRanges) ? result.gapRanges.length : undefined,
+    firstFetchRange: firstRecord(result.fetchRanges),
+    lastFetchRange: lastRecord(result.fetchRanges),
+    firstGapRange: firstRecord(result.gapRanges),
+    lastGapRange: lastRecord(result.gapRanges)
+  };
+}
+
+function firstRecord(value: unknown): unknown {
+  return Array.isArray(value) && value.length ? value[0] : undefined;
+}
+
+function lastRecord(value: unknown): unknown {
+  return Array.isArray(value) && value.length ? value[value.length - 1] : undefined;
 }
 
 function resolveChartSocketUrl(params: URLSearchParams): string {

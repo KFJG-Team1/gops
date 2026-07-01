@@ -167,8 +167,16 @@ function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePane
 
 function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): ChartRuntimeState {
   const key = candleKey(snapshot.symbol, snapshot.interval);
-  const dataState = snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
   const current = state.candlesByKey[key] ?? [];
+  const previousStatus = state.dataStatusByKey[key];
+  const isEmptyRangePage = current.length > 0 && snapshot.candles.length === 0 && Boolean(snapshot.requestedRange);
+  const dataState = isEmptyRangePage
+    ? previousStatus?.state ?? "ready"
+    : snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
+  const preservesHistoryAvailability = isEmptyRangePage && !snapshot.noDataBefore && previousStatus?.hasMoreBefore === true;
+  const message = isEmptyRangePage
+    ? previousStatus?.message
+    : snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined);
   return {
     ...state,
     candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot, current) },
@@ -176,7 +184,7 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
       ...state.dataStatusByKey,
       [key]: {
         state: dataState,
-        message: snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined),
+        message,
         source: snapshot.source,
         feed: snapshot.feed,
         feedProfile: snapshot.feedProfile,
@@ -187,14 +195,14 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         sourceInterval: snapshot.sourceInterval,
         requestedLimit: snapshot.requestedLimit,
         returnedCount: snapshot.returnedCount,
-        targetStoredCount: snapshot.targetStoredCount,
-        targetRangeFrom: snapshot.targetRangeFrom,
         storedCandleCount: snapshot.storedCandleCount,
         availableFrom: snapshot.availableFrom,
         availableTo: snapshot.availableTo,
+        noDataBefore: snapshot.noDataBefore,
+        requestedRange: snapshot.requestedRange,
         oldestTimestamp: snapshot.oldestTimestamp,
         newestTimestamp: snapshot.newestTimestamp,
-        hasMoreBefore: snapshot.hasMoreBefore,
+        hasMoreBefore: preservesHistoryAvailability ? true : snapshot.hasMoreBefore,
         hasMoreAfter: snapshot.hasMoreAfter,
         coverage: snapshot.coverage,
         updatedAt: now()

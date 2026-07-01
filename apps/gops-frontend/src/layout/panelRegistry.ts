@@ -124,6 +124,17 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
     variants: variantDefinitions,
     commands: layoutCommands,
     iconUrl: "/assets/agent-icons/agent-04.svg"
+  },
+  chartDevLog: {
+    type: "chartDevLog",
+    title: "Chart Dev Log",
+    allowedZones: workspaceZones,
+    defaultPlacement: workspacePlacement("context", 4, 3, 1, 1),
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    maxSpan: { colSpan: 4, rowSpan: 5 },
+    defaultWeight: 4,
+    variants: variantDefinitions,
+    commands: layoutCommands
   }
 };
 

@@ -1,6 +1,6 @@
 export type SupportedSymbol = string;
 
-export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "NVDA";
+export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "AAPL";
 
 export type SymbolMeta = {
   symbol: SupportedSymbol;
@@ -20,18 +20,31 @@ export type HotRankingSymbol = WatchlistSymbol & {
   rankReason?: string;
 };
 
+const DEFAULT_SYMBOL_METADATA: Record<string, SymbolMeta> = {
+  AAPL: { symbol: "AAPL", name: "Apple Inc.", market: "NASDAQ" },
+  MSFT: { symbol: "MSFT", name: "Microsoft Corporation", market: "NASDAQ" },
+  XOM: { symbol: "XOM", name: "Exxon Mobil Corporation", market: "NYSE" },
+  AMZN: { symbol: "AMZN", name: "Amazon.com, Inc.", market: "NASDAQ" },
+  GOOGL: { symbol: "GOOGL", name: "Alphabet Inc. Class A", market: "NASDAQ" },
+  META: { symbol: "META", name: "Meta Platforms, Inc.", market: "NASDAQ" },
+  TSLA: { symbol: "TSLA", name: "Tesla, Inc.", market: "NASDAQ" },
+  JPM: { symbol: "JPM", name: "JPMorgan Chase & Co.", market: "NYSE" },
+  UNH: { symbol: "UNH", name: "UnitedHealth Group Incorporated", market: "NYSE" },
+  "BRK.B": { symbol: "BRK.B", name: "Berkshire Hathaway Inc. Class B", market: "NYSE" }
+};
+
 export const DEFAULT_WATCHLIST_SYMBOLS: WatchlistSymbol[] = [
-  { symbol: "AAPL", name: "Apple Inc.", market: "NASDAQ" },
-  { symbol: "MSFT", name: "Microsoft Corporation", market: "NASDAQ" },
-  { symbol: "NVDA", name: "NVIDIA Corporation", market: "NASDAQ" },
-  { symbol: "AMZN", name: "Amazon.com, Inc.", market: "NASDAQ" },
-  { symbol: "META", name: "Meta Platforms, Inc.", market: "NASDAQ" },
-  { symbol: "GOOGL", name: "Alphabet Inc. Class A", market: "NASDAQ" },
-  { symbol: "TSLA", name: "Tesla, Inc.", market: "NASDAQ" },
-  { symbol: "BRK.B", name: "Berkshire Hathaway Inc. Class B", market: "NYSE" },
-  { symbol: "JPM", name: "JPMorgan Chase & Co.", market: "NYSE" },
-  { symbol: "UNH", name: "UnitedHealth Group Incorporated", market: "NYSE" }
-];
+  "AAPL",
+  "MSFT",
+  "XOM",
+  "AMZN",
+  "GOOGL",
+  "META",
+  "TSLA",
+  "JPM",
+  "UNH",
+  "BRK.B"
+].map((symbol) => ({ ...DEFAULT_SYMBOL_METADATA[symbol] }));
 
 const symbolPattern = /^[A-Z][A-Z0-9]{0,9}(\.[A-Z])?$/;
 
@@ -54,8 +67,8 @@ export function getSymbolMeta(value: string): SymbolMeta {
     return { symbol: DEFAULT_CHART_SYMBOL, name: DEFAULT_CHART_SYMBOL, market: "US" };
   }
 
-  const knownDefault = DEFAULT_WATCHLIST_SYMBOLS.find((item) => item.symbol === symbol);
-  return knownDefault ? { symbol, name: knownDefault.name, market: knownDefault.market } : { symbol, name: symbol, market: "US" };
+  const knownDefault = DEFAULT_SYMBOL_METADATA[symbol];
+  return knownDefault ? { ...knownDefault } : { symbol, name: symbol, market: "US" };
 }
 
 export function getSymbolName(value: string): string {

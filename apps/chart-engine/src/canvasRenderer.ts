@@ -1,6 +1,7 @@
 import { createCoordinateTransform } from "./scales";
 import { normalizeLineExtension, projectTrendLine } from "./drawingGeometry";
-import type { CandleData, DrawingEntity, RenderScene } from "./types";
+import { buildTimeAxisLayout, formatCrosshairTimestamp } from "./time";
+import type { DrawingEntity, RenderScene } from "./types";
 
 export function drawChartScene(
   canvas: HTMLCanvasElement,
@@ -94,7 +95,24 @@ function drawGrid(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     line(ctx, x, top, x, bottom);
   }
 
+  drawDateBoundaries(ctx, scene);
   line(ctx, left, volumeTop, right, volumeTop);
+}
+
+function drawDateBoundaries(ctx: CanvasRenderingContext2D, scene: RenderScene) {
+  const axis = buildTimeAxisLayout(scene.candles, scene.document.timeframe, scene.plot.right - scene.plot.left);
+  if (axis.boundaries.length === 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(100, 116, 139, 0.28)";
+  ctx.lineWidth = 1;
+  axis.boundaries.forEach((boundary) => {
+    const x = candleCenter(scene, boundary.visibleIndex);
+    line(ctx, x, scene.plot.top, x, scene.plot.bottom);
+  });
+  ctx.restore();
 }
 
 function drawCandles(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -309,16 +327,12 @@ function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     ctx.fillText(value.toFixed(2), priceLabelX, y);
   }
 
-  const first = scene.candles[0];
-  const last = scene.candles[scene.candles.length - 1];
-  ctx.textAlign = "left";
-  if (first) {
-    ctx.fillText(formatTime(first), left, bottom + 12);
-  }
-  ctx.textAlign = "right";
-  if (last) {
-    ctx.fillText(formatTime(last), right, bottom + 12);
-  }
+  const axis = buildTimeAxisLayout(scene.candles, scene.document.timeframe, right - left);
+  axis.labels.forEach((label) => {
+    const x = candleCenter(scene, label.visibleIndex);
+    ctx.textAlign = x - left < 28 ? "left" : right - x < 28 ? "right" : "center";
+    ctx.fillText(label.label, x, bottom + 12);
+  });
 }
 
 function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -337,7 +351,7 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
 
   const candle = crosshair.candle;
   const isUp = candle.close >= candle.open;
-  const text = `${formatTime(candle)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
+  const text = `${formatCrosshairTimestamp(candle.timestamp, scene.document.timeframe)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
   ctx.font = "11px Inter, system-ui, sans-serif";
   const textWidth = Math.min(scene.plot.right - scene.plot.left - 12, ctx.measureText(text).width + 12);
   const boxX = Math.min(scene.plot.right - textWidth, Math.max(scene.plot.left, crosshair.x + 8));
@@ -397,13 +411,4 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.arcTo(x, y + height, x, y, safeRadius);
   ctx.arcTo(x, y, x + width, y, safeRadius);
   ctx.closePath();
-}
-
-function formatTime(candle: CandleData): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC"
-  }).format(new Date(candle.timestamp));
 }

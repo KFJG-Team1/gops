@@ -18,8 +18,13 @@ export type CandleData = {
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
 export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
-export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
+export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
+export type ChartRequestedRange = {
+  before?: string;
+  from?: string;
+  to?: string;
+};
 
 export type ChartCoverage = {
   state: ChartCoverageState;
@@ -31,14 +36,15 @@ export type ChartCoverage = {
   requestedLimit?: number;
   returnedCount?: number;
   storedCandleCount?: number;
-  targetStoredCount?: number;
-  targetRangeFrom?: string;
   availableFrom?: string;
   availableTo?: string;
+  noDataBefore?: string;
+  requestedRange?: ChartRequestedRange;
   invalidRowCount?: number;
   renderable?: boolean;
   minimumReturnedCount?: number;
   minimumRenderableSourceBars?: number;
+  expectedRequestedRangeBars?: number;
   returnedSpanSeconds?: number;
   maxRenderableSpanSeconds?: number;
   renderabilityReasonCode?: string;
@@ -60,11 +66,11 @@ export type CandleSnapshot = {
   message?: string;
   requestedLimit?: number;
   returnedCount?: number;
-  targetStoredCount?: number;
-  targetRangeFrom?: string;
   storedCandleCount?: number;
   availableFrom?: string;
   availableTo?: string;
+  noDataBefore?: string;
+  requestedRange?: ChartRequestedRange;
   oldestTimestamp?: string;
   newestTimestamp?: string;
   hasMoreBefore?: boolean;
@@ -226,11 +232,11 @@ export type ChartDataStatus = {
   sourceInterval?: string;
   requestedLimit?: number;
   returnedCount?: number;
-  targetStoredCount?: number;
-  targetRangeFrom?: string;
   storedCandleCount?: number;
   availableFrom?: string;
   availableTo?: string;
+  noDataBefore?: string;
+  requestedRange?: ChartRequestedRange;
   oldestTimestamp?: string;
   newestTimestamp?: string;
   hasMoreBefore?: boolean;

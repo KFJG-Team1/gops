@@ -3,6 +3,7 @@ import type { LayoutCommand, LayoutPreviewItem, LayoutProposal, PanelPlacement, 
 import type { ChartRuntimeAction, ChartRuntimeState } from "@gops/chart-engine/runtime";
 import type { AgentChartReference } from "@gops/chart-engine/agentReference";
 import type { HotRankingSymbol, SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
+import type { ChartDevLogEntry, ChartDevLogInput } from "../diagnostics/chartDevLog";
 import { makeCommand } from "../layout/commands";
 import {
   createPanelDropCommand,
@@ -34,6 +35,7 @@ type WorkspaceGridProps = {
   symbolUniverse: readonly SupportedSymbol[];
   backfillEligibleSymbols: readonly SupportedSymbol[];
   chartRuntime: ChartRuntimeState;
+  chartDevLogs: readonly ChartDevLogEntry[];
   chartAutoApplyEnabled: boolean;
   onSettingsTabChange: (tab: SystemMenuTab) => void;
   onEditAgent: (agentId?: string) => void;
@@ -45,6 +47,7 @@ type WorkspaceGridProps = {
   onCommand: (command: LayoutCommand) => void;
   onLayoutProposal: (proposal: LayoutProposal) => void;
   onChartAction: (action: ChartRuntimeAction) => void;
+  onChartDevLog: (entry: ChartDevLogInput) => void;
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onToggleWatchlistSymbol: (symbol: string) => void;
 };
@@ -125,6 +128,7 @@ export function WorkspaceGrid({
   symbolUniverse,
   backfillEligibleSymbols,
   chartRuntime,
+  chartDevLogs,
   chartAutoApplyEnabled,
   onSettingsTabChange,
   onEditAgent,
@@ -136,6 +140,7 @@ export function WorkspaceGrid({
   onCommand,
   onLayoutProposal,
   onChartAction,
+  onChartDevLog,
   onAskAgentFromChart,
   onToggleWatchlistSymbol
 }: WorkspaceGridProps) {
@@ -243,6 +248,7 @@ export function WorkspaceGrid({
           onCommand={onCommand}
           onPreviewChange={setLayoutPreview}
           chartRuntime={chartRuntime}
+          chartDevLogs={chartDevLogs}
           chartAutoApplyEnabled={chartAutoApplyEnabled}
           activeSymbol={activeSymbol}
           backfillEligibleSymbols={backfillEligibleSymbols}
@@ -250,6 +256,7 @@ export function WorkspaceGrid({
           watchlistSymbols={watchlistSymbols}
           hotRankingSymbols={hotRankingSymbols}
           onChartAction={onChartAction}
+          onChartDevLog={onChartDevLog}
           onAskAgentFromChart={onAskAgentFromChart}
           onSelectSymbol={onSelectSymbol}
           onToggleWatchlistSymbol={onToggleWatchlistSymbol}
