@@ -17,7 +17,8 @@ import {
   getStreamStatusForDocument,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
-import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
+import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport, type AgentAnalysisReport } from "../agents/agentAnalysis";
+import { buildOntologyGraphFromEvidence } from "../agents/ontologyGraph";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
 import { findTargetChartPanel } from "../layout/chartPanelSelection";
@@ -355,6 +356,7 @@ function AgentChatPanel({
         if (layoutProposal?.autoApply !== false && layoutProposal?.commands.length) {
           onLayoutProposal(layoutProposal);
         }
+        applyOntologyGraphUpdate(layout, report, chartDocument?.symbol, onLayoutProposal);
         setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
       })
       .catch((error: unknown) => {
@@ -459,6 +461,39 @@ export function isAgentAnalysisIntent(content: string): boolean {
     "spike",
     "why"
   ].some((keyword) => normalized.includes(keyword));
+}
+
+function applyOntologyGraphUpdate(
+  layout: WorkspaceLayout,
+  report: AgentAnalysisReport,
+  fallbackSymbol: string | undefined,
+  onLayoutProposal: (proposal: LayoutProposal) => void
+): void {
+  const ontologyPanel = layout.panels.find((panel) => panel.type === "ontologyGraph");
+  if (!ontologyPanel) {
+    return;
+  }
+  const symbol = report.symbol ?? fallbackSymbol ?? "";
+  const graph = buildOntologyGraphFromEvidence(report.providerEvidence, symbol);
+  if (!graph) {
+    return;
+  }
+  onLayoutProposal({
+    id: `ontology-graph-${report.analysisId}`,
+    title: "기업 관계 그래프 갱신",
+    rationale: "온톨로지 evidence를 기업 관계 패널에 반영합니다.",
+    autoApply: true,
+    panelPriorities: [],
+    commands: [
+      makeCommand(
+        "layout.panel.props.update",
+        "system",
+        { props: { graph, symbol: graph.symbol, updatedAt: graph.generatedAt } },
+        { panelId: ontologyPanel.id }
+      )
+    ],
+    createdAt: new Date().toISOString()
+  });
 }
 
 export function agentProgressLabel(elapsedSeconds: number, selectedAgents: AgentOption[], content: string): string {
