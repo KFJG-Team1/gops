@@ -1477,6 +1477,38 @@ assert.throws(
   /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
 );
 
+const compactNewsReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-compact",
+  symbol: "AAPL",
+  status: "completed",
+  summary: "뉴스를 가져왔습니다.",
+  route: {
+    source: "rule",
+    intentType: "news",
+    selectedRoles: ["news"],
+    confidence: 0.9,
+    reason: "News request."
+  },
+  finalAnswer: {
+    title: "뉴스를 가져왔습니다",
+    summary: "AAPL 관련 뉴스 1건을 가져왔습니다.",
+    sections: [{ title: "핵심 뉴스", bullets: ["애플 서비스 성장: 서비스 매출이 개선됐습니다."] }],
+    citations: [{ provider: "news", title: "애플 서비스 성장", url: "https://example.com/aapl" }],
+    limitations: ["뉴스 provider에 저장된 기사 기준입니다."]
+  },
+  findings: [],
+  providerEvidence: [{ provider: "news", status: "no-data", summary: "AAPL 관련 저장 뉴스가 없습니다." }],
+  timing: { totalMs: 100, newsFetchMs: 10 }
+});
+const compactNewsMessage = formatAgentAnalysisReport(compactNewsReport);
+assert.match(compactNewsMessage, /뉴스를 가져왔습니다/);
+assert.match(compactNewsMessage, /애플 서비스 성장/);
+assert.doesNotMatch(compactNewsMessage, /근거 링크/);
+assert.doesNotMatch(compactNewsMessage, /제한 사항/);
+assert.doesNotMatch(compactNewsMessage, /Provider status/);
+assert.doesNotMatch(compactNewsMessage, /검색/);
+assert.doesNotMatch(compactNewsMessage, /https:\/\/example\.com\/aapl/);
+
 const agentNewsPanelReport = normalizeAgentAnalysisReport({
   analysisId: "analysis-news-panel",
   symbol: "NVDA",
@@ -1494,6 +1526,21 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
           panelType: "newsFeed",
           props: {
             symbol: "NVDA",
+            dailySummaries: [
+              {
+                date: "2026-07-01",
+                symbol: "NVDA",
+                summary: "엔비디아 일일 뉴스 요약입니다.",
+                keyPoints: ["AI 수요"],
+                positivePoints: ["데이터센터 성장"],
+                concerns: [],
+                impactDirection: "positive",
+                articleIds: ["nvda-daily-1"],
+                articleCount: 1,
+                mentionCount: 0,
+                status: "final"
+              }
+            ],
             latestNews: [
               {
                 title: "NVDA shares rise after earnings",
@@ -1519,6 +1566,11 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
 assert.equal(agentNewsPanelReport.layoutProposal?.commands[0]?.payload.panelType, "newsFeed");
 assert.equal(
   ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.latestNews as unknown[])?.length,
+  1
+);
+assert.equal(agentNewsPanelReport.dailySummaries.length, 0);
+assert.equal(
+  ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as unknown[])?.length,
   1
 );
 

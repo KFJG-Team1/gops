@@ -172,6 +172,22 @@ type NewsPanelItem = {
   importanceScore?: number;
 };
 
+type DailyNewsSummary = {
+  date: string;
+  symbol?: string;
+  summary: string;
+  keyPoints: string[];
+  positivePoints: string[];
+  concerns: string[];
+  impactDirection?: string;
+  sentiment?: string;
+  articleIds: string[];
+  articleCount?: number;
+  mentionCount?: number;
+  status?: string;
+  generatedAt?: string;
+};
+
 function EmbeddedNewsFeed({
   panel,
   activeSymbol
@@ -179,16 +195,19 @@ function EmbeddedNewsFeed({
   panel: PanelInstance;
   activeSymbol: SupportedSymbol;
 }) {
-  const [mode, setMode] = useState<"latest" | "major">("latest");
+  const [mode, setMode] = useState<"daily" | "latest" | "major">("daily");
+  const dailySummaries = readDailySummaries(panel.props.dailySummaries);
   const latestNews = readNewsItems(panel.props.latestNews);
   const majorNews = readNewsItems(panel.props.majorNews);
-  const items = mode === "latest" ? latestNews : majorNews;
+  const effectiveMode = mode === "daily" && !dailySummaries.length && (latestNews.length || majorNews.length) ? "latest" : mode;
+  const items = effectiveMode === "latest" ? latestNews : majorNews;
   const panelSymbol = readString(panel.props.symbol) ?? activeSymbol;
+  const emptyMessage = readString(panel.props.emptyMessage) ?? `${panelSymbol} 관련 저장 뉴스가 없습니다`;
 
-  if (!latestNews.length && !majorNews.length) {
+  if (!dailySummaries.length && !latestNews.length && !majorNews.length) {
     return (
       <div className="panel-placeholder panel-placeholder-muted">
-        <small>{panelSymbol} 뉴스 분석을 실행하면 주요 뉴스가 표시됩니다</small>
+        <small>{emptyMessage}</small>
       </div>
     );
   }
@@ -196,36 +215,67 @@ function EmbeddedNewsFeed({
   return (
     <div className="panel-news-feed" aria-label={`${panelSymbol} 뉴스`}>
       <div className="panel-news-toolbar" role="tablist" aria-label="뉴스 보기">
-        <button className={mode === "latest" ? "active" : ""} type="button" onClick={() => setMode("latest")}>
+        <button className={effectiveMode === "daily" ? "active" : ""} type="button" onClick={() => setMode("daily")}>
+          일일요약
+        </button>
+        <button className={effectiveMode === "latest" ? "active" : ""} type="button" onClick={() => setMode("latest")}>
           최신뉴스
         </button>
-        <button className={mode === "major" ? "active" : ""} type="button" onClick={() => setMode("major")}>
+        <button className={effectiveMode === "major" ? "active" : ""} type="button" onClick={() => setMode("major")}>
           주요뉴스
         </button>
       </div>
-      <div className="panel-news-list">
-        {items.map((item, index) => (
-          <article key={`${item.url ?? item.title}-${index}`} className="panel-news-row">
-            <div className="panel-news-row-main">
-              {item.url ? (
-                <a href={item.url} target="_blank" rel="noreferrer" title={item.originalTitle ?? item.title}>
-                  {item.title}
-                  <ExternalLink size={12} aria-hidden="true" />
-                </a>
-              ) : (
-                <strong>{item.title}</strong>
-              )}
-              {item.summary && <p>{item.summary}</p>}
+      {effectiveMode === "daily" ? (
+        <div className="panel-news-list">
+          {dailySummaries.length ? dailySummaries.map((item) => (
+            <article key={`${item.symbol ?? panelSymbol}-${item.date}`} className="panel-news-row panel-news-daily-row">
+              <div className="panel-news-row-main">
+                <strong>{item.date} 브리프</strong>
+                <p>{item.summary}</p>
+                {item.keyPoints.length > 0 && (
+                  <ul className="panel-news-daily-points">
+                    {item.keyPoints.slice(0, 4).map((point, index) => <li key={`${item.date}-point-${index}`}>{point}</li>)}
+                  </ul>
+                )}
+              </div>
+              <div className="panel-news-meta">
+                <span>{item.symbol ?? panelSymbol}</span>
+                <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+                <span>{item.articleCount ?? item.articleIds.length}건</span>
+                <span>{item.status === "final" ? "마감" : "진행"}</span>
+              </div>
+            </article>
+          )) : (
+            <div className="panel-placeholder panel-placeholder-muted">
+              <small>{emptyMessage}</small>
             </div>
-            <div className="panel-news-meta">
-              <span>{item.symbol ?? panelSymbol}</span>
-              <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
-              <span>{item.source ?? "news"}</span>
-              {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
-            </div>
-          </article>
-        ))}
-      </div>
+          )}
+        </div>
+      ) : (
+        <div className="panel-news-list">
+          {items.map((item, index) => (
+            <article key={`${item.url ?? item.title}-${index}`} className="panel-news-row">
+              <div className="panel-news-row-main">
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noreferrer" title={item.originalTitle ?? item.title}>
+                    {item.title}
+                    <ExternalLink size={12} aria-hidden="true" />
+                  </a>
+                ) : (
+                  <strong>{item.title}</strong>
+                )}
+                {item.summary && <p>{item.summary}</p>}
+              </div>
+              <div className="panel-news-meta">
+                <span>{item.symbol ?? panelSymbol}</span>
+                <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+                <span>{item.source ?? "news"}</span>
+                {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -260,6 +310,40 @@ function readNewsItems(value: unknown): NewsPanelItem[] {
       impactDirection: readString(source.impactDirection) ?? undefined,
       relevanceScore: readNumber(source.relevanceScore) ?? undefined,
       importanceScore: readNumber(source.importanceScore) ?? undefined
+    });
+  }
+  return items;
+}
+
+function readDailySummaries(value: unknown): DailyNewsSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const items: DailyNewsSummary[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const source = item as Record<string, unknown>;
+    const date = readString(source.date);
+    const summary = readString(source.summary);
+    if (!date || !summary) {
+      continue;
+    }
+    items.push({
+      date,
+      symbol: readString(source.symbol) ?? undefined,
+      summary,
+      keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints.map(readString).filter((point): point is string => Boolean(point)) : [],
+      positivePoints: Array.isArray(source.positivePoints) ? source.positivePoints.map(readString).filter((point): point is string => Boolean(point)) : [],
+      concerns: Array.isArray(source.concerns) ? source.concerns.map(readString).filter((point): point is string => Boolean(point)) : [],
+      impactDirection: readString(source.impactDirection) ?? undefined,
+      sentiment: readString(source.sentiment) ?? undefined,
+      articleIds: Array.isArray(source.articleIds) ? source.articleIds.map(readString).filter((articleId): articleId is string => Boolean(articleId)) : [],
+      articleCount: readNumber(source.articleCount) ?? undefined,
+      mentionCount: readNumber(source.mentionCount) ?? undefined,
+      status: readString(source.status) ?? undefined,
+      generatedAt: readString(source.generatedAt) ?? undefined
     });
   }
   return items;

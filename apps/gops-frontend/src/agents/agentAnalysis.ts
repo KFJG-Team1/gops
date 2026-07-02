@@ -74,9 +74,28 @@ export type AgentNewsPanelItem = {
   importanceScore?: number;
 };
 
+export type AgentDailyNewsSummary = {
+  date: string;
+  symbol?: string;
+  summary: string;
+  keyPoints: string[];
+  positivePoints: string[];
+  concerns: string[];
+  impactDirection?: string;
+  sentiment?: string;
+  articleIds: string[];
+  articleCount?: number;
+  mentionCount?: number;
+  status?: string;
+  generatedAt?: string;
+};
+
 export type AgentNewsPanelData = {
   symbol?: string;
   updatedAt?: string;
+  status?: string;
+  emptyMessage?: string;
+  dailySummaries: AgentDailyNewsSummary[];
   latestNews: AgentNewsPanelItem[];
   majorNews: AgentNewsPanelItem[];
 };
@@ -99,6 +118,7 @@ export type AgentAnalysisReport = {
   finalAnswer?: FinalAnswer | null;
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
+  dailySummaries: AgentDailyNewsSummary[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: LayoutProposal | null;
   timing?: AgentAnalysisTiming | null;
@@ -194,6 +214,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     finalAnswer: normalizeFinalAnswer(source.finalAnswer),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
+    dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
     layoutProposal: normalizeLayoutProposal(source.layoutProposal),
     timing: normalizeTiming(source.timing)
@@ -201,12 +222,13 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 }
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
-  const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer) : [report.summary];
+  const newsOnly = isNewsOnlyReport(report);
+  const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
 
   const unusualEventFinding = report.findings.find((finding) =>
     finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
   );
-  if (unusualEventFinding) {
+  if (unusualEventFinding && !newsOnly) {
     lines.push("", `이상 이벤트: ${unusualEventFinding.summary}`);
   }
 
@@ -215,17 +237,17 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     .slice(0, 5);
   const ontologyNoData = noDataEvidence.filter(isOntologyRelationshipNoData);
   const providerNoData = noDataEvidence.filter((item) => !isOntologyRelationshipNoData(item));
-  if (ontologyNoData.length) {
+  if (ontologyNoData.length && !newsOnly) {
     lines.push("", "확인되지 않은 내용:");
     lines.push(...ontologyNoData.map((item) => `- ${item.summary ?? "온톨로지 관계 근거가 확인되지 않았습니다."}`));
   }
-  if (providerNoData.length) {
+  if (providerNoData.length && !newsOnly) {
     lines.push("", "Provider status:");
     lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${item.summary ?? "데이터가 아직 연결되지 않았습니다."}`));
   }
 
   const decision = report.notificationDecision;
-  if (decision && ["watch", "alert", "critical"].includes(decision.level)) {
+  if (decision && ["watch", "alert", "critical"].includes(decision.level) && !newsOnly) {
     lines.push("", `알림 판단: ${decision.level.toUpperCase()}${decision.title ? ` - ${decision.title}` : ""}`);
     if (decision.message) {
       lines.push(decision.message);
@@ -238,26 +260,29 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const verificationFinding = report.findings.find((finding) =>
     finding.role === "verification-guardrail" && finding.summary && isVerificationWarning(finding)
   );
-  if (verificationFinding) {
+  if (verificationFinding && !newsOnly) {
     lines.push("", `검증 경고: ${verificationFinding.summary}`);
   }
 
   const timingSummary = formatTimingSummary(report.timing);
-  if (timingSummary) {
+  if (timingSummary && !newsOnly) {
     lines.push("", timingSummary);
   }
 
   return lines.join("\n");
 }
 
-function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
+function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: boolean } = {}): string[] {
   const lines = [finalAnswer.title, finalAnswer.summary];
   for (const section of finalAnswer.sections.slice(0, 3)) {
     if (!section.title || section.bullets.length === 0) {
       continue;
     }
     lines.push("", section.title);
-    lines.push(...section.bullets.slice(0, 5).map((bullet) => `- ${bullet}`));
+    lines.push(...section.bullets.slice(0, options.compactNews ? 3 : 5).map((bullet) => `- ${bullet}`));
+  }
+  if (options.compactNews) {
+    return lines;
   }
   const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url));
   if (linkedCitations.length) {
@@ -271,6 +296,14 @@ function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
     lines.push(...finalAnswer.limitations.slice(0, 5).map((limitation) => `- ${limitation}`));
   }
   return lines;
+}
+
+function isNewsOnlyReport(report: AgentAnalysisReport): boolean {
+  const route = report.route;
+  if (!route) {
+    return false;
+  }
+  return route.intentType === "news" || (route.selectedRoles.length === 1 && route.selectedRoles[0] === "news");
 }
 
 function normalizeFinding(value: unknown): AgentFinding | null {
@@ -307,6 +340,30 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
     url: readString(source.url) ?? undefined,
     observedAt: readString(source.observedAt) ?? undefined,
     raw: readObject(source.raw) ?? undefined
+  };
+}
+
+function normalizeDailySummary(value: unknown): AgentDailyNewsSummary | null {
+  const source = readObject(value);
+  const date = readString(source?.date);
+  const summary = readString(source?.summary);
+  if (!source || !date || !summary) {
+    return null;
+  }
+  return {
+    date,
+    symbol: readString(source.symbol) ?? undefined,
+    summary,
+    keyPoints: readArray(source.keyPoints).map(readString).filter((item): item is string => Boolean(item)),
+    positivePoints: readArray(source.positivePoints).map(readString).filter((item): item is string => Boolean(item)),
+    concerns: readArray(source.concerns).map(readString).filter((item): item is string => Boolean(item)),
+    impactDirection: readString(source.impactDirection) ?? undefined,
+    sentiment: readString(source.sentiment) ?? undefined,
+    articleIds: readArray(source.articleIds).map(readString).filter((item): item is string => Boolean(item)),
+    articleCount: readNumber(source.articleCount) ?? undefined,
+    mentionCount: readNumber(source.mentionCount) ?? undefined,
+    status: readString(source.status) ?? undefined,
+    generatedAt: readString(source.generatedAt) ?? undefined
   };
 }
 
