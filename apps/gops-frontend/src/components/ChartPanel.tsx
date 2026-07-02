@@ -37,6 +37,8 @@ import {
   normalizeBackfillStatusPayload,
   rangeBackfillWindowForSnapshot,
   shouldRequestBackfill,
+  shouldRequestHistoricalRangePage,
+  shouldRequestHistoricalRangePan,
   shouldRequestRangeBackfill
 } from "@gops/chart-engine/backfill";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
@@ -187,6 +189,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const backfillRequestsRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
   const rangeBackfillTerminalRef = useRef<Set<string>>(new Set());
+  const handledHistoryLoadSignalRef = useRef(0);
+  const historyPanIntentRef = useRef(false);
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
@@ -207,6 +211,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const [maMenuOpen, setMaMenuOpen] = useState(false);
   const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
   const [rangeReloadToken, setRangeReloadToken] = useState(0);
+  const [historyLoadSignal, setHistoryLoadSignal] = useState(0);
   const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
   const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
@@ -725,16 +730,16 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     const targetLimit = maxRequestBarsForInterval(document.timeframe);
     const defaultVisibleCount = defaultVisibleBarsForInterval(document.timeframe);
     const targetVisibleCount = Math.min(targetLimit, Math.max(1, document.viewport.visibleCount));
-    const visibleEnd = Math.max(0, candles.length - document.viewport.rightOffset);
-    const visibleStart = Math.max(0, visibleEnd - targetVisibleCount);
-    const userZoomedPastDefault = targetVisibleCount > defaultVisibleCount;
-    const userPannedIntoHistory = document.viewport.rightOffset > 0;
-    const isLookingPastLoadedRange = userZoomedPastDefault && targetVisibleCount > candles.length;
-    const isNearLoadedOldest =
-      userPannedIntoHistory &&
-      visibleStart <= Math.max(24, Math.ceil(targetVisibleCount * 0.1));
+    const forcedHistoryLoad = historyLoadSignal > 0 && handledHistoryLoadSignalRef.current !== historyLoadSignal;
 
-    if (!isLookingPastLoadedRange && !isNearLoadedOldest) {
+    if (!shouldRequestHistoricalRangePage({
+      candleCount: candles.length,
+      hasMoreBefore: dataStatus.hasMoreBefore,
+      visibleCount: targetVisibleCount,
+      rightOffset: document.viewport.rightOffset,
+      defaultVisibleCount,
+      force: forcedHistoryLoad
+    })) {
       return undefined;
     }
 
@@ -754,6 +759,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return undefined;
     }
 
+    if (forcedHistoryLoad) {
+      handledHistoryLoadSignalRef.current = historyLoadSignal;
+    }
     rangeRequestsRef.current.add(requestKey);
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -940,6 +948,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     document.timeframe,
     document.viewport.rightOffset,
     document.viewport.visibleCount,
+    historyLoadSignal,
     onChartAction,
     rangeReloadToken
   ]);
@@ -1126,10 +1135,27 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     applyViewport(zoomViewport(document.viewport, delta, candles.length, getPlotWidth()));
   };
 
+  const requestOlderCandles = () => {
+    if (candles.length === 0 || dataStatus.hasMoreBefore !== true) {
+      return;
+    }
+    setHistoryLoadSignal((current) => current + 1);
+  };
+
   const panViewport = (delta: number) => {
     const currentViewport = normalizePanelViewport(document.viewport);
+    const desiredRightOffset = currentViewport.rightOffset + delta;
+    if (shouldRequestHistoricalRangePan({
+      candleCount: candles.length,
+      hasMoreBefore: dataStatus.hasMoreBefore,
+      visibleCount: currentViewport.visibleCount,
+      rightOffset: currentViewport.rightOffset,
+      desiredRightOffset
+    })) {
+      requestOlderCandles();
+    }
     const nextRightOffset = clampRightOffset(
-      currentViewport.rightOffset + delta,
+      desiredRightOffset,
       currentViewport.visibleCount,
       candles.length
     );
@@ -1214,6 +1240,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       rightOffset: currentViewport.rightOffset,
       visibleCount: currentViewport.visibleCount
     };
+    historyPanIntentRef.current = false;
     transientViewportRef.current = currentViewport;
     setTransientViewport(currentViewport);
   };
@@ -1264,6 +1291,17 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     }
 
     const slotWidth = (currentScene.plot.right - currentScene.plot.left) / Math.max(1, currentScene.candles.length);
+    const slotDelta = Math.round((event.clientX - dragAnchor.x) / Math.max(0.0001, slotWidth));
+    const desiredRightOffset = dragAnchor.rightOffset + slotDelta;
+    if (shouldRequestHistoricalRangePan({
+      candleCount: candles.length,
+      hasMoreBefore: dataStatus.hasMoreBefore,
+      visibleCount: dragAnchor.visibleCount,
+      rightOffset: dragAnchor.rightOffset,
+      desiredRightOffset
+    })) {
+      historyPanIntentRef.current = true;
+    }
     previewViewport({
       visibleCount: dragAnchor.visibleCount,
       rightOffset: dragDeltaToRightOffset(
@@ -1280,9 +1318,11 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     const dragAnchor = dragAnchorRef.current;
     const drawingDrag = drawingDragRef.current;
     const nextViewport = transientViewportRef.current;
+    const historyPanIntent = historyPanIntentRef.current;
     dragAnchorRef.current = null;
     drawingDragRef.current = null;
     transientViewportRef.current = null;
+    historyPanIntentRef.current = false;
     setTransientViewport(null);
     setTransientDrawings(null);
     try {
@@ -1310,6 +1350,10 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return;
     }
 
+    if (historyPanIntent) {
+      requestOlderCandles();
+    }
+
     if (nextViewport.rightOffset !== dragAnchor.rightOffset) {
       runCommand("chart.viewport.set", {
         visibleCount: nextViewport.visibleCount,
@@ -1322,6 +1366,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     dragAnchorRef.current = null;
     drawingDragRef.current = null;
     transientViewportRef.current = null;
+    historyPanIntentRef.current = false;
     setTransientViewport(null);
     setTransientDrawings(null);
   };

@@ -58,6 +58,57 @@ export function rangeBackfillWindowForSnapshot(
   return firstSnapshotGapBackfillWindow(snapshot) ?? rangeBackfillWindow(interval, beforeTimestamp, pageLimit);
 }
 
+export function shouldRequestHistoricalRangePage(input: {
+  candleCount: number;
+  hasMoreBefore?: boolean;
+  visibleCount: number;
+  rightOffset: number;
+  defaultVisibleCount: number;
+  force?: boolean;
+}): boolean {
+  const candleCount = Math.max(0, Math.floor(input.candleCount));
+  if (candleCount <= 0 || input.hasMoreBefore !== true) {
+    return false;
+  }
+  if (input.force === true) {
+    return true;
+  }
+
+  const visibleCount = Math.max(1, Math.round(input.visibleCount));
+  const rightOffset = Math.max(0, Math.round(input.rightOffset));
+  const defaultVisibleCount = Math.max(1, Math.round(input.defaultVisibleCount));
+  const visibleEnd = Math.max(0, candleCount - rightOffset);
+  const visibleStart = Math.max(0, visibleEnd - visibleCount);
+  const userZoomedPastDefault = visibleCount > defaultVisibleCount;
+  const userPannedIntoHistory = rightOffset > 0;
+  const lookingPastLoadedRange = userZoomedPastDefault && visibleCount > candleCount;
+  const nearLoadedOldest =
+    userPannedIntoHistory &&
+    visibleStart <= Math.max(24, Math.ceil(visibleCount * 0.1));
+
+  return lookingPastLoadedRange || nearLoadedOldest;
+}
+
+export function shouldRequestHistoricalRangePan(input: {
+  candleCount: number;
+  hasMoreBefore?: boolean;
+  visibleCount: number;
+  rightOffset: number;
+  desiredRightOffset: number;
+}): boolean {
+  const candleCount = Math.max(0, Math.floor(input.candleCount));
+  if (candleCount <= 0 || input.hasMoreBefore !== true) {
+    return false;
+  }
+
+  const visibleCount = Math.max(1, Math.round(input.visibleCount));
+  const currentRightOffset = Math.max(0, Math.round(input.rightOffset));
+  const desiredRightOffset = Math.round(input.desiredRightOffset);
+  const maxRightOffset = Math.max(0, candleCount - Math.max(1, Math.min(visibleCount, candleCount)));
+
+  return currentRightOffset >= maxRightOffset && desiredRightOffset > maxRightOffset;
+}
+
 export function shouldForceBackfill(status: ChartDataStatus): boolean {
   void status;
   return false;
