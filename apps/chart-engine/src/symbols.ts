@@ -1,6 +1,6 @@
 export type SupportedSymbol = string;
 
-export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "NVDA";
+export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "";
 
 export type SymbolMeta = {
   symbol: SupportedSymbol;
@@ -20,18 +20,7 @@ export type HotRankingSymbol = WatchlistSymbol & {
   rankReason?: string;
 };
 
-export const DEFAULT_WATCHLIST_SYMBOLS: WatchlistSymbol[] = [
-  { symbol: "AAPL", name: "Apple Inc.", market: "NASDAQ" },
-  { symbol: "MSFT", name: "Microsoft Corporation", market: "NASDAQ" },
-  { symbol: "NVDA", name: "NVIDIA Corporation", market: "NASDAQ" },
-  { symbol: "AMZN", name: "Amazon.com, Inc.", market: "NASDAQ" },
-  { symbol: "META", name: "Meta Platforms, Inc.", market: "NASDAQ" },
-  { symbol: "GOOGL", name: "Alphabet Inc. Class A", market: "NASDAQ" },
-  { symbol: "TSLA", name: "Tesla, Inc.", market: "NASDAQ" },
-  { symbol: "BRK.B", name: "Berkshire Hathaway Inc. Class B", market: "NYSE" },
-  { symbol: "JPM", name: "JPMorgan Chase & Co.", market: "NYSE" },
-  { symbol: "UNH", name: "UnitedHealth Group Incorporated", market: "NYSE" }
-];
+export const DEFAULT_WATCHLIST_SYMBOLS: WatchlistSymbol[] = [];
 
 const symbolPattern = /^[A-Z][A-Z0-9]{0,9}(\.[A-Z])?$/;
 
@@ -51,7 +40,7 @@ export function defaultWatchlistSymbols(): WatchlistSymbol[] {
 export function getSymbolMeta(value: string): SymbolMeta {
   const symbol = normalizeSupportedSymbol(value);
   if (!symbol) {
-    return { symbol: DEFAULT_CHART_SYMBOL, name: DEFAULT_CHART_SYMBOL, market: "US" };
+    return { symbol: "", name: "", market: "US" };
   }
 
   const knownDefault = DEFAULT_WATCHLIST_SYMBOLS.find((item) => item.symbol === symbol);

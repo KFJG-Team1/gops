@@ -10,10 +10,10 @@ const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * histo
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 120,
   "5m": 120,
-  "10m": 96,
+  "10m": 120,
   "1D": 120,
-  "1W": 104,
-  "1M": 72
+  "1W": 120,
+  "1M": 120
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {
@@ -26,12 +26,12 @@ const backfillTargetBars: Record<ChartInterval, number> = {
 };
 
 const maxRequestBars: Record<ChartInterval, number> = {
-  "1m": 1500,
-  "5m": 1200,
-  "10m": 1000,
-  "1D": 500,
-  "1W": 312,
-  "1M": 72
+  "1m": intradayLazyTargetBars,
+  "5m": Math.ceil(intradayLazyTargetBars / 5),
+  "10m": Math.ceil(intradayLazyTargetBars / 10),
+  "1D": tradingDaysPerYear * historicalTargetYears,
+  "1W": 52 * historicalTargetYears,
+  "1M": Math.max(defaultVisibleBars["1M"], 12 * historicalTargetYears)
 };
 
 export function normalizeChartInterval(value: unknown): ChartInterval | null {

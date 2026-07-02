@@ -320,7 +320,7 @@ function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   const ticks = buildTimeTicks(scene, 6);
   ticks.forEach((tick, index) => {
     ctx.textAlign = index === 0 ? "left" : index === ticks.length - 1 ? "right" : "center";
-    ctx.fillText(formatTime(tick.candle), tick.x, bottom + 13);
+    ctx.fillText(formatTime(tick.candle, scene.document.timeframe), tick.x, bottom + 13);
   });
 }
 
@@ -340,7 +340,7 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
 
   const candle = crosshair.candle;
   const isUp = candle.close >= candle.open;
-  const text = `${formatTime(candle)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
+  const text = `${formatTime(candle, scene.document.timeframe)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
   ctx.font = "11px Inter, system-ui, sans-serif";
   const textWidth = Math.min(scene.plot.right - scene.plot.left - 12, ctx.measureText(text).width + 12);
   const boxX = Math.min(scene.plot.right - textWidth, Math.max(scene.plot.left, crosshair.x + 8));
@@ -402,17 +402,32 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.closePath();
 }
 
-function formatTime(candle: CandleData): string {
+function formatTime(candle: CandleData, timeframe = "1m"): string {
+  const date = new Date(candle.timestamp);
+  if (!Number.isFinite(date.getTime())) {
+    return candle.timestamp;
+  }
+  if (timeframe === "1M") {
+    return `${date.getUTCFullYear()}.${pad2(date.getUTCMonth() + 1)}`;
+  }
+  if (timeframe === "1W" || timeframe === "1D") {
+    return `${date.getUTCFullYear()}.${pad2(date.getUTCMonth() + 1)}.${pad2(date.getUTCDate())}`;
+  }
   const parts = new Intl.DateTimeFormat("ko-KR", {
+    year: "2-digit",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone: "Asia/Seoul"
-  }).formatToParts(new Date(candle.timestamp));
+  }).formatToParts(date);
   const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
-  return `${read("month")}.${read("day")} ${read("hour")}:${read("minute")}`;
+  return `${read("year")}.${read("month")}.${read("day")} ${read("hour")}:${read("minute")}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 function buildTimeTicks(scene: RenderScene, targetCount: number): Array<{ candle: CandleData; x: number }> {

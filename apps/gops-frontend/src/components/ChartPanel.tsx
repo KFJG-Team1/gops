@@ -187,6 +187,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const backfillRequestsRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
   const rangeBackfillTerminalRef = useRef<Set<string>>(new Set());
+  const manualOlderRangeRequestHandledRef = useRef(0);
+  const manualOlderRangePanRef = useRef(0);
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
   const document = getChartDocumentForPanel(runtime, panel);
   const candles = getCandlesForDocument(runtime, document);
@@ -207,6 +209,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const [maMenuOpen, setMaMenuOpen] = useState(false);
   const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
   const [rangeReloadToken, setRangeReloadToken] = useState(0);
+  const [manualOlderRangeRequestToken, setManualOlderRangeRequestToken] = useState(0);
   const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
   const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
@@ -718,7 +721,10 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   }, [comparisonAvailabilityKey, comparisonSymbolsKey, document.id, document.timeframe, onChartAction]);
 
   useEffect(() => {
-    if (!candles.length || !dataStatus.hasMoreBefore) {
+    const manualOlderRangeRequest =
+      manualOlderRangeRequestToken > 0 &&
+      manualOlderRangeRequestHandledRef.current !== manualOlderRangeRequestToken;
+    if (!candles.length || (!dataStatus.hasMoreBefore && !manualOlderRangeRequest)) {
       return undefined;
     }
 
@@ -734,7 +740,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       userPannedIntoHistory &&
       visibleStart <= Math.max(24, Math.ceil(targetVisibleCount * 0.1));
 
-    if (!isLookingPastLoadedRange && !isNearLoadedOldest) {
+    if (!manualOlderRangeRequest && !isLookingPastLoadedRange && !isNearLoadedOldest) {
       return undefined;
     }
 
@@ -754,6 +760,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return undefined;
     }
 
+    if (manualOlderRangeRequest) {
+      manualOlderRangeRequestHandledRef.current = manualOlderRangeRequestToken;
+    }
     rangeRequestsRef.current.add(requestKey);
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -773,6 +782,9 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       if (status.status === "succeeded") {
         rangeBackfillTerminalRef.current.add(terminalKey);
         rangeRequestsRef.current.delete(requestKey);
+        if (manualOlderRangeRequest) {
+          manualOlderRangeRequestHandledRef.current = 0;
+        }
         setRangeReloadToken((current) => current + 1);
         return;
       }
@@ -897,7 +909,22 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       })
       .then((payload) => {
         const snapshot = normalizeCandleSnapshot(payload);
+        const olderLoadedCount = manualOlderRangeRequest
+          ? countCandlesBefore(snapshot.candles, oldest)
+          : 0;
         onChartAction({ kind: "chart.snapshot.loaded", snapshot });
+        if (manualOlderRangeRequest && olderLoadedCount > 0) {
+          const requestedPan = Math.max(1, manualOlderRangePanRef.current);
+          const panDelta = Math.min(olderLoadedCount, requestedPan);
+          manualOlderRangePanRef.current = 0;
+          onChartAction({
+            kind: "chart.command",
+            command: makeChartCommand("chart.viewport.set", "user", target, {
+              visibleCount: document.viewport.visibleCount,
+              rightOffset: document.viewport.rightOffset + panDelta
+            }, undefined, "chartPanel")
+          });
+        }
         if (shouldRequestRangeBackfill(snapshot)) {
           requestRangeBackfill(snapshot);
         }
@@ -940,6 +967,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     document.timeframe,
     document.viewport.rightOffset,
     document.viewport.visibleCount,
+    manualOlderRangeRequestToken,
     onChartAction,
     rangeReloadToken
   ]);
@@ -1133,6 +1161,15 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       currentViewport.visibleCount,
       candles.length
     );
+    if (
+      delta > 0 &&
+      candles.length > 0 &&
+      dataStatus.hasMoreBefore &&
+      nextRightOffset === currentViewport.rightOffset
+    ) {
+      manualOlderRangePanRef.current = Math.max(manualOlderRangePanRef.current, delta);
+      setManualOlderRangeRequestToken((current) => current + 1);
+    }
     applyViewport({
       visibleCount: currentViewport.visibleCount,
       rightOffset: nextRightOffset
@@ -1943,6 +1980,21 @@ function distanceToSegment(x: number, y: number, start: { x: number; y: number }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function countCandlesBefore(candles: Array<{ timestamp: string }>, boundaryTimestamp: string): number {
+  const boundary = Date.parse(boundaryTimestamp);
+  if (!Number.isFinite(boundary)) {
+    return 0;
+  }
+  const timestamps = new Set<string>();
+  candles.forEach((candle) => {
+    const time = Date.parse(candle.timestamp);
+    if (Number.isFinite(time) && time < boundary) {
+      timestamps.add(new Date(time).toISOString());
+    }
+  });
+  return timestamps.size;
 }
 
 function backfillStatusMessage(status: string, error?: string): string {

@@ -915,22 +915,22 @@ assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("bad"), null);
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
-assert.equal(defaultVisibleBarsForInterval("10m"), 96);
+assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
-assert.equal(defaultVisibleBarsForInterval("1W"), 104);
-assert.equal(defaultVisibleBarsForInterval("1M"), 72);
+assert.equal(defaultVisibleBarsForInterval("1W"), 120);
+assert.equal(defaultVisibleBarsForInterval("1M"), 120);
 assert.equal(backfillTargetBarsForInterval("1m"), 589680);
 assert.equal(backfillTargetBarsForInterval("5m"), 117936);
 assert.equal(backfillTargetBarsForInterval("10m"), 58968);
 assert.equal(backfillTargetBarsForInterval("1D"), 1512);
 assert.equal(backfillTargetBarsForInterval("1W"), 312);
 assert.equal(backfillTargetBarsForInterval("1M"), 72);
-assert.equal(maxRequestBarsForInterval("1m"), 1500);
-assert.equal(maxRequestBarsForInterval("5m"), 1200);
-assert.equal(maxRequestBarsForInterval("10m"), 1000);
-assert.equal(maxRequestBarsForInterval("1D"), 500);
+assert.equal(maxRequestBarsForInterval("1m"), 589680);
+assert.equal(maxRequestBarsForInterval("5m"), 117936);
+assert.equal(maxRequestBarsForInterval("10m"), 58968);
+assert.equal(maxRequestBarsForInterval("1D"), 1512);
 assert.equal(maxRequestBarsForInterval("1W"), 312);
-assert.equal(maxRequestBarsForInterval("1M"), 72);
+assert.equal(maxRequestBarsForInterval("1M"), 120);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
@@ -946,35 +946,35 @@ for (const timeframe of ["1D", "1W", "1M"]) {
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [
-    { symbol: "AAPL", name: "Apple", market: "NASDAQ", lastPrice: 190.12, changePercent: 1.2, volume: 1000 },
-    { symbol: "GOOG", name: "Alphabet", lastPrice: 1 }
+    { symbol: "IBM", name: "International Business Machines", market: "NYSE", lastPrice: 190.12, changePercent: 1.2, volume: 1000 },
+    { symbol: "ORCL", name: "Oracle", lastPrice: 1 }
   ]
 });
 assert.equal(watchlist.length, 2);
-assert.equal(watchlist[0]?.symbol, "AAPL");
-assert.equal(watchlist[0]?.market, "NASDAQ");
+assert.equal(watchlist[0]?.symbol, "IBM");
+assert.equal(watchlist[0]?.market, "NYSE");
 assert.equal(watchlist[0]?.lastPrice, 190.12);
-assert.equal(watchlist.find((item) => item.symbol === "GOOG")?.market, "US");
+assert.equal(watchlist.find((item) => item.symbol === "ORCL")?.market, "US");
 
 const seedWatchlist = normalizeWatchlistPayload({
-  symbols: ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"].map((symbol) => ({
+  symbols: ["IBM", "ORCL"].map((symbol) => ({
     symbol,
     name: symbol,
-    market: "NASDAQ"
+    market: "US"
   }))
 });
-assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]);
-assert.deepEqual(defaultWatchlistSymbols().map((item) => item.symbol), ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "BRK.B", "JPM", "UNH"]);
+assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["IBM", "ORCL"]);
+assert.deepEqual(defaultWatchlistSymbols().map((item) => item.symbol), []);
 
 const hotRanking = normalizeHotRankingPayload({
-  ranking: { method: "current_session_dollar_volume", universe: "sp500" },
+  ranking: { method: "current_session_dollar_volume", universe: "on-demand" },
   symbols: [
-    { rank: 1, symbol: "nvda", name: "Nvidia", market: "nasdaq", sessionDollarVolume: 123000000, changePercent: 1.2 },
+    { rank: 1, symbol: "ibm", name: "International Business Machines", market: "nyse", sessionDollarVolume: 123000000, changePercent: 1.2 },
     { symbol: "bad" }
   ]
 });
 assert.equal(hotRanking.length, 1);
-assert.equal(hotRanking[0]?.symbol, "NVDA");
+assert.equal(hotRanking[0]?.symbol, "IBM");
 assert.equal(hotRanking[0]?.rank, 1);
 assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
