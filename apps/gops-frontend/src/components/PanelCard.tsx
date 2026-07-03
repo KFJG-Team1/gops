@@ -11,7 +11,7 @@ import { makeCommand } from "../layout/commands";
 import { workspaceColumnCount, workspaceColumnStarts, workspaceRowCount, workspaceRowStarts } from "../layout/gridGeometry";
 import { applyPanelMoveWithPacking } from "../layout/reflow";
 import type { LayoutCommand, LayoutPreviewItem, PanelInstance, WorkspaceLayout } from "../layout/types";
-import type { OntologyGraphData, OntologyGraphEdge, OntologyGraphEdgeKind, OntologyGraphNodeKind } from "../agents/ontologyGraph";
+import { OntologyForceGraph } from "./OntologyForceGraph";
 
 type PanelCardProps = {
   layout: WorkspaceLayout;
@@ -91,6 +91,7 @@ function PanelBody({
   chartAutoApplyEnabled,
   activeSymbol,
   backfillEligibleSymbols,
+  knownSymbols,
   hotRankingSymbols,
   orderChartSymbols,
   symbolOptions,
@@ -104,6 +105,7 @@ function PanelBody({
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
   backfillEligibleSymbols: readonly SupportedSymbol[];
+  knownSymbols: readonly WatchlistSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
   orderChartSymbols: readonly WatchlistSymbol[];
   symbolOptions: readonly WatchlistSymbol[];
@@ -149,7 +151,14 @@ function PanelBody({
   }
 
   if (panel.type === "ontologyGraph") {
-    return <OntologyGraphPanel panel={panel} />;
+    return (
+      <OntologyForceGraph
+        rawGraph={panel.props.graph}
+        symbol={readString(panel.props.symbol)}
+        knownSymbols={knownSymbols}
+        onSelectSymbol={onSelectSymbol}
+      />
+    );
   }
 
   return (
@@ -283,218 +292,6 @@ function EmbeddedNewsFeed({
       )}
     </div>
   );
-}
-
-const ONTOLOGY_LEGEND_ITEMS: Array<{ kind: OntologyGraphEdgeKind; label: string }> = [
-  { kind: "theme", label: "테마" },
-  { kind: "control", label: "지배/자회사" },
-  { kind: "shared-theme", label: "공통 테마" },
-  { kind: "cross-control", label: "교차 지배" }
-];
-
-function ontologyNodeKindLabel(kind: OntologyGraphNodeKind): string {
-  switch (kind) {
-    case "symbol":
-      return "종목";
-    case "theme":
-      return "테마";
-    case "company":
-      return "기업";
-    default:
-      return "";
-  }
-}
-
-function OntologyGraphPanel({ panel }: { panel: PanelInstance }) {
-  const graph = readOntologyGraph(panel.props.graph);
-  const symbol = readString(panel.props.symbol);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [highlightedEdgeKind, setHighlightedEdgeKind] = useState<OntologyGraphEdgeKind | null>(null);
-
-  if (!graph || graph.nodes.length === 0) {
-    return (
-      <div className="panel-placeholder panel-placeholder-muted">
-        <small>{symbol ? `${symbol} 관계 데이터가 아직 없습니다` : "관계 분석 결과가 아직 없습니다"}</small>
-      </div>
-    );
-  }
-
-  const width = 320;
-  const height = 240;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const positions = new Map<string, { x: number; y: number }>();
-
-  const primaryNodes = graph.nodes.filter((node) => node.kind === "symbol");
-  const outerNodes = graph.nodes.filter((node) => node.kind !== "symbol");
-
-  if (primaryNodes.length <= 1) {
-    primaryNodes.forEach((node) => positions.set(node.id, { x: centerX, y: centerY }));
-  } else {
-    const primaryRadius = Math.min(40, 16 * primaryNodes.length);
-    primaryNodes.forEach((node, index) => {
-      const angle = (index / primaryNodes.length) * Math.PI * 2;
-      positions.set(node.id, {
-        x: centerX + primaryRadius * Math.cos(angle),
-        y: centerY + primaryRadius * Math.sin(angle)
-      });
-    });
-  }
-
-  const outerRadius = Math.min(width, height) / 2 - Math.max(26, 34 - outerNodes.length);
-  outerNodes.forEach((node, index) => {
-    const angle = (index / Math.max(1, outerNodes.length)) * Math.PI * 2 - Math.PI / 2;
-    positions.set(node.id, {
-      x: centerX + outerRadius * Math.cos(angle),
-      y: centerY + outerRadius * Math.sin(angle)
-    });
-  });
-
-  const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
-
-  const toggleNodeSelection = (nodeId: string) => {
-    setSelectedNodeId((current) => (current === nodeId ? null : nodeId));
-  };
-
-  return (
-    <div className="panel-ontology-graph" aria-label={symbol ? `${symbol} 기업 관계 그래프` : "기업 관계 그래프"}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" preserveAspectRatio="xMidYMid meet">
-        {graph.edges.map((edge) => {
-          const source = positions.get(edge.source);
-          const target = positions.get(edge.target);
-          if (!source || !target) {
-            return null;
-          }
-          const dimmed = highlightedEdgeKind !== null && highlightedEdgeKind !== edge.kind;
-          const active = selectedNodeId !== null && (edge.source === selectedNodeId || edge.target === selectedNodeId);
-          const classNames = [
-            "ontology-edge",
-            `ontology-edge-${edge.kind}`,
-            dimmed ? "ontology-edge-dimmed" : "",
-            active ? "ontology-edge-active" : ""
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return <line key={edge.id} x1={source.x} y1={source.y} x2={target.x} y2={target.y} className={classNames}>{edge.label ? <title>{edge.label}</title> : null}</line>;
-        })}
-        {graph.nodes.map((node, index) => {
-          const position = positions.get(node.id);
-          if (!position) {
-            return null;
-          }
-          const radius = node.kind === "symbol" ? 16 : 10;
-          const isSelected = node.id === selectedNodeId;
-          const labelOffset = radius + 12 + (node.kind !== "symbol" && index % 2 === 1 ? 10 : 0);
-          const classNames = ["ontology-node", `ontology-node-${node.kind}`, isSelected ? "ontology-node-selected" : ""].filter(Boolean).join(" ");
-          return (
-            <g
-              key={node.id}
-              className={classNames}
-              transform={`translate(${position.x}, ${position.y})`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
-              aria-label={`${node.label} (${ontologyNodeKindLabel(node.kind)})`}
-              onClick={() => toggleNodeSelection(node.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  toggleNodeSelection(node.id);
-                }
-              }}
-            >
-              <title>{node.label}</title>
-              {isSelected && <circle r={radius + 5} className="ontology-node-halo" />}
-              <circle r={radius} />
-              <text x={0} y={labelOffset} textAnchor="middle">
-                {truncateOntologyLabel(node.label)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="panel-ontology-legend">
-        {ONTOLOGY_LEGEND_ITEMS.map((item) => (
-          <button
-            key={item.kind}
-            type="button"
-            className={`ontology-legend-item ontology-edge-${item.kind}${highlightedEdgeKind === item.kind ? " active" : ""}`}
-            onClick={() => setHighlightedEdgeKind((current) => (current === item.kind ? null : item.kind))}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      {selectedNode && (
-        <div className="panel-ontology-detail">
-          <strong>{selectedNode.label}</strong>
-          <span>{ontologyNodeKindLabel(selectedNode.kind)}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function truncateOntologyLabel(label: string, maxLength = 12): string {
-  return label.length > maxLength ? `${label.slice(0, maxLength - 1)}…` : label;
-}
-
-function readOntologyGraph(value: unknown): OntologyGraphData | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const source = value as Record<string, unknown>;
-  const nodeKinds: OntologyGraphNodeKind[] = ["symbol", "theme", "company"];
-  const edgeKinds: OntologyGraphEdgeKind[] = ["theme", "control", "shared-theme", "cross-control"];
-
-  const nodes = (Array.isArray(source.nodes) ? source.nodes : [])
-    .map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return null;
-      }
-      const node = item as Record<string, unknown>;
-      const id = readString(node.id);
-      const label = readString(node.label);
-      const kind = readString(node.kind);
-      if (!id || !label || !kind || !nodeKinds.includes(kind as OntologyGraphNodeKind)) {
-        return null;
-      }
-      return { id, label, kind: kind as OntologyGraphNodeKind };
-    })
-    .filter((node): node is { id: string; label: string; kind: OntologyGraphNodeKind } => Boolean(node));
-
-  const edges = (Array.isArray(source.edges) ? source.edges : [])
-    .map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return null;
-      }
-      const edge = item as Record<string, unknown>;
-      const id = readString(edge.id);
-      const edgeSource = readString(edge.source);
-      const edgeTarget = readString(edge.target);
-      const kind = readString(edge.kind);
-      if (!id || !edgeSource || !edgeTarget || !kind || !edgeKinds.includes(kind as OntologyGraphEdgeKind)) {
-        return null;
-      }
-      const label = readString(edge.label);
-      const built: OntologyGraphEdge = { id, source: edgeSource, target: edgeTarget, kind: kind as OntologyGraphEdgeKind };
-      if (label) {
-        built.label = label;
-      }
-      return built;
-    })
-    .filter((edge): edge is OntologyGraphEdge => Boolean(edge));
-
-  if (nodes.length === 0) {
-    return null;
-  }
-
-  return {
-    symbol: readString(source.symbol) ?? "",
-    nodes,
-    edges,
-    generatedAt: readString(source.generatedAt) ?? ""
-  };
 }
 
 function readNewsItems(value: unknown): NewsPanelItem[] {
@@ -1076,6 +873,7 @@ export function PanelCard({
         chartAutoApplyEnabled={chartAutoApplyEnabled}
         activeSymbol={activeSymbol}
         backfillEligibleSymbols={backfillEligibleSymbols}
+        knownSymbols={knownSymbols}
         hotRankingSymbols={hotRankingSymbols}
         orderChartSymbols={orderChartSymbols}
         symbolOptions={symbolOptions}

@@ -8896,3 +8896,113 @@ button.watchlist-row.hot-ranking-row .watchlist-quote-cell {
 .order-ticket-v2 .order-symbol-results {
   display: none !important;
 }
+
+/* ===== Ontology force graph panel ===== */
+.ofg-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ofg-root svg {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  cursor: grab;
+}
+.ofg-hull-circle {
+  fill: #ffffff;
+  fill-opacity: 0.04;
+  stroke: #c8cfdd;
+  stroke-opacity: 0.55;
+  stroke-width: 2;
+  stroke-dasharray: 9 6;
+  pointer-events: none;
+}
+.ofg-hull-grab {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: grab;
+}
+.ofg-hull-grab:active { cursor: grabbing; }
+.ofg-hull-label {
+  fill: #c8cfdd;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ofg-hull-label:hover { opacity: 0.75; }
+.ofg-hull-close { fill: #8a97b5; font-size: 10px; }
+.ofg-link { stroke: #778199; stroke-width: 2; stroke-opacity: 0.8; }
+.ofg-link-chip { stroke-dasharray: 5 5; stroke-opacity: 0.85; }
+.ofg-link-cross { stroke-opacity: 0.95; }
+.ofg-node { cursor: pointer; }
+.ofg-node text { pointer-events: none; text-anchor: middle; }
+.ofg-ticker { font-weight: 700; fill: #e6e9f0; dominant-baseline: middle; }
+.ofg-pct { font-size: 9px; }
+.ofg-count { font-size: 9px; fill: #8b93a7; }
+.ofg-selected-ring {
+  fill: none;
+  stroke: #ffffff;
+  stroke-opacity: 0.8;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.ofg-node-chip circle.ofg-body {
+  fill: #1d2432;
+  stroke: #8b93a7;
+  stroke-opacity: 0.9;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+.ofg-node-chip text.ofg-ticker { fill: #c8cfdd; font-size: 10px; font-weight: 600; }
+.ofg-node-company circle.ofg-body { fill: #232a38; stroke: #4a5468; }
+.ofg-node-company text.ofg-ticker { fill: #aab3c7; font-size: 9px; }
+.ofg-detail {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  max-width: 180px;
+  background: rgba(23, 28, 38, 0.94);
+  border: 1px solid #2a3140;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ofg-detail strong { font-size: 14px; }
+.ofg-detail-chg { color: #e6e9f0; font-weight: 700; }
+.ofg-detail-price { color: #8b93a7; }
+.ofg-detail-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ofg-detail-tags em {
+  font-style: normal;
+  background: #232a38;
+  border-radius: 5px;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: #b7c0d4;
+}
+.ofg-detail button {
+  background: #232a38;
+  border: 1px solid #2a3140;
+  color: #e6e9f0;
+  border-radius: 7px;
+  padding: 5px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ofg-detail button:disabled { opacity: 0.5; cursor: default; }
+.ofg-legend {
+  padding: 4px 8px;
+  font-size: 10px;
+  color: #8b93a7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
