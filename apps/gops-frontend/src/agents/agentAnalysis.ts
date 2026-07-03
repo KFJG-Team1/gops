@@ -134,6 +134,8 @@ export type AgentAnalysisReport = {
   timing?: AgentAnalysisTiming | null;
 };
 
+export type AgentAnalysisMode = "auto" | "multi_agent";
+
 export type AgentAnalysisRequestInput = {
   messages: AgentAnalysisMessage[];
   symbol: string;
@@ -141,6 +143,8 @@ export type AgentAnalysisRequestInput = {
   chartContext: unknown;
   layoutContext?: unknown;
   routerMode?: "hybrid" | "rules" | "strict-llm";
+  analysisMode?: AgentAnalysisMode;
+  agentIds?: string[];
 };
 
 export type AgentAnalysisMessage = {
@@ -166,16 +170,25 @@ export function buildAgentAnalysisRequest({
   intent,
   chartContext,
   layoutContext,
-  routerMode = "hybrid"
+  routerMode = "hybrid",
+  analysisMode = "auto",
+  agentIds = []
 }: AgentAnalysisRequestInput) {
   const request = {
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
     symbol,
     intent,
     chartContext,
-    routerMode
+    routerMode,
+    analysisMode,
+    agentIds
   };
   return layoutContext === undefined ? request : { ...request, layoutContext };
+}
+
+export function shouldAutoApplyAgentLayoutProposal(report: AgentAnalysisReport, analysisMode: AgentAnalysisMode): boolean {
+  const proposal = report.layoutProposal;
+  return analysisMode === "auto" && proposal?.autoApply !== false && Boolean(proposal?.commands.length);
 }
 
 export function buildAgentLayoutContext(layout: WorkspaceLayout) {

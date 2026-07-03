@@ -12,7 +12,13 @@ import {
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "../../chart-engine/src/backfill";
-import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
+import {
+  buildAgentAnalysisRequest,
+  buildAgentLayoutContext,
+  formatAgentAnalysisReport,
+  normalizeAgentAnalysisReport,
+  shouldAutoApplyAgentLayoutProposal
+} from "../src/agents/agentAnalysis";
 import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
@@ -1327,6 +1333,9 @@ const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/S
 assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
 assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
 assert.match(systemAreaSource, /\/api\/agents\/analyze/);
+assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
+assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
+assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
 assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
 assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
 assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
@@ -1343,8 +1352,21 @@ assert.deepEqual(agentAnalysisRequest, {
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
-  routerMode: "hybrid"
+  routerMode: "hybrid",
+  analysisMode: "auto",
+  agentIds: []
 });
+
+const agentAnalysisMultiAgentRequest = buildAgentAnalysisRequest({
+  messages: [{ role: "user", content: "NVDA 뉴스랑 차트 각각 분석해줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 뉴스랑 차트 각각 분석해줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  analysisMode: "multi_agent",
+  agentIds: ["agent-01", "agent-02"]
+});
+assert.equal(agentAnalysisMultiAgentRequest.analysisMode, "multi_agent");
+assert.deepEqual(agentAnalysisMultiAgentRequest.agentIds, ["agent-01", "agent-02"]);
 
 const agentLayoutContext = buildAgentLayoutContext(createPresetLayout("chart"));
 const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
@@ -1542,6 +1564,8 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
   }
 });
 assert.equal(agentNewsPanelReport.layoutProposal?.commands[0]?.payload.panelType, "newsFeed");
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "auto"), true);
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "multi_agent"), false);
 assert.equal(
   ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.latestNews as unknown[])?.length,
   1

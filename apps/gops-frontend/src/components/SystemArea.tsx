@@ -17,7 +17,14 @@ import {
   getStreamStatusForDocument,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
-import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../agents/agentAnalysis";
+import {
+  buildAgentAnalysisRequest,
+  buildAgentLayoutContext,
+  formatAgentAnalysisReport,
+  normalizeAgentAnalysisReport,
+  shouldAutoApplyAgentLayoutProposal,
+  type AgentAnalysisMode
+} from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
 import { findTargetChartPanel } from "../layout/chartPanelSelection";
@@ -249,6 +256,7 @@ function AgentChatPanel({
   const [progressStartedAt, setProgressStartedAt] = useState<number | null>(null);
   const [progressElapsedSeconds, setProgressElapsedSeconds] = useState(0);
   const [agentError, setAgentError] = useState(false);
+  const [agentAnalysisMode, setAgentAnalysisMode] = useState<AgentAnalysisMode>("auto");
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
   const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
@@ -340,7 +348,9 @@ function AgentChatPanel({
         intent: content,
         chartContext,
         layoutContext: buildAgentLayoutContext(layout),
-        routerMode: "hybrid"
+        routerMode: "hybrid",
+        analysisMode: agentAnalysisMode,
+        agentIds: selectedAgents.map((agent) => agent.id)
       }))
     })
       .then(async (response) => {
@@ -351,9 +361,8 @@ function AgentChatPanel({
       })
       .then((payload) => {
         const report = normalizeAgentAnalysisReport(payload);
-        const layoutProposal = report.layoutProposal;
-        if (layoutProposal?.autoApply !== false && layoutProposal?.commands.length) {
-          onLayoutProposal(layoutProposal);
+        if (shouldAutoApplyAgentLayoutProposal(report, agentAnalysisMode) && report.layoutProposal) {
+          onLayoutProposal(report.layoutProposal);
         }
         setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
       })
@@ -397,6 +406,26 @@ function AgentChatPanel({
         <div className="agent-chat-reference">
           <div className="agent-chat-reference-list" aria-label="AI 참조 대상">
             <span className="agent-chat-reference-token">{chartDocument ? chartDocument.symbol : "차트 없음"}</span>
+            <div className="agent-chat-mode-toggle" role="group" aria-label="AI 실행 모드">
+              <button
+                type="button"
+                className={agentAnalysisMode === "auto" ? "active" : ""}
+                aria-pressed={agentAnalysisMode === "auto"}
+                disabled={sending}
+                onClick={() => setAgentAnalysisMode("auto")}
+              >
+                자동
+              </button>
+              <button
+                type="button"
+                className={agentAnalysisMode === "multi_agent" ? "active" : ""}
+                aria-pressed={agentAnalysisMode === "multi_agent"}
+                disabled={sending}
+                onClick={() => setAgentAnalysisMode("multi_agent")}
+              >
+                멀티
+              </button>
+            </div>
             {sending && (
               <span className="agent-chat-progress" aria-live="polite">
                 {progressLabel}... {progressElapsedSeconds.toFixed(1)}초
