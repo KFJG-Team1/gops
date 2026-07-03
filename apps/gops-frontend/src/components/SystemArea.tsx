@@ -17,7 +17,7 @@ import {
   getStreamStatusForDocument,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
-import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport, type AgentAnalysisReport } from "../agents/agentAnalysis";
+import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, resolveAgentAnalysisReport, type AgentAnalysisReport } from "../agents/agentAnalysis";
 import { buildOntologyGraphFromEvidence } from "../agents/ontologyGraph";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
@@ -350,8 +350,8 @@ function AgentChatPanel({
         }
         return response.json() as Promise<unknown>;
       })
-      .then((payload) => {
-        const report = normalizeAgentAnalysisReport(payload);
+      .then((payload) => resolveAgentAnalysisReport(payload))
+      .then((report) => {
         const layoutProposal = report.layoutProposal;
         if (layoutProposal?.autoApply !== false && layoutProposal?.commands.length) {
           onLayoutProposal(layoutProposal);

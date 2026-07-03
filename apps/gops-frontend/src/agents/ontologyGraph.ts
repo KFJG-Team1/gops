@@ -65,14 +65,14 @@ export function buildOntologyGraphFromEvidence(
     const raw = item.raw ?? {};
     const relationType = readNonEmptyString(raw.relationType);
 
-    if (relationType === "theme") {
+    if (relationType === "theme" || relationType === "theme-company") {
       const ticker = readNonEmptyString(raw.ticker) ?? primarySymbol;
       const theme = readNonEmptyString(raw.themeName);
       if (theme) {
         addEdge(ensureSymbolNode(ticker), ensureThemeNode(theme), "theme");
         matched = true;
       }
-    } else if (relationType === "control") {
+    } else if (relationType === "control" || relationType === "theme-control") {
       const ticker = readNonEmptyString(raw.ticker) ?? primarySymbol;
       const controlled = readNonEmptyString(raw.controlledName);
       if (controlled) {

@@ -221,6 +221,23 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
   };
 }
 
+export async function resolveAgentAnalysisReport(
+  payload: unknown,
+  options: {
+    fetcher?: typeof fetch;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  } = {}
+): Promise<AgentAnalysisReport> {
+  const source = readObject(payload);
+  const statusUrl = readString(source?.status_url) ?? readString(source?.statusUrl);
+  const status = readString(source?.status);
+  if (statusUrl && isPendingAnalysisStatus(status)) {
+    return pollAgentAnalysisReport(statusUrl, options);
+  }
+  return normalizeAgentAnalysisReport(extractReportPayload(payload));
+}
+
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const newsOnly = isNewsOnlyReport(report);
   const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
@@ -304,6 +321,100 @@ function isNewsOnlyReport(report: AgentAnalysisReport): boolean {
     return false;
   }
   return route.intentType === "news" || (route.selectedRoles.length === 1 && route.selectedRoles[0] === "news");
+}
+
+async function pollAgentAnalysisReport(
+  statusUrl: string,
+  {
+    fetcher = fetch,
+    pollIntervalMs = 1000,
+    timeoutMs = 60000
+  }: {
+    fetcher?: typeof fetch;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  }
+): Promise<AgentAnalysisReport> {
+  const deadline = Date.now() + timeoutMs;
+  let lastPayload: unknown;
+
+  while (Date.now() < deadline) {
+    await wait(pollIntervalMs);
+    const response = await fetcher(statusUrl, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(await readResponseMessage(response, "Agent report polling API"));
+    }
+
+    const payload = await response.json() as unknown;
+    lastPayload = payload;
+    const reportPayload = extractReportPayload(payload);
+    const status = readAnalysisStatus(payload, reportPayload);
+
+    if (isFailedAnalysisStatus(status)) {
+      throw new Error(readAnalysisFailureMessage(payload, reportPayload));
+    }
+    if (!isPendingAnalysisStatus(status)) {
+      return normalizeAgentAnalysisReport(reportPayload);
+    }
+  }
+
+  if (lastPayload) {
+    const reportPayload = extractReportPayload(lastPayload);
+    const report = normalizeAgentAnalysisReport(reportPayload);
+    if (!isPendingAnalysisStatus(report.status)) {
+      return report;
+    }
+  }
+  throw new Error("AI 분석 결과를 제한 시간 안에 받지 못했습니다.");
+}
+
+function extractReportPayload(payload: unknown): unknown {
+  const source = readObject(payload);
+  const report = readObject(source?.report);
+  return report ?? payload;
+}
+
+function readAnalysisStatus(payload: unknown, reportPayload: unknown): string | null {
+  const source = readObject(payload);
+  const report = readObject(reportPayload);
+  return readString(report?.status) ?? readString(source?.status);
+}
+
+function isPendingAnalysisStatus(status: string | null | undefined): boolean {
+  return status === "queued" || status === "running" || status === "pending";
+}
+
+function isFailedAnalysisStatus(status: string | null | undefined): boolean {
+  return status === "failed" || status === "error";
+}
+
+function readAnalysisFailureMessage(payload: unknown, reportPayload: unknown): string {
+  const source = readObject(payload);
+  const report = readObject(reportPayload);
+  return readString(report?.summary) ??
+    readString(source?.message) ??
+    readString(source?.detail) ??
+    "AI 분석 요청이 실패했습니다.";
+}
+
+async function readResponseMessage(response: Response, fallback: string): Promise<string> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return `${fallback} 요청에 실패했습니다.`;
+  }
+  try {
+    const payload = JSON.parse(text) as unknown;
+    const source = readObject(payload);
+    return readString(source?.message) ??
+      readString(source?.detail) ??
+      `${fallback} 요청에 실패했습니다.`;
+  } catch {
+    return text;
+  }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function normalizeFinding(value: unknown): AgentFinding | null {
