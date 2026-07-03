@@ -138,7 +138,7 @@ export const panelRegistry: Record<PanelType, PanelDefinition> = {
   }
 };
 
-export const panelTypes = Object.keys(panelRegistry) as PanelType[];
+export const panelTypes: PanelType[] = ["ontologyGraph"];
 
 export function resolvePanelVariant(panel: Pick<PanelInstance, "placement">): PanelSizeVariant {
   const area = panel.placement.colSpan * panel.placement.rowSpan;

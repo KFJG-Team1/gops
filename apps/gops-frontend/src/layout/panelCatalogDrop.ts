@@ -4,16 +4,7 @@ import type { LayoutCommand, PanelInstance, PanelPlacement, PanelType, Workspace
 
 export const PANEL_CATALOG_MIME = "application/x-gops-panel-type";
 
-export const PANEL_CATALOG_TYPES: PanelType[] = [
-  "chart",
-  "newsFeed",
-  "hotRanking",
-  "indicatorCompare",
-  "aiSummary",
-  "portfolioHoldings",
-  "orderTicket",
-  "ontologyGraph"
-];
+export const PANEL_CATALOG_TYPES: PanelType[] = ["ontologyGraph"];
 
 export type WorkspaceDropCell = {
   col: number;

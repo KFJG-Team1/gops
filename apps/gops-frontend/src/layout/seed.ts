@@ -68,7 +68,27 @@ function createWorkspaceLayout(panels: PanelInstance[], selectedPanelId?: string
   };
 }
 
+function createOntologyOnlyLayout(): WorkspaceLayout {
+  return createWorkspaceLayout(
+    [
+      createPanelInstance(
+        "ontologyGraph",
+        { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 4, rowSpan: 5 },
+        "system",
+        { source: "ontology" },
+        "panel-ontology"
+      )
+    ],
+    "panel-ontology"
+  );
+}
+
 export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
+  const ontologyOnlyLayout = createOntologyOnlyLayout();
+  if (ontologyOnlyLayout.panels.length === 1) {
+    return ontologyOnlyLayout;
+  }
+
   if (key === "news") {
     return createWorkspaceLayout(
       [
@@ -278,10 +298,7 @@ export function createSeedLayout(): WorkspaceLayout {
 export function createDefaultLayoutRecords(): SavedLayoutRecord[] {
   const now = new Date().toISOString();
   const defaults: Array<{ key: DefaultLayoutKey; name: string }> = [
-    { key: "chart", name: "차트" },
-    { key: "news", name: "뉴스" },
-    { key: "overview", name: "개요" },
-    { key: "signals", name: "시그널" }
+    { key: "chart", name: "온톨로지" }
   ];
 
   return defaults.map(({ key, name }) => ({
