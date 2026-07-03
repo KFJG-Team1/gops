@@ -5,7 +5,9 @@ export type ChartInterval = typeof chartIntervals[number];
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
 const historicalTargetYears = 6;
+const intradayGapfillTargetDays = 14;
 const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * historicalTargetYears;
+const intradayGapfillTargetBars = minutesPerTradingDay * intradayGapfillTargetDays;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 120,
@@ -17,9 +19,9 @@ const defaultVisibleBars: Record<ChartInterval, number> = {
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": intradayLazyTargetBars,
-  "5m": Math.ceil(intradayLazyTargetBars / 5),
-  "10m": Math.ceil(intradayLazyTargetBars / 10),
+  "1m": intradayGapfillTargetBars,
+  "5m": Math.ceil(intradayGapfillTargetBars / 5),
+  "10m": Math.ceil(intradayGapfillTargetBars / 10),
   "1D": tradingDaysPerYear * historicalTargetYears,
   "1W": 52 * historicalTargetYears,
   "1M": 12 * historicalTargetYears

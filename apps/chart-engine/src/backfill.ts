@@ -188,7 +188,7 @@ function initialBackfillLookbackMs(interval: string): number {
     case "1m":
     case "5m":
     case "10m":
-      return 13 * day;
+      return 14 * day;
     case "1D":
       return 370 * day;
     case "1W":

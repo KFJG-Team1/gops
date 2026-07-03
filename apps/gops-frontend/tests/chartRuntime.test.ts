@@ -726,7 +726,7 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   canBackfill: true,
   requestedLimit: 390,
   returnedCount: 1,
-  targetStoredCount: 589680,
+  targetStoredCount: 5460,
   storedCandleCount: 1,
   hasMoreBefore: true,
   coverage: {
@@ -736,7 +736,7 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
     sourceInterval: "1m",
     returnedCount: 1,
     storedCandleCount: 1,
-    targetStoredCount: 589680,
+    targetStoredCount: 5460,
     renderable: false,
     minimumReturnedCount: 20,
     minimumRenderableSourceBars: 30
@@ -755,8 +755,8 @@ const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeStat
 const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
 assert.equal(partialBackfillStatus?.state, "partial");
 assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 589680);
-assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 589680);
+assert.equal(partialBackfillStatus?.targetStoredCount, 5460);
+assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 5460);
 assert.equal(partialBackfillStatus?.repairStatus, "gapfill_required");
 assert.equal(shouldRequestRangeBackfill(partialBackfillSnapshot), true);
 assert.equal(shouldRequestRangeBackfill({
@@ -773,15 +773,15 @@ assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
   end: "2026-06-25T13:30:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("1m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-19T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("5m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-19T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("10m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-19T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 const sparseGapSnapshot = normalizeCandleSnapshot({
@@ -941,9 +941,9 @@ assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 120);
 assert.equal(defaultVisibleBarsForInterval("1M"), 120);
-assert.equal(backfillTargetBarsForInterval("1m"), 589680);
-assert.equal(backfillTargetBarsForInterval("5m"), 117936);
-assert.equal(backfillTargetBarsForInterval("10m"), 58968);
+assert.equal(backfillTargetBarsForInterval("1m"), 5460);
+assert.equal(backfillTargetBarsForInterval("5m"), 1092);
+assert.equal(backfillTargetBarsForInterval("10m"), 546);
 assert.equal(backfillTargetBarsForInterval("1D"), 1512);
 assert.equal(backfillTargetBarsForInterval("1W"), 312);
 assert.equal(backfillTargetBarsForInterval("1M"), 72);
