@@ -1,4 +1,4 @@
-import { Bell, Bot, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
+import { Bell, Bot, ChevronLeft, ChevronRight, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, Search, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { createChatMessage, type AgentChatMessage } from "@gops/chart-engine/agentChat";
@@ -80,8 +80,28 @@ type SystemAreaProps = {
   onDeleteAgent: (agentId: string) => void;
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
+  onToggleWatchlistSymbol: (symbol: string) => void;
   onCommand: (command: LayoutCommand) => void;
   onLayoutProposal: (proposal: LayoutProposal) => void;
+};
+
+type WatchlistTab = "watchlist" | "sp500" | "subscriptions";
+
+type SymbolPagePayload = {
+  page: number;
+  pageSize: number;
+  total: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+  symbols: WatchlistSymbol[];
+};
+
+type SubscriptionRecord = {
+  symbol: string;
+  layers: string[];
+  sources: string[];
+  reason?: string;
+  enabled?: boolean;
 };
 
 type SettingsPanelProps = {
@@ -119,6 +139,7 @@ export function SystemArea({
   onDeleteAgent,
   onCloseSystemPanel,
   onSelectSymbol,
+  onToggleWatchlistSymbol,
   onCommand,
   onLayoutProposal
 }: SystemAreaProps) {
@@ -129,6 +150,64 @@ export function SystemArea({
   const agentHeaderDetail = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
     : "";
+  const [watchlistTab, setWatchlistTab] = useState<WatchlistTab>("watchlist");
+  const [sp500Query, setSp500Query] = useState("");
+  const [sp500Page, setSp500Page] = useState(1);
+  const [sp500Payload, setSp500Payload] = useState<SymbolPagePayload | null>(null);
+  const [sp500Loading, setSp500Loading] = useState(false);
+  const [subscriptionRecords, setSubscriptionRecords] = useState<SubscriptionRecord[]>([]);
+
+  useEffect(() => {
+    if (mode !== "watchlist" || watchlistTab !== "sp500") {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      q: sp500Query,
+      page: String(sp500Page),
+      pageSize: "50"
+    });
+    setSp500Loading(true);
+    fetch(`/api/market/symbols?${params.toString()}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<unknown> : Promise.reject(new Error(`S&P500 API ${response.status}`)))
+      .then((payload) => {
+        setSp500Payload(normalizeSymbolPagePayload(payload));
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setSp500Payload({ page: sp500Page, pageSize: 50, total: 0, hasPrev: sp500Page > 1, hasNext: false, symbols: [] });
+        }
+      })
+      .finally(() => setSp500Loading(false));
+    return () => controller.abort();
+  }, [mode, sp500Page, sp500Query, watchlistTab]);
+
+  useEffect(() => {
+    if (mode !== "watchlist" || watchlistTab !== "subscriptions") {
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSubscriptions = () => {
+      fetch("/api/monitor/market-data/subscriptions")
+        .then((response) => response.ok ? response.json() as Promise<unknown> : Promise.reject(new Error(`Subscription API ${response.status}`)))
+        .then((payload) => {
+          if (!cancelled) {
+            setSubscriptionRecords(normalizeSubscriptionRecords(payload));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSubscriptionRecords([]);
+          }
+        });
+    };
+    loadSubscriptions();
+    const timer = window.setInterval(loadSubscriptions, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [mode, watchlistTab]);
 
   return (
     <aside className="system-area" data-system-mode={mode} aria-label="시스템 패널">
@@ -188,38 +267,250 @@ export function SystemArea({
           <div className="system-mode-header watchlist-header">
             <strong>관심 종목</strong>
           </div>
-          <div className="watchlist-list">
-            {watchlistSymbols.length === 0 && (
-              <div className="watchlist-empty">불러온 종목이 없습니다</div>
-            )}
-            {watchlistSymbols.map((item) => (
-              <button
-                key={item.symbol}
-                className={item.symbol === activeSymbol ? "watchlist-row active" : "watchlist-row"}
-                data-symbol={item.symbol}
-                aria-label={`${item.symbol} ${item.name} 불러오기`}
-                title={`${item.symbol} 불러오기`}
-                onClick={() => onSelectSymbol(item.symbol)}
-              >
-                <span className="watchlist-symbol-cell">
-                  <strong>{item.symbol}</strong>
-                  <em>{item.name}</em>
-                </span>
-                <span className="watchlist-quote-cell">
-                  <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
-                    {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
-                  </strong>
-                  <em>
-                    {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "데이터 없음"}
-                  </em>
-                </span>
-              </button>
-            ))}
+          <div className="watchlist-tabs" role="tablist" aria-label="관심 종목 보기">
+            <button className={watchlistTab === "watchlist" ? "active" : ""} type="button" onClick={() => setWatchlistTab("watchlist")}>관심</button>
+            <button className={watchlistTab === "sp500" ? "active" : ""} type="button" onClick={() => setWatchlistTab("sp500")}>S&P500</button>
+            <button className={watchlistTab === "subscriptions" ? "active" : ""} type="button" onClick={() => setWatchlistTab("subscriptions")}>구독</button>
           </div>
+
+          {watchlistTab === "watchlist" && (
+            <div className="watchlist-list">
+              {watchlistSymbols.length === 0 && (
+                <div className="watchlist-empty">불러온 종목이 없습니다</div>
+              )}
+              {watchlistSymbols.map((item) => (
+                <SymbolListRow
+                  key={item.symbol}
+                  item={item}
+                  active={item.symbol === activeSymbol}
+                  inWatchlist
+                  onSelectSymbol={onSelectSymbol}
+                  onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+                />
+              ))}
+            </div>
+          )}
+
+          {watchlistTab === "sp500" && (
+            <div className="sp500-browser">
+              <form
+                className="sp500-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setSp500Page(1);
+                }}
+              >
+                <Search size={13} />
+                <input
+                  value={sp500Query}
+                  placeholder="S&P500 검색"
+                  aria-label="S&P500 검색"
+                  onChange={(event) => {
+                    setSp500Query(event.target.value.toUpperCase());
+                    setSp500Page(1);
+                  }}
+                />
+              </form>
+              <div className="watchlist-list sp500-list">
+                {sp500Loading && <div className="watchlist-empty">목록을 불러오는 중입니다</div>}
+                {!sp500Loading && (sp500Payload?.symbols.length ?? 0) === 0 && <div className="watchlist-empty">표시할 종목이 없습니다</div>}
+                {sp500Payload?.symbols.map((item) => (
+                  <SymbolListRow
+                    key={item.symbol}
+                    item={item}
+                    active={item.symbol === activeSymbol}
+                    inWatchlist={watchlistSymbols.some((watch) => watch.symbol === item.symbol)}
+                    onSelectSymbol={onSelectSymbol}
+                    onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+                  />
+                ))}
+              </div>
+              <div className="sp500-pager">
+                <button type="button" disabled={!sp500Payload?.hasPrev} title="이전 페이지" onClick={() => setSp500Page((page) => Math.max(1, page - 1))}>
+                  <ChevronLeft size={14} />
+                </button>
+                <span>{sp500Payload?.page ?? sp500Page} / {Math.max(1, Math.ceil((sp500Payload?.total ?? 0) / Math.max(1, sp500Payload?.pageSize ?? 50)))}</span>
+                <button type="button" disabled={!sp500Payload?.hasNext} title="다음 페이지" onClick={() => setSp500Page((page) => page + 1)}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {watchlistTab === "subscriptions" && (
+            <div className="subscription-list">
+              {subscriptionRecords.length === 0 && <div className="watchlist-empty">실시간 구독 종목이 없습니다</div>}
+              {subscriptionRecords.map((record) => (
+                <button
+                  key={record.symbol}
+                  className={record.symbol === activeSymbol ? "subscription-row active" : "subscription-row"}
+                  type="button"
+                  onClick={() => onSelectSymbol(record.symbol)}
+                >
+                  <strong>{record.symbol}</strong>
+                  <span>{record.layers.join(", ") || "layers 없음"}</span>
+                  <em>{record.sources.join(" / ") || record.reason || "source 없음"}</em>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </aside>
   );
+}
+
+function SymbolListRow({
+  item,
+  active,
+  inWatchlist,
+  onSelectSymbol,
+  onToggleWatchlistSymbol
+}: {
+  item: WatchlistSymbol;
+  active: boolean;
+  inWatchlist: boolean;
+  onSelectSymbol: (symbol: string) => boolean;
+  onToggleWatchlistSymbol: (symbol: string) => void;
+}) {
+  const priceLabel = typeof item.lastPrice === "number"
+    ? item.lastPrice.toFixed(2)
+    : item.priceStatus === "loading"
+      ? "최신 가격 불러오는 중"
+      : "가격 준비 중";
+  const sourceLabel = item.priceSource ? `source=${item.priceSource}` : undefined;
+
+  return (
+    <div
+      className={active ? "watchlist-row active" : "watchlist-row"}
+      data-symbol={item.symbol}
+      role="button"
+      tabIndex={0}
+      aria-label={`${item.symbol} ${item.name} 불러오기`}
+      title={`${item.symbol} 불러오기`}
+      onClick={() => onSelectSymbol(item.symbol)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelectSymbol(item.symbol);
+        }
+      }}
+    >
+      <span className="watchlist-symbol-cell">
+        <strong>{item.symbol}</strong>
+        <em>{item.name}</em>
+      </span>
+      <span className="watchlist-quote-cell">
+        <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+          {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+        </strong>
+        <em>
+          {priceLabel}
+        </em>
+        {sourceLabel && <small className="watchlist-price-source">{sourceLabel}</small>}
+      </span>
+      <button
+        type="button"
+        className={inWatchlist ? "watchlist-row-star active" : "watchlist-row-star"}
+        title={inWatchlist ? `${item.symbol} 관심 종목 제거` : `${item.symbol} 관심 종목 추가`}
+        aria-label={inWatchlist ? `${item.symbol} 관심 종목 제거` : `${item.symbol} 관심 종목 추가`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleWatchlistSymbol(item.symbol);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleWatchlistSymbol(item.symbol);
+          }
+        }}
+      >
+        <Star size={13} fill={inWatchlist ? "currentColor" : "none"} />
+      </button>
+    </div>
+  );
+}
+
+function normalizeSymbolPagePayload(payload: unknown): SymbolPagePayload {
+  if (!payload || typeof payload !== "object") {
+    return { page: 1, pageSize: 50, total: 0, hasPrev: false, hasNext: false, symbols: [] };
+  }
+  const source = payload as Record<string, unknown>;
+  return {
+    page: readFiniteNumber(source.page) ?? 1,
+    pageSize: readFiniteNumber(source.pageSize) ?? 50,
+    total: readFiniteNumber(source.total) ?? 0,
+    hasPrev: source.hasPrev === true,
+    hasNext: source.hasNext === true,
+    symbols: normalizeWatchlistSymbols(source.symbols)
+  };
+}
+
+function normalizeSubscriptionRecords(payload: unknown): SubscriptionRecord[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const records = Array.isArray((payload as Record<string, unknown>).symbols) ? (payload as Record<string, unknown>).symbols as unknown[] : [];
+  return records
+    .map((record): SubscriptionRecord | null => {
+      if (!record || typeof record !== "object") {
+        return null;
+      }
+      const source = record as Record<string, unknown>;
+      const symbol = typeof source.symbol === "string" ? source.symbol.trim().toUpperCase() : "";
+      if (!symbol) {
+        return null;
+      }
+      return {
+        symbol,
+        layers: Array.isArray(source.layers) ? source.layers.filter((item): item is string => typeof item === "string") : [],
+        sources: Array.isArray(source.sources) ? source.sources.filter((item): item is string => typeof item === "string") : [],
+        reason: typeof source.reason === "string" ? source.reason : undefined,
+        enabled: source.enabled === true
+      };
+    })
+    .filter((item): item is SubscriptionRecord => Boolean(item));
+}
+
+function normalizeWatchlistSymbols(value: unknown): WatchlistSymbol[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): WatchlistSymbol | null => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const source = item as Record<string, unknown>;
+      const symbol = typeof source.symbol === "string" ? source.symbol.trim().toUpperCase() : "";
+      if (!symbol) {
+        return null;
+      }
+      return {
+        symbol,
+        name: typeof source.name === "string" && source.name.trim() ? source.name : symbol,
+        market: typeof source.market === "string" && source.market.trim() ? source.market : "US",
+        lastPrice: readFiniteNumber(source.lastPrice) ?? undefined,
+        changePercent: readFiniteNumber(source.changePercent) ?? undefined,
+        volume: readFiniteNumber(source.volume) ?? undefined,
+        priceSource: typeof source.priceSource === "string" ? source.priceSource : undefined,
+        priceStatus: typeof source.priceStatus === "string" ? source.priceStatus : undefined,
+        priceUpdatedAt: typeof source.priceUpdatedAt === "string" ? source.priceUpdatedAt : undefined
+      };
+    })
+    .filter((item): item is WatchlistSymbol => Boolean(item));
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function AgentChatPanel({

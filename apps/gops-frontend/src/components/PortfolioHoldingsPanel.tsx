@@ -6,7 +6,13 @@ type SortMode = "custom" | "value" | "return";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
-export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (symbol: string) => boolean }) {
+export function PortfolioHoldingsPanel({
+  onSelectSymbol,
+  onPortfolioSymbolsChange
+}: {
+  onSelectSymbol: (symbol: string) => boolean;
+  onPortfolioSymbolsChange?: (symbols: readonly string[]) => void;
+}) {
   const [payload, setPayload] = useState<PortfolioHoldingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -24,6 +30,7 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
       const response = await fetch("/api/account/holdings?market=overseas&currency=USD", { signal });
       const nextPayload = await parsePortfolioHoldingsApiResponse(response);
       setPayload(nextPayload);
+      onPortfolioSymbolsChange?.(nextPayload.positions.map((position) => position.symbol));
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") {
         return;
@@ -33,7 +40,7 @@ export function PortfolioHoldingsPanel({ onSelectSymbol }: { onSelectSymbol: (sy
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [onPortfolioSymbolsChange]);
 
   useEffect(() => {
     const controller = new AbortController();

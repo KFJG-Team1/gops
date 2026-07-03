@@ -45,6 +45,7 @@ type WorkspaceGridProps = {
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
   onSymbolOptionsRequest: (query: string) => void;
+  onPortfolioSymbolsChange: (symbols: readonly string[]) => void;
   onCommand: (command: LayoutCommand) => void;
   onLayoutProposal: (proposal: LayoutProposal) => void;
   onChartAction: (action: ChartRuntimeAction) => void;
@@ -139,6 +140,7 @@ export function WorkspaceGrid({
   onCloseSystemPanel,
   onSelectSymbol,
   onSymbolOptionsRequest,
+  onPortfolioSymbolsChange,
   onCommand,
   onLayoutProposal,
   onChartAction,
@@ -261,6 +263,7 @@ export function WorkspaceGrid({
           onAskAgentFromChart={onAskAgentFromChart}
           onSelectSymbol={onSelectSymbol}
           onSymbolOptionsRequest={onSymbolOptionsRequest}
+          onPortfolioSymbolsChange={onPortfolioSymbolsChange}
           onToggleWatchlistSymbol={onToggleWatchlistSymbol}
           systemColumnVisible={systemPanelOpen}
         />
@@ -307,6 +310,7 @@ export function WorkspaceGrid({
           onDeleteAgent={onDeleteAgent}
           onCloseSystemPanel={onCloseSystemPanel}
           onSelectSymbol={onSelectSymbol}
+          onToggleWatchlistSymbol={onToggleWatchlistSymbol}
           onCommand={onCommand}
           onLayoutProposal={onLayoutProposal}
         />

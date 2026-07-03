@@ -1,11 +1,18 @@
 import { normalizeChartInterval } from "./intervals";
 import { canonicalTimestamp } from "./time";
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, RepairStatus } from "./types";
+import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, QuoteTickData, RealtimeLayerEvent, RepairStatus, TradeTickData } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
 function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function readString(value: unknown): string | null {
@@ -160,6 +167,14 @@ export function isRealtimeControlPayload(payload: unknown): payload is Record<st
   return type === "HEARTBEAT" || type === "MARKET_STATUS_UPDATE" || type === "VOLUME_PROFILE_BINS_UPDATE" || type === "ERROR";
 }
 
+export function isRealtimeLayerPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeLayerEvent["type"] } {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const type = (payload as Record<string, unknown>).type;
+  return type === "LIVE_TRADE_UPDATE" || type === "LIVE_QUOTE_UPDATE";
+}
+
 function normalizeIndicators(value: unknown): CandleSnapshot["indicators"] {
   if (!value || typeof value !== "object") {
     return { ma: [5, 20, 60], volume: true };
@@ -251,4 +266,59 @@ export function normalizeCandleEvent(payload: unknown): CandleEvent {
     marketSession: readString(source.marketSession) ?? undefined,
     data: candle
   };
+}
+
+export function normalizeRealtimeLayerEvent(payload: unknown): RealtimeLayerEvent {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Realtime layer payload is invalid.");
+  }
+  const source = payload as Record<string, unknown>;
+  const type = source.type;
+  const symbol = readString(source.symbol);
+  if ((type !== "LIVE_TRADE_UPDATE" && type !== "LIVE_QUOTE_UPDATE") || !symbol) {
+    throw new Error("Realtime layer event is missing type or symbol.");
+  }
+  const data = source.data && typeof source.data === "object" ? source.data as Record<string, unknown> : {};
+  if (type === "LIVE_TRADE_UPDATE") {
+    return { type, symbol, data: normalizeTradeTick(data) };
+  }
+  return { type, symbol, data: normalizeQuoteTick(data) };
+}
+
+function normalizeTradeTick(source: Record<string, unknown>): TradeTickData {
+  return {
+    tradeId: readString(source.tradeId) ?? readString(source.id) ?? undefined,
+    price: readNumber(source.price) ?? undefined,
+    size: readNumber(source.size) ?? undefined,
+    exchange: readString(source.exchange) ?? undefined,
+    conditions: readStringArray(source.conditions),
+    tape: readString(source.tape) ?? undefined,
+    timestamp: canonicalTimestamp(readString(source.timestamp) ?? "") || undefined,
+    updatedAt: readString(source.updatedAt) ?? undefined
+  };
+}
+
+function normalizeQuoteTick(source: Record<string, unknown>): QuoteTickData {
+  return {
+    bidPrice: readNumber(source.bidPrice) ?? undefined,
+    bidSize: readNumber(source.bidSize) ?? undefined,
+    askPrice: readNumber(source.askPrice) ?? undefined,
+    askSize: readNumber(source.askSize) ?? undefined,
+    bidExchange: readString(source.bidExchange) ?? undefined,
+    askExchange: readString(source.askExchange) ?? undefined,
+    conditions: readStringArray(source.conditions),
+    timestamp: canonicalTimestamp(readString(source.timestamp) ?? "") || undefined,
+    updatedAt: readString(source.updatedAt) ?? undefined
+  };
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const items = value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+    return items.length ? items : undefined;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return undefined;
 }

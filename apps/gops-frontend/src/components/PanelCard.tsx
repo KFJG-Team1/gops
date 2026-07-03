@@ -4,7 +4,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ChartPanel } from "./ChartPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
-import { getCandlesForDocument, getChartDocumentForPanel, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
+import { getCandlesForDocument, getChartDocumentForPanel, getLiveTradeForSymbol, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
 import { getSymbolMeta, normalizeSupportedSymbol, type HotRankingSymbol, type SupportedSymbol, type SymbolMeta, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { ChartDocument } from "@gops/chart-engine/types";
 import { makeCommand } from "../layout/commands";
@@ -32,6 +32,7 @@ type PanelCardProps = {
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
   onSymbolOptionsRequest: (query: string) => void;
+  onPortfolioSymbolsChange: (symbols: readonly string[]) => void;
   onToggleWatchlistSymbol: (symbol: string) => void;
   systemColumnVisible: boolean;
 };
@@ -96,7 +97,8 @@ function PanelBody({
   onChartAction,
   onAskAgentFromChart,
   onSelectSymbol,
-  onSymbolOptionsRequest
+  onSymbolOptionsRequest,
+  onPortfolioSymbolsChange
 }: {
   panel: PanelInstance;
   chartRuntime: ChartRuntimeState;
@@ -110,6 +112,7 @@ function PanelBody({
   onAskAgentFromChart: (panelId: string, chartDocumentId: string) => void;
   onSelectSymbol: (symbol: string) => boolean;
   onSymbolOptionsRequest: (query: string) => void;
+  onPortfolioSymbolsChange: (symbols: readonly string[]) => void;
 }) {
   if (panel.type === "chart") {
     return (
@@ -136,7 +139,7 @@ function PanelBody({
   }
 
   if (panel.type === "portfolioHoldings") {
-    return <PortfolioHoldingsPanel onSelectSymbol={onSelectSymbol} />;
+    return <PortfolioHoldingsPanel onSelectSymbol={onSelectSymbol} onPortfolioSymbolsChange={onPortfolioSymbolsChange} />;
   }
 
   if (panel.type === "hotRanking") {
@@ -396,6 +399,16 @@ function resolveChartHeaderMetrics(
     direction: "offline"
   };
 
+  const liveTrade = getLiveTradeForSymbol(chartRuntime, chartDocument.symbol);
+  if (typeof liveTrade?.price === "number" && Number.isFinite(liveTrade.price)) {
+    const changePercent = typeof quote?.changePercent === "number" ? quote.changePercent : undefined;
+    return {
+      price: liveTrade.price.toFixed(2),
+      change: typeof changePercent === "number" ? `${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(2)}%` : "tick",
+      direction: typeof changePercent === "number" ? (changePercent > 0 ? "up" : changePercent < 0 ? "down" : "flat") : "flat"
+    };
+  }
+
   if (typeof quote?.lastPrice === "number" && typeof quote.changePercent === "number") {
     return {
       price: quote.lastPrice.toFixed(2),
@@ -442,6 +455,7 @@ export function PanelCard({
   onAskAgentFromChart,
   onSelectSymbol,
   onSymbolOptionsRequest,
+  onPortfolioSymbolsChange,
   onToggleWatchlistSymbol,
   systemColumnVisible
 }: PanelCardProps) {
@@ -775,6 +789,7 @@ export function PanelCard({
         onAskAgentFromChart={onAskAgentFromChart}
         onSelectSymbol={onSelectSymbol}
         onSymbolOptionsRequest={onSymbolOptionsRequest}
+        onPortfolioSymbolsChange={onPortfolioSymbolsChange}
       />
     </article>
   );

@@ -5,6 +5,7 @@ import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import {
   firstSnapshotGapBackfillWindow,
+  initialBackfillWindow,
   isChartDataRenderable,
   isPreparingCandleData,
   normalizeBackfillStatusPayload,
@@ -29,7 +30,7 @@ import { executeChartCommand, executeChartCommandGroup, makeChartCommand, valida
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
 import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
 import { backfillTargetBarsForInterval, defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
-import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
+import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
@@ -513,6 +514,15 @@ assert.equal(liveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "sip");
 const heartbeatPayload = { type: "HEARTBEAT", symbol: "NVDA", interval: "1m" };
 assert.equal(isRealtimeControlPayload(heartbeatPayload), true);
 assert.throws(() => normalizeCandleEvent(heartbeatPayload), /missing type, symbol, interval, or data/);
+const tradePayload = { type: "LIVE_TRADE_UPDATE", symbol: "NVDA", data: { price: "197.66", size: "20", timestamp: "2026-07-02T14:30:00Z" } };
+assert.equal(isRealtimeLayerPayload(tradePayload), true);
+const normalizedTrade = normalizeRealtimeLayerEvent(tradePayload);
+if (normalizedTrade.type !== "LIVE_TRADE_UPDATE") {
+  throw new Error("expected trade payload");
+}
+assert.equal(normalizedTrade.data.price, 197.66);
+const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
+assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
 
 assert.equal(shouldRequestBackfill({
   state: "empty",
@@ -761,6 +771,18 @@ assert.equal(shouldRequestRangeBackfill({
 assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
   start: "2026-06-25T05:30:00.000Z",
   end: "2026-06-25T13:30:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("1m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-20T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("5m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-20T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("10m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-20T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
 });
 const sparseGapSnapshot = normalizeCandleSnapshot({
   symbol: "AAPL",

@@ -21,6 +21,7 @@ import type {
   ChartDocument,
   ChartPendingPreview,
   ChartProposal,
+  RealtimeLayerEvent,
   ChartRuntimeError,
   ChartRuntimeState,
   StreamStatus
@@ -45,6 +46,7 @@ export type ChartRuntimeAction =
   | { kind: "chart.proposal.accept"; proposalId: string }
   | { kind: "chart.proposal.reject"; proposalId: string }
   | { kind: "chart.live"; event: CandleEvent }
+  | { kind: "chart.layer.live"; event: RealtimeLayerEvent }
   | { kind: "chart.data.status"; symbol: string; interval: string; status: Omit<ChartDataStatus, "updatedAt"> }
   | { kind: "chart.stream.status"; symbol: string; interval: string; status: StreamStatus; message?: string }
   | { kind: "chart.error"; message: string; chartDocumentId?: string };
@@ -53,6 +55,8 @@ export function createInitialChartRuntimeState(): ChartRuntimeState {
   return {
     documents: {},
     candlesByKey: {},
+    liveTradesBySymbol: {},
+    liveQuotesBySymbol: {},
     dataStatusByKey: {},
     streamStatusByKey: {},
     streamMessageByKey: {},
@@ -87,6 +91,8 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
       return rejectProposal(state, action.proposalId);
     case "chart.live":
       return applyLiveEvent(state, action.event);
+    case "chart.layer.live":
+      return applyRealtimeLayerEvent(state, action.event);
     case "chart.data.status":
       return setDataStatus(state, action.symbol, action.interval, {
         ...action.status,
@@ -128,6 +134,14 @@ export function getStreamStatusForDocument(state: ChartRuntimeState, document: C
 
 export function getStreamMessageForDocument(state: ChartRuntimeState, document: ChartDocument): string | undefined {
   return state.streamMessageByKey?.[candleKey(document.symbol, document.timeframe)];
+}
+
+export function getLiveTradeForSymbol(state: ChartRuntimeState, symbol: string) {
+  return state.liveTradesBySymbol?.[symbol];
+}
+
+export function getLiveQuoteForSymbol(state: ChartRuntimeState, symbol: string) {
+  return state.liveQuotesBySymbol?.[symbol];
 }
 
 function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
@@ -240,6 +254,21 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
     },
     streamStatusByKey: { ...state.streamStatusByKey, [key]: "live" },
     journal: addJournal(state.journal, "chart.data.live", "system", "applied", result.message)
+  };
+}
+
+function applyRealtimeLayerEvent(state: ChartRuntimeState, event: RealtimeLayerEvent): ChartRuntimeState {
+  if (event.type === "LIVE_TRADE_UPDATE") {
+    return {
+      ...state,
+      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [event.symbol]: event.data },
+      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${event.symbol} live trade updated.`)
+    };
+  }
+  return {
+    ...state,
+    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [event.symbol]: event.data },
+    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${event.symbol} live quote updated.`)
   };
 }
 

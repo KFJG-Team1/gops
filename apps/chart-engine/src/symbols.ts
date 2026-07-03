@@ -1,6 +1,6 @@
 export type SupportedSymbol = string;
 
-export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "";
+export const DEFAULT_CHART_SYMBOL: SupportedSymbol = "NVDA";
 
 export type SymbolMeta = {
   symbol: SupportedSymbol;
@@ -12,6 +12,9 @@ export type WatchlistSymbol = SymbolMeta & {
   lastPrice?: number;
   changePercent?: number;
   volume?: number;
+  priceSource?: "live" | "redis" | "clickhouse" | "latest-backfill" | string;
+  priceStatus?: "ready" | "loading" | "missing" | "unavailable" | string;
+  priceUpdatedAt?: string;
 };
 
 export type HotRankingSymbol = WatchlistSymbol & {
@@ -100,7 +103,10 @@ function normalizeWatchlistRecord(record: unknown): WatchlistSymbol | null {
     market: typeof source.market === "string" && source.market.trim() ? source.market.trim().toUpperCase() : fallback.market,
     ...readOptionalNumber(source.lastPrice, "lastPrice"),
     ...readOptionalNumber(source.changePercent, "changePercent"),
-    ...readOptionalNumber(source.volume, "volume")
+    ...readOptionalNumber(source.volume, "volume"),
+    priceSource: typeof source.priceSource === "string" ? source.priceSource : undefined,
+    priceStatus: typeof source.priceStatus === "string" ? source.priceStatus : undefined,
+    priceUpdatedAt: typeof source.priceUpdatedAt === "string" ? source.priceUpdatedAt : undefined
   };
 }
 

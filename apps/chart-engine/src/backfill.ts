@@ -58,6 +58,21 @@ export function rangeBackfillWindowForSnapshot(
   return firstSnapshotGapBackfillWindow(snapshot) ?? rangeBackfillWindow(interval, beforeTimestamp, pageLimit);
 }
 
+export function initialBackfillWindow(interval: string, endTimestamp: string): { start: string; end: string } | null {
+  const end = Date.parse(endTimestamp);
+  if (!Number.isFinite(end)) {
+    return null;
+  }
+  const lookbackMs = initialBackfillLookbackMs(interval);
+  if (!lookbackMs) {
+    return null;
+  }
+  return {
+    start: new Date(end - lookbackMs).toISOString(),
+    end: new Date(end).toISOString()
+  };
+}
+
 export function shouldForceBackfill(status: ChartDataStatus): boolean {
   void status;
   return false;
@@ -164,5 +179,23 @@ function intervalBackfillSpanMs(interval: string, units: number): number {
       return units * day * 32;
     default:
       return units * minute * 4;
+  }
+}
+
+function initialBackfillLookbackMs(interval: string): number {
+  const day = 24 * 60 * 60_000;
+  switch (interval) {
+    case "1m":
+    case "5m":
+    case "10m":
+      return 13 * day;
+    case "1D":
+      return 370 * day;
+    case "1W":
+      return 4 * 365 * day;
+    case "1M":
+      return 6 * 365 * day;
+    default:
+      return 13 * day;
   }
 }

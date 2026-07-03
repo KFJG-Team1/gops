@@ -100,6 +100,33 @@ export type CandleEvent = {
   data: CandleData;
 };
 
+export type TradeTickData = {
+  tradeId?: string;
+  price?: number;
+  size?: number;
+  exchange?: string;
+  conditions?: string[];
+  tape?: string;
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type QuoteTickData = {
+  bidPrice?: number;
+  bidSize?: number;
+  askPrice?: number;
+  askSize?: number;
+  bidExchange?: string;
+  askExchange?: string;
+  conditions?: string[];
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type RealtimeLayerEvent =
+  | { type: "LIVE_TRADE_UPDATE"; symbol: string; data: TradeTickData }
+  | { type: "LIVE_QUOTE_UPDATE"; symbol: string; data: QuoteTickData };
+
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
 export type ChartLayerKey = "candles" | "volume" | "ma5" | "ma20" | "ma60";
@@ -152,7 +179,14 @@ export type ChartCommand = {
 
 export type ChartCommandJournalEntry = {
   id: string;
-  commandType: ChartCommandType | "chart.proposal.accept" | "chart.proposal.reject" | "chart.data.snapshot" | "chart.data.live";
+  commandType:
+    | ChartCommandType
+    | "chart.proposal.accept"
+    | "chart.proposal.reject"
+    | "chart.data.snapshot"
+    | "chart.data.live"
+    | "chart.layer.trade"
+    | "chart.layer.quote";
   actor: ChartCommandActor;
   status: "applied" | "failed" | "proposed" | "ignored" | "undone" | "redone";
   message: string;
@@ -292,6 +326,8 @@ export type ChartRuntimeError = {
 export type ChartRuntimeState = {
   documents: Record<string, ChartDocument>;
   candlesByKey: Record<string, CandleData[]>;
+  liveTradesBySymbol?: Record<string, TradeTickData>;
+  liveQuotesBySymbol?: Record<string, QuoteTickData>;
   dataStatusByKey: Record<string, ChartDataStatus>;
   streamStatusByKey: Record<string, StreamStatus>;
   streamMessageByKey?: Record<string, string>;

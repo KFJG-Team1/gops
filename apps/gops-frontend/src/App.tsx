@@ -111,6 +111,7 @@ export default function App() {
   const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
   const watchlistSeedAppliedRef = useRef(false);
   const watchlistSymbolsRef = useRef<WatchlistSymbol[]>(watchlistSymbols);
+  const watchlistBackendSeededRef = useRef(false);
   const userSelectedSymbolRef = useRef(false);
 
   const selectedPanel = useMemo(
@@ -156,6 +157,14 @@ export default function App() {
             });
             setSymbolOptions((current) => current.length > 0 ? current : symbols);
             setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
+            if (!watchlistBackendSeededRef.current && symbols.length > 0) {
+              watchlistBackendSeededRef.current = true;
+              fetch("/api/charts/watchlist", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ symbols: symbols.map((item) => item.symbol) })
+              }).catch(() => undefined);
+            }
           }
         })
         .catch(() => {
@@ -338,6 +347,15 @@ export default function App() {
   const refreshSymbolOptions = useCallback((query: string) => {
     setSymbolSearchQuery(query);
     setSymbolSearchRefreshKey((current) => current + 1);
+  }, []);
+
+  const syncPortfolioSubscriptionSymbols = useCallback((symbols: readonly string[]) => {
+    const normalized = Array.from(new Set(symbols.map((symbol) => normalizeSupportedSymbol(symbol)).filter((symbol): symbol is SupportedSymbol => Boolean(symbol))));
+    fetch("/api/charts/subscription-cohorts/portfolio", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: normalized })
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -528,6 +546,7 @@ export default function App() {
           onCloseSystemPanel={closeSystemPanel}
           onSelectSymbol={selectSymbol}
           onSymbolOptionsRequest={refreshSymbolOptions}
+          onPortfolioSymbolsChange={syncPortfolioSubscriptionSymbols}
           onCommand={runCommand}
           onLayoutProposal={runLayoutProposal}
           onChartAction={runChartAction}
