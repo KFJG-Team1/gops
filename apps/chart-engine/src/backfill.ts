@@ -15,9 +15,13 @@ export function isActiveBackfillStatus(status?: BackfillStatus): boolean {
 }
 
 export function shouldRequestBackfill(status: ChartDataStatus): boolean {
-  return hasExplicitGapRange(status) &&
-    status.canBackfill === true &&
-    !isActiveBackfillStatus(status.backfillStatus);
+  const backfillStatus = status.backfillStatus ?? "not_requested";
+  return status.canBackfill === true &&
+    backfillStatus === "not_requested" &&
+    (
+      status.state === "empty" ||
+      hasExplicitGapRange(status)
+    );
 }
 
 export function shouldRequestRangeBackfill(snapshot: CandleSnapshot): boolean {
@@ -188,11 +192,11 @@ function initialBackfillLookbackMs(interval: string): number {
     case "1m":
     case "5m":
     case "10m":
-      return 13 * day;
+      return 3 * day;
     case "1D":
-      return 370 * day;
+      return 180 * day;
     case "1W":
-      return 4 * 365 * day;
+      return 3 * 365 * day;
     case "1M":
       return 6 * 365 * day;
     default:

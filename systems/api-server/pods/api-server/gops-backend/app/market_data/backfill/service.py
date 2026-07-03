@@ -331,7 +331,7 @@ def repair_status_for(
     if backfill_status in {"failed", "unavailable"}:
         return "gapfill_failed"
     if renderability.get("renderable") and returned_count >= requested_limit:
-        return "history_preload_required"
+        return "none"
     return "gapfill_required"
 
 

@@ -14,11 +14,11 @@ CHART_INTERVALS = ("1m", "5m", "10m", "1D", "1W", "1M")
 LEGACY_INTERVALS = {"1d": "1D", "1w": "1W", "1mo": "1M", "1MO": "1M", "1month": "1M"}
 
 DEFAULT_VISIBLE_BARS = {
-    "1m": 390,
-    "5m": 390,
-    "10m": 390,
-    "1D": 250,
-    "1W": 260,
+    "1m": 120,
+    "5m": 120,
+    "10m": 120,
+    "1D": 120,
+    "1W": 120,
     "1M": 120,
 }
 
@@ -41,12 +41,12 @@ BACKFILL_TARGET_DAYS = {
 }
 
 REDIS_CLOSED_CANDLE_CAPS = {
-    "1m": TRADING_MINUTES_PER_DAY * 2,
-    "5m": (TRADING_MINUTES_PER_DAY * 2 + 4) // 5,
-    "10m": (TRADING_MINUTES_PER_DAY * 2 + 9) // 10,
-    "1D": TRADING_DAYS_PER_YEAR * HISTORICAL_TARGET_YEARS,
-    "1W": 52 * HISTORICAL_TARGET_YEARS,
-    "1M": 12 * HISTORICAL_TARGET_YEARS,
+    "1m": 120,
+    "5m": 120,
+    "10m": 120,
+    "1D": 120,
+    "1W": 120,
+    "1M": 120,
 }
 
 MIN_RENDERABLE_RETURNED_BARS = {

@@ -38,6 +38,11 @@ ALPACA_SECRET_NAME=
 S3_BUCKET=gops-market-data-993099901407-ap-northeast-2-an
 S3_ENDPOINT_URL=
 DOCKER_S3_ENDPOINT_URL=
+S3_RAW_PREFIX=market-data/rebuild-20260702-lazy-v1/raw/alpaca
+S3_FINAL_PREFIX=market-data/rebuild-20260702-lazy-v1/final
+S3_MANIFEST_PREFIX=market-data/rebuild-20260702-lazy-v1/manifest
+S3_MATERIALIZE_PREFIX=market-data/rebuild-20260702-lazy-v1/final
+REDIS_KEY_PREFIX=gops:market:on-demand:v1
 ```
 
 For AWS/EKS or an AWS-contract local run, keep `APCA_*` empty, set
@@ -49,6 +54,40 @@ For AWS/EKS or an AWS-contract local run, keep `APCA_*` empty, set
 ```
 
 Do not commit `.env`, access-key CSV files, token caches, or copied secrets.
+
+## 2-A. Local Chart Data Contract
+
+The default local chart runtime is `local-aws-s3`:
+
+```text
+Redis / Kafka / ClickHouse / Postgres = local Docker
+S3 final / manifest / raw backup = real AWS S3
+Alpaca credentials = local APCA_* env values
+```
+
+Keep every chart S3 prefix on the same rebuild root:
+
+```text
+market-data/rebuild-20260702-lazy-v1
+```
+
+Do not use `S3_LIVE_PREFIX` for chart rebuild work. Live candles, trades,
+quotes, events, subscription state, and feed state belong in Redis/WebSocket.
+S3 raw is backup-only and must not participate in chart reads or coverage
+checks.
+
+Chart history is lazy:
+
+```text
+initial chart open -> latest 120 bars only
+left-pan history   -> backfill only the range the user reached
+max lookback       -> six years
+Redis cache        -> latest 120 per symbol + timeframe
+ClickHouse/S3      -> durable historical ranges
+```
+
+`history_preload_required` is not a local auto-backfill trigger. It only means
+more historical data can be requested if the user navigates further left.
 
 ## 3. Python Environment
 
@@ -94,6 +133,10 @@ contract uses SIP for `04:00-20:00 ET` and BOATS for `20:00-04:00 ET`:
 ```sh
 docker compose --profile alpaca up -d --build alpaca-ingestor alpaca-ingestor-boats
 ```
+
+Use the `alpaca` profile only when the Alpaca account should actively consume a
+live WebSocket session. The default stack can serve existing ClickHouse data and
+perform explicit historical backfills without starting live ingestion.
 
 Audit chart coverage:
 

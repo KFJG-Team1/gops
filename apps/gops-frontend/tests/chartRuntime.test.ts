@@ -530,7 +530,7 @@ assert.equal(shouldRequestBackfill({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), false);
+}), true);
 assert.equal(shouldRequestBackfill({
   state: "empty",
   backfillStatus: "queued",
@@ -543,7 +543,7 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), false);
+}, true), true);
 assert.equal(isPreparingCandleData({
   state: "empty",
   backfillStatus: "queued",
@@ -773,15 +773,15 @@ assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
   end: "2026-06-25T13:30:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("1m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-30T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("5m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-30T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 assert.deepEqual(initialBackfillWindow("10m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-20T08:00:00.000Z",
+  start: "2026-06-30T08:00:00.000Z",
   end: "2026-07-03T08:00:00.000Z"
 });
 const sparseGapSnapshot = normalizeCandleSnapshot({

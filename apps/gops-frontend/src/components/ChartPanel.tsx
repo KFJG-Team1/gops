@@ -60,7 +60,7 @@ import {
 } from "@gops/chart-engine/runtime";
 import { candleKey } from "@gops/chart-engine/candleStore";
 import { getSymbolMeta, normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
-import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
+import type { CandleData, ChartDataStatus, ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
 import { useElementSize } from "../hooks/useElementSize";
 import type { PanelInstance } from "../layout/types";
 
@@ -228,7 +228,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   }).join("|");
   const documentDataKey = candleKey(document.symbol, document.timeframe);
   const backfillEligibleKey = backfillEligibleSymbols.join("|");
-  const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
+  const backfillEligible = Boolean(normalizedDocumentSymbol);
   const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
   const chartDataRenderable = isChartDataRenderable(dataStatus);
   const chartDataNotice = candles.length > 0 && isActiveBackfillStatus(dataStatus.backfillStatus)
@@ -379,7 +379,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     const key = `${candleKey(document.symbol, document.timeframe)}:gap:${gapWindow?.start ?? "none"}:${gapWindow?.end ?? "none"}`;
     if (
       !normalizedDocumentSymbol ||
-      !backfillEligibleSymbols.includes(document.symbol) ||
+      !backfillEligible ||
       !shouldRequestBackfill(dataStatus) ||
       !gapWindow ||
       backfillRequestsRef.current.has(key)
@@ -514,14 +514,14 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         window.clearTimeout(pollTimer);
       }
     };
-  }, [backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, normalizedDocumentSymbol, onChartAction]);
+  }, [backfillEligible, backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, normalizedDocumentSymbol, onChartAction]);
 
   useEffect(() => {
     const currentBackfillStatus = dataStatus.backfillStatus ?? "not_requested";
     const shouldStartInitialBackfill =
       candles.length === 0 &&
       normalizedDocumentSymbol &&
-      backfillEligibleSymbols.includes(document.symbol) &&
+      backfillEligible &&
       dataStatus.canBackfill === true &&
       !isActiveBackfillStatus(currentBackfillStatus) &&
       currentBackfillStatus === "not_requested" &&
@@ -530,7 +530,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return undefined;
     }
 
-    const windowRange = initialBackfillWindow(document.timeframe, new Date().toISOString());
+    const windowRange = initialBackfillWindow(document.timeframe, initialBackfillAnchorTimestamp(document.timeframe, candles, dataStatus));
     if (!windowRange) {
       return undefined;
     }
@@ -672,6 +672,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
   }, [
     backfillEligibleKey,
+    backfillEligible,
     backfillEligibleSymbols,
     candles.length,
     dataStatus.backfillStatus,
@@ -1056,7 +1057,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
 
     const requestRangeBackfill = (snapshot: ReturnType<typeof normalizeCandleSnapshot>) => {
-      if (!backfillEligibleSymbols.includes(document.symbol)) {
+      if (!backfillEligible) {
         return;
       }
       const windowRange = rangeBackfillWindowForSnapshot(snapshot, document.timeframe, oldest, pageLimit);
@@ -1158,6 +1159,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     };
   }, [
     candles,
+    backfillEligible,
     backfillEligibleSymbols,
     dataStatus.hasMoreBefore,
     dataStatus.coverage,
@@ -2198,6 +2200,56 @@ function countCandlesBefore(candles: Array<{ timestamp: string }>, boundaryTimes
     }
   });
   return timestamps.size;
+}
+
+function initialBackfillAnchorTimestamp(interval: string, candles: CandleData[], status: ChartDataStatus): string {
+  const fallback = floorTimestampToInterval(new Date().toISOString(), interval) ?? new Date(0).toISOString();
+  const candidates = [
+    status.availableTo,
+    status.newestTimestamp,
+    candles[candles.length - 1]?.timestamp,
+    fallback
+  ];
+  for (const candidate of candidates) {
+    const floored = floorTimestampToInterval(candidate, interval);
+    if (floored) {
+      return floored;
+    }
+  }
+  return fallback;
+}
+
+function floorTimestampToInterval(timestamp: string | undefined, interval: string): string | null {
+  if (!timestamp) {
+    return null;
+  }
+  const time = Date.parse(timestamp);
+  if (!Number.isFinite(time)) {
+    return null;
+  }
+  const bucketMs = intervalBucketMs(interval);
+  return new Date(Math.floor(time / bucketMs) * bucketMs).toISOString();
+}
+
+function intervalBucketMs(interval: string): number {
+  const minute = 60_000;
+  const day = 24 * 60 * minute;
+  switch (interval) {
+    case "1m":
+      return minute;
+    case "5m":
+      return 5 * minute;
+    case "10m":
+      return 10 * minute;
+    case "1D":
+      return day;
+    case "1W":
+      return 7 * day;
+    case "1M":
+      return 31 * day;
+    default:
+      return minute;
+  }
 }
 
 function backfillStatusMessage(status: string, error?: string): string {

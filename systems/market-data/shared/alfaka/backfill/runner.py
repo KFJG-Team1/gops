@@ -2,7 +2,7 @@ import json
 import os
 import re
 import time
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from alfaka.backfill.gapfill import detect_gapfill_ranges, parse_time
 from alfaka.common.canonical import CANONICAL_VERSION, candle_metadata, historical_adjustment_from_env
@@ -62,16 +62,32 @@ class BackfillRunner:
             result = self._run(current)
         except BackfillUnavailable as exc:
             if self.store:
-                return self.store.update_status(current, "unavailable", error=str(exc))
+                final_record = self.store.update_status(current, "unavailable", error=str(exc))
+                self.record_backfill_job(final_record)
+                return final_record
             raise
         except Exception as exc:
             if self.store:
-                return self.store.update_status(current, "failed", error=str(exc))
+                final_record = self.store.update_status(current, "failed", error=str(exc))
+                self.record_backfill_job(final_record)
+                return final_record
             raise
 
         if self.store:
-            return self.store.update_status(current, "succeeded", result=result)
-        return {**current, "status": "succeeded", "result": result}
+            final_record = self.store.update_status(current, "succeeded", result=result)
+            self.record_backfill_job(final_record)
+            return final_record
+        final_record = {**current, "status": "succeeded", "result": result}
+        self.record_backfill_job(final_record)
+        return final_record
+
+    def record_backfill_job(self, record):
+        if os.getenv("BACKFILL_CLICKHOUSE_AUDIT_ENABLED", "true").lower() not in {"1", "true", "yes"}:
+            return
+        try:
+            self.clickhouse_client.insert_json_each_row("backfill_jobs", [backfill_job_audit_row(record)])
+        except Exception as exc:
+            print(f"Backfill audit insert failed: {exc}", flush=True)
 
     def _run(self, record):
         bucket = os.getenv("S3_BUCKET")
@@ -496,7 +512,10 @@ def range_is_covered_by_clickhouse(coverage, start, end):
 
 def find_processed_candle_objects(s3, bucket, final_prefix, symbol, interval, start, end):
     manifest_prefix = os.getenv("S3_MANIFEST_PREFIX", DEFAULT_MANIFEST_PREFIX)
-    manifest_keys = processed_candle_keys_from_manifest(s3, bucket, manifest_prefix, symbol, interval, start, end)
+    manifest_keys = [
+        key for key in processed_candle_keys_from_manifest(s3, bucket, manifest_prefix, symbol, interval, start, end)
+        if key.startswith(final_prefix.strip("/") + "/")
+    ]
     if manifest_keys:
         return manifest_keys
     if require_canonical_processed_manifest():
@@ -507,7 +526,10 @@ def find_processed_candle_objects(s3, bucket, final_prefix, symbol, interval, st
 def find_raw_candle_objects(s3, bucket, raw_prefix, symbol, interval, start, end, job_type="replay_repair"):
     manifest_prefix = os.getenv("S3_MANIFEST_PREFIX", DEFAULT_MANIFEST_PREFIX)
     channels = raw_channels_for_interval(interval, job_type)
-    manifest_keys = raw_keys_from_manifest(s3, bucket, manifest_prefix, symbol, channels, start, end)
+    manifest_keys = [
+        key for key in raw_keys_from_manifest(s3, bucket, manifest_prefix, symbol, channels, start, end)
+        if key.startswith(raw_prefix.strip("/") + "/")
+    ]
     if manifest_keys:
         return manifest_keys
     if require_canonical_processed_manifest():
@@ -544,6 +566,39 @@ def unique_ordered(values):
         seen.add(value)
         result.append(value)
     return result
+
+
+def backfill_job_audit_row(record):
+    result = record.get("result") or {}
+    request_range = record.get("range") or {}
+    object_paths = result.get("processedObjects") or result.get("objectPaths") or []
+    if not object_paths and result.get("rawObjects"):
+        object_paths = result.get("rawObjects")
+    return {
+        "request_id": record.get("requestId", ""),
+        "symbol": record.get("symbol", ""),
+        "interval": record.get("interval", ""),
+        "job_type": record.get("jobType", "gapfill"),
+        "status": record.get("status", "unknown"),
+        "range_start": clickhouse_datetime(request_range.get("start")),
+        "range_end": clickhouse_datetime(request_range.get("end")),
+        "source_preference": record.get("sourcePreference", "coverage-first"),
+        "object_paths": list(object_paths or []),
+        "error": record.get("error"),
+        "created_at": clickhouse_datetime(record.get("requestedAt") or record.get("createdAt") or record.get("updatedAt")),
+        "updated_at": clickhouse_datetime(record.get("updatedAt")),
+        "finished_at": clickhouse_datetime_or_none(record.get("finishedAt")),
+        "raw": json.dumps(record, ensure_ascii=False, separators=(",", ":")),
+    }
+
+
+def clickhouse_datetime_or_none(value):
+    return clickhouse_datetime(value) if value else None
+
+
+def clickhouse_datetime(value):
+    parsed = parse_time(value) if value else datetime.now(timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
 
 
 def upload_raw_bars_to_s3(

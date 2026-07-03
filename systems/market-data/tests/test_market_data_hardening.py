@@ -2425,6 +2425,87 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertTrue(result["skipped"])
         self.assertEqual(result["coverage"]["rowCount"], 60)
 
+    def test_backfill_runner_records_clickhouse_job_audit_for_terminal_result(self):
+        record = {
+            "requestId": "backfill:AAPL:1m:audit",
+            "symbol": "AAPL",
+            "interval": "1m",
+            "range": {"start": "2026-06-25T13:30:00.000Z", "end": "2026-06-25T14:30:00.000Z"},
+            "jobType": "gapfill",
+            "sourcePreference": "coverage-first",
+        }
+        client = RecordingClickHouseClient()
+        runner = BackfillRunner(
+            s3=RecordingS3(),
+            clickhouse_client=client,
+            coverage_provider=StaticCoverageProvider({
+                "rowCount": 60,
+                "availableFrom": "2026-06-25T13:30:00.000Z",
+                "availableTo": "2026-06-25T14:30:00.000Z",
+            }),
+        )
+
+        with mock.patch.dict(os.environ, {"S3_BUCKET": "bucket"}):
+            result = runner.run(record)
+
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(client.inserts[0][0], "backfill_jobs")
+        audit = client.inserts[0][1][0]
+        self.assertEqual(audit["request_id"], "backfill:AAPL:1m:audit")
+        self.assertEqual(audit["symbol"], "AAPL")
+        self.assertEqual(audit["interval"], "1m")
+        self.assertEqual(audit["status"], "succeeded")
+        self.assertEqual(audit["range_start"], "2026-06-25 13:30:00.000")
+        self.assertIn('"source":"clickhouse"', audit["raw"])
+
+    def test_backfill_runner_ignores_manifest_entries_outside_current_final_prefix(self):
+        old_object_key = "market-data/rebuild-20260701/final/candles/feed=sip/interval=1m/symbol=AAPL/year=2026/month=06/day=25/old.parquet"
+        manifest_key = "market-data/rebuild-20260702-lazy-v1/manifest/candles/interval=1m/symbol=AAPL/objects/old.json"
+        manifest = {
+            "schemaVersion": 1,
+            "dataset": "candles",
+            "symbol": "AAPL",
+            "interval": "1m",
+            "priceAdjustment": "split",
+            "canonicalVersion": "v2",
+            "bucketDate": "2026-06-25",
+            "objectKey": old_object_key,
+            "rowCount": 1,
+            "availableFrom": "2026-06-25T13:30:00.000Z",
+            "availableTo": "2026-06-25T14:30:00.000Z",
+            "objectFormat": "parquet",
+            "createdAt": "2026-06-25T14:31:00.000Z",
+        }
+        record = {
+            "requestId": "backfill:AAPL:1m:prefix",
+            "symbol": "AAPL",
+            "interval": "1m",
+            "range": {"start": "2026-06-25T13:30:00.000Z", "end": "2026-06-25T14:30:00.000Z"},
+            "jobType": "gapfill",
+            "sourcePreference": "coverage-first",
+        }
+        runner = BackfillRunner(
+            s3=S3ObjectStore({manifest_key: json.dumps(manifest)}),
+            clickhouse_client=RecordingClickHouseClient(),
+            coverage_provider=StaticCoverageProvider({"rowCount": 0, "availableFrom": None, "availableTo": None}),
+        )
+
+        with mock.patch.dict(os.environ, {
+            "S3_BUCKET": "bucket",
+            "S3_FINAL_PREFIX": "market-data/rebuild-20260702-lazy-v1/final",
+            "S3_MANIFEST_PREFIX": "market-data/rebuild-20260702-lazy-v1/manifest",
+            "S3_PROCESSED_FORMAT": "jsonl",
+        }):
+            with mock.patch("alfaka.backfill.runner.fetch_alpaca_bars", return_value=[
+                alpaca_raw_bar("2026-06-25T13:30:00.000Z", open_price=10),
+            ]):
+                result = runner._run(record)
+
+        self.assertEqual(result["source"], "alpaca")
+        self.assertEqual(result["materializedRowCount"], 1)
+        self.assertTrue(result["processedObjects"][0].startswith("s3://bucket/market-data/rebuild-20260702-lazy-v1/final/"))
+        self.assertNotIn("rebuild-20260701", result["processedObjects"][0])
+
     def test_backfill_runner_skips_unmanifested_processed_s3_in_canonical_mode(self):
         object_key = "market-data/rebuild-20260702-lazy-v1/final/candles/interval=1m/symbol=AAPL/year=2026/month=06/day=25/part-1.jsonl"
         body = json.dumps({
@@ -3595,26 +3676,26 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(value.start, "2026-06-24T14:30:00.000Z")
 
     def test_chart_candle_limit_defaults_to_interval_visible_bars(self):
-        self.assertEqual(candle_count_for_24h("1m"), 390)
-        self.assertEqual(candle_count_for_24h("5m"), 390)
-        self.assertEqual(candle_count_for_24h("10m"), 390)
-        self.assertEqual(candle_count_for_24h("1d"), 250)
-        self.assertEqual(candle_count_for_24h("1W"), 260)
+        self.assertEqual(candle_count_for_24h("1m"), 120)
+        self.assertEqual(candle_count_for_24h("5m"), 120)
+        self.assertEqual(candle_count_for_24h("10m"), 120)
+        self.assertEqual(candle_count_for_24h("1d"), 120)
+        self.assertEqual(candle_count_for_24h("1W"), 120)
         self.assertEqual(candle_count_for_24h("1M"), 120)
         self.assertEqual(historical_target_bars("1m"), 589680)
         self.assertEqual(historical_target_bars("1D"), 1512)
         self.assertEqual(historical_target_bars("1M"), 72)
         self.assertEqual(candle_count_for_1y("1m"), 589680)
-        self.assertEqual(resolve_candle_limit("1m", None), 390)
+        self.assertEqual(resolve_candle_limit("1m", None), 120)
         self.assertEqual(resolve_candle_limit("1m", 9999), 9999)
         self.assertEqual(resolve_candle_limit("1m", 999999), 589680)
         self.assertEqual(resolve_candle_limit("1M", 999999), 120)
-        self.assertEqual(redis_closed_candle_cap("1m"), 780)
-        self.assertEqual(redis_closed_candle_cap("5m"), 156)
-        self.assertEqual(redis_closed_candle_cap("10m"), 78)
-        self.assertEqual(redis_closed_candle_cap("1D"), 1512)
-        self.assertEqual(redis_closed_candle_cap("1W"), 312)
-        self.assertEqual(redis_closed_candle_cap("1M"), 72)
+        self.assertEqual(redis_closed_candle_cap("1m"), 120)
+        self.assertEqual(redis_closed_candle_cap("5m"), 120)
+        self.assertEqual(redis_closed_candle_cap("10m"), 120)
+        self.assertEqual(redis_closed_candle_cap("1D"), 120)
+        self.assertEqual(redis_closed_candle_cap("1W"), 120)
+        self.assertEqual(redis_closed_candle_cap("1M"), 120)
 
     def test_clickhouse_provider_uses_database_override(self):
         provider = ClickHouseMarketDataProvider(database="custom_market_data")
@@ -4652,6 +4733,45 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(client.inserts[1][1][0]["interval"], "1m")
         self.assertEqual(client.inserts[2][0], "load_audit")
         self.assertEqual(client.inserts[2][1][0]["object_path"], "s3://bucket/market-data/rebuild-20260702-lazy-v1/final/candles/part-1.jsonl")
+
+    def test_s3_materializer_inserts_chart_candles_by_event_month(self):
+        client = RecordingClickHouseClient()
+        rows = [
+            {
+                "eventType": "CANDLE",
+                "symbol": "NVDA",
+                "interval": "1D",
+                "timestamp": "2026-05-29T04:00:00.000Z",
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "isClosed": True,
+                **canonical_candle_fields(),
+            },
+            {
+                "eventType": "CANDLE",
+                "symbol": "NVDA",
+                "interval": "1D",
+                "timestamp": "2026-06-01T04:00:00.000Z",
+                "open": 101,
+                "high": 102,
+                "low": 100,
+                "close": 101,
+                "volume": 1000,
+                "isClosed": True,
+                **canonical_candle_fields(),
+            },
+        ]
+
+        result = materialize_processed_rows(client, "s3://bucket/market-data/rebuild-20260702-lazy-v1/final/candles/multi-month.jsonl", rows)
+
+        chart_inserts = [insert for insert in client.inserts if insert[0] == "chart_candles"]
+        self.assertEqual(result["rowCount"], 2)
+        self.assertEqual(len(chart_inserts), 2)
+        self.assertEqual(chart_inserts[0][1][0]["event_time"], "2026-05-29 04:00:00.000")
+        self.assertEqual(chart_inserts[1][1][0]["event_time"], "2026-06-01 04:00:00.000")
 
     def test_s3_materializer_prefers_canonical_duplicate_over_legacy_row(self):
         client = RecordingClickHouseClient()

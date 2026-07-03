@@ -198,7 +198,8 @@ def materialize_processed_rows(client, object_path, rows, source_name="s3-proces
     deduped = dedupe_candles(normalized)
     clickhouse_rows = [candle_to_clickhouse_row(row) for row in deduped]
     if clickhouse_rows:
-        client.insert_json_each_row("chart_candles", clickhouse_rows)
+        for chunk in chunk_rows_by_event_month(clickhouse_rows):
+            client.insert_json_each_row("chart_candles", chunk)
 
     client.insert_json_each_row("storage_object_audit", [storage_object_audit_row(
         object_path,
@@ -212,6 +213,36 @@ def materialize_processed_rows(client, object_path, rows, source_name="s3-proces
         "note": f"S3 processed/final chart candle materialization; skipped_invalid={skipped_invalid}",
     }])
     return {"objectPath": object_path, "rowCount": len(clickhouse_rows), "skippedInvalidRowCount": skipped_invalid}
+
+
+def chunk_rows_by_event_month(rows):
+    chunks = {}
+    for row in rows:
+        chunk_key = event_month_key(row.get("event_time"))
+        chunks.setdefault(chunk_key, []).append(row)
+    return [chunks[key] for key in sorted(chunks)]
+
+
+def event_month_key(value):
+    if isinstance(value, datetime):
+        return value.strftime("%Y%m")
+    parsed = parse_event_time(value)
+    return parsed.strftime("%Y%m") if parsed else "unknown"
+
+
+def parse_event_time(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for candidate in (text, text.replace(" ", "T")):
+        try:
+            normalized = candidate.replace("Z", "+00:00")
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            continue
+    return None
 
 
 def storage_object_audit_row(object_path, rows, source_name="s3-processed-final"):

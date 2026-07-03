@@ -494,7 +494,7 @@ class MarketDataQueryServiceTest(unittest.TestCase):
         payload = service.candle_snapshot("aapl", "1m", "5,60,999", None)
 
         self.assertEqual(payload["symbol"], "AAPL")
-        self.assertEqual(provider.last_limit, 390)
+        self.assertEqual(provider.last_limit, 120)
         self.assertEqual(payload["indicators"], {"ma": [5, 60], "volume": True})
 
     def test_candle_snapshot_accepts_canonical_and_legacy_intervals(self):
@@ -1081,7 +1081,7 @@ class MarketDataQueryServiceTest(unittest.TestCase):
         self.assertFalse(metadata["coverage"]["renderable"])
         self.assertEqual(metadata["coverage"]["sourceInterval"], "1D")
 
-    def test_renderable_visible_range_can_be_ready_while_history_preload_is_required(self):
+    def test_renderable_visible_range_can_be_ready_while_history_is_incomplete(self):
         service = BackfillService(store=RecordingBackfillStore())
         candles = [
             {"timestamp": f"2026-06-25T1{index // 60}:{index % 60:02d}:00.000Z"}
@@ -1100,7 +1100,7 @@ class MarketDataQueryServiceTest(unittest.TestCase):
         })
 
         self.assertEqual(metadata["dataStatus"], "ready")
-        self.assertEqual(metadata["repairStatus"], "history_preload_required")
+        self.assertEqual(metadata["repairStatus"], "none")
         self.assertTrue(metadata["canBackfill"])
         self.assertEqual(metadata["coverage"]["state"], "partial")
         self.assertTrue(metadata["coverage"]["renderable"])
@@ -1129,7 +1129,7 @@ class MarketDataQueryServiceTest(unittest.TestCase):
         })
 
         self.assertEqual(metadata["dataStatus"], "ready")
-        self.assertEqual(metadata["repairStatus"], "history_preload_required")
+        self.assertEqual(metadata["repairStatus"], "none")
         self.assertTrue(metadata["coverage"]["renderable"])
 
     def test_intraday_renderability_rejects_same_session_sparse_gap(self):
