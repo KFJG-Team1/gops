@@ -327,14 +327,14 @@ function AgentChatPanel({
       candles,
       dataStatus,
       streamStatus,
-      symbolUniverse
+      symbolUniverse,
+      entityFallbackSource: resolvedReference ? "referenced-chart" : "selected-chart"
     });
 
     fetch("/api/agents/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildAgentAnalysisRequest({
-        agentIds: selectedAgents.map((agent) => agent.id),
         messages: requestMessages,
         symbol: chartDocument.symbol,
         intent: content,

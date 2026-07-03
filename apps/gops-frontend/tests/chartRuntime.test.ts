@@ -713,6 +713,12 @@ assert.equal(agentContextWithStreamError.dataStatus.state, "ready");
 assert.equal(agentContextWithStreamError.dataStatus.candleCount, 2);
 assert.equal(agentContextWithStreamError.dataStatus.hasVisibleCandles, true);
 assert.equal(agentContextWithStreamError.streamStatus, "error");
+assert.deepEqual(agentContextWithStreamError.entityFallback, {
+  source: "selected-chart",
+  panelId: "panel-agent-context",
+  chartDocumentId: "chart-doc-agent-context",
+  symbol: "NVDA"
+});
 
 const proposalScene = buildRenderScene({
   state: "ready",
@@ -1327,14 +1333,12 @@ assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: 
 assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
 
 const agentAnalysisRequest = buildAgentAnalysisRequest({
-  agentIds: ["agent-01", "agent-02"],
   messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
 });
 assert.deepEqual(agentAnalysisRequest, {
-  agentIds: ["agent-01", "agent-02"],
   messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
@@ -1373,7 +1377,6 @@ await assert.rejects(
 );
 
 const agentAnalysisRequestWithLayout = buildAgentAnalysisRequest({
-  agentIds: ["agent-02"],
   messages: [{ role: "user", content: "뉴스 보여줘" }],
   symbol: "NVDA",
   intent: "뉴스 보여줘",

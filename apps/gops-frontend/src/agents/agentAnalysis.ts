@@ -56,6 +56,15 @@ export type FinalAnswer = {
   limitations: string[];
 };
 
+export type AgentAnswer = {
+  agentId: string;
+  role: string;
+  title: string;
+  content: string;
+  confidence?: number;
+  citations: FinalAnswerCitation[];
+};
+
 export type AgentNewsPanelItem = {
   title: string;
   summary?: string;
@@ -116,6 +125,7 @@ export type AgentAnalysisReport = {
   status?: string;
   route?: IntentRoute | null;
   finalAnswer?: FinalAnswer | null;
+  agentAnswers: AgentAnswer[];
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
   dailySummaries: AgentDailyNewsSummary[];
@@ -125,7 +135,6 @@ export type AgentAnalysisReport = {
 };
 
 export type AgentAnalysisRequestInput = {
-  agentIds: string[];
   messages: AgentAnalysisMessage[];
   symbol: string;
   intent: string;
@@ -152,7 +161,6 @@ const panelAliases: Record<PanelType, string[]> = {
 };
 
 export function buildAgentAnalysisRequest({
-  agentIds,
   messages,
   symbol,
   intent,
@@ -161,7 +169,6 @@ export function buildAgentAnalysisRequest({
   routerMode = "hybrid"
 }: AgentAnalysisRequestInput) {
   const request = {
-    agentIds,
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
     symbol,
     intent,
@@ -212,6 +219,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     status: readString(source.status) ?? undefined,
     route: normalizeRoute(source.route),
     finalAnswer: normalizeFinalAnswer(source.finalAnswer),
+    agentAnswers: readArray(source.agentAnswers).map(normalizeAgentAnswer).filter((item): item is AgentAnswer => Boolean(item)),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
     dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
@@ -223,7 +231,9 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const newsOnly = isNewsOnlyReport(report);
-  const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
+  const lines = report.agentAnswers.length
+    ? formatAgentAnswers(report.agentAnswers)
+    : report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
 
   const unusualEventFinding = report.findings.find((finding) =>
     finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
@@ -296,6 +306,38 @@ function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: bo
     lines.push(...finalAnswer.limitations.slice(0, 5).map((limitation) => `- ${limitation}`));
   }
   return lines;
+}
+
+function formatAgentAnswers(agentAnswers: AgentAnswer[]): string[] {
+  const lines = ["멀티 에이전트 분석"];
+  for (const answer of agentAnswers) {
+    lines.push("", answer.title || answer.role);
+    lines.push(answer.content);
+    const linkedCitations = answer.citations.filter((citation) => Boolean(citation.url)).slice(0, 3);
+    if (linkedCitations.length) {
+      lines.push(...linkedCitations.map((citation) => `- ${citation.title} (${citation.url})`));
+    }
+  }
+  return lines;
+}
+
+function normalizeAgentAnswer(value: unknown): AgentAnswer | null {
+  const source = readObject(value);
+  const agentId = readString(source?.agentId);
+  const role = readString(source?.role);
+  const title = readString(source?.title);
+  const content = readString(source?.content);
+  if (!source || !agentId || !role || !title || !content) {
+    return null;
+  }
+  return {
+    agentId,
+    role,
+    title,
+    content,
+    confidence: readNumber(source.confidence) ?? undefined,
+    citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item))
+  };
 }
 
 function isNewsOnlyReport(report: AgentAnalysisReport): boolean {
