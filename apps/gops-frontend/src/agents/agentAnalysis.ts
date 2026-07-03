@@ -56,6 +56,11 @@ export type FinalAnswer = {
   limitations: string[];
 };
 
+export type FinalResponse = {
+  risk_warnings: string[];
+  data_freshness_warnings: string[];
+};
+
 export type AgentAnswer = {
   agentId: string;
   role: string;
@@ -125,6 +130,7 @@ export type AgentAnalysisReport = {
   status?: string;
   route?: IntentRoute | null;
   finalAnswer?: FinalAnswer | null;
+  finalResponse?: FinalResponse | null;
   agentAnswers: AgentAnswer[];
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
@@ -232,6 +238,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     status: readString(source.status) ?? undefined,
     route: normalizeRoute(source.route),
     finalAnswer: normalizeFinalAnswer(source.finalAnswer),
+    finalResponse: normalizeFinalResponse(source.finalResponse),
     agentAnswers: readArray(source.agentAnswers).map(normalizeAgentAnswer).filter((item): item is AgentAnswer => Boolean(item)),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
@@ -285,6 +292,11 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   );
   if (verificationFinding && !newsOnly) {
     lines.push("", `검증 경고: ${verificationFinding.summary}`);
+  }
+
+  const safetyNotice = formatSafetyNotice(report.finalResponse);
+  if (safetyNotice) {
+    lines.push("", safetyNotice);
   }
 
   const timingSummary = formatTimingSummary(report.timing);
@@ -452,6 +464,17 @@ function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
     sections: readArray(source.sections).map(normalizeFinalAnswerSection).filter((item): item is FinalAnswerSection => Boolean(item)),
     citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item)),
     limitations: readArray(source.limitations).map(readString).filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeFinalResponse(value: unknown): FinalResponse | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+  return {
+    risk_warnings: readArray(source.risk_warnings).map(readString).filter((item): item is string => Boolean(item)),
+    data_freshness_warnings: readArray(source.data_freshness_warnings).map(readString).filter((item): item is string => Boolean(item))
   };
 }
 
@@ -644,6 +667,14 @@ function isVerificationWarning(finding: AgentFinding): boolean {
     return false;
   }
   return true;
+}
+
+function formatSafetyNotice(finalResponse?: FinalResponse | null): string | null {
+  const warnings = new Set(finalResponse?.risk_warnings ?? []);
+  if (warnings.has("pii_redacted") || warnings.has("profanity_removed") || warnings.has("sensitive_url_redacted")) {
+    return "안전 처리: 민감하거나 부적절한 텍스트가 마스킹되었습니다.";
+  }
+  return null;
 }
 
 function readArray(value: unknown): unknown[] {
