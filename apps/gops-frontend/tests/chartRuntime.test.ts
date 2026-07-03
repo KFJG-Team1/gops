@@ -1422,12 +1422,6 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
       raw: { relationType: "no-direct-control" }
     }
   ],
-  notificationDecision: {
-    level: "watch",
-    title: "NVDA price surge",
-    message: "Smoke event for Docker validation.",
-    reason: "Notification level follows the strongest attached market event severity."
-  },
   timing: {
     totalMs: 1120,
     cacheHit: true,
@@ -1435,29 +1429,10 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     newsFetchMs: 180,
     roleAnalysisMs: 820,
     finalAnswerMs: 120
-  },
-  layoutProposal: {
-    id: "layout-proposal-1",
-    title: "Agent analysis workspace",
-    rationale: "Prioritized newsFeed for the current user intent.",
-    autoApply: true,
-    panelPriorities: [
-      { panelId: "panel-news", panelType: "newsFeed", layoutWeight: 100, reason: "Primary panel for the current user intent." }
-    ],
-    commands: [
-      {
-        id: "cmd-priority-news",
-        type: "layout.panel.priority.set",
-        actor: "llm",
-        payload: { panelId: "panel-news", layoutWeight: 100 },
-        createdAt: "2026-06-29T00:00:00.000Z"
-      }
-    ],
-    createdAt: "2026-06-29T00:00:00.000Z"
   }
 });
-assert.equal(agentAnalysisReport.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
-assert.equal(agentAnalysisReport.layoutProposal?.panelPriorities?.[0]?.layoutWeight, 100);
+assert.equal(agentAnalysisReport.notificationDecision, null);
+assert.equal(agentAnalysisReport.layoutProposal, null);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
@@ -1468,7 +1443,7 @@ assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is 
 assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
 assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
 assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
-assert.match(agentAnalysisMessage, /알림 판단: WATCH - NVDA price surge/);
+assert.doesNotMatch(agentAnalysisMessage, /알림 판단:/);
 assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
