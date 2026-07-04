@@ -1,7 +1,7 @@
 import { ExternalLink, GripVertical, Pin, Star, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { ChartPanel } from "./ChartPanel";
+import { ChartPanel } from "./LegacyChartPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { getCandlesForDocument, getChartDocumentForPanel, getLiveTradeForSymbol, type ChartRuntimeAction, type ChartRuntimeState } from "@gops/chart-engine/runtime";
