@@ -50,6 +50,7 @@ type PanelWorkspaceProps = {
   chartPanelRef: MutableRefObject<ChartPanelHandle | null>;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   setChartHeader: Dispatch<SetStateAction<ChartHeaderSnapshot | null>>;
+  onSelectSymbol: (symbol: string) => void;
 };
 
 type LayoutDrag =
@@ -82,7 +83,8 @@ export function PanelWorkspace({
   chartHeader,
   chartPanelRef,
   setSemanticSelection,
-  setChartHeader
+  setChartHeader,
+  onSelectSymbol
 }: PanelWorkspaceProps) {
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
@@ -171,6 +173,28 @@ export function PanelWorkspace({
       window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [applyLayoutDrag, finishLayoutDrag]);
+
+  useEffect(() => {
+    if (!addMenu) {
+      return;
+    }
+
+    const closeAddMenuOnOutsidePointer = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        (event.target.closest(".panel-add-menu") || event.target.closest(".panel-boundary-add"))
+      ) {
+        return;
+      }
+      setAddMenu(null);
+      setActiveBoundaryId(null);
+    };
+
+    window.addEventListener("pointerdown", closeAddMenuOnOutsidePointer, true);
+    return () => {
+      window.removeEventListener("pointerdown", closeAddMenuOnOutsidePointer, true);
+    };
+  }, [addMenu]);
 
   const beginBoundaryResize = (boundary: PanelBoundary) => (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -308,6 +332,7 @@ export function PanelWorkspace({
               onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
               onClosePanel={closePanel}
               onChangePanelChartSymbol={changePanelChartSymbol}
+              onSelectSymbol={onSelectSymbol}
               onChartSwapPointerDown={!isDefaultChart ? beginPanelSwap(slot.id) : undefined}
             />
           </WorkspacePanelFrame>

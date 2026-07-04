@@ -263,7 +263,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
       document.viewport = {
-        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, maxRequestBarsForInterval(document.timeframe)),
+        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 6, maxRequestBarsForInterval(document.timeframe)),
         rightOffset: rightOffset === null ? document.viewport.rightOffset : Math.max(0, Math.round(rightOffset))
       };
       return null;

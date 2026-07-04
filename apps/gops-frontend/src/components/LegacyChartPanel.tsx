@@ -1388,7 +1388,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    const step = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
+    const step = Math.max(3, Math.round(document.viewport.visibleCount * 0.12));
     const delta = event.deltaY > 0 ? step : -step;
     zoomBy(delta);
   };
@@ -1666,7 +1666,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     window.document.body
   );
 
-  const viewportStep = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
+  const viewportStep = Math.max(3, Math.round(document.viewport.visibleCount * 0.12));
   const chartHeaderMeta = getSymbolMeta(document.symbol);
   const chartHeaderCompany = chartHeaderMeta.name && chartHeaderMeta.name !== chartHeaderMeta.symbol
     ? chartHeaderMeta.name

@@ -17,7 +17,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "news" | "ontology" | "companyAnalysis" | "trade";
+export type PanelContentKind = "chart" | "news" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -89,7 +89,7 @@ const defaultInsertHeight = 142;
 const boundarySnapTolerance = 10;
 const epsilon = 0.5;
 
-export const insertablePanelKinds: PanelContentKind[] = ["news", "ontology", "companyAnalysis", "trade", "chart"];
+export const insertablePanelKinds: PanelContentKind[] = ["news", "ontology", "portfolio", "trade", "chart"];
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -114,19 +114,20 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
   const chartHeight = Math.max(chartMinHeight, rectBottom(workspace) - chartTop);
   const supportTop = workspace.top + gutter;
   const supportLeft = workspace.left + gutter;
-  const supportWidth = (workspace.width - gutter * 4) / 3;
+  const supportWidth = (workspace.width - gutter * 5) / 4;
   const contents: Record<PanelContentId, PanelContentInstance> = {};
   const chart = createPanelContent("chart", 1, { isDefaultChart: true });
   const news = createPanelContent("news", 2);
   const ontology = createPanelContent("ontology", 3);
-  const companyAnalysis = createPanelContent("companyAnalysis", 4);
-  [chart, news, ontology, companyAnalysis].forEach((content) => {
+  const portfolio = createPanelContent("portfolio", 4);
+  const trade = createPanelContent("trade", 5);
+  [chart, news, ontology, portfolio, trade].forEach((content) => {
     contents[content.id] = content;
   });
 
   return {
     contents,
-    nextInstance: 5,
+    nextInstance: 6,
     slots: [
       {
         id: "slot-news",
@@ -153,12 +154,24 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
         minHeight: panelMinHeight
       },
       {
-        id: "slot-company-analysis",
-        contentId: companyAnalysis.id,
+        id: "slot-portfolio",
+        contentId: portfolio.id,
         rect: {
           left: supportLeft + (supportWidth + gutter) * 2,
           top: supportTop,
-          width: workspace.width - gutter - (supportLeft + (supportWidth + gutter) * 2),
+          width: supportWidth,
+          height: supportHeight
+        },
+        minWidth: panelMinWidth,
+        minHeight: panelMinHeight
+      },
+      {
+        id: "slot-trade",
+        contentId: trade.id,
+        rect: {
+          left: supportLeft + (supportWidth + gutter) * 3,
+          top: supportTop,
+          width: workspace.width - gutter - (supportLeft + (supportWidth + gutter) * 3),
           height: supportHeight
         },
         minWidth: panelMinWidth,
@@ -187,8 +200,8 @@ export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number
     chart: "",
     news: "뉴스",
     ontology: "온톨로지",
-    companyAnalysis: "기업분석",
-    trade: "거래"
+    portfolio: "포트폴리오",
+    trade: "주문"
   }[kind];
 }
 

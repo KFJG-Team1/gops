@@ -10,6 +10,8 @@ import {
   useRef,
   useState
 } from "react";
+import { useAuth } from "./auth/AuthProvider";
+import { formatAgentAnalysisForChat, requestAgentAnalysis } from "./agent/agentAnalysisClient";
 import { BottomCommandBar, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
@@ -63,8 +65,10 @@ export function App() {
   const [agentInput, setAgentInput] = useState("");
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [chartCommandMode, setChartCommandMode] = useState(false);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
+  const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelRef = useRef<ChartPanelHandle | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -139,12 +143,20 @@ export function App() {
   })), []);
   const activeHeaderSymbol = mainView.mode === "chart" ? chartHeader?.symbol ?? mainView.symbol : "";
   const activeHeaderQuote = chartHeader?.liveQuote;
+  const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
 
   const showChart = (symbol: string) => {
     setSemanticSelection(null);
     setTreeMapLaneHover(false);
+    setChartHeader(null);
     setMainView({ mode: "chart", symbol: symbol.toUpperCase() });
   };
+
+  useEffect(() => {
+    if (!canUseAgent && chartCommandMode) {
+      setChartCommandMode(false);
+    }
+  }, [canUseAgent, chartCommandMode]);
 
   const showTreeMap = () => {
     setSemanticSelection(null);
@@ -154,6 +166,10 @@ export function App() {
   };
 
   const toggleBottomMenu = (key: BottomMenuKey) => {
+    if (key === "V" && authEnabled && !authLoading && !user) {
+      login();
+      return;
+    }
     setActiveBottomMenu((current) => (current === key ? null : key));
   };
 
@@ -165,6 +181,14 @@ export function App() {
     }
     const userEntry = createChatLogEntry("user", prompt);
     setAgentInput("");
+    if (!canUseAgent) {
+      setChatLog((current) => [
+        ...current,
+        userEntry,
+        createChatLogEntry("system", authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.")
+      ]);
+      return;
+    }
     if (mainView.mode !== "chart") {
       setChatLog((current) => [
         ...current,
@@ -173,31 +197,35 @@ export function App() {
       ]);
       return;
     }
-    const chartPanel = chartPanelRef.current;
-    if (!chartPanel) {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", "차트가 준비되면 다시 시도해주세요.")
-      ]);
-      return;
-    }
-    const pendingEntry = createChatLogEntry("assistant", "차트 에이전트가 차트를 읽고 있습니다.", true);
+    const pendingEntry = createChatLogEntry(
+      "assistant",
+      chartCommandMode ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
+      true
+    );
     setAgentBusy(true);
     setChatLog((current) => [...current, userEntry, pendingEntry]);
     try {
-      const result = await chartPanel.runAgentPrompt(prompt);
-      replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
+      if (chartCommandMode) {
+        const chartPanel = chartPanelRef.current;
+        if (!chartPanel) {
+          throw new Error("차트가 준비되면 다시 시도해주세요.");
+        }
+        const result = await chartPanel.runAgentPrompt(prompt);
+        replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
+      } else {
+        const report = await requestAgentAnalysis({ symbol: activeHeaderSymbol || mainView.symbol, prompt });
+        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
+      }
     } catch (error: unknown) {
       replaceChatLogEntry(
         setChatLog,
         pendingEntry.id,
-        error instanceof Error ? error.message : "차트 에이전트 요청에 실패했습니다."
+        error instanceof Error ? error.message : "Agent 요청에 실패했습니다."
       );
     } finally {
       setAgentBusy(false);
     }
-  }, [agentBusy, agentInput, mainView.mode]);
+  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -280,6 +308,7 @@ export function App() {
             chartPanelRef={chartPanelRef}
             setSemanticSelection={setSemanticSelection}
             setChartHeader={setChartHeader}
+            onSelectSymbol={showChart}
           />
         )}
       </section>
@@ -288,10 +317,21 @@ export function App() {
         agentBusy={agentBusy}
         agentInput={agentInput}
         chatLog={chatLog}
+        authEnabled={authEnabled}
+        authLoading={authLoading}
+        authUser={user}
+        canUseAgent={canUseAgent}
+        chartCommandMode={chartCommandMode}
+        symbols={universeSymbols}
+        activeSymbol={activeHeaderSymbol}
         isChartMode={mainView.mode === "chart"}
         onAgentInputChange={setAgentInput}
         onAgentSubmit={runAgentPrompt}
+        onChartCommandModeChange={setChartCommandMode}
         onCloseMenu={() => setActiveBottomMenu(null)}
+        onLogin={login}
+        onLogout={() => void logout()}
+        onSelectSymbol={showChart}
         onShowTreeMap={showTreeMap}
         onToggleMenu={toggleBottomMenu}
       />

@@ -37,7 +37,7 @@ export const chartCapabilities: ChartCapability[] = [
     payloadSchema: {
       type: "object",
       properties: {
-        visibleCount: { type: "number", minimum: 12, maximum: 525600 },
+        visibleCount: { type: "number", minimum: 6, maximum: 525600 },
         rightOffset: { type: "number", minimum: 0 }
       }
     },

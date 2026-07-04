@@ -1,10 +1,14 @@
 import { X } from "lucide-react";
 import type { MutableRefObject, PointerEvent as ReactPointerEvent } from "react";
+import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { NewsPanel } from "./NewsPanel";
+import { OrderTicket } from "./OrderTicket";
+import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 
 type PanelContentRendererProps = {
@@ -20,6 +24,7 @@ type PanelContentRendererProps = {
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   onClosePanel: (slotId: PanelSlotId) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
+  onSelectSymbol: (symbol: string) => void;
   onChartSwapPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
@@ -36,14 +41,42 @@ export function PanelContentRenderer({
   onHeaderChange,
   onClosePanel,
   onChangePanelChartSymbol,
+  onSelectSymbol,
   onChartSwapPointerDown
 }: PanelContentRendererProps) {
+  if (content.kind === "news") {
+    return <NewsPanel symbol={symbol.toUpperCase()} />;
+  }
+
   if (content.kind === "ontology") {
     return <OntologyPanel symbol={symbol} />;
   }
 
+  if (content.kind === "portfolio") {
+    return (
+      <PortfolioHoldingsPanel
+        onSelectSymbol={(nextSymbol) => {
+          onSelectSymbol(nextSymbol);
+          return true;
+        }}
+      />
+    );
+  }
+
+  if (content.kind === "trade") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <OrderTicket
+        activeSymbol={symbol.toUpperCase()}
+        chartSymbols={watchlistSymbols}
+        symbolOptions={watchlistSymbols}
+        onSymbolOptionsRequest={() => undefined}
+      />
+    );
+  }
+
   if (content.kind !== "chart") {
-    return <div className="workspace-panel-empty" aria-label={`${content.title} content`} data-panel-slot-id={slot.id} />;
+    return <div className="workspace-panel-placeholder" aria-label={`${content.title} content`} data-panel-slot-id={slot.id}>준비 중입니다</div>;
   }
 
   const selectedSymbol = symbol.toUpperCase();
@@ -99,4 +132,12 @@ export function PanelContentRenderer({
       />
     </div>
   );
+}
+
+function symbolsToWatchlistSymbols(symbols: ChartSymbolDto[]): WatchlistSymbol[] {
+  return symbols.map((item) => ({
+    symbol: item.symbol.toUpperCase(),
+    name: item.name || item.symbol.toUpperCase(),
+    market: "US"
+  }));
 }

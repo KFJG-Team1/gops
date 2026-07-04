@@ -688,7 +688,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     onChartHoverChange?.(true);
-    const step = Math.max(12, Math.round(chart.visibleCount * 0.12));
+    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
     const delta = event.deltaY > 0 ? step : -step;
     const scene = sceneRef.current;
     if (!scene) {

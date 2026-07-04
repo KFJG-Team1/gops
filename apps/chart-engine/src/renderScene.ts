@@ -80,10 +80,10 @@ export function buildRenderScene({
     points: series.points.map((point) => ({ ...point, y: percentScale.percentToY(point.percent) }))
   }));
   const slotWidth = plotWidth / Math.max(1, visibleCandles.length);
-  const maxCandleWidth = variant === "large" ? 18 : variant === "wide" ? 16 : 13;
+  const maxCandleWidth = variant === "large" ? 72 : variant === "wide" ? 64 : 56;
   const candleWidth = slotWidth < 2
     ? Math.max(0.2, slotWidth * 0.8)
-    : Math.max(2, Math.min(maxCandleWidth, slotWidth * 0.66));
+    : Math.max(2, Math.min(maxCandleWidth, slotWidth * 0.82));
   const last = visibleCandles[visibleCandles.length - 1];
   const first = visibleCandles[0];
   const change = first && last ? ((last.close - first.open) / Math.max(0.0001, first.open)) * 100 : undefined;

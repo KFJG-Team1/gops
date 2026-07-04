@@ -111,7 +111,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const maxVolume = Math.max(1, ...candles.map((candle) => candle.volume));
   const volumeRange = volumeDomain(maxVolume);
   const slotWidth = plotWidth / Math.max(1, semanticBase.totalSlots);
-  const candleWidth = slotWidth < 2 ? Math.max(0.3, slotWidth * 0.75) : Math.max(2, Math.min(24, slotWidth * 0.72));
+  const candleWidth = slotWidth < 2 ? Math.max(0.3, slotWidth * 0.75) : Math.max(2, Math.min(72, slotWidth * 0.82));
   const expansionRanges = semanticBase.expansionRanges
     .map((range) => ({
       ...range,

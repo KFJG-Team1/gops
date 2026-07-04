@@ -1,4 +1,4 @@
-export const MIN_VISIBLE_CANDLES = 12;
+export const MIN_VISIBLE_CANDLES = 6;
 export const MAX_VISIBLE_CANDLES = 180;
 export const MIN_READABLE_SLOT_WIDTH = 8;
 

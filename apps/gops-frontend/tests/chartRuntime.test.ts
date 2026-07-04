@@ -1330,9 +1330,14 @@ assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
+assert.equal(clampVisibleCount(1, 160, 400), 6);
 assert.deepEqual(normalizeViewport({ visibleCount: 180, rightOffset: 120 }, 160, 400), {
   visibleCount: 50,
   rightOffset: 110
+});
+assert.deepEqual(zoomViewport({ visibleCount: 8, rightOffset: 0 }, -8, 160, 400), {
+  visibleCount: 6,
+  rightOffset: 0
 });
 assert.deepEqual(zoomViewport({ visibleCount: 180, rightOffset: 0 }, -8, 160, 400), {
   visibleCount: 42,
@@ -1405,7 +1410,7 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
     rightOffset: 1
   })
 });
-assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 12, rightOffset: 1 });
+assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 6, rightOffset: 1 });
 assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: defaultVisibleBarsForInterval("1m"), rightOffset: 0 });
 sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   kind: "chart.live",
@@ -1465,6 +1470,36 @@ assert.match(systemAreaSource, /onSelectSymbol\(shortcut\.symbol\)/);
 assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
 assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
 assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
+
+const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf-8");
+assert.match(appSource, /requestAgentAnalysis/);
+assert.match(appSource, /chartCommandMode/);
+assert.match(appSource, /login\(\)/);
+assert.match(appSource, /showChart/);
+
+const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
+assert.match(bottomCommandBarSource, /로그인\/프로필/);
+assert.match(bottomCommandBarSource, /chart-agent-dev-toggle/);
+assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
+assert.match(bottomCommandBarSource, /알림설정/);
+
+const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
+assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
+assert.doesNotMatch(agentAnalysisClientSource, /\/api\/llm\/chat/);
+
+const newsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)), "utf-8");
+assert.match(newsPanelSource, /\/api\/market\/news\/latest/);
+assert.match(newsPanelSource, /impactDirection/);
+
+const panelContentRendererSource = readFileSync(fileURLToPath(new URL("../src/components/PanelContentRenderer.tsx", import.meta.url)), "utf-8");
+assert.match(panelContentRendererSource, /NewsPanel/);
+assert.match(panelContentRendererSource, /OrderTicket/);
+assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
+assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
+
+const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
+assert.match(panelLayoutSource, /slot-trade/);
+assert.match(panelLayoutSource, /trade: "주문"/);
 assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
 assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
 assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");

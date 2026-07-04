@@ -1,4 +1,4 @@
-import { ChevronDown, LoaderCircle, LogIn, Minus, Plus, Search, SendHorizontal } from "lucide-react";
+import { LoaderCircle, LogIn, Minus, Plus, Search, SendHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
@@ -236,6 +236,29 @@ function resolveSymbolMeta(symbolValue: string, symbols: readonly WatchlistSymbo
   };
 }
 
+function symbolSearchScore(item: WatchlistSymbol, query: string): number {
+  if (!query) {
+    return 0;
+  }
+  const name = item.name.toUpperCase();
+  if (item.symbol === query) {
+    return 0;
+  }
+  if (item.symbol.startsWith(query)) {
+    return 1;
+  }
+  if (name.startsWith(query)) {
+    return 2;
+  }
+  if (item.symbol.includes(query)) {
+    return 3;
+  }
+  if (name.includes(query)) {
+    return 4;
+  }
+  return 5;
+}
+
 export function OrderTicket({
   activeSymbol,
   chartSymbols,
@@ -281,24 +304,13 @@ export function OrderTicket({
     [allSymbolOptions, form.symbol]
   );
 
-  const visibleChartSymbols = useMemo(() => {
-    if (chartSymbols.length > 0) {
-      return dedupeSymbols(chartSymbols);
-    }
-    return [selectedSymbolMeta];
-  }, [chartSymbols, selectedSymbolMeta]);
-
   const visibleSearchOptions = useMemo(() => {
     const query = symbolSearchQuery.trim().toUpperCase();
-    return dedupeSymbols(symbolOptions)
+    return dedupeSymbols(allSymbolOptions)
       .filter((item) => !query || item.symbol.includes(query) || item.name.toUpperCase().includes(query))
+      .sort((left, right) => symbolSearchScore(left, query) - symbolSearchScore(right, query) || left.symbol.localeCompare(right.symbol))
       .slice(0, ORDER_SEARCH_RESULT_LIMIT);
-  }, [symbolOptions, symbolSearchQuery]);
-
-  const dropdownChartSymbols = useMemo(() => {
-    const otherChartSymbols = visibleChartSymbols.filter((item) => item.symbol !== form.symbol);
-    return otherChartSymbols.length > 0 ? otherChartSymbols : visibleChartSymbols;
-  }, [form.symbol, visibleChartSymbols]);
+  }, [allSymbolOptions, symbolSearchQuery]);
 
   const currentPrice = typeof selectedSymbolMeta.lastPrice === "number" && Number.isFinite(selectedSymbolMeta.lastPrice)
     ? selectedSymbolMeta.lastPrice
@@ -520,76 +532,39 @@ export function OrderTicket({
       >
         <span className="order-row-label">주문종목</span>
         <div className="order-symbol-picker">
-          <button
-            type="button"
-            className="order-symbol-trigger"
-            aria-expanded={symbolSearchOpen}
-            aria-label="주문 종목 선택"
-            onClick={() => {
-              const nextOpen = !symbolSearchOpen;
-              setSymbolSearchOpen(nextOpen);
-              if (nextOpen) {
+          <div className="order-symbol-search">
+            <Search size={13} aria-hidden="true" />
+            <input
+              value={symbolSearchQuery}
+              placeholder={`${form.symbol} ${selectedCompanyName}`}
+              aria-label="주문 종목 검색"
+              aria-expanded={symbolSearchOpen}
+              onFocus={() => {
+                setSymbolSearchOpen(true);
                 onSymbolOptionsRequest(symbolSearchQuery);
-              }
-            }}
-          >
-            <span className="order-symbol-trigger-main">
-              <span className="order-symbol-trigger-top">
-                <strong>{form.symbol}</strong>
-                <span>{selectedCompanyName}</span>
-              </span>
-            </span>
-            <ChevronDown size={14} aria-hidden="true" />
-          </button>
+              }}
+              onChange={(event) => {
+                const value = event.target.value.toUpperCase();
+                setSymbolSearchQuery(value);
+                setSymbolSearchOpen(true);
+                onSymbolOptionsRequest(value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  const query = event.currentTarget.value.toUpperCase();
+                  const exact = visibleSearchOptions.find((item) => item.symbol === query);
+                  selectOrderSymbol(exact?.symbol ?? query);
+                }
+                if (event.key === "Escape") {
+                  setSymbolSearchOpen(false);
+                }
+              }}
+            />
+          </div>
 
           {symbolSearchOpen && (
             <div className="order-symbol-dropdown" role="listbox" aria-label="주문 종목 선택">
-              <div className="order-symbol-dropdown-section">
-                {dropdownChartSymbols.map((item) => (
-                  <button
-                    key={`chart-${item.symbol}`}
-                    type="button"
-                    role="option"
-                    aria-selected={item.symbol === form.symbol}
-                    className={item.symbol === form.symbol ? "order-symbol-option active" : "order-symbol-option"}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectOrderSymbol(item.symbol)}
-                  >
-                    <strong>{item.symbol}</strong>
-                    <span>{displayCompanyName(item)}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="order-symbol-dropdown-divider" />
-              <div className="order-symbol-dropdown-search">
-                <button
-                  type="button"
-                  aria-label="주문 종목 검색"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onSymbolOptionsRequest(symbolSearchQuery)}
-                >
-                  <Search size={13} aria-hidden="true" />
-                </button>
-                <input
-                  value={symbolSearchQuery}
-                  placeholder="종목 검색"
-                  aria-label="주문 종목 검색어"
-                  onChange={(event) => {
-                    const value = event.target.value.toUpperCase();
-                    setSymbolSearchQuery(value);
-                    onSymbolOptionsRequest(value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                      event.preventDefault();
-                      selectOrderSymbol(event.currentTarget.value);
-                    }
-                    if (event.key === "Escape") {
-                      setSymbolSearchOpen(false);
-                    }
-                  }}
-                />
-              </div>
               <div className="order-symbol-dropdown-section">
                 {visibleSearchOptions.map((item) => (
                   <button
