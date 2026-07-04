@@ -15,7 +15,13 @@ import {
   shouldRequestBackfill,
   shouldRequestRangeBackfill
 } from "../../chart-engine/src/backfill";
-import { buildAgentAnalysisRequest, buildAgentLayoutContext, formatAgentAnalysisReport, normalizeAgentAnalysisReport } from "../src/agents/agentAnalysis";
+import {
+  buildAgentAnalysisRequest,
+  buildAgentLayoutContext,
+  formatAgentAnalysisReport,
+  normalizeAgentAnalysisReport,
+  shouldAutoApplyAgentLayoutProposal
+} from "../src/agents/agentAnalysis";
 import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
@@ -835,6 +841,12 @@ assert.equal(agentContextWithStreamError.dataStatus.state, "ready");
 assert.equal(agentContextWithStreamError.dataStatus.candleCount, 2);
 assert.equal(agentContextWithStreamError.dataStatus.hasVisibleCandles, true);
 assert.equal(agentContextWithStreamError.streamStatus, "error");
+assert.deepEqual(agentContextWithStreamError.entityFallback, {
+  source: "selected-chart",
+  panelId: "panel-agent-context",
+  chartDocumentId: "chart-doc-agent-context",
+  symbol: "NVDA"
+});
 
 const proposalScene = buildRenderScene({
   state: "ready",
@@ -1448,26 +1460,40 @@ const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/S
 assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
 assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
 assert.match(systemAreaSource, /\/api\/agents\/analyze/);
+assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
+assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
+assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
 assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
 assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
 assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
 assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
 
 const agentAnalysisRequest = buildAgentAnalysisRequest({
-  agentIds: ["agent-01", "agent-02"],
   messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
 });
 assert.deepEqual(agentAnalysisRequest, {
-  agentIds: ["agent-01", "agent-02"],
   messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
-  routerMode: "hybrid"
+  routerMode: "hybrid",
+  analysisMode: "auto",
+  agentIds: []
 });
+
+const agentAnalysisMultiAgentRequest = buildAgentAnalysisRequest({
+  messages: [{ role: "user", content: "NVDA 뉴스랑 차트 각각 분석해줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 뉴스랑 차트 각각 분석해줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  analysisMode: "multi_agent",
+  agentIds: ["agent-01", "agent-02"]
+});
+assert.equal(agentAnalysisMultiAgentRequest.analysisMode, "multi_agent");
+assert.deepEqual(agentAnalysisMultiAgentRequest.agentIds, ["agent-01", "agent-02"]);
 
 const agentLayoutContext = buildAgentLayoutContext(createPresetLayout("chart"));
 const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
@@ -1500,7 +1526,6 @@ await assert.rejects(
 );
 
 const agentAnalysisRequestWithLayout = buildAgentAnalysisRequest({
-  agentIds: ["agent-02"],
   messages: [{ role: "user", content: "뉴스 보여줘" }],
   symbol: "NVDA",
   intent: "뉴스 보여줘",
@@ -1546,12 +1571,6 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
       raw: { relationType: "no-direct-control" }
     }
   ],
-  notificationDecision: {
-    level: "watch",
-    title: "NVDA price surge",
-    message: "Smoke event for Docker validation.",
-    reason: "Notification level follows the strongest attached market event severity."
-  },
   timing: {
     totalMs: 1120,
     cacheHit: true,
@@ -1559,29 +1578,10 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     newsFetchMs: 180,
     roleAnalysisMs: 820,
     finalAnswerMs: 120
-  },
-  layoutProposal: {
-    id: "layout-proposal-1",
-    title: "Agent analysis workspace",
-    rationale: "Prioritized newsFeed for the current user intent.",
-    autoApply: true,
-    panelPriorities: [
-      { panelId: "panel-news", panelType: "newsFeed", layoutWeight: 100, reason: "Primary panel for the current user intent." }
-    ],
-    commands: [
-      {
-        id: "cmd-priority-news",
-        type: "layout.panel.priority.set",
-        actor: "llm",
-        payload: { panelId: "panel-news", layoutWeight: 100 },
-        createdAt: "2026-06-29T00:00:00.000Z"
-      }
-    ],
-    createdAt: "2026-06-29T00:00:00.000Z"
   }
 });
-assert.equal(agentAnalysisReport.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
-assert.equal(agentAnalysisReport.layoutProposal?.panelPriorities?.[0]?.layoutWeight, 100);
+assert.equal(agentAnalysisReport.notificationDecision, null);
+assert.equal(agentAnalysisReport.layoutProposal, null);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
@@ -1592,7 +1592,7 @@ assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is 
 assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
 assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
 assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
-assert.match(agentAnalysisMessage, /알림 판단: WATCH - NVDA price surge/);
+assert.doesNotMatch(agentAnalysisMessage, /알림 판단:/);
 assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
@@ -1603,6 +1603,38 @@ assert.throws(
   () => normalizeAgentAnalysisReport({ findings: [] }),
   /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
 );
+
+const compactNewsReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-compact",
+  symbol: "AAPL",
+  status: "completed",
+  summary: "뉴스를 가져왔습니다.",
+  route: {
+    source: "rule",
+    intentType: "news",
+    selectedRoles: ["news"],
+    confidence: 0.9,
+    reason: "News request."
+  },
+  finalAnswer: {
+    title: "뉴스를 가져왔습니다",
+    summary: "AAPL 관련 뉴스 1건을 가져왔습니다.",
+    sections: [{ title: "핵심 뉴스", bullets: ["애플 서비스 성장: 서비스 매출이 개선됐습니다."] }],
+    citations: [{ provider: "news", title: "애플 서비스 성장", url: "https://example.com/aapl" }],
+    limitations: ["뉴스 provider에 저장된 기사 기준입니다."]
+  },
+  findings: [],
+  providerEvidence: [{ provider: "news", status: "no-data", summary: "AAPL 관련 저장 뉴스가 없습니다." }],
+  timing: { totalMs: 100, newsFetchMs: 10 }
+});
+const compactNewsMessage = formatAgentAnalysisReport(compactNewsReport);
+assert.match(compactNewsMessage, /뉴스를 가져왔습니다/);
+assert.match(compactNewsMessage, /애플 서비스 성장/);
+assert.doesNotMatch(compactNewsMessage, /근거 링크/);
+assert.doesNotMatch(compactNewsMessage, /제한 사항/);
+assert.doesNotMatch(compactNewsMessage, /Provider status/);
+assert.doesNotMatch(compactNewsMessage, /검색/);
+assert.doesNotMatch(compactNewsMessage, /https:\/\/example\.com\/aapl/);
 
 const agentNewsPanelReport = normalizeAgentAnalysisReport({
   analysisId: "analysis-news-panel",
@@ -1621,6 +1653,21 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
           panelType: "newsFeed",
           props: {
             symbol: "NVDA",
+            dailySummaries: [
+              {
+                date: "2026-07-01",
+                symbol: "NVDA",
+                summary: "엔비디아 일일 뉴스 요약입니다.",
+                keyPoints: ["AI 수요"],
+                positivePoints: ["데이터센터 성장"],
+                concerns: [],
+                impactDirection: "positive",
+                articleIds: ["nvda-daily-1"],
+                articleCount: 1,
+                mentionCount: 0,
+                status: "final"
+              }
+            ],
             latestNews: [
               {
                 title: "NVDA shares rise after earnings",
@@ -1644,8 +1691,15 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
   }
 });
 assert.equal(agentNewsPanelReport.layoutProposal?.commands[0]?.payload.panelType, "newsFeed");
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "auto"), true);
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "multi_agent"), false);
 assert.equal(
   ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.latestNews as unknown[])?.length,
+  1
+);
+assert.equal(agentNewsPanelReport.dailySummaries.length, 0);
+assert.equal(
+  ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as unknown[])?.length,
   1
 );
 

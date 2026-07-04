@@ -56,6 +56,20 @@ export type FinalAnswer = {
   limitations: string[];
 };
 
+export type FinalResponse = {
+  risk_warnings: string[];
+  data_freshness_warnings: string[];
+};
+
+export type AgentAnswer = {
+  agentId: string;
+  role: string;
+  title: string;
+  content: string;
+  confidence?: number;
+  citations: FinalAnswerCitation[];
+};
+
 export type AgentNewsPanelItem = {
   title: string;
   summary?: string;
@@ -74,9 +88,28 @@ export type AgentNewsPanelItem = {
   importanceScore?: number;
 };
 
+export type AgentDailyNewsSummary = {
+  date: string;
+  symbol?: string;
+  summary: string;
+  keyPoints: string[];
+  positivePoints: string[];
+  concerns: string[];
+  impactDirection?: string;
+  sentiment?: string;
+  articleIds: string[];
+  articleCount?: number;
+  mentionCount?: number;
+  status?: string;
+  generatedAt?: string;
+};
+
 export type AgentNewsPanelData = {
   symbol?: string;
   updatedAt?: string;
+  status?: string;
+  emptyMessage?: string;
+  dailySummaries: AgentDailyNewsSummary[];
   latestNews: AgentNewsPanelItem[];
   majorNews: AgentNewsPanelItem[];
 };
@@ -97,21 +130,27 @@ export type AgentAnalysisReport = {
   status?: string;
   route?: IntentRoute | null;
   finalAnswer?: FinalAnswer | null;
+  finalResponse?: FinalResponse | null;
+  agentAnswers: AgentAnswer[];
   findings: AgentFinding[];
   providerEvidence: AgentEvidenceItem[];
+  dailySummaries: AgentDailyNewsSummary[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: LayoutProposal | null;
   timing?: AgentAnalysisTiming | null;
 };
 
+export type AgentAnalysisMode = "auto" | "multi_agent";
+
 export type AgentAnalysisRequestInput = {
-  agentIds: string[];
   messages: AgentAnalysisMessage[];
   symbol: string;
   intent: string;
   chartContext: unknown;
   layoutContext?: unknown;
   routerMode?: "hybrid" | "rules" | "strict-llm";
+  analysisMode?: AgentAnalysisMode;
+  agentIds?: string[];
 };
 
 export type AgentAnalysisMessage = {
@@ -132,23 +171,30 @@ const panelAliases: Record<PanelType, string[]> = {
 };
 
 export function buildAgentAnalysisRequest({
-  agentIds,
   messages,
   symbol,
   intent,
   chartContext,
   layoutContext,
-  routerMode = "hybrid"
+  routerMode = "hybrid",
+  analysisMode = "auto",
+  agentIds = []
 }: AgentAnalysisRequestInput) {
   const request = {
-    agentIds,
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
     symbol,
     intent,
     chartContext,
-    routerMode
+    routerMode,
+    analysisMode,
+    agentIds
   };
   return layoutContext === undefined ? request : { ...request, layoutContext };
+}
+
+export function shouldAutoApplyAgentLayoutProposal(report: AgentAnalysisReport, analysisMode: AgentAnalysisMode): boolean {
+  const proposal = report.layoutProposal;
+  return analysisMode === "auto" && proposal?.autoApply !== false && Boolean(proposal?.commands.length);
 }
 
 export function buildAgentLayoutContext(layout: WorkspaceLayout) {
@@ -192,8 +238,11 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     status: readString(source.status) ?? undefined,
     route: normalizeRoute(source.route),
     finalAnswer: normalizeFinalAnswer(source.finalAnswer),
+    finalResponse: normalizeFinalResponse(source.finalResponse),
+    agentAnswers: readArray(source.agentAnswers).map(normalizeAgentAnswer).filter((item): item is AgentAnswer => Boolean(item)),
     findings: readArray(source.findings).map(normalizeFinding).filter((item): item is AgentFinding => Boolean(item)),
     providerEvidence: readArray(source.providerEvidence).map(normalizeEvidence).filter((item): item is AgentEvidenceItem => Boolean(item)),
+    dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
     layoutProposal: normalizeLayoutProposal(source.layoutProposal),
     timing: normalizeTiming(source.timing)
@@ -201,12 +250,15 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 }
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
-  const lines = report.finalAnswer ? formatFinalAnswer(report.finalAnswer) : [report.summary];
+  const newsOnly = isNewsOnlyReport(report);
+  const lines = report.agentAnswers.length
+    ? formatAgentAnswers(report.agentAnswers)
+    : report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
 
   const unusualEventFinding = report.findings.find((finding) =>
     finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
   );
-  if (unusualEventFinding) {
+  if (unusualEventFinding && !newsOnly) {
     lines.push("", `이상 이벤트: ${unusualEventFinding.summary}`);
   }
 
@@ -215,17 +267,17 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     .slice(0, 5);
   const ontologyNoData = noDataEvidence.filter(isOntologyRelationshipNoData);
   const providerNoData = noDataEvidence.filter((item) => !isOntologyRelationshipNoData(item));
-  if (ontologyNoData.length) {
+  if (ontologyNoData.length && !newsOnly) {
     lines.push("", "확인되지 않은 내용:");
     lines.push(...ontologyNoData.map((item) => `- ${item.summary ?? "온톨로지 관계 근거가 확인되지 않았습니다."}`));
   }
-  if (providerNoData.length) {
+  if (providerNoData.length && !newsOnly) {
     lines.push("", "Provider status:");
     lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${item.summary ?? "데이터가 아직 연결되지 않았습니다."}`));
   }
 
   const decision = report.notificationDecision;
-  if (decision && ["watch", "alert", "critical"].includes(decision.level)) {
+  if (decision && ["watch", "alert", "critical"].includes(decision.level) && !newsOnly) {
     lines.push("", `알림 판단: ${decision.level.toUpperCase()}${decision.title ? ` - ${decision.title}` : ""}`);
     if (decision.message) {
       lines.push(decision.message);
@@ -238,26 +290,34 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const verificationFinding = report.findings.find((finding) =>
     finding.role === "verification-guardrail" && finding.summary && isVerificationWarning(finding)
   );
-  if (verificationFinding) {
+  if (verificationFinding && !newsOnly) {
     lines.push("", `검증 경고: ${verificationFinding.summary}`);
   }
 
+  const safetyNotice = formatSafetyNotice(report.finalResponse);
+  if (safetyNotice) {
+    lines.push("", safetyNotice);
+  }
+
   const timingSummary = formatTimingSummary(report.timing);
-  if (timingSummary) {
+  if (timingSummary && !newsOnly) {
     lines.push("", timingSummary);
   }
 
   return lines.join("\n");
 }
 
-function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
+function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: boolean } = {}): string[] {
   const lines = [finalAnswer.title, finalAnswer.summary];
   for (const section of finalAnswer.sections.slice(0, 3)) {
     if (!section.title || section.bullets.length === 0) {
       continue;
     }
     lines.push("", section.title);
-    lines.push(...section.bullets.slice(0, 5).map((bullet) => `- ${bullet}`));
+    lines.push(...section.bullets.slice(0, options.compactNews ? 3 : 5).map((bullet) => `- ${bullet}`));
+  }
+  if (options.compactNews) {
+    return lines;
   }
   const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url));
   if (linkedCitations.length) {
@@ -271,6 +331,46 @@ function formatFinalAnswer(finalAnswer: FinalAnswer): string[] {
     lines.push(...finalAnswer.limitations.slice(0, 5).map((limitation) => `- ${limitation}`));
   }
   return lines;
+}
+
+function formatAgentAnswers(agentAnswers: AgentAnswer[]): string[] {
+  const lines = ["멀티 에이전트 분석"];
+  for (const answer of agentAnswers) {
+    lines.push("", answer.title || answer.role);
+    lines.push(answer.content);
+    const linkedCitations = answer.citations.filter((citation) => Boolean(citation.url)).slice(0, 3);
+    if (linkedCitations.length) {
+      lines.push(...linkedCitations.map((citation) => `- ${citation.title} (${citation.url})`));
+    }
+  }
+  return lines;
+}
+
+function normalizeAgentAnswer(value: unknown): AgentAnswer | null {
+  const source = readObject(value);
+  const agentId = readString(source?.agentId);
+  const role = readString(source?.role);
+  const title = readString(source?.title);
+  const content = readString(source?.content);
+  if (!source || !agentId || !role || !title || !content) {
+    return null;
+  }
+  return {
+    agentId,
+    role,
+    title,
+    content,
+    confidence: readNumber(source.confidence) ?? undefined,
+    citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item))
+  };
+}
+
+function isNewsOnlyReport(report: AgentAnalysisReport): boolean {
+  const route = report.route;
+  if (!route) {
+    return false;
+  }
+  return route.intentType === "news" || (route.selectedRoles.length === 1 && route.selectedRoles[0] === "news");
 }
 
 function normalizeFinding(value: unknown): AgentFinding | null {
@@ -310,6 +410,30 @@ function normalizeEvidence(value: unknown): AgentEvidenceItem | null {
   };
 }
 
+function normalizeDailySummary(value: unknown): AgentDailyNewsSummary | null {
+  const source = readObject(value);
+  const date = readString(source?.date);
+  const summary = readString(source?.summary);
+  if (!source || !date || !summary) {
+    return null;
+  }
+  return {
+    date,
+    symbol: readString(source.symbol) ?? undefined,
+    summary,
+    keyPoints: readArray(source.keyPoints).map(readString).filter((item): item is string => Boolean(item)),
+    positivePoints: readArray(source.positivePoints).map(readString).filter((item): item is string => Boolean(item)),
+    concerns: readArray(source.concerns).map(readString).filter((item): item is string => Boolean(item)),
+    impactDirection: readString(source.impactDirection) ?? undefined,
+    sentiment: readString(source.sentiment) ?? undefined,
+    articleIds: readArray(source.articleIds).map(readString).filter((item): item is string => Boolean(item)),
+    articleCount: readNumber(source.articleCount) ?? undefined,
+    mentionCount: readNumber(source.mentionCount) ?? undefined,
+    status: readString(source.status) ?? undefined,
+    generatedAt: readString(source.generatedAt) ?? undefined
+  };
+}
+
 function normalizeRoute(value: unknown): IntentRoute | null {
   const source = readObject(value);
   const routeSource = readString(source?.source);
@@ -340,6 +464,17 @@ function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
     sections: readArray(source.sections).map(normalizeFinalAnswerSection).filter((item): item is FinalAnswerSection => Boolean(item)),
     citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item)),
     limitations: readArray(source.limitations).map(readString).filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeFinalResponse(value: unknown): FinalResponse | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+  return {
+    risk_warnings: readArray(source.risk_warnings).map(readString).filter((item): item is string => Boolean(item)),
+    data_freshness_warnings: readArray(source.data_freshness_warnings).map(readString).filter((item): item is string => Boolean(item))
   };
 }
 
@@ -532,6 +667,14 @@ function isVerificationWarning(finding: AgentFinding): boolean {
     return false;
   }
   return true;
+}
+
+function formatSafetyNotice(finalResponse?: FinalResponse | null): string | null {
+  const warnings = new Set(finalResponse?.risk_warnings ?? []);
+  if (warnings.has("pii_redacted") || warnings.has("profanity_removed") || warnings.has("sensitive_url_redacted")) {
+    return "안전 처리: 민감하거나 부적절한 텍스트가 마스킹되었습니다.";
+  }
+  return null;
 }
 
 function readArray(value: unknown): unknown[] {
