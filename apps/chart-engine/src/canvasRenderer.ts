@@ -84,8 +84,8 @@ function drawGrid(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.strokeStyle = scene.document.style.grid;
   ctx.lineWidth = 1;
 
-  for (let index = 0; index <= 4; index += 1) {
-    const y = top + ((priceBottom - top) * index) / 4;
+  for (let index = 0; index <= 5; index += 1) {
+    const y = top + ((priceBottom - top) * index) / 5;
     line(ctx, left, y, right, y);
   }
 
@@ -113,11 +113,16 @@ function drawCandles(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const bodyTop = Math.min(openY, closeY);
     const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
 
+    ctx.save();
+    if (candle.displayOnly || candle.synthetic) {
+      ctx.globalAlpha = 0.42;
+    }
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = 1;
     line(ctx, x, highY, x, lowY);
     ctx.fillRect(x - scene.scales.candleWidth / 2, bodyTop, scene.scales.candleWidth, bodyHeight);
+    ctx.restore();
   });
 }
 
@@ -128,10 +133,13 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
 
   const volumeHeight = scene.plot.bottom - scene.plot.volumeTop;
   scene.candles.forEach((candle, index) => {
+    if (candle.volume <= 0) {
+      return;
+    }
     const x = candleCenter(scene, index);
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
-    const color = candle.close >= candle.open ? "rgba(15, 138, 75, 0.32)" : "rgba(179, 58, 58, 0.32)";
+    const color = colorWithAlpha(candle.close >= candle.open ? scene.document.style.bullish : scene.document.style.bearish, 0.24);
 
     ctx.fillStyle = color;
     ctx.fillRect(x - scene.scales.candleWidth / 2, y, scene.scales.candleWidth, height);
@@ -208,7 +216,7 @@ function drawPreviewComparisons(ctx: CanvasRenderingContext2D, scene: RenderScen
   ctx.font = "11px Inter, system-ui, sans-serif";
   ctx.textAlign = "left";
   previewComparisons.forEach((comparison, index) => {
-    ctx.fillText(`Preview comparison: ${comparison.label ?? comparison.symbol}`, scene.plot.left, scene.plot.top + 16 + index * 15);
+    ctx.fillText(`비교 미리보기: ${comparison.label ?? comparison.symbol}`, scene.plot.left, scene.plot.top + 16 + index * 15);
   });
   ctx.restore();
 }
@@ -252,7 +260,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
     } else if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0]) {
       circle(ctx, points[0].x, points[0].y, drawing.type === "pointMarker" ? 4 : 3);
       ctx.fill();
-      drawDrawingLabel(ctx, drawing.label ?? (drawing.type === "textLabel" ? "Note" : ""), points[0].x + 7, points[0].y - 7, drawing);
+      drawDrawingLabel(ctx, drawing.label ?? (drawing.type === "textLabel" ? "메모" : ""), points[0].x + 7, points[0].y - 7, drawing);
     }
 
     if (selected && points.length > 0) {
@@ -284,14 +292,14 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, label: string | undefin
 function measurementLabel(drawing: DrawingEntity, scene: RenderScene): string {
   const [start, end] = drawing.anchors;
   if (typeof start?.price !== "number" || typeof end?.price !== "number") {
-    return drawing.label ?? "Measurement";
+    return drawing.label ?? "측정";
   }
   const delta = end.price - start.price;
   const percent = (delta / Math.max(0.0001, start.price)) * 100;
   const startIndex = scene.allCandles.findIndex((candle) => candle.timestamp === start.timestamp);
   const endIndex = scene.allCandles.findIndex((candle) => candle.timestamp === end.timestamp);
   const bars = startIndex >= 0 && endIndex >= 0 ? Math.abs(endIndex - startIndex) : 0;
-  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars} bars`;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars}봉`;
 }
 
 function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -302,23 +310,18 @@ function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.textBaseline = "middle";
 
   ctx.textAlign = "right";
-  for (let index = 0; index <= 4; index += 1) {
-    const ratio = index / 4;
+  for (let index = 0; index <= 5; index += 1) {
+    const ratio = index / 5;
     const value = scene.scales.maxPrice - (scene.scales.maxPrice - scene.scales.minPrice) * ratio;
     const y = top + (priceBottom - top) * ratio;
     ctx.fillText(value.toFixed(2), priceLabelX, y);
   }
 
-  const first = scene.candles[0];
-  const last = scene.candles[scene.candles.length - 1];
-  ctx.textAlign = "left";
-  if (first) {
-    ctx.fillText(formatTime(first), left, bottom + 12);
-  }
-  ctx.textAlign = "right";
-  if (last) {
-    ctx.fillText(formatTime(last), right, bottom + 12);
-  }
+  const ticks = buildTimeTicks(scene, 6);
+  ticks.forEach((tick, index) => {
+    ctx.textAlign = index === 0 ? "left" : index === ticks.length - 1 ? "right" : "center";
+    ctx.fillText(formatTime(tick.candle, scene.document.timeframe), tick.x, bottom + 13);
+  });
 }
 
 function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -337,7 +340,7 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
 
   const candle = crosshair.candle;
   const isUp = candle.close >= candle.open;
-  const text = `${formatTime(candle)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
+  const text = `${formatTime(candle, scene.document.timeframe)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
   ctx.font = "11px Inter, system-ui, sans-serif";
   const textWidth = Math.min(scene.plot.right - scene.plot.left - 12, ctx.measureText(text).width + 12);
   const boxX = Math.min(scene.plot.right - textWidth, Math.max(scene.plot.left, crosshair.x + 8));
@@ -399,11 +402,66 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.closePath();
 }
 
-function formatTime(candle: CandleData): string {
-  return new Intl.DateTimeFormat("en-US", {
+function formatTime(candle: CandleData, timeframe = "1m"): string {
+  const date = new Date(candle.timestamp);
+  if (!Number.isFinite(date.getTime())) {
+    return candle.timestamp;
+  }
+  if (timeframe === "1M") {
+    return `${date.getUTCFullYear()}.${pad2(date.getUTCMonth() + 1)}`;
+  }
+  if (timeframe === "1W" || timeframe === "1D") {
+    return `${date.getUTCFullYear()}.${pad2(date.getUTCMonth() + 1)}.${pad2(date.getUTCDate())}`;
+  }
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC"
-  }).format(new Date(candle.timestamp));
+    timeZone: "Asia/Seoul"
+  }).formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${read("year")}.${read("month")}.${read("day")} ${read("hour")}:${read("minute")}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function buildTimeTicks(scene: RenderScene, targetCount: number): Array<{ candle: CandleData; x: number }> {
+  if (scene.candles.length === 0) {
+    return [];
+  }
+  const count = Math.min(targetCount, scene.candles.length);
+  if (count === 1) {
+    return [{ candle: scene.candles[0], x: scene.plot.left }];
+  }
+  const seen = new Set<number>();
+  return Array.from({ length: count }, (_, index) => {
+    const candleIndex = Math.round((index * (scene.candles.length - 1)) / (count - 1));
+    const uniqueIndex = seen.has(candleIndex)
+      ? Math.min(scene.candles.length - 1, Math.max(0, candleIndex + index - seen.size))
+      : candleIndex;
+    seen.add(uniqueIndex);
+    const x = index === 0
+      ? scene.plot.left
+      : index === count - 1
+        ? scene.plot.right
+        : candleCenter(scene, uniqueIndex);
+    return { candle: scene.candles[uniqueIndex], x };
+  }).filter((tick): tick is { candle: CandleData; x: number } => Boolean(tick.candle));
+}
+
+function colorWithAlpha(hex: string, alpha: number): string {
+  const normalized = hex.trim().replace(/^#/, "");
+  if (!/^[\da-fA-F]{6}$/.test(normalized)) {
+    return `rgba(102, 112, 133, ${alpha})`;
+  }
+  const value = Number.parseInt(normalized, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }

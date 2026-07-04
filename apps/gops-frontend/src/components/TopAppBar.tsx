@@ -1,25 +1,21 @@
-import { ChevronDown, LogIn, LogOut, Redo2, Search, Undo2, WandSparkles } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
-import { useAuth } from "../auth/AuthProvider";
-import { layoutPresentationSnapshotsEqual, makeCommand } from "../layout/commands";
-import type { LayoutCommand, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
-import { SystemOrbRail, type AgentOption } from "./SystemArea";
+import { makeCommand } from "../layout/commands";
+import type { LayoutCommand } from "../layout/types";
+import { SystemOrbRail } from "./SystemArea";
 
 type TopAppBarProps = {
-  layout: WorkspaceLayout;
-  savedLayouts: SavedLayoutRecord[];
-  autoEnabled: boolean;
-  agents: AgentOption[];
-  selectedAgentIds: string[];
+  aiActive: boolean;
+  watchlistActive: boolean;
   settingsActive: boolean;
   notificationsActive: boolean;
   activeSymbol: SupportedSymbol;
   symbolOptions: readonly WatchlistSymbol[];
   symbolSearchError?: string;
-  onToggleAuto: () => void;
   onToggleNotifications: () => void;
-  onToggleAgent: (agentId: string) => void;
+  onTogglePrimaryAgent: () => void;
+  onToggleWatchlist: () => void;
   onToggleSettings: () => void;
   onSymbolQueryChange: (query: string) => void;
   onSymbolOptionsRequest: (query: string) => void;
@@ -33,27 +29,22 @@ function isInteractiveTopBarTarget(target: EventTarget | null): boolean {
 }
 
 export function TopAppBar({
-  layout,
-  savedLayouts,
-  autoEnabled,
-  agents,
-  selectedAgentIds,
+  aiActive,
+  watchlistActive,
   settingsActive,
   notificationsActive,
   activeSymbol,
   symbolOptions,
   symbolSearchError,
-  onToggleAuto,
   onToggleNotifications,
-  onToggleAgent,
+  onTogglePrimaryAgent,
+  onToggleWatchlist,
   onToggleSettings,
   onSymbolQueryChange,
   onSymbolOptionsRequest,
   onSymbolSearch,
   onCommand
 }: TopAppBarProps) {
-  const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
-  const favoriteLayouts = [1, 2, 3, 4].map((slot) => savedLayouts.find((record) => record.favoriteSlot === slot));
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchDraft, setSearchDraft] = useState<string>(activeSymbol);
   const [symbolDropdownQuery, setSymbolDropdownQuery] = useState<string>(activeSymbol);
@@ -61,7 +52,7 @@ export function TopAppBar({
   const filteredSymbolOptions = useMemo(() => {
     const query = symbolDropdownQuery.trim().toUpperCase();
     return symbolOptions
-      .filter((item) => !query || item.symbol.includes(query))
+      .filter((item) => !query || item.symbol.includes(query) || item.name.toUpperCase().includes(query))
       .slice(0, 40);
   }, [symbolDropdownQuery, symbolOptions]);
 
@@ -106,10 +97,10 @@ export function TopAppBar({
           ref={searchInputRef}
           name="symbolSearch"
           value={searchDraft}
-          placeholder="Search symbol"
-          aria-label="Search symbol"
+          placeholder="종목 검색"
+          aria-label="종목 검색"
           aria-invalid={Boolean(symbolSearchError)}
-          title={symbolSearchError ?? "Search Alpaca stock symbol"}
+          title={symbolSearchError ?? "종목 코드 검색"}
           onChange={(event) => {
             const value = event.target.value.toUpperCase();
             setSearchDraft(value);
@@ -135,8 +126,8 @@ export function TopAppBar({
         <button
           type="button"
           className={symbolDropdownOpen ? "search-dropdown-button active" : "search-dropdown-button"}
-          title="Show searchable symbols"
-          aria-label="Show searchable symbols"
+          title="검색 가능한 종목 보기"
+          aria-label="검색 가능한 종목 보기"
           aria-expanded={symbolDropdownOpen}
           onClick={() => {
             const value = readSearchInputValue().toUpperCase();
@@ -149,11 +140,11 @@ export function TopAppBar({
         >
           <ChevronDown size={15} aria-hidden="true" />
         </button>
-        <button type="submit" className="search-submit-button" title="Search symbol">
+        <button type="submit" className="search-submit-button" title="종목 검색">
           <Search size={15} aria-hidden="true" />
         </button>
         {symbolDropdownOpen && (
-          <div className="symbol-search-dropdown" role="listbox" aria-label="Searchable symbols">
+          <div className="symbol-search-dropdown" role="listbox" aria-label="검색 가능한 종목">
             {filteredSymbolOptions.map((item) => (
               <button
                 key={item.symbol}
@@ -174,89 +165,20 @@ export function TopAppBar({
               </button>
             ))}
             {filteredSymbolOptions.length === 0 && (
-              <span className="symbol-search-empty">No matching symbols</span>
+              <span className="symbol-search-empty">일치하는 종목이 없습니다</span>
             )}
           </div>
         )}
         {symbolSearchError && <span className="search-error-message">{symbolSearchError}</span>}
       </form>
 
-      <nav className="favorite-layout-strip" aria-label="Favorite layouts">
-        {favoriteLayouts.map((layoutRecord, index) => (
-          <button
-            key={index + 1}
-            className={layoutRecord && layoutPresentationSnapshotsEqual(layout, layoutRecord.layout)
-              ? "favorite-layout-button filled active"
-              : layoutRecord
-                ? "favorite-layout-button filled"
-                : "favorite-layout-button"}
-            title={layoutRecord?.name ?? `Favorite layout ${index + 1}`}
-            disabled={!layoutRecord}
-            onClick={() => {
-              if (layoutRecord) {
-                onCommand(makeCommand("layout.load", "user", { savedLayoutId: layoutRecord.id }));
-              }
-            }}
-          >
-            {index + 1}
-          </button>
-        ))}
-      </nav>
-
-      <div className="top-right-controls" aria-label="Layout controls">
-        <div className="toolbar-group" aria-label="Layout history">
-          <button title="Layout undo" onClick={() => onCommand(makeCommand("layout.undo", "user"))}>
-            <Undo2 size={16} />
-          </button>
-          <button title="Layout redo" onClick={() => onCommand(makeCommand("layout.redo", "user"))}>
-            <Redo2 size={16} />
-          </button>
-        </div>
-        <div className="toolbar-group" aria-label="Automation controls">
-          <button
-            className={autoEnabled ? "toggle-button active" : "toggle-button"}
-            title={autoEnabled ? "AI command auto apply on" : "AI command auto apply off"}
-            aria-pressed={autoEnabled}
-            aria-label="AI command auto apply"
-            onClick={onToggleAuto}
-          >
-            <WandSparkles size={18} />
-          </button>
-        </div>
-        {authEnabled && (
-          <div className="toolbar-group account-toolbar" aria-label="Account">
-            <span className="account-label" title={user?.email ?? "Signed out"}>
-              {user?.name || user?.email || "Guest"}
-            </span>
-            <button
-              title={user ? "Sign out" : "Sign in with Google"}
-              aria-label={user ? "Sign out" : "Sign in with Google"}
-              disabled={authLoading}
-              onClick={() => {
-                if (user) {
-                  void logout();
-                } else {
-                  login();
-                }
-              }}
-            >
-              {user ? <LogOut size={16} /> : <LogIn size={16} />}
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="headline-alert-strip" aria-label="Realtime headline and alert message">
-        <span>Realtime headline placeholder</span>
-        <strong>Alerts and agent messages appear here</strong>
-      </div>
-
       <SystemOrbRail
-        agents={agents}
-        selectedAgentIds={selectedAgentIds}
+        aiActive={aiActive}
+        watchlistActive={watchlistActive}
         settingsActive={settingsActive}
         notificationsActive={notificationsActive}
-        onToggleAgent={onToggleAgent}
+        onTogglePrimaryAgent={onTogglePrimaryAgent}
+        onToggleWatchlist={onToggleWatchlist}
         onToggleNotifications={onToggleNotifications}
         onToggleSettings={onToggleSettings}
       />

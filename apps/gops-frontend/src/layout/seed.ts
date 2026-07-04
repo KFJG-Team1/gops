@@ -26,15 +26,15 @@ export function createPanelInstance(
   const resourceRefs =
     type === "chart"
       ? [{ kind: "chartDocument", id: `chartDocument-${crypto.randomUUID()}` }]
-      : type === "watchlist"
-        ? [{ kind: "watchlist", id: `watchlist-${crypto.randomUUID()}` }]
-        : type === "newsFeed"
-        ? [{ kind: "newsQuery", id: `news-${crypto.randomUUID()}` }]
-        : type === "agentChat" || type === "agentStatus"
-          ? [{ kind: "agentThread", id: `agent-${crypto.randomUUID()}` }]
-          : type === "orderTicket"
-            ? [{ kind: "orderTicket", id: `orderTicket-${crypto.randomUUID()}` }]
-            : undefined;
+      : type === "newsFeed"
+      ? [{ kind: "newsQuery", id: `news-${crypto.randomUUID()}` }]
+      : type === "ontologyGraph"
+      ? [{ kind: "ontologyGraph", id: `ontology-${crypto.randomUUID()}` }]
+      : type === "orderTicket"
+      ? [{ kind: "orderTicket", id: `orderTicket-${crypto.randomUUID()}` }]
+      : type === "portfolioHoldings"
+      ? [{ kind: "portfolioView", id: `portfolio-${crypto.randomUUID()}` }]
+      : undefined;
 
   const chartRef = resourceRefs?.find((ref) => ref.kind === "chartDocument");
   const panel: PanelInstance = {
@@ -73,46 +73,46 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
     return createWorkspaceLayout(
       [
         createPanelInstance(
-          "notifications",
-          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
-          "system",
-          { label: "Market and agent alerts" },
-          "panel-notifications"
-        ),
-        createPanelInstance(
           "newsFeed",
           { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
           "system",
-          { query: "market pulse" },
+          { query: "시장 흐름" },
           "panel-news-primary"
+        ),
+        createPanelInstance(
+          "ontologyGraph",
+          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 2 },
+          "system",
+          { source: "ontology" },
+          "panel-ontology"
+        ),
+        createPanelInstance(
+          "aiSummary",
+          { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
+          "system",
+          { summary: "AI 요약 준비 중" },
+          "panel-ai-summary"
         ),
         createPanelInstance(
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { label: "Chart preview" },
+          { label: "차트 미리보기" },
           "panel-chart-preview"
         ),
         createPanelInstance(
-          "symbolSummary",
+          "indicatorCompare",
           { group: "workspace", zone: "main", col: 3, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { source: "active-symbol" },
-          "panel-symbol-summary"
+          { label: "지표 비교" },
+          "panel-indicator-compare"
         ),
         createPanelInstance(
-          "proposalReview",
-          { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
-          "system",
-          { status: "No pending layout proposal" },
-          "panel-proposal"
-        ),
-        createPanelInstance(
-          "aiSummary",
+          "orderTicket",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
-          "panel-ai-summary"
+          {},
+          "panel-order"
         )
       ]
     );
@@ -122,53 +122,46 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
     return createWorkspaceLayout(
       [
         createPanelInstance(
-          "notifications",
-          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
-          "system",
-          { label: "Market and agent alerts" },
-          "panel-notifications"
-        ),
-        createPanelInstance(
           "chart",
           { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
           "system",
-          { label: "Primary chart placeholder" },
+          { label: "메인 차트" },
           "panel-chart-primary"
         ),
         createPanelInstance(
           "newsFeed",
           { group: "workspace", zone: "main", col: 3, row: 1, colSpan: 1, rowSpan: 3 },
           "system",
-          { query: "market pulse" },
+          { query: "시장 흐름" },
           "panel-news"
         ),
         createPanelInstance(
-          "watchlist",
-          { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 1, rowSpan: 2 },
+          "ontologyGraph",
+          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 2 },
           "system",
-          { source: "market-data" },
-          "panel-watchlist"
-        ),
-        createPanelInstance(
-          "indicatorCompare",
-          { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
-          "system",
-          { label: "Indicator comparison" },
-          "panel-indicator-compare"
-        ),
-        createPanelInstance(
-          "proposalReview",
-          { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
-          "system",
-          { status: "No pending layout proposal" },
-          "panel-proposal"
+          { source: "ontology" },
+          "panel-ontology"
         ),
         createPanelInstance(
           "aiSummary",
+          { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
+          "system",
+          { summary: "AI 요약 준비 중" },
+          "panel-ai-summary"
+        ),
+        createPanelInstance(
+          "indicatorCompare",
+          { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 3, rowSpan: 2 },
+          "system",
+          { label: "지표 비교" },
+          "panel-indicator-compare"
+        ),
+        createPanelInstance(
+          "orderTicket",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { summary: "LLM summary placeholder" },
-          "panel-ai-summary"
+          {},
+          "panel-order"
         )
       ]
     );
@@ -178,53 +171,46 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
     return createWorkspaceLayout(
       [
         createPanelInstance(
-          "notifications",
-          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
-          "system",
-          { label: "Signal and market alerts" },
-          "panel-notifications"
-        ),
-        createPanelInstance(
-          "chart",
-          { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 2, rowSpan: 3 },
-          "system",
-          { label: "Signal chart placeholder" },
-          "panel-chart-primary"
-        ),
-        createPanelInstance(
           "indicatorCompare",
-          { group: "workspace", zone: "main", col: 3, row: 1, colSpan: 1, rowSpan: 3 },
+          { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
           "system",
-          { label: "Indicator comparison" },
+          { label: "지표 비교" },
           "panel-indicator-compare"
         ),
         createPanelInstance(
-          "symbolSummary",
-          { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 1, rowSpan: 2 },
+          "ontologyGraph",
+          { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 2 },
           "system",
-          { source: "active-symbol" },
-          "panel-symbol-summary"
+          { source: "ontology" },
+          "panel-ontology"
         ),
         createPanelInstance(
           "aiSummary",
-          { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
+          { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
           "system",
-          { summary: "Signal summary placeholder" },
+          { summary: "시그널 요약 준비 중" },
           "panel-ai-summary"
         ),
         createPanelInstance(
-          "proposalReview",
-          { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 2 },
+          "chart",
+          { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 2, rowSpan: 2 },
           "system",
-          { status: "No pending signal proposal" },
-          "panel-proposal"
+          { label: "시그널 차트" },
+          "panel-chart-primary"
         ),
         createPanelInstance(
-          "watchlist",
+          "newsFeed",
+          { group: "workspace", zone: "main", col: 3, row: 4, colSpan: 1, rowSpan: 2 },
+          "system",
+          { query: "시장 흐름" },
+          "panel-news"
+        ),
+        createPanelInstance(
+          "orderTicket",
           { group: "workspace", zone: "context", col: 4, row: 4, colSpan: 1, rowSpan: 2 },
           "system",
-          { source: "market-data" },
-          "panel-watchlist"
+          {},
+          "panel-order"
         )
       ]
     );
@@ -232,46 +218,46 @@ export function createPresetLayout(key: DefaultLayoutKey): WorkspaceLayout {
 
   const panels: PanelInstance[] = [
     createPanelInstance(
-      "notifications",
-      { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 1 },
-      "system",
-      { label: "Market and agent alerts" },
-      "panel-notifications"
-    ),
-    createPanelInstance(
       "chart",
       { group: "workspace", zone: "mainContext", col: 1, row: 1, colSpan: 3, rowSpan: 3 },
       "system",
-      { label: "Primary chart placeholder" },
+      { label: "메인 차트" },
       "panel-chart-primary"
     ),
     createPanelInstance(
-      "proposalReview",
-      { group: "workspace", zone: "context", col: 4, row: 2, colSpan: 1, rowSpan: 1 },
+      "ontologyGraph",
+      { group: "workspace", zone: "context", col: 4, row: 1, colSpan: 1, rowSpan: 2 },
       "system",
-      { status: "No pending chart proposal" },
-      "panel-proposal"
+      { source: "ontology" },
+      "panel-ontology"
     ),
     createPanelInstance(
-      "watchlist",
+      "aiSummary",
+      { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
+      "system",
+      { summary: "AI 요약 준비 중" },
+      "panel-ai-summary"
+    ),
+    createPanelInstance(
+      "portfolioHoldings",
       { group: "workspace", zone: "main", col: 1, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
+      { source: "kis-demo" },
+      "panel-portfolio"
+    ),
+    createPanelInstance(
+      "hotRanking",
+      { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 1, rowSpan: 2 },
+      "system",
       { source: "market-data" },
-      "panel-watchlist"
+      "panel-hot-ranking"
     ),
     createPanelInstance(
       "newsFeed",
-      { group: "workspace", zone: "main", col: 2, row: 4, colSpan: 2, rowSpan: 2 },
+      { group: "workspace", zone: "main", col: 3, row: 4, colSpan: 1, rowSpan: 2 },
       "system",
-      { query: "market pulse" },
+      { query: "시장 흐름" },
       "panel-news"
-    ),
-    createPanelInstance(
-      "symbolSummary",
-      { group: "workspace", zone: "context", col: 4, row: 3, colSpan: 1, rowSpan: 1 },
-      "system",
-      { source: "active-symbol" },
-      "panel-symbol-summary"
     ),
     createPanelInstance(
       "orderTicket",
@@ -292,10 +278,10 @@ export function createSeedLayout(): WorkspaceLayout {
 export function createDefaultLayoutRecords(): SavedLayoutRecord[] {
   const now = new Date().toISOString();
   const defaults: Array<{ key: DefaultLayoutKey; name: string }> = [
-    { key: "chart", name: "Chart" },
-    { key: "news", name: "News" },
-    { key: "overview", name: "Overview" },
-    { key: "signals", name: "Signals" }
+    { key: "chart", name: "차트" },
+    { key: "news", name: "뉴스" },
+    { key: "overview", name: "개요" },
+    { key: "signals", name: "시그널" }
   ];
 
   return defaults.map(({ key, name }) => ({

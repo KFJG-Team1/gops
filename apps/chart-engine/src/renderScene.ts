@@ -1,4 +1,5 @@
 import { createPercentScale, createTimeScale } from "./scales";
+import { applyDisplayContinuity } from "./displayContinuity";
 import type { CandleData, ChartCrosshair, ChartDocument, ChartLoadState, ChartPendingPreview, RenderScene, StreamStatus } from "./types";
 import { resolveViewportVisibleCount } from "./viewport";
 
@@ -30,9 +31,9 @@ export function buildRenderScene({
   const variant = resolveChartSizeVariant(safeWidth, safeHeight);
   const left = variant === "compact" ? 14 : 18;
   const right = safeWidth - (variant === "compact" ? 54 : 64);
-  const top = variant === "compact" ? 12 : 14;
+  const top = chartPlotTop(variant);
   const bottom = safeHeight - (variant === "compact" ? 20 : 24);
-  const volumeHeight = variant === "compact" ? Math.max(34, safeHeight * 0.18) : Math.max(46, safeHeight * 0.22);
+  const volumeHeight = variant === "compact" ? Math.max(30, safeHeight * 0.14) : Math.max(40, safeHeight * 0.16);
   const priceBottom = Math.max(top + 40, bottom - volumeHeight - 12);
   const volumeTop = priceBottom + 12;
   const plotWidth = Math.max(1, right - left);
@@ -40,7 +41,8 @@ export function buildRenderScene({
   const rightOffset = Math.min(Math.max(0, document.viewport.rightOffset), Math.max(0, candles.length - 1));
   const visibleEnd = Math.max(0, candles.length - rightOffset);
   const visibleStart = Math.max(0, visibleEnd - visibleCount);
-  const visibleCandles = candles.slice(visibleStart, visibleEnd);
+  const rawVisibleCandles = candles.slice(visibleStart, visibleEnd);
+  const visibleCandles = applyDisplayContinuity(rawVisibleCandles, document.timeframe);
   const timeScale = createTimeScale({
     candles,
     visibleCandles,
@@ -56,8 +58,9 @@ export function buildRenderScene({
     candle.ma20,
     candle.ma60
   ]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  const minPrice = prices.length ? Math.min(...prices) : 0;
-  const maxPrice = prices.length ? Math.max(...prices) : 1;
+  const rawMinPrice = prices.length ? Math.min(...prices) : 0;
+  const rawMaxPrice = prices.length ? Math.max(...prices) : 1;
+  const { minPrice, maxPrice } = padPriceRange(rawMinPrice, rawMaxPrice);
   const maxVolume = Math.max(1, ...visibleCandles.map((candle) => candle.volume));
   const comparisonSeries = buildComparisonSeries({
     document,
@@ -77,9 +80,10 @@ export function buildRenderScene({
     points: series.points.map((point) => ({ ...point, y: percentScale.percentToY(point.percent) }))
   }));
   const slotWidth = plotWidth / Math.max(1, visibleCandles.length);
+  const maxCandleWidth = variant === "large" ? 18 : variant === "wide" ? 16 : 13;
   const candleWidth = slotWidth < 2
     ? Math.max(0.2, slotWidth * 0.8)
-    : Math.max(2, Math.min(13, slotWidth * 0.62));
+    : Math.max(2, Math.min(maxCandleWidth, slotWidth * 0.66));
   const last = visibleCandles[visibleCandles.length - 1];
   const first = visibleCandles[0];
   const change = first && last ? ((last.close - first.open) / Math.max(0.0001, first.open)) * 100 : undefined;
@@ -118,10 +122,10 @@ export function buildRenderScene({
       symbol: document.symbol,
       timeframe: document.timeframe,
       lastPrice: last ? last.close.toFixed(2) : undefined,
-      range: prices.length ? `${minPrice.toFixed(2)} - ${maxPrice.toFixed(2)}` : undefined,
+      range: prices.length ? `${rawMinPrice.toFixed(2)} - ${rawMaxPrice.toFixed(2)}` : undefined,
       change: typeof change === "number" ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : undefined,
-      visibleHigh: prices.length ? maxPrice.toFixed(2) : undefined,
-      visibleLow: prices.length ? minPrice.toFixed(2) : undefined,
+      visibleHigh: prices.length ? rawMaxPrice.toFixed(2) : undefined,
+      visibleLow: prices.length ? rawMinPrice.toFixed(2) : undefined,
       streamStatus
     }
   } satisfies RenderScene;
@@ -190,6 +194,33 @@ function buildComparisonSeries({
 function resolveVisibleCount(plotWidth: number, requestedVisibleCount: number): number {
   void plotWidth;
   return Math.max(1, Math.floor(requestedVisibleCount));
+}
+
+function chartPlotTop(variant: RenderScene["variant"]): number {
+  switch (variant) {
+    case "compact":
+      return 12;
+    case "standard":
+      return 14;
+    case "wide":
+      return 16;
+    case "large":
+      return 18;
+    default:
+      return 16;
+  }
+}
+
+function padPriceRange(rawMinPrice: number, rawMaxPrice: number): { minPrice: number; maxPrice: number } {
+  const rawRange = Math.max(0.0001, rawMaxPrice - rawMinPrice);
+  const magnitude = Math.max(1, Math.abs(rawMinPrice), Math.abs(rawMaxPrice));
+  const minimumPad = magnitude * 0.004;
+  const topPad = Math.max(rawRange * 0.28, minimumPad);
+  const bottomPad = Math.max(rawRange * 0.08, minimumPad * 0.5);
+  return {
+    minPrice: rawMinPrice - bottomPad,
+    maxPrice: rawMaxPrice + topPad
+  };
 }
 
 export function resolveChartSizeVariant(width: number, height: number): RenderScene["variant"] {

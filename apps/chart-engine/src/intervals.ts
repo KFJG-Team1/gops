@@ -4,32 +4,37 @@ export type ChartInterval = typeof chartIntervals[number];
 
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
-const higherTimeframeYears = 5;
+const historicalTargetYears = 6;
+const intradayGapfillTargetDays = 14;
+const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * historicalTargetYears;
+const intradayGapfillTargetBars = minutesPerTradingDay * intradayGapfillTargetDays;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
-  "1m": 390,
-  "5m": 390,
-  "10m": 390,
-  "1D": 250,
-  "1W": 260,
+  "1m": 120,
+  "5m": 120,
+  "10m": 120,
+  "1D": 120,
+  "1W": 120,
   "1M": 120
 };
 
 const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": minutesPerTradingDay * tradingDaysPerYear,
-  "5m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 5),
-  "10m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 10),
-  "1D": tradingDaysPerYear * higherTimeframeYears,
-  "1W": 52 * higherTimeframeYears,
-  "1M": 12 * higherTimeframeYears
+  "1m": intradayGapfillTargetBars,
+  "5m": Math.ceil(intradayGapfillTargetBars / 5),
+  "10m": Math.ceil(intradayGapfillTargetBars / 10),
+  "1D": tradingDaysPerYear * historicalTargetYears,
+  "1W": 52 * historicalTargetYears,
+  "1M": 12 * historicalTargetYears
 };
 
-const maxRequestBars: Record<ChartInterval, number> = Object.fromEntries(
-  chartIntervals.map((interval) => [
-    interval,
-    Math.max(defaultVisibleBars[interval], backfillTargetBars[interval])
-  ])
-) as Record<ChartInterval, number>;
+const maxRequestBars: Record<ChartInterval, number> = {
+  "1m": intradayLazyTargetBars,
+  "5m": Math.ceil(intradayLazyTargetBars / 5),
+  "10m": Math.ceil(intradayLazyTargetBars / 10),
+  "1D": tradingDaysPerYear * historicalTargetYears,
+  "1W": 52 * historicalTargetYears,
+  "1M": Math.max(defaultVisibleBars["1M"], 12 * historicalTargetYears)
+};
 
 export function normalizeChartInterval(value: unknown): ChartInterval | null {
   if (typeof value !== "string") {

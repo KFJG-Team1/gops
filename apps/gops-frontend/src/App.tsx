@@ -1,404 +1,349 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { MarketTicker } from "./components/MarketTicker";
-import { TopAppBar } from "./components/TopAppBar";
-import { initialAgentOptions, type AgentOption, type AgentUpdatePatch, type SystemMenuTab, type SystemMode } from "./components/SystemArea";
-import { WorkspaceGrid } from "./components/WorkspaceGrid";
 import {
-  DEFAULT_AGENT_DRAFT_SEED,
-  isAgentChartReferenceAvailable,
-  type AgentChartReference
-} from "@gops/chart-engine/agentReference";
-import { makeChartCommand } from "@gops/chart-engine/commands";
+  type CSSProperties,
+  type Dispatch,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import { BottomCommandBar, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
+import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
+import { PanelWorkspace } from "./components/PanelWorkspace";
+import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
+import type { ChartSymbolDto } from "./chart/types";
+import { gridGutter } from "./layout/grid";
 import {
-  chartRuntimeReducer,
-  createInitialChartRuntimeState,
-  getChartDocumentForPanel,
-  type ChartRuntimeAction
-} from "@gops/chart-engine/runtime";
-import { DEFAULT_CHART_SYMBOL, getSymbolMeta, normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
+  createInitialTiledPanelState,
+  scaleTiledPanelState,
+  type TiledPanelState,
+  type ViewportSize
+} from "./layout/panelLayout";
 import {
-  createInitialRuntimeState,
-  executeCommand,
-  makeCommand
-} from "./layout/commands";
-import { findTargetChartPanel } from "./layout/chartPanelSelection";
-import type { LayoutCommand, LayoutRuntimeState } from "./layout/types";
+  bottomNavigationHeight,
+  navigationGap,
+  treeMapHoverMetaReserve
+} from "./layout/workspaceMetrics";
+import { sp500UniverseSeed } from "./market/sp500Universe.seed";
+import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
-type RuntimeAction =
-  | { kind: "command"; command: LayoutCommand };
+type MainView =
+  | { mode: "treemap" }
+  | { mode: "chart"; symbol: string };
 
-function mergeSymbolRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
-  const bySymbol = new Map(current.map((item) => [item.symbol, item]));
-  for (const item of incoming) {
-    bySymbol.set(item.symbol, { ...bySymbol.get(item.symbol), ...item });
+type LayoutDrag =
+  { mode: "treemap"; type: "resize-bottom"; startY: number; startHeight: number };
+
+let chatLogEntrySequence = 0;
+
+function initialPanelState(): TiledPanelState {
+  if (typeof window === "undefined") {
+    return createInitialTiledPanelState({ width: 1280, height: 720 });
   }
-  return Array.from(bySymbol.values());
+  return createInitialTiledPanelState(currentViewportSize());
 }
 
-function refreshWatchlistRecords(current: WatchlistSymbol[], incoming: WatchlistSymbol[]): WatchlistSymbol[] {
-  const incomingBySymbol = new Map(incoming.map((item) => [item.symbol, item]));
-  return current.map((item) => ({ ...item, ...incomingBySymbol.get(item.symbol) }));
+function initialTreeMapHeight(): number {
+  if (typeof window === "undefined") {
+    return 620;
+  }
+  return treeMapMaxHeight(window.innerHeight);
 }
 
-function runtimeReducer(state: LayoutRuntimeState, action: RuntimeAction): LayoutRuntimeState {
-  return executeCommand(state, action.command);
-}
-
-export default function App() {
-  const [state, dispatch] = useReducer(runtimeReducer, undefined, createInitialRuntimeState);
-  const [chartRuntime, chartDispatch] = useReducer(chartRuntimeReducer, undefined, createInitialChartRuntimeState);
-  const [activeSystemMode, setActiveSystemMode] = useState<SystemMode>("watchlist");
-  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
-  const [settingsTab, setSettingsTab] = useState<SystemMenuTab>("layouts");
-  const [agents, setAgents] = useState<AgentOption[]>(initialAgentOptions);
-  const [editingAgentId, setEditingAgentId] = useState<string | undefined>();
-  const [activeSymbol, setActiveSymbol] = useState<SupportedSymbol>(DEFAULT_CHART_SYMBOL);
-  const [symbolSearchError, setSymbolSearchError] = useState<string | undefined>();
-  const [watchlistSymbols, setWatchlistSymbols] = useState<WatchlistSymbol[]>([]);
-  const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
-  const [symbolSearchRefreshKey, setSymbolSearchRefreshKey] = useState(0);
-  const [symbolOptions, setSymbolOptions] = useState<WatchlistSymbol[]>([]);
-  const [knownSymbols, setKnownSymbols] = useState<WatchlistSymbol[]>([]);
-  const [agentChartReference, setAgentChartReference] = useState<AgentChartReference | undefined>();
-  const watchlistSeedAppliedRef = useRef(false);
-  const watchlistEditedRef = useRef(false);
-  const userSelectedSymbolRef = useRef(false);
-
-  const selectedPanel = useMemo(
-    () => state.layout.panels.find((panel) => panel.id === state.layout.selectedPanelId),
-    [state.layout.panels, state.layout.selectedPanelId]
-  );
-
-  const runCommand = useCallback((command: LayoutCommand) => dispatch({ kind: "command", command }), []);
-  const runChartAction = useCallback((action: ChartRuntimeAction) => chartDispatch(action), []);
+export function App() {
+  const [mainView, setMainView] = useState<MainView>({ mode: "treemap" });
+  const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
+  const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
+  const [treeMapHeight, setTreeMapHeight] = useState(() => initialTreeMapHeight());
+  const [chartHeader, setChartHeader] = useState<ChartHeaderSnapshot | null>(null);
+  const [, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
+  const [agentInput, setAgentInput] = useState("");
+  const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
+  const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
+  const chartPanelRef = useRef<ChartPanelHandle | null>(null);
+  const dragRef = useRef<LayoutDrag | null>(null);
+  const viewportSizeRef = useRef<ViewportSize>(viewportSize);
+  const isTreeMapMode = mainView.mode === "treemap";
+  const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
 
   useEffect(() => {
-    chartDispatch({ kind: "chart.ensureDocuments", panels: state.layout.panels });
-  }, [state.layout.panels]);
+    viewportSizeRef.current = viewportSize;
+  }, [viewportSize]);
 
-  useEffect(() => {
-    if (agentChartReference && !isAgentChartReferenceAvailable(state.layout.panels, agentChartReference)) {
-      setAgentChartReference(undefined);
-    }
-  }, [agentChartReference, state.layout.panels]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadWatchlist = () => {
-      fetch("/api/charts/symbols")
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Symbol API returned ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then((payload) => {
-          if (!cancelled) {
-            const symbols = normalizeWatchlistPayload(payload);
-            setWatchlistSymbols((current) => {
-              if (!watchlistEditedRef.current) {
-                return symbols;
-              }
-              return refreshWatchlistRecords(current, symbols);
-            });
-            setSymbolOptions((current) => current.length > 0 ? current : symbols);
-            setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setWatchlistSymbols((current) => current);
-            setSymbolOptions((current) => current);
-          }
-        });
-    };
-
-    loadWatchlist();
-    const timer = window.setInterval(loadWatchlist, 15000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+  const finishLayoutDrag = useCallback((event?: PointerEvent) => {
+    void event;
+    dragRef.current = null;
   }, []);
 
-  useEffect(() => {
-    const query = symbolSearchQuery.trim();
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const params = new URLSearchParams({ q: query, limit: query ? "20" : "100" });
-
-    fetch(`/api/market/symbols/search?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Symbol search API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          const symbols = normalizeWatchlistPayload(payload);
-          setSymbolOptions(symbols);
-          setKnownSymbols((current) => mergeSymbolRecords(current, symbols));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          const normalizedQuery = query.toUpperCase();
-          setSymbolOptions(watchlistSymbols.filter((item) =>
-            item.symbol.includes(normalizedQuery) || item.name.toUpperCase().includes(normalizedQuery)
-          ));
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [symbolSearchQuery, symbolSearchRefreshKey, watchlistSymbols]);
-
-  const activeChartPanel = useMemo(
-    () => findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId),
-    [state.layout.panels, state.layout.selectedPanelId]
-  );
-
-  const activeChartDocument = useMemo(
-    () => activeChartPanel ? getChartDocumentForPanel(chartRuntime, activeChartPanel) : null,
-    [activeChartPanel, chartRuntime]
-  );
-
-  const symbolUniverse = useMemo(
-    () => Array.from(new Set(knownSymbols.map((item) => item.symbol))),
-    [knownSymbols]
-  );
-
-  const toggleWatchlistSymbol = useCallback((symbolValue: string) => {
-    const symbol = normalizeSupportedSymbol(symbolValue);
-    if (!symbol) {
+  const applyLayoutDrag = useCallback((_clientX: number, clientY: number, viewport: ViewportSize) => {
+    const drag = dragRef.current;
+    if (!drag) {
       return;
     }
-
-    watchlistEditedRef.current = true;
-    setWatchlistSymbols((current) => {
-      if (current.some((item) => item.symbol === symbol)) {
-        return current.filter((item) => item.symbol !== symbol);
-      }
-
-      const known = knownSymbols.find((item) => item.symbol === symbol);
-      const fallback = getSymbolMeta(symbol);
-      return [
-        ...current,
-        known ?? {
-          symbol,
-          name: fallback.name,
-          market: fallback.market
-        }
-      ];
-    });
-  }, [knownSymbols]);
-
-  const refreshSymbolOptions = useCallback((query: string) => {
-    setSymbolSearchQuery(query);
-    setSymbolSearchRefreshKey((current) => current + 1);
+    setTreeMapHeight(clampTreeMapHeight(drag.startHeight + clientY - drag.startY, viewport.height));
   }, []);
 
   useEffect(() => {
-    const normalized = activeChartDocument ? normalizeSupportedSymbol(activeChartDocument.symbol) : null;
-    if (normalized && normalized !== activeSymbol) {
-      setActiveSymbol(normalized);
-    }
-  }, [activeChartDocument?.symbol, activeSymbol]);
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!dragRef.current) {
+        return;
+      }
+      event.preventDefault();
+      applyLayoutDrag(event.clientX, event.clientY, viewportSizeRef.current);
+    };
 
-  const selectSymbol = useCallback((value: string, options?: { source?: "system" | "user" }): boolean => {
-    const symbol = normalizeSupportedSymbol(value);
-    if (!symbol) {
-      setSymbolSearchError("Enter a valid Alpaca stock symbol.");
-      return false;
-    }
+    const handleResize = () => {
+      const previous = viewportSizeRef.current;
+      const next = currentViewportSize();
+      viewportSizeRef.current = next;
+      setViewportSize(next);
+      setPanelState((current) => scaleTiledPanelState(current, previous, next));
+      setTreeMapHeight((height) => clampTreeMapHeight(height, next.height));
+    };
 
-    if (options?.source !== "system") {
-      userSelectedSymbolRef.current = true;
-    }
-    setActiveSymbol(symbol);
-    setSymbolSearchError(undefined);
+    const handlePointerUp = (event: PointerEvent) => finishLayoutDrag(event);
 
-    const chartPanel = findTargetChartPanel(state.layout.panels, state.layout.selectedPanelId);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [applyLayoutDrag, finishLayoutDrag]);
+
+  const layoutGutter = gridGutter(viewportSize.width);
+  const workspaceStyle = {
+    "--layout-gutter": `${layoutGutter}px`
+  } as CSSProperties;
+  const treeMapLaneStyle: CSSProperties = {
+    top: 0,
+    height: treeMapHeight,
+    left: 0,
+    width: viewportSize.width
+  };
+
+  const universeSymbols = useMemo((): ChartSymbolDto[] => sp500UniverseSeed.map((item) => ({
+    symbol: item.symbol,
+    name: item.companyName,
+    sector: item.sector,
+    isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
+  })), []);
+  const activeHeaderSymbol = mainView.mode === "chart" ? chartHeader?.symbol ?? mainView.symbol : "";
+  const activeHeaderQuote = chartHeader?.liveQuote;
+
+  const showChart = (symbol: string) => {
+    setSemanticSelection(null);
+    setTreeMapLaneHover(false);
+    setMainView({ mode: "chart", symbol: symbol.toUpperCase() });
+  };
+
+  const showTreeMap = () => {
+    setSemanticSelection(null);
+    setChartHeader(null);
+    setActiveBottomMenu(null);
+    setMainView({ mode: "treemap" });
+  };
+
+  const toggleBottomMenu = (key: BottomMenuKey) => {
+    setActiveBottomMenu((current) => (current === key ? null : key));
+  };
+
+  const runAgentPrompt = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const prompt = agentInput.trim();
+    if (!prompt || agentBusy) {
+      return;
+    }
+    const userEntry = createChatLogEntry("user", prompt);
+    setAgentInput("");
+    if (mainView.mode !== "chart") {
+      setChatLog((current) => [
+        ...current,
+        userEntry,
+        createChatLogEntry("system", "차트를 선택하면 분석할 수 있습니다.")
+      ]);
+      return;
+    }
+    const chartPanel = chartPanelRef.current;
     if (!chartPanel) {
-      return true;
-    }
-
-    const chartDocument = getChartDocumentForPanel(chartRuntime, chartPanel);
-    chartDispatch({ kind: "chart.ensureDocuments", panels: state.layout.panels });
-    chartDispatch({
-      kind: "chart.command",
-      command: makeChartCommand("chart.symbol.set", "user", {
-        panelId: chartPanel.id,
-        chartDocumentId: chartDocument.id
-      }, { symbol }, undefined, "external")
-    });
-    return true;
-  }, [chartRuntime, state.layout.panels, state.layout.selectedPanelId]);
-
-  useEffect(() => {
-    if (watchlistSeedAppliedRef.current || userSelectedSymbolRef.current || watchlistSymbols.length === 0) {
+      setChatLog((current) => [
+        ...current,
+        userEntry,
+        createChatLogEntry("system", "차트가 준비되면 다시 시도해주세요.")
+      ]);
       return;
     }
-
-    watchlistSeedAppliedRef.current = true;
-    if (!watchlistSymbols.some((item) => item.symbol === activeSymbol)) {
-      selectSymbol(watchlistSymbols[0].symbol, { source: "system" });
-    }
-  }, [activeSymbol, selectSymbol, watchlistSymbols]);
-
-  const closeSystemPanel = () => {
-    setSelectedAgentIds([]);
-    setAgentChartReference(undefined);
-    setEditingAgentId(undefined);
-    setActiveSystemMode("watchlist");
-  };
-
-  const toggleSettings = () => {
-    setSelectedAgentIds([]);
-    setAgentChartReference(undefined);
-    setEditingAgentId(undefined);
-    setSettingsTab("layouts");
-    setActiveSystemMode((current) => (current === "settings" ? "watchlist" : "settings"));
-  };
-
-  const toggleNotifications = () => {
-    setSelectedAgentIds([]);
-    setAgentChartReference(undefined);
-    setEditingAgentId(undefined);
-    setActiveSystemMode((current) => (current === "notifications" ? "watchlist" : "notifications"));
-  };
-
-  const toggleAgent = (agentId: string) => {
-    setSelectedAgentIds((current) => {
-      const next = current.includes(agentId)
-        ? current.filter((id) => id !== agentId)
-        : [...current, agentId];
-
-      if (next.length === 0) {
-        setAgentChartReference(undefined);
-      }
-      setActiveSystemMode(next.length === 0 ? "watchlist" : "agents");
-      return next;
-    });
-  };
-
-  const updateAgent = (agentId: string, patch: AgentUpdatePatch) => {
-    setAgents((current) => current.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)));
-  };
-
-  const askAgentFromChart = useCallback((panelId: string, chartDocumentId: string) => {
-    setSelectedAgentIds(["agent-01"]);
-    setAgentChartReference({ panelId, chartDocumentId, draftSeed: DEFAULT_AGENT_DRAFT_SEED });
-    setEditingAgentId(undefined);
-    setActiveSystemMode("agents");
-  }, []);
-
-  const addAgent = () => {
-    setAgents((current) => {
-      if (current.length >= 4) {
-        return current;
-      }
-
-      const usedNumbers = new Set(
-        current
-          .map((agent) => Number(agent.id.replace("agent-", "")))
-          .filter((value) => Number.isFinite(value))
+    const pendingEntry = createChatLogEntry("assistant", "차트 에이전트가 차트를 읽고 있습니다.", true);
+    setAgentBusy(true);
+    setChatLog((current) => [...current, userEntry, pendingEntry]);
+    try {
+      const result = await chartPanel.runAgentPrompt(prompt);
+      replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
+    } catch (error: unknown) {
+      replaceChatLogEntry(
+        setChatLog,
+        pendingEntry.id,
+        error instanceof Error ? error.message : "차트 에이전트 요청에 실패했습니다."
       );
-      const nextNumber = [1, 2, 3, 4].find((value) => !usedNumbers.has(value)) ?? current.length + 1;
-      return [
-        ...current,
-        {
-          id: `agent-${String(nextNumber).padStart(2, "0")}`,
-          label: `Agent ${String(nextNumber).padStart(2, "0")}`,
-          description: "New workspace assistant.",
-          iconUrl: `/assets/agent-icons/agent-${String(nextNumber).padStart(2, "0")}.svg`
-        }
-      ];
-    });
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentBusy, agentInput, mainView.mode]);
+
+  const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    if (!laneCanResize) {
+      return;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setTreeMapLaneHover(true);
+    dragRef.current = {
+      mode: "treemap",
+      type: "resize-bottom",
+      startY: event.clientY,
+      startHeight: treeMapHeight
+    };
   };
 
-  const deleteAgent = (agentId: string) => {
-    setAgents((current) => current.filter((agent) => agent.id !== agentId));
-    setSelectedAgentIds((current) => {
-      const next = current.filter((id) => id !== agentId);
-      setActiveSystemMode((mode) => (mode === "agents" ? (next.length === 0 ? "watchlist" : "agents") : mode));
-      return next;
-    });
-    setEditingAgentId(undefined);
+  const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    applyLayoutDrag(event.clientX, event.clientY, viewportSize);
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    finishLayoutDrag(event.nativeEvent);
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture can be released by the browser when a drag leaves the element.
+    }
   };
 
   return (
     <main className="app-shell">
-      <TopAppBar
-        layout={state.layout}
-        savedLayouts={state.savedLayouts}
-        autoEnabled={state.layout.settings.llmLayoutAutoApply}
-        agents={agents}
-        selectedAgentIds={selectedAgentIds}
-        settingsActive={activeSystemMode === "settings"}
-        notificationsActive={activeSystemMode === "notifications"}
-        activeSymbol={activeSymbol}
-        symbolOptions={symbolOptions}
-        symbolSearchError={symbolSearchError}
-        onToggleAuto={() =>
-          runCommand(
-            makeCommand("layout.autoApply.set", "user", {
-              value: !state.layout.settings.llmLayoutAutoApply
-            })
-          )
-        }
-        onToggleNotifications={toggleNotifications}
-        onToggleAgent={toggleAgent}
-        onToggleSettings={toggleSettings}
-        onSymbolQueryChange={setSymbolSearchQuery}
-        onSymbolOptionsRequest={refreshSymbolOptions}
-        onSymbolSearch={selectSymbol}
-        onCommand={runCommand}
-      />
-
-      <MarketTicker />
-
-      <section className="workspace-area" aria-label="GOPS layout workspace">
-        <WorkspaceGrid
-          layout={state.layout}
-          selectedPanelId={selectedPanel?.id}
-          systemMode={activeSystemMode}
-          settingsTab={settingsTab}
-          agents={agents}
-          selectedAgentIds={selectedAgentIds}
-          referencedChartTarget={agentChartReference}
-          editingAgentId={editingAgentId}
-          savedLayouts={state.savedLayouts}
-          activeSymbol={activeSymbol}
-          watchlistSymbols={watchlistSymbols}
-          knownSymbols={knownSymbols}
-          symbolUniverse={symbolUniverse}
-          backfillEligibleSymbols={symbolUniverse}
-          chartRuntime={chartRuntime}
-          chartAutoApplyEnabled={state.layout.settings.llmLayoutAutoApply}
-          onSettingsTabChange={setSettingsTab}
-          onEditAgent={setEditingAgentId}
-          onUpdateAgent={updateAgent}
-          onAddAgent={addAgent}
-          onDeleteAgent={deleteAgent}
-          onCloseSystemPanel={closeSystemPanel}
-          onSelectSymbol={selectSymbol}
-          onCommand={runCommand}
-          onChartAction={runChartAction}
-          onAskAgentFromChart={askAgentFromChart}
-          onToggleWatchlistSymbol={toggleWatchlistSymbol}
-        />
+      {mainView.mode === "chart" && (
+        <header className="workspace-top-nav chart" aria-label="Workspace header">
+          <div className={`header-quote-stack ${activeHeaderQuote?.tone ?? "unavailable"}`} aria-label="Live quote">
+            <span className="quote-percent">{activeHeaderQuote?.percentText ?? "-"}</span>
+            <span className="quote-price-line">
+              <span className="quote-price">{activeHeaderQuote?.priceText ?? "-"}</span>
+              <span className="quote-change">{activeHeaderQuote?.changeText ?? "-"}</span>
+            </span>
+          </div>
+          <h1 className="company-ticker">{activeHeaderSymbol}</h1>
+          <div className="workspace-top-nav-spacer" aria-hidden="true" />
+        </header>
+      )}
+      <section className="canvas-workspace" style={workspaceStyle}>
+        {mainView.mode === "treemap" ? (
+          <div
+            className={[
+              "chart-lane-frame",
+              "workspace-panel-surface",
+              treeMapLaneHover ? "is-chart-hovered" : "",
+              laneCanResize ? "" : "is-resize-disabled"
+            ].filter(Boolean).join(" ")}
+            style={treeMapLaneStyle}
+            onPointerEnter={() => setTreeMapLaneHover(true)}
+            onPointerLeave={() => {
+              if (!dragRef.current) {
+                setTreeMapLaneHover(false);
+              }
+            }}
+          >
+            <TreeMapCanvas items={sp500UniverseSeed} onSelectSymbol={showChart} />
+            <div
+              className="chart-resize-grip bottom"
+              aria-hidden="true"
+              onPointerDown={beginTreeMapResize}
+              onPointerMove={updateDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            />
+          </div>
+        ) : (
+          <PanelWorkspace
+            panelState={panelState}
+            setPanelState={setPanelState}
+            viewportSize={viewportSize}
+            activeSymbol={mainView.symbol}
+            symbols={universeSymbols}
+            chartHeader={chartHeader}
+            chartPanelRef={chartPanelRef}
+            setSemanticSelection={setSemanticSelection}
+            setChartHeader={setChartHeader}
+          />
+        )}
       </section>
+      <BottomCommandBar
+        activeMenu={activeBottomMenu}
+        agentBusy={agentBusy}
+        agentInput={agentInput}
+        chatLog={chatLog}
+        isChartMode={mainView.mode === "chart"}
+        onAgentInputChange={setAgentInput}
+        onAgentSubmit={runAgentPrompt}
+        onCloseMenu={() => setActiveBottomMenu(null)}
+        onShowTreeMap={showTreeMap}
+        onToggleMenu={toggleBottomMenu}
+      />
     </main>
   );
 }
 
-export function command(type: Parameters<typeof makeCommand>[0], payload: Record<string, unknown> = {}) {
-  return makeCommand(type, "user", payload);
+function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = false): ChatLogEntry {
+  chatLogEntrySequence += 1;
+  return {
+    id: `chat-${Date.now()}-${chatLogEntrySequence}`,
+    role,
+    text,
+    pending
+  };
+}
+
+function replaceChatLogEntry(
+  setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
+  entryId: string,
+  text: string
+) {
+  setChatLog((current) => current.map((entry) => (
+    entry.id === entryId
+      ? { ...entry, text, pending: false }
+      : entry
+  )));
+}
+
+function currentViewportSize(): ViewportSize {
+  if (typeof window === "undefined") {
+    return { width: 1280, height: 720 };
+  }
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function clampTreeMapHeight(height: number, viewportHeight: number): number {
+  return Math.round(Math.min(treeMapMaxHeight(viewportHeight), Math.max(treeMapMinHeight(viewportHeight), height)));
+}
+
+function chartBottomReservedSpace(): number {
+  return bottomNavigationHeight;
+}
+
+function treeMapMinHeight(viewportHeight: number): number {
+  return Math.min(360, Math.max(260, viewportHeight - chartBottomReservedSpace() - treeMapHoverMetaReserve - 220));
+}
+
+function treeMapMaxHeight(viewportHeight: number): number {
+  return Math.max(treeMapMinHeight(viewportHeight), viewportHeight - chartBottomReservedSpace() - treeMapHoverMetaReserve - navigationGap);
+}
+
+function canResizeTreeMapLayout(viewportHeight = currentViewportSize().height): boolean {
+  return treeMapMaxHeight(viewportHeight) > treeMapMinHeight(viewportHeight) + 0.5;
 }

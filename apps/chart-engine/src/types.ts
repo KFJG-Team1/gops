@@ -6,6 +6,12 @@ export type CandleData = {
   close: number;
   volume: number;
   isClosed: boolean;
+  sourceInterval?: string;
+  feedProfile?: string;
+  marketSession?: string;
+  updatedAt?: string;
+  displayOnly?: boolean;
+  synthetic?: boolean;
   ma5?: number;
   ma20?: number;
   ma60?: number;
@@ -14,12 +20,20 @@ export type CandleData = {
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
 export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
+export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
+
+export type ChartGapRange = {
+  start: string;
+  end: string;
+  missingCount?: number;
+};
 
 export type ChartCoverage = {
   state: ChartCoverageState;
   reasonCode?: string;
   message?: string;
+  repairStatus?: RepairStatus;
   sourceInterval?: string;
   backfillStatus?: BackfillStatus;
   requestedLimit?: number;
@@ -36,6 +50,7 @@ export type ChartCoverage = {
   returnedSpanSeconds?: number;
   maxRenderableSpanSeconds?: number;
   renderabilityReasonCode?: string;
+  gapRanges?: ChartGapRange[];
 };
 
 export type CandleSnapshot = {
@@ -43,9 +58,12 @@ export type CandleSnapshot = {
   interval: string;
   source: string;
   feed: string;
+  feedProfile?: string;
+  marketSession?: string;
   snapshotCursor?: string;
   dataStatus?: ChartSnapshotDataStatus;
   backfillStatus?: BackfillStatus;
+  repairStatus?: RepairStatus;
   canBackfill?: boolean;
   sourceInterval?: string;
   message?: string;
@@ -74,10 +92,40 @@ export type CandleEvent = {
   cursor?: string;
   symbol: string;
   interval: string;
+  sourceInterval?: string;
   source?: string;
   feed?: string;
+  feedProfile?: string;
+  marketSession?: string;
   data: CandleData;
 };
+
+export type TradeTickData = {
+  tradeId?: string;
+  price?: number;
+  size?: number;
+  exchange?: string;
+  conditions?: string[];
+  tape?: string;
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type QuoteTickData = {
+  bidPrice?: number;
+  bidSize?: number;
+  askPrice?: number;
+  askSize?: number;
+  bidExchange?: string;
+  askExchange?: string;
+  conditions?: string[];
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type RealtimeLayerEvent =
+  | { type: "LIVE_TRADE_UPDATE"; symbol: string; data: TradeTickData }
+  | { type: "LIVE_QUOTE_UPDATE"; symbol: string; data: QuoteTickData };
 
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
@@ -131,7 +179,14 @@ export type ChartCommand = {
 
 export type ChartCommandJournalEntry = {
   id: string;
-  commandType: ChartCommandType | "chart.proposal.accept" | "chart.proposal.reject" | "chart.data.snapshot" | "chart.data.live";
+  commandType:
+    | ChartCommandType
+    | "chart.proposal.accept"
+    | "chart.proposal.reject"
+    | "chart.data.snapshot"
+    | "chart.data.live"
+    | "chart.layer.trade"
+    | "chart.layer.quote";
   actor: ChartCommandActor;
   status: "applied" | "failed" | "proposed" | "ignored" | "undone" | "redone";
   message: string;
@@ -206,7 +261,10 @@ export type ChartDataStatus = {
   message?: string;
   source?: string;
   feed?: string;
+  feedProfile?: string;
+  marketSession?: string;
   backfillStatus?: BackfillStatus;
+  repairStatus?: RepairStatus;
   canBackfill?: boolean;
   sourceInterval?: string;
   requestedLimit?: number;
@@ -268,6 +326,8 @@ export type ChartRuntimeError = {
 export type ChartRuntimeState = {
   documents: Record<string, ChartDocument>;
   candlesByKey: Record<string, CandleData[]>;
+  liveTradesBySymbol?: Record<string, TradeTickData>;
+  liveQuotesBySymbol?: Record<string, QuoteTickData>;
   dataStatusByKey: Record<string, ChartDataStatus>;
   streamStatusByKey: Record<string, StreamStatus>;
   streamMessageByKey?: Record<string, string>;

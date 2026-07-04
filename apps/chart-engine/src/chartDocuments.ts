@@ -25,13 +25,13 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
     },
     style: {
       background: "#ffffff",
-      grid: "#e3e3e3",
-      text: "#2a2a2a",
-      bullish: "#0f8a4b",
-      bearish: "#b33a3a",
-      ma5: "#2563eb",
-      ma20: "#d97706",
-      ma60: "#7c3aed",
+      grid: "#edf1f7",
+      text: "#667085",
+      bullish: "#16a86b",
+      bearish: "#e94b5b",
+      ma5: "#2478f2",
+      ma20: "#c98210",
+      ma60: "#7557d9",
       volume: "#9ca3af"
     },
     interactionState: {

@@ -22,6 +22,12 @@ const proposalCommandTypes: ChartCommandType[] = [
 export type ChartProposalRequestContext = {
   panelId: string;
   chartDocument: Pick<ChartDocument, "id" | "symbol" | "timeframe" | "viewport" | "layers" | "drawings" | "comparisons">;
+  entityFallback: {
+    source: "referenced-chart" | "selected-chart";
+    panelId: string;
+    chartDocumentId: string;
+    symbol: string;
+  };
   visibleSummary: {
     high?: string;
     low?: string;
@@ -65,6 +71,12 @@ export function buildChartProposalRequest({
       drawings: document.drawings,
       comparisons: document.comparisons
     },
+    entityFallback: {
+      source: "selected-chart",
+      panelId,
+      chartDocumentId: document.id,
+      symbol: document.symbol
+    },
     visibleSummary: {
       high: scene?.labels.visibleHigh,
       low: scene?.labels.visibleLow,
@@ -89,7 +101,8 @@ export function buildChartAgentContext({
   candles,
   dataStatus,
   streamStatus,
-  symbolUniverse
+  symbolUniverse,
+  entityFallbackSource = "selected-chart"
 }: {
   panelId: string;
   document: ChartDocument;
@@ -97,6 +110,7 @@ export function buildChartAgentContext({
   dataStatus?: ChartDataStatus;
   streamStatus: StreamStatus;
   symbolUniverse?: readonly string[];
+  entityFallbackSource?: "referenced-chart" | "selected-chart";
 }): ChartProposalRequestContext {
   const visibleCount = Math.min(document.viewport.visibleCount, candles.length);
   const rightOffset = Math.min(document.viewport.rightOffset, Math.max(0, candles.length - 1));
@@ -118,6 +132,12 @@ export function buildChartAgentContext({
       layers: document.layers,
       drawings: document.drawings,
       comparisons: document.comparisons
+    },
+    entityFallback: {
+      source: entityFallbackSource,
+      panelId,
+      chartDocumentId: document.id,
+      symbol: document.symbol
     },
     visibleSummary: {
       high: highs.length ? Math.max(...highs).toFixed(2) : undefined,

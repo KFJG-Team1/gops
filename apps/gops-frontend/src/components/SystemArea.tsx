@@ -1,7 +1,7 @@
-import { Bell, LoaderCircle, LogIn, Menu, Plus, RotateCcw, SendHorizontal, Star, Trash2, X } from "lucide-react";
+import { Bell, Bot, ChevronLeft, ChevronRight, CircleHelp, Cog, CreditCard, Database, Keyboard, LoaderCircle, LogIn, LogOut, Plus, RotateCcw, Search, SendHorizontal, Star, Trash2, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { getChartAgentAccess } from "@gops/chart-engine/agentAccess";
-import { createChatMessage, normalizeAgentChatResponse, type AgentChatMessage } from "@gops/chart-engine/agentChat";
+import { createPortal } from "react-dom";
+import { createChatMessage, type AgentChatMessage } from "@gops/chart-engine/agentChat";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   resolveAgentChartReference,
@@ -12,13 +12,23 @@ import { buildChartAgentContext } from "@gops/chart-engine/proposals";
 import type { SupportedSymbol, WatchlistSymbol } from "@gops/chart-engine/symbols";
 import {
   getCandlesForDocument,
+  getChartDocumentForPanel,
   getDataStatusForDocument,
   getStreamStatusForDocument,
-  type ChartRuntimeAction,
   type ChartRuntimeState
 } from "@gops/chart-engine/runtime";
+import {
+  buildAgentAnalysisRequest,
+  buildAgentLayoutContext,
+  formatAgentAnalysisReport,
+  normalizeAgentAnalysisReport,
+  shouldAutoApplyAgentLayoutProposal,
+  type AgentAnalysisReport,
+  type AgentAnalysisMode
+} from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
 import { useAuth } from "../auth/AuthProvider";
+import { findTargetChartPanel } from "../layout/chartPanelSelection";
 import { getPanelDefinition } from "../layout/panelRegistry";
 import {
   createPanelDropCommand,
@@ -26,11 +36,21 @@ import {
   PANEL_CATALOG_MIME,
   PANEL_CATALOG_TYPES
 } from "../layout/panelCatalogDrop";
-import type { FavoriteLayoutSlot, LayoutCommand, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
+import type { FavoriteLayoutSlot, LayoutCommand, LayoutProposal, PanelType, SavedLayoutRecord, WorkspaceLayout } from "../layout/types";
 
 export type SystemMode = "watchlist" | "settings" | "agents" | "notifications";
 
 export type SystemMenuTab = "layouts" | "panels" | "agent" | "menu";
+
+type SettingsOverlayKey = "account" | "keyboard" | "dataSources" | "help";
+
+type RegisteredBrokerAccount = {
+  accountName: string;
+  demoAccountLast8: string;
+  registeredAt: string;
+};
+
+const REGISTERED_ACCOUNT_STORAGE_KEY = "gops.settings.registeredBrokerAccount";
 
 export type AgentOption = {
   id: string;
@@ -42,25 +62,17 @@ export type AgentOption = {
 export type AgentUpdatePatch = Partial<Pick<AgentOption, "label" | "description" | "iconUrl">>;
 
 export const initialAgentOptions: AgentOption[] = [
-  { id: "agent-01", label: "Chart Agent", description: "LLM chart operator. It explains intent and sends chart commands.", iconUrl: "/assets/agent-icons/agent-01.svg" },
-  { id: "agent-02", label: "Agent 02", description: "News and context assistant.", iconUrl: "/assets/agent-icons/agent-02.svg" },
-  { id: "agent-03", label: "Agent 03", description: "Signal review assistant.", iconUrl: "/assets/agent-icons/agent-03.svg" },
-  { id: "agent-04", label: "Agent 04", description: "Portfolio watch assistant.", iconUrl: "/assets/agent-icons/agent-04.svg" }
+  { id: "agent-01", label: "AI 어시스턴트", description: "무엇을 도와드릴까요?", iconUrl: "/assets/agent-icons/agent-01.svg" },
+  { id: "agent-02", label: "뉴스 AI", description: "뉴스와 시장 맥락을 정리합니다.", iconUrl: "/assets/agent-icons/agent-02.svg" },
+  { id: "agent-03", label: "시그널 AI", description: "신호와 조건을 검토합니다.", iconUrl: "/assets/agent-icons/agent-03.svg" },
+  { id: "agent-04", label: "포트폴리오 AI", description: "관심 종목과 포트폴리오를 추적합니다.", iconUrl: "/assets/agent-icons/agent-04.svg" }
 ];
-
-const orchestratorAgent: AgentOption = {
-  id: "orchestrator",
-  label: "Orchestrator",
-  description: "Automatically coordinates multi-agent mode.",
-  iconUrl: "/assets/agent-icons/agent-12.svg"
-};
 
 type SystemAreaProps = {
   mode: SystemMode;
   settingsTab: SystemMenuTab;
   layout: WorkspaceLayout;
   chartRuntime: ChartRuntimeState;
-  chartAutoApplyEnabled: boolean;
   agents: AgentOption[];
   selectedAgentIds: string[];
   referencedChartTarget?: AgentChartReference;
@@ -76,8 +88,28 @@ type SystemAreaProps = {
   onDeleteAgent: (agentId: string) => void;
   onCloseSystemPanel: () => void;
   onSelectSymbol: (symbol: string) => boolean;
+  onToggleWatchlistSymbol: (symbol: string) => void;
   onCommand: (command: LayoutCommand) => void;
-  onChartAction: (action: ChartRuntimeAction) => void;
+  onLayoutProposal: (proposal: LayoutProposal) => void;
+};
+
+type WatchlistTab = "watchlist" | "sp500" | "subscriptions";
+
+type SymbolPagePayload = {
+  page: number;
+  pageSize: number;
+  total: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+  symbols: WatchlistSymbol[];
+};
+
+type SubscriptionRecord = {
+  symbol: string;
+  layers: string[];
+  sources: string[];
+  reason?: string;
+  enabled?: boolean;
 };
 
 type SettingsPanelProps = {
@@ -100,7 +132,6 @@ export function SystemArea({
   settingsTab,
   layout,
   chartRuntime,
-  chartAutoApplyEnabled,
   agents,
   selectedAgentIds,
   referencedChartTarget,
@@ -116,26 +147,81 @@ export function SystemArea({
   onDeleteAgent,
   onCloseSystemPanel,
   onSelectSymbol,
+  onToggleWatchlistSymbol,
   onCommand,
-  onChartAction
+  onLayoutProposal
 }: SystemAreaProps) {
   const selectedAgents = agents.filter((agent) => selectedAgentIds.includes(agent.id));
-  const activeAgents = selectedAgents.length > 1 ? [orchestratorAgent, ...selectedAgents] : selectedAgents;
-  const chartAgentAccess = getChartAgentAccess(selectedAgents);
   const agentHeaderTitle = selectedAgents.length > 1
-    ? "Orchestration"
-    : selectedAgents[0]?.label ?? "LLM Agent";
+    ? "AI 오케스트레이션"
+    : selectedAgents[0]?.label ?? "AI 에이전트";
   const agentHeaderDetail = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
-    : selectedAgents[0]?.description ?? "Select an agent";
+    : "";
+  const [watchlistTab, setWatchlistTab] = useState<WatchlistTab>("watchlist");
+  const [sp500Query, setSp500Query] = useState("");
+  const [sp500Page, setSp500Page] = useState(1);
+  const [sp500Payload, setSp500Payload] = useState<SymbolPagePayload | null>(null);
+  const [sp500Loading, setSp500Loading] = useState(false);
+  const [subscriptionRecords, setSubscriptionRecords] = useState<SubscriptionRecord[]>([]);
+
+  useEffect(() => {
+    if (mode !== "watchlist" || watchlistTab !== "sp500") {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      q: sp500Query,
+      page: String(sp500Page),
+      pageSize: "50"
+    });
+    setSp500Loading(true);
+    fetch(`/api/market/symbols?${params.toString()}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<unknown> : Promise.reject(new Error(`S&P500 API ${response.status}`)))
+      .then((payload) => {
+        setSp500Payload(normalizeSymbolPagePayload(payload));
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setSp500Payload({ page: sp500Page, pageSize: 50, total: 0, hasPrev: sp500Page > 1, hasNext: false, symbols: [] });
+        }
+      })
+      .finally(() => setSp500Loading(false));
+    return () => controller.abort();
+  }, [mode, sp500Page, sp500Query, watchlistTab]);
+
+  useEffect(() => {
+    if (mode !== "watchlist" || watchlistTab !== "subscriptions") {
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSubscriptions = () => {
+      fetch("/api/monitor/market-data/subscriptions")
+        .then((response) => response.ok ? response.json() as Promise<unknown> : Promise.reject(new Error(`Subscription API ${response.status}`)))
+        .then((payload) => {
+          if (!cancelled) {
+            setSubscriptionRecords(normalizeSubscriptionRecords(payload));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSubscriptionRecords([]);
+          }
+        });
+    };
+    loadSubscriptions();
+    const timer = window.setInterval(loadSubscriptions, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [mode, watchlistTab]);
 
   return (
-    <aside className="system-area" aria-label="System area">
-      {mode !== "watchlist" && (
-        <button className="system-panel-close" title="Close system panel" onClick={onCloseSystemPanel}>
-          <X size={16} />
-        </button>
-      )}
+    <aside className="system-area" data-system-mode={mode} aria-label="시스템 패널">
+      <button className="system-panel-close" title="시스템 패널 닫기" onClick={onCloseSystemPanel}>
+        <X size={16} />
+      </button>
 
       {mode === "settings" && (
         <SettingsPanel
@@ -158,18 +244,16 @@ export function SystemArea({
         <div className="system-mode-content agent-mode-content">
           <div className="system-mode-header agent-header">
             <strong>{agentHeaderTitle}</strong>
-            <span>{agentHeaderDetail}</span>
+            {agentHeaderDetail && <span>{agentHeaderDetail}</span>}
           </div>
           <AgentChatPanel
             layout={layout}
             chartRuntime={chartRuntime}
-            autoApplyEnabled={chartAutoApplyEnabled}
             selectedAgents={selectedAgents}
-            activeAgents={activeAgents}
-            chartAgentAccess={chartAgentAccess}
             referencedChartTarget={referencedChartTarget}
             symbolUniverse={symbolUniverse}
-            onChartAction={onChartAction}
+            onSelectSymbol={onSelectSymbol}
+            onLayoutProposal={onLayoutProposal}
           />
         </div>
       )}
@@ -177,11 +261,10 @@ export function SystemArea({
       {mode === "notifications" && (
         <div className="system-mode-content">
           <div className="system-mode-header">
-            <strong>Notifications</strong>
-            <span>Alert settings</span>
+            <strong>알림설정</strong>
           </div>
           <div className="menu-settings-list">
-            {["Layout proposals", "Market alerts", "Agent status", "Risk notices"].map((item) => (
+            {["레이아웃 제안", "시장 알림", "AI 상태", "리스크 알림"].map((item) => (
               <button key={item}>{item}</button>
             ))}
           </div>
@@ -190,115 +273,365 @@ export function SystemArea({
 
       {mode === "watchlist" && (
         <div className="system-mode-content">
-          <div className="system-mode-header">
-            <strong>Watch List</strong>
-            <span>{activeSymbol} selected</span>
+          <div className="system-mode-header watchlist-header">
+            <strong>관심 종목</strong>
           </div>
-          <div className="watchlist-list">
-            {watchlistSymbols.length === 0 && (
-              <div className="watchlist-empty">Market symbols unavailable</div>
-            )}
-            {watchlistSymbols.map((item) => (
-              <button
-                key={item.symbol}
-                className={item.symbol === activeSymbol ? "watchlist-row active" : "watchlist-row"}
-                data-symbol={item.symbol}
-                aria-label={`Load ${item.symbol} ${item.name}`}
-                title={`Load ${item.symbol}`}
-                onClick={() => onSelectSymbol(item.symbol)}
+          <div className="watchlist-tabs" role="tablist" aria-label="관심 종목 보기">
+            <button className={watchlistTab === "watchlist" ? "active" : ""} type="button" onClick={() => setWatchlistTab("watchlist")}>관심</button>
+            <button className={watchlistTab === "sp500" ? "active" : ""} type="button" onClick={() => setWatchlistTab("sp500")}>S&P500</button>
+            <button className={watchlistTab === "subscriptions" ? "active" : ""} type="button" onClick={() => setWatchlistTab("subscriptions")}>구독</button>
+          </div>
+
+          {watchlistTab === "watchlist" && (
+            <div className="watchlist-list">
+              {watchlistSymbols.length === 0 && (
+                <div className="watchlist-empty">불러온 종목이 없습니다</div>
+              )}
+              {watchlistSymbols.map((item) => (
+                <SymbolListRow
+                  key={item.symbol}
+                  item={item}
+                  active={item.symbol === activeSymbol}
+                  inWatchlist
+                  onSelectSymbol={onSelectSymbol}
+                  onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+                />
+              ))}
+            </div>
+          )}
+
+          {watchlistTab === "sp500" && (
+            <div className="sp500-browser">
+              <form
+                className="sp500-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setSp500Page(1);
+                }}
               >
-                <span className="watchlist-symbol-cell">
-                  <strong>{item.symbol}</strong>
-                  <em>{item.name}</em>
-                </span>
-                <span className="watchlist-quote-cell">
-                  <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
-                    {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
-                  </strong>
-                  <em>
-                    {typeof item.lastPrice === "number" ? item.lastPrice.toFixed(2) : "No data"}
-                  </em>
-                </span>
-              </button>
-            ))}
-          </div>
+                <Search size={13} />
+                <input
+                  value={sp500Query}
+                  placeholder="S&P500 검색"
+                  aria-label="S&P500 검색"
+                  onChange={(event) => {
+                    setSp500Query(event.target.value.toUpperCase());
+                    setSp500Page(1);
+                  }}
+                />
+              </form>
+              <div className="watchlist-list sp500-list">
+                {sp500Loading && <div className="watchlist-empty">목록을 불러오는 중입니다</div>}
+                {!sp500Loading && (sp500Payload?.symbols.length ?? 0) === 0 && <div className="watchlist-empty">표시할 종목이 없습니다</div>}
+                {sp500Payload?.symbols.map((item) => (
+                  <SymbolListRow
+                    key={item.symbol}
+                    item={item}
+                    active={item.symbol === activeSymbol}
+                    inWatchlist={watchlistSymbols.some((watch) => watch.symbol === item.symbol)}
+                    onSelectSymbol={onSelectSymbol}
+                    onToggleWatchlistSymbol={onToggleWatchlistSymbol}
+                  />
+                ))}
+              </div>
+              <div className="sp500-pager">
+                <button type="button" disabled={!sp500Payload?.hasPrev} title="이전 페이지" onClick={() => setSp500Page((page) => Math.max(1, page - 1))}>
+                  <ChevronLeft size={14} />
+                </button>
+                <span>{sp500Payload?.page ?? sp500Page} / {Math.max(1, Math.ceil((sp500Payload?.total ?? 0) / Math.max(1, sp500Payload?.pageSize ?? 50)))}</span>
+                <button type="button" disabled={!sp500Payload?.hasNext} title="다음 페이지" onClick={() => setSp500Page((page) => page + 1)}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {watchlistTab === "subscriptions" && (
+            <div className="subscription-list">
+              {subscriptionRecords.length === 0 && <div className="watchlist-empty">실시간 구독 종목이 없습니다</div>}
+              {subscriptionRecords.map((record) => (
+                <button
+                  key={record.symbol}
+                  className={record.symbol === activeSymbol ? "subscription-row active" : "subscription-row"}
+                  type="button"
+                  onClick={() => onSelectSymbol(record.symbol)}
+                >
+                  <strong>{record.symbol}</strong>
+                  <span>{record.layers.join(", ") || "layers 없음"}</span>
+                  <em>{record.sources.join(" / ") || record.reason || "source 없음"}</em>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </aside>
   );
 }
 
+function SymbolListRow({
+  item,
+  active,
+  inWatchlist,
+  onSelectSymbol,
+  onToggleWatchlistSymbol
+}: {
+  item: WatchlistSymbol;
+  active: boolean;
+  inWatchlist: boolean;
+  onSelectSymbol: (symbol: string) => boolean;
+  onToggleWatchlistSymbol: (symbol: string) => void;
+}) {
+  const priceLabel = typeof item.lastPrice === "number"
+    ? item.lastPrice.toFixed(2)
+    : item.priceStatus === "loading"
+      ? "최신 가격 불러오는 중"
+      : "가격 준비 중";
+  const sourceLabel = item.priceSource ? `source=${item.priceSource}` : undefined;
+
+  return (
+    <div
+      className={active ? "watchlist-row active" : "watchlist-row"}
+      data-symbol={item.symbol}
+      role="button"
+      tabIndex={0}
+      aria-label={`${item.symbol} ${item.name} 불러오기`}
+      title={`${item.symbol} 불러오기`}
+      onClick={() => onSelectSymbol(item.symbol)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelectSymbol(item.symbol);
+        }
+      }}
+    >
+      <span className="watchlist-symbol-cell">
+        <strong>{item.symbol}</strong>
+        <em>{item.name}</em>
+      </span>
+      <span className="watchlist-quote-cell">
+        <strong className={typeof item.changePercent === "number" ? (item.changePercent < 0 ? "market-down" : "market-up") : "watchlist-change-empty"}>
+          {typeof item.changePercent === "number" ? `${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}%` : "-"}
+        </strong>
+        <em>
+          {priceLabel}
+        </em>
+        {sourceLabel && <small className="watchlist-price-source">{sourceLabel}</small>}
+      </span>
+      <button
+        type="button"
+        className={inWatchlist ? "watchlist-row-star active" : "watchlist-row-star"}
+        title={inWatchlist ? `${item.symbol} 관심 종목 제거` : `${item.symbol} 관심 종목 추가`}
+        aria-label={inWatchlist ? `${item.symbol} 관심 종목 제거` : `${item.symbol} 관심 종목 추가`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleWatchlistSymbol(item.symbol);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleWatchlistSymbol(item.symbol);
+          }
+        }}
+      >
+        <Star size={13} fill={inWatchlist ? "currentColor" : "none"} />
+      </button>
+    </div>
+  );
+}
+
+function normalizeSymbolPagePayload(payload: unknown): SymbolPagePayload {
+  if (!payload || typeof payload !== "object") {
+    return { page: 1, pageSize: 50, total: 0, hasPrev: false, hasNext: false, symbols: [] };
+  }
+  const source = payload as Record<string, unknown>;
+  return {
+    page: readFiniteNumber(source.page) ?? 1,
+    pageSize: readFiniteNumber(source.pageSize) ?? 50,
+    total: readFiniteNumber(source.total) ?? 0,
+    hasPrev: source.hasPrev === true,
+    hasNext: source.hasNext === true,
+    symbols: normalizeWatchlistSymbols(source.symbols)
+  };
+}
+
+function normalizeSubscriptionRecords(payload: unknown): SubscriptionRecord[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const records = Array.isArray((payload as Record<string, unknown>).symbols) ? (payload as Record<string, unknown>).symbols as unknown[] : [];
+  return records
+    .map((record): SubscriptionRecord | null => {
+      if (!record || typeof record !== "object") {
+        return null;
+      }
+      const source = record as Record<string, unknown>;
+      const symbol = typeof source.symbol === "string" ? source.symbol.trim().toUpperCase() : "";
+      if (!symbol) {
+        return null;
+      }
+      return {
+        symbol,
+        layers: Array.isArray(source.layers) ? source.layers.filter((item): item is string => typeof item === "string") : [],
+        sources: Array.isArray(source.sources) ? source.sources.filter((item): item is string => typeof item === "string") : [],
+        reason: typeof source.reason === "string" ? source.reason : undefined,
+        enabled: source.enabled === true
+      };
+    })
+    .filter((item): item is SubscriptionRecord => Boolean(item));
+}
+
+function normalizeWatchlistSymbols(value: unknown): WatchlistSymbol[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): WatchlistSymbol | null => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const source = item as Record<string, unknown>;
+      const symbol = typeof source.symbol === "string" ? source.symbol.trim().toUpperCase() : "";
+      if (!symbol) {
+        return null;
+      }
+      return {
+        symbol,
+        name: typeof source.name === "string" && source.name.trim() ? source.name : symbol,
+        market: typeof source.market === "string" && source.market.trim() ? source.market : "US",
+        lastPrice: readFiniteNumber(source.lastPrice) ?? undefined,
+        changePercent: readFiniteNumber(source.changePercent) ?? undefined,
+        volume: readFiniteNumber(source.volume) ?? undefined,
+        priceSource: typeof source.priceSource === "string" ? source.priceSource : undefined,
+        priceStatus: typeof source.priceStatus === "string" ? source.priceStatus : undefined,
+        priceUpdatedAt: typeof source.priceUpdatedAt === "string" ? source.priceUpdatedAt : undefined
+      };
+    })
+    .filter((item): item is WatchlistSymbol => Boolean(item));
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function AgentChatPanel({
   layout,
   chartRuntime,
-  autoApplyEnabled,
   selectedAgents,
-  activeAgents,
-  chartAgentAccess,
   referencedChartTarget,
   symbolUniverse,
-  onChartAction
+  onSelectSymbol,
+  onLayoutProposal
 }: {
   layout: WorkspaceLayout;
   chartRuntime: ChartRuntimeState;
-  autoApplyEnabled: boolean;
   selectedAgents: AgentOption[];
-  activeAgents: AgentOption[];
-  chartAgentAccess: ReturnType<typeof getChartAgentAccess>;
   referencedChartTarget?: AgentChartReference;
   symbolUniverse: readonly SupportedSymbol[];
-  onChartAction: (action: ChartRuntimeAction) => void;
+  onSelectSymbol: (symbol: string) => boolean;
+  onLayoutProposal: (proposal: LayoutProposal) => void;
 }) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const resolvedReference = useMemo(
     () => resolveAgentChartReference(layout.panels, chartRuntime, referencedChartTarget),
     [chartRuntime, layout.panels, referencedChartTarget]
   );
-  const chartPanel = resolvedReference?.panel ?? null;
-  const chartDocument = resolvedReference?.document ?? null;
-  const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
-  const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
-  const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [activeRequestContent, setActiveRequestContent] = useState("");
+  const [progressStartedAt, setProgressStartedAt] = useState<number | null>(null);
+  const [progressElapsedSeconds, setProgressElapsedSeconds] = useState(0);
   const [agentError, setAgentError] = useState(false);
+  const [agentAnalysisMode, setAgentAnalysisMode] = useState<AgentAnalysisMode>("auto");
+  const [resolvingChartShortcut, setResolvingChartShortcut] = useState(false);
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
-  const draftSeed = referencedChartTarget?.draftSeed ?? DEFAULT_AGENT_DRAFT_SEED;
-  const introAgent = activeAgents[0] ?? selectedAgents[0] ?? orchestratorAgent;
+  const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
+  const draftContent = resolveAgentSendContent(draft, draftSeed);
+  const fallbackChartPanel = useMemo(
+    () => findTargetChartPanel(layout.panels, layout.selectedPanelId),
+    [layout.panels, layout.selectedPanelId]
+  );
+  const fallbackChartDocument = fallbackChartPanel ? getChartDocumentForPanel(chartRuntime, fallbackChartPanel) : null;
+  const chartPanel = resolvedReference?.panel ?? fallbackChartPanel;
+  const chartDocument = resolvedReference?.document ?? fallbackChartDocument;
+  const candles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) : [];
+  const dataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
+  const streamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : "stale";
+  const introAgent = selectedAgents[0];
+  const introLabel = selectedAgents.length > 1 ? "AI 오케스트레이션" : introAgent?.label ?? "AI 에이전트";
+  const introIconUrl = introAgent?.iconUrl ?? "/assets/agent-icons/agent-01.svg";
   const introDescription = selectedAgents.length > 1
     ? selectedAgents.map((agent) => agent.label).join(" / ")
-    : introAgent.description;
-  const target = chartAgentAccess.enabled && chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
+    : introAgent?.description ?? "에이전트를 선택하세요";
+  const target = chartPanel && chartDocument ? { panelId: chartPanel.id, chartDocumentId: chartDocument.id } : null;
   const signalState = sending ? "thinking" : agentError ? "error" : "waiting";
   const signalLabel = signalState === "thinking" ? "생각 중" : signalState === "error" ? "오류" : "대기 중";
+  const progressLabel = sending
+    ? agentProgressLabel(progressElapsedSeconds, selectedAgents, activeRequestContent)
+    : "";
   const authRequired = authEnabled && !user;
   const disabledMessage = authRequired
-    ? "Sign in with Google to use agents."
-    : chartAgentAccess.reason === "orchestration"
-    ? "멀티에이전트 모드에서는 아직 차트 요청을 보낼 수 없습니다."
-    : chartAgentAccess.reason === "no-chart-agent"
-      ? "이 에이전트는 아직 차트 요청 권한이 없습니다."
-      : "차트 패널에서 Ask Agent를 눌러 분석할 차트를 지정하세요.";
-  const sendDisabled = authRequired || authLoading || !target || !resolveAgentSendContent(draft, draftSeed).trim() || sending;
+    ? "AI를 사용하려면 Google 로그인이 필요합니다."
+    : "차트 패널을 선택하거나 차트에서 AI에게 묻기를 눌러 분석할 차트를 지정하세요.";
+  const sendDisabled = authRequired || authLoading || !target || !draftContent.trim() || sending || resolvingChartShortcut;
 
   useEffect(() => {
     setMessages([]);
     setDraft("");
     setSending(false);
+    setActiveRequestContent("");
+    setProgressStartedAt(null);
+    setProgressElapsedSeconds(0);
     setAgentError(false);
+    setResolvingChartShortcut(false);
   }, [selectedAgentKey, referencedChartKey]);
 
-  const sendMessage = () => {
+  useEffect(() => {
+    if (!sending || progressStartedAt === null) {
+      return;
+    }
+    const updateElapsed = () => setProgressElapsedSeconds((Date.now() - progressStartedAt) / 1000);
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(timer);
+  }, [progressStartedAt, sending]);
+
+  const sendMessage = async () => {
     if (authRequired) {
       login();
       return;
     }
 
     const content = resolveAgentSendContent(draft, draftSeed);
-    if (!content || !target || !chartPanel || !chartDocument || sending) {
+    if (!content || !target || !chartPanel || !chartDocument || sending || resolvingChartShortcut) {
       return;
+    }
+
+    const chartShortcutQuery = draft.trim();
+    if (chartShortcutQuery) {
+      setResolvingChartShortcut(true);
+      try {
+        const shortcut = await resolveAgentChartShortcut(chartShortcutQuery);
+        if (shortcut?.status === "confirmed" && shortcut.chartShortcut && shortcut.symbol) {
+          if (onSelectSymbol(shortcut.symbol)) {
+            setDraft("");
+            setAgentError(false);
+          }
+          return;
+        }
+      } finally {
+        setResolvingChartShortcut(false);
+      }
     }
 
     const userMessage = createChatMessage("user", content);
@@ -306,61 +639,73 @@ function AgentChatPanel({
     setMessages(requestMessages);
     setDraft("");
     setSending(true);
+    setActiveRequestContent(content);
+    setProgressStartedAt(Date.now());
+    setProgressElapsedSeconds(0);
     setAgentError(false);
+    const chartContext = buildChartAgentContext({
+      panelId: chartPanel.id,
+      document: chartDocument,
+      candles,
+      dataStatus,
+      streamStatus,
+      symbolUniverse,
+      entityFallbackSource: resolvedReference ? "referenced-chart" : "selected-chart"
+    });
 
-    fetch("/api/llm/chat", {
+    fetch("/api/agents/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agentIds: selectedAgents.map((agent) => agent.id),
-        messages: requestMessages.map((message) => ({ role: message.role, content: message.content })),
-        context: buildChartAgentContext({
-          panelId: chartPanel.id,
-          document: chartDocument,
-          candles,
-          dataStatus,
-          streamStatus,
-          symbolUniverse
-        })
-      })
+      body: JSON.stringify(buildAgentAnalysisRequest({
+        messages: requestMessages,
+        symbol: chartDocument.symbol,
+        intent: content,
+        chartContext,
+        layoutContext: buildAgentLayoutContext(layout),
+        routerMode: "hybrid",
+        analysisMode: agentAnalysisMode,
+        agentIds: selectedAgents.map((agent) => agent.id)
+      }))
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(await readApiErrorMessage(response, "Agent chat API"));
+          throw new Error(await readApiErrorMessage(response, "Agent orchestration API"));
         }
         return response.json() as Promise<unknown>;
       })
-      .then((payload) => {
-        const result = normalizeAgentChatResponse(payload, target);
-        const nextMessages = [createChatMessage("assistant", result.reply)];
-        if (result.proposal) {
-          onChartAction({ kind: "chart.proposal.received", proposal: result.proposal, autoApply: autoApplyEnabled });
-          nextMessages.push(createChatMessage("system", chartProposalStatusMessage(result.proposal, autoApplyEnabled)));
+      .then(waitForAgentAnalysisReport)
+      .then((report) => {
+        if (shouldAutoApplyAgentLayoutProposal(report, agentAnalysisMode) && report.layoutProposal) {
+          onLayoutProposal(report.layoutProposal);
         }
-        setMessages((current) => [...current, ...nextMessages]);
+        setMessages((current) => [...current, createChatMessage("assistant", formatAgentAnalysisReport(report))]);
       })
       .catch((error: unknown) => {
         setAgentError(true);
         setMessages((current) => [
           ...current,
-          createChatMessage("assistant", error instanceof Error ? error.message : "Agent chat failed.")
+          createChatMessage("assistant", error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.")
         ]);
       })
-      .finally(() => setSending(false));
+      .finally(() => {
+        setSending(false);
+        setProgressStartedAt(null);
+        setProgressElapsedSeconds(0);
+      });
   };
 
   return (
     <div className="agent-chat-panel">
-      <div className={messages.length === 0 ? "agent-chat-messages empty" : "agent-chat-messages"} aria-label="LLM chart chat messages">
+      <div className={messages.length === 0 ? "agent-chat-messages empty" : "agent-chat-messages"} aria-label="AI 차트 대화">
         {messages.length === 0 && (
           <div className="agent-chat-empty-state">
-            <img src={introAgent.iconUrl} alt="" />
-            <strong>{introAgent.label}</strong>
+            <img src={introIconUrl} alt="" />
+            <strong>{introLabel}</strong>
             <span>{introDescription}</span>
             {!target && <small>{disabledMessage}</small>}
             {authRequired && (
               <button className="agent-auth-button" type="button" onClick={login}>
-                <LogIn size={14} /> Sign in
+                <LogIn size={14} /> 로그인
               </button>
             )}
           </div>
@@ -373,8 +718,33 @@ function AgentChatPanel({
       </div>
       <div className="agent-chat-composer">
         <div className="agent-chat-reference">
-          <div className="agent-chat-reference-list" aria-label="Agent references">
-            <span className="agent-chat-reference-token">{chartDocument ? chartDocument.symbol : "No chart"}</span>
+          <div className="agent-chat-reference-list" aria-label="AI 참조 대상">
+            <span className="agent-chat-reference-token">{chartDocument ? chartDocument.symbol : "차트 없음"}</span>
+            <div className="agent-chat-mode-toggle" role="group" aria-label="AI 실행 모드">
+              <button
+                type="button"
+                className={agentAnalysisMode === "auto" ? "active" : ""}
+                aria-pressed={agentAnalysisMode === "auto"}
+                disabled={sending}
+                onClick={() => setAgentAnalysisMode("auto")}
+              >
+                자동
+              </button>
+              <button
+                type="button"
+                className={agentAnalysisMode === "multi_agent" ? "active" : ""}
+                aria-pressed={agentAnalysisMode === "multi_agent"}
+                disabled={sending}
+                onClick={() => setAgentAnalysisMode("multi_agent")}
+              >
+                멀티
+              </button>
+            </div>
+            {sending && (
+              <span className="agent-chat-progress" aria-live="polite">
+                {progressLabel}... {progressElapsedSeconds.toFixed(1)}초
+              </span>
+            )}
           </div>
           <span className={`agent-chat-signal ${signalState}`} title={signalLabel} aria-label={signalLabel} />
         </div>
@@ -391,7 +761,7 @@ function AgentChatPanel({
               }
             }}
           />
-          <button title={authRequired ? "Sign in with Google" : target ? "Send chart request" : disabledMessage} disabled={sendDisabled} onClick={sendMessage}>
+          <button title={authRequired ? "Google 로그인" : target ? "차트 요청 보내기" : disabledMessage} disabled={sendDisabled} onClick={sendMessage}>
             {sending ? <LoaderCircle size={15} /> : <SendHorizontal size={15} />}
           </button>
         </div>
@@ -400,75 +770,125 @@ function AgentChatPanel({
   );
 }
 
-function chartProposalStatusMessage(
-  proposal: ReturnType<typeof normalizeAgentChatResponse>["proposal"],
-  autoApplyEnabled: boolean
-): string {
-  const hasPreviewCommands = proposal?.commands.some((command) =>
-    command.type.startsWith("chart.drawing.") ||
-    command.type.startsWith("chart.comparison.") ||
-    command.type === "chart.measurement.add"
-  );
+export function isAgentAnalysisIntent(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return [
+    "뉴스",
+    "기사",
+    "보도",
+    "헤드라인",
+    "거시",
+    "금리",
+    "관계",
+    "온톨로지",
+    "공급망",
+    "경쟁사",
+    "섹터",
+    "급등",
+    "급락",
+    "극락",
+    "이상",
+    "변동",
+    "원인",
+    "왜",
+    "news",
+    "headline",
+    "article",
+    "macro",
+    "rate",
+    "relationship",
+    "ontology",
+    "surge",
+    "spike",
+    "why"
+  ].some((keyword) => normalized.includes(keyword));
+}
 
-  if (hasPreviewCommands) {
-    return "Chart preview is ready. Use Preview and Apply in the chart panel.";
+export function agentProgressLabel(elapsedSeconds: number, selectedAgents: AgentOption[], content: string): string {
+  const normalized = content.toLowerCase();
+  const newsRequest = selectedAgents.some((agent) => agent.id === "agent-02") ||
+    ["뉴스", "기사", "헤드라인", "news", "headline", "article"].some((keyword) => normalized.includes(keyword));
+  if (elapsedSeconds < 3) {
+    return newsRequest ? "뉴스 검색 중" : "근거 확인 중";
   }
+  if (elapsedSeconds < 8) {
+    return "근거 분석 중";
+  }
+  return "답변 정리 중";
+}
 
-  return autoApplyEnabled
-    ? "Chart command sent to the chart runtime."
-    : "Chart command proposal is waiting in the chart panel.";
+function defaultDraftSeedForAgents(selectedAgents: AgentOption[]): string {
+  if (selectedAgents.length > 1) {
+    return "주가 변동 원인 분석해줘";
+  }
+  switch (selectedAgents[0]?.id) {
+    case "agent-02":
+      return "뉴스 보여줘";
+    case "agent-03":
+      return "거시 경제 영향 분석해줘";
+    case "agent-04":
+      return "기업 관계 영향 분석해줘";
+    default:
+      return DEFAULT_AGENT_DRAFT_SEED;
+  }
 }
 
 export function SystemOrbRail({
-  agents,
-  selectedAgentIds,
+  aiActive,
+  watchlistActive,
   settingsActive,
   notificationsActive,
-  onToggleAgent,
+  onTogglePrimaryAgent,
+  onToggleWatchlist,
   onToggleNotifications,
   onToggleSettings
 }: {
-  agents: AgentOption[];
-  selectedAgentIds: string[];
+  aiActive: boolean;
+  watchlistActive: boolean;
   settingsActive: boolean;
   notificationsActive: boolean;
-  onToggleAgent: (agentId: string) => void;
+  onTogglePrimaryAgent: () => void;
+  onToggleWatchlist: () => void;
   onToggleNotifications: () => void;
   onToggleSettings: () => void;
 }) {
-  const agentSlots = agents.slice(0, 4);
-
   return (
-    <div className="system-orb-rail" aria-label="System controls">
-      {agentSlots.map((agent) => (
-        <button
-          key={agent.id}
-          className={selectedAgentIds.includes(agent.id) ? "system-orb selected" : "system-orb"}
-          aria-label={agent.label}
-          title={agent.label}
-          onClick={() => onToggleAgent(agent.id)}
-        >
-          <img src={agent.iconUrl} alt="" />
-        </button>
-      ))}
-      {Array.from({ length: Math.max(0, 5 - agentSlots.length) }).map((_, index) => (
-        <span key={`spacer-${index}`} className="system-orb spacer" aria-hidden="true" />
-      ))}
+    <div className="system-orb-rail" aria-label="시스템 버튼">
+      <button
+        className={aiActive ? "system-orb ai-entry selected" : "system-orb ai-entry"}
+        aria-label="AI 열기"
+        title="AI 열기"
+        onClick={onTogglePrimaryAgent}
+      >
+        <Bot size={18} />
+        <span>AI</span>
+      </button>
+      <button
+        className={watchlistActive ? "system-orb watchlist-entry selected" : "system-orb watchlist-entry"}
+        aria-label="관심 종목"
+        title="관심 종목"
+        aria-pressed={watchlistActive}
+        onClick={onToggleWatchlist}
+      >
+        <Star size={18} fill={watchlistActive ? "currentColor" : "none"} />
+      </button>
       <button
         className={notificationsActive ? "system-orb selected" : "system-orb"}
-        aria-label="Notification settings"
-        title="Notification settings"
+        aria-label="알림 설정"
+        title="알림 설정"
+        aria-pressed={notificationsActive}
         onClick={onToggleNotifications}
       >
         <Bell size={19} />
       </button>
       <button
-        className={settingsActive ? "system-orb menu selected" : "system-orb menu"}
-        aria-label="Settings"
-        title="Settings"
+        className={settingsActive ? "system-orb environment-settings selected" : "system-orb environment-settings"}
+        aria-label="환경 설정"
+        title="환경 설정"
+        aria-pressed={settingsActive}
         onClick={onToggleSettings}
       >
-        <Menu size={22} />
+        <Cog size={19} />
       </button>
     </div>
   );
@@ -488,20 +908,43 @@ function SettingsPanel({
   onDeleteAgent,
   onCommand
 }: SettingsPanelProps) {
+  const [activeOverlay, setActiveOverlay] = useState<SettingsOverlayKey | null>(null);
+  const [registeredAccount, setRegisteredAccount] = useState<RegisteredBrokerAccount | null>(() => readRegisteredBrokerAccount());
+
+  useEffect(() => {
+    if (!activeOverlay) {
+      return;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveOverlay(null);
+      }
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [activeOverlay]);
+
+  const registerAccount = (account: RegisteredBrokerAccount) => {
+    setRegisteredAccount(account);
+    writeRegisteredBrokerAccount(account);
+  };
+
   return (
     <div className="settings-panel">
       <div className="settings-tabs">
         <button className={settingsTab === "layouts" ? "active" : ""} onClick={() => onSettingsTabChange("layouts")}>
-          Layouts
+          레이어 프리셋
         </button>
         <button className={settingsTab === "panels" ? "active" : ""} onClick={() => onSettingsTabChange("panels")}>
-          Panels
+          패널
         </button>
         <button className={settingsTab === "agent" ? "active" : ""} onClick={() => onSettingsTabChange("agent")}>
-          Agents
+          AI
         </button>
         <button className={settingsTab === "menu" ? "active" : ""} onClick={() => onSettingsTabChange("menu")}>
-          Menu
+          메뉴
         </button>
       </div>
 
@@ -524,13 +967,314 @@ function SettingsPanel({
 
       {settingsTab === "menu" && (
         <div className="menu-settings-list">
-          {["Account", "Workspace", "Data Sources", "Keyboard", "Help"].map((item) => (
-            <button key={item}>{item}</button>
-          ))}
+          <button
+            className={activeOverlay === "account" ? "active" : ""}
+            aria-pressed={activeOverlay === "account"}
+            onClick={() => setActiveOverlay("account")}
+          >
+            <User size={14} /> <span>계정</span>
+          </button>
+          <button
+            className={activeOverlay === "keyboard" ? "active" : ""}
+            aria-pressed={activeOverlay === "keyboard"}
+            onClick={() => setActiveOverlay("keyboard")}
+          >
+            <Keyboard size={14} /> <span>키보드</span>
+          </button>
+          <button
+            className={activeOverlay === "dataSources" ? "active" : ""}
+            aria-pressed={activeOverlay === "dataSources"}
+            onClick={() => setActiveOverlay("dataSources")}
+          >
+            <Database size={14} /> <span>데이터 소스</span>
+          </button>
+          <button
+            className={activeOverlay === "help" ? "active" : ""}
+            aria-pressed={activeOverlay === "help"}
+            onClick={() => setActiveOverlay("help")}
+          >
+            <CircleHelp size={14} /> <span>도움말</span>
+          </button>
         </div>
+      )}
+
+      {activeOverlay && (
+        <SettingsOverlay
+          activeOverlay={activeOverlay}
+          registeredAccount={registeredAccount}
+          onRegisterAccount={registerAccount}
+          onClose={() => setActiveOverlay(null)}
+        />
       )}
     </div>
   );
+}
+
+function SettingsOverlay({
+  activeOverlay,
+  registeredAccount,
+  onRegisterAccount,
+  onClose
+}: {
+  activeOverlay: SettingsOverlayKey;
+  registeredAccount: RegisteredBrokerAccount | null;
+  onRegisterAccount: (account: RegisteredBrokerAccount) => void;
+  onClose: () => void;
+}) {
+  const title = settingsOverlayTitle(activeOverlay);
+
+  const overlay = (
+    <div
+      className="settings-overlay-backdrop"
+      data-settings-overlay={activeOverlay}
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        className="settings-overlay-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="settings-overlay-header">
+          <div>
+            <strong>{title}</strong>
+          </div>
+          <button className="settings-overlay-close" type="button" title="닫기" aria-label="닫기" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </header>
+
+        {activeOverlay === "account" && (
+          <AccountSettingsOverlay registeredAccount={registeredAccount} onRegisterAccount={onRegisterAccount} />
+        )}
+        {activeOverlay === "keyboard" && <KeyboardSettingsOverlay />}
+        {activeOverlay === "dataSources" && <DataSourceSettingsOverlay />}
+        {activeOverlay === "help" && <HelpSettingsOverlay />}
+      </section>
+    </div>
+  );
+
+  return createPortal(overlay, document.body);
+}
+
+function AccountSettingsOverlay({
+  registeredAccount,
+  onRegisterAccount
+}: {
+  registeredAccount: RegisteredBrokerAccount | null;
+  onRegisterAccount: (account: RegisteredBrokerAccount) => void;
+}) {
+  const { authEnabled, user, loading, login, logout } = useAuth();
+  const [accountDraft, setAccountDraft] = useState({
+    accountName: registeredAccount?.accountName ?? "",
+    demoAccountLast8: registeredAccount?.demoAccountLast8 ?? "",
+    secretKey: ""
+  });
+
+  useEffect(() => {
+    setAccountDraft({
+      accountName: registeredAccount?.accountName ?? "",
+      demoAccountLast8: registeredAccount?.demoAccountLast8 ?? "",
+      secretKey: ""
+    });
+  }, [registeredAccount]);
+
+  const saveAccount = () => {
+    const accountName = accountDraft.accountName.trim() || "모의투자";
+    const demoAccountLast8 = accountDraft.demoAccountLast8.trim();
+    onRegisterAccount({
+      accountName,
+      demoAccountLast8,
+      registeredAt: new Date().toISOString()
+    });
+    setAccountDraft((current) => ({ ...current, secretKey: "" }));
+  };
+
+  return (
+    <div className="settings-overlay-body account-overlay-body">
+      <section className="settings-overlay-section">
+        <div className="account-profile-row">
+          {user?.picture ? <img src={user.picture} alt="" /> : <span className="account-profile-placeholder"><User size={18} /></span>}
+          <div>
+            <strong>{user?.name ?? user?.email ?? (authEnabled ? "로그인되어 있지 않음" : "로컬 사용자")}</strong>
+            <span>{user?.email ?? (authEnabled ? "Google 로그인 필요" : "인증 비활성")}</span>
+          </div>
+        </div>
+        <div className="settings-overlay-actions">
+          {authEnabled && !user && (
+            <button className="settings-overlay-login" type="button" onClick={login} disabled={loading}>
+              <LogIn size={14} /> 로그인
+            </button>
+          )}
+          {user && (
+            <button className="settings-overlay-danger" type="button" onClick={() => void logout()} disabled={loading}>
+              <LogOut size={14} /> 로그아웃
+            </button>
+          )}
+        </div>
+      </section>
+
+      {user && (
+        <section className="settings-overlay-section">
+          <div className="settings-overlay-section-title">
+            <CreditCard size={15} />
+            <span>계좌</span>
+          </div>
+          <div className={registeredAccount ? "account-registration-card registered" : "account-registration-card"}>
+            <strong>{registeredAccount ? registeredAccount.accountName : "등록된 계좌 없음"}</strong>
+            <span>{registeredAccount ? `모의투자 통장 뒷 8자리 ${registeredAccount.demoAccountLast8 || "-"}` : "계좌를 등록하면 주문 화면에서 사용할 계좌 기준을 확인할 수 있습니다"}</span>
+          </div>
+          <div className="account-registration-form">
+            <label>
+              <span>계좌 이름</span>
+              <input
+                value={accountDraft.accountName}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, accountName: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>모의투자 통장 뒷 8자리</span>
+              <input
+                value={accountDraft.demoAccountLast8}
+                inputMode="numeric"
+                maxLength={8}
+                onChange={(event) => setAccountDraft((current) => ({ ...current, demoAccountLast8: event.target.value.replace(/\D/g, "").slice(0, 8) }))}
+              />
+            </label>
+            <label>
+              <span>시크릿 키</span>
+              <input
+                type="password"
+                value={accountDraft.secretKey}
+                autoComplete="off"
+                onChange={(event) => setAccountDraft((current) => ({ ...current, secretKey: event.target.value }))}
+              />
+            </label>
+            <button type="button" className="account-register-button" onClick={saveAccount}>
+              <CreditCard size={14} /> {registeredAccount ? "계좌 수정" : "계좌 등록"}
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function KeyboardSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["Esc", "오버레이 닫기"],
+          ["Enter", "검색 또는 입력 적용"],
+          ["Drag", "패널 이동"],
+          ["Shift + Enter", "AI 입력 줄바꿈"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataSourceSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["시세", "Alpaca / ClickHouse / Redis"],
+          ["주문", "KIS 모의투자"],
+          ["AI", "GOPS Agent Gateway"],
+          ["상태", "로컬 런타임 연결 기준"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HelpSettingsOverlay() {
+  return (
+    <div className="settings-overlay-body">
+      <div className="settings-overlay-list">
+        {[
+          ["작업 화면", "패널을 드래그해서 배치를 바꿀 수 있습니다"],
+          ["차트", "종목 검색 후 차트 패널에 바로 반영됩니다"],
+          ["주문", "현재 v1은 KIS 모의투자 기준입니다"],
+          ["AI", "차트 패널에서 AI에게 묻기를 눌러 분석 대상을 지정합니다"]
+        ].map(([key, value]) => (
+          <div key={key} className="settings-overlay-list-row">
+            <strong>{key}</strong>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function settingsOverlayTitle(activeOverlay: SettingsOverlayKey): string {
+  switch (activeOverlay) {
+    case "account":
+      return "계정";
+    case "keyboard":
+      return "키보드";
+    case "dataSources":
+      return "데이터 소스";
+    case "help":
+      return "도움말";
+    default:
+      return "환경 설정";
+  }
+}
+
+function readRegisteredBrokerAccount(): RegisteredBrokerAccount | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(REGISTERED_ACCOUNT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<RegisteredBrokerAccount>;
+    if (
+      typeof parsed.accountName !== "string" ||
+      typeof parsed.demoAccountLast8 !== "string" ||
+      typeof parsed.registeredAt !== "string"
+    ) {
+      return null;
+    }
+    return {
+      accountName: parsed.accountName,
+      demoAccountLast8: parsed.demoAccountLast8,
+      registeredAt: parsed.registeredAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRegisteredBrokerAccount(account: RegisteredBrokerAccount) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(REGISTERED_ACCOUNT_STORAGE_KEY, JSON.stringify(account));
+  } catch {
+    // Registration is a frontend-only convenience until a durable account API exists.
+  }
 }
 
 function PanelsCatalog({
@@ -543,8 +1287,8 @@ function PanelsCatalog({
   onCommand: (command: LayoutCommand) => void;
 }) {
   return (
-    <div className="panel-catalog-list" aria-label="Panel catalog">
-      <div className="settings-section-title">Workspace panels</div>
+    <div className="panel-catalog-list" aria-label="패널 목록">
+      <div className="settings-section-title">작업 패널</div>
       {PANEL_CATALOG_TYPES.map((panelType) => (
         <PanelCatalogItem
           key={panelType}
@@ -629,11 +1373,11 @@ function PanelCatalogItem({
     <div
       className="panel-catalog-item"
       data-panel-catalog-type={panelType}
-      aria-label={`Add ${definition.title} panel`}
+      aria-label={`${definition.title} 패널 추가`}
       draggable
       role="button"
       tabIndex={0}
-      title={`Drag ${definition.title} into the workspace`}
+      title={`${definition.title} 패널을 작업 화면으로 드래그`}
       onDragStart={(event) => {
         event.dataTransfer.setData(PANEL_CATALOG_MIME, panelType);
         event.dataTransfer.setData("text/plain", panelType);
@@ -650,25 +1394,23 @@ function PanelCatalogItem({
 function catalogDescription(panelType: PanelType): string {
   switch (panelType) {
     case "chart":
-      return "Chart workspace";
+      return "차트 작업 공간";
     case "newsFeed":
-      return "Market news";
-    case "symbolSummary":
-      return "Symbol snapshot";
-    case "aiSummary":
-      return "AI summary";
-    case "watchlist":
-      return "Ticker list";
+      return "시장 뉴스";
+    case "hotRanking":
+      return "거래대금 Top 10";
     case "indicatorCompare":
-      return "Indicator compare";
+      return "지표 비교";
+    case "aiSummary":
+      return "AI 요약";
     case "orderTicket":
-      return "Order entry";
-    case "proposalReview":
-      return "Proposal review";
-    case "notifications":
-      return "Alerts";
+      return "주문 입력";
+    case "portfolioHoldings":
+      return "모의투자 보유종목";
+    case "ontologyGraph":
+      return "기업 관계";
     default:
-      return "Workspace panel";
+      return "작업 패널";
   }
 }
 
@@ -688,7 +1430,7 @@ function LayoutsSettings({
 
   return (
     <div className="layout-settings">
-      <div className="settings-section-title">Default layouts</div>
+      <div className="settings-section-title">기본 프리셋</div>
       {defaultLayouts.map((record) => (
         <LayoutRecordRow
           key={record.id}
@@ -699,9 +1441,9 @@ function LayoutsSettings({
         />
       ))}
 
-      <div className="settings-section-title">User layouts</div>
+      <div className="settings-section-title">사용자 프리셋</div>
       {userLayouts.length === 0 ? (
-        <span className="empty-layout-note">No user layouts</span>
+        <span className="empty-layout-note">저장된 사용자 프리셋이 없습니다</span>
       ) : (
         userLayouts.map((record) => (
           <LayoutRecordRow
@@ -716,9 +1458,9 @@ function LayoutsSettings({
       <button
         className="add-layout-button"
         disabled={userLayouts.length >= MAX_USER_LAYOUTS}
-        onClick={() => onCommand(makeCommand("layout.save", "user", { name: `User Layout ${userLayouts.length + 1}` }))}
+        onClick={() => onCommand(makeCommand("layout.save", "user", { name: `레이어 프리셋 ${userLayouts.length + 1}` }))}
       >
-        <Plus size={15} /> Add layout
+        <Plus size={15} /> 프리셋 추가
       </button>
     </div>
   );
@@ -748,7 +1490,7 @@ function LayoutRecordRow({
         {record.name}
       </button>
       <button
-        title={favoriteDisabled ? "Favorite slots are full" : "Favorite"}
+        title={favoriteDisabled ? "즐겨찾기 슬롯이 가득 찼습니다" : "즐겨찾기"}
         disabled={favoriteDisabled}
         onClick={() =>
           onCommand(
@@ -764,22 +1506,22 @@ function LayoutRecordRow({
       </button>
       {record.kind === "default" && (
         <button
-          title="Restore default"
+          title="기본값 복원"
           onClick={() => onCommand(makeCommand("layout.default.restore", "user", { defaultKey: record.defaultKey }))}
         >
           <RotateCcw size={14} />
         </button>
       )}
       <button
-        title="Update saved state"
+        title="저장 상태 업데이트"
         disabled={isSame}
         onClick={() => onCommand(makeCommand("layout.update", "user", { savedLayoutId: record.id }))}
       >
-        Edit
+        수정
       </button>
       {record.kind === "user" && (
         <button
-          title="Delete layout"
+          title="레이아웃 삭제"
           onClick={() => onCommand(makeCommand("layout.delete", "user", { savedLayoutId: record.id }))}
         >
           <Trash2 size={14} />
@@ -831,8 +1573,8 @@ function AgentSettings({
               <div className="agent-settings-editor">
                 <button
                   className="agent-icon-edit-button"
-                  title="Change agent icon"
-                  aria-label={`${agent.label} icon`}
+                  title="AI 아이콘 변경"
+                  aria-label={`${agent.label} 아이콘`}
                   onClick={() => onUpdateAgent(agent.id, { iconUrl: getNextAgentIconUrl(agent.iconUrl) })}
                 >
                   <img src={agent.iconUrl} alt="" />
@@ -841,16 +1583,16 @@ function AgentSettings({
                   className="agent-name-input"
                   value={agent.label}
                   onChange={(event) => onUpdateAgent(agent.id, { label: event.target.value })}
-                  aria-label={`${agent.label} name`}
+                  aria-label={`${agent.label} 이름`}
                 />
                 <button className="agent-delete-button" onClick={() => onDeleteAgent(agent.id)} disabled={agents.length <= 1}>
-                  Delete
+                  삭제
                 </button>
                 <textarea
                   className="agent-description-input"
                   value={agent.description}
                   onChange={(event) => onUpdateAgent(agent.id, { description: event.target.value })}
-                  aria-label={`${agent.label} description`}
+                  aria-label={`${agent.label} 설명`}
                 />
               </div>
             )}
@@ -858,7 +1600,7 @@ function AgentSettings({
         );
       })}
       <button className="add-layout-button" onClick={onAddAgent} disabled={agents.length >= 4}>
-        <Plus size={15} /> Add agent
+        <Plus size={15} /> AI 추가
       </button>
     </div>
   );
@@ -872,6 +1614,169 @@ const agentIconOptions = Array.from(
 function getNextAgentIconUrl(currentIconUrl: string): string {
   const currentIndex = agentIconOptions.indexOf(currentIconUrl);
   return agentIconOptions[(currentIndex + 1) % agentIconOptions.length] ?? agentIconOptions[0];
+}
+
+const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed"]);
+const AGENT_REPORT_POLL_INTERVAL_MS = 1000;
+const AGENT_REPORT_POLL_TIMEOUT_MS = 120000;
+const AGENT_ENTITY_RESOLVE_STATUSES = new Set<AgentEntityResolveStatus>(["confirmed", "not_found", "ambiguous", "unsupported"]);
+
+export type AgentEntityResolveStatus = "confirmed" | "not_found" | "ambiguous" | "unsupported";
+
+export type AgentEntityResolveResponse = {
+  status: AgentEntityResolveStatus;
+  chartShortcut: boolean;
+  symbol?: string;
+  canonicalName?: string;
+  matchedText?: string;
+  matchedAlias?: string;
+  confidence?: number;
+  entityType?: string;
+  reason?: string;
+};
+
+async function resolveAgentChartShortcut(query: string): Promise<AgentEntityResolveResponse | null> {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const params = new URLSearchParams({ q: trimmed, mode: "chartShortcut" });
+  try {
+    const response = await fetch(`/api/agents/entities/resolve?${params.toString()}`, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      return null;
+    }
+    return normalizeAgentEntityResolveResponse(await response.json() as unknown);
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAgentEntityResolveResponse(payload: unknown): AgentEntityResolveResponse {
+  const source = readUnknownObject(payload);
+  const rawStatus = readUnknownString(source?.status);
+  const status = rawStatus && AGENT_ENTITY_RESOLVE_STATUSES.has(rawStatus as AgentEntityResolveStatus)
+    ? rawStatus as AgentEntityResolveStatus
+    : "unsupported";
+  return {
+    status,
+    chartShortcut: source?.chartShortcut === true,
+    symbol: readUnknownString(source?.symbol) ?? undefined,
+    canonicalName: readUnknownString(source?.canonicalName) ?? undefined,
+    matchedText: readUnknownString(source?.matchedText) ?? undefined,
+    matchedAlias: readUnknownString(source?.matchedAlias) ?? undefined,
+    confidence: readUnknownNumber(source?.confidence) ?? undefined,
+    entityType: readUnknownString(source?.entityType) ?? undefined,
+    reason: readUnknownString(source?.reason) ?? undefined
+  };
+}
+
+async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalysisReport> {
+  let report = normalizeAgentAnalysisPayload(payload);
+  if (isTerminalAgentReport(report)) {
+    return report;
+  }
+
+  const statusUrl = resolveAgentReportStatusUrl(payload, report);
+  const deadline = Date.now() + AGENT_REPORT_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(AGENT_REPORT_POLL_INTERVAL_MS);
+    const response = await fetch(statusUrl, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(await readApiErrorMessage(response, "Agent report API"));
+    }
+    report = normalizeAgentAnalysisPayload(await response.json() as unknown);
+    if (isTerminalAgentReport(report)) {
+      return report;
+    }
+  }
+
+  throw new Error("AI 분석 결과를 제한 시간 안에 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
+}
+
+function normalizeAgentAnalysisPayload(payload: unknown): AgentAnalysisReport {
+  const source = readUnknownObject(payload);
+  const nestedReport = readUnknownObject(source?.report);
+  if (nestedReport) {
+    try {
+      return normalizeAgentAnalysisReport(nestedReport);
+    } catch {
+      // Fall back to the async envelope fields below.
+    }
+  }
+
+  try {
+    return normalizeAgentAnalysisReport(payload);
+  } catch (error) {
+    const fallback = normalizeAgentAnalysisEnvelope(source);
+    if (fallback) {
+      return fallback;
+    }
+    throw error;
+  }
+}
+
+function normalizeAgentAnalysisEnvelope(source: Record<string, unknown> | null): AgentAnalysisReport | null {
+  const analysisId = readUnknownString(source?.analysisId) ?? readUnknownString(source?.request_id);
+  if (!analysisId) {
+    return null;
+  }
+  const status = readUnknownString(source?.status) ?? "queued";
+  return {
+    analysisId,
+    status,
+    summary: readUnknownString(source?.summary) ?? statusSummaryForAgentReport(status),
+    symbol: readUnknownString(source?.symbol) ?? undefined,
+    route: null,
+    finalAnswer: null,
+    finalResponse: null,
+    agentAnswers: [],
+    findings: [],
+    providerEvidence: [],
+    dailySummaries: [],
+    notificationDecision: null,
+    layoutProposal: null,
+    timing: null
+  };
+}
+
+function statusSummaryForAgentReport(status: string): string {
+  if (status === "queued") {
+    return "AI 분석 요청이 대기열에 들어갔습니다.";
+  }
+  if (status === "running") {
+    return "AI 분석을 진행 중입니다.";
+  }
+  if (status === "failed") {
+    return "AI 분석에 실패했습니다.";
+  }
+  return `AI 분석 상태: ${status}`;
+}
+
+function isTerminalAgentReport(report: AgentAnalysisReport): boolean {
+  return !report.status || AGENT_REPORT_TERMINAL_STATUSES.has(report.status);
+}
+
+function resolveAgentReportStatusUrl(payload: unknown, report: AgentAnalysisReport): string {
+  const source = readUnknownObject(payload);
+  const statusUrl = readUnknownString(source?.status_url) ?? readUnknownString(source?.statusUrl);
+  return statusUrl ?? `/api/agents/reports/${encodeURIComponent(report.analysisId)}`;
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function readUnknownObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readUnknownString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readUnknownNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 async function readApiErrorMessage(response: Response, label: string): Promise<string> {
@@ -891,5 +1796,5 @@ async function readApiErrorMessage(response: Response, label: string): Promise<s
     detail = "";
   }
 
-  return detail.trim() ? `${label} returned ${response.status}: ${detail}` : `${label} returned ${response.status}`;
+  return detail.trim() ? `${label} 응답 오류 ${response.status}: ${detail}` : `${label} 응답 오류 ${response.status}`;
 }

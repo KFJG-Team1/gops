@@ -7,13 +7,12 @@ export const PANEL_CATALOG_MIME = "application/x-gops-panel-type";
 export const PANEL_CATALOG_TYPES: PanelType[] = [
   "chart",
   "newsFeed",
-  "symbolSummary",
-  "aiSummary",
-  "orderTicket",
-  "watchlist",
+  "hotRanking",
   "indicatorCompare",
-  "proposalReview",
-  "notifications"
+  "aiSummary",
+  "portfolioHoldings",
+  "orderTicket",
+  "ontologyGraph"
 ];
 
 export type WorkspaceDropCell = {
@@ -54,17 +53,18 @@ export type PanelDropPreview =
 export function getWorkspaceDropCell(
   frameRect: FrameRectLike,
   clientX: number,
-  clientY: number
+  clientY: number,
+  systemColumnVisible = true
 ): WorkspaceDropCell | null {
   const x = clientX - frameRect.left;
   const y = clientY - frameRect.top;
-  const workspaceRight = (columnLinePercent(workspaceColumnCount + 1) / 100) * frameRect.width;
+  const workspaceRight = (columnLinePercent(workspaceColumnCount + 1, systemColumnVisible) / 100) * frameRect.width;
 
   if (x < 0 || y < 0 || x > workspaceRight || y > frameRect.height || frameRect.width <= 0 || frameRect.height <= 0) {
     return null;
   }
 
-  const columnStarts = workspaceColumnStarts(frameRect.width);
+  const columnStarts = workspaceColumnStarts(frameRect.width, systemColumnVisible);
   let col = 0;
   for (let index = 0; index < workspaceColumnCount; index += 1) {
     const start = columnStarts[index] ?? 0;

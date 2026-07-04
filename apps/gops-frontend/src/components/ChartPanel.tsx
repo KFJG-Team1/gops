@@ -1,1011 +1,768 @@
 import {
   ArrowUpRight,
-  BarChart3,
-  Bot,
-  ChartCandlestick,
-  ChartLine,
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleDot,
   Eraser,
+  Hand,
   Eye,
   EyeOff,
-  Hand,
   Minus,
-  MoveLeft,
-  MoveRight,
   MousePointer2,
   Palette,
-  RefreshCcw,
-  RotateCcw,
-  RotateCw,
   Ruler,
   Square,
-  TextCursor,
   Trash2,
   Type,
-  ZoomIn,
-  ZoomOut
+  X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
-import { createPortal } from "react-dom";
-import { isActiveBackfillStatus, isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "@gops/chart-engine/backfill";
-import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
-import { makeChartCommand } from "@gops/chart-engine/commands";
-import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
-import { chartToolRegistry, drawingNeedsTwoAnchors } from "@gops/chart-engine/registries";
-import { chartIntervals, defaultVisibleBarsForInterval, maxRequestBarsForInterval } from "@gops/chart-engine/intervals";
-import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "@gops/chart-engine/marketDataAdapter";
-import { buildRenderScene } from "@gops/chart-engine/renderScene";
-import { createCoordinateTransform } from "@gops/chart-engine/scales";
-import { clampRightOffset, dragDeltaToRightOffset, normalizeViewport, zoomViewport } from "@gops/chart-engine/viewport";
 import {
-  getCandlesForDocument,
-  getChartDocumentForPanel,
-  getDataStatusForDocument,
-  getStreamMessageForDocument,
-  getStreamStatusForDocument,
-  type ChartRuntimeAction,
-  type ChartRuntimeState
-} from "@gops/chart-engine/runtime";
-import { candleKey } from "@gops/chart-engine/candleStore";
-import { normalizeSupportedSymbol, normalizeWatchlistPayload, type SupportedSymbol } from "@gops/chart-engine/symbols";
-import type { ChartLayerKey, ChartLineExtension, ChartToolMode, DrawingAnchor, DrawingEntity, DrawingType, ChartViewport, RenderScene, StreamStatus } from "@gops/chart-engine/types";
-import { useElementSize } from "../hooks/useElementSize";
-import type { PanelInstance } from "../layout/types";
+  type CSSProperties,
+  forwardRef,
+  PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  WheelEvent as ReactWheelEvent
+} from "react";
+import { requestChartAgentActions } from "../agent/chartAgent";
+import { applyChartAction, applyChartActions } from "../chart/actions";
+import { ChartCanvas } from "../chart/ChartCanvas";
+import { fetchCandles, openChartSocket } from "../chart/cdcClient";
+import {
+  buildDraftPreviewDrawing,
+  buildSingleAnchorPreviewDrawing,
+  buildDraggedAnchors,
+  defaultDrawingLabel,
+  defaultDrawingStyle,
+  drawingNeedsTwoAnchors,
+  drawingTools,
+  drawingTypeFromToolMode,
+  hitTestDrawing,
+  makeDrawing,
+  type DrawingDraft,
+  type DrawingDrag
+} from "../chart/drawings";
+import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
+import { createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
+import { adjacentInterval, anchoredViewportForCandles, type ViewportAnchor } from "../chart/intervalNavigation";
+import {
+  candleRange,
+  childQueryRange,
+  expansionLimitForInterval,
+  nextDigTargetInterval,
+  semanticExpansionId,
+  snapshotFromSemanticUnit,
+  type SemanticExpansion,
+  type SemanticRenderUnit,
+  type SemanticSelectionSnapshot
+} from "../chart/semanticTimeline";
+import type { CandleDto, CandleEventDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
+import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
+import { dragDeltaToRightOffset, latestCandleRightOffset, normalizeViewport, zoomViewport, zoomViewportAt, type ChartViewport } from "../chart/viewport";
 
-const baseLayerControls: Array<{ layer: ChartLayerKey; label: string; icon: "candle" | "volume" }> = [
-  { layer: "candles", label: "Candle", icon: "candle" },
-  { layer: "volume", label: "Volume", icon: "volume" }
-];
-
-const movingAverageLayers: Array<{ layer: ChartLayerKey; label: string }> = [
-  { layer: "ma5", label: "MA5" },
-  { layer: "ma20", label: "MA20" },
-  { layer: "ma60", label: "MA60" }
-];
-
-type ChartPanelProps = {
-  panel: PanelInstance;
-  runtime: ChartRuntimeState;
-  autoApplyEnabled: boolean;
-  backfillEligibleSymbols: readonly SupportedSymbol[];
-  onChartAction: (action: ChartRuntimeAction) => void;
-  onAskAgent: (panelId: string, chartDocumentId: string) => void;
+const initialLayers: Record<ChartLayerKey, boolean> = {
+  candles: true,
+  volume: true,
+  ma5: true,
+  ma20: true,
+  ma60: true
 };
+
+const initialVolumeRatio = 0.22;
+
+function segmentedClass(active = false): string {
+  return active ? "segmented active" : "segmented";
+}
+
+function iconButtonClass(active = false): string {
+  return active ? "icon-button active" : "icon-button";
+}
+
+function createInitialChart(symbol: string): ChartState {
+  return {
+    symbol: symbol.toUpperCase(),
+    interval: "1D",
+    candles: [],
+    status: "loading",
+    layers: initialLayers,
+    volumeRatio: initialVolumeRatio,
+    visibleCount: defaultVisibleBarsForInterval("1D"),
+    rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1D")),
+    toolMode: "pan",
+    trendLineExtension: "segment",
+    drawings: [],
+    streamState: "connecting"
+  };
+}
 
 type DragAnchor = {
   x: number;
+  y: number;
   rightOffset: number;
   visibleCount: number;
 };
 
-type DrawingDraft = {
-  type: DrawingType;
-  first: DrawingAnchor;
+type PendingSemanticClick = {
+  unit: SemanticRenderUnit;
+  x: number;
+  y: number;
 };
 
-type DrawingDrag = {
-  drawing: DrawingEntity;
-  anchor: DrawingAnchor;
-  anchorIndex: number | null;
-};
-
-type TooltipAttributes = {
-  "aria-label": string;
-  "data-tooltip": string;
-};
-
-const trendLineExtensionOptions: Array<{ value: ChartLineExtension; label: string }> = [
-  { value: "segment", label: "Segment (two endpoints)" },
-  { value: "ray", label: "Ray (extends one way)" },
-  { value: "line", label: "Line (extends both ways)" }
-];
-
-type FloatingMenuPosition = {
-  top: number;
-  left: number;
-};
-
-type HoverTooltip = FloatingMenuPosition & {
+type ExpansionOverlay = {
+  id: string;
   label: string;
-  placement: "bottom" | "right";
+  left: number;
+  right: number;
+  top: number;
+  status: string;
 };
 
-const liveIdleMessage = "Live stream is connected; waiting for market data.";
-const liveRecentlyIdleMessage = "No new live candles recently; chart is using stored candles.";
-const liveIdleDelayMs = 45_000;
+type ChartMemory = {
+  expansions: SemanticExpansion[];
+  drawings: DrawingEntity[];
+  layers: Record<ChartLayerKey, boolean>;
+  volumeRatio: number;
+  visibleCount: number;
+  rightOffset: number;
+  selectedDrawingId?: string;
+};
 
-function tooltipAttributes(label: string): TooltipAttributes {
-  return {
-    "aria-label": label,
-    "data-tooltip": label
-  };
-}
+type PendingAgentDrawingPreview = {
+  id: string;
+  actions: ChartAction[];
+  drawings: DrawingEntity[];
+  visible: boolean;
+};
 
-function streamStatusLabel(status: StreamStatus): string {
-  switch (status) {
-    case "connecting":
-      return "Connecting";
-    case "idle":
-      return "Idle";
-    case "live":
-      return "Live";
-    case "stale":
-      return "Stale";
-    case "error":
-      return "Error";
-    default:
-      return "Unknown";
-  }
-}
+export type LiveQuote = {
+  priceText: string;
+  changeText: string;
+  percentText: string;
+  tone: "up" | "down" | "flat" | "unavailable";
+};
 
-export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onAskAgent }: ChartPanelProps) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const sceneRef = useRef<RenderScene | null>(null);
-  const dragAnchorRef = useRef<DragAnchor | null>(null);
-  const drawingDragRef = useRef<DrawingDrag | null>(null);
-  const transientViewportRef = useRef<ChartViewport | null>(null);
-  const comparisonRequestsRef = useRef<Set<string>>(new Set());
-  const backfillRequestsRef = useRef<Set<string>>(new Set());
-  const terminalBackfillRetryRef = useRef<Set<string>>(new Set());
-  const rangeRequestsRef = useRef<Set<string>>(new Set());
-  const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
-  const document = getChartDocumentForPanel(runtime, panel);
-  const candles = getCandlesForDocument(runtime, document);
-  const dataStatus = getDataStatusForDocument(runtime, document);
-  const streamStatus = getStreamStatusForDocument(runtime, document);
-  const streamMessage = getStreamMessageForDocument(runtime, document);
-  const pendingPreview = runtime.pendingPreviewByDocumentId[document.id];
-  const [crosshairPoint, setCrosshairPoint] = useState<{ x: number; y: number } | undefined>();
+type ChartPanelProps = {
+  symbol: string;
+  symbols: ChartSymbolDto[];
+  laneHeight?: number;
+  onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
+  onChartHoverChange?: (hovered: boolean) => void;
+  onHeaderChange?: (header: ChartHeaderSnapshot) => void;
+};
+
+export type ChartPanelHandle = {
+  runAgentPrompt: (prompt: string) => Promise<ChartAgentPromptResult>;
+};
+
+export type ChartAgentPromptResult = {
+  message: string;
+};
+
+export type ChartHeaderSnapshot = {
+  symbol: string;
+  interval: ChartInterval;
+  name: string;
+  searchLabel: string;
+  liveQuote: LiveQuote;
+};
+
+type VolumeResizeDrag = {
+  startY: number;
+  startRatio: number;
+  sceneHeight: number;
+};
+
+const priceFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+const unavailableQuote: LiveQuote = {
+  priceText: "-",
+  changeText: "-",
+  percentText: "-",
+  tone: "unavailable"
+};
+
+const minLaneHeightForVolume = 245;
+
+export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function ChartPanel({
+  symbol,
+  symbols,
+  laneHeight,
+  onSemanticSelectionChange,
+  onChartHoverChange,
+  onHeaderChange
+}: ChartPanelProps, ref) {
+  const [chart, setChart] = useState<ChartState>(() => createInitialChart(symbol));
+  const [previousClose, setPreviousClose] = useState<number | null>(null);
+  const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
+  const [chartMemory, setChartMemory] = useState<Record<string, ChartMemory>>({});
+  const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
+  const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
+  const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
+  const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
+  const [volumeHandleTop, setVolumeHandleTop] = useState<number | null>(null);
+  const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
+  const [agentDrawingPreview, setAgentDrawingPreview] = useState<PendingAgentDrawingPreview | null>(null);
+  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
+  const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
+  const [maMenuOpen, setMaMenuOpen] = useState(false);
+  const [trendMenuOpen, setTrendMenuOpen] = useState(false);
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
-  const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
-  const [previewPulseKey, setPreviewPulseKey] = useState<string | null>(null);
-  const [labelEditorOpen, setLabelEditorOpen] = useState(false);
-  const [labelDraft, setLabelDraft] = useState("");
-  const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false);
-  const [comparisonDraft, setComparisonDraft] = useState("");
-  const [comparisonOptions, setComparisonOptions] = useState<SupportedSymbol[]>([]);
-  const [maMenuOpen, setMaMenuOpen] = useState(false);
-  const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
-  const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
-  const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
-  const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
-  const pendingPreviewKey = pendingPreview ? `${pendingPreview.id}:${pendingPreview.createdAt}` : null;
-  const comparisonMatches = comparisonOptions.filter((symbol) => symbol.includes(comparisonDraft.trim().toUpperCase()));
-  const comparisonSymbols = Array.from(new Set([
-    ...document.comparisons.map((comparison) => comparison.symbol),
-    ...(pendingPreview?.comparisons ?? []).map((comparison) => comparison.symbol)
-  ]));
-  const comparisonSymbolsKey = comparisonSymbols.join("|");
-  const comparisonAvailabilityKey = comparisonSymbols.map((symbol) => {
-    const key = candleKey(symbol, document.timeframe);
-    return `${key}:${runtime.candlesByKey[key]?.length ? "ready" : "missing"}`;
-  }).join("|");
-  const documentDataKey = candleKey(document.symbol, document.timeframe);
-  const backfillEligibleKey = backfillEligibleSymbols.join("|");
-  const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
-  const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
-  const chartDataRenderable = isChartDataRenderable(dataStatus);
-  const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
-  const sceneDocument = useMemo(
-    () => (transientViewport || transientDrawings)
-      ? { ...document, viewport: transientViewport ?? document.viewport, drawings: transientDrawings ?? document.drawings }
-      : document,
-    [document, transientDrawings, transientViewport]
-  );
-  const target = useMemo(
-    () => ({ panelId: panel.id, chartDocumentId: document.id }),
-    [document.id, panel.id]
-  );
+  const sceneRef = useRef<ChartScene | null>(null);
+  const chartRef = useRef<ChartState>(chart);
+  const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
+  const chartMemoryRef = useRef<Record<string, ChartMemory>>(chartMemory);
+  const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
+  const overlayKeyRef = useRef("");
+  const dragAnchorRef = useRef<DragAnchor | null>(null);
+  const drawingDragRef = useRef<DrawingDrag | null>(null);
+  const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
+  const transientViewportRef = useRef<ChartViewport | null>(null);
+  const volumeResizeRef = useRef<VolumeResizeDrag | null>(null);
 
   useEffect(() => {
-    if (!pendingPreviewKey) {
-      setPreviewPulseKey(null);
-      return undefined;
-    }
-    setPreviewPulseKey(pendingPreviewKey);
-    const timer = window.setTimeout(() => {
-      setPreviewPulseKey((current) => (current === pendingPreviewKey ? null : current));
-    }, 1400);
-    return () => window.clearTimeout(timer);
-  }, [pendingPreviewKey]);
+    chartRef.current = chart;
+  }, [chart]);
 
   useEffect(() => {
-    setLabelDraft(selectedDrawing?.label ?? defaultDrawingLabel(selectedDrawing?.type) ?? "");
-    if (!selectedDrawing) {
-      setLabelEditorOpen(false);
-    }
-  }, [selectedDrawing?.id, selectedDrawing?.label, selectedDrawing?.type]);
+    activeExpansionsRef.current = activeExpansions;
+  }, [activeExpansions]);
 
   useEffect(() => {
-    if (!hoverTooltip) {
-      return undefined;
-    }
-    const clearTooltipOutsidePanel = (event: PointerEvent) => {
-      const targetNode = event.target instanceof Node ? event.target : null;
-      if (panelRef.current && targetNode && !panelRef.current.contains(targetNode)) {
-        setHoverTooltip(null);
-      }
-    };
-    window.addEventListener("pointermove", clearTooltipOutsidePanel, true);
-    return () => window.removeEventListener("pointermove", clearTooltipOutsidePanel, true);
-  }, [hoverTooltip]);
+    chartMemoryRef.current = chartMemory;
+  }, [chartMemory]);
 
   useEffect(() => {
-    if (!comparisonPickerOpen) {
-      setComparisonOptions([]);
-      return undefined;
-    }
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      q: comparisonDraft.trim(),
-      limit: "20"
-    });
-
-    fetch(`/api/market/symbols/search?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Symbol search API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        setComparisonOptions(
-          normalizeWatchlistPayload(payload)
-            .map((item) => item.symbol)
-            .filter((symbol) => symbol !== document.symbol)
-        );
-      })
-      .catch((error: unknown) => {
-        if (!cancelled && !isAbortError(error)) {
-          setComparisonOptions([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [comparisonDraft, comparisonPickerOpen, document.symbol]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      symbol: document.symbol,
-      interval: document.timeframe,
-      ma: "5,20,60",
-      limit: String(defaultVisibleBarsForInterval(document.timeframe))
-    });
-
-    onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
-
-    fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Candle API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) });
-      })
-      .catch((error: unknown) => {
-        if (cancelled || isAbortError(error)) {
-          return;
-        }
-        onChartAction({
-          kind: "chart.snapshot.failed",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          message: "Market data is unavailable."
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [document.symbol, document.timeframe, onChartAction, snapshotReloadToken]);
-
-  useEffect(() => {
-    const key = candleKey(document.symbol, document.timeframe);
-    const sourceInterval = dataStatus.sourceInterval ?? document.timeframe;
-    const forceBackfill = shouldForceBackfill(dataStatus);
-    const terminalRetryKey = `${document.symbol}:${sourceInterval}`;
-    if (
-      !backfillEligibleSymbols.includes(document.symbol) ||
-      !shouldRequestBackfill(dataStatus) ||
-      backfillRequestsRef.current.has(key) ||
-      (forceBackfill && terminalBackfillRetryRef.current.has(terminalRetryKey))
-    ) {
-      return undefined;
-    }
-
-    backfillRequestsRef.current.add(key);
-    if (forceBackfill) {
-      terminalBackfillRetryRef.current.add(terminalRetryKey);
-    }
-    let cancelled = false;
-    let pollTimer: number | undefined;
-    const controller = new AbortController();
-
-    const applyBackfillStatus = (payload: unknown) => {
-      const status = normalizeBackfillStatusPayload(payload);
-      if (cancelled) {
-        return;
-      }
-
-      if (status.status === "succeeded") {
-        backfillRequestsRef.current.delete(key);
-        setSnapshotReloadToken((current) => current + 1);
-        return;
-      }
-
-      if (isActiveBackfillStatus(status.status)) {
-        pollTimer = window.setTimeout(() => {
-          pollBackfillStatus(status.requestId);
-        }, 1200);
-        return;
-      }
-
-      backfillRequestsRef.current.delete(key);
-      onChartAction({
-        kind: "chart.data.status",
-        symbol: document.symbol,
-        interval: document.timeframe,
-        status: {
-          state: status.status === "failed" || status.status === "unavailable" ? "error" : "empty",
-          message: backfillStatusMessage(status.status, status.error),
-          source: dataStatus.source,
-          feed: dataStatus.feed,
-          backfillStatus: status.status,
-          canBackfill: !isActiveBackfillStatus(status.status) && status.status !== "unavailable",
-          sourceInterval: status.sourceInterval
-        }
-      });
-    };
-
-    const pollBackfillStatus = (requestId?: string) => {
-      const params = new URLSearchParams({
-        symbol: document.symbol,
-        interval: document.timeframe
-      });
-      if (requestId) {
-        params.set("requestId", requestId);
-      }
-
-      fetch(`/api/charts/backfill/status?${params.toString()}`, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Backfill status API returned ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then(applyBackfillStatus)
-        .catch((error: unknown) => {
-          if (cancelled || isAbortError(error)) {
-            return;
-          }
-          backfillRequestsRef.current.delete(key);
-          onChartAction({
-            kind: "chart.data.status",
-            symbol: document.symbol,
-            interval: document.timeframe,
-            status: {
-              state: "error",
-              message: error instanceof Error ? error.message : "Backfill status check failed.",
-              source: dataStatus.source,
-              feed: dataStatus.feed,
-              backfillStatus: "failed",
-              canBackfill: true,
-              sourceInterval: dataStatus.sourceInterval ?? document.timeframe
-            }
-          });
-        });
-    };
-
-    fetch("/api/charts/backfill", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        symbol: document.symbol,
-        interval: document.timeframe,
-        force: forceBackfill
-      })
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Backfill API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then(applyBackfillStatus)
-      .catch((error: unknown) => {
-        if (cancelled || isAbortError(error)) {
-          return;
-        }
-        backfillRequestsRef.current.delete(key);
-        onChartAction({
-          kind: "chart.data.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: {
-            state: "error",
-            message: error instanceof Error ? error.message : "Backfill request failed.",
-            source: dataStatus.source,
-            feed: dataStatus.feed,
-            backfillStatus: "failed",
-            canBackfill: true,
-            sourceInterval: dataStatus.sourceInterval ?? document.timeframe
-          }
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
-      }
-    };
-  }, [backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, onChartAction]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !("WebSocket" in window)) {
-      return;
-    }
-
-    const params = new URLSearchParams({
-      symbol: document.symbol,
-      interval: document.timeframe
-    });
-    let socket: WebSocket | null = null;
-    let reconnectTimer: number | undefined;
-    let idleTimer: number | undefined;
-    let closedByEffect = false;
-    let reconnectAttempt = 0;
-    let sawLiveCandle = false;
-
-    const clearIdleTimer = () => {
-      if (idleTimer) {
-        window.clearTimeout(idleTimer);
-        idleTimer = undefined;
-      }
-    };
-
-    const markIdle = (message = liveIdleMessage) => {
-      onChartAction({
-        kind: "chart.stream.status",
-        symbol: document.symbol,
-        interval: document.timeframe,
-        status: "idle",
-        message
-      });
-    };
-
-    const scheduleIdle = (message = liveRecentlyIdleMessage) => {
-      clearIdleTimer();
-      idleTimer = window.setTimeout(() => {
-        markIdle(message);
-      }, liveIdleDelayMs);
-    };
-
-    const connect = () => {
-      onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "connecting" });
-      socket = new WebSocket(resolveChartSocketUrl(params));
-
-      socket.onopen = () => {
-        reconnectAttempt = 0;
-        sawLiveCandle = false;
-        markIdle();
-        scheduleIdle();
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (isRealtimeControlPayload(payload)) {
-            if (payload.type === "HEARTBEAT" || payload.type === "MARKET_STATUS_UPDATE") {
-              if (!sawLiveCandle) {
-                markIdle();
-              }
-              scheduleIdle();
-              return;
-            }
-            if (payload.type === "ERROR") {
-              onChartAction({
-                kind: "chart.stream.status",
-                symbol: document.symbol,
-                interval: document.timeframe,
-                status: payload.retryable === true ? "stale" : "error",
-                message: typeof payload.detail === "string" ? payload.detail : "Live candle stream error."
-              });
-              return;
-            }
-            return;
-          }
-          sawLiveCandle = true;
-          scheduleIdle();
-          onChartAction({ kind: "chart.live", event: normalizeCandleEvent(payload) });
-        } catch (error) {
-          clearIdleTimer();
-          onChartAction({
-            kind: "chart.stream.status",
-            symbol: document.symbol,
-            interval: document.timeframe,
-            status: "error",
-            message: error instanceof Error ? error.message : "Invalid live candle event"
-          });
-        }
-      };
-
-      socket.onerror = () => {
-        clearIdleTimer();
-        onChartAction({
-          kind: "chart.stream.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: "error",
-          message: "Live candle stream error."
-        });
-      };
-
-      socket.onclose = () => {
-        clearIdleTimer();
-        if (closedByEffect) {
-          return;
-        }
-        onChartAction({ kind: "chart.stream.status", symbol: document.symbol, interval: document.timeframe, status: "stale" });
-        const delay = Math.min(3000, 600 + reconnectAttempt * 400);
-        reconnectAttempt += 1;
-        reconnectTimer = window.setTimeout(connect, delay);
-      };
-    };
-
-    connect();
-
-    return () => {
-      closedByEffect = true;
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      clearIdleTimer();
-      socket?.close();
-    };
-  }, [document.symbol, document.timeframe, onChartAction]);
-
-  const scene = useMemo(() => {
-    const nextScene = buildRenderScene({
-      state: backfillPreparing ? "loading" : chartDataRenderable ? "ready" : dataStatus.state,
-      message: backfillPreparing ? "Preparing candle data..." : dataStatus.message,
-      document: sceneDocument,
-      candles,
-      width: size.width,
-      height: size.height,
-      crosshair: crosshairPoint,
-      streamStatus,
-      comparisonCandlesBySymbol: Object.fromEntries(
-        comparisonSymbols.map((symbol) => [
-          symbol,
-          runtime.candlesByKey[candleKey(symbol, document.timeframe)] ?? []
-        ])
-      ),
-      pendingPreview
-    });
-    sceneRef.current = nextScene;
-    return nextScene;
-  }, [backfillPreparing, candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
-
-  useEffect(() => {
-    const controllers: AbortController[] = [];
-    const comparisonSymbols = comparisonSymbolsKey
-      ? comparisonSymbolsKey.split("|").filter(Boolean) as SupportedSymbol[]
-      : [];
-    const readyComparisonKeys = new Set(
-      comparisonAvailabilityKey
-        .split("|")
-        .filter((entry) => entry.endsWith(":ready"))
-        .map((entry) => entry.slice(0, entry.lastIndexOf(":")))
-    );
-
-    comparisonSymbols.forEach((symbol) => {
-      const key = candleKey(symbol, document.timeframe);
-      if (readyComparisonKeys.has(key)) {
-        return;
-      }
-      if (comparisonRequestsRef.current.has(key)) {
-        return;
-      }
-      comparisonRequestsRef.current.add(key);
-      const controller = new AbortController();
-      controllers.push(controller);
-      const params = new URLSearchParams({
-        symbol,
-        interval: document.timeframe,
-        ma: "5,20,60",
-        limit: String(defaultVisibleBarsForInterval(document.timeframe))
-      });
-      fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Comparison candle API returned ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then((payload) => onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) }))
-        .catch((error: unknown) => {
-          if (isAbortError(error)) {
-            return;
-          }
-          onChartAction({
-            kind: "chart.error",
-            chartDocumentId: document.id,
-            message: error instanceof Error ? error.message : "Comparison data unavailable."
-          });
-        })
-        .finally(() => {
-          comparisonRequestsRef.current.delete(key);
-        });
-    });
-
-    return () => {
-      controllers.forEach((controller) => controller.abort());
-    };
-  }, [comparisonAvailabilityKey, comparisonSymbolsKey, document.id, document.timeframe, onChartAction]);
-
-  useEffect(() => {
-    if (!candles.length || !dataStatus.hasMoreBefore) {
-      return undefined;
-    }
-
-    const targetLimit = maxRequestBarsForInterval(document.timeframe);
-    const defaultVisibleCount = defaultVisibleBarsForInterval(document.timeframe);
-    const targetVisibleCount = Math.min(targetLimit, Math.max(1, document.viewport.visibleCount));
-    const visibleEnd = Math.max(0, candles.length - document.viewport.rightOffset);
-    const visibleStart = Math.max(0, visibleEnd - targetVisibleCount);
-    const userZoomedPastDefault = targetVisibleCount > defaultVisibleCount;
-    const userPannedIntoHistory = document.viewport.rightOffset > 0;
-    const isLookingPastLoadedRange = userZoomedPastDefault && targetVisibleCount > candles.length;
-    const isNearLoadedOldest =
-      userPannedIntoHistory &&
-      visibleStart <= Math.max(24, Math.ceil(targetVisibleCount * 0.1));
-
-    if (!isLookingPastLoadedRange && !isNearLoadedOldest) {
-      return undefined;
-    }
-
-    const oldest = candles[0]?.timestamp;
-    if (!oldest) {
-      return undefined;
-    }
-
-    const missingVisibleCount = Math.max(0, targetVisibleCount - candles.length);
-    const remainingCapacity = Math.max(0, targetLimit - candles.length);
-    if (remainingCapacity <= 0) {
-      return undefined;
-    }
-    const pageLimit = Math.min(remainingCapacity, Math.max(defaultVisibleCount, missingVisibleCount + defaultVisibleCount));
-    const requestKey = `${document.symbol}:${document.timeframe}:before:${oldest}`;
-    if (rangeRequestsRef.current.has(requestKey)) {
-      return undefined;
-    }
-
-    rangeRequestsRef.current.add(requestKey);
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      symbol: document.symbol,
-      interval: document.timeframe,
-      ma: "5,20,60",
-      limit: String(pageLimit),
-      before: oldest
-    });
-
-    fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Historical range API returned ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then((payload) => onChartAction({ kind: "chart.snapshot.loaded", snapshot: normalizeCandleSnapshot(payload) }))
-      .catch((error: unknown) => {
-        if (isAbortError(error)) {
-          return;
-        }
-        onChartAction({
-          kind: "chart.error",
-          chartDocumentId: document.id,
-          message: error instanceof Error ? error.message : "Historical range data unavailable."
-        });
-      })
-      .finally(() => {
-        rangeRequestsRef.current.delete(requestKey);
-      });
-
-    return () => {
-      controller.abort();
-    };
+    const key = chartMemoryKey(chart.symbol, chart.interval);
+    const memory = captureChartMemory(chart, activeExpansions);
+    setChartMemory((current) => (
+      chartMemoryEquals(current[key], memory)
+        ? current
+        : { ...current, [key]: memory }
+    ));
   }, [
-    candles,
-    dataStatus.hasMoreBefore,
-    document.id,
-    document.symbol,
-    document.timeframe,
-    document.viewport.rightOffset,
-    document.viewport.visibleCount,
-    onChartAction
+    activeExpansions,
+    chart.drawings,
+    chart.interval,
+    chart.layers,
+    chart.rightOffset,
+    chart.selectedDrawingId,
+    chart.symbol,
+    chart.visibleCount,
+    chart.volumeRatio
   ]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || size.width <= 0 || size.height <= 0) {
-      return;
-    }
-    drawChartScene(canvas, scene);
-  }, [scene, size.height, size.width]);
+    const controller = new AbortController();
+    const requestKey = chartMemoryKey(chart.symbol, chart.interval);
+    const pendingLoad = pendingViewportAnchorRef.current?.key === requestKey ? pendingViewportAnchorRef.current : null;
+    setChart((current) => ({ ...current, status: "loading", message: "Loading CDC candles..." }));
+    fetchCandles({
+      symbol: chart.symbol,
+      interval: chart.interval,
+      limit: defaultVisibleBarsForInterval(chart.interval),
+      ma: [5, 20, 60]
+    }, controller.signal)
+      .then((response) => {
+        setChart((current) => ({
+          ...current,
+          candles: response.candles,
+          status: response.status,
+          message: response.error?.message ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
+          ...anchoredViewportForCandles(
+            response.candles,
+            current.interval,
+            pendingLoad?.anchor ?? null,
+            {
+              visibleCount: current.visibleCount,
+              rightOffset: current.rightOffset
+            },
+            sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
+          )
+        }));
+        if (pendingViewportAnchorRef.current?.key === requestKey) {
+          pendingViewportAnchorRef.current = null;
+        }
+      })
+      .catch((error: unknown) => {
+        setChart((current) => ({
+          ...current,
+          status: "error",
+          message: error instanceof Error ? error.message : "Candle request failed"
+        }));
+      });
+    return () => controller.abort();
+  }, [chart.symbol, chart.interval]);
 
-  const placeFloatingMenu = (element: HTMLElement, width = 190) => {
-    const rect = element.getBoundingClientRect();
-    const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
-    setFloatingMenuPosition({ top: rect.bottom + 6, left });
-  };
+  useEffect(() => {
+    const controller = new AbortController();
+    setPreviousClose(null);
+    fetchCandles({ symbol: chart.symbol, interval: "1D", limit: 5, ma: [] }, controller.signal)
+      .then((response) => {
+        const closed = [...response.candles].reverse().find((candle) => candle.isClosed && Number.isFinite(candle.close));
+        setPreviousClose(closed?.close ?? null);
+      })
+      .catch(() => {
+        setPreviousClose(null);
+      });
+    return () => controller.abort();
+  }, [chart.symbol]);
 
-  const updateHoverTooltip = (event: ReactPointerEvent<HTMLElement>) => {
-    const tooltipTarget = readTooltipTarget(event.target, event.currentTarget);
-    if (!tooltipTarget) {
-      setHoverTooltip(null);
+  useEffect(() => {
+    return openChartSocket(
+      chart.symbol,
+      chart.interval,
+      (event) => setChart((current) => applyCandleEvent(current, event)),
+      (streamState) => setChart((current) => ({ ...current, streamState }))
+    );
+  }, [chart.symbol, chart.interval]);
+
+  useEffect(() => {
+    onSemanticSelectionChange?.(selectedSemanticNode);
+  }, [onSemanticSelectionChange, selectedSemanticNode]);
+
+  useEffect(() => {
+    if (typeof laneHeight !== "number" || laneHeight >= minLaneHeightForVolume) {
       return;
     }
-    const label = tooltipTarget.dataset.tooltip;
-    if (!label) {
-      setHoverTooltip(null);
-      return;
-    }
-    const rect = tooltipTarget.getBoundingClientRect();
-    const placement = tooltipTarget.closest(".chart-drawing-rail") ? "right" : "bottom";
-    const nextTooltip: HoverTooltip = placement === "right"
-      ? { label, placement, top: rect.top + rect.height / 2, left: rect.right + 7 }
-      : { label, placement, top: rect.bottom + 6, left: rect.left + rect.width / 2 };
-    setHoverTooltip((current) => (
-      current &&
-      current.label === nextTooltip.label &&
-      current.placement === nextTooltip.placement &&
-      Math.abs(current.top - nextTooltip.top) < 0.5 &&
-      Math.abs(current.left - nextTooltip.left) < 0.5
-        ? current
-        : nextTooltip
+    setChart((current) => (
+      current.layers.volume
+        ? applyChartAction(current, { type: "setLayer", layer: "volume", enabled: false })
+        : current
     ));
-  };
+  }, [laneHeight]);
 
-  const runCommand = (type: Parameters<typeof makeChartCommand>[0], payload: Record<string, unknown> = {}) => {
-    onChartAction({ kind: "chart.command", command: makeChartCommand(type, "user", target, payload, undefined, "chartPanel") });
-  };
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = volumeResizeRef.current;
+      if (!drag) {
+        return;
+      }
+      event.preventDefault();
+      const nextRatio = drag.startRatio - (event.clientY - drag.startY) / drag.sceneHeight;
+      setChart((current) => applyChartAction(current, { type: "setVolumeRatio", ratio: nextRatio }));
+    };
+    const handlePointerEnd = () => {
+      volumeResizeRef.current = null;
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, []);
 
-  const setDocumentToolMode = (
-    mode: ChartToolMode,
-    trendLineExtension = document.interactionState.trendLineExtension,
-    options: { preserveDraft?: boolean } = {}
+  const renderChart = useMemo(() => ({
+    ...chart,
+    visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
+    rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
+    drawings: transientDrawings ?? chart.drawings
+  }), [chart, transientDrawings, transientViewport]);
+  const renderExpansions = activeExpansions;
+  const previewDrawings = useMemo(() => agentDrawingPreview?.visible ? agentDrawingPreview.drawings : [], [agentDrawingPreview]);
+  const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
+  const currentSymbol = symbols.find((symbol) => symbol.symbol === chart.symbol) ?? {
+    symbol: chart.symbol,
+    name: chart.symbol,
+    sector: undefined,
+    isMock: false
+  };
+  const liveQuote = useMemo(() => buildLiveQuote(chart, previousClose), [chart, previousClose]);
+  const currentSymbolLabel = `${currentSymbol.symbol} - ${currentSymbol.name}`;
+
+  useEffect(() => {
+    onHeaderChange?.({
+      symbol: currentSymbol.symbol,
+      interval: chart.interval,
+      name: currentSymbol.name,
+      searchLabel: currentSymbolLabel,
+      liveQuote
+    });
+  }, [
+    chart.interval,
+    currentSymbol.name,
+    currentSymbol.symbol,
+    currentSymbolLabel,
+    liveQuote,
+    onHeaderChange
+  ]);
+
+  const dispatchChartAction = useCallback((action: ChartAction) => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    setChart((current) => applyChartAction(current, action));
+  }, []);
+
+  const persistCurrentChartMemory = useCallback(() => {
+    const current = chartRef.current;
+    const key = chartMemoryKey(current.symbol, current.interval);
+    const memory = captureChartMemory(current, activeExpansionsRef.current);
+    chartMemoryRef.current = { ...chartMemoryRef.current, [key]: memory };
+    setChartMemory((existing) => (
+      chartMemoryEquals(existing[key], memory)
+        ? existing
+        : { ...existing, [key]: memory }
+    ));
+  }, []);
+
+  const clearSemanticState = useCallback(() => {
+    setHoveredSemanticNodeId(undefined);
+    setHoverSnapshot(null);
+    setSelectedSemanticNode(null);
+    setExpansionOverlays([]);
+    setMaMenuOpen(false);
+    setTrendMenuOpen(false);
+  }, []);
+
+  const switchSymbolInterval = useCallback((
+    symbol: string,
+    interval: ChartInterval,
+    options: { anchor?: ViewportAnchor } = {}
   ) => {
-    if (!options.preserveDraft) {
-      setDrawingDraft(null);
-      setTransientDrawings(null);
+    persistCurrentChartMemory();
+    const normalizedSymbol = symbol.toUpperCase();
+    const key = chartMemoryKey(normalizedSymbol, interval);
+    const memory = chartMemoryRef.current[key];
+    const nextExpansions = memory?.expansions ?? [];
+    if (options.anchor) {
+      pendingViewportAnchorRef.current = {
+        key,
+        anchor: {
+          ...options.anchor,
+          visibleCount: options.anchor.visibleCount ?? memory?.visibleCount ?? defaultVisibleBarsForInterval(interval)
+        }
+      };
+    } else {
+      pendingViewportAnchorRef.current = null;
     }
-    onChartAction({
-      kind: "chart.command",
-      command: makeChartCommand(
-        "chart.drawing.clearSelection",
-        "system",
-        target,
-        { mode, trendLineExtension },
-        undefined,
-        "chartPanel"
-      )
-    });
-  };
+    activeExpansionsRef.current = nextExpansions;
+    setActiveExpansions(nextExpansions);
+    setAgentDrawingPreview(null);
+    clearSemanticState();
+    setChart((current) => restoreChartFromMemory(current, normalizedSymbol, interval, memory));
+  }, [clearSemanticState, persistCurrentChartMemory]);
 
-  const saveSelectedDrawingLabel = () => {
-    if (!selectedDrawing) {
+  const setSymbol = useCallback((symbol: string) => {
+    switchSymbolInterval(symbol, chartRef.current.interval);
+  }, [switchSymbolInterval]);
+
+  useEffect(() => {
+    const normalizedSymbol = symbol.toUpperCase();
+    if (normalizedSymbol !== chartRef.current.symbol) {
+      setSymbol(normalizedSymbol);
+    }
+  }, [setSymbol, symbol]);
+
+  const setInterval = useCallback((interval: ChartInterval) => {
+    const current = chartRef.current;
+    if (current.interval === interval) {
       return;
     }
-    runCommand("chart.drawing.update", {
-      drawingId: selectedDrawing.id,
-      drawingPatch: {
-        label: labelDraft.trim()
+    switchSymbolInterval(current.symbol, interval, {
+      anchor: {
+        mode: "right",
+        timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
+        visibleCount: chartMemoryRef.current[chartMemoryKey(current.symbol, interval)]?.visibleCount ?? defaultVisibleBarsForInterval(interval)
       }
     });
-    setLabelEditorOpen(false);
-  };
+  }, [switchSymbolInterval]);
 
-  const updateSelectedDrawingStyle = () => {
-    if (!selectedDrawing) {
-      return;
-    }
-    const nextColor = selectedDrawing.style.color === "#dc2626" ? defaultDrawingStyle(selectedDrawing.type).color : "#dc2626";
-    runCommand("chart.drawing.update", {
-      drawingId: selectedDrawing.id,
-      drawingPatch: {
-        style: { ...selectedDrawing.style, color: nextColor, textColor: nextColor }
+  const setToolMode = useCallback((toolMode: ChartToolMode) => {
+    dispatchChartAction({ type: "setTool", toolMode });
+  }, [dispatchChartAction]);
+
+  const setTrendLineExtension = useCallback((extension: ChartLineExtension) => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    setChart((current) => ({ ...current, toolMode: "draw-trendLine", trendLineExtension: extension }));
+  }, []);
+
+  const toggleLayer = useCallback((layer: ChartLayerKey) => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    setChart((current) => {
+      if (layer === "volume") {
+        const enabled = !current.layers.volume;
+        if (enabled && typeof laneHeight === "number" && laneHeight < minLaneHeightForVolume) {
+          return current;
+        }
+        return applyChartAction(current, { type: "setLayer", layer, enabled });
       }
+      return applyChartAction(current, { type: "toggleLayer", layer });
     });
-  };
+  }, [laneHeight]);
 
-  const removeSelectedDrawing = () => {
-    if (!selectedDrawing) {
+  const applyAgentActions = useCallback((actions: ChartAction[]) => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    const drawingActions = actions.filter(isDrawingAction);
+    const immediateActions = actions.filter((action) => !isDrawingAction(action));
+    const baseChart = immediateActions.length ? applyChartActions(chartRef.current, immediateActions) : chartRef.current;
+    if (immediateActions.length) {
+      setChart(baseChart);
+    }
+    if (drawingActions.length) {
+      const previewChart = applyChartActions(baseChart, drawingActions);
+      setAgentDrawingPreview({
+        id: `agent-preview-${Date.now()}`,
+        actions: drawingActions,
+        drawings: changedPreviewDrawings(baseChart.drawings, previewChart.drawings),
+        visible: true
+      });
+    } else {
+      setAgentDrawingPreview(null);
+    }
+  }, []);
+
+  const applyAgentDrawingPreview = useCallback(() => {
+    const preview = agentDrawingPreview;
+    if (!preview) {
       return;
     }
-    runCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
-  };
+    setChart((current) => applyChartActions(current, preview.actions));
+    setAgentDrawingPreview(null);
+  }, [agentDrawingPreview]);
 
-  const clearAllDrawings = () => {
-    const commands = document.drawings.map((drawing) =>
-      makeChartCommand(
-        "chart.drawing.remove",
-        "user",
-        target,
-        { drawingId: drawing.id },
-        undefined,
-        "chartPanel"
-      )
-    );
-    onChartAction({ kind: "chart.command.group", commands, label: "Clear all chart drawings" });
-  };
+  const applyViewport = useCallback((viewport: ChartViewport) => {
+    setChart((current) => {
+      const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+      const nextViewport = normalizeViewport(viewport, current.candles.length, plotWidth);
+      if (nextViewport.visibleCount === current.visibleCount && nextViewport.rightOffset === current.rightOffset) {
+        return current;
+      }
+      return applyChartAction(current, { type: "setViewport", ...nextViewport });
+    });
+  }, []);
 
-  const addComparison = (symbol: SupportedSymbol) => {
-    if (symbol === document.symbol || document.comparisons.some((comparison) => comparison.symbol === symbol)) {
+  const handleScene = useCallback((scene: ChartScene) => {
+    sceneRef.current = scene;
+    const overlays = scene.semantic.expansionRanges.map((range): ExpansionOverlay => ({
+      id: range.id,
+      label: `${range.childInterval}`,
+      left: expansionCloseLeft(scene, range),
+      right: range.right,
+      top: expansionMetadataCenterY(scene.plot.top) - expansionCloseButtonSize / 2,
+      status: range.status
+    }));
+    const key = JSON.stringify(overlays.map((overlay) => [
+      overlay.id,
+      Math.round(overlay.left),
+      Math.round(overlay.right),
+      Math.round(overlay.top),
+      overlay.status
+    ]));
+    if (key !== overlayKeyRef.current) {
+      overlayKeyRef.current = key;
+      setExpansionOverlays(overlays);
+    }
+    const nextVolumeHandleTop = scene.chart.layers.volume && scene.plot.volumeTop < scene.plot.bottom ? scene.plot.priceBottom : null;
+    setVolumeHandleTop((current) => (
+      current === nextVolumeHandleTop ? current : nextVolumeHandleTop
+    ));
+    const nextHoverOhlcTop = topPriceGridY(scene) + 2;
+    setHoverOhlcTop((current) => (
+      Math.abs(current - nextHoverOhlcTop) < 0.5 ? current : nextHoverOhlcTop
+    ));
+  }, []);
+
+  const selectSemanticUnit = useCallback((unit: SemanticRenderUnit) => {
+    setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
+  }, []);
+
+  const closeExpansion = useCallback((expansionId: string) => {
+    setActiveExpansions((current) => {
+      const next = removeExpansionTree(current, expansionId);
+      activeExpansionsRef.current = next;
+      return next;
+    });
+    setSelectedSemanticNode((current) => current?.nodeId.includes(expansionId) ? null : current);
+  }, []);
+
+  const loadExpansionCandles = useCallback(async (expansion: SemanticExpansion, symbol: string) => {
+    if (expansion.childInterval === "footprint") {
       return;
     }
-    runCommand("chart.comparison.add", {
-      comparison: {
-        id: `comparison-${symbol.toLowerCase()}-${document.id}`,
+    const queryRange = childQueryRange({ from: expansion.from, to: expansion.to }, expansion.childInterval);
+    try {
+      const response = await fetchCandles({
         symbol,
-        label: symbol,
-        scaleMode: "percent",
-        base: { mode: "visibleRangeStart" },
-        style: { color: comparisonColor(symbol), lineWidth: 1.5 }
-      }
-    });
-    setComparisonPickerOpen(false);
-    setComparisonDraft("");
-  };
+        interval: expansion.childInterval,
+        from: queryRange.from,
+        to: queryRange.to,
+        limit: expansionLimitForInterval(expansion.childInterval),
+        ma: [5, 20, 60]
+      });
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: response.candles.length ? "ready" : response.status === "error" ? "error" : "empty",
+              candles: response.candles,
+              message: response.error?.message
+            }
+          : item
+      )));
+    } catch (error: unknown) {
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: "error",
+              message: error instanceof Error ? error.message : "Expansion candle request failed"
+            }
+          : item
+      )));
+    }
+  }, []);
 
-  const removeComparison = (comparisonId: string) => {
-    runCommand("chart.comparison.remove", { comparisonId });
-    setComparisonPickerOpen(false);
-    setComparisonDraft("");
-  };
-
-  const toggleComparison = (symbol: SupportedSymbol) => {
-    const comparison = document.comparisons.find((item) => item.symbol === symbol);
-    if (comparison) {
-      removeComparison(comparison.id);
+  const openSemanticExpansion = useCallback((unit: SemanticRenderUnit) => {
+    selectSemanticUnit(unit);
+    if (unit.kind !== "candle") {
       return;
     }
-    addComparison(symbol);
-  };
-
-  const submitComparisonDraft = () => {
-    const symbol = normalizeSupportedSymbol(comparisonDraft);
-    if (symbol) {
-      toggleComparison(symbol);
-    }
-  };
-
-  const getPlotWidth = () => {
-    const currentScene = sceneRef.current;
-    return currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
-  };
-
-  const normalizePanelViewport = (viewport: ChartViewport) => (
-    normalizeViewport(viewport, candles.length, getPlotWidth())
-  );
-
-  const setViewport = (visibleCount: number, rightOffset = document.viewport.rightOffset) => {
-    const nextViewport = normalizePanelViewport({ visibleCount, rightOffset });
-    runCommand("chart.viewport.set", nextViewport);
-  };
-
-  const applyViewport = (nextViewport: ChartViewport) => {
-    if (
-      nextViewport.visibleCount === document.viewport.visibleCount &&
-      nextViewport.rightOffset === document.viewport.rightOffset
-    ) {
+    const expansion = buildSemanticExpansion(unit);
+    activeExpansionsRef.current = upsertExpansion(activeExpansionsRef.current, expansion);
+    setActiveExpansions((current) => upsertExpansion(current, expansion));
+    if (expansion.childInterval === "footprint") {
+      setSelectedSemanticNode({
+        ...snapshotFromSemanticUnit(unit),
+        status: "ready"
+      });
       return;
     }
-    runCommand("chart.viewport.set", nextViewport);
-  };
+    void loadExpansionCandles(expansion, unit.symbol);
+  }, [loadExpansionCandles, selectSemanticUnit]);
 
-  const zoomBy = (delta: number) => {
-    applyViewport(zoomViewport(document.viewport, delta, candles.length, getPlotWidth()));
-  };
-
-  const panViewport = (delta: number) => {
-    const currentViewport = normalizePanelViewport(document.viewport);
-    const nextRightOffset = clampRightOffset(
-      currentViewport.rightOffset + delta,
-      currentViewport.visibleCount,
-      candles.length
-    );
-    applyViewport({
-      visibleCount: currentViewport.visibleCount,
-      rightOffset: nextRightOffset
+  const zoomBy = useCallback((delta: number) => {
+    setChart((current) => {
+      const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+      const nextViewport = zoomViewport(
+        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+        delta,
+        current.candles.length,
+        plotWidth
+      );
+      return applyChartAction(current, { type: "setViewport", ...nextViewport });
     });
-  };
+  }, []);
 
-  const resetViewport = () => {
-    runCommand("chart.viewport.set", {
-      visibleCount: defaultVisibleBarsForInterval(document.timeframe),
-      rightOffset: 0
-    });
-  };
+  const runAgentPrompt = useCallback(async (rawPrompt: string): Promise<ChartAgentPromptResult> => {
+    const prompt = rawPrompt.trim();
+    if (!prompt) {
+      return { message: "" };
+    }
+    const result = await requestChartAgentActions({ prompt, chart: chartRef.current });
+    if (result.actions.length) {
+      applyAgentActions(result.actions);
+    }
+    return { message: result.message };
+  }, [applyAgentActions]);
+
+  useImperativeHandle(ref, () => ({ runAgentPrompt }), [runAgentPrompt]);
+
+  const maLayerButtons = useMemo(() => ([
+    ["ma5", "MA5"],
+    ["ma20", "MA20"],
+    ["ma60", "MA60"]
+  ] as Array<[ChartLayerKey, string]>), []);
+  const trendExtensionButtons = useMemo(() => ([
+    ["segment", "Segment"],
+    ["ray", "Ray"],
+    ["line", "Line"]
+  ] as Array<[ChartLineExtension, string]>), []);
+  const anyMaEnabled = chart.layers.ma5 || chart.layers.ma20 || chart.layers.ma60;
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    const step = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
+    onChartHoverChange?.(true);
+    const step = Math.max(12, Math.round(chart.visibleCount * 0.12));
     const delta = event.deltaY > 0 ? step : -step;
-    zoomBy(delta);
+    const scene = sceneRef.current;
+    if (!scene) {
+      zoomBy(delta);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
+    const anchorRatio = (x - scene.plot.left) / plotWidth;
+    setChart((current) => {
+      const nextViewport = zoomViewportAt(
+        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+        delta,
+        current.candles.length,
+        anchorRatio,
+        plotWidth
+      );
+      return applyChartAction(current, { type: "setViewport", ...nextViewport });
+    });
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    onChartHoverChange?.(true);
     if (event.button !== 0) {
+      return;
+    }
+    setMaMenuOpen(false);
+    setTrendMenuOpen(false);
+    const scene = sceneRef.current;
+    if (!scene) {
       return;
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    const currentScene = sceneRef.current;
-    if (!currentScene) {
+    const transform = createCoordinateTransform(scene);
+    const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
+
+    if (chart.toolMode === "select") {
+      const hit = hitTestDrawing(scene, point.x, point.y);
+      if (!hit) {
+        if (semanticHit) {
+          pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
+          selectSemanticUnit(semanticHit);
+          return;
+        }
+        dispatchChartAction({ type: "selectDrawing" });
+        return;
+      }
+      const anchor = transform.pointToAnchor(point.x, point.y, chart.symbol);
+      if (anchor) {
+        drawingDragRef.current = { drawing: hit.drawing, anchor, anchorIndex: hit.anchorIndex };
+      }
+      dispatchChartAction({ type: "selectDrawing", drawingId: hit.drawing.id });
       return;
     }
 
-    if (document.interactionState.mode !== "pan") {
-      const transform = createCoordinateTransform(currentScene);
-      const anchor = transform.pointToAnchor(point.x, point.y, document.symbol);
+    const drawingType = drawingTypeFromToolMode(chart.toolMode);
+    if (drawingType) {
+      const anchor = transform.pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         return;
       }
-      if (document.interactionState.mode === "select") {
-        const hit = hitTestDrawing(currentScene, point.x, point.y);
-        if (hit) {
-          runCommand("chart.drawing.select", { drawingId: hit.drawing.id });
-          drawingDragRef.current = { drawing: hit.drawing, anchor, anchorIndex: hit.anchorIndex };
-        } else {
-          runCommand("chart.drawing.clearSelection");
-        }
-        return;
-      }
-
-      const drawingType = document.interactionState.mode.replace("draw-", "") as DrawingType;
       if (!drawingNeedsTwoAnchors(drawingType)) {
-        runCommand("chart.drawing.add", {
-          drawingType,
-          anchors: [anchor],
-          label: defaultDrawingLabel(drawingType),
-          style: defaultDrawingStyle(drawingType, document.interactionState.trendLineExtension)
-        });
+        const drawing = makeDrawing(drawingType, [anchor], { trendLineExtension: chart.trendLineExtension });
+        dispatchChartAction({ type: "addDrawing", drawing });
         return;
       }
       if (drawingDraft?.type === drawingType) {
-        runCommand(drawingType === "measurement" ? "chart.measurement.add" : "chart.drawing.add", {
-          drawingType,
-          anchors: [drawingDraft.first, anchor],
-          label: defaultDrawingLabel(drawingType),
-          style: defaultDrawingStyle(drawingType, document.interactionState.trendLineExtension)
-        });
+        const drawing = makeDrawing(drawingType, [drawingDraft.first, anchor], { trendLineExtension: chart.trendLineExtension });
         setDrawingDraft(null);
         setTransientDrawings(null);
+        dispatchChartAction({ type: "addDrawing", drawing });
       } else {
         setDrawingDraft({ type: drawingType, first: anchor });
         setTransientDrawings(null);
@@ -1013,9 +770,13 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       return;
     }
 
-    const currentViewport = normalizePanelViewport(document.viewport);
+    if (semanticHit) {
+      pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
+    }
+    const currentViewport = normalizeViewport({ visibleCount: chart.visibleCount, rightOffset: chart.rightOffset }, chart.candles.length, scene.plot.right - scene.plot.left);
     dragAnchorRef.current = {
       x: event.clientX,
+      y: event.clientY,
       rightOffset: currentViewport.rightOffset,
       visibleCount: currentViewport.visibleCount
     };
@@ -1023,70 +784,85 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     setTransientViewport(currentViewport);
   };
 
-  const previewViewport = (viewport: ChartViewport) => {
-    transientViewportRef.current = viewport;
-    setTransientViewport(viewport);
-  };
-
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    onChartHoverChange?.(true);
     const rect = event.currentTarget.getBoundingClientRect();
-    setCrosshairPoint({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-
-    const dragAnchor = dragAnchorRef.current;
-    const drawingDrag = drawingDragRef.current;
-    const currentScene = sceneRef.current;
-    if (!currentScene) {
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    setCrosshair(point);
+    const scene = sceneRef.current;
+    if (!scene) {
       return;
     }
+    const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
+    setHoveredSemanticNodeId(semanticHit?.id);
+    setHoverSnapshot(semanticHit ? snapshotFromSemanticUnit(semanticHit) : null);
 
+    const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
-      const anchor = createCoordinateTransform(currentScene).pointToAnchor(event.clientX - rect.left, event.clientY - rect.top, document.symbol);
+      const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         return;
       }
-      const anchors = buildDraggedAnchors(drawingDrag, anchor, currentScene);
-      setTransientDrawings(document.drawings.map((drawing) => (
-        drawing.id === drawingDrag.drawing.id ? { ...drawing, anchors } : drawing
+      const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
+      setTransientDrawings(chart.drawings.map((drawing) => (
+        drawing.id === drawingDrag.drawing.id ? { ...drawing, anchors, updatedAt: new Date().toISOString() } : drawing
       )));
       return;
     }
 
-    if (drawingDraft && document.interactionState.mode === `draw-${drawingDraft.type}`) {
-      const anchor = createCoordinateTransform(currentScene).pointToAnchor(event.clientX - rect.left, event.clientY - rect.top, document.symbol);
+    const activeDrawingType = drawingTypeFromToolMode(chart.toolMode);
+    if (activeDrawingType && !drawingNeedsTwoAnchors(activeDrawingType)) {
+      const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         setTransientDrawings(null);
         return;
       }
       setTransientDrawings([
-        ...document.drawings,
-        buildDraftPreviewDrawing(drawingDraft, anchor, document.interactionState.trendLineExtension)
+        ...chart.drawings,
+        buildSingleAnchorPreviewDrawing(activeDrawingType, anchor, chart.trendLineExtension)
       ]);
       return;
     }
 
-    if (!dragAnchor) {
+    if (drawingDraft && chart.toolMode === `draw-${drawingDraft.type}`) {
+      const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
+      if (!anchor) {
+        setTransientDrawings(null);
+        return;
+      }
+      setTransientDrawings([
+        ...chart.drawings,
+        buildDraftPreviewDrawing(drawingDraft, anchor, chart.trendLineExtension)
+      ]);
       return;
     }
 
-    const slotWidth = (currentScene.plot.right - currentScene.plot.left) / Math.max(1, currentScene.candles.length);
-    previewViewport({
+    const dragAnchor = dragAnchorRef.current;
+    if (!dragAnchor) {
+      return;
+    }
+    const nextViewport = {
       visibleCount: dragAnchor.visibleCount,
       rightOffset: dragDeltaToRightOffset(
         dragAnchor.rightOffset,
         event.clientX - dragAnchor.x,
-        slotWidth,
+        scene.scales.slotWidth,
         dragAnchor.visibleCount,
-        candles.length
+        chart.candles.length
       )
-    });
+    };
+    transientViewportRef.current = nextViewport;
+    setTransientViewport(nextViewport);
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const dragAnchor = dragAnchorRef.current;
     const drawingDrag = drawingDragRef.current;
+    const dragAnchor = dragAnchorRef.current;
+    const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
-    dragAnchorRef.current = null;
     drawingDragRef.current = null;
+    dragAnchorRef.current = null;
+    pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
@@ -1095,653 +871,609 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     } catch {
       // Pointer capture can be released by the browser before this handler runs.
     }
-
     if (drawingDrag) {
+      const scene = sceneRef.current;
       const rect = event.currentTarget.getBoundingClientRect();
-      const currentScene = sceneRef.current;
-      if (!currentScene) {
-        return;
+      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const anchor = scene ? createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol) : null;
+      if (scene && anchor) {
+        const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
+        dispatchChartAction({ type: "updateDrawing", drawingId: drawingDrag.drawing.id, patch: { anchors } });
       }
-      const anchor = createCoordinateTransform(currentScene).pointToAnchor(event.clientX - rect.left, event.clientY - rect.top, document.symbol);
-      if (!anchor) {
-        return;
-      }
-      const anchors = buildDraggedAnchors(drawingDrag, anchor, currentScene);
-      runCommand("chart.drawing.update", { drawingId: drawingDrag.drawing.id, drawingPatch: { anchors } });
       return;
     }
-
-    if (!dragAnchor || !nextViewport) {
-      return;
+    if (pendingSemanticClick) {
+      const distance = Math.hypot(event.clientX - pendingSemanticClick.x, event.clientY - pendingSemanticClick.y);
+      if (distance <= 5) {
+        void openSemanticExpansion(pendingSemanticClick.unit);
+        return;
+      }
     }
-
-    if (nextViewport.rightOffset !== dragAnchor.rightOffset) {
-      runCommand("chart.viewport.set", {
-        visibleCount: nextViewport.visibleCount,
-        rightOffset: nextViewport.rightOffset
-      });
+    if (dragAnchor && nextViewport && nextViewport.rightOffset !== dragAnchor.rightOffset) {
+      applyViewport(nextViewport);
     }
   };
 
   const cancelDrag = () => {
-    dragAnchorRef.current = null;
     drawingDragRef.current = null;
+    dragAnchorRef.current = null;
+    pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
+    setHoveredSemanticNodeId(undefined);
+    setHoverSnapshot(null);
+    setCrosshair(undefined);
+    onChartHoverChange?.(false);
   };
 
-  const floatingMenus = typeof window === "undefined" ? null : createPortal(
-    <>
-      {maMenuOpen && (
-        <div
-          className="chart-dropdown chart-floating-dropdown chart-ma-menu"
-          style={{ top: floatingMenuPosition.top, left: floatingMenuPosition.left }}
-          role="menu"
-          aria-label="Moving average visibility"
+  const clearChartHover = useCallback(() => {
+    if (dragAnchorRef.current || drawingDragRef.current) {
+      return;
+    }
+    setHoveredSemanticNodeId(undefined);
+    setHoverSnapshot(null);
+    setCrosshair(undefined);
+    onChartHoverChange?.(false);
+  }, [onChartHoverChange]);
+
+  const removeSelectedDrawing = () => {
+    if (!selectedDrawing) {
+      return;
+    }
+    dispatchChartAction({ type: "deleteDrawing", drawingId: selectedDrawing.id });
+  };
+
+  const updateSelectedDrawingStyle = () => {
+    if (!selectedDrawing) {
+      return;
+    }
+    const defaultStyle = defaultDrawingStyle(selectedDrawing.type, chart.trendLineExtension);
+    const nextToken = selectedDrawing.style.colorToken === "down" ? defaultStyle.colorToken : "down";
+    dispatchChartAction({
+      type: "updateDrawing",
+      drawingId: selectedDrawing.id,
+      patch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
+    });
+  };
+
+  const clearAllDrawings = () => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    dispatchChartAction({ type: "clearDrawings" });
+  };
+
+  const beginVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const scene = sceneRef.current;
+    if (!scene || !chart.layers.volume) {
+      return;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    onChartHoverChange?.(true);
+    volumeResizeRef.current = {
+      startY: event.clientY,
+      startRatio: chart.volumeRatio,
+      sceneHeight: Math.max(1, scene.height)
+    };
+  };
+
+  const updateVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = volumeResizeRef.current;
+    if (!drag) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const nextRatio = drag.startRatio - (event.clientY - drag.startY) / drag.sceneHeight;
+    setChart((current) => applyChartAction(current, { type: "setVolumeRatio", ratio: nextRatio }));
+  };
+
+  const endVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    volumeResizeRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture can already be released after a resize drag.
+    }
+  };
+
+  const smallerInterval = adjacentInterval(chart.interval, "smaller");
+  const largerInterval = adjacentInterval(chart.interval, "larger");
+  const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0 || Object.entries(chartMemory).some(([key, memory]) => (
+    key.startsWith(`${chart.symbol}:`) && memory.expansions.length > 0
+  ));
+
+  const clearAllDigging = () => {
+    activeExpansionsRef.current = [];
+    setActiveExpansions([]);
+    setSelectedSemanticNode(null);
+    setExpansionOverlays([]);
+    setChartMemory((current) => {
+      const next = { ...current };
+      Object.entries(next).forEach(([key, memory]) => {
+        if (key.startsWith(`${chart.symbol}:`) && memory.expansions.length > 0) {
+          next[key] = { ...memory, expansions: [] };
+        }
+      });
+      chartMemoryRef.current = next;
+      return next;
+    });
+  };
+
+  return (
+    <section className="chart-panel">
+      {hoverSnapshot?.kind === "candle" && (
+        <dl
+          className="hover-ohlc hover-ohlc-overlay"
+          style={{ "--hover-ohlc-top": `${hoverOhlcTop}px` } as CSSProperties}
+          aria-label="Hovered candle data"
         >
-          {movingAverageLayers.map(({ layer, label }) => (
-            <label key={layer} className="chart-checkbox-row">
-              <input
-                type="checkbox"
-                checked={document.layers[layer]}
-                onChange={() => runCommand("chart.layer.visibility.set", { layer, visible: !document.layers[layer] })}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
+          <div className="hover-ohlc-time"><dt>Time</dt><dd>{formatHoverTimestamp(hoverSnapshot.timestamp ?? hoverSnapshot.from)}</dd></div>
+          <div><dt>O</dt><dd>{formatMetric(hoverSnapshot.open)}</dd></div>
+          <div><dt>C</dt><dd>{formatMetric(hoverSnapshot.close)}</dd></div>
+          <div><dt>H</dt><dd>{formatMetric(hoverSnapshot.high)}</dd></div>
+          <div><dt>L</dt><dd>{formatMetric(hoverSnapshot.low)}</dd></div>
+        </dl>
       )}
-      {labelEditorOpen && selectedDrawing && (
-        <form
-          className="chart-dropdown chart-floating-dropdown chart-label-editor"
-          style={{ top: floatingMenuPosition.top, left: floatingMenuPosition.left }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveSelectedDrawingLabel();
-          }}
-        >
-          <input
-            value={labelDraft}
-            aria-label="Selected drawing text"
-            autoFocus
-            onChange={(event) => setLabelDraft(event.target.value)}
-          />
-          <button type="submit" {...tooltipAttributes("Save drawing text")}>
-            <Check size={13} />
+
+      <div className="toolbar" aria-label="Chart controls">
+        <div className="toolbar-row">
+          <div className="interval-stepper" aria-label="Interval controls">
+            <button type="button" className={iconButtonClass()} aria-label="Smaller interval" title="Smaller interval" disabled={!smallerInterval} onClick={() => smallerInterval && setInterval(smallerInterval)}>
+              <ChevronDown size={15} />
+            </button>
+            <select value={chart.interval} onChange={(event) => setInterval(event.target.value as ChartInterval)} aria-label="Interval">
+              {chartIntervals.map((interval) => <option key={interval} value={interval}>{interval}</option>)}
+            </select>
+            <button type="button" className={iconButtonClass()} aria-label="Larger interval" title="Larger interval" disabled={!largerInterval} onClick={() => largerInterval && setInterval(largerInterval)}>
+              <ChevronUp size={15} />
+            </button>
+          </div>
+          <button className={segmentedClass(chart.layers.volume)} onClick={() => toggleLayer("volume")} type="button">
+            VOL
           </button>
-        </form>
-      )}
-      {comparisonPickerOpen && (
-        <form
-          className="chart-dropdown chart-floating-dropdown chart-comparison-picker"
-          style={{ top: floatingMenuPosition.top, left: floatingMenuPosition.left }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitComparisonDraft();
-          }}
-        >
-          <input
-            value={comparisonDraft}
-            list={`comparison-symbol-options-${document.id}`}
-            placeholder="Symbol"
-            aria-label="Comparison symbol"
-            autoFocus
-            onChange={(event) => setComparisonDraft(event.target.value.toUpperCase())}
-          />
-          <button type="submit" {...tooltipAttributes("Add comparison")}>
-            <Check size={13} />
+          <button className={segmentedClass()} disabled={!hasAnyCurrentSymbolExpansion} onClick={clearAllDigging} type="button" title="Clear all digging">
+            DIG OFF
           </button>
-          <datalist id={`comparison-symbol-options-${document.id}`}>
-            {comparisonOptions.map((symbol) => (
-              <option key={symbol} value={symbol} />
-            ))}
-          </datalist>
-          <div className="chart-comparison-options">
-            {(comparisonMatches.length ? comparisonMatches : comparisonOptions).map((symbol) => {
-              const added = document.comparisons.some((comparison) => comparison.symbol === symbol);
-              return (
-                <button
-                  key={symbol}
-                  type="button"
-                  className={added ? "active" : ""}
-                  aria-pressed={added}
-                  aria-label={added ? `Remove ${symbol} comparison` : `Add ${symbol} comparison`}
-                  onClick={() => toggleComparison(symbol)}
-                >
-                  {symbol}
-                </button>
-              );
-            })}
-            {comparisonOptions.length === 0 && (
-              <span className="chart-comparison-empty">No symbol results</span>
+          <div className="ma-control">
+            <button
+              type="button"
+              className={segmentedClass(anyMaEnabled)}
+              aria-expanded={maMenuOpen}
+              onClick={() => {
+                setTrendMenuOpen(false);
+                setMaMenuOpen((current) => !current);
+              }}
+            >
+              MA
+            </button>
+            {maMenuOpen && (
+              <div className="ma-menu" role="menu" aria-label="Moving averages">
+                {maLayerButtons.map(([layer, label]) => (
+                  <button
+                    key={layer}
+                    type="button"
+                    className={segmentedClass(chart.layers[layer])}
+                    onClick={() => toggleLayer(layer)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-        </form>
-      )}
-      {hoverTooltip && (
-        <div
-          className={`chart-hover-tooltip ${hoverTooltip.placement}`}
-          style={{ top: hoverTooltip.top, left: hoverTooltip.left }}
-        >
-          {hoverTooltip.label}
-        </div>
-      )}
-    </>,
-    window.document.body
-  );
-
-  const viewportStep = Math.max(12, Math.round(document.viewport.visibleCount * 0.12));
-
-  return (
-    <>
-    <div
-      ref={panelRef}
-      className="chart-panel"
-      data-chart-document-id={document.id}
-      data-chart-visible-count={document.viewport.visibleCount}
-      data-chart-right-offset={document.viewport.rightOffset}
-      data-chart-candle-count={candles.length}
-      data-chart-comparison-series-count={scene.comparisonSeries.length}
-      data-chart-preview-comparison-count={pendingPreview?.comparisons.length ?? 0}
-      onPointerMove={updateHoverTooltip}
-      onPointerLeave={() => setHoverTooltip(null)}
-      onPointerDown={() => setHoverTooltip(null)}
-    >
-      <div className="chart-toolbar" aria-label="Chart editing tools">
-        <div className="chart-toolbar-scroll">
-        <div className="chart-symbol-control" title="Viewport and timeframe">
-          <button {...tooltipAttributes("Reset viewport")} onClick={resetViewport}>
-            <RefreshCcw size={14} />
-          </button>
-          <select
-            value={document.timeframe}
-            aria-label="Chart timeframe"
-            onChange={(event) => runCommand("chart.timeframe.set", { timeframe: event.target.value })}
-          >
-            {chartIntervals.map((interval) => (
-              <option key={interval} value={interval}>{interval}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="chart-tool-group" aria-label="Viewport tools">
-          <button {...tooltipAttributes("Zoom in")} onClick={() => zoomBy(-viewportStep)}>
-            <ZoomIn size={14} />
-          </button>
-          <button {...tooltipAttributes("Zoom out")} onClick={() => zoomBy(viewportStep)}>
-            <ZoomOut size={14} />
-          </button>
-          <button {...tooltipAttributes("Pan left")} onClick={() => panViewport(12)}>
-            <MoveLeft size={14} />
-          </button>
-          <button {...tooltipAttributes("Pan right")} onClick={() => panViewport(-12)}>
-            <MoveRight size={14} />
-          </button>
-        </div>
-
-        <div className="chart-tool-group" aria-label="Layer tools">
-          {baseLayerControls.map(({ layer, label, icon }) => (
-            <button
-              key={layer}
-              className={document.layers[layer] ? "active chart-layer-button" : "chart-layer-button"}
-              {...tooltipAttributes(`${label} visibility`)}
-              onClick={() => runCommand("chart.layer.visibility.set", { layer, visible: !document.layers[layer] })}
-            >
-              <LayerIcon icon={icon} visible={document.layers[layer]} />
-            </button>
-          ))}
-          <div className="chart-popover-anchor">
-            <button
-              className={hasActiveMovingAverage ? "active chart-layer-button" : "chart-layer-button"}
-              {...tooltipAttributes("Moving averages")}
-              onClick={(event) => {
-                placeFloatingMenu(event.currentTarget, 128);
-                setMaMenuOpen((open) => !open);
-                setLabelEditorOpen(false);
-                setComparisonPickerOpen(false);
-              }}
-            >
-              <ChartLine size={14} />
-            </button>
-          </div>
-        </div>
-
-        <div className="chart-tool-group chart-selected-drawing-tools" aria-label="Selected drawing tools">
-          <div className="chart-popover-anchor">
-            <button
-              {...tooltipAttributes("Edit selected drawing text")}
-              disabled={!selectedDrawing}
-              onClick={(event) => {
-                placeFloatingMenu(event.currentTarget, 190);
-                setLabelEditorOpen((open) => !open);
-                setMaMenuOpen(false);
-                setComparisonPickerOpen(false);
-              }}
-            >
-              <TextCursor size={14} />
-            </button>
-          </div>
-          <button
-            {...tooltipAttributes("Edit selected drawing style")}
-            disabled={!selectedDrawing}
-            onClick={updateSelectedDrawingStyle}
-          >
-            <Palette size={14} />
-          </button>
-          <button
-            {...tooltipAttributes("Erase selected drawing")}
-            disabled={!selectedDrawing}
-            onClick={removeSelectedDrawing}
-          >
-            <Eraser size={14} />
-          </button>
-          <button
-            {...tooltipAttributes("Delete all drawings")}
-            disabled={document.drawings.length === 0}
-            onClick={clearAllDrawings}
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-
-        </div>
-
-        <div className="chart-right-actions" aria-label="Chart proposal actions">
-          <span
-            className={`chart-stream-status ${streamStatus}`}
-            title={streamMessage ?? `Live stream status: ${streamStatusLabel(streamStatus)}`}
-            aria-label={`Live stream status: ${streamStatusLabel(streamStatus)}`}
-          >
-            {streamStatusLabel(streamStatus)}
-          </span>
-          <div className="chart-tool-group chart-comparison-tools" aria-label="Comparison tools">
-            <div className="chart-popover-anchor">
+          <span className="toolbar-separator" aria-hidden="true" />
+          {drawingTools.map((tool) => (
+            tool.mode === "draw-trendLine" ? (
+              <div className="trend-control" key={tool.mode}>
+                <button
+                  type="button"
+                  className={iconButtonClass(chart.toolMode === tool.mode)}
+                  aria-label={tool.label}
+                  title={tool.label}
+                  aria-expanded={trendMenuOpen}
+                  onClick={() => {
+                    setMaMenuOpen(false);
+                    setToolMode(tool.mode);
+                    setTrendMenuOpen((current) => chart.toolMode === tool.mode ? !current : true);
+                  }}
+                >
+                  <ToolIcon toolMode={tool.mode} />
+                </button>
+                {trendMenuOpen && (
+                  <div className="trend-menu" role="menu" aria-label="Trend line type">
+                    {trendExtensionButtons.map(([extension, label]) => (
+                      <button
+                        key={extension}
+                        type="button"
+                        className={iconButtonClass(chart.trendLineExtension === extension)}
+                        aria-label={label}
+                        title={label}
+                        onClick={() => setTrendLineExtension(extension)}
+                      >
+                        <TrendExtensionIcon extension={extension} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
               <button
-                {...tooltipAttributes("Add comparison")}
-                onClick={(event) => {
-                  placeFloatingMenu(event.currentTarget, 190);
-                  setComparisonPickerOpen((open) => !open);
-                  setMaMenuOpen(false);
-                  setLabelEditorOpen(false);
+                key={tool.mode}
+                type="button"
+                className={iconButtonClass(chart.toolMode === tool.mode)}
+                aria-label={tool.label}
+                title={tool.label}
+                onClick={() => {
+                  setTrendMenuOpen(false);
+                  setToolMode(tool.mode);
                 }}
               >
-                <ComparisonOverlayIcon />
+                <ToolIcon toolMode={tool.mode} />
               </button>
-            </div>
-          </div>
-          <div className="chart-tool-group chart-history-tools" aria-label="Chart command tools">
-            <button {...tooltipAttributes("Chart undo")} disabled={document.history.length === 0} onClick={() => runCommand("chart.undo")}>
-              <RotateCcw size={14} />
-            </button>
-            <button {...tooltipAttributes("Chart redo")} disabled={document.future.length === 0} onClick={() => runCommand("chart.redo")}>
-              <RotateCw size={14} />
-            </button>
-          </div>
-          <button
-            {...tooltipAttributes("Ask Agent 01")}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAskAgent(panel.id, document.id);
-            }}
-          >
-            <Bot size={14} />
-          </button>
-          <div className="chart-tool-group chart-preview-actions" aria-label="Preview actions">
-            <button
-              className={[
-                "chart-preview-button",
-                pendingPreview?.visible ? "active" : "",
-                previewPulseKey && previewPulseKey === pendingPreviewKey ? "pulse" : ""
-              ].filter(Boolean).join(" ")}
-              {...tooltipAttributes(pendingPreview?.visible ? "Hide preview" : "Show preview")}
-              disabled={!pendingPreview}
-              onClick={() => runCommand("chart.preview.toggle", { previewVisible: !pendingPreview?.visible })}
-            >
-              {pendingPreview?.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
-            <button
-              className="chart-apply-preview-button"
-              {...tooltipAttributes("Apply preview")}
-              disabled={!pendingPreview?.visible}
-              onClick={() => runCommand("chart.preview.apply")}
-            >
-              <Check size={14} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="chart-body">
-        <div className="chart-drawing-rail" aria-label="Drawing tools">
-          {chartToolRegistry.map((tool) => (
-            <div className="chart-tool-slot" key={tool.id}>
-              <button
-                className={document.interactionState.mode === tool.id ? "active" : ""}
-                {...tooltipAttributes(tool.label)}
-                onClick={() => setDocumentToolMode(tool.id)}
-              >
-                <DrawingToolIcon toolId={tool.id} />
-              </button>
-              {tool.id === "draw-trendLine" && document.interactionState.mode === "draw-trendLine" && (
-                <div className="chart-trend-extension-menu" aria-label="Trend line mode">
-                  {trendLineExtensionOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      className={document.interactionState.trendLineExtension === option.value ? "active" : ""}
-                      {...tooltipAttributes(option.label)}
-                      onClick={() => setDocumentToolMode("draw-trendLine", option.value, { preserveDraft: true })}
-                    >
-                      <TrendExtensionIcon extension={option.value} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            )
           ))}
-        </div>
-
-        <div className="chart-canvas-wrap" ref={canvasWrapRef}>
-          <canvas
-            ref={canvasRef}
-            aria-label={`${document.symbol} candlestick chart`}
-            onWheel={handleWheel}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerLeave={() => {
-              if (!dragAnchorRef.current) {
-                setCrosshairPoint(undefined);
-              }
-              if (!dragAnchorRef.current && !drawingDragRef.current) {
-                setTransientDrawings(null);
-              }
-            }}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={cancelDrag}
-            onLostPointerCapture={cancelDrag}
-          />
+          <button type="button" className={iconButtonClass()} aria-label="Selected drawing color" title="Selected drawing color" disabled={!selectedDrawing} onClick={updateSelectedDrawingStyle}>
+            <Palette size={16} />
+          </button>
+          <button type="button" className={iconButtonClass()} aria-label="Delete selected drawing" title="Delete selected drawing" disabled={!selectedDrawing} onClick={removeSelectedDrawing}>
+            <Eraser size={16} />
+          </button>
+          <button type="button" className={iconButtonClass()} aria-label="Clear drawings" title="Clear drawings" disabled={chart.drawings.length === 0} onClick={clearAllDrawings}>
+            <Trash2 size={16} />
+          </button>
+          {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
         </div>
       </div>
 
-    </div>
-    {floatingMenus}
-    </>
+      <div className="chart-wrap">
+        <ChartCanvas
+          chart={renderChart}
+          expansions={renderExpansions}
+          previewDrawings={previewDrawings}
+          hoveredNodeId={hoveredSemanticNodeId}
+          selectedNodeId={selectedSemanticNode?.nodeId}
+          crosshair={crosshair}
+          onScene={handleScene}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={() => {
+            setHoveredSemanticNodeId(undefined);
+            setHoverSnapshot(null);
+            if (!dragAnchorRef.current && !drawingDragRef.current) {
+              onChartHoverChange?.(false);
+            }
+            if (!dragAnchorRef.current) {
+              setCrosshair(undefined);
+            }
+            if (!dragAnchorRef.current && !drawingDragRef.current) {
+              setTransientDrawings(null);
+            }
+          }}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={cancelDrag}
+          onLostPointerCapture={cancelDrag}
+        />
+        {volumeHandleTop !== null && (
+          <div
+            className="volume-resize-handle"
+            style={{ top: volumeHandleTop - 5 }}
+            aria-label="Resize volume chart"
+            role="separator"
+            onPointerDown={beginVolumeResize}
+            onPointerMove={updateVolumeResize}
+            onPointerUp={endVolumeResize}
+            onPointerCancel={endVolumeResize}
+          />
+        )}
+        {expansionOverlays.map((overlay) => (
+          <button
+            key={overlay.id}
+            type="button"
+            className={`semantic-expansion-close ${overlay.status}`}
+            style={{ left: overlay.left, top: overlay.top }}
+            aria-label={`Close ${overlay.label} expansion`}
+            title={`Close ${overlay.label} expansion`}
+            onClick={() => closeExpansion(overlay.id)}
+          >
+            <X size={13} />
+          </button>
+        ))}
+      </div>
+
+      {agentDrawingPreview && (
+        <div className="agent-preview-controls" onPointerEnter={clearChartHover} onPointerMove={clearChartHover}>
+          <button
+            type="button"
+            className={agentDrawingPreview.visible ? "active" : ""}
+            aria-label={agentDrawingPreview.visible ? "Hide agent drawing preview" : "Show agent drawing preview"}
+            title={agentDrawingPreview.visible ? "Hide preview" : "Show preview"}
+            onClick={() => setAgentDrawingPreview((current) => current ? { ...current, visible: !current.visible } : current)}
+          >
+            {agentDrawingPreview.visible ? <EyeOff size={14} /> : <Eye size={14} />}
+            Preview
+          </button>
+          <button type="button" aria-label="Apply agent drawing preview" title="Apply preview" onClick={applyAgentDrawingPreview}>
+            <Check size={14} />
+            Apply
+          </button>
+          <button type="button" aria-label="Discard agent drawing preview" title="Discard preview" onClick={() => setAgentDrawingPreview(null)}>
+            <X size={14} />
+            Discard
+          </button>
+        </div>
+      )}
+    </section>
   );
+});
+
+function chartMemoryKey(symbol: string, interval: ChartInterval): string {
+  return `${symbol.toUpperCase()}:${interval}`;
 }
 
-function LayerIcon({ icon, visible }: { icon: "candle" | "volume"; visible: boolean }) {
-  if (!visible) {
-    return <EyeOff size={14} />;
+function expansionCloseLeft(scene: ChartScene, range: ChartScene["semantic"]["expansionRanges"][number]): number {
+  const rightInset = 8;
+  const thumbnailGap = 8;
+  const desiredLeft = range.right - expansionCloseButtonSize - rightInset;
+  const maxVisibleLeft = scene.plot.right - expansionCloseButtonSize - rightInset;
+  const thumbnailStopLeft = expansionParentThumbnailRight(scene.plot, range) + thumbnailGap;
+
+  if (desiredLeft > maxVisibleLeft) {
+    return maxVisibleLeft >= thumbnailStopLeft ? maxVisibleLeft : desiredLeft;
   }
-  if (icon === "candle") {
-    return <ChartCandlestick size={14} />;
-  }
-  if (icon === "volume") {
-    return <BarChart3 size={14} />;
-  }
-  return <ChartCandlestick size={14} />;
+  return Math.max(desiredLeft, thumbnailStopLeft);
 }
 
-function readTooltipTarget(target: EventTarget | null, scope: HTMLElement): HTMLElement | null {
-  const element = target instanceof Element ? target.closest<HTMLElement>("[data-tooltip]") : null;
-  if (!element || !scope.contains(element)) {
-    return null;
+function upsertExpansion(expansions: SemanticExpansion[], expansion: SemanticExpansion): SemanticExpansion[] {
+  const index = expansions.findIndex((item) => item.id === expansion.id);
+  if (index < 0) {
+    return [...expansions, expansion];
   }
-  if (element instanceof HTMLButtonElement && element.disabled) {
-    return null;
-  }
-  return element;
+  const next = [...expansions];
+  next[index] = expansion;
+  return next;
 }
 
-function ComparisonOverlayIcon() {
-  return (
-    <svg
-      className="chart-comparison-overlay-icon"
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-    >
-      <rect className="chart-comparison-back" x="2.2" y="2.2" width="9.2" height="7.2" rx="1.2" />
-      <polyline className="chart-comparison-back-line" points="3.5,7.2 5.3,5.6 7.2,6.4 9.8,4.1" />
-      <rect x="4.6" y="6.2" width="9.2" height="7.2" rx="1.2" />
-      <polyline points="5.9,11.1 7.7,9.7 9.5,10.4 12.2,8.2" />
-    </svg>
-  );
-}
-
-function DrawingToolIcon({ toolId }: { toolId: ChartToolMode }) {
-  switch (toolId) {
-    case "select":
-      return <MousePointer2 size={14} />;
-    case "pan":
-      return <Hand size={14} />;
-    case "draw-horizontalLine":
-      return <Minus size={14} />;
-    case "draw-trendLine":
-      return <TrendToolIcon />;
-    case "draw-verticalMarker":
-      return <span className="chart-marker-line-icon" aria-hidden="true" />;
-    case "draw-textLabel":
-      return <Type size={14} />;
-    case "draw-pointMarker":
-      return <CircleDot size={14} />;
-    case "draw-arrow":
-      return <ArrowUpRight size={14} />;
-    case "draw-rangeBox":
-      return <Square size={14} />;
-    case "draw-measurement":
-      return <Ruler size={14} />;
-    default:
-      return <MousePointer2 size={14} />;
+function removeExpansionTree(expansions: SemanticExpansion[], expansionId: string): SemanticExpansion[] {
+  const removed = new Set<string>([expansionId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    expansions.forEach((expansion) => {
+      if (!removed.has(expansion.id) && removed.has(expansion.parentExpansionId ?? "")) {
+        removed.add(expansion.id);
+        changed = true;
+      }
+    });
   }
+  return expansions.filter((expansion) => !removed.has(expansion.id));
 }
 
-function TrendToolIcon() {
-  return (
-    <svg className="chart-trend-line-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 12 L13 4" />
-    </svg>
-  );
-}
-
-function TrendExtensionIcon({ extension }: { extension: ChartLineExtension }) {
-  if (extension === "segment") {
-    return (
-      <svg className="chart-trend-extension-svg" viewBox="0 0 18 18" aria-hidden="true">
-        <path d="M4 14 L14 4" />
-        <circle cx="4" cy="14" r="1.8" />
-        <circle cx="14" cy="4" r="1.8" />
-      </svg>
-    );
-  }
-
-  if (extension === "ray") {
-    return (
-      <svg className="chart-trend-extension-svg" viewBox="0 0 18 18" aria-hidden="true">
-        <path d="M4 14 L14 4" />
-        <circle cx="4" cy="14" r="1.8" />
-        <path d="M10.6 4.1 L14 4 L13.9 7.4" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg className="chart-trend-extension-svg" viewBox="0 0 18 18" aria-hidden="true">
-      <path d="M3 15 L15 3" />
-      <path d="M6.3 14.8 L3 15 L3.2 11.7" />
-      <path d="M11.7 3.2 L15 3 L14.8 6.3" />
-    </svg>
-  );
-}
-
-function buildDraftPreviewDrawing(
-  draft: DrawingDraft,
-  anchor: DrawingAnchor,
-  trendLineExtension: ChartLineExtension
-): DrawingEntity {
+function captureChartMemory(chart: ChartState, expansions: SemanticExpansion[]): ChartMemory {
   return {
-    id: "drawing-draft-preview",
-    type: draft.type,
-    anchors: [draft.first, anchor],
-    style: { ...defaultDrawingStyle(draft.type, trendLineExtension), opacity: 0.58, lineDash: [6, 4] },
-    label: defaultDrawingLabel(draft.type),
-    visible: true,
-    createdBy: "user",
-    createdAt: "draft",
-    updatedAt: "draft"
+    expansions,
+    drawings: chart.drawings,
+    layers: { ...chart.layers },
+    volumeRatio: chart.volumeRatio,
+    visibleCount: chart.visibleCount,
+    rightOffset: chart.rightOffset,
+    selectedDrawingId: chart.selectedDrawingId
   };
 }
 
-function defaultDrawingStyle(type: DrawingType, trendLineExtension: ChartLineExtension = "segment") {
-  if (type === "rangeBox") {
-    return { color: "#2563eb", fillColor: "rgba(37, 99, 235, 0.12)", lineWidth: 1.4 };
+function chartMemoryEquals(left: ChartMemory | undefined, right: ChartMemory): boolean {
+  if (!left) {
+    return false;
   }
-  if (type === "trendLine") {
-    return { color: "#111111", lineWidth: 1.5, extension: trendLineExtension };
-  }
-  if (type === "measurement") {
-    return { color: "#7c3aed", textColor: "#4c1d95", lineWidth: 1.4 };
-  }
-  if (type === "arrow") {
-    return { color: "#d97706", lineWidth: 1.6 };
-  }
-  return { color: "#111111", lineWidth: 1.5 };
+  return (
+    sameExpansionList(left.expansions, right.expansions) &&
+    left.drawings === right.drawings &&
+    left.volumeRatio === right.volumeRatio &&
+    left.visibleCount === right.visibleCount &&
+    left.rightOffset === right.rightOffset &&
+    left.selectedDrawingId === right.selectedDrawingId &&
+    left.layers.candles === right.layers.candles &&
+    left.layers.volume === right.layers.volume &&
+    left.layers.ma5 === right.layers.ma5 &&
+    left.layers.ma20 === right.layers.ma20 &&
+    left.layers.ma60 === right.layers.ma60
+  );
 }
 
-function defaultDrawingLabel(type?: DrawingType) {
-  switch (type) {
-    case "horizontalLine":
-      return "Level";
-    case "verticalMarker":
-      return "Event";
-    case "textLabel":
-      return "Note";
-    case "pointMarker":
-      return "Point";
-    case "rangeBox":
-      return "Range";
-    case "measurement":
-      return "Measure";
-    default:
-      return undefined;
-  }
+function sameExpansionList(left: SemanticExpansion[], right: SemanticExpansion[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
-function comparisonColor(symbol: SupportedSymbol) {
-  switch (symbol) {
-    case "AAPL":
-      return "#2563eb";
-    case "MSFT":
-      return "#7c3aed";
-    case "NVDA":
-      return "#16a34a";
-    case "TSLA":
-      return "#dc2626";
-    case "SPY":
-      return "#0f766e";
-    default:
-      return "#111111";
-  }
+function restoreChartFromMemory(
+  current: ChartState,
+  symbol: string,
+  interval: ChartInterval,
+  memory: ChartMemory | undefined
+): ChartState {
+  const sameDataKey = current.symbol === symbol && current.interval === interval;
+  return {
+    ...current,
+    symbol,
+    interval,
+    candles: sameDataKey ? current.candles : [],
+    status: "loading",
+    message: "Loading CDC candles...",
+    layers: memory?.layers ? { ...memory.layers } : { ...initialLayers },
+    volumeRatio: memory?.volumeRatio ?? initialVolumeRatio,
+    visibleCount: memory?.visibleCount ?? defaultVisibleBarsForInterval(interval),
+    rightOffset: memory?.rightOffset ?? latestCandleRightOffset(defaultVisibleBarsForInterval(interval)),
+    drawings: memory?.drawings ?? [],
+    selectedDrawingId: memory?.selectedDrawingId,
+    streamState: sameDataKey ? current.streamState : "connecting"
+  };
 }
 
-function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, scene: RenderScene): DrawingAnchor[] {
-  return drag.drawing.anchors.map((item, index) => {
-    if (drag.anchorIndex !== null) {
-      return index === drag.anchorIndex ? anchor : item;
-    }
-    const priceDelta = (anchor.price ?? 0) - (drag.anchor.price ?? 0);
-    const logicalDelta = (anchor.logicalIndex ?? 0) - (drag.anchor.logicalIndex ?? 0);
-    const nextLogical = typeof item.logicalIndex === "number" ? item.logicalIndex + logicalDelta : item.logicalIndex;
-    const nextTimestamp = typeof nextLogical === "number"
-      ? scene.allCandles[Math.max(0, Math.min(scene.allCandles.length - 1, Math.round(nextLogical)))]?.timestamp ?? item.timestamp
-      : item.timestamp;
-    return {
-      ...item,
-      logicalIndex: nextLogical,
-      timestamp: nextTimestamp,
-      price: typeof item.price === "number" ? item.price + priceDelta : item.price
-    };
+function visibleRightAnchorTimestamp(scene: ChartScene | null, chart: ChartState): string | undefined {
+  if (scene && scene.chart.symbol === chart.symbol && scene.chart.interval === chart.interval) {
+    const index = Math.max(0, scene.visibleEndIndex - 1);
+    return scene.allCandles[index]?.timestamp ?? chart.candles.at(-1)?.timestamp;
+  }
+  return chart.candles.at(-1)?.timestamp;
+}
+
+function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candle" }>): SemanticExpansion {
+  const childInterval = nextDigTargetInterval(unit.interval);
+  const range = candleRange(unit.candle, unit.interval);
+  return {
+    id: semanticExpansionId(unit.id),
+    symbol: unit.symbol,
+    parentExpansionId: unit.parentExpansionId,
+    parentNodeId: unit.id,
+    parentTimestamp: unit.timestamp,
+    parentInterval: unit.interval,
+    parentCandle: unit.candle,
+    childInterval,
+    from: range.from,
+    to: range.to,
+    depth: unit.depth + 1,
+    status: childInterval === "footprint" ? "ready" : "loading",
+    candles: [],
+    openedAt: new Date().toISOString()
+  };
+}
+
+function isDrawingAction(action: ChartAction): boolean {
+  return action.type === "addDrawing" ||
+    action.type === "updateDrawing" ||
+    action.type === "deleteDrawing" ||
+    action.type === "clearDrawings";
+}
+
+function changedPreviewDrawings(baseDrawings: DrawingEntity[], previewDrawings: DrawingEntity[]): DrawingEntity[] {
+  return previewDrawings.filter((drawing) => {
+    const base = baseDrawings.find((item) => item.id === drawing.id);
+    return !base || JSON.stringify(base) !== JSON.stringify(drawing);
   });
 }
 
-function hitTestDrawing(scene: RenderScene, x: number, y: number): { drawing: DrawingEntity; anchorIndex: number | null } | null {
-  const transform = createCoordinateTransform(scene);
-  for (const drawing of [...scene.document.drawings].reverse()) {
-    const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
-    const anchorIndex = points.findIndex((point) => distance(point.x, point.y, x, y) <= 8);
-    if (anchorIndex >= 0) {
-      return { drawing, anchorIndex };
-    }
-    if (drawing.type === "horizontalLine" && points[0] && Math.abs(points[0].y - y) <= 6 && x >= scene.plot.left && x <= scene.plot.right) {
-      return { drawing, anchorIndex: null };
-    }
-    if (drawing.type === "verticalMarker" && points[0] && Math.abs(points[0].x - x) <= 6 && y >= scene.plot.top && y <= scene.plot.priceBottom) {
-      return { drawing, anchorIndex: null };
-    }
-    if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
-      const [start, end] = drawing.type === "trendLine"
-        ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(drawing.style.extension))
-        : [points[0], points[1]];
-      if (distanceToSegment(x, y, start, end) <= 7) {
-        return { drawing, anchorIndex: null };
-      }
-    }
-    if (drawing.type === "rangeBox" && points.length >= 2) {
-      const left = Math.min(points[0].x, points[1].x);
-      const right = Math.max(points[0].x, points[1].x);
-      const top = Math.min(points[0].y, points[1].y);
-      const bottom = Math.max(points[0].y, points[1].y);
-      if (x >= left && x <= right && y >= top && y <= bottom) {
-        return { drawing, anchorIndex: null };
-      }
-    }
-    if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0] && distance(points[0].x, points[0].y, x, y) <= 12) {
-      return { drawing, anchorIndex: null };
-    }
+function buildLiveQuote(chart: ChartState, previousClose: number | null): LiveQuote {
+  if (chart.streamState !== "live" || !previousClose || previousClose <= 0) {
+    return unavailableQuote;
   }
-  return null;
+  const latest = chart.candles.at(-1);
+  if (!latest || !Number.isFinite(latest.close)) {
+    return unavailableQuote;
+  }
+  const change = latest.close - previousClose;
+  const percent = (change / previousClose) * 100;
+  const tone = change > 0 ? "up" : change < 0 ? "down" : "flat";
+  return {
+    priceText: priceFormatter.format(latest.close),
+    changeText: formatSignedNumber(change),
+    percentText: `${formatSignedNumber(percent)}%`,
+    tone
+  };
 }
 
-function distance(x1: number, y1: number, x2: number, y2: number) {
-  return Math.hypot(x2 - x1, y2 - y1);
+function formatSignedNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${priceFormatter.format(Math.abs(value))}`;
 }
 
-function distanceToSegment(x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) {
-    return distance(x, y, start.x, start.y);
-  }
-  const t = Math.max(0, Math.min(1, ((x - start.x) * dx + (y - start.y) * dy) / lengthSquared));
-  return distance(x, y, start.x + t * dx, start.y + t * dy);
+function formatMetric(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "-";
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
+function formatHoverTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
-function backfillStatusMessage(status: string, error?: string): string {
-  if (status === "queued" || status === "running") {
-    return "Preparing candle data...";
+function TrendExtensionIcon({ extension }: { extension: ChartLineExtension }) {
+  switch (extension) {
+    case "segment":
+      return (
+        <svg className="trend-extension-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+          <line x1="4" y1="14" x2="14" y2="4" />
+          <circle cx="4" cy="14" r="1.8" />
+          <circle cx="14" cy="4" r="1.8" />
+        </svg>
+      );
+    case "ray":
+      return (
+        <svg className="trend-extension-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+          <line x1="4" y1="14" x2="14" y2="4" />
+          <circle cx="4" cy="14" r="1.8" />
+          <polyline points="10 4 14 4 14 8" />
+        </svg>
+      );
+    case "line":
+      return (
+        <svg className="trend-extension-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+          <line x1="4" y1="14" x2="14" y2="4" />
+          <polyline points="10 4 14 4 14 8" />
+          <polyline points="8 14 4 14 4 10" />
+        </svg>
+      );
   }
-  if (status === "failed") {
-    return error || "Historical candle backfill failed.";
-  }
-  if (status === "unavailable") {
-    return error || "Historical candle backfill is unavailable.";
-  }
-  if (status === "succeeded") {
-    return "Backfill completed, but no stored candles were found for this chart.";
-  }
-  return "No candle data is available for this symbol and interval.";
 }
 
-function resolveChartSocketUrl(params: URLSearchParams): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const isViteDevServer = window.location.hostname === "127.0.0.1" &&
-    (window.location.port === "5173" || window.location.port === "5174");
-  const host = isViteDevServer ? "127.0.0.1:8000" : window.location.host;
-  return `${protocol}//${host}/ws/charts?${params.toString()}`;
+function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
+  switch (toolMode) {
+    case "select":
+      return <MousePointer2 size={16} />;
+    case "pan":
+      return <Hand size={16} />;
+    case "draw-horizontalLine":
+      return <Minus size={16} />;
+    case "draw-trendLine":
+      return <span className="tool-glyph diagonal-line" aria-hidden="true" />;
+    case "draw-verticalMarker":
+      return <span className="tool-glyph vertical-line" aria-hidden="true" />;
+    case "draw-textLabel":
+      return <Type size={16} />;
+    case "draw-pointMarker":
+      return <CircleDot size={16} />;
+    case "draw-arrow":
+      return <ArrowUpRight size={16} />;
+    case "draw-rangeBox":
+      return <Square size={16} />;
+    case "draw-measurement":
+      return <Ruler size={16} />;
+    default:
+      return <MousePointer2 size={16} />;
+  }
+}
+
+function applyCandleEvent(chart: ChartState, event: CandleEventDto): ChartState {
+  if (event.symbol !== chart.symbol || event.interval !== chart.interval) {
+    return chart;
+  }
+  const timestamp = event.data.timestamp;
+  const nextCandle = { ...event.data };
+  const candles = [...chart.candles].sort(compareCandles);
+  const index = candles.findIndex((candle) => candle.timestamp === timestamp);
+  if (index >= 0) {
+    candles[index] = nextCandle;
+    return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
+  }
+  const latest = candles.at(-1);
+  if (latest && Date.parse(timestamp) < Date.parse(latest.timestamp)) {
+    return chart;
+  }
+  candles.push(nextCandle);
+  return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
+}
+
+function compareCandles(left: CandleDto, right: CandleDto): number {
+  return Date.parse(left.timestamp) - Date.parse(right.timestamp);
 }

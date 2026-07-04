@@ -521,9 +521,7 @@ function applyPanelMoveStepWithPacking(
 
   const normalizedRequested = normalizeWorkspacePlacement({
     ...panel.placement,
-    ...requestedPlacement,
-    colSpan: panel.placement.colSpan,
-    rowSpan: panel.placement.rowSpan
+    ...requestedPlacement
   });
   const movedPanel = withPlacement(panel, normalizedRequested);
   const validation = validatePlacement(next, movedPanel, normalizedRequested);
@@ -619,6 +617,187 @@ function applyChunkSwap(
   return { ok: true, layout: next, message: "Panel swapped with panel group." };
 }
 
+
+function placementDistance(a: PanelPlacement, b: PanelPlacement): number {
+  return Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
+}
+
+function candidatePlacementsForPanel(
+  layout: WorkspaceLayout,
+  panel: PanelInstance,
+  placedPanels: PanelInstance[]
+): PanelPlacement[] {
+  const bounds = layout.zones[panel.placement.group];
+  const maxCol = bounds.columns - panel.placement.colSpan + 1;
+  const maxRow = bounds.rows - panel.placement.rowSpan + 1;
+  const candidates: PanelPlacement[] = [];
+
+  for (let row = 1; row <= maxRow; row += 1) {
+    for (let col = 1; col <= maxCol; col += 1) {
+      const placement = normalizeWorkspacePlacement({
+        ...panel.placement,
+        col,
+        row
+      });
+      const candidate = withPlacement(panel, placement);
+      if (validatePlacement(layout, candidate, placement)) {
+        continue;
+      }
+      if (placedPanels.some((placed) => placementsOverlap(placed.placement, placement))) {
+        continue;
+      }
+      candidates.push(placement);
+    }
+  }
+
+  return candidates.sort((left, right) =>
+    placementDistance(left, panel.placement) - placementDistance(right, panel.placement) ||
+    left.row - right.row ||
+    left.col - right.col
+  );
+}
+
+function placeRelocatedPanels(
+  layout: WorkspaceLayout,
+  relocatingPanels: PanelInstance[],
+  placedPanels: PanelInstance[],
+  index = 0
+): PanelInstance[] | null {
+  if (index >= relocatingPanels.length) {
+    return [];
+  }
+
+  const panel = relocatingPanels[index];
+  for (const placement of candidatePlacementsForPanel(layout, panel, placedPanels)) {
+    const relocated = withPlacement(panel, placement);
+    const rest = placeRelocatedPanels(layout, relocatingPanels, [...placedPanels, relocated], index + 1);
+    if (rest) {
+      return [relocated, ...rest];
+    }
+  }
+
+  return null;
+}
+
+function applyFreeRelocationPacking(
+  layout: WorkspaceLayout,
+  panelId: string,
+  requestedPlacement: PanelPlacement
+): LayoutResult {
+  const next = cloneLayout(layout);
+  const panel = next.panels.find((item) => item.id === panelId);
+  if (!panel) {
+    return { ok: false, message: "Panel not found." };
+  }
+
+  if (panel.layoutPinned) {
+    return { ok: false, message: "Pinned panels cannot be moved." };
+  }
+
+  const target = normalizeWorkspacePlacement({
+    ...panel.placement,
+    ...requestedPlacement
+  });
+  const movedPanel = withPlacement(panel, target);
+  const validation = validatePlacement(next, movedPanel, target);
+  if (validation) {
+    return { ok: false, message: validation };
+  }
+
+  const collisions = collidingPanels(next.panels, panel, target);
+  const pinnedCollision = collisions.find((collision) => collision.layoutPinned);
+  if (pinnedCollision) {
+    return { ok: false, message: `Move blocked by pinned panel: ${pinnedCollision.title ?? pinnedCollision.id}.` };
+  }
+
+  const relocatingPanels = collisions.sort((left, right) => placementArea(right.placement) - placementArea(left.placement));
+  const placedPanels = next.panels.filter(
+    (item) => item.id !== panel.id && !relocatingPanels.some((collision) => collision.id === item.id)
+  );
+  const relocatedPanels = placeRelocatedPanels(next, relocatingPanels, [movedPanel, ...placedPanels]);
+  if (!relocatedPanels) {
+    return { ok: false, message: "Move is not freely packable in the current grid." };
+  }
+
+  let result = updatePanel(next, movedPanel);
+  for (const relocated of relocatedPanels) {
+    result = updatePanel(result, relocated);
+  }
+
+  const invalid = validateLayout(result);
+  if (invalid) {
+    return { ok: false, message: invalid };
+  }
+
+  return {
+    ok: true,
+    layout: result,
+    message: relocatedPanels.length ? "Panel moved with free packing." : "Panel moved."
+  };
+}
+
+
+function targetPlacementsNear(
+  layout: WorkspaceLayout,
+  panel: PanelInstance,
+  target: PanelPlacement
+): PanelPlacement[] {
+  const bounds = layout.zones[panel.placement.group];
+  const maxCol = bounds.columns - target.colSpan + 1;
+  const maxRow = bounds.rows - target.rowSpan + 1;
+  const placements: PanelPlacement[] = [];
+
+  for (let row = 1; row <= maxRow; row += 1) {
+    for (let col = 1; col <= maxCol; col += 1) {
+      const placement = normalizeWorkspacePlacement({
+        ...target,
+        col,
+        row
+      });
+      const candidate = withPlacement(panel, placement);
+      if (!validatePlacement(layout, candidate, placement)) {
+        placements.push(placement);
+      }
+    }
+  }
+
+  return placements.sort((left, right) =>
+    placementDistance(left, target) - placementDistance(right, target) ||
+    placementDistance(left, panel.placement) - placementDistance(right, panel.placement) ||
+    left.row - right.row ||
+    left.col - right.col
+  );
+}
+
+function applyNearestFreePacking(
+  layout: WorkspaceLayout,
+  panelId: string,
+  target: PanelPlacement
+): LayoutResult {
+  const panel = layout.panels.find((item) => item.id === panelId);
+  if (!panel) {
+    return { ok: false, message: "Panel not found." };
+  }
+
+  for (const placement of targetPlacementsNear(layout, panel, target)) {
+    if (placement.col === panel.placement.col && placement.row === panel.placement.row) {
+      continue;
+    }
+
+    const directResult = applyPanelMoveStepWithPacking(layout, panelId, placement);
+    if (directResult.ok) {
+      return directResult;
+    }
+
+    const freePackingResult = applyFreeRelocationPacking(layout, panelId, placement);
+    if (freePackingResult.ok) {
+      return freePackingResult;
+    }
+  }
+
+  return { ok: false, message: "No nearby packable placement is available." };
+}
+
 export function applyPanelMoveWithPacking(
   layout: WorkspaceLayout,
   panelId: string,
@@ -633,13 +812,21 @@ export function applyPanelMoveWithPacking(
 
   const target = normalizeWorkspacePlacement({
     ...panel.placement,
-    ...requestedPlacement,
-    colSpan: panel.placement.colSpan,
-    rowSpan: panel.placement.rowSpan
+    ...requestedPlacement
   });
   const directResult = applyPanelMoveStepWithPacking(next, panelId, target);
   if (directResult.ok) {
     return directResult;
+  }
+
+  const freePackingResult = applyFreeRelocationPacking(next, panelId, target);
+  if (freePackingResult.ok) {
+    return freePackingResult;
+  }
+
+  const nearestFreePackingResult = applyNearestFreePacking(next, panelId, target);
+  if (nearestFreePackingResult.ok) {
+    return nearestFreePackingResult;
   }
 
   let moved = false;
@@ -680,11 +867,141 @@ export function applyPanelMoveWithPacking(
   return { ok: true, layout: next, message: moved ? "Panel moved with packed group." : "Panel moved." };
 }
 
+type GridCell = { col: number; row: number };
+
+type ExpansionCandidate = {
+  panel: PanelInstance;
+  placement: PanelPlacement;
+  priority: number;
+};
+
+function workspaceCells(layout: WorkspaceLayout): GridCell[] {
+  const cells: GridCell[] = [];
+  const bounds = layout.zones.workspace;
+
+  for (let row = 1; row <= bounds.rows; row += 1) {
+    for (let col = 1; col <= bounds.columns; col += 1) {
+      cells.push({ col, row });
+    }
+  }
+
+  return cells;
+}
+
+function placementCoversCell(placement: PanelPlacement, cell: GridCell): boolean {
+  if (placement.group !== "workspace") {
+    return false;
+  }
+
+  const end = placementEnd(placement);
+  return cell.col >= placement.col && cell.col <= end.col && cell.row >= placement.row && cell.row <= end.row;
+}
+
+function isWorkspaceCellEmpty(layout: WorkspaceLayout, cell: GridCell): boolean {
+  return !layout.panels.some((panel) => placementCoversCell(panel.placement, cell));
+}
+
+function findEmptyWorkspaceCell(layout: WorkspaceLayout): GridCell | null {
+  return workspaceCells(layout).find((cell) => isWorkspaceCellEmpty(layout, cell)) ?? null;
+}
+
+function isPanelExpansionValid(layout: WorkspaceLayout, panel: PanelInstance, placement: PanelPlacement): boolean {
+  const candidate = withPlacement(panel, placement);
+  if (validatePlacement(layout, candidate, placement)) {
+    return false;
+  }
+
+  if (collidingPanels(layout.panels, panel, placement).length > 0) {
+    return false;
+  }
+
+  const next = updatePanel(layout, candidate);
+  return validateLayout(next) === null;
+}
+
+function expansionCandidatesForCell(layout: WorkspaceLayout, cell: GridCell): ExpansionCandidate[] {
+  const candidates: ExpansionCandidate[] = [];
+
+  for (const panel of workspacePanels(layout)) {
+    if (panel.layoutPinned) {
+      continue;
+    }
+
+    const placement = panel.placement;
+    const end = placementEnd(placement);
+    const coversColumn = cell.col >= placement.col && cell.col <= end.col;
+    const coversRow = cell.row >= placement.row && cell.row <= end.row;
+
+    const maybeAdd = (nextPlacement: PanelPlacement, priority: number) => {
+      const normalized = normalizeWorkspacePlacement(nextPlacement);
+      if (!isPanelExpansionValid(layout, panel, normalized)) {
+        return;
+      }
+      candidates.push({ panel, placement: normalized, priority });
+    };
+
+    if (coversColumn && end.row === cell.row - 1) {
+      maybeAdd({ ...placement, rowSpan: placement.rowSpan + 1 }, 0);
+    }
+
+    if (coversRow && end.col === cell.col - 1) {
+      maybeAdd({ ...placement, colSpan: placement.colSpan + 1 }, 1);
+    }
+
+    if (coversColumn && placement.row === cell.row + 1) {
+      maybeAdd({ ...placement, row: cell.row, rowSpan: placement.rowSpan + 1 }, 2);
+    }
+
+    if (coversRow && placement.col === cell.col + 1) {
+      maybeAdd({ ...placement, col: cell.col, colSpan: placement.colSpan + 1 }, 3);
+    }
+  }
+
+  return candidates.sort((left, right) =>
+    left.priority - right.priority ||
+    (right.panel.layoutWeight ?? 0) - (left.panel.layoutWeight ?? 0) ||
+    placementArea(right.panel.placement) - placementArea(left.panel.placement) ||
+    left.panel.placement.row - right.panel.placement.row ||
+    left.panel.placement.col - right.panel.placement.col
+  );
+}
+
+function fillWorkspaceVacancies(layout: WorkspaceLayout): WorkspaceLayout {
+  let next = cloneLayout(layout);
+  const maxIterations = layout.zones.workspace.columns * layout.zones.workspace.rows;
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const emptyCell = findEmptyWorkspaceCell(next);
+    if (!emptyCell) {
+      return next;
+    }
+
+    const [candidate] = expansionCandidatesForCell(next, emptyCell);
+    if (!candidate) {
+      return next;
+    }
+
+    next = updatePanel(next, withPlacement(candidate.panel, candidate.placement));
+  }
+
+  return next;
+}
+
 export function reflowLayout(layout: WorkspaceLayout): LayoutResult {
   const invalid = validateLayout(layout);
   if (invalid) {
     return { ok: false, message: invalid };
   }
 
-  return { ok: true, layout, message: "Layout is already valid." };
+  const nextLayout = fillWorkspaceVacancies(layout);
+  const nextInvalid = validateLayout(nextLayout);
+  if (nextInvalid) {
+    return { ok: false, message: nextInvalid };
+  }
+
+  return {
+    ok: true,
+    layout: nextLayout,
+    message: layout === nextLayout ? "Layout is already valid." : "Layout reflowed into open space."
+  };
 }

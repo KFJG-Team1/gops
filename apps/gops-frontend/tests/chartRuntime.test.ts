@@ -1,27 +1,51 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
-import { isChartDataRenderable, isPreparingCandleData, normalizeBackfillStatusPayload, shouldForceBackfill, shouldRequestBackfill } from "../../chart-engine/src/backfill";
+import {
+  firstSnapshotGapBackfillWindow,
+  initialBackfillWindow,
+  isChartDataRenderable,
+  isPreparingCandleData,
+  normalizeBackfillStatusPayload,
+  rangeBackfillWindow,
+  rangeBackfillWindowForSnapshot,
+  shouldForceBackfill,
+  shouldRequestBackfill,
+  shouldRequestRangeBackfill
+} from "../../chart-engine/src/backfill";
+import {
+  buildAgentAnalysisRequest,
+  buildAgentLayoutContext,
+  formatAgentAnalysisReport,
+  normalizeAgentAnalysisReport,
+  shouldAutoApplyAgentLayoutProposal
+} from "../src/agents/agentAnalysis";
+import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
   resolveAgentChartReference,
   resolveAgentSendContent
 } from "../../chart-engine/src/agentReference";
-import { applyCandleEvent, candleKey } from "../../chart-engine/src/candleStore";
+import { applyCandleEvent, applySnapshotToCandles, candleKey } from "../../chart-engine/src/candleStore";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
+import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
 import { backfillTargetBarsForInterval, defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
-import { isRealtimeControlPayload, normalizeCandleEvent, normalizeCandleSnapshot } from "../../chart-engine/src/marketDataAdapter";
+import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
-import { DEFAULT_CHART_SYMBOL, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
+import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
+import { agentProgressLabel, isAgentAnalysisIntent, normalizeAgentEntityResolveResponse } from "../src/components/SystemArea";
 import {
+  applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
   executeCommand as executeLayoutCommand,
   layoutPresentationSnapshotsEqual,
@@ -126,18 +150,45 @@ function pickPlacement(placement?: PanelPlacement | null) {
   };
 }
 
+function fakeApiResponse(input: { ok: boolean; status: number; body: string; contentType?: string }) {
+  return {
+    ok: input.ok,
+    status: input.status,
+    statusText: "",
+    headers: {
+      get: (name: string) => name.toLowerCase() === "content-type" ? input.contentType ?? "application/json" : null
+    },
+    text: async () => input.body
+  };
+}
+
 const initialLayoutRuntime = createInitialLayoutRuntimeState();
 assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
 assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
 assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
-assert.equal(getPanelDefinition("orderTicket").title, "Order");
-assert.equal(PANEL_CATALOG_TYPES.includes("orderTicket"), true);
+assert.equal(getPanelDefinition("orderTicket").title, "주문");
+assert.equal(getPanelDefinition("portfolioHoldings").title, "내 투자");
+assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
+assert.equal(getPanelDefinition("ontologyGraph").title, "온톨로지");
+assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "portfolioHoldings", "orderTicket", "ontologyGraph"]);
 const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
 assert.equal(orderPanelInstance.type, "orderTicket");
 assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
+const portfolioPanelInstance = createPanelInstance("portfolioHoldings", testPlacement(1, 4, 1, 2), "system", {}, "test-portfolio");
+assert.equal(portfolioPanelInstance.type, "portfolioHoldings");
+assert.equal(portfolioPanelInstance.resourceRefs?.[0]?.kind, "portfolioView");
+const ontologyPanelInstance = createPanelInstance("ontologyGraph", testPlacement(4, 1, 1, 2), "system", {}, "test-ontology");
+assert.equal(ontologyPanelInstance.type, "ontologyGraph");
+assert.equal(ontologyPanelInstance.resourceRefs?.[0]?.kind, "ontologyGraph");
+const chartPresetPortfolioPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-portfolio");
+assert.equal(chartPresetPortfolioPanel?.type, "portfolioHoldings");
+assert.deepEqual(pickPlacement(chartPresetPortfolioPanel?.placement), { col: 1, row: 4, colSpan: 1, rowSpan: 2 });
 const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
 assert.equal(chartPresetOrderPanel?.type, "orderTicket");
 assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
+const chartPresetHotPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-hot-ranking");
+assert.equal(chartPresetHotPanel?.type, "hotRanking");
+assert.deepEqual(pickPlacement(chartPresetHotPanel?.placement), { col: 2, row: 4, colSpan: 1, rowSpan: 2 });
 const chartPresetRuntimeCopy = createPresetLayout("chart");
 const chartPresetSavedCopy = createPresetLayout("chart");
 assert.equal(layoutSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), false);
@@ -160,7 +211,7 @@ try {
   const staleOrderPlacement = staleChartDefault.panels.find((panel) => panel.id === "panel-order")?.placement ?? testPlacement(4, 4, 1, 2);
   staleChartDefault.panels = staleChartDefault.panels.map((panel) =>
     panel.id === "panel-order"
-      ? createPanelInstance("aiSummary", staleOrderPlacement, "system", { summary: "LLM summary placeholder" }, "panel-ai-summary")
+      ? createPanelInstance("newsFeed", staleOrderPlacement, "system", { query: "stale default" }, "panel-stale-news")
       : panel
   );
   fakeLocalStorageRecords.set("gops.savedLayouts.v1", JSON.stringify([{
@@ -176,7 +227,7 @@ try {
   const runtimeWithStaleDefault = createInitialLayoutRuntimeState();
   const mergedChartDefault = runtimeWithStaleDefault.savedLayouts.find((record) => record.kind === "default" && record.defaultKey === "chart");
   assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-order" && panel.type === "orderTicket"), true);
-  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-ai-summary"), false);
+  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-stale-news"), false);
 } finally {
   if (originalLocalStorageDescriptor) {
     Object.defineProperty(globalThis, "localStorage", originalLocalStorageDescriptor);
@@ -323,6 +374,63 @@ assert.equal(liveMutationResult.applied, true);
 assert.equal(liveMutationResult.candles.length, 2);
 assert.equal(liveMutationResult.candles[1]?.close, 11.2);
 assert.equal(liveMutationResult.candles[1]?.volume, 180);
+assert.equal(liveMutationResult.candles[1]?.timestamp, "2026-06-25T13:31:00.000Z");
+
+const duplicateBucketResult = applyCandleEvent([candleB], {
+  type: "LIVE_CANDLE_UPDATE",
+  symbol: "AAPL",
+  interval: "1m",
+  data: { ...candleB, timestamp: "2026-06-25T13:31:00.000Z", close: 11.4 }
+});
+assert.equal(duplicateBucketResult.applied, true);
+assert.equal(duplicateBucketResult.candles.length, 1);
+assert.equal(duplicateBucketResult.candles[0]?.close, 11.4);
+assert.deepEqual(
+  applySnapshotToCandles({
+    symbol: "AAPL",
+    interval: "1m",
+    source: "alpaca",
+    feed: "sip",
+    indicators: { ma: [5, 20, 60], volume: true },
+    candles: [{ ...candleB, timestamp: "2026-06-25T13:31:00.000Z", close: 11.5 }]
+  }, [candleB]).map((candle) => candle.close),
+  [11.5]
+);
+const prependedSnapshotCandles = applySnapshotToCandles({
+  symbol: "AAPL",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  indicators: { ma: [5, 20, 60], volume: true },
+  candles: [
+    { ...candleA, timestamp: "2026-06-25T13:29:00.000Z", close: 9.8 },
+    { ...candleA, close: 10.7 }
+  ]
+}, [candleA, candleB]);
+assert.deepEqual(prependedSnapshotCandles.map((candle) => candle.timestamp), [
+  "2026-06-25T13:29:00.000Z",
+  "2026-06-25T13:30:00.000Z",
+  "2026-06-25T13:31:00.000Z"
+]);
+assert.equal(prependedSnapshotCandles[1]?.close, 10.7);
+const overnightContinuity = applyDisplayContinuity([
+  { ...candleA, timestamp: "2026-07-01T05:00:00.000Z", close: 101, marketSession: "overnight" },
+  { ...candleB, timestamp: "2026-07-01T05:03:00.000Z", close: 102, marketSession: "overnight" }
+], "1m");
+assert.deepEqual(overnightContinuity.map((candle) => candle.timestamp), [
+  "2026-07-01T05:00:00.000Z",
+  "2026-07-01T05:01:00.000Z",
+  "2026-07-01T05:02:00.000Z",
+  "2026-07-01T05:03:00.000Z"
+]);
+assert.equal(overnightContinuity[1]?.displayOnly, true);
+assert.equal(overnightContinuity[1]?.volume, 0);
+assert.equal(overnightContinuity[1]?.close, 101);
+const regularContinuity = applyDisplayContinuity([
+  { ...candleA, timestamp: "2026-06-25T14:30:00.000Z", close: 201, marketSession: "regular" },
+  { ...candleB, timestamp: "2026-06-25T14:33:00.000Z", close: 202, marketSession: "regular" }
+], "1m");
+assert.equal(regularContinuity.length, 2);
 
 const invalidProposal: ChartProposal = {
   id: "proposal-invalid",
@@ -412,6 +520,15 @@ assert.equal(liveRuntime.dataStatusByKey[candleKey("NVDA", "5m")]?.feed, "sip");
 const heartbeatPayload = { type: "HEARTBEAT", symbol: "NVDA", interval: "1m" };
 assert.equal(isRealtimeControlPayload(heartbeatPayload), true);
 assert.throws(() => normalizeCandleEvent(heartbeatPayload), /missing type, symbol, interval, or data/);
+const tradePayload = { type: "LIVE_TRADE_UPDATE", symbol: "NVDA", data: { price: "197.66", size: "20", timestamp: "2026-07-02T14:30:00Z" } };
+assert.equal(isRealtimeLayerPayload(tradePayload), true);
+const normalizedTrade = normalizeRealtimeLayerEvent(tradePayload);
+if (normalizedTrade.type !== "LIVE_TRADE_UPDATE") {
+  throw new Error("expected trade payload");
+}
+assert.equal(normalizedTrade.data.price, 197.66);
+const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
+assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
 
 assert.equal(shouldRequestBackfill({
   state: "empty",
@@ -419,7 +536,7 @@ assert.equal(shouldRequestBackfill({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldRequestBackfill({
   state: "empty",
   backfillStatus: "queued",
@@ -432,7 +549,7 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "not_requested",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), true);
+}, true), false);
 assert.equal(isPreparingCandleData({
   state: "empty",
   backfillStatus: "queued",
@@ -444,20 +561,20 @@ assert.equal(isPreparingCandleData({
   backfillStatus: "failed",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}, true), true);
+}, true), false);
 assert.equal(shouldRequestBackfill({
   state: "empty",
   message: "Alpaca credentials are not configured.",
   backfillStatus: "unavailable",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldForceBackfill({
   state: "empty",
   backfillStatus: "unavailable",
   canBackfill: true,
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(shouldRequestBackfill({
   state: "partial",
   backfillStatus: "succeeded",
@@ -469,7 +586,34 @@ assert.equal(shouldRequestBackfill({
     renderable: false
   },
   updatedAt: new Date().toISOString()
+}), false);
+assert.equal(shouldRequestBackfill({
+  state: "partial",
+  backfillStatus: "not_requested",
+  canBackfill: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    sourceInterval: "1m",
+    renderable: false,
+    gapRanges: [{ start: "2026-06-30T15:22:00.000Z", end: "2026-06-30T15:31:00.000Z", missingCount: 9 }]
+  },
+  updatedAt: new Date().toISOString()
 }), true);
+assert.equal(shouldRequestBackfill({
+  state: "ready",
+  backfillStatus: "not_requested",
+  repairStatus: "history_preload_required",
+  canBackfill: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "stored_range_incomplete",
+    repairStatus: "history_preload_required",
+    sourceInterval: "1m",
+    renderable: true
+  },
+  updatedAt: new Date().toISOString()
+}), false);
 assert.equal(normalizeBackfillStatusPayload({
   symbol: "NVDA",
   interval: "1W",
@@ -495,7 +639,7 @@ assert.equal(shouldRequestBackfill({
     sourceInterval: "1m"
   },
   updatedAt: new Date().toISOString()
-}), true);
+}), false);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Sparse daily coverage should not render like a normal chart.",
@@ -509,6 +653,20 @@ assert.equal(isChartDataRenderable({
   },
   updatedAt: new Date().toISOString()
 }), false);
+assert.equal(isChartDataRenderable({
+  state: "partial",
+  message: "Sparse intraday gap can remain visible while gapfill repairs the range.",
+  returnedCount: 120,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    sourceInterval: "1m",
+    renderable: false,
+    returnedCount: 120,
+    gapRanges: [{ start: "2026-06-30T15:22:00.000Z", end: "2026-06-30T15:31:00.000Z", missingCount: 9 }]
+  },
+  updatedAt: new Date().toISOString()
+}), true);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Enough partial intraday candles may still be inspectable.",
@@ -570,19 +728,21 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   feed: "sip",
   dataStatus: "partial",
   backfillStatus: "not_requested",
+  repairStatus: "gapfill_required",
   canBackfill: true,
   requestedLimit: 390,
   returnedCount: 1,
-  targetStoredCount: 98280,
+  targetStoredCount: 5460,
   storedCandleCount: 1,
   hasMoreBefore: true,
   coverage: {
     state: "partial",
     reasonCode: "stored_range_incomplete",
+    repairStatus: "gapfill_required",
     sourceInterval: "1m",
     returnedCount: 1,
     storedCandleCount: 1,
-    targetStoredCount: 98280,
+    targetStoredCount: 5460,
     renderable: false,
     minimumReturnedCount: 20,
     minimumRenderableSourceBars: 30
@@ -590,7 +750,9 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   candles: [candleB]
 });
 assert.equal(partialBackfillSnapshot.dataStatus, "partial");
+assert.equal(partialBackfillSnapshot.repairStatus, "gapfill_required");
 assert.equal(partialBackfillSnapshot.coverage?.reasonCode, "stored_range_incomplete");
+assert.equal(partialBackfillSnapshot.coverage?.repairStatus, "gapfill_required");
 assert.equal(partialBackfillSnapshot.coverage?.renderable, false);
 const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.snapshot.loaded",
@@ -599,8 +761,70 @@ const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeStat
 const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
 assert.equal(partialBackfillStatus?.state, "partial");
 assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 98280);
-assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 98280);
+assert.equal(partialBackfillStatus?.targetStoredCount, 5460);
+assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 5460);
+assert.equal(partialBackfillStatus?.repairStatus, "gapfill_required");
+assert.equal(shouldRequestRangeBackfill(partialBackfillSnapshot), true);
+assert.equal(shouldRequestRangeBackfill({
+  ...partialBackfillSnapshot,
+  dataStatus: "partial",
+  repairStatus: "history_preload_required",
+  coverage: {
+    ...partialBackfillSnapshot.coverage,
+    renderable: true
+  }
+}), false);
+assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
+  start: "2026-06-25T05:30:00.000Z",
+  end: "2026-06-25T13:30:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("1m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-19T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("5m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-19T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
+});
+assert.deepEqual(initialBackfillWindow("10m", "2026-07-03T08:00:00.000Z"), {
+  start: "2026-06-19T08:00:00.000Z",
+  end: "2026-07-03T08:00:00.000Z"
+});
+const sparseGapSnapshot = normalizeCandleSnapshot({
+  symbol: "AAPL",
+  interval: "1m",
+  source: "alpaca",
+  feed: "sip",
+  dataStatus: "partial",
+  backfillStatus: "not_requested",
+  repairStatus: "gapfill_required",
+  canBackfill: true,
+  hasMoreBefore: true,
+  coverage: {
+    state: "partial",
+    reasonCode: "returned_window_sparse",
+    repairStatus: "gapfill_required",
+    sourceInterval: "1m",
+    returnedCount: 120,
+    renderable: false,
+    gapRanges: [
+      {
+        start: "2026-06-25T13:01:00.000Z",
+        end: "2026-06-25T13:09:00.000Z",
+        missingCount: 8
+      }
+    ]
+  },
+  candles: [candleA, candleB]
+});
+assert.deepEqual(firstSnapshotGapBackfillWindow(sparseGapSnapshot), {
+  start: "2026-06-25T13:01:00.000Z",
+  end: "2026-06-25T13:09:00.000Z"
+});
+assert.deepEqual(rangeBackfillWindowForSnapshot(sparseGapSnapshot, "1m", "2026-06-25T13:30:00.000Z", 120), {
+  start: "2026-06-25T13:01:00.000Z",
+  end: "2026-06-25T13:09:00.000Z"
+});
 
 const agentContextWithStreamError = buildChartAgentContext({
   panelId: "panel-agent-context",
@@ -617,6 +841,12 @@ assert.equal(agentContextWithStreamError.dataStatus.state, "ready");
 assert.equal(agentContextWithStreamError.dataStatus.candleCount, 2);
 assert.equal(agentContextWithStreamError.dataStatus.hasVisibleCandles, true);
 assert.equal(agentContextWithStreamError.streamStatus, "error");
+assert.deepEqual(agentContextWithStreamError.entityFallback, {
+  source: "selected-chart",
+  panelId: "panel-agent-context",
+  chartDocumentId: "chart-doc-agent-context",
+  symbol: "NVDA"
+});
 
 const proposalScene = buildRenderScene({
   state: "ready",
@@ -661,7 +891,7 @@ const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
 });
 assert.deepEqual(
   mergedSnapshotRuntime.candlesByKey[candleKey("INTC", "1m")]?.map((candle) => candle.timestamp),
-  [candleA.timestamp, candleB.timestamp]
+  ["2026-06-25T13:30:00.000Z", "2026-06-25T13:31:00.000Z"]
 );
 
 const lifecyclePanelA = chartPanel("panel-lifecycle-a", "chart-doc-lifecycle-a", "AAPL");
@@ -717,18 +947,23 @@ assert.equal(normalizeChartInterval("1d"), "1D");
 assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.equal(defaultVisibleBarsForInterval("1m"), 390);
-assert.equal(defaultVisibleBarsForInterval("5m"), 390);
-assert.equal(defaultVisibleBarsForInterval("10m"), 390);
-assert.equal(defaultVisibleBarsForInterval("1D"), 250);
-assert.equal(defaultVisibleBarsForInterval("1W"), 260);
+assert.equal(defaultVisibleBarsForInterval("1m"), 120);
+assert.equal(defaultVisibleBarsForInterval("5m"), 120);
+assert.equal(defaultVisibleBarsForInterval("10m"), 120);
+assert.equal(defaultVisibleBarsForInterval("1D"), 120);
+assert.equal(defaultVisibleBarsForInterval("1W"), 120);
 assert.equal(defaultVisibleBarsForInterval("1M"), 120);
-assert.equal(backfillTargetBarsForInterval("1m"), 98280);
-assert.equal(backfillTargetBarsForInterval("5m"), 19656);
-assert.equal(backfillTargetBarsForInterval("10m"), 9828);
-assert.equal(backfillTargetBarsForInterval("1D"), 1260);
-assert.equal(backfillTargetBarsForInterval("1W"), 260);
-assert.equal(backfillTargetBarsForInterval("1M"), 60);
+assert.equal(backfillTargetBarsForInterval("1m"), 5460);
+assert.equal(backfillTargetBarsForInterval("5m"), 1092);
+assert.equal(backfillTargetBarsForInterval("10m"), 546);
+assert.equal(backfillTargetBarsForInterval("1D"), 1512);
+assert.equal(backfillTargetBarsForInterval("1W"), 312);
+assert.equal(backfillTargetBarsForInterval("1M"), 72);
+assert.equal(maxRequestBarsForInterval("1m"), 589680);
+assert.equal(maxRequestBarsForInterval("5m"), 117936);
+assert.equal(maxRequestBarsForInterval("10m"), 58968);
+assert.equal(maxRequestBarsForInterval("1D"), 1512);
+assert.equal(maxRequestBarsForInterval("1W"), 312);
 assert.equal(maxRequestBarsForInterval("1M"), 120);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
@@ -745,24 +980,37 @@ for (const timeframe of ["1D", "1W", "1M"]) {
 
 const watchlist = normalizeWatchlistPayload({
   symbols: [
-    { symbol: "AAPL", name: "Apple", market: "NASDAQ", lastPrice: 190.12, changePercent: 1.2, volume: 1000 },
-    { symbol: "GOOG", name: "Alphabet", lastPrice: 1 }
+    { symbol: "IBM", name: "International Business Machines", market: "NYSE", lastPrice: 190.12, changePercent: 1.2, volume: 1000 },
+    { symbol: "ORCL", name: "Oracle", lastPrice: 1 }
   ]
 });
 assert.equal(watchlist.length, 2);
-assert.equal(watchlist[0]?.symbol, "AAPL");
-assert.equal(watchlist[0]?.market, "NASDAQ");
+assert.equal(watchlist[0]?.symbol, "IBM");
+assert.equal(watchlist[0]?.market, "NYSE");
 assert.equal(watchlist[0]?.lastPrice, 190.12);
-assert.equal(watchlist.find((item) => item.symbol === "GOOG")?.market, "US");
+assert.equal(watchlist.find((item) => item.symbol === "ORCL")?.market, "US");
 
 const seedWatchlist = normalizeWatchlistPayload({
-  symbols: ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"].map((symbol) => ({
+  symbols: ["IBM", "ORCL"].map((symbol) => ({
     symbol,
     name: symbol,
-    market: symbol === "TSM" ? "NYSE" : "NASDAQ"
+    market: "US"
   }))
 });
-assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["NVDA", "AMD", "AVGO", "TSM", "ASML", "AMAT", "MU"]);
+assert.deepEqual(seedWatchlist.map((item) => item.symbol), ["IBM", "ORCL"]);
+assert.deepEqual(defaultWatchlistSymbols().map((item) => item.symbol), []);
+
+const hotRanking = normalizeHotRankingPayload({
+  ranking: { method: "current_session_dollar_volume", universe: "on-demand" },
+  symbols: [
+    { rank: 1, symbol: "ibm", name: "International Business Machines", market: "nyse", sessionDollarVolume: 123000000, changePercent: 1.2 },
+    { symbol: "bad" }
+  ]
+});
+assert.equal(hotRanking.length, 1);
+assert.equal(hotRanking[0]?.symbol, "IBM");
+assert.equal(hotRanking[0]?.rank, 1);
+assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const frameCell = getWorkspaceDropCell({ left: 10, top: 20, width: 550, height: 500 }, 12, 24);
 assert.deepEqual(frameCell, { col: 1, row: 1 });
@@ -894,6 +1142,128 @@ assert.equal(sameTypeResult.history.length, 0);
 assert.equal(sameTypeResult.journal.length, 0);
 assert.equal(sameTypeResult.layout.panels[0]?.chartDocumentId, sameTypeTarget.chartDocumentId);
 
+const priorityTarget = testPanel("priority-news", "newsFeed", testPlacement(1, 1), false);
+const priorityState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([priorityTarget]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.priority.set", "user", { panelId: priorityTarget.id, layoutWeight: 100 })
+);
+assert.equal(priorityState.layout.panels[0]?.layoutWeight, 100);
+assert.equal(priorityState.history.length, 1);
+
+const resizeMoveTarget = testPanel("resize-move-order", "orderTicket", testPlacement(4, 4, 1, 2));
+const resizeMoveState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([resizeMoveTarget]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.move", "user", {
+    panelId: resizeMoveTarget.id,
+    placement: testPlacement(1, 1, 3, 5)
+  }, { panelId: resizeMoveTarget.id })
+);
+const resizedMovePanel = resizeMoveState.layout.panels.find((panel) => panel.id === resizeMoveTarget.id);
+assert.deepEqual(resizedMovePanel && pickPlacement(resizedMovePanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
+
+const arrangeOrderPanel = testPanel("arrange-order", "orderTicket", testPlacement(4, 4, 1, 2));
+const arrangeState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([
+      testPanel("arrange-chart", "chart", testPlacement(1, 1, 3, 3)),
+      testPanel("arrange-news", "newsFeed", testPlacement(1, 4, 2, 2)),
+      testPanel("arrange-ontology", "ontologyGraph", testPlacement(4, 1, 1, 2)),
+      arrangeOrderPanel
+    ], arrangeOrderPanel.id),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panels.arrange", "user", {
+    placements: [
+      { panelId: arrangeOrderPanel.id, placement: testPlacement(1, 1, 3, 5), layoutWeight: 100 },
+      { panelId: "arrange-chart", placement: testPlacement(4, 1), layoutWeight: 40 },
+      { panelId: "arrange-news", placement: testPlacement(4, 2), layoutWeight: 40 },
+      { panelId: "arrange-ontology", placement: testPlacement(4, 3), layoutWeight: 40 }
+    ]
+  })
+);
+const arrangedOrderPanel = arrangeState.layout.panels.find((panel) => panel.id === arrangeOrderPanel.id);
+assert.deepEqual(arrangedOrderPanel && pickPlacement(arrangedOrderPanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
+assert.equal(arrangedOrderPanel?.layoutWeight, 100);
+assert.equal(arrangeState.history.length, 1);
+
+const pinnedArrangePanel = testPanel("pinned-arrange-news", "newsFeed", testPlacement(2, 2), true);
+const pinnedArrangeState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([pinnedArrangePanel]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panels.arrange", "user", {
+    placements: [
+      { panelId: pinnedArrangePanel.id, placement: testPlacement(1, 1), layoutWeight: 100 }
+    ]
+  })
+);
+assert.deepEqual(pickPlacement(pinnedArrangeState.layout.panels[0]?.placement), { col: 2, row: 2, colSpan: 1, rowSpan: 1 });
+assert.equal(pinnedArrangeState.history.length, 0);
+assert.equal(pinnedArrangeState.errors.at(-1)?.message.includes("Pinned panel cannot be arranged"), true);
+
+const autoProposalTarget = testPanel("auto-proposal-news", "newsFeed", testPlacement(1, 1), false);
+const autoProposalBaseState = {
+  ...createInitialLayoutRuntimeState(),
+  layout: testLayout([autoProposalTarget]),
+  history: [],
+  future: [],
+  journal: [],
+  errors: [],
+  pendingProposals: []
+};
+const autoProposalState = applyLayoutProposal(autoProposalBaseState, {
+  id: "layout-proposal-auto",
+  title: "Agent analysis workspace",
+  rationale: "Test auto proposal.",
+  autoApply: true,
+  panelPriorities: [],
+  commands: [
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 95 })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+});
+assert.equal(autoProposalState.layout.panels[0]?.layoutWeight, 95);
+assert.equal(autoProposalState.pendingProposals.length, 0);
+assert.equal(autoProposalState.journal[0]?.status, "applied");
+
+const failedProposalState = applyLayoutProposal(autoProposalBaseState, {
+  id: "layout-proposal-fail",
+  title: "Broken agent layout",
+  rationale: "Test rollback.",
+  autoApply: true,
+  panelPriorities: [],
+  commands: [
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 96 }),
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "missing-panel", layoutWeight: 97 })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+});
+assert.equal(failedProposalState.layout.panels[0]?.layoutWeight, autoProposalTarget.layoutWeight);
+assert.equal(failedProposalState.errors.length, 1);
+
 const primaryChart = testPanel("primary-chart", "chart", testPlacement(1, 1, 2, 2), false);
 const multiChartLayout = testLayout([primaryChart]);
 const multiChartState = executeLayoutCommand(
@@ -937,6 +1307,23 @@ const orderAddState = executeLayoutCommand(
 );
 assert.equal(orderAddState.layout.panels[0]?.type, "orderTicket");
 assert.equal(orderAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "orderTicket");
+
+const portfolioAddState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.add", "user", {
+    panelType: "portfolioHoldings",
+    placement: testPlacement(1, 4, 1, 2)
+  })
+);
+assert.equal(portfolioAddState.layout.panels[0]?.type, "portfolioHoldings");
+assert.equal(portfolioAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "portfolioView");
 
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
@@ -1068,6 +1455,350 @@ const chatOnlyResult = normalizeAgentChatResponse({
 }, target("panel-a", documentA.id));
 assert.equal(chatOnlyResult.reply, "No chart command is needed.");
 assert.equal(chatOnlyResult.proposal, undefined);
+
+const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/SystemArea.tsx", import.meta.url)), "utf-8");
+assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
+assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
+assert.match(systemAreaSource, /\/api\/agents\/analyze/);
+assert.match(systemAreaSource, /\/api\/agents\/entities\/resolve/);
+assert.match(systemAreaSource, /onSelectSymbol\(shortcut\.symbol\)/);
+assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
+assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
+assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
+assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
+assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
+assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
+assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
+
+const chartShortcutResolve = normalizeAgentEntityResolveResponse({
+  status: "confirmed",
+  chartShortcut: true,
+  symbol: "NVDA",
+  canonicalName: "NVIDIA Corporation",
+  matchedText: "엔비디아",
+  matchedAlias: "엔비디아",
+  confidence: 0.98,
+  entityType: "company",
+  reason: "matched exact catalog alias"
+});
+assert.equal(chartShortcutResolve.status, "confirmed");
+assert.equal(chartShortcutResolve.chartShortcut, true);
+assert.equal(chartShortcutResolve.symbol, "NVDA");
+assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
+assert.equal(chartShortcutResolve.confidence, 0.98);
+
+const unsupportedChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "confirmed", chartShortcut: false });
+assert.equal(unsupportedChartShortcutResolve.status, "confirmed");
+assert.equal(unsupportedChartShortcutResolve.chartShortcut, false);
+
+const invalidChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "mystery", chartShortcut: true, symbol: "" });
+assert.equal(invalidChartShortcutResolve.status, "unsupported");
+assert.equal(invalidChartShortcutResolve.chartShortcut, true);
+
+const agentAnalysisRequest = buildAgentAnalysisRequest({
+  messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } }
+});
+assert.deepEqual(agentAnalysisRequest, {
+  messages: [{ role: "user", content: "NVDA 급등 원인 알려줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 급등 원인 알려줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  routerMode: "hybrid",
+  analysisMode: "auto",
+  agentIds: []
+});
+
+const agentAnalysisMultiAgentRequest = buildAgentAnalysisRequest({
+  messages: [{ role: "user", content: "NVDA 뉴스랑 차트 각각 분석해줘" }],
+  symbol: "NVDA",
+  intent: "NVDA 뉴스랑 차트 각각 분석해줘",
+  chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  analysisMode: "multi_agent",
+  agentIds: ["agent-01", "agent-02"]
+});
+assert.equal(agentAnalysisMultiAgentRequest.analysisMode, "multi_agent");
+assert.deepEqual(agentAnalysisMultiAgentRequest.agentIds, ["agent-01", "agent-02"]);
+
+const agentLayoutContext = buildAgentLayoutContext(createPresetLayout("chart"));
+const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
+assert.equal(agentLayoutOrderPanel?.title, "주문");
+assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
+assert.equal(Array.isArray(agentLayoutOrderPanel?.aliases), true);
+const agentLayoutPortfolioPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "portfolioHoldings");
+assert.equal(agentLayoutPortfolioPanel?.title, "내 투자");
+assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.equal((agentLayoutPortfolioPanel?.aliases as string[] | undefined)?.includes("보유종목"), true);
+
+const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
+  ok: true,
+  status: 200,
+  body: JSON.stringify({
+    status: "ok",
+    account: { market: "overseas", currency: "USD" },
+    positions: [{ symbol: "MU" }]
+  })
+}));
+assert.equal(parsedHoldings.positions[0]?.symbol, "MU");
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: false, status: 503, body: "" })),
+  /보유종목 API 오류 503/
+);
+await assert.rejects(
+  () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: true, status: 200, body: "" })),
+  /보유종목 API 응답이 비어 있습니다/
+);
+
+const agentAnalysisRequestWithLayout = buildAgentAnalysisRequest({
+  messages: [{ role: "user", content: "뉴스 보여줘" }],
+  symbol: "NVDA",
+  intent: "뉴스 보여줘",
+  chartContext: {},
+  layoutContext: agentLayoutContext
+});
+assert.deepEqual((agentAnalysisRequestWithLayout as { layoutContext?: unknown }).layoutContext, agentLayoutContext);
+
+const agentAnalysisReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-1",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA has a watch price_surge signal.",
+  route: {
+    source: "rule",
+    intentType: "market-move",
+    selectedRoles: ["chart", "news"],
+    confidence: 0.9,
+    reason: "Matched intent keyword."
+  },
+  finalAnswer: {
+    title: "NVDA 주가 변동 원인 분석",
+    summary: "차트, 뉴스, 기업 관계 근거를 종합해 NVDA의 변동 원인을 정리했습니다.",
+    sections: [{ title: "확인된 근거", bullets: ["Headline: News summary"] }],
+    citations: [
+      { provider: "news", title: "Headline", url: "https://example.com/news" },
+      { provider: "ontology", title: "URL 없는 온톨로지 근거" }
+    ],
+    limitations: ["Macro provider not configured."]
+  },
+  findings: [
+    { agentId: "chart-agent", role: "chart-analysis", summary: "Chart shows a visible breakout.", evidence: [] },
+    { agentId: "news-agent", role: "news-analysis", summary: "news evidence not configured for NVDA.", evidence: [{ provider: "news", status: "no-data", summary: "News provider is not configured." }] },
+    { agentId: "verification-guardrail-agent", role: "verification-guardrail", summary: "No trading-action guardrail violation detected.", evidence: [] }
+  ],
+  providerEvidence: [
+    { provider: "news", status: "no-data", summary: "News provider is not configured." },
+    { provider: "macro", status: "no-data", summary: "Macro provider is not configured." },
+    {
+      provider: "ontology",
+      status: "no-data",
+      summary: "GraphDB에서 NVDA의 직접 지배/자회사 관계 근거는 확인되지 않았습니다.",
+      raw: { relationType: "no-direct-control" }
+    }
+  ],
+  timing: {
+    totalMs: 1120,
+    cacheHit: true,
+    cacheLayer: "analysis",
+    newsFetchMs: 180,
+    roleAnalysisMs: 820,
+    finalAnswerMs: 120
+  }
+});
+assert.equal(agentAnalysisReport.notificationDecision, null);
+assert.equal(agentAnalysisReport.layoutProposal, null);
+const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
+assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
+assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
+assert.match(agentAnalysisMessage, /Headline: News summary/);
+assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
+assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
+assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
+assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
+assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
+assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
+assert.doesNotMatch(agentAnalysisMessage, /알림 판단:/);
+assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
+assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
+assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
+assert.match(agentAnalysisMessage, /검색 0\.2초 \/ 전체 1\.1초/);
+assert.doesNotMatch(agentAnalysisMessage, /캐시 사용/);
+assert.throws(
+  () => normalizeAgentAnalysisReport({ findings: [] }),
+  /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./
+);
+
+const compactNewsReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-compact",
+  symbol: "AAPL",
+  status: "completed",
+  summary: "뉴스를 가져왔습니다.",
+  route: {
+    source: "rule",
+    intentType: "news",
+    selectedRoles: ["news"],
+    confidence: 0.9,
+    reason: "News request."
+  },
+  finalAnswer: {
+    title: "뉴스를 가져왔습니다",
+    summary: "AAPL 관련 뉴스 1건을 가져왔습니다.",
+    sections: [{ title: "핵심 뉴스", bullets: ["애플 서비스 성장: 서비스 매출이 개선됐습니다."] }],
+    citations: [{ provider: "news", title: "애플 서비스 성장", url: "https://example.com/aapl" }],
+    limitations: ["뉴스 provider에 저장된 기사 기준입니다."]
+  },
+  findings: [],
+  providerEvidence: [{ provider: "news", status: "no-data", summary: "AAPL 관련 저장 뉴스가 없습니다." }],
+  timing: { totalMs: 100, newsFetchMs: 10 }
+});
+const compactNewsMessage = formatAgentAnalysisReport(compactNewsReport);
+assert.match(compactNewsMessage, /뉴스를 가져왔습니다/);
+assert.match(compactNewsMessage, /애플 서비스 성장/);
+assert.doesNotMatch(compactNewsMessage, /근거 링크/);
+assert.doesNotMatch(compactNewsMessage, /제한 사항/);
+assert.doesNotMatch(compactNewsMessage, /Provider status/);
+assert.doesNotMatch(compactNewsMessage, /검색/);
+assert.doesNotMatch(compactNewsMessage, /https:\/\/example\.com\/aapl/);
+
+const agentNewsPanelReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-panel",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA 뉴스 분석 완료",
+  findings: [],
+  providerEvidence: [],
+  layoutProposal: {
+    title: "Agent analysis workspace",
+    rationale: "Show news panel.",
+    commands: [
+      {
+        type: "layout.panel.add",
+        payload: {
+          panelType: "newsFeed",
+          props: {
+            symbol: "NVDA",
+            dailySummaries: [
+              {
+                date: "2026-07-01",
+                symbol: "NVDA",
+                summary: "엔비디아 일일 뉴스 요약입니다.",
+                keyPoints: ["AI 수요"],
+                positivePoints: ["데이터센터 성장"],
+                concerns: [],
+                impactDirection: "positive",
+                articleIds: ["nvda-daily-1"],
+                articleCount: 1,
+                mentionCount: 0,
+                status: "final"
+              }
+            ],
+            latestNews: [
+              {
+                title: "NVDA shares rise after earnings",
+                summary: "Revenue beat expectations.",
+                url: "https://example.com/nvda",
+                source: "alpaca",
+                publishedAt: "2026-06-30T01:02:03.000Z",
+                symbol: "NVDA",
+                symbols: ["NVDA"],
+                eventType: "earnings",
+                impactDirection: "positive",
+                relevanceScore: 1,
+                importanceScore: 0.95
+              }
+            ],
+            majorNews: []
+          }
+        }
+      }
+    ]
+  }
+});
+assert.equal(agentNewsPanelReport.layoutProposal?.commands[0]?.payload.panelType, "newsFeed");
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "auto"), true);
+assert.equal(shouldAutoApplyAgentLayoutProposal(agentNewsPanelReport, "multi_agent"), false);
+assert.equal(
+  ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.latestNews as unknown[])?.length,
+  1
+);
+assert.equal(agentNewsPanelReport.dailySummaries.length, 0);
+assert.equal(
+  ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as unknown[])?.length,
+  1
+);
+
+const agentNewsPanelUpdateReport = normalizeAgentAnalysisReport({
+  analysisId: "analysis-news-panel-update",
+  symbol: "NVDA",
+  status: "completed",
+  summary: "NVDA 뉴스 분석 완료",
+  findings: [],
+  providerEvidence: [],
+  layoutProposal: {
+    title: "Agent analysis workspace",
+    rationale: "Update existing news panel.",
+    commands: [
+      {
+        type: "layout.panel.props.update",
+        target: { panelId: "panel-news" },
+        payload: {
+          panelId: "panel-news",
+          props: {
+            symbol: "NVDA",
+            latestNews: [
+              {
+                title: "NVDA shares rise after earnings",
+                symbols: ["NVDA"],
+                impactDirection: "positive"
+              }
+            ],
+            majorNews: []
+          }
+        }
+      }
+    ]
+  }
+});
+assert.equal(agentNewsPanelUpdateReport.layoutProposal?.commands[0]?.type, "layout.panel.props.update");
+
+const newsPropsPanel = testPanel("news-props", "newsFeed", testPlacement(2, 2, 2, 2));
+const newsPropsState = executeLayoutCommand(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([newsPropsPanel]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  makeLayoutCommand("layout.panel.props.update", "system", {
+    panelId: newsPropsPanel.id,
+    props: {
+      latestNews: [{ title: "NVDA shares rise", symbols: ["NVDA"], impactDirection: "positive" }],
+      majorNews: []
+    }
+  })
+);
+assert.equal((newsPropsState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
+assert.equal(newsPropsState.history.length, 0);
+
+const newsProposalPanel = testPanel("panel-news", "newsFeed", testPlacement(2, 2, 2, 2));
+const newsProposalState = applyLayoutProposal(
+  {
+    ...createInitialLayoutRuntimeState(),
+    layout: testLayout([newsProposalPanel]),
+    history: [],
+    future: [],
+    journal: [],
+    errors: []
+  },
+  agentNewsPanelUpdateReport.layoutProposal!
+);
+assert.equal((newsProposalState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
+assert.equal(newsProposalState.errors.length, 0);
 
 assert.deepEqual(getChartAgentAccess([{ id: "agent-01" }]), { enabled: true, reason: "agent-01" });
 assert.deepEqual(getChartAgentAccess([{ id: "agent-02" }]), { enabled: false, reason: "no-chart-agent" });

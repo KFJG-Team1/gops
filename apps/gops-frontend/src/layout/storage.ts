@@ -1,4 +1,5 @@
-import type { DefaultLayoutKey, FavoriteLayoutSlot, SavedLayoutRecord, SavedLayoutKind, WorkspaceLayout } from "./types";
+import { panelTypes } from "./panelRegistry";
+import type { DefaultLayoutKey, FavoriteLayoutSlot, PanelType, SavedLayoutRecord, SavedLayoutKind, WorkspaceLayout } from "./types";
 
 const STORAGE_KEY = "gops.savedLayouts.v1";
 const MAX_SAVED_LAYOUT_RECORDS = 8;
@@ -30,24 +31,56 @@ export function loadSavedLayouts(): { records: SavedLayoutRecord[]; error?: stri
       return { records: [], error: "Saved layout store is invalid." };
     }
 
-    const records = parsed.filter((item): item is SavedLayoutRecord => {
+    let ignoredRecordCount = 0;
+    let filteredPanelCount = 0;
+    const records = parsed.flatMap((item): SavedLayoutRecord[] => {
       const record = item as SavedLayoutRecord;
-      return record.version === 1 && typeof record.id === "string" && isWorkspaceLayout(record.layout);
-    }).map((record) => ({
-      ...record,
-      kind: isSavedLayoutKind(record.kind) ? record.kind : "user",
-      defaultKey: isDefaultLayoutKey(record.defaultKey) ? record.defaultKey : undefined,
-      favoriteSlot: isFavoriteSlot(record.favoriteSlot) ? record.favoriteSlot : undefined
-    })).slice(0, MAX_SAVED_LAYOUT_RECORDS);
+      if (record.version !== 1 || typeof record.id !== "string" || !isWorkspaceLayout(record.layout)) {
+        ignoredRecordCount += 1;
+        return [];
+      }
 
-    if (records.length !== parsed.length) {
-      return { records, error: "Some invalid saved layouts were ignored." };
+      const sanitizedLayout = sanitizeWorkspaceLayout(record.layout);
+      filteredPanelCount += record.layout.panels.length - (sanitizedLayout?.panels.length ?? 0);
+      if (!sanitizedLayout) {
+        ignoredRecordCount += 1;
+        return [];
+      }
+
+      return [{
+        ...record,
+        kind: isSavedLayoutKind(record.kind) ? record.kind : "user",
+        defaultKey: isDefaultLayoutKey(record.defaultKey) ? record.defaultKey : undefined,
+        favoriteSlot: isFavoriteSlot(record.favoriteSlot) ? record.favoriteSlot : undefined,
+        layout: sanitizedLayout
+      }];
+    }).slice(0, MAX_SAVED_LAYOUT_RECORDS);
+
+    if (ignoredRecordCount > 0 || filteredPanelCount > 0 || records.length !== parsed.length) {
+      return { records, error: "Some invalid or retired saved layout panels were ignored." };
     }
 
     return { records };
   } catch {
     return { records: [], error: "Could not read saved layouts." };
   }
+}
+
+function isKnownPanelType(value: unknown): value is PanelType {
+  return typeof value === "string" && panelTypes.includes(value as PanelType);
+}
+
+function sanitizeWorkspaceLayout(layout: WorkspaceLayout): WorkspaceLayout | null {
+  const panels = layout.panels.filter((panel) => isKnownPanelType(panel.type));
+  if (panels.length === 0) {
+    return null;
+  }
+
+  return {
+    ...layout,
+    panels,
+    selectedPanelId: panels.some((panel) => panel.id === layout.selectedPanelId) ? layout.selectedPanelId : undefined
+  };
 }
 
 function isFavoriteSlot(value: unknown): value is FavoriteLayoutSlot {
