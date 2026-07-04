@@ -252,6 +252,7 @@ export function SystemArea({
             selectedAgents={selectedAgents}
             referencedChartTarget={referencedChartTarget}
             symbolUniverse={symbolUniverse}
+            onSelectSymbol={onSelectSymbol}
             onLayoutProposal={onLayoutProposal}
           />
         </div>
@@ -527,6 +528,7 @@ function AgentChatPanel({
   selectedAgents,
   referencedChartTarget,
   symbolUniverse,
+  onSelectSymbol,
   onLayoutProposal
 }: {
   layout: WorkspaceLayout;
@@ -534,6 +536,7 @@ function AgentChatPanel({
   selectedAgents: AgentOption[];
   referencedChartTarget?: AgentChartReference;
   symbolUniverse: readonly SupportedSymbol[];
+  onSelectSymbol: (symbol: string) => boolean;
   onLayoutProposal: (proposal: LayoutProposal) => void;
 }) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
@@ -549,6 +552,7 @@ function AgentChatPanel({
   const [progressElapsedSeconds, setProgressElapsedSeconds] = useState(0);
   const [agentError, setAgentError] = useState(false);
   const [agentAnalysisMode, setAgentAnalysisMode] = useState<AgentAnalysisMode>("auto");
+  const [resolvingChartShortcut, setResolvingChartShortcut] = useState(false);
   const selectedAgentKey = selectedAgents.map((agent) => agent.id).join("|");
   const referencedChartKey = referencedChartTarget ? `${referencedChartTarget.panelId}:${referencedChartTarget.chartDocumentId}` : "";
   const draftSeed = referencedChartTarget?.draftSeed ?? defaultDraftSeedForAgents(selectedAgents);
@@ -579,7 +583,7 @@ function AgentChatPanel({
   const disabledMessage = authRequired
     ? "AI를 사용하려면 Google 로그인이 필요합니다."
     : "차트 패널을 선택하거나 차트에서 AI에게 묻기를 눌러 분석할 차트를 지정하세요.";
-  const sendDisabled = authRequired || authLoading || !target || !draftContent.trim() || sending;
+  const sendDisabled = authRequired || authLoading || !target || !draftContent.trim() || sending || resolvingChartShortcut;
 
   useEffect(() => {
     setMessages([]);
@@ -589,6 +593,7 @@ function AgentChatPanel({
     setProgressStartedAt(null);
     setProgressElapsedSeconds(0);
     setAgentError(false);
+    setResolvingChartShortcut(false);
   }, [selectedAgentKey, referencedChartKey]);
 
   useEffect(() => {
@@ -601,15 +606,32 @@ function AgentChatPanel({
     return () => window.clearInterval(timer);
   }, [progressStartedAt, sending]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (authRequired) {
       login();
       return;
     }
 
     const content = resolveAgentSendContent(draft, draftSeed);
-    if (!content || !target || !chartPanel || !chartDocument || sending) {
+    if (!content || !target || !chartPanel || !chartDocument || sending || resolvingChartShortcut) {
       return;
+    }
+
+    const chartShortcutQuery = draft.trim();
+    if (chartShortcutQuery) {
+      setResolvingChartShortcut(true);
+      try {
+        const shortcut = await resolveAgentChartShortcut(chartShortcutQuery);
+        if (shortcut?.status === "confirmed" && shortcut.chartShortcut && shortcut.symbol) {
+          if (onSelectSymbol(shortcut.symbol)) {
+            setDraft("");
+            setAgentError(false);
+          }
+          return;
+        }
+      } finally {
+        setResolvingChartShortcut(false);
+      }
     }
 
     const userMessage = createChatMessage("user", content);
@@ -1597,6 +1619,57 @@ function getNextAgentIconUrl(currentIconUrl: string): string {
 const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed"]);
 const AGENT_REPORT_POLL_INTERVAL_MS = 1000;
 const AGENT_REPORT_POLL_TIMEOUT_MS = 120000;
+const AGENT_ENTITY_RESOLVE_STATUSES = new Set<AgentEntityResolveStatus>(["confirmed", "not_found", "ambiguous", "unsupported"]);
+
+export type AgentEntityResolveStatus = "confirmed" | "not_found" | "ambiguous" | "unsupported";
+
+export type AgentEntityResolveResponse = {
+  status: AgentEntityResolveStatus;
+  chartShortcut: boolean;
+  symbol?: string;
+  canonicalName?: string;
+  matchedText?: string;
+  matchedAlias?: string;
+  confidence?: number;
+  entityType?: string;
+  reason?: string;
+};
+
+async function resolveAgentChartShortcut(query: string): Promise<AgentEntityResolveResponse | null> {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const params = new URLSearchParams({ q: trimmed, mode: "chartShortcut" });
+  try {
+    const response = await fetch(`/api/agents/entities/resolve?${params.toString()}`, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      return null;
+    }
+    return normalizeAgentEntityResolveResponse(await response.json() as unknown);
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAgentEntityResolveResponse(payload: unknown): AgentEntityResolveResponse {
+  const source = readUnknownObject(payload);
+  const rawStatus = readUnknownString(source?.status);
+  const status = rawStatus && AGENT_ENTITY_RESOLVE_STATUSES.has(rawStatus as AgentEntityResolveStatus)
+    ? rawStatus as AgentEntityResolveStatus
+    : "unsupported";
+  return {
+    status,
+    chartShortcut: source?.chartShortcut === true,
+    symbol: readUnknownString(source?.symbol) ?? undefined,
+    canonicalName: readUnknownString(source?.canonicalName) ?? undefined,
+    matchedText: readUnknownString(source?.matchedText) ?? undefined,
+    matchedAlias: readUnknownString(source?.matchedAlias) ?? undefined,
+    confidence: readUnknownNumber(source?.confidence) ?? undefined,
+    entityType: readUnknownString(source?.entityType) ?? undefined,
+    reason: readUnknownString(source?.reason) ?? undefined
+  };
+}
 
 async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalysisReport> {
   let report = normalizeAgentAnalysisPayload(payload);
@@ -1700,6 +1773,10 @@ function readUnknownObject(value: unknown): Record<string, unknown> | null {
 
 function readUnknownString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readUnknownNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 async function readApiErrorMessage(response: Response, label: string): Promise<string> {

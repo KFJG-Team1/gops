@@ -43,7 +43,7 @@ import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
-import { agentProgressLabel, isAgentAnalysisIntent } from "../src/components/SystemArea";
+import { agentProgressLabel, isAgentAnalysisIntent, normalizeAgentEntityResolveResponse } from "../src/components/SystemArea";
 import {
   applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
@@ -1460,6 +1460,8 @@ const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/S
 assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
 assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
 assert.match(systemAreaSource, /\/api\/agents\/analyze/);
+assert.match(systemAreaSource, /\/api\/agents\/entities\/resolve/);
+assert.match(systemAreaSource, /onSelectSymbol\(shortcut\.symbol\)/);
 assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
 assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
 assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
@@ -1467,6 +1469,31 @@ assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), tr
 assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
 assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
 assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
+
+const chartShortcutResolve = normalizeAgentEntityResolveResponse({
+  status: "confirmed",
+  chartShortcut: true,
+  symbol: "NVDA",
+  canonicalName: "NVIDIA Corporation",
+  matchedText: "엔비디아",
+  matchedAlias: "엔비디아",
+  confidence: 0.98,
+  entityType: "company",
+  reason: "matched exact catalog alias"
+});
+assert.equal(chartShortcutResolve.status, "confirmed");
+assert.equal(chartShortcutResolve.chartShortcut, true);
+assert.equal(chartShortcutResolve.symbol, "NVDA");
+assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
+assert.equal(chartShortcutResolve.confidence, 0.98);
+
+const unsupportedChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "confirmed", chartShortcut: false });
+assert.equal(unsupportedChartShortcutResolve.status, "confirmed");
+assert.equal(unsupportedChartShortcutResolve.chartShortcut, false);
+
+const invalidChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "mystery", chartShortcut: true, symbol: "" });
+assert.equal(invalidChartShortcutResolve.status, "unsupported");
+assert.equal(invalidChartShortcutResolve.chartShortcut, true);
 
 const agentAnalysisRequest = buildAgentAnalysisRequest({
   messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
