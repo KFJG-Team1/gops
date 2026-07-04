@@ -9,6 +9,7 @@ export type BackfillStatusPayload = {
   error?: string;
 };
 
+
 const activeBackfillStatuses = new Set<BackfillStatus>(["queued", "running"]);
 export function isActiveBackfillStatus(status?: BackfillStatus): boolean {
   return Boolean(status && activeBackfillStatuses.has(status));
