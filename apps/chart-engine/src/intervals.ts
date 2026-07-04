@@ -5,26 +5,15 @@ export type ChartInterval = typeof chartIntervals[number];
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
 const historicalTargetYears = 6;
-const intradayGapfillTargetDays = 14;
 const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * historicalTargetYears;
-const intradayGapfillTargetBars = minutesPerTradingDay * intradayGapfillTargetDays;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 120,
   "5m": 120,
   "10m": 120,
   "1D": 120,
-  "1W": 120,
-  "1M": 120
-};
-
-const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": intradayGapfillTargetBars,
-  "5m": Math.ceil(intradayGapfillTargetBars / 5),
-  "10m": Math.ceil(intradayGapfillTargetBars / 10),
-  "1D": tradingDaysPerYear * historicalTargetYears,
-  "1W": 52 * historicalTargetYears,
-  "1M": 12 * historicalTargetYears
+  "1W": 104,
+  "1M": 36
 };
 
 const maxRequestBars: Record<ChartInterval, number> = {
@@ -55,10 +44,6 @@ export function normalizeChartInterval(value: unknown): ChartInterval | null {
 
 export function defaultVisibleBarsForInterval(interval: string): number {
   return defaultVisibleBars[normalizeChartInterval(interval) ?? "1m"];
-}
-
-export function backfillTargetBarsForInterval(interval: string): number {
-  return backfillTargetBars[normalizeChartInterval(interval) ?? "1m"];
 }
 
 export function maxRequestBarsForInterval(interval: string): number {

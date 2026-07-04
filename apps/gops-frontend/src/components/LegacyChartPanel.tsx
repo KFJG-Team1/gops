@@ -29,17 +29,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
-import {
-  initialBackfillWindow,
-  isActiveBackfillStatus,
-  isChartDataRenderable,
-  isPreparingCandleData,
-  firstGapBackfillWindow,
-  normalizeBackfillStatusPayload,
-  rangeBackfillWindowForSnapshot,
-  shouldRequestBackfill,
-  shouldRequestRangeBackfill
-} from "@gops/chart-engine/backfill";
+import { isChartDataRenderable } from "@gops/chart-engine/renderability";
 import { drawChartScene } from "@gops/chart-engine/canvasRenderer";
 import { makeChartCommand } from "@gops/chart-engine/commands";
 import { normalizeLineExtension, projectTrendLine } from "@gops/chart-engine/drawingGeometry";
@@ -79,7 +69,6 @@ type ChartPanelProps = {
   panel: PanelInstance;
   runtime: ChartRuntimeState;
   autoApplyEnabled: boolean;
-  backfillEligibleSymbols: readonly SupportedSymbol[];
   onChartAction: (action: ChartRuntimeAction) => void;
   onAskAgent: (panelId: string, chartDocumentId: string) => void;
 };
@@ -177,7 +166,7 @@ function chartToolLabel(toolId: ChartToolMode): string {
   }
 }
 
-export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAction, onAskAgent }: ChartPanelProps) {
+export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartPanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<RenderScene | null>(null);
@@ -185,9 +174,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const comparisonRequestsRef = useRef<Set<string>>(new Set());
-  const backfillRequestsRef = useRef<Set<string>>(new Set());
   const rangeRequestsRef = useRef<Set<string>>(new Set());
-  const rangeBackfillTerminalRef = useRef<Set<string>>(new Set());
   const manualOlderRangeRequestHandledRef = useRef(0);
   const manualOlderRangePanRef = useRef(0);
   const { ref: canvasWrapRef, size } = useElementSize<HTMLDivElement>();
@@ -209,8 +196,6 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
   const [comparisonDraft, setComparisonDraft] = useState("");
   const [comparisonOptions, setComparisonOptions] = useState<SupportedSymbol[]>([]);
   const [maMenuOpen, setMaMenuOpen] = useState(false);
-  const [snapshotReloadToken, setSnapshotReloadToken] = useState(0);
-  const [rangeReloadToken, setRangeReloadToken] = useState(0);
   const [manualOlderRangeRequestToken, setManualOlderRangeRequestToken] = useState(0);
   const [floatingMenuPosition, setFloatingMenuPosition] = useState<FloatingMenuPosition>({ top: 0, left: 0 });
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
@@ -226,14 +211,8 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     const key = candleKey(symbol, document.timeframe);
     return `${key}:${runtime.candlesByKey[key]?.length ? "ready" : "missing"}`;
   }).join("|");
-  const documentDataKey = candleKey(document.symbol, document.timeframe);
-  const backfillEligibleKey = backfillEligibleSymbols.join("|");
-  const backfillEligible = backfillEligibleSymbols.includes(document.symbol);
-  const backfillPreparing = isPreparingCandleData(dataStatus, backfillEligible, backfillRequestsRef.current.has(documentDataKey));
   const chartDataRenderable = isChartDataRenderable(dataStatus);
-  const chartDataNotice = candles.length > 0 && isActiveBackfillStatus(dataStatus.backfillStatus)
-    ? dataStatus.message ?? "Loading earlier candles..."
-    : undefined;
+  const chartDataNotice = candles.length > 0 && dataStatus.message ? dataStatus.message : undefined;
   const hasActiveMovingAverage = movingAverageLayers.some(({ layer }) => document.layers[layer]);
   const sceneDocument = useMemo(
     () => (transientViewport || transientDrawings)
@@ -372,322 +351,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       cancelled = true;
       controller.abort();
     };
-  }, [document.symbol, document.timeframe, normalizedDocumentSymbol, onChartAction, snapshotReloadToken]);
-
-  useEffect(() => {
-    const gapWindow = firstGapBackfillWindow(dataStatus);
-    const key = `${candleKey(document.symbol, document.timeframe)}:gap:${gapWindow?.start ?? "none"}:${gapWindow?.end ?? "none"}`;
-    if (
-      !normalizedDocumentSymbol ||
-      !backfillEligibleSymbols.includes(document.symbol) ||
-      !shouldRequestBackfill(dataStatus) ||
-      !gapWindow ||
-      backfillRequestsRef.current.has(key)
-    ) {
-      return undefined;
-    }
-
-    backfillRequestsRef.current.add(key);
-    let cancelled = false;
-    let pollTimer: number | undefined;
-    const controller = new AbortController();
-
-    const applyBackfillStatus = (payload: unknown) => {
-      const status = normalizeBackfillStatusPayload(payload);
-      if (cancelled) {
-        return;
-      }
-
-      if (status.status === "succeeded") {
-        backfillRequestsRef.current.delete(key);
-        setSnapshotReloadToken((current) => current + 1);
-        return;
-      }
-
-      if (isActiveBackfillStatus(status.status)) {
-        pollTimer = window.setTimeout(() => {
-          pollBackfillStatus(status.requestId);
-        }, 1200);
-        return;
-      }
-
-      backfillRequestsRef.current.delete(key);
-      onChartAction({
-        kind: "chart.data.status",
-        symbol: document.symbol,
-        interval: document.timeframe,
-        status: {
-          state: status.status === "failed" || status.status === "unavailable" ? "error" : "empty",
-          message: backfillStatusMessage(status.status, status.error),
-          source: dataStatus.source,
-          feed: dataStatus.feed,
-          backfillStatus: status.status,
-          canBackfill: !isActiveBackfillStatus(status.status) && status.status !== "unavailable",
-          sourceInterval: status.sourceInterval
-        }
-      });
-    };
-
-    const pollBackfillStatus = (requestId?: string) => {
-      const params = new URLSearchParams({
-        symbol: document.symbol,
-        interval: document.timeframe
-      });
-      if (requestId) {
-        params.set("requestId", requestId);
-      }
-
-      fetch(`/api/charts/backfill/status?${params.toString()}`, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`백필 상태 API 응답 오류 ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then(applyBackfillStatus)
-        .catch((error: unknown) => {
-          if (cancelled || isAbortError(error)) {
-            return;
-          }
-          backfillRequestsRef.current.delete(key);
-          onChartAction({
-            kind: "chart.data.status",
-            symbol: document.symbol,
-            interval: document.timeframe,
-            status: {
-              state: "error",
-              message: error instanceof Error ? error.message : "Backfill status check failed.",
-              source: dataStatus.source,
-              feed: dataStatus.feed,
-              backfillStatus: "failed",
-              canBackfill: true,
-              sourceInterval: dataStatus.sourceInterval ?? document.timeframe
-            }
-          });
-        });
-    };
-
-    fetch("/api/charts/backfill", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        symbol: document.symbol,
-        interval: document.timeframe,
-        start: gapWindow.start,
-        end: gapWindow.end,
-        mode: "queue"
-      })
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`백필 API 응답 오류 ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then(applyBackfillStatus)
-      .catch((error: unknown) => {
-        if (cancelled || isAbortError(error)) {
-          return;
-        }
-        backfillRequestsRef.current.delete(key);
-        onChartAction({
-          kind: "chart.data.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: {
-            state: "error",
-            message: error instanceof Error ? error.message : "Backfill request failed.",
-            source: dataStatus.source,
-            feed: dataStatus.feed,
-            backfillStatus: "failed",
-            canBackfill: true,
-            sourceInterval: dataStatus.sourceInterval ?? document.timeframe
-          }
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
-      }
-    };
-  }, [backfillEligibleKey, backfillEligibleSymbols, dataStatus, document.symbol, document.timeframe, normalizedDocumentSymbol, onChartAction]);
-
-  useEffect(() => {
-    const currentBackfillStatus = dataStatus.backfillStatus ?? "not_requested";
-    const shouldStartInitialBackfill =
-      candles.length === 0 &&
-      normalizedDocumentSymbol &&
-      backfillEligibleSymbols.includes(document.symbol) &&
-      dataStatus.canBackfill === true &&
-      !isActiveBackfillStatus(currentBackfillStatus) &&
-      currentBackfillStatus === "not_requested" &&
-      (dataStatus.state === "empty" || dataStatus.repairStatus === "gapfill_required");
-    if (!shouldStartInitialBackfill) {
-      return undefined;
-    }
-
-    const windowRange = initialBackfillWindow(document.timeframe, new Date().toISOString());
-    if (!windowRange) {
-      return undefined;
-    }
-
-    const key = `${documentDataKey}:initial:${windowRange.start}:${windowRange.end}`;
-    if (backfillRequestsRef.current.has(key)) {
-      return undefined;
-    }
-
-    backfillRequestsRef.current.add(key);
-    let cancelled = false;
-    let pollTimer: number | undefined;
-    const controller = new AbortController();
-
-    const applyInitialBackfillStatus = (payload: unknown) => {
-      const status = normalizeBackfillStatusPayload(payload);
-      if (cancelled) {
-        return;
-      }
-
-      if (status.status === "succeeded") {
-        backfillRequestsRef.current.delete(key);
-        setSnapshotReloadToken((current) => current + 1);
-        return;
-      }
-
-      if (isActiveBackfillStatus(status.status)) {
-        pollTimer = window.setTimeout(() => {
-          pollInitialBackfillStatus(status.requestId);
-        }, 1200);
-        return;
-      }
-
-      backfillRequestsRef.current.delete(key);
-      onChartAction({
-        kind: "chart.data.status",
-        symbol: document.symbol,
-        interval: document.timeframe,
-        status: {
-          state: status.status === "failed" || status.status === "unavailable" ? "error" : "empty",
-          message: backfillStatusMessage(status.status, status.error),
-          source: dataStatus.source,
-          feed: dataStatus.feed,
-          backfillStatus: status.status,
-          canBackfill: status.status !== "unavailable",
-          sourceInterval: status.sourceInterval ?? dataStatus.sourceInterval ?? document.timeframe,
-          coverage: dataStatus.coverage
-        }
-      });
-    };
-
-    const pollInitialBackfillStatus = (requestId?: string) => {
-      const params = new URLSearchParams({
-        symbol: document.symbol,
-        interval: document.timeframe
-      });
-      if (requestId) {
-        params.set("requestId", requestId);
-      }
-
-      fetch(`/api/charts/backfill/status?${params.toString()}`, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`초기 백필 상태 API 응답 오류 ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then(applyInitialBackfillStatus)
-        .catch((error: unknown) => {
-          if (cancelled || isAbortError(error)) {
-            return;
-          }
-          backfillRequestsRef.current.delete(key);
-          onChartAction({
-            kind: "chart.data.status",
-            symbol: document.symbol,
-            interval: document.timeframe,
-            status: {
-              state: "error",
-              message: error instanceof Error ? error.message : "Initial backfill status check failed.",
-              source: dataStatus.source,
-              feed: dataStatus.feed,
-              backfillStatus: "failed",
-              canBackfill: true,
-              sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
-              coverage: dataStatus.coverage
-            }
-          });
-        });
-    };
-
-    fetch("/api/charts/backfill", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        symbol: document.symbol,
-        interval: document.timeframe,
-        start: windowRange.start,
-        end: windowRange.end,
-        mode: "queue"
-      })
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`초기 백필 API 응답 오류 ${response.status}`);
-        }
-        return response.json() as Promise<unknown>;
-      })
-      .then(applyInitialBackfillStatus)
-      .catch((error: unknown) => {
-        if (cancelled || isAbortError(error)) {
-          return;
-        }
-        backfillRequestsRef.current.delete(key);
-        onChartAction({
-          kind: "chart.data.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: {
-            state: "error",
-            message: error instanceof Error ? error.message : "Initial backfill request failed.",
-            source: dataStatus.source,
-            feed: dataStatus.feed,
-            backfillStatus: "failed",
-            canBackfill: true,
-            sourceInterval: dataStatus.sourceInterval ?? document.timeframe,
-            coverage: dataStatus.coverage
-          }
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
-      }
-    };
-  }, [
-    backfillEligibleKey,
-    backfillEligibleSymbols,
-    candles.length,
-    dataStatus.backfillStatus,
-    dataStatus.canBackfill,
-    dataStatus.coverage,
-    dataStatus.feed,
-    dataStatus.repairStatus,
-    dataStatus.source,
-    dataStatus.sourceInterval,
-    dataStatus.state,
-    document.symbol,
-    document.timeframe,
-    documentDataKey,
-    normalizedDocumentSymbol,
-    onChartAction
-  ]);
+  }, [document.symbol, document.timeframe, normalizedDocumentSymbol, onChartAction]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("WebSocket" in window)) {
@@ -832,19 +496,14 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
 
   const scene = useMemo(() => {
     const hasVisibleCandles = candles.length > 0;
-    const hasActiveBackfill = isActiveBackfillStatus(dataStatus.backfillStatus);
-    const sceneState = backfillPreparing && !hasVisibleCandles
-      ? "loading"
-      : hasVisibleCandles && (chartDataRenderable || hasActiveBackfill || dataStatus.state === "partial")
+    const sceneState = hasVisibleCandles && (chartDataRenderable || dataStatus.state === "partial")
         ? "ready"
         : chartDataRenderable
           ? "ready"
           : dataStatus.state;
     const sceneMessage = sceneState === "ready"
       ? undefined
-      : backfillPreparing
-        ? "Preparing candle data..."
-        : dataStatus.message;
+      : dataStatus.message;
     const nextScene = buildRenderScene({
       state: sceneState,
       message: sceneMessage,
@@ -864,7 +523,7 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
     });
     sceneRef.current = nextScene;
     return nextScene;
-  }, [backfillPreparing, candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.backfillStatus, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
+  }, [candles, chartDataRenderable, comparisonSymbols, crosshairPoint, dataStatus.message, dataStatus.state, document.timeframe, pendingPreview, runtime.candlesByKey, sceneDocument, size.height, size.width, streamStatus]);
 
   useEffect(() => {
     const controllers: AbortController[] = [];
@@ -975,133 +634,6 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
       limit: String(pageLimit),
       before: oldest
     });
-    let pollTimer: number | undefined;
-    let rangeBackfillStarted = false;
-    let activeRangeBackfillKey = requestKey;
-
-    const applyRangeBackfillStatus = (payload: unknown) => {
-      const status = normalizeBackfillStatusPayload(payload);
-      const terminalKey = activeRangeBackfillKey;
-      if (status.status === "succeeded") {
-        rangeBackfillTerminalRef.current.add(terminalKey);
-        rangeRequestsRef.current.delete(requestKey);
-        if (manualOlderRangeRequest) {
-          manualOlderRangeRequestHandledRef.current = 0;
-        }
-        setRangeReloadToken((current) => current + 1);
-        return;
-      }
-
-      if (isActiveBackfillStatus(status.status)) {
-        pollTimer = window.setTimeout(() => {
-          pollRangeBackfillStatus(status.requestId);
-        }, 1200);
-        onChartAction({
-          kind: "chart.data.status",
-          symbol: document.symbol,
-          interval: document.timeframe,
-          status: {
-            state: dataStatus.state,
-            message: "Loading earlier candles...",
-            source: dataStatus.source,
-            feed: dataStatus.feed,
-            backfillStatus: status.status,
-            canBackfill: true,
-            sourceInterval: status.sourceInterval ?? dataStatus.sourceInterval ?? document.timeframe,
-            coverage: dataStatus.coverage,
-            hasMoreBefore: dataStatus.hasMoreBefore
-          }
-        });
-        return;
-      }
-
-      rangeBackfillTerminalRef.current.add(terminalKey);
-      rangeRequestsRef.current.delete(requestKey);
-      onChartAction({
-        kind: "chart.error",
-        chartDocumentId: document.id,
-        message: backfillStatusMessage(status.status, status.error)
-      });
-    };
-
-    const pollRangeBackfillStatus = (requestId?: string) => {
-      const statusParams = new URLSearchParams({
-        symbol: document.symbol,
-        interval: document.timeframe
-      });
-      if (requestId) {
-        statusParams.set("requestId", requestId);
-      }
-
-      fetch(`/api/charts/backfill/status?${statusParams.toString()}`, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Range backfill status API returned ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then(applyRangeBackfillStatus)
-        .catch((error: unknown) => {
-          if (isAbortError(error)) {
-            return;
-          }
-          rangeBackfillTerminalRef.current.add(activeRangeBackfillKey);
-          rangeRequestsRef.current.delete(requestKey);
-          onChartAction({
-            kind: "chart.error",
-            chartDocumentId: document.id,
-            message: error instanceof Error ? error.message : "Range backfill status check failed."
-          });
-        });
-    };
-
-    const requestRangeBackfill = (snapshot: ReturnType<typeof normalizeCandleSnapshot>) => {
-      if (!backfillEligibleSymbols.includes(document.symbol)) {
-        return;
-      }
-      const windowRange = rangeBackfillWindowForSnapshot(snapshot, document.timeframe, oldest, pageLimit);
-      if (!windowRange) {
-        return;
-      }
-      const fillKey = `${requestKey}:fill:${windowRange.start}:${windowRange.end}`;
-      if (rangeBackfillTerminalRef.current.has(fillKey)) {
-        return;
-      }
-
-      activeRangeBackfillKey = fillKey;
-      rangeBackfillStarted = true;
-      fetch("/api/charts/backfill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          symbol: document.symbol,
-          interval: document.timeframe,
-          start: windowRange.start,
-          end: windowRange.end,
-          mode: "queue"
-        })
-      })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Range backfill API returned ${response.status}`);
-          }
-          return response.json() as Promise<unknown>;
-        })
-        .then(applyRangeBackfillStatus)
-        .catch((error: unknown) => {
-          if (isAbortError(error)) {
-            return;
-          }
-          rangeBackfillTerminalRef.current.add(activeRangeBackfillKey);
-          rangeRequestsRef.current.delete(requestKey);
-          onChartAction({
-            kind: "chart.error",
-            chartDocumentId: document.id,
-            message: error instanceof Error ? error.message : "Range backfill request failed."
-          });
-        });
-    };
 
     fetch(`/api/charts/candles?${params.toString()}`, { signal: controller.signal })
       .then((response) => {
@@ -1128,9 +660,6 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
             }, undefined, "chartPanel")
           });
         }
-        if (shouldRequestRangeBackfill(snapshot)) {
-          requestRangeBackfill(snapshot);
-        }
       })
       .catch((error: unknown) => {
         if (isAbortError(error)) {
@@ -1143,36 +672,23 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         });
       })
       .finally(() => {
-        if (rangeBackfillStarted) {
-          return;
-        }
         rangeRequestsRef.current.delete(requestKey);
       });
 
     return () => {
       controller.abort();
       rangeRequestsRef.current.delete(requestKey);
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
-      }
     };
   }, [
     candles,
-    backfillEligibleSymbols,
     dataStatus.hasMoreBefore,
-    dataStatus.coverage,
-    dataStatus.feed,
-    dataStatus.source,
-    dataStatus.sourceInterval,
-    dataStatus.state,
     document.id,
     document.symbol,
     document.timeframe,
     document.viewport.rightOffset,
     document.viewport.visibleCount,
     manualOlderRangeRequestToken,
-    onChartAction,
-    rangeReloadToken
+    onChartAction
   ]);
 
   useEffect(() => {
@@ -1803,11 +1319,11 @@ export function ChartPanel({ panel, runtime, backfillEligibleSymbols, onChartAct
         <div className="chart-right-actions" aria-label="차트 제안 동작">
           {chartDataNotice ? (
             <span
-              className="chart-data-status backfill"
+              className="chart-data-status data"
               title={chartDataNotice}
               aria-label={chartDataNotice}
             >
-              백필중
+              데이터
             </span>
           ) : null}
           <span
@@ -2198,22 +1714,6 @@ function countCandlesBefore(candles: Array<{ timestamp: string }>, boundaryTimes
     }
   });
   return timestamps.size;
-}
-
-function backfillStatusMessage(status: string, error?: string): string {
-  if (status === "queued" || status === "running") {
-    return "Preparing candle data...";
-  }
-  if (status === "failed") {
-    return error || "Historical candle backfill failed.";
-  }
-  if (status === "unavailable") {
-    return error || "Historical candle backfill is unavailable.";
-  }
-  if (status === "succeeded") {
-    return "Backfill completed, but no stored candles were found for this chart.";
-  }
-  return "No candle data is available for this symbol and interval.";
 }
 
 function resolveChartSocketUrl(params: URLSearchParams): string {

@@ -34,7 +34,6 @@ type WorkspaceGridProps = {
   orderChartSymbols: WatchlistSymbol[];
   symbolOptions: WatchlistSymbol[];
   symbolUniverse: readonly SupportedSymbol[];
-  backfillEligibleSymbols: readonly SupportedSymbol[];
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   onSettingsTabChange: (tab: SystemMenuTab) => void;
@@ -129,7 +128,6 @@ export function WorkspaceGrid({
   orderChartSymbols,
   symbolOptions,
   symbolUniverse,
-  backfillEligibleSymbols,
   chartRuntime,
   chartAutoApplyEnabled,
   onSettingsTabChange,
@@ -253,7 +251,6 @@ export function WorkspaceGrid({
           chartRuntime={chartRuntime}
           chartAutoApplyEnabled={chartAutoApplyEnabled}
           activeSymbol={activeSymbol}
-          backfillEligibleSymbols={backfillEligibleSymbols}
           knownSymbols={knownSymbols}
           watchlistSymbols={watchlistSymbols}
           hotRankingSymbols={hotRankingSymbols}

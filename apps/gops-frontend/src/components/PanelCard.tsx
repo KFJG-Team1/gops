@@ -22,7 +22,6 @@ type PanelCardProps = {
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
-  backfillEligibleSymbols: readonly SupportedSymbol[];
   knownSymbols: readonly WatchlistSymbol[];
   watchlistSymbols: readonly WatchlistSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
@@ -90,7 +89,6 @@ function PanelBody({
   chartRuntime,
   chartAutoApplyEnabled,
   activeSymbol,
-  backfillEligibleSymbols,
   hotRankingSymbols,
   orderChartSymbols,
   symbolOptions,
@@ -104,7 +102,6 @@ function PanelBody({
   chartRuntime: ChartRuntimeState;
   chartAutoApplyEnabled: boolean;
   activeSymbol: SupportedSymbol;
-  backfillEligibleSymbols: readonly SupportedSymbol[];
   hotRankingSymbols: readonly HotRankingSymbol[];
   orderChartSymbols: readonly WatchlistSymbol[];
   symbolOptions: readonly WatchlistSymbol[];
@@ -120,7 +117,6 @@ function PanelBody({
         panel={panel}
         runtime={chartRuntime}
         autoApplyEnabled={chartAutoApplyEnabled}
-        backfillEligibleSymbols={backfillEligibleSymbols}
         onChartAction={onChartAction}
         onAskAgent={onAskAgentFromChart}
       />
@@ -529,7 +525,6 @@ export function PanelCard({
   chartRuntime,
   chartAutoApplyEnabled,
   activeSymbol,
-  backfillEligibleSymbols,
   knownSymbols,
   watchlistSymbols,
   hotRankingSymbols,
@@ -862,11 +857,10 @@ export function PanelCard({
 
       <PanelBody
         panel={panel}
-        chartRuntime={chartRuntime}
-        chartAutoApplyEnabled={chartAutoApplyEnabled}
-        activeSymbol={activeSymbol}
-        backfillEligibleSymbols={backfillEligibleSymbols}
-        hotRankingSymbols={hotRankingSymbols}
+          chartRuntime={chartRuntime}
+          chartAutoApplyEnabled={chartAutoApplyEnabled}
+          activeSymbol={activeSymbol}
+          hotRankingSymbols={hotRankingSymbols}
         orderChartSymbols={orderChartSymbols}
         symbolOptions={symbolOptions}
         onChartAction={onChartAction}

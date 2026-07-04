@@ -19,7 +19,6 @@ export type CandleData = {
 
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
-export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
 export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
 
@@ -35,7 +34,6 @@ export type ChartCoverage = {
   message?: string;
   repairStatus?: RepairStatus;
   sourceInterval?: string;
-  backfillStatus?: BackfillStatus;
   requestedLimit?: number;
   returnedCount?: number;
   storedCandleCount?: number;
@@ -62,9 +60,6 @@ export type CandleSnapshot = {
   marketSession?: string;
   snapshotCursor?: string;
   dataStatus?: ChartSnapshotDataStatus;
-  backfillStatus?: BackfillStatus;
-  repairStatus?: RepairStatus;
-  canBackfill?: boolean;
   sourceInterval?: string;
   message?: string;
   requestedLimit?: number;
@@ -263,9 +258,6 @@ export type ChartDataStatus = {
   feed?: string;
   feedProfile?: string;
   marketSession?: string;
-  backfillStatus?: BackfillStatus;
-  repairStatus?: RepairStatus;
-  canBackfill?: boolean;
   sourceInterval?: string;
   requestedLimit?: number;
   returnedCount?: number;

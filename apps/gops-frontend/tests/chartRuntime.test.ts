@@ -3,18 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
-import {
-  firstSnapshotGapBackfillWindow,
-  initialBackfillWindow,
-  isChartDataRenderable,
-  isPreparingCandleData,
-  normalizeBackfillStatusPayload,
-  rangeBackfillWindow,
-  rangeBackfillWindowForSnapshot,
-  shouldForceBackfill,
-  shouldRequestBackfill,
-  shouldRequestRangeBackfill
-} from "../../chart-engine/src/backfill";
+import { isChartDataRenderable } from "../../chart-engine/src/renderability";
 import {
   buildAgentAnalysisRequest,
   buildAgentLayoutContext,
@@ -35,7 +24,7 @@ import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
 import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
-import { backfillTargetBarsForInterval, defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
+import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
@@ -530,116 +519,6 @@ assert.equal(normalizedTrade.data.price, 197.66);
 const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
 assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
 
-assert.equal(shouldRequestBackfill({
-  state: "empty",
-  message: "No candle data",
-  backfillStatus: "not_requested",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(shouldRequestBackfill({
-  state: "empty",
-  backfillStatus: "queued",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(isPreparingCandleData({
-  state: "empty",
-  message: "No candle data",
-  backfillStatus: "not_requested",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}, true), false);
-assert.equal(isPreparingCandleData({
-  state: "empty",
-  backfillStatus: "queued",
-  canBackfill: false,
-  updatedAt: new Date().toISOString()
-}, true), true);
-assert.equal(isPreparingCandleData({
-  state: "empty",
-  backfillStatus: "failed",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}, true), false);
-assert.equal(shouldRequestBackfill({
-  state: "empty",
-  message: "Alpaca credentials are not configured.",
-  backfillStatus: "unavailable",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(shouldForceBackfill({
-  state: "empty",
-  backfillStatus: "unavailable",
-  canBackfill: true,
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(shouldRequestBackfill({
-  state: "partial",
-  backfillStatus: "succeeded",
-  canBackfill: true,
-  coverage: {
-    state: "partial",
-    reasonCode: "insufficient_source_bars",
-    sourceInterval: "1D",
-    renderable: false
-  },
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(shouldRequestBackfill({
-  state: "partial",
-  backfillStatus: "not_requested",
-  canBackfill: true,
-  coverage: {
-    state: "partial",
-    reasonCode: "returned_window_sparse",
-    sourceInterval: "1m",
-    renderable: false,
-    gapRanges: [{ start: "2026-06-30T15:22:00.000Z", end: "2026-06-30T15:31:00.000Z", missingCount: 9 }]
-  },
-  updatedAt: new Date().toISOString()
-}), true);
-assert.equal(shouldRequestBackfill({
-  state: "ready",
-  backfillStatus: "not_requested",
-  repairStatus: "history_preload_required",
-  canBackfill: true,
-  coverage: {
-    state: "partial",
-    reasonCode: "stored_range_incomplete",
-    repairStatus: "history_preload_required",
-    sourceInterval: "1m",
-    renderable: true
-  },
-  updatedAt: new Date().toISOString()
-}), false);
-assert.equal(normalizeBackfillStatusPayload({
-  symbol: "NVDA",
-  interval: "1W",
-  sourceInterval: "1D",
-  requestId: "backfill:NVDA:1m:test",
-  status: "succeeded"
-}).status, "succeeded");
-assert.equal(normalizeBackfillStatusPayload({
-  symbol: "NVDA",
-  interval: "1W",
-  sourceInterval: "1D",
-  requestId: "backfill:NVDA:1D:test",
-  status: "queued"
-}).sourceInterval, "1D");
-assert.equal(shouldRequestBackfill({
-  state: "empty",
-  message: "Backfill completed, but no stored 1m candles were found for NVDA.",
-  backfillStatus: "succeeded",
-  canBackfill: true,
-  coverage: {
-    state: "empty",
-    reasonCode: "backfill_succeeded_without_complete_coverage",
-    sourceInterval: "1m"
-  },
-  updatedAt: new Date().toISOString()
-}), false);
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Sparse daily coverage should not render like a normal chart.",
@@ -687,12 +566,10 @@ const emptyStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(),
   interval: "1m",
   status: {
     state: "empty",
-    message: "Historical candle backfill is queued.",
-    backfillStatus: "queued",
-    canBackfill: false
+    message: "No candle data is available yet."
   }
 });
-assert.equal(emptyStatusRuntime.dataStatusByKey[candleKey("AMD", "1m")]?.backfillStatus, "queued");
+assert.equal(emptyStatusRuntime.dataStatusByKey[candleKey("AMD", "1m")]?.state, "empty");
 assert.equal(emptyStatusRuntime.streamStatusByKey[candleKey("AMD", "1m")], undefined);
 
 const derivedSourceStatusRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
@@ -701,9 +578,7 @@ const derivedSourceStatusRuntime = chartRuntimeReducer(createInitialChartRuntime
   interval: "1W",
   status: {
     state: "empty",
-    message: "Weekly candles are waiting for daily backfill.",
-    backfillStatus: "queued",
-    canBackfill: false,
+    message: "Weekly candles need daily source data.",
     sourceInterval: "1D"
   }
 });
@@ -721,15 +596,12 @@ const liveThenDataErrorRuntime = chartRuntimeReducer(liveRuntime, {
 });
 assert.equal(liveThenDataErrorRuntime.streamStatusByKey[candleKey("NVDA", "5m")], "live");
 
-const partialBackfillSnapshot = normalizeCandleSnapshot({
+const partialFillSnapshot = normalizeCandleSnapshot({
   symbol: "INTC",
   interval: "1m",
   source: "alpaca",
   feed: "sip",
   dataStatus: "partial",
-  backfillStatus: "not_requested",
-  repairStatus: "gapfill_required",
-  canBackfill: true,
   requestedLimit: 390,
   returnedCount: 1,
   targetStoredCount: 5460,
@@ -749,82 +621,20 @@ const partialBackfillSnapshot = normalizeCandleSnapshot({
   },
   candles: [candleB]
 });
-assert.equal(partialBackfillSnapshot.dataStatus, "partial");
-assert.equal(partialBackfillSnapshot.repairStatus, "gapfill_required");
-assert.equal(partialBackfillSnapshot.coverage?.reasonCode, "stored_range_incomplete");
-assert.equal(partialBackfillSnapshot.coverage?.repairStatus, "gapfill_required");
-assert.equal(partialBackfillSnapshot.coverage?.renderable, false);
-const partialBackfillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
+assert.equal(partialFillSnapshot.dataStatus, "partial");
+assert.equal(partialFillSnapshot.coverage?.reasonCode, "stored_range_incomplete");
+assert.equal(partialFillSnapshot.coverage?.repairStatus, "gapfill_required");
+assert.equal(partialFillSnapshot.coverage?.renderable, false);
+const partialFillRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.snapshot.loaded",
-  snapshot: partialBackfillSnapshot
+  snapshot: partialFillSnapshot
 });
-const partialBackfillStatus = partialBackfillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
-assert.equal(partialBackfillStatus?.state, "partial");
-assert.equal(partialBackfillStatus?.hasMoreBefore, true);
-assert.equal(partialBackfillStatus?.targetStoredCount, 5460);
-assert.equal(partialBackfillStatus?.coverage?.targetStoredCount, 5460);
-assert.equal(partialBackfillStatus?.repairStatus, "gapfill_required");
-assert.equal(shouldRequestRangeBackfill(partialBackfillSnapshot), true);
-assert.equal(shouldRequestRangeBackfill({
-  ...partialBackfillSnapshot,
-  dataStatus: "partial",
-  repairStatus: "history_preload_required",
-  coverage: {
-    ...partialBackfillSnapshot.coverage,
-    renderable: true
-  }
-}), false);
-assert.deepEqual(rangeBackfillWindow("1m", "2026-06-25T13:30:00.000Z", 120), {
-  start: "2026-06-25T05:30:00.000Z",
-  end: "2026-06-25T13:30:00.000Z"
-});
-assert.deepEqual(initialBackfillWindow("1m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-19T08:00:00.000Z",
-  end: "2026-07-03T08:00:00.000Z"
-});
-assert.deepEqual(initialBackfillWindow("5m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-19T08:00:00.000Z",
-  end: "2026-07-03T08:00:00.000Z"
-});
-assert.deepEqual(initialBackfillWindow("10m", "2026-07-03T08:00:00.000Z"), {
-  start: "2026-06-19T08:00:00.000Z",
-  end: "2026-07-03T08:00:00.000Z"
-});
-const sparseGapSnapshot = normalizeCandleSnapshot({
-  symbol: "AAPL",
-  interval: "1m",
-  source: "alpaca",
-  feed: "sip",
-  dataStatus: "partial",
-  backfillStatus: "not_requested",
-  repairStatus: "gapfill_required",
-  canBackfill: true,
-  hasMoreBefore: true,
-  coverage: {
-    state: "partial",
-    reasonCode: "returned_window_sparse",
-    repairStatus: "gapfill_required",
-    sourceInterval: "1m",
-    returnedCount: 120,
-    renderable: false,
-    gapRanges: [
-      {
-        start: "2026-06-25T13:01:00.000Z",
-        end: "2026-06-25T13:09:00.000Z",
-        missingCount: 8
-      }
-    ]
-  },
-  candles: [candleA, candleB]
-});
-assert.deepEqual(firstSnapshotGapBackfillWindow(sparseGapSnapshot), {
-  start: "2026-06-25T13:01:00.000Z",
-  end: "2026-06-25T13:09:00.000Z"
-});
-assert.deepEqual(rangeBackfillWindowForSnapshot(sparseGapSnapshot, "1m", "2026-06-25T13:30:00.000Z", 120), {
-  start: "2026-06-25T13:01:00.000Z",
-  end: "2026-06-25T13:09:00.000Z"
-});
+const partialFillStatus = partialFillRuntime.dataStatusByKey[candleKey("INTC", "1m")];
+assert.equal(partialFillStatus?.state, "partial");
+assert.equal(partialFillStatus?.hasMoreBefore, true);
+assert.equal(partialFillStatus?.targetStoredCount, 5460);
+assert.equal(partialFillStatus?.coverage?.targetStoredCount, 5460);
+assert.equal(partialFillStatus?.coverage?.repairStatus, "gapfill_required");
 
 const agentContextWithStreamError = buildChartAgentContext({
   panelId: "panel-agent-context",
@@ -878,7 +688,7 @@ const idleProposalScene = buildRenderScene({
 });
 assert.equal(idleProposalScene.labels.streamStatus, "idle");
 
-const mergedSnapshotRuntime = chartRuntimeReducer(partialBackfillRuntime, {
+const mergedSnapshotRuntime = chartRuntimeReducer(partialFillRuntime, {
   kind: "chart.snapshot.loaded",
   snapshot: normalizeCandleSnapshot({
     symbol: "INTC",
@@ -951,20 +761,14 @@ assert.equal(defaultVisibleBarsForInterval("1m"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
 assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
-assert.equal(defaultVisibleBarsForInterval("1W"), 120);
-assert.equal(defaultVisibleBarsForInterval("1M"), 120);
-assert.equal(backfillTargetBarsForInterval("1m"), 5460);
-assert.equal(backfillTargetBarsForInterval("5m"), 1092);
-assert.equal(backfillTargetBarsForInterval("10m"), 546);
-assert.equal(backfillTargetBarsForInterval("1D"), 1512);
-assert.equal(backfillTargetBarsForInterval("1W"), 312);
-assert.equal(backfillTargetBarsForInterval("1M"), 72);
+assert.equal(defaultVisibleBarsForInterval("1W"), 104);
+assert.equal(defaultVisibleBarsForInterval("1M"), 36);
 assert.equal(maxRequestBarsForInterval("1m"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
 assert.equal(maxRequestBarsForInterval("1D"), 1512);
 assert.equal(maxRequestBarsForInterval("1W"), 312);
-assert.equal(maxRequestBarsForInterval("1M"), 120);
+assert.equal(maxRequestBarsForInterval("1M"), 72);
 for (const timeframe of ["1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(

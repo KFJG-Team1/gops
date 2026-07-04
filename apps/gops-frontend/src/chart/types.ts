@@ -24,6 +24,66 @@ export type ChartSymbolsResponseDto = {
   symbols: ChartSymbolDto[];
 };
 
+export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
+
+export type FillStatus = "not_needed" | "filled" | "partial" | "timeout" | "failed" | "empty";
+
+export type CoverageRangeDto = {
+  start: string;
+  end: string;
+  missingCount?: number;
+};
+
+export type CandleCoverageDto = {
+  state?: string;
+  reasonCode?: string;
+  renderabilityReasonCode?: string;
+  message?: string;
+  repairStatus?: RepairStatus;
+  sourceInterval?: ChartInterval | string;
+  requestedLimit?: number;
+  returnedCount?: number;
+  storedCandleCount?: number;
+  targetStoredCount?: number;
+  targetRangeFrom?: string;
+  targetRangeTo?: string;
+  availableFrom?: string;
+  availableTo?: string;
+  invalidRowCount?: number;
+  renderable?: boolean;
+  minimumReturnedCount?: number;
+  minimumRenderableSourceBars?: number;
+  returnedSpanSeconds?: number;
+  maxRenderableSpanSeconds?: number;
+  gapRanges?: CoverageRangeDto[];
+  missingRanges?: CoverageRangeDto[];
+};
+
+export type FillSourceTraceDto = {
+  checked: boolean;
+  hit: boolean;
+  rowCount: number;
+  durationMs: number;
+  error?: string | null;
+};
+
+export type CandleFillTraceDto = {
+  status: FillStatus;
+  requestedRange?: {
+    start?: string;
+    end?: string;
+  };
+  requestedLimit?: number;
+  sourceInterval?: ChartInterval | string;
+  sources?: Partial<Record<"redis" | "clickhouse" | "s3" | "alpaca", FillSourceTraceDto>>;
+  missingRanges?: CoverageRangeDto[];
+  gapRanges?: CoverageRangeDto[];
+  renderable?: boolean;
+  minimumReturnedCount?: number;
+  minimumRenderableSourceBars?: number;
+  durationMs?: number;
+};
+
 export type CandleQueryResponseDto = {
   symbol: string;
   interval: ChartInterval;
@@ -36,6 +96,19 @@ export type CandleQueryResponseDto = {
   };
   status: "ready" | "partial" | "empty" | "pending" | "error";
   candles: CandleDto[];
+  dataStatus?: CandleQueryResponseDto["status"];
+  message?: string;
+  fill?: CandleFillTraceDto;
+  sourceInterval?: ChartInterval | string;
+  coverage?: CandleCoverageDto;
+  requestedLimit?: number;
+  returnedCount?: number;
+  storedCandleCount?: number;
+  targetStoredCount?: number;
+  targetRangeFrom?: string;
+  targetRangeTo?: string;
+  availableFrom?: string;
+  availableTo?: string;
   hasMoreBefore?: boolean;
   hasMoreAfter?: boolean;
   retryAfterMs?: number;
@@ -148,11 +221,11 @@ export type ChartState = {
 export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1D", "1W", "1M"];
 
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
-  "1m": 390,
-  "5m": 390,
-  "10m": 390,
-  "1D": 250,
-  "1W": 120,
+  "1m": 120,
+  "5m": 120,
+  "10m": 120,
+  "1D": 120,
+  "1W": 104,
   "1M": 36
 };
 

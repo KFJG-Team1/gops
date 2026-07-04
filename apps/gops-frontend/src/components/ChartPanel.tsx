@@ -61,7 +61,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
 import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
 import { dragDeltaToRightOffset, latestCandleRightOffset, normalizeViewport, zoomViewport, zoomViewportAt, type ChartViewport } from "../chart/viewport";
 
@@ -220,6 +220,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const chartMemoryRef = useRef<Record<string, ChartMemory>>(chartMemory);
+  const olderRangeRequestsRef = useRef<Set<string>>(new Set());
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
@@ -260,6 +261,56 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.volumeRatio
   ]);
 
+  const loadOlderCandles = useCallback((
+    symbol: string,
+    interval: ChartInterval,
+    before: string,
+    limit: number
+  ) => {
+    const requestKey = `${symbol}:${interval}:before:${before}:${limit}`;
+    if (olderRangeRequestsRef.current.has(requestKey)) {
+      return;
+    }
+    olderRangeRequestsRef.current.add(requestKey);
+    const controller = new AbortController();
+    fetchCandles({
+      symbol,
+      interval,
+      before,
+      limit,
+      ma: [5, 20, 60]
+    }, controller.signal)
+      .then((response) => {
+        const current = chartRef.current;
+        const sameChart = current.symbol === symbol && current.interval === interval;
+        const merged = sameChart ? mergeCandlesByTimestamp(response.candles, current.candles) : [];
+        const addedCount = sameChart ? Math.max(0, merged.length - current.candles.length) : 0;
+        if (sameChart) {
+          setChart((existing) => (
+            existing.symbol === symbol && existing.interval === interval
+              ? {
+                  ...existing,
+                  candles: merged,
+                  status: response.status,
+                  message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
+                  rightOffset: addedCount > 0 ? existing.rightOffset + addedCount : existing.rightOffset
+                }
+              : existing
+          ));
+        }
+      })
+      .catch((error: unknown) => {
+        setChart((current) => (
+          current.symbol === symbol && current.interval === interval
+            ? { ...current, message: error instanceof Error ? error.message : "Historical range request failed" }
+            : current
+        ));
+      })
+      .finally(() => {
+        olderRangeRequestsRef.current.delete(requestKey);
+      });
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     const requestKey = chartMemoryKey(chart.symbol, chart.interval);
@@ -276,7 +327,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           ...current,
           candles: response.candles,
           status: response.status,
-          message: response.error?.message ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
+          message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
           ...anchoredViewportForCandles(
             response.candles,
             current.interval,
@@ -535,15 +586,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [agentDrawingPreview]);
 
   const applyViewport = useCallback((viewport: ChartViewport) => {
+    const currentChart = chartRef.current;
+    const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+    const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth);
+    const maxRightOffset = Math.max(0, currentChart.candles.length - Math.min(requestedViewport.visibleCount, currentChart.candles.length));
+    const oldest = currentChart.candles[0]?.timestamp;
+    if (oldest && requestedViewport.rightOffset >= maxRightOffset - 1) {
+      loadOlderCandles(
+        currentChart.symbol,
+        currentChart.interval,
+        oldest,
+        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount)
+      );
+    }
     setChart((current) => {
-      const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
       const nextViewport = normalizeViewport(viewport, current.candles.length, plotWidth);
       if (nextViewport.visibleCount === current.visibleCount && nextViewport.rightOffset === current.rightOffset) {
         return current;
       }
       return applyChartAction(current, { type: "setViewport", ...nextViewport });
     });
-  }, []);
+  }, [loadOlderCandles]);
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
@@ -610,7 +673,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
               ...item,
               status: response.candles.length ? "ready" : response.status === "error" ? "error" : "empty",
               candles: response.candles,
-              message: response.error?.message
+              message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill)
             }
           : item
       )));
@@ -1209,6 +1272,39 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     </section>
   );
 });
+
+function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
+  const byTimestamp = new Map<string, CandleDto>();
+  groups.forEach((candles) => {
+    candles.forEach((candle) => {
+      byTimestamp.set(candle.timestamp, candle);
+    });
+  });
+  return Array.from(byTimestamp.values()).sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+}
+
+function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
+  if (!fill || fill.status === "not_needed" || fill.status === "filled") {
+    return undefined;
+  }
+  const sources = fill.sources ?? {};
+  const sourceError = (["alpaca", "s3", "clickhouse", "redis"] as const)
+    .map((source) => sources[source]?.error)
+    .find((error): error is string => typeof error === "string" && error.trim().length > 0);
+  if (sourceError) {
+    return sourceError;
+  }
+  if (fill.status === "timeout") {
+    return "Candle fill timed out before all sources finished.";
+  }
+  if (fill.status === "empty") {
+    return "No candles were found for the requested range.";
+  }
+  if (fill.status === "partial") {
+    return "Only partial candles were found for the requested range.";
+  }
+  return "Candle fill failed for the requested range.";
+}
 
 function chartMemoryKey(symbol: string, interval: ChartInterval): string {
   return `${symbol.toUpperCase()}:${interval}`;

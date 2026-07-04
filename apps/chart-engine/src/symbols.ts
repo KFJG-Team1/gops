@@ -12,7 +12,7 @@ export type WatchlistSymbol = SymbolMeta & {
   lastPrice?: number;
   changePercent?: number;
   volume?: number;
-  priceSource?: "live" | "redis" | "clickhouse" | "latest-backfill" | string;
+  priceSource?: "live" | "redis" | "clickhouse" | string;
   priceStatus?: "ready" | "loading" | "missing" | "unavailable" | string;
   priceUpdatedAt?: string;
 };
