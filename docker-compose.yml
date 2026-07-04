@@ -195,12 +195,15 @@ services:
       APCA_API_SECRET_KEY: "${APCA_API_SECRET_KEY:-}"
       ALPACA_CREDENTIAL_SOURCE: "${ALPACA_CREDENTIAL_SOURCE:-aws-secrets-manager}"
       ALPACA_SECRET_NAME: "${ALPACA_SECRET_NAME:-}"
+      ALPACA_STREAM_BASE_URL: "${ALPACA_STREAM_BASE_URL:-wss://stream.data.alpaca.markets}"
+      ALPACA_ENFORCE_FEED_SESSION_WINDOW: "${ALPACA_ENFORCE_FEED_SESSION_WINDOW:-true}"
       ALFAKA_REQUEST_CONFIG: "systems/market-data/config/market-data-request.json"
       ALPACA_FEED_PROFILE: "sip"
       ALPACA_UNIVERSE: "${ALPACA_UNIVERSE:-sp500}"
       ALPACA_UNIVERSE_REGISTRY_PATH: "${ALPACA_UNIVERSE_REGISTRY_PATH:-systems/market-data/config/sp500-universe.json}"
       ALPACA_COLLECTION_SYMBOL_SOURCE: "${ALPACA_COLLECTION_SYMBOL_SOURCE:-universe}"
-      ALPACA_CHANNELS: "bars,updatedBars,dailyBars,statuses"
+      ALPACA_COLLECTION_SYMBOLS: "${ALPACA_COLLECTION_SYMBOLS:-}"
+      ALPACA_CHANNELS: "${ALPACA_CHANNELS:-bars,updatedBars,dailyBars,statuses}"
       ALPACA_ACTIVE_CHANNELS: "${ALPACA_ACTIVE_CHANNELS:-trades,quotes}"
       ALPACA_ACTIVE_TICK_SUBSCRIPTION: "true"
     command: ["python", "-u", "systems/market-data/pods/market-ingestor/market_stream.py"]
@@ -244,12 +247,15 @@ services:
       APCA_API_SECRET_KEY: "${APCA_API_SECRET_KEY:-}"
       ALPACA_CREDENTIAL_SOURCE: "${ALPACA_CREDENTIAL_SOURCE:-aws-secrets-manager}"
       ALPACA_SECRET_NAME: "${ALPACA_SECRET_NAME:-}"
+      ALPACA_STREAM_BASE_URL: "${ALPACA_STREAM_BASE_URL:-wss://stream.data.alpaca.markets}"
+      ALPACA_ENFORCE_FEED_SESSION_WINDOW: "${ALPACA_ENFORCE_FEED_SESSION_WINDOW:-true}"
       ALFAKA_REQUEST_CONFIG: "systems/market-data/config/market-data-request.json"
       ALPACA_FEED_PROFILE: "boats"
       ALPACA_UNIVERSE: "${ALPACA_UNIVERSE:-sp500}"
       ALPACA_UNIVERSE_REGISTRY_PATH: "${ALPACA_UNIVERSE_REGISTRY_PATH:-systems/market-data/config/sp500-universe.json}"
       ALPACA_COLLECTION_SYMBOL_SOURCE: "${ALPACA_COLLECTION_SYMBOL_SOURCE:-universe}"
-      ALPACA_CHANNELS: "bars,updatedBars,dailyBars,statuses"
+      ALPACA_COLLECTION_SYMBOLS: "${ALPACA_COLLECTION_SYMBOLS:-}"
+      ALPACA_CHANNELS: "${ALPACA_CHANNELS:-bars,updatedBars,dailyBars,statuses}"
       ALPACA_ACTIVE_CHANNELS: "${ALPACA_ACTIVE_CHANNELS:-trades,quotes}"
       ALPACA_ACTIVE_TICK_SUBSCRIPTION: "true"
     command: ["python", "-u", "systems/market-data/pods/market-ingestor/market_stream.py"]
@@ -749,6 +755,8 @@ services:
       APCA_API_SECRET_KEY: "${APCA_API_SECRET_KEY:-}"
       ALPACA_CREDENTIAL_SOURCE: "${ALPACA_CREDENTIAL_SOURCE:-aws-secrets-manager}"
       ALPACA_SECRET_NAME: "${ALPACA_SECRET_NAME:-}"
+      ALPACA_DATA_BASE_URL: "${ALPACA_DATA_BASE_URL:-https://data.alpaca.markets}"
+      ALPACA_TRADING_BASE_URL: "${ALPACA_TRADING_BASE_URL:-https://paper-api.alpaca.markets}"
       S3_ENDPOINT_URL: "${DOCKER_S3_ENDPOINT_URL:-}"
       S3_BUCKET: "${S3_BUCKET:-gops-market-data-993099901407-ap-northeast-2-an}"
       S3_RAW_PREFIX: "${S3_RAW_PREFIX:-market-data/rebuild-20260702-lazy-v1/raw/alpaca}"
@@ -943,6 +951,7 @@ services:
       APCA_API_SECRET_KEY: "${APCA_API_SECRET_KEY:-}"
       ALPACA_CREDENTIAL_SOURCE: "${ALPACA_CREDENTIAL_SOURCE:-aws-secrets-manager}"
       ALPACA_SECRET_NAME: "${ALPACA_SECRET_NAME:-}"
+      ALPACA_DATA_BASE_URL: "${ALPACA_DATA_BASE_URL:-https://data.alpaca.markets}"
       S3_ENDPOINT_URL: "${DOCKER_S3_ENDPOINT_URL:-}"
       S3_BUCKET: "${S3_BUCKET:-gops-market-data-993099901407-ap-northeast-2-an}"
       S3_RAW_PREFIX: "${S3_RAW_PREFIX:-market-data/rebuild-20260702-lazy-v1/raw/alpaca}"
@@ -995,9 +1004,18 @@ networks:
   app_net:
     name: alfaka-app-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
   streaming_net:
     name: alfaka-streaming-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
   data_net:
     name: alfaka-data-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.30.0/24

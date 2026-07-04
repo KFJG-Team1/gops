@@ -44,6 +44,10 @@ def floor_month(value):
 def normalize_bar(envelope, correction_type="NONE"):
     raw = envelope["raw"]
     interval = "1D" if envelope["channel"] == "dailyBars" else "1m"
+    raw_timestamp = raw.get("t")
+    bucket_timestamp = None
+    if raw_timestamp:
+        bucket_timestamp = to_iso(floor_day(raw_timestamp)) if interval == "1D" else to_iso(floor_minute(raw_timestamp))
     source = {
         "updatedBars": "alpaca.updatedBars",
         "dailyBars": "alpaca.dailyBars",
@@ -53,7 +57,7 @@ def normalize_bar(envelope, correction_type="NONE"):
         "eventType": "CANDLE",
         "symbol": envelope["symbol"],
         "interval": interval,
-        "timestamp": raw.get("t"),
+        "timestamp": bucket_timestamp,
         "open": raw.get("o"),
         "high": raw.get("h"),
         "low": raw.get("l"),

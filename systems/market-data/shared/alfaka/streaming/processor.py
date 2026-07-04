@@ -373,6 +373,11 @@ def process_raw_envelope(envelope, producer, redis_client, redis_keys, state, to
         return "trades_fanout"
 
     if channel == "tickFanout":
+        fanout_interval = str(envelope.get("fanoutInterval") or "1m")
+        if fanout_interval != "1m":
+            result = f"tick_fanout_{fanout_interval}_derived_from_1m"
+            write_processor_health(redis_client, redis_keys, envelope, result=result)
+            return result
         trade = normalized_trade_from_fanout(envelope)
         accepted_for_window = state.window_builder.update(trade)
         live_candle = state.live_builder.update(trade) if accepted_for_window else None

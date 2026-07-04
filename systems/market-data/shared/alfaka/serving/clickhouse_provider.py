@@ -51,7 +51,7 @@ class ClickHouseMarketDataProvider:
             AND {interval_filter}
             AND toDayOfWeek(event_time) BETWEEN 1 AND 5
             {time_filter}
-        """)
+        """, include_live=True)
         query = f"""
         SELECT
           formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
@@ -100,7 +100,7 @@ class ClickHouseMarketDataProvider:
             AND interval IN ('1D', '1d')
             AND toDayOfWeek(event_time) BETWEEN 1 AND 5
             {time_filter}
-        """)
+        """, include_live=True)
         query = f"""
         SELECT
           formatDateTime(bucket, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
@@ -166,7 +166,7 @@ class ClickHouseMarketDataProvider:
             AND interval = '1m'
             AND toDayOfWeek(event_time) BETWEEN 1 AND 5
             {time_filter}
-        """)
+        """, include_live=True)
         query = f"""
         SELECT
           formatDateTime(bucket, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
@@ -233,7 +233,7 @@ class ClickHouseMarketDataProvider:
             AND interval IN ('1D', '1d')
             AND toDayOfWeek(event_time) BETWEEN 1 AND 5
             {time_filter}
-        """)
+        """, include_live=True)
         query = f"""
         SELECT
           formatDateTime(bucket, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,

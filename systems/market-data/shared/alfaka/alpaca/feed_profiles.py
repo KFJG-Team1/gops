@@ -44,10 +44,11 @@ class FeedProfile:
 
     @property
     def websocket_url(self) -> str:
+        base_url = os.getenv("ALPACA_STREAM_BASE_URL", "wss://stream.data.alpaca.markets").rstrip("/")
         if self.websocket_path:
-            return f"wss://stream.data.alpaca.markets/{self.websocket_path.lstrip('/')}"
+            return f"{base_url}/{self.websocket_path.lstrip('/')}"
         feed = self.websocket_feed
-        return "wss://stream.data.alpaca.markets/v2/test" if feed == "test" else f"wss://stream.data.alpaca.markets/v2/{feed}"
+        return f"{base_url}/v2/test" if feed == "test" else f"{base_url}/v2/{feed}"
 
 
 PROFILE_DEFINITIONS: dict[str, FeedProfile] = {

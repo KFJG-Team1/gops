@@ -313,7 +313,8 @@ def fetch_alpaca_bars(symbol, start, end, feed, timeframe="1Min"):
     if not key or not secret:
         raise BackfillUnavailable("Alpaca credentials are not configured.")
 
-    endpoint = "https://data.alpaca.markets/v2/stocks/bars"
+    base_url = os.getenv("ALPACA_DATA_BASE_URL", "https://data.alpaca.markets").rstrip("/")
+    endpoint = f"{base_url}/v2/stocks/bars"
     headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
     params = {
         "symbols": symbol,

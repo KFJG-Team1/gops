@@ -634,6 +634,19 @@ def feed_fanout_messages(producer, redis, keys, state, topics, interval="1m"):
     return results
 
 
+def feed_all_fanout_messages(producer, redis, keys, state, topics):
+    fanout_topics = set(mermaid_processor_topics()["tick_fanout"].values())
+    fanout = [
+        sent["value"]
+        for sent in list(producer.sent)
+        if sent["topic"] in fanout_topics
+    ]
+    results = []
+    for payload in fanout:
+        results.append(process_raw_envelope(payload, producer, redis, keys, state, topics))
+    return results
+
+
 def mermaid_processor_topics():
     return {
         "trades": "market.layer.trades.v1",
@@ -761,6 +774,9 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(boats_primary.websocket_url, "wss://stream.data.alpaca.markets/v1beta1/boats")
         self.assertTrue(feed_profile_active_for_session(boats_primary, "overnight"))
         self.assertFalse(feed_profile_active_for_session(boats_primary, "regular"))
+        with mock.patch.dict(os.environ, {"ALPACA_STREAM_BASE_URL": "ws://192.168.0.42:8765"}):
+            self.assertEqual(sip.websocket_url, "ws://192.168.0.42:8765/v2/sip")
+            self.assertEqual(boats_primary.websocket_url, "ws://192.168.0.42:8765/v1beta1/boats")
         self.assertEqual(market_session_for_timestamp("2026-06-29T08:30:00.000Z"), "pre")
         self.assertEqual(market_session_for_timestamp("2026-06-29T14:00:00.000Z"), "regular")
         self.assertEqual(market_session_for_timestamp("2026-06-29T21:00:00.000Z"), "after")
@@ -1111,6 +1127,45 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(health["lastSymbol"], "AAPL")
         self.assertTrue(health["lastSourceEventId"].startswith(envelope["sourceEventId"]))
         self.assertTrue(health["lastSourceEventId"].endswith("/fanout/1m"))
+
+    def test_processor_does_not_count_non_1m_fanout_ticks_into_1m_candle(self):
+        producer = RecordingProducer()
+        redis = MemoryRedis()
+        keys = RedisKeyBuilder()
+        topics = mermaid_processor_topics()
+        state = ProcessorState()
+
+        process_raw_envelope(
+            build_raw_envelope(
+                {"T": "t", "S": "AAPL", "i": 123, "p": 195.2, "s": 10, "t": "2026-06-25T10:15:20.100Z"},
+                "sip",
+            ),
+            producer,
+            redis,
+            keys,
+            state,
+            topics,
+        )
+        fanout_results = feed_all_fanout_messages(producer, redis, keys, state, topics)
+
+        self.assertEqual(fanout_results.count("trades"), 1)
+        self.assertIn("tick_fanout_5m_derived_from_1m", fanout_results)
+        self.assertIn("tick_fanout_10m_derived_from_1m", fanout_results)
+        self.assertIn("tick_fanout_1D_derived_from_1m", fanout_results)
+        live_candle = json.loads(redis.values[keys.live_candle("AAPL")])
+        self.assertEqual(live_candle["volume"], 10)
+        flushed = flush_ready_closed_candles(
+            producer,
+            redis,
+            keys,
+            state,
+            topics,
+            reference_time="2026-06-25T10:16:06.000Z",
+        )
+        closed_messages = [sent for sent in producer.sent if sent["topic"] == "market.layer.candles.closed.v1"]
+        self.assertEqual(flushed, 1)
+        self.assertEqual(closed_messages[-1]["value"]["interval"], "1m")
+        self.assertEqual(closed_messages[-1]["value"]["volume"], 10)
 
     def test_processor_emits_provisional_live_candles_for_all_chart_intervals(self):
         producer = RecordingProducer()
@@ -1595,12 +1650,13 @@ class MarketDataHardeningContractTest(unittest.TestCase):
 
     def test_daily_bar_normalizes_to_canonical_1d_candle(self):
         envelope = build_raw_envelope(
-            {"T": "d", "S": "AAPL", "t": "2026-06-25T00:00:00.000Z", "o": 1, "h": 2, "l": 1, "c": 2, "v": 100},
+            {"T": "d", "S": "AAPL", "t": "2026-06-25T15:59:31.123Z", "o": 1, "h": 2, "l": 1, "c": 2, "v": 100},
             "sip",
         )
         candle = normalize_bar(envelope)
 
         self.assertEqual(candle["interval"], "1D")
+        self.assertEqual(candle["timestamp"], "2026-06-25T00:00:00.000Z")
         self.assertEqual(candle["source"], "alpaca.dailyBars")
         self.assertEqual(candle["sourceEventId"], envelope["sourceEventId"])
 
@@ -1619,13 +1675,14 @@ class MarketDataHardeningContractTest(unittest.TestCase):
 
     def test_updated_bar_preserves_correction_type_and_source(self):
         envelope = build_raw_envelope(
-            {"T": "u", "S": "AAPL", "t": "2026-06-25T10:15:00.000Z", "o": 1, "h": 3, "l": 1, "c": 2, "v": 200},
+            {"T": "u", "S": "AAPL", "t": "2026-06-25T10:15:37.321Z", "o": 1, "h": 3, "l": 1, "c": 2, "v": 200},
             "sip",
         )
 
         candle = normalize_bar(envelope, correction_type="UPDATED")
 
         self.assertEqual(candle["interval"], "1m")
+        self.assertEqual(candle["timestamp"], "2026-06-25T10:15:00.000Z")
         self.assertEqual(candle["source"], "alpaca.updatedBars")
         self.assertEqual(candle["correctionType"], "UPDATED")
         self.assertEqual(candle["sourceEventId"], envelope["sourceEventId"])
@@ -3496,11 +3553,12 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         ]
         calls = []
 
-        def fake_get(_endpoint, headers, params, timeout):
-            calls.append({"headers": headers, "params": dict(params), "timeout": timeout})
+        def fake_get(endpoint, headers, params, timeout):
+            calls.append({"endpoint": endpoint, "headers": headers, "params": dict(params), "timeout": timeout})
             return responses.pop(0)
 
         with mock.patch.dict(os.environ, {
+            "ALPACA_DATA_BASE_URL": "http://192.168.0.42:8765",
             "HISTORICAL_ADJUSTMENT": "raw",
             "HISTORICAL_MAX_RETRIES": "2",
             "HISTORICAL_RETRY_SLEEP_SECONDS": "0",
@@ -3518,6 +3576,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[-1]["endpoint"], "http://192.168.0.42:8765/v2/stocks/bars")
         self.assertEqual(calls[-1]["params"]["adjustment"], "split")
         self.assertEqual(calls[-1]["params"]["timeframe"], "1Min")
 
@@ -3727,6 +3786,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertIn("inserted_at DESC", query)
         self.assertIn("ifNull(source_event_id, '') DESC", query)
         self.assertIn("canonical_version = 'v2'", query)
+        self.assertIn("price_adjustment IN ('split', 'live')", query)
         self.assertEqual(candles[-1]["timestamp"], "2026-06-25T13:30:00.000Z")
 
     def test_clickhouse_query_time_minute_aggregation_uses_1m_source_and_attaches_ma(self):
@@ -3750,6 +3810,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
 
         self.assertIn("AND interval = '1m'", provider.queries[0][0])
         self.assertIn("row_number() OVER", provider.queries[0][0])
+        self.assertIn("price_adjustment IN ('split', 'live')", provider.queries[0][0])
         self.assertEqual(candles[-1]["interval"], "5m")
         self.assertEqual(candles[-1]["ma5"], 3.0)
 
@@ -3777,6 +3838,8 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertIn("AND interval IN ('1D', '1d')", provider.queries[1][0])
         self.assertIn("row_number() OVER", provider.queries[0][0])
         self.assertIn("row_number() OVER", provider.queries[1][0])
+        self.assertIn("price_adjustment IN ('split', 'live')", provider.queries[0][0])
+        self.assertIn("price_adjustment IN ('split', 'live')", provider.queries[1][0])
         self.assertEqual(weekly[-1]["interval"], "1W")
         self.assertEqual(monthly[-1]["interval"], "1M")
         self.assertEqual(weekly[-1]["ma5"], 3.0)
@@ -4043,6 +4106,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertIn("toStartOfDay(event_time) AS bucket", provider.queries[0][0])
         self.assertIn("AND interval IN ('1D', '1d')", provider.queries[0][0])
         self.assertIn("row_number() OVER", provider.queries[0][0])
+        self.assertIn("price_adjustment IN ('split', 'live')", provider.queries[0][0])
         self.assertEqual(daily[-1]["interval"], "1D")
         self.assertEqual(daily[-1]["ma5"], 3.0)
 
