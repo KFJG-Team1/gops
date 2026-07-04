@@ -118,8 +118,15 @@ function normalizeCandleResponse(payload: unknown): CandleQueryResponseDto {
   if (!source.symbol || !source.interval || !Array.isArray(source.candles)) {
     throw new Error("Candle response missing required fields");
   }
+  const status = source.status ?? source.dataStatus ?? (source.candles.length ? "ready" : "empty");
+  const request = source.request ?? {
+    limit: source.requestedLimit ?? source.candles.length,
+    session: "regular" as const
+  };
   return {
     ...source,
+    status,
+    request,
     candles: source.candles.filter((item) =>
       item &&
       typeof item.timestamp === "string" &&

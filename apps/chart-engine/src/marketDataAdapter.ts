@@ -1,6 +1,6 @@
 import { normalizeChartInterval } from "./intervals";
 import { canonicalTimestamp } from "./time";
-import type { BackfillStatus, CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, QuoteTickData, RealtimeLayerEvent, RepairStatus, TradeTickData } from "./types";
+import type { CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, QuoteTickData, RealtimeLayerEvent, RepairStatus, TradeTickData } from "./types";
 
 export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
 
@@ -75,17 +75,6 @@ function readDataStatus(value: unknown): ChartSnapshotDataStatus | undefined {
   return value === "ready" || value === "partial" || value === "empty" || value === "error" ? value : undefined;
 }
 
-function readBackfillStatus(value: unknown): BackfillStatus | undefined {
-  return value === "not_requested" ||
-    value === "queued" ||
-    value === "running" ||
-    value === "succeeded" ||
-    value === "failed" ||
-    value === "unavailable"
-    ? value
-    : undefined;
-}
-
 function readRepairStatus(value: unknown): RepairStatus | undefined {
   return value === "none" ||
     value === "gapfill_required" ||
@@ -115,7 +104,6 @@ function normalizeCoverage(value: unknown): ChartCoverage | undefined {
     message: readString(source.message) ?? undefined,
     repairStatus: readRepairStatus(source.repairStatus),
     sourceInterval: readString(source.sourceInterval) ?? undefined,
-    backfillStatus: readBackfillStatus(source.backfillStatus),
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,
     returnedCount: readNumber(source.returnedCount) ?? undefined,
     storedCandleCount: readNumber(source.storedCandleCount) ?? undefined,
@@ -216,9 +204,6 @@ export function normalizeCandleSnapshot(payload: unknown): CandleSnapshot {
     marketSession: readString(source.marketSession) ?? undefined,
     snapshotCursor: readString(source.snapshotCursor) ?? undefined,
     dataStatus: readDataStatus(source.dataStatus),
-    backfillStatus: readBackfillStatus(source.backfillStatus),
-    repairStatus: readRepairStatus(source.repairStatus),
-    canBackfill: readBoolean(source.canBackfill) ?? undefined,
     sourceInterval: readString(source.sourceInterval) ?? undefined,
     message: readString(source.message) ?? undefined,
     requestedLimit: readNumber(source.requestedLimit) ?? undefined,

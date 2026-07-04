@@ -37,8 +37,6 @@ export type ChartProposalRequestContext = {
   dataStatus: {
     state: ChartDataStatus["state"];
     message?: string;
-    backfillStatus?: ChartDataStatus["backfillStatus"];
-    canBackfill?: boolean;
     candleCount: number;
     hasVisibleCandles: boolean;
   };
@@ -148,8 +146,6 @@ export function buildChartAgentContext({
     dataStatus: {
       state: dataStatus?.state ?? (candles.length > 0 ? "ready" : "loading"),
       message: dataStatus?.message,
-      backfillStatus: dataStatus?.backfillStatus,
-      canBackfill: dataStatus?.canBackfill,
       candleCount: candles.length,
       hasVisibleCandles: visibleCandles.length > 0
     },
