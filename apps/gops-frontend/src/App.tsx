@@ -37,6 +37,9 @@ type MainView =
 type LayoutDrag =
   { mode: "treemap"; type: "resize-bottom"; startY: number; startHeight: number };
 
+const mainViewStorageKey = "gops:main-view";
+const lastChartSymbolStorageKey = "gops:last-chart-symbol";
+
 let chatLogEntrySequence = 0;
 
 function initialPanelState(): TiledPanelState {
@@ -54,7 +57,7 @@ function initialTreeMapHeight(): number {
 }
 
 export function App() {
-  const [mainView, setMainView] = useState<MainView>({ mode: "treemap" });
+  const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
   const [treeMapHeight, setTreeMapHeight] = useState(() => initialTreeMapHeight());
@@ -141,16 +144,22 @@ export function App() {
   const activeHeaderQuote = chartHeader?.liveQuote;
 
   const showChart = (symbol: string) => {
+    const nextView: MainView = { mode: "chart", symbol: normalizeStoredSymbol(symbol) || "NVDA" };
     setSemanticSelection(null);
     setTreeMapLaneHover(false);
-    setMainView({ mode: "chart", symbol: symbol.toUpperCase() });
+    persistMainView(nextView);
+    replaceMainViewUrl(nextView);
+    setMainView(nextView);
   };
 
   const showTreeMap = () => {
+    const nextView: MainView = { mode: "treemap" };
     setSemanticSelection(null);
     setChartHeader(null);
     setActiveBottomMenu(null);
-    setMainView({ mode: "treemap" });
+    persistMainView(nextView);
+    replaceMainViewUrl(nextView);
+    setMainView(nextView);
   };
 
   const toggleBottomMenu = (key: BottomMenuKey) => {
@@ -307,6 +316,58 @@ function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = 
     text,
     pending
   };
+}
+
+function initialMainView(): MainView {
+  if (typeof window === "undefined") {
+    return { mode: "treemap" };
+  }
+  const urlSymbol = normalizeStoredSymbol(new URLSearchParams(window.location.search).get("symbol"));
+  if (urlSymbol) {
+    return { mode: "chart", symbol: urlSymbol };
+  }
+  try {
+    const storedView = window.localStorage.getItem(mainViewStorageKey);
+    const storedSymbol = normalizeStoredSymbol(window.localStorage.getItem(lastChartSymbolStorageKey));
+    if (storedView === "chart" && storedSymbol) {
+      return { mode: "chart", symbol: storedSymbol };
+    }
+  } catch {
+    return { mode: "treemap" };
+  }
+  return { mode: "treemap" };
+}
+
+function persistMainView(view: MainView) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(mainViewStorageKey, view.mode);
+    if (view.mode === "chart") {
+      window.localStorage.setItem(lastChartSymbolStorageKey, view.symbol);
+    }
+  } catch {
+    // Browsers can disable storage; URL state still carries direct links.
+  }
+}
+
+function replaceMainViewUrl(view: MainView) {
+  if (typeof window === "undefined" || !window.history?.replaceState) {
+    return;
+  }
+  const url = new URL(window.location.href);
+  if (view.mode === "chart") {
+    url.searchParams.set("symbol", view.symbol);
+  } else {
+    url.searchParams.delete("symbol");
+  }
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function normalizeStoredSymbol(value: string | null | undefined): string {
+  const symbol = String(value ?? "").trim().toUpperCase();
+  return /^[A-Z0-9.\-]{1,16}$/.test(symbol) ? symbol : "";
 }
 
 function replaceChatLogEntry(
