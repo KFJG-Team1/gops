@@ -23,6 +23,7 @@ import {
   formatAgentAnalysisReport,
   normalizeAgentAnalysisReport,
   shouldAutoApplyAgentLayoutProposal,
+  type AgentAnalysisReport,
   type AgentAnalysisMode
 } from "../agents/agentAnalysis";
 import { MAX_USER_LAYOUTS, layoutSnapshotsEqual, makeCommand } from "../layout/commands";
@@ -650,8 +651,8 @@ function AgentChatPanel({
         }
         return response.json() as Promise<unknown>;
       })
-      .then((payload) => {
-        const report = normalizeAgentAnalysisReport(payload);
+      .then(waitForAgentAnalysisReport)
+      .then((report) => {
         if (shouldAutoApplyAgentLayoutProposal(report, agentAnalysisMode) && report.layoutProposal) {
           onLayoutProposal(report.layoutProposal);
         }
@@ -1591,6 +1592,114 @@ const agentIconOptions = Array.from(
 function getNextAgentIconUrl(currentIconUrl: string): string {
   const currentIndex = agentIconOptions.indexOf(currentIconUrl);
   return agentIconOptions[(currentIndex + 1) % agentIconOptions.length] ?? agentIconOptions[0];
+}
+
+const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed"]);
+const AGENT_REPORT_POLL_INTERVAL_MS = 1000;
+const AGENT_REPORT_POLL_TIMEOUT_MS = 120000;
+
+async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalysisReport> {
+  let report = normalizeAgentAnalysisPayload(payload);
+  if (isTerminalAgentReport(report)) {
+    return report;
+  }
+
+  const statusUrl = resolveAgentReportStatusUrl(payload, report);
+  const deadline = Date.now() + AGENT_REPORT_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(AGENT_REPORT_POLL_INTERVAL_MS);
+    const response = await fetch(statusUrl, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(await readApiErrorMessage(response, "Agent report API"));
+    }
+    report = normalizeAgentAnalysisPayload(await response.json() as unknown);
+    if (isTerminalAgentReport(report)) {
+      return report;
+    }
+  }
+
+  throw new Error("AI 분석 결과를 제한 시간 안에 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
+}
+
+function normalizeAgentAnalysisPayload(payload: unknown): AgentAnalysisReport {
+  const source = readUnknownObject(payload);
+  const nestedReport = readUnknownObject(source?.report);
+  if (nestedReport) {
+    try {
+      return normalizeAgentAnalysisReport(nestedReport);
+    } catch {
+      // Fall back to the async envelope fields below.
+    }
+  }
+
+  try {
+    return normalizeAgentAnalysisReport(payload);
+  } catch (error) {
+    const fallback = normalizeAgentAnalysisEnvelope(source);
+    if (fallback) {
+      return fallback;
+    }
+    throw error;
+  }
+}
+
+function normalizeAgentAnalysisEnvelope(source: Record<string, unknown> | null): AgentAnalysisReport | null {
+  const analysisId = readUnknownString(source?.analysisId) ?? readUnknownString(source?.request_id);
+  if (!analysisId) {
+    return null;
+  }
+  const status = readUnknownString(source?.status) ?? "queued";
+  return {
+    analysisId,
+    status,
+    summary: readUnknownString(source?.summary) ?? statusSummaryForAgentReport(status),
+    symbol: readUnknownString(source?.symbol) ?? undefined,
+    route: null,
+    finalAnswer: null,
+    finalResponse: null,
+    agentAnswers: [],
+    findings: [],
+    providerEvidence: [],
+    dailySummaries: [],
+    notificationDecision: null,
+    layoutProposal: null,
+    timing: null
+  };
+}
+
+function statusSummaryForAgentReport(status: string): string {
+  if (status === "queued") {
+    return "AI 분석 요청이 대기열에 들어갔습니다.";
+  }
+  if (status === "running") {
+    return "AI 분석을 진행 중입니다.";
+  }
+  if (status === "failed") {
+    return "AI 분석에 실패했습니다.";
+  }
+  return `AI 분석 상태: ${status}`;
+}
+
+function isTerminalAgentReport(report: AgentAnalysisReport): boolean {
+  return !report.status || AGENT_REPORT_TERMINAL_STATUSES.has(report.status);
+}
+
+function resolveAgentReportStatusUrl(payload: unknown, report: AgentAnalysisReport): string {
+  const source = readUnknownObject(payload);
+  const statusUrl = readUnknownString(source?.status_url) ?? readUnknownString(source?.statusUrl);
+  return statusUrl ?? `/api/agents/reports/${encodeURIComponent(report.analysisId)}`;
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function readUnknownObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readUnknownString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 async function readApiErrorMessage(response: Response, label: string): Promise<string> {
