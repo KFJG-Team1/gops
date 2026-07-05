@@ -345,12 +345,64 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
   });
 
   renderItems.forEach((item) => {
-    if (item.kind === "expansionProjection") {
+    if (item.kind === "timeWarpedLine") {
+      drawTimeWarpedLine(context, scene, item, previewLayer);
+    } else if (item.kind === "expansionProjection") {
       drawExpansionProjectionDrawing(context, scene, item, previewLayer);
     } else if (item.kind === "collapsed") {
       drawCollapsedDrawing(context, scene, item, previewLayer);
     }
   });
+}
+
+function drawTimeWarpedLine(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "timeWarpedLine" }>,
+  previewLayer: boolean
+) {
+  if (item.points.length < 2) {
+    return;
+  }
+  const drawing = item.drawing;
+  const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
+  const preview = previewLayer || drawing.id === "drawing-draft-preview";
+  const style = drawing.style ?? {};
+  context.save();
+  context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = context.strokeStyle;
+  context.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
+  context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
+  context.beginPath();
+  item.points.forEach((point, index) => {
+    const x = Math.round(point.x) + 0.5;
+    const y = Math.round(point.y) + 0.5;
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  });
+  context.stroke();
+  if (drawing.type === "arrow") {
+    drawArrowHead(context, item.points[item.points.length - 2], item.points[item.points.length - 1]);
+  }
+  const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
+  if (midpoint) {
+    drawDrawingLabel(context, item.label ?? (drawing.type === "measurement" ? measurementLabel(drawing) : undefined), midpoint.x + 5, midpoint.y - 8, drawing);
+  }
+  if (selected) {
+    context.setLineDash([]);
+    context.fillStyle = colors.surface;
+    context.strokeStyle = colors.drawing;
+    [item.points[0], item.points[item.points.length - 1]].forEach((point) => {
+      circle(context, point.x, point.y, 4);
+      context.fill();
+      context.stroke();
+    });
+  }
+  context.restore();
 }
 
 function drawExpansionProjectionDrawing(

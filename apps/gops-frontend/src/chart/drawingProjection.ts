@@ -4,6 +4,12 @@ import { createCoordinateTransform, priceToY, slotCenterToX, type ChartScene } f
 export type DrawingRenderItem =
   | { kind: "full"; drawing: DrawingEntity }
   | {
+    kind: "timeWarpedLine";
+    drawing: DrawingEntity;
+    points: Array<{ x: number; y: number }>;
+    label?: string;
+  }
+  | {
     kind: "expansionProjection";
     drawing: DrawingEntity;
     expansionId: string;
@@ -53,10 +59,67 @@ export function resolveDrawingRenderItems(
       return;
     }
 
+    const warpedLine = timeWarpedLineItem(scene, drawing, timeRange);
+    if (warpedLine) {
+      items.push(warpedLine);
+      return;
+    }
+
     items.push({ kind: "full", drawing });
     items.push(...expansionProjectionItems(scene, drawing, timeRange));
   });
   return items;
+}
+
+function timeWarpedLineItem(scene: ChartScene, drawing: DrawingEntity, timeRange: TimeRange | null): DrawingRenderItem | null {
+  if (!isLineLikeDrawing(drawing) || !timeRange) {
+    return null;
+  }
+  const [startAnchor, endAnchor] = drawing.anchors;
+  if (!startAnchor?.timestamp || !endAnchor?.timestamp || typeof startAnchor.price !== "number" || typeof endAnchor.price !== "number") {
+    return null;
+  }
+  const startTime = Date.parse(startAnchor.timestamp);
+  const endTime = Date.parse(endAnchor.timestamp);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime === endTime) {
+    return null;
+  }
+
+  const overlapRanges = scene.semantic.expansionRanges
+    .map((range) => ({ range, timeRange: isoRange(range.from, range.to) }))
+    .filter((range) => intervalsOverlap(timeRange, range.timeRange));
+  if (!overlapRanges.length) {
+    return null;
+  }
+
+  const lineStart = Math.min(startTime, endTime);
+  const lineEnd = Math.max(startTime, endTime);
+  const breakpoints = new Set<number>([startTime, endTime]);
+  overlapRanges.forEach(({ timeRange: range }) => {
+    breakpoints.add(Math.max(lineStart, range.start));
+    breakpoints.add(Math.min(lineEnd, range.end));
+  });
+
+  const orderedTimes = [...breakpoints]
+    .filter((time) => Number.isFinite(time) && time >= lineStart && time <= lineEnd)
+    .sort((left, right) => startTime <= endTime ? left - right : right - left);
+  const points = orderedTimes
+    .map((time) => {
+      const x = xForTime(scene, time, overlapRanges);
+      if (x === null) {
+        return null;
+      }
+      const progress = (time - startTime) / (endTime - startTime);
+      const price = startAnchor.price! + (endAnchor.price! - startAnchor.price!) * progress;
+      return { x, y: priceToY(scene, price) };
+    })
+    .filter((point): point is { x: number; y: number } => Boolean(point));
+
+  return points.length >= 2 ? { kind: "timeWarpedLine", drawing, points, label: drawing.label } : null;
+}
+
+function isLineLikeDrawing(drawing: DrawingEntity): boolean {
+  return drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement";
 }
 
 function expansionProjectionItems(scene: ChartScene, drawing: DrawingEntity, timeRange: TimeRange | null): DrawingRenderItem[] {
@@ -132,6 +195,20 @@ function xForTimestampOrContainingUnit(scene: ChartScene, timestamp: string): nu
     return time >= range.start && time < range.end;
   });
   return unit ? slotCenterToX(scene, unit.slotCenter) : null;
+}
+
+function xForTime(
+  scene: ChartScene,
+  time: number,
+  expansionRanges: Array<{ range: ChartScene["semantic"]["expansionRanges"][number]; timeRange: TimeRange }>
+): number | null {
+  const expansion = expansionRanges.find(({ timeRange }) => time >= timeRange.start && time <= timeRange.end);
+  if (expansion) {
+    const span = Math.max(1, expansion.timeRange.end - expansion.timeRange.start);
+    const ratio = Math.max(0, Math.min(1, (time - expansion.timeRange.start) / span));
+    return expansion.range.left + (expansion.range.right - expansion.range.left) * ratio;
+  }
+  return xForTimestampOrContainingUnit(scene, new Date(time).toISOString());
 }
 
 function collapsedLabel(drawing: DrawingEntity): string {
