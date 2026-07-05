@@ -64,7 +64,16 @@ import {
 } from "../chart/semanticTimeline";
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
 import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
-import { dragDeltaToRightOffset, latestCandleRightOffset, normalizeViewport, zoomViewport, zoomViewportAt, type ChartViewport } from "../chart/viewport";
+import {
+  dragDeltaToRightOffset,
+  horizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset,
+  normalizeViewport,
+  resolveHorizontalWheelDelta,
+  zoomViewport,
+  zoomViewportAt,
+  type ChartViewport
+} from "../chart/viewport";
 
 const initialLayers: Record<ChartLayerKey, boolean> = {
   candles: true,
@@ -752,9 +761,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     onChartHoverChange?.(true);
-    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
-    const delta = event.deltaY > 0 ? step : -step;
+    const horizontalDelta = event.deltaX;
+    const verticalDelta = event.deltaY;
+    const deltaMode = event.deltaMode;
+    const resolvedHorizontalDelta = resolveHorizontalWheelDelta(horizontalDelta, verticalDelta, event.shiftKey);
     const scene = sceneRef.current;
+    if (resolvedHorizontalDelta !== null) {
+      const plotWidth = scene ? Math.max(1, scene.plot.right - scene.plot.left) : undefined;
+      const sceneSlotWidth = scene?.scales.slotWidth;
+      const current = chartRef.current;
+      const currentViewport = normalizeViewport(
+        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+        current.candles.length,
+        plotWidth
+      );
+      const slotWidth = sceneSlotWidth
+        ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
+      const nextRightOffset = horizontalWheelDeltaToRightOffset(
+        currentViewport.rightOffset,
+        resolvedHorizontalDelta,
+        slotWidth,
+        currentViewport.visibleCount,
+        current.candles.length,
+        deltaMode,
+        plotWidth
+      );
+      applyViewport({
+        visibleCount: currentViewport.visibleCount,
+        rightOffset: nextRightOffset
+      });
+      return;
+    }
+    if (verticalDelta === 0) {
+      return;
+    }
+    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
+    const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
       zoomBy(delta);
       return;

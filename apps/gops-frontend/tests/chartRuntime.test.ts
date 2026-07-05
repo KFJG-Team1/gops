@@ -65,10 +65,16 @@ import {
   clampRightOffset,
   clampVisibleCount,
   dragDeltaToRightOffset,
+  horizontalWheelDeltaToRightOffset,
   normalizeViewport,
+  resolveHorizontalWheelDelta,
   resolveViewportVisibleCount,
   zoomViewport
 } from "../../chart-engine/src/viewport";
+import {
+  horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
+  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
+} from "../src/chart/viewport";
 
 function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
@@ -1215,6 +1221,14 @@ assert.equal(portfolioAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "portf
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
+assert.equal(horizontalWheelDeltaToRightOffset(8, 27, 9, 72, 160), 5);
+assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
+assert.equal(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1), 4);
+assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
+assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
+assert.equal(resolveHorizontalWheelDelta(0, -4, true), -4);
+assert.equal(resolveHorizontalWheelDelta(0, -4), null);
+assert.equal(frontendResolveHorizontalWheelDelta(2, 20), 2);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
 assert.equal(clampVisibleCount(1, 160, 400), 6);

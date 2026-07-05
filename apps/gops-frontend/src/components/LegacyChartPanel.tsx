@@ -38,7 +38,14 @@ import { chartIntervals, defaultVisibleBarsForInterval, maxRequestBarsForInterva
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "@gops/chart-engine/marketDataAdapter";
 import { buildRenderScene } from "@gops/chart-engine/renderScene";
 import { createCoordinateTransform } from "@gops/chart-engine/scales";
-import { clampRightOffset, dragDeltaToRightOffset, normalizeViewport, zoomViewport } from "@gops/chart-engine/viewport";
+import {
+  clampRightOffset,
+  dragDeltaToRightOffset,
+  horizontalWheelDeltaToRightOffset,
+  normalizeViewport,
+  resolveHorizontalWheelDelta,
+  zoomViewport
+} from "@gops/chart-engine/viewport";
 import {
   getCandlesForDocument,
   getChartDocumentForPanel,
@@ -904,8 +911,46 @@ export function ChartPanel({ panel, runtime, onChartAction, onAskAgent }: ChartP
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
+    const horizontalDelta = event.deltaX;
+    const verticalDelta = event.deltaY;
+    const resolvedHorizontalDelta = resolveHorizontalWheelDelta(horizontalDelta, verticalDelta, event.shiftKey);
+    if (resolvedHorizontalDelta !== null) {
+      const currentViewport = normalizePanelViewport(document.viewport);
+      const plotWidth = getPlotWidth();
+      const sceneSlotWidth = sceneRef.current
+        ? sceneRef.current.scales.candleWidth + sceneRef.current.scales.gap
+        : undefined;
+      const slotWidth = sceneSlotWidth
+        ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
+      const nextRightOffset = horizontalWheelDeltaToRightOffset(
+        currentViewport.rightOffset,
+        resolvedHorizontalDelta,
+        slotWidth,
+        currentViewport.visibleCount,
+        candles.length,
+        event.deltaMode,
+        plotWidth
+      );
+      const panDelta = nextRightOffset - currentViewport.rightOffset;
+      if (panDelta !== 0) {
+        panViewport(panDelta);
+        return;
+      }
+      const isAtOldestLoadedEdge = clampRightOffset(
+        currentViewport.rightOffset + 1,
+        currentViewport.visibleCount,
+        candles.length
+      ) === currentViewport.rightOffset;
+      if (resolvedHorizontalDelta < 0 && isAtOldestLoadedEdge) {
+        panViewport(1);
+      }
+      return;
+    }
+    if (verticalDelta === 0) {
+      return;
+    }
     const step = Math.max(3, Math.round(document.viewport.visibleCount * 0.12));
-    const delta = event.deltaY > 0 ? step : -step;
+    const delta = verticalDelta > 0 ? step : -step;
     zoomBy(delta);
   };
 

@@ -3,6 +3,7 @@ const MAX_VISIBLE_CANDLES = 500;
 const MIN_READABLE_SLOT_WIDTH = 4;
 const FUTURE_EMPTY_SPACE_RATIO = 2 / 3;
 const INITIAL_RIGHT_EMPTY_SPACE_RATIO = 1 / 3;
+const WHEEL_AXIS_EPSILON = 0.5;
 
 export type ChartViewport = {
   visibleCount: number;
@@ -80,6 +81,45 @@ export function dragDeltaToRightOffset(
 ): number {
   const slotDelta = Math.round(dragPixels / Math.max(0.0001, slotWidth));
   return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount);
+}
+
+export function horizontalWheelDeltaToRightOffset(
+  startRightOffset: number,
+  deltaX: number,
+  slotWidth: number,
+  visibleCount: number,
+  candleCount: number,
+  deltaMode = 0,
+  pageWidth = Math.max(1, slotWidth * visibleCount)
+): number {
+  const pixelDelta = wheelDeltaToPixels(deltaX, deltaMode, pageWidth);
+  const slotDelta = Math.round(-pixelDelta / Math.max(0.0001, slotWidth));
+  return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount);
+}
+
+export function resolveHorizontalWheelDelta(deltaX: number, deltaY: number, shiftKey = false): number | null {
+  const safeDeltaX = Number.isFinite(deltaX) ? deltaX : 0;
+  const safeDeltaY = Number.isFinite(deltaY) ? deltaY : 0;
+  if (Math.abs(safeDeltaX) > WHEEL_AXIS_EPSILON) {
+    return safeDeltaX;
+  }
+  if (shiftKey && Math.abs(safeDeltaY) > WHEEL_AXIS_EPSILON) {
+    return safeDeltaY;
+  }
+  return null;
+}
+
+function wheelDeltaToPixels(delta: number, deltaMode: number, pageWidth: number): number {
+  if (!Number.isFinite(delta)) {
+    return 0;
+  }
+  if (deltaMode === 1) {
+    return delta * 16;
+  }
+  if (deltaMode === 2) {
+    return delta * Math.max(1, pageWidth);
+  }
+  return delta;
 }
 
 export function futureEmptySlotCount(visibleCount: number): number {
