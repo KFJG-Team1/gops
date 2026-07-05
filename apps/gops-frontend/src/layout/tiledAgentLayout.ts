@@ -4,6 +4,7 @@ import {
   detectPanelBoundaries,
   insertOptionsForBoundary,
   insertPanelAtBoundary,
+  normalizeTiledPanelStateToWorkspace,
   panelGutter,
   panelContentTitle,
   removePanelSlot,
@@ -32,14 +33,6 @@ const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelConten
   orderTicket: "trade"
 };
 
-const panelAliases: Record<PanelContentKind, string[]> = {
-  chart: ["차트", "캔들", "가격", "chart"],
-  news: ["뉴스", "기사", "헤드라인", "news"],
-  ontology: ["온톨로지", "관계", "기업 관계", "ontology"],
-  portfolio: ["포트폴리오", "보유종목", "잔고", "portfolio"],
-  trade: ["주문", "주문창", "매수", "매도", "order"]
-};
-
 export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: ViewportSize, activeSymbol = "") {
   return {
     version: 1,
@@ -57,7 +50,6 @@ export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: V
         layoutWeight: content?.layoutWeight ?? defaultLayoutWeightForKind(kind),
         minSpan: minSpanForKind(kind),
         maxSpan: maxSpanForKind(kind),
-        aliases: panelAliases[kind],
         ...(symbol ? { symbol, props: { symbol } } : {})
       };
     })
@@ -112,7 +104,7 @@ export function applyTiledAgentLayoutProposal(
       }
     }
   }
-  return next;
+  return normalizeTiledPanelStateToWorkspace(next, viewport);
 }
 
 function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize) {
@@ -183,10 +175,12 @@ function addPanelForCommand(
       slotId: panelId ?? undefined,
       symbol: symbol ?? undefined,
       layoutWeight: priority
-    });
+    }, viewport);
   }
   return ensurePanelKind(state, kind, viewport, {
-    layoutWeight: layoutWeightForPanelId(proposal, readString(command.payload.panelId) ?? readString(command.target?.panelId)) ?? undefined
+    slotId: readString(command.payload.panelId) ?? readString(command.target?.panelId) ?? undefined,
+    symbol: readPanelSymbol(command.payload) ?? undefined,
+    layoutWeight: layoutWeightForPanelId(proposal, readString(command.payload.panelId) ?? readString(command.target?.panelId)) ?? readNumber(command.payload.layoutWeight) ?? undefined
   });
 }
 
@@ -194,7 +188,7 @@ function ensurePanelKind(
   state: TiledPanelState,
   kind: PanelContentKind,
   viewport: ViewportSize,
-  options: { layoutWeight?: number } = {}
+  options: { slotId?: string; symbol?: string; layoutWeight?: number } = {}
 ): TiledPanelState {
   if (hasPanelKind(state, kind)) {
     return focusPanelKind(state, kind, viewport);
@@ -274,10 +268,10 @@ function applyPanelPlacement(
     return state;
   }
   const rect = rectForPlacement(placement, viewport);
-  return {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     slots: state.slots.map((item) => item.id === slot.id ? { ...item, rect } : item)
-  };
+  }, viewport);
 }
 
 function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize): PanelRect {
@@ -309,7 +303,7 @@ function applyPanelPropsUpdate(
   let next = state;
   const props = isRecord(command.payload.props) ? command.payload.props : command.payload;
   const symbol = readString(props.symbol);
-  if (symbol && state.contents[slot.contentId]?.kind === "chart") {
+  if (symbol) {
     next = setPanelContentSymbol(next, slot.contentId, symbol);
   }
   const layoutWeight = readNumber(command.payload.layoutWeight) ?? readNumber(props.layoutWeight);

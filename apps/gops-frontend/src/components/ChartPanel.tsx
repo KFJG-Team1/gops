@@ -83,7 +83,7 @@ import {
 
 const initialLayers: Record<ChartLayerKey, boolean> = {
   candles: true,
-  volume: true,
+  volume: false,
   ma5: true,
   ma20: true,
   ma60: true
