@@ -6,6 +6,7 @@ import {
   insertPanelAtBoundary,
   panelGutter,
   panelContentTitle,
+  removePanelSlot,
   setPanelContentLayoutWeight,
   setPanelContentSymbol,
   type PanelContentKind,
@@ -77,6 +78,11 @@ export function applyTiledAgentLayoutProposal(
     command.type === "layout.panels.arrange" || command.type === "layout.panel.move"
   );
   for (const command of proposal.commands) {
+    if (command.type === "layout.panel.remove") {
+      const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
+      next = panelId ? removePanelSlot(next, panelId, viewport) : next;
+      continue;
+    }
     const kind = targetKindForCommand(next, command, proposal);
     if (!kind) {
       continue;
