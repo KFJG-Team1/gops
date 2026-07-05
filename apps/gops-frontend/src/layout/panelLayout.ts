@@ -112,25 +112,27 @@ export function workspaceBounds(
 export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanelState {
   const workspace = workspaceBounds(viewport);
   const gutter = panelGutter(viewport);
-  const supportHeight = Math.max(panelMinHeight, Math.round(workspace.height * 0.24));
-  const chartTop = workspace.top + supportHeight + gutter * 2;
-  const chartHeight = Math.max(chartMinHeight, workspaceInnerBottom(workspace, gutter) - chartTop);
-  const supportTop = workspace.top + gutter;
+  const supportTop = workspaceInnerTop(workspace, gutter);
+  const innerBottom = workspaceInnerBottom(workspace, gutter);
+  const previousSupportHeight = Math.max(panelMinHeight, Math.round(workspace.height * 0.24));
+  const previousChartTop = workspace.top + previousSupportHeight + gutter * 2;
+  const previousChartHeight = Math.max(chartMinHeight, innerBottom - previousChartTop);
+  const chartHeight = Math.max(chartMinHeight, Math.round(previousChartHeight * 0.5));
+  const chartTop = innerBottom - chartHeight;
+  const supportHeight = Math.max(panelMinHeight, chartTop - gutter - supportTop);
   const supportLeft = workspace.left + gutter;
-  const supportWidth = (workspace.width - gutter * 5) / 4;
+  const supportWidth = (workspace.width - gutter * 3) / 2;
   const contents: Record<PanelContentId, PanelContentInstance> = {};
   const chart = createPanelContent("chart", 1, { isDefaultChart: true, layoutWeight: 100 });
   const news = createPanelContent("news", 2, { layoutWeight: 50 });
   const ontology = createPanelContent("ontology", 3, { layoutWeight: 50 });
-  const portfolio = createPanelContent("portfolio", 4, { layoutWeight: 35 });
-  const trade = createPanelContent("trade", 5, { layoutWeight: 35 });
-  [chart, news, ontology, portfolio, trade].forEach((content) => {
+  [chart, news, ontology].forEach((content) => {
     contents[content.id] = content;
   });
 
   return {
     contents,
-    nextInstance: 6,
+    nextInstance: 4,
     slots: [
       {
         id: "slot-news",
@@ -150,31 +152,7 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
         rect: {
           left: supportLeft + supportWidth + gutter,
           top: supportTop,
-          width: supportWidth,
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-portfolio",
-        contentId: portfolio.id,
-        rect: {
-          left: supportLeft + (supportWidth + gutter) * 2,
-          top: supportTop,
-          width: supportWidth,
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-trade",
-        contentId: trade.id,
-        rect: {
-          left: supportLeft + (supportWidth + gutter) * 3,
-          top: supportTop,
-          width: workspace.width - gutter - (supportLeft + (supportWidth + gutter) * 3),
+          width: workspace.width - gutter - (supportLeft + supportWidth + gutter),
           height: supportHeight
         },
         minWidth: panelMinWidth,
