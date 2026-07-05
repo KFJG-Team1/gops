@@ -45,6 +45,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
+import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import type { CandleDto, ChartState, DrawingEntity } from "../src/chart/types";
 import {
   applyLayoutProposal,
@@ -1424,6 +1425,20 @@ assert.ok(continuousAnchorPoint);
 assert.equal(
   Math.round(continuousAnchorPoint?.x ?? -1),
   Math.round((continuousAnchorExpansionRange?.left ?? 0) + ((continuousAnchorExpansionRange?.right ?? 0) - (continuousAnchorExpansionRange?.left ?? 0)) * 0.75)
+);
+assert.equal(
+  sourceIntervalForDrawingAnchors([
+    { timestamp: "2026-06-25T13:40:00Z", interval: "10m", price: 101 },
+    { timestamp: "2026-06-25T13:50:00Z", interval: "10m", price: 102 }
+  ], "1D"),
+  "10m"
+);
+assert.equal(
+  sourceIntervalForDrawingAnchors([
+    { timestamp: "2026-06-25T13:40:00Z", interval: "10m", price: 101 },
+    { timestamp: "2026-06-25T13:41:00Z", interval: "1m", price: 102 }
+  ], "1D"),
+  "1m"
 );
 
 const dailyDrawingScene = buildFrontendChartScene(frontendChartState({
