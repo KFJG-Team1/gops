@@ -1415,6 +1415,29 @@ assert.equal(dailyProjection.expansionId, readyExpansion.id);
 assert.equal(Math.round(dailyProjection.left), Math.round(dailyDrawingScene.semantic.expansionRanges[0]?.left ?? -1));
 assert.equal(Math.round(dailyProjection.right), Math.round(dailyDrawingScene.semantic.expansionRanges[0]?.right ?? -1));
 
+const dailyLineScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
+  visibleCount: 20,
+  drawings: [testDrawing({
+    id: "drawing-daily-trend",
+    type: "trendLine",
+    sourceInterval: "1D",
+    anchors: [
+      { timestamp: "2026-06-25T13:30:00Z", price: 100, paneId: "price", symbol: "AAPL" },
+      { timestamp: "2026-06-26T13:30:00Z", price: 110, paneId: "price", symbol: "AAPL" }
+    ],
+    label: "Daily trend"
+  })]
+}), 720, 360, { expansions: [readyExpansion] });
+const dailyLineRange = dailyLineScene.semantic.expansionRanges[0];
+const dailyLineItems = resolveDrawingRenderItems(dailyLineScene, dailyLineScene.chart.drawings);
+const dailyWarpedLine = dailyLineItems.find((item) => item.kind === "timeWarpedLine");
+assert.ok(dailyWarpedLine);
+assert.equal(dailyLineItems.some((item) => item.kind === "full" && item.drawing.id === "drawing-daily-trend"), false);
+assert.equal(Math.round(dailyWarpedLine.points[0]?.x ?? -1), Math.round(dailyLineRange?.left ?? -2));
+assert.equal(Math.round(dailyWarpedLine.points[dailyWarpedLine.points.length - 1]?.x ?? -1), Math.round(dailyLineRange?.right ?? -2));
+
 const intradayDrawingScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
