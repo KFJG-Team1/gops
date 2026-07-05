@@ -42,7 +42,18 @@ import {
 } from "../src/chart/semanticTimeline";
 import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
 import type { CandleDto } from "../src/chart/types";
-import { createInitialTiledPanelState, defaultChartPanelSymbol, setDefaultChartPanelSymbol } from "../src/layout/panelLayout";
+import {
+  createInitialTiledPanelState,
+  defaultChartPanelSymbol,
+  detectPanelBoundaries,
+  insertPanelAtBoundary,
+  layoutHasGapsOrOverlaps,
+  panelGutter,
+  scaleTiledPanelState,
+  setDefaultChartPanelSymbol,
+  workspaceBounds
+} from "../src/layout/panelLayout";
+import { rectBottom, rectRight } from "../src/layout/panelGeometry";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
@@ -59,6 +70,12 @@ import {
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
   resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
 } from "../src/chart/viewport";
+import {
+  createTreeMapOpacityScale,
+  tileFillForChange,
+  tileOpacityForChange,
+  tileTextForOpacity
+} from "../src/treemap/treemapColors";
 
 function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
@@ -148,8 +165,8 @@ assert.equal(fallbackChartStyle.background, "#efefe8");
 assert.equal(fallbackChartStyle.text, "#1a1a0e");
 assert.equal(fallbackChartStyle.grid, "rgba(26, 26, 14, 0.08)");
 assert.equal(fallbackChartStyle.volume, "rgba(26, 26, 14, 0.12)");
-assert.equal(fallbackChartStyle.bullish, "#226627");
-assert.equal(fallbackChartStyle.bearish, "#bf160c");
+assert.equal(fallbackChartStyle.bullish, "#1b6a29");
+assert.equal(fallbackChartStyle.bearish, "#b31a0f");
 setDefaultChartStyle({
   background: "#101010",
   bullish: "#00ff00",
@@ -164,6 +181,38 @@ assert.equal(themedDocument.style.ma5, "#abcdef");
 setDefaultChartStyle(fallbackChartStyle);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
+
+const treeMapTestTheme = {
+  ...fallbackChartStyle,
+  up: "#1b6a29",
+  upSoft: "#1b6a29",
+  down: "#b31a0f",
+  downSoft: "#b31a0f",
+  changeUp: "#1b6a29",
+  changeDown: "#b31a0f",
+  tileText: "#1a1a0e",
+  tileTextInverse: "#efefe8",
+  footprint: "rgba(26, 26, 14, 0.42)"
+};
+const treeMapScale = createTreeMapOpacityScale([
+  0.01,
+  0.06,
+  ...Array.from({ length: 19 }, (_, index) => 0.1 + index * (3.9 / 18)),
+  30
+]);
+assert.equal(tileFillForChange(0.01, treeMapTestTheme), treeMapTestTheme.muted);
+assert.equal(tileOpacityForChange(0.01, treeMapScale), 0.3);
+assert.equal(tileOpacityForChange(undefined, treeMapScale), 0.3);
+assert.ok(Math.abs(tileOpacityForChange(4, treeMapScale) - 0.92) < 0.001);
+assert.equal(tileOpacityForChange(30, treeMapScale), 0.92);
+const quietTreeMapScale = createTreeMapOpacityScale([0.01, 0.04, 0.08, 0.12, 0.2]);
+assert.equal(tileOpacityForChange(0.04, quietTreeMapScale), 0.3);
+assert.ok(tileOpacityForChange(0.12, quietTreeMapScale) > tileOpacityForChange(0.08, quietTreeMapScale));
+assert.equal(tileOpacityForChange(0.2, quietTreeMapScale), 0.92);
+const emptyTreeMapScale = createTreeMapOpacityScale([undefined, Number.NaN]);
+assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.3);
+assert.equal(tileTextForOpacity(0.57, treeMapTestTheme), treeMapTestTheme.tileText);
+assert.equal(tileTextForOpacity(0.58, treeMapTestTheme), treeMapTestTheme.tileTextInverse);
 
 assert.deepEqual(resolveMainViewFromUrl("http://localhost/?view=home").view, { mode: "treemap" });
 assert.equal(resolveMainViewFromUrl("http://localhost/").url, "/?view=home");
@@ -815,6 +864,74 @@ assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport);
+const tiledWorkspace = workspaceBounds(tiledViewport);
+const tiledGutter = panelGutter(tiledViewport);
+const tiledInnerBottom = rectBottom(tiledWorkspace) - tiledGutter;
+const previousSupportHeight = Math.max(104, Math.round(tiledWorkspace.height * 0.24));
+const previousChartTop = tiledWorkspace.top + previousSupportHeight + tiledGutter * 2;
+const previousChartHeight = Math.max(190, tiledInnerBottom - previousChartTop);
+const expectedInitialChartHeight = Math.max(190, Math.round(previousChartHeight * 0.5));
+const defaultChartSlot = tiledState.slots.find((slot) => slot.id === "slot-chart");
+const initialNewsSlot = tiledState.slots.find((slot) => slot.id === "slot-news");
+const initialOntologySlot = tiledState.slots.find((slot) => slot.id === "slot-ontology");
+assert.deepEqual(
+  tiledState.slots.map((slot) => tiledState.contents[slot.contentId]?.kind).sort(),
+  ["chart", "news", "ontology"]
+);
+assert.ok(defaultChartSlot);
+assert.ok(initialNewsSlot);
+assert.ok(initialOntologySlot);
+assert.equal(defaultChartSlot.rect.left, tiledWorkspace.left);
+assert.equal(rectRight(defaultChartSlot.rect), rectRight(tiledWorkspace));
+assert.equal(rectBottom(defaultChartSlot.rect), tiledInnerBottom);
+assert.equal(defaultChartSlot.rect.height, expectedInitialChartHeight);
+assert.equal(rectBottom(initialNewsSlot.rect) + tiledGutter, defaultChartSlot.rect.top);
+assert.equal(rectBottom(initialOntologySlot.rect), rectBottom(initialNewsSlot.rect));
+assert.ok(Math.abs(initialNewsSlot.rect.width - initialOntologySlot.rect.width) <= 1);
+assert.equal(layoutHasGapsOrOverlaps(tiledState, tiledViewport), false);
+const insertionViewport = { width: 1920, height: 900 };
+const insertionState = createInitialTiledPanelState(insertionViewport);
+const insertionWorkspace = workspaceBounds(insertionViewport);
+const insertionInnerBottom = rectBottom(insertionWorkspace) - panelGutter(insertionViewport);
+const rightChartBoundary = detectPanelBoundaries(insertionState, insertionViewport).find((boundary) => (
+  boundary.pageEdge === "right" && boundary.negativeSlotIds.includes("slot-chart")
+));
+assert.ok(rightChartBoundary);
+const stateWithRightNews = insertPanelAtBoundary(insertionState, rightChartBoundary.id, "news", insertionViewport);
+const rightNewsSlot = stateWithRightNews.slots.find((slot) => (
+  !insertionState.slots.some((existing) => existing.id === slot.id) &&
+  stateWithRightNews.contents[slot.contentId]?.kind === "news"
+));
+const chartAfterRightNews = stateWithRightNews.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(rightNewsSlot);
+assert.ok(chartAfterRightNews);
+assert.ok(Math.abs(rectBottom(chartAfterRightNews.rect) - rectBottom(rightNewsSlot.rect)) <= 1);
+assert.equal(rectBottom(rightNewsSlot.rect), insertionInnerBottom);
+assert.equal(layoutHasGapsOrOverlaps(stateWithRightNews, insertionViewport), false);
+const stateWithRightChart = insertPanelAtBoundary(insertionState, rightChartBoundary.id, "chart", insertionViewport, { symbol: "AAPL" });
+const rightChartSlot = stateWithRightChart.slots.find((slot) => (
+  !insertionState.slots.some((existing) => existing.id === slot.id) &&
+  stateWithRightChart.contents[slot.contentId]?.kind === "chart"
+));
+const chartAfterRightChart = stateWithRightChart.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(rightChartSlot);
+assert.ok(chartAfterRightChart);
+assert.ok(Math.abs(rectBottom(chartAfterRightChart.rect) - rectBottom(rightChartSlot.rect)) <= 1);
+assert.equal(rectBottom(rightChartSlot.rect), insertionInnerBottom);
+assert.equal(rectRight(rightChartSlot.rect), rectRight(insertionWorkspace));
+assert.equal(layoutHasGapsOrOverlaps(stateWithRightChart, insertionViewport), false);
+const legacyBottomFlushState = {
+  ...tiledState,
+  slots: tiledState.slots.map((slot) => (
+    slot.id === "slot-chart"
+      ? { ...slot, rect: { ...slot.rect, height: rectBottom(tiledWorkspace) - slot.rect.top } }
+      : slot
+  ))
+};
+const normalizedLegacyState = scaleTiledPanelState(legacyBottomFlushState, tiledViewport, tiledViewport);
+const normalizedLegacyChart = normalizedLegacyState.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(normalizedLegacyChart);
+assert.equal(rectBottom(normalizedLegacyChart.rect), tiledInnerBottom);
 const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
 assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
 const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
@@ -852,14 +969,12 @@ assert.ok(focusedOntologyRect && originalOntologyRect && focusedOntologyRect.wid
 const keepChartOnlyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-remove",
   title: "Keep chart",
-  rationale: "차트만 남기고 4개 패널을 숨겼습니다.",
+  rationale: "차트만 남기고 2개 패널을 숨겼습니다.",
   autoApply: true,
   panelPriorities: [{ panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }],
   commands: [
     makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-news" }, { panelId: "slot-news" }),
-    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-ontology" }, { panelId: "slot-ontology" }),
-    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-portfolio" }, { panelId: "slot-portfolio" }),
-    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-trade" }, { panelId: "slot-trade" })
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-ontology" }, { panelId: "slot-ontology" })
   ],
   createdAt: "2026-06-29T00:00:00.000Z"
 }, tiledViewport);
@@ -919,8 +1034,8 @@ const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   createdAt: "2026-06-29T00:00:00.000Z"
 }, tiledViewport);
 const arrangedOntologyRect = arrangedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
-assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.width > originalOntologyRect.width);
-assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.height > originalOntologyRect.height);
+assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.left < originalOntologyRect.left);
+assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.top === originalOntologyRect.top);
 
 const chartAddState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-chart-add",
@@ -960,7 +1075,11 @@ const addedChartSlot = chartAddState.slots.find((slot) => slot.id === "panel-cha
 assert.ok(addedChartSlot);
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "AAPL");
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
+assert.equal(addedChartSlot.rect.left, tiledWorkspace.left);
+assert.equal(rectRight(addedChartSlot.rect), rectRight(tiledWorkspace));
+assert.equal(rectBottom(addedChartSlot.rect), tiledInnerBottom);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
+assert.equal(layoutHasGapsOrOverlaps(chartAddState, tiledViewport), false);
 
 const chartPanels = [
   runtimePanel("primary-chart", "chart"),
@@ -1178,8 +1297,11 @@ assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 
+const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
+assert.match(chartPanelSource, /volume: false/);
+
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
-assert.match(panelLayoutSource, /slot-trade/);
+assert.doesNotMatch(panelLayoutSource, /id: "slot-trade"/);
 assert.match(panelLayoutSource, /trade: "주문"/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
@@ -1278,14 +1400,43 @@ assert.equal(agentAnalysisMultiAgentRequest.analysisMode, "multi_agent");
 assert.deepEqual(agentAnalysisMultiAgentRequest.agentIds, ["agent-01", "agent-02"]);
 
 const agentLayoutContext = buildTiledAgentLayoutContext(createInitialTiledPanelState(tiledViewport), tiledViewport);
-const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
+const agentLayoutPanels = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels;
+assert.deepEqual(agentLayoutPanels.map((panel) => panel.type).sort(), ["chart", "newsFeed", "ontologyGraph"]);
+assert.equal(agentLayoutPanels.some((panel) => panel.type === "orderTicket"), false);
+assert.equal(agentLayoutPanels.some((panel) => panel.type === "portfolioHoldings"), false);
+const expandedAgentLayoutState = applyTiledAgentLayoutProposal(createInitialTiledPanelState(tiledViewport), {
+  id: "layout-proposal-order-portfolio-context",
+  title: "Open order and portfolio panels",
+  rationale: "Test optional panel context contracts.",
+  autoApply: true,
+  panelPriorities: [
+    { panelId: "panel-order", panelType: "orderTicket", layoutWeight: 50 },
+    { panelId: "panel-portfolio", panelType: "portfolioHoldings", layoutWeight: 50 }
+  ],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
+      panelId: "panel-order",
+      panelType: "orderTicket",
+      placement: testPlacement(4, 1, 1, 2)
+    }, { panelId: "panel-order" }),
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
+      panelId: "panel-portfolio",
+      panelType: "portfolioHoldings",
+      placement: testPlacement(3, 1, 1, 2)
+    }, { panelId: "panel-portfolio" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const expandedAgentLayoutPanels = (buildTiledAgentLayoutContext(expandedAgentLayoutState, tiledViewport) as { panels: Array<Record<string, unknown>> }).panels;
+const agentLayoutOrderPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "orderTicket");
 assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
-const agentLayoutPortfolioPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "portfolioHoldings");
+const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
 assert.equal(agentLayoutPortfolioPanel?.title, "포트폴리오");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
 
 const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({

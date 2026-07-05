@@ -6,6 +6,11 @@ export type Sp500UniverseItem = {
   cik?: string | null;
   marketCap: number;
   marketCapSource?: string | null;
+  layoutPrice?: number | null;
+  layoutMarketCap?: number | null;
+  layoutMarketCapSource?: string | null;
+  layoutPriceSource?: string | null;
+  layoutPriceUpdatedAt?: string | null;
   sharesOutstanding?: number | null;
   fundamentalsSource?: string | null;
   fundamentalsAsOf?: string | null;
@@ -528,5 +533,5 @@ export const sp500UniverseSeed: Sp500UniverseItem[] = [
 ];
 
 export function sp500WeightValue(item: Sp500UniverseItem): number {
-  return item.indexWeight ?? item.marketCap;
+  return item.indexWeight ?? item.layoutMarketCap ?? item.marketCap;
 }

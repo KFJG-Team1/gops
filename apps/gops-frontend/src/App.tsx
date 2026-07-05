@@ -706,7 +706,11 @@ function mergeTreeMapItems(
     return {
       ...previous,
       ...item,
-      marketCap: previous.marketCap,
+      layoutPrice: previous.layoutPrice ?? item.layoutPrice,
+      layoutMarketCap: previous.layoutMarketCap ?? item.layoutMarketCap,
+      layoutMarketCapSource: previous.layoutMarketCapSource ?? item.layoutMarketCapSource,
+      layoutPriceSource: previous.layoutPriceSource ?? item.layoutPriceSource,
+      layoutPriceUpdatedAt: previous.layoutPriceUpdatedAt ?? item.layoutPriceUpdatedAt,
       indexWeight: previous.indexWeight
     };
   });

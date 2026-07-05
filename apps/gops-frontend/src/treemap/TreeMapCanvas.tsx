@@ -3,7 +3,14 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { sp500WeightValue } from "../market/sp500Universe.seed";
 import { hitTestTreeMapTile, layoutSp500TreeMap } from "./treemapLayout";
 import type { TreeMapInputItem, TreeMapTile } from "./treemapTypes";
-import { tileFillForChange, tileOpacityForChange, tileTextForChange, toneForChange } from "./treemapColors";
+import {
+  createTreeMapOpacityScale,
+  tileFillForChange,
+  tileOpacityForChange,
+  tileTextForOpacity,
+  toneForChange,
+  type TreeMapOpacityScale
+} from "./treemapColors";
 import { readThemeColors, type ThemeColors } from "../theme/colors";
 
 type TreeMapCanvasProps = {
@@ -32,7 +39,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
     sector: item.sector,
     industry: item.industry,
     value: sp500WeightValue(item),
-    marketCap: item.marketCap,
+    marketCap: item.layoutMarketCap ?? item.marketCap,
     indexWeight: item.indexWeight,
     changePercent: item.changePercent
   })), [items]);
@@ -43,6 +50,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
     width: Math.max(1, size.width - canvasPadding * 2),
     height: Math.max(1, size.height - canvasPadding * 2)
   }), [inputItems, size.height, size.width]);
+  const opacityScale = useMemo(() => createTreeMapOpacityScale(inputItems.map((item) => item.changePercent)), [inputItems]);
 
   const hoverMetaLeft = useMemo(() => {
     const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
@@ -95,8 +103,8 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
       return;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    drawTreeMap(context, size, tiles, hoveredTile);
-  }, [hoveredTile, size, tiles]);
+    drawTreeMap(context, size, tiles, hoveredTile, opacityScale);
+  }, [hoveredTile, opacityScale, size, tiles]);
 
   const updateHover = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -138,14 +146,15 @@ function drawTreeMap(
   context: CanvasRenderingContext2D,
   size: CanvasSize,
   tiles: TreeMapTile[],
-  hoveredTile: TreeMapTile | null
+  hoveredTile: TreeMapTile | null,
+  opacityScale: TreeMapOpacityScale
 ) {
   const theme = readTheme();
   context.clearRect(0, 0, size.width, size.height);
 
   tiles.filter((tile) => tile.kind === "sector").forEach((tile) => drawSector(context, tile, theme));
   tiles.filter((tile) => tile.kind === "industry").forEach((tile) => drawIndustry(context, tile, theme));
-  tiles.filter((tile) => tile.kind === "symbol").forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme));
+  tiles.filter((tile) => tile.kind === "symbol").forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale));
 }
 
 function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
@@ -188,15 +197,17 @@ function drawSymbol(
   context: CanvasRenderingContext2D,
   tile: TreeMapTile,
   hoveredTileId: string | undefined,
-  theme: TreeMapTheme
+  theme: TreeMapTheme,
+  opacityScale: TreeMapOpacityScale
 ) {
   const hovered = hoveredTileId === tile.id;
   const rect = insetTile(tile, tileGap);
   if (rect.width <= 0 || rect.height <= 0) {
     return;
   }
+  const tileOpacity = tileOpacityForChange(tile.changePercent, opacityScale);
   context.fillStyle = hovered ? theme.colors.text : tileFillForChange(tile.changePercent, theme.colors);
-  context.globalAlpha = hovered ? 1 : tileOpacityForChange(tile.changePercent);
+  context.globalAlpha = hovered ? 1 : tileOpacity;
   context.fillRect(rect.x, rect.y, rect.width, rect.height);
   context.globalAlpha = 1;
 
@@ -205,7 +216,7 @@ function drawSymbol(
     return;
   }
   const symbolSize = clamp(Math.min(rect.width / 5.8, rect.height / 3.4), 11, 25);
-  const textColor = hovered ? theme.colors.background : tileTextForChange(tile.changePercent, theme.colors);
+  const textColor = hovered ? theme.colors.background : tileTextForOpacity(tileOpacity, theme.colors);
   context.font = `500 ${symbolSize}px ${theme.serif}`;
   context.fillStyle = textColor;
   context.textBaseline = "top";

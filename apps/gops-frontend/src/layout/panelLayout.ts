@@ -70,7 +70,7 @@ export type PanelBoundary = {
   rangeEnd: number;
   negativeSlotIds: PanelSlotId[];
   positiveSlotIds: PanelSlotId[];
-  pageEdge?: "left" | "right" | "top" | "bottom";
+  pageEdge?: "left" | "right";
 };
 
 export type BoundaryInsertOption = {
@@ -112,25 +112,27 @@ export function workspaceBounds(
 export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanelState {
   const workspace = workspaceBounds(viewport);
   const gutter = panelGutter(viewport);
-  const supportHeight = Math.max(panelMinHeight, Math.round(workspace.height * 0.24));
-  const chartTop = workspace.top + supportHeight + gutter * 2;
-  const chartHeight = Math.max(chartMinHeight, rectBottom(workspace) - chartTop);
-  const supportTop = workspace.top + gutter;
+  const supportTop = workspaceInnerTop(workspace, gutter);
+  const innerBottom = workspaceInnerBottom(workspace, gutter);
+  const previousSupportHeight = Math.max(panelMinHeight, Math.round(workspace.height * 0.24));
+  const previousChartTop = workspace.top + previousSupportHeight + gutter * 2;
+  const previousChartHeight = Math.max(chartMinHeight, innerBottom - previousChartTop);
+  const chartHeight = Math.max(chartMinHeight, Math.round(previousChartHeight * 0.5));
+  const chartTop = innerBottom - chartHeight;
+  const supportHeight = Math.max(panelMinHeight, chartTop - gutter - supportTop);
   const supportLeft = workspace.left + gutter;
-  const supportWidth = (workspace.width - gutter * 5) / 4;
+  const supportWidth = (workspace.width - gutter * 3) / 2;
   const contents: Record<PanelContentId, PanelContentInstance> = {};
   const chart = createPanelContent("chart", 1, { isDefaultChart: true, layoutWeight: 100 });
   const news = createPanelContent("news", 2, { layoutWeight: 50 });
   const ontology = createPanelContent("ontology", 3, { layoutWeight: 50 });
-  const portfolio = createPanelContent("portfolio", 4, { layoutWeight: 35 });
-  const trade = createPanelContent("trade", 5, { layoutWeight: 35 });
-  [chart, news, ontology, portfolio, trade].forEach((content) => {
+  [chart, news, ontology].forEach((content) => {
     contents[content.id] = content;
   });
 
   return {
     contents,
-    nextInstance: 6,
+    nextInstance: 4,
     slots: [
       {
         id: "slot-news",
@@ -150,31 +152,7 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
         rect: {
           left: supportLeft + supportWidth + gutter,
           top: supportTop,
-          width: supportWidth,
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-portfolio",
-        contentId: portfolio.id,
-        rect: {
-          left: supportLeft + (supportWidth + gutter) * 2,
-          top: supportTop,
-          width: supportWidth,
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-trade",
-        contentId: trade.id,
-        rect: {
-          left: supportLeft + (supportWidth + gutter) * 3,
-          top: supportTop,
-          width: workspace.width - gutter - (supportLeft + (supportWidth + gutter) * 3),
+          width: workspace.width - gutter - (supportLeft + supportWidth + gutter),
           height: supportHeight
         },
         minWidth: panelMinWidth,
@@ -336,7 +314,8 @@ export function addPanelSlotAtRect(
   state: TiledPanelState,
   kind: PanelContentKind,
   rect: PanelRect,
-  options: InsertPanelOptions = {}
+  options: InsertPanelOptions = {},
+  viewport?: ViewportSize
 ): TiledPanelState {
   const content = createPanelContent(kind, state.nextInstance, {
     symbol: options.symbol,
@@ -349,7 +328,7 @@ export function addPanelSlotAtRect(
     minWidth: panelMinWidth,
     minHeight: kind === "chart" ? chartMinHeight : panelMinHeight
   };
-  return {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     contents: {
       ...state.contents,
@@ -357,7 +336,7 @@ export function addPanelSlotAtRect(
     },
     nextInstance: state.nextInstance + 1,
     slots: [...state.slots, slot]
-  };
+  }, viewport ?? viewportFromState(state));
 }
 
 export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
@@ -495,7 +474,7 @@ export function scaleTiledPanelState(
   const next = workspaceBounds(nextViewport);
   const scaleX = next.width / Math.max(1, previous.width);
   const scaleY = next.height / Math.max(1, previous.height);
-  return {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     slots: state.slots.map((slot) => ({
       ...slot,
@@ -506,7 +485,25 @@ export function scaleTiledPanelState(
         height: slot.rect.height * scaleY
       }
     }))
-  };
+  }, nextViewport);
+}
+
+export function normalizeTiledPanelStateToWorkspace(
+  state: TiledPanelState,
+  viewport: ViewportSize
+): TiledPanelState {
+  const workspace = workspaceBounds(viewport);
+  const gutter = panelGutter(viewport);
+  let changed = false;
+  const slots = state.slots.map((slot) => {
+    const rect = normalizePanelRectForEdgePolicy(state, slot, workspace, gutter);
+    if (!rectEquals(rect, slot.rect)) {
+      changed = true;
+      return { ...slot, rect };
+    }
+    return slot;
+  });
+  return changed ? { ...state, slots } : state;
 }
 
 export function layoutHasGapsOrOverlaps(
@@ -517,15 +514,15 @@ export function layoutHasGapsOrOverlaps(
   const workspace = workspaceBounds(viewport);
   const gutter = panelGutter(viewport);
   for (const slot of state.slots) {
-    const isChart = isChartSlot(state, slot);
     const slotRight = rectRight(slot.rect);
     const slotBottom = rectBottom(slot.rect);
-    const leftLimit = isChart && almostEqual(slot.rect.left, workspace.left) ? workspace.left : workspace.left + gutter;
-    const rightLimit = isChart && almostEqual(slotRight, rectRight(workspace)) ? rectRight(workspace) : rectRight(workspace) - gutter;
-    const bottomLimit = isChart && almostEqual(slotBottom, rectBottom(workspace)) ? rectBottom(workspace) : rectBottom(workspace) - gutter;
+    const leftLimit = slotLeftLimit(state, slot, workspace, gutter);
+    const rightLimit = slotRightLimit(state, slot, workspace, gutter);
+    const topLimit = workspaceInnerTop(workspace, gutter);
+    const bottomLimit = workspaceInnerBottom(workspace, gutter);
     if (
       slot.rect.left < leftLimit - tolerance ||
-      slot.rect.top < workspace.top + gutter - tolerance ||
+      slot.rect.top < topLimit - tolerance ||
       slotRight > rightLimit + tolerance ||
       slotBottom > bottomLimit + tolerance ||
       slot.rect.width < effectiveSlotMinWidth(state, slot) - tolerance ||
@@ -662,6 +659,88 @@ function effectiveSlotMinHeight(_state: TiledPanelState, slot: PanelSlot): numbe
   return slot.minHeight;
 }
 
+function workspaceInnerTop(workspace: WorkspaceBounds, gutter: number): number {
+  return workspace.top + gutter;
+}
+
+function workspaceInnerBottom(workspace: WorkspaceBounds, gutter: number): number {
+  return rectBottom(workspace) - gutter;
+}
+
+function slotLeftLimit(state: TiledPanelState, slot: PanelSlot, workspace: WorkspaceBounds, gutter: number): number {
+  return isChartSlot(state, slot) && almostEqual(slot.rect.left, workspace.left)
+    ? workspace.left
+    : workspace.left + gutter;
+}
+
+function slotRightLimit(state: TiledPanelState, slot: PanelSlot, workspace: WorkspaceBounds, gutter: number): number {
+  return isChartSlot(state, slot) && almostEqual(rectRight(slot.rect), rectRight(workspace))
+    ? rectRight(workspace)
+    : rectRight(workspace) - gutter;
+}
+
+function normalizePanelRectForEdgePolicy(
+  state: TiledPanelState,
+  slot: PanelSlot,
+  workspace: WorkspaceBounds,
+  gutter: number
+): PanelRect {
+  const workspaceRight = rectRight(workspace);
+  const innerLeft = workspace.left + gutter;
+  const innerRight = workspaceRight - gutter;
+  const innerTop = workspaceInnerTop(workspace, gutter);
+  const innerBottom = workspaceInnerBottom(workspace, gutter);
+  const isChart = isChartSlot(state, slot);
+  const minWidth = effectiveSlotMinWidth(state, slot);
+  const minHeight = effectiveSlotMinHeight(state, slot);
+  let left = slot.rect.left;
+  let right = rectRight(slot.rect);
+  let top = slot.rect.top;
+  let bottom = rectBottom(slot.rect);
+
+  if (isChart) {
+    left = left <= innerLeft + epsilon ? workspace.left : Math.max(left, innerLeft);
+    right = right >= innerRight - epsilon ? workspaceRight : Math.min(right, innerRight);
+  } else {
+    left = Math.max(left, innerLeft);
+    right = Math.min(right, innerRight);
+  }
+
+  top = Math.max(top, innerTop);
+  bottom = Math.min(bottom, innerBottom);
+
+  if (right - left < minWidth) {
+    if (left + minWidth <= (isChart ? workspaceRight : innerRight)) {
+      right = left + minWidth;
+    } else {
+      right = isChart && right >= innerRight - epsilon ? workspaceRight : innerRight;
+      left = Math.max(isChart && left <= innerLeft + epsilon ? workspace.left : innerLeft, right - minWidth);
+    }
+  }
+  if (bottom - top < minHeight) {
+    if (top + minHeight <= innerBottom) {
+      bottom = top + minHeight;
+    } else {
+      bottom = innerBottom;
+      top = Math.max(innerTop, bottom - minHeight);
+    }
+  }
+
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top)
+  };
+}
+
+function rectEquals(a: PanelRect, b: PanelRect): boolean {
+  return almostEqual(a.left, b.left) &&
+    almostEqual(a.top, b.top) &&
+    almostEqual(a.width, b.width) &&
+    almostEqual(a.height, b.height);
+}
+
 function minimumInsertSize(orientation: PanelBoundaryOrientation, kind: PanelContentKind): number {
   if (kind === "chart" && orientation === "horizontal") {
     return chartMinHeight;
@@ -769,10 +848,10 @@ function insertionGuidesForSlot(slot: PanelSlot, state: TiledPanelState, workspa
 function chartPageEdgeGuides(state: TiledPanelState, workspace: WorkspaceBounds, gutter: number): PanelBoundary[] {
   const guides: PanelBoundary[] = [];
   const workspaceRight = rectRight(workspace);
-  const workspaceBottom = rectBottom(workspace);
+  const innerTop = workspaceInnerTop(workspace, gutter);
+  const innerBottom = workspaceInnerBottom(workspace, gutter);
   const chartSlots = state.slots.filter((slot) => isChartSlot(state, slot));
   chartSlots.forEach((slot) => {
-    const slotBottom = rectBottom(slot.rect);
     if (almostEqual(slot.rect.left, workspace.left)) {
       guides.push(withBoundaryId({
         id: "",
@@ -780,8 +859,8 @@ function chartPageEdgeGuides(state: TiledPanelState, workspace: WorkspaceBounds,
         interaction: "insert-only",
         orientation: "vertical",
         position: workspace.left + gutter / 2,
-        rangeStart: workspace.top + gutter,
-        rangeEnd: workspaceBottom - gutter,
+        rangeStart: innerTop,
+        rangeEnd: innerBottom,
         negativeSlotIds: [],
         positiveSlotIds: fullHeightPageSideSlotIds(state, workspace, gutter, "left"),
         pageEdge: "left"
@@ -794,25 +873,11 @@ function chartPageEdgeGuides(state: TiledPanelState, workspace: WorkspaceBounds,
         interaction: "insert-only",
         orientation: "vertical",
         position: workspaceRight - gutter / 2,
-        rangeStart: workspace.top + gutter,
-        rangeEnd: workspaceBottom - gutter,
+        rangeStart: innerTop,
+        rangeEnd: innerBottom,
         negativeSlotIds: fullHeightPageSideSlotIds(state, workspace, gutter, "right"),
         positiveSlotIds: [],
         pageEdge: "right"
-      }));
-    }
-    if (almostEqual(slotBottom, workspaceBottom)) {
-      guides.push(withBoundaryId({
-        id: "",
-        kind: "outer",
-        interaction: "insert-only",
-        orientation: "horizontal",
-        position: workspaceBottom - gutter / 2,
-        rangeStart: slot.rect.left,
-        rangeEnd: rectRight(slot.rect),
-        negativeSlotIds: [slot.id],
-        positiveSlotIds: [],
-        pageEdge: "bottom"
       }));
     }
   });
@@ -1096,9 +1161,7 @@ function shrinkSlotForInsert(
   if (boundary.negativeSlotIds.includes(slot.id)) {
     const shrink = boundary.pageEdge === "right"
       ? pageEdgeShrinkForSlot(state, slot, insertedKind, negativeShrink, gutter, "right", workspace)
-      : boundary.pageEdge === "bottom"
-        ? pageEdgeShrinkForSlot(state, slot, insertedKind, negativeShrink, gutter, "bottom", workspace)
-        : negativeShrink;
+      : negativeShrink;
     return boundary.orientation === "vertical"
       ? { ...slot, rect: { ...slot.rect, width: slot.rect.width - shrink } }
       : { ...slot, rect: { ...slot.rect, height: slot.rect.height - shrink } };
@@ -1120,7 +1183,7 @@ function pageEdgeShrinkForSlot(
   insertedKind: PanelContentKind,
   shrink: number,
   gutter: number,
-  side: "left" | "right" | "bottom",
+  side: NonNullable<PanelBoundary["pageEdge"]>,
   workspace: WorkspaceBounds
 ): number {
   const isFlushSlot = slotFlushesPageEdge(slot, side, workspace);
@@ -1156,13 +1219,7 @@ function slotFlushesPageEdge(slot: PanelSlot, side: NonNullable<PanelBoundary["p
   if (side === "left") {
     return almostEqual(slot.rect.left, workspace.left);
   }
-  if (side === "right") {
-    return almostEqual(rectRight(slot.rect), rectRight(workspace));
-  }
-  if (side === "bottom") {
-    return almostEqual(rectBottom(slot.rect), rectBottom(workspace));
-  }
-  return almostEqual(slot.rect.top, workspace.top);
+  return almostEqual(rectRight(slot.rect), rectRight(workspace));
 }
 
 function insertedPanelRect(
@@ -1187,9 +1244,7 @@ function insertedPanelRect(
       height: boundary.rangeEnd - boundary.rangeStart
     };
   }
-  const top = kind === "chart" && boundary.pageEdge === "bottom"
-    ? boundary.position + gutter / 2 - insertSize
-    : boundary.negativeSlotIds.length ? boundary.position + gutter / 2 - negativeShrink : boundary.position + gutter / 2;
+  const top = boundary.negativeSlotIds.length ? boundary.position + gutter / 2 - negativeShrink : boundary.position + gutter / 2;
   const inheritedChartBounds = kind === "chart" ? horizontalChartInsertBounds(state, boundary) : null;
   if (inheritedChartBounds) {
     return {
