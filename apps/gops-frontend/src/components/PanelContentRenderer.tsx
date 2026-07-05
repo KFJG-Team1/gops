@@ -49,7 +49,7 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "ontology") {
-    return <OntologyPanel symbol={symbol} />;
+    return <OntologyPanel symbol={symbol} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (content.kind === "portfolio") {

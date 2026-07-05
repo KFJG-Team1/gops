@@ -2388,3 +2388,112 @@ h2 {
     width: auto;
   }
 }
+
+/* ===== Ontology force graph (paper theme) ===== */
+.ofg-root {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ofg-root svg {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  cursor: grab;
+}
+.ofg-hull-circle {
+  fill: rgb(var(--gops-ink-rgb) / 0.03);
+  stroke: rgb(var(--gops-ink-rgb) / 0.55);
+  stroke-width: 1.6;
+  stroke-dasharray: 8 6;
+  pointer-events: none;
+}
+.ofg-hull-grab {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: grab;
+}
+.ofg-hull-grab:active { cursor: grabbing; }
+.ofg-hull-label {
+  fill: var(--gops-ink);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ofg-hull-label:hover { opacity: 0.7; }
+.ofg-hull-close { fill: rgb(var(--gops-ink-rgb) / 0.55); font-size: 10px; }
+.ofg-link { stroke: rgb(var(--gops-ink-rgb) / 0.4); stroke-width: 1.6; }
+.ofg-link-chip { stroke-dasharray: 5 5; }
+.ofg-link-cross { stroke-width: 2; stroke: rgb(var(--gops-ink-rgb) / 0.55); }
+.ofg-node { cursor: pointer; }
+.ofg-node text { pointer-events: none; text-anchor: middle; font-family: var(--font-data-sans); }
+.ofg-ticker { font-weight: 700; dominant-baseline: middle; }
+.ofg-pct { font-size: 9px; }
+.ofg-count { font-size: 9px; fill: rgb(var(--gops-ink-rgb) / 0.6); }
+.ofg-selected-ring {
+  fill: none;
+  stroke: var(--gops-ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.ofg-node-chip circle.ofg-body {
+  fill: var(--gops-background);
+  stroke: rgb(var(--gops-ink-rgb) / 0.6);
+  stroke-width: 1.6;
+  stroke-dasharray: 4 4;
+}
+.ofg-node-chip text.ofg-ticker { fill: var(--gops-ink); font-size: 10px; font-weight: 600; }
+.ofg-node-company circle.ofg-body { fill: var(--gops-background); stroke: rgb(var(--gops-ink-rgb) / 0.45); }
+.ofg-node-company text.ofg-ticker { fill: rgb(var(--gops-ink-rgb) / 0.75); font-size: 9px; }
+.ofg-detail {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  max-width: 190px;
+  background: var(--gops-background);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 2px 2px 0 rgb(var(--gops-ink-rgb) / 0.18);
+  padding: 10px 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--gops-ink);
+}
+.ofg-detail strong { font-size: 14px; }
+.ofg-detail-name { color: var(--color-muted); font-size: 11px; }
+.ofg-detail-chg { font-weight: 700; }
+.ofg-detail-price { color: var(--color-muted); }
+.ofg-detail-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ofg-detail-tags em {
+  font-style: normal;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--color-text-medium);
+}
+.ofg-detail button {
+  background: var(--gops-ink);
+  border: 1px solid var(--gops-ink);
+  color: var(--gops-background);
+  border-radius: 6px;
+  padding: 5px 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ofg-detail button:disabled { opacity: 0.45; cursor: default; }
+.ofg-legend {
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
