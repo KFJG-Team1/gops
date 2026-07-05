@@ -400,8 +400,31 @@ export function setPanelContentSymbol(
   contentId: PanelContentId,
   symbol: string
 ): TiledPanelState {
+  return setChartContentSymbol(state, contentId, symbol, false);
+}
+
+export function setDefaultChartPanelSymbol(state: TiledPanelState, symbol: string): TiledPanelState {
+  const content = Object.values(state.contents).find((item) => item.kind === "chart" && item.isDefaultChart);
+  return content ? setChartContentSymbol(state, content.id, symbol, true) : state;
+}
+
+export function defaultChartPanelSymbol(state: TiledPanelState): string | undefined {
+  const content = Object.values(state.contents).find((item) => item.kind === "chart" && item.isDefaultChart);
+  return content?.symbol?.toUpperCase();
+}
+
+function setChartContentSymbol(
+  state: TiledPanelState,
+  contentId: PanelContentId,
+  symbol: string,
+  allowDefaultChart: boolean
+): TiledPanelState {
   const content = state.contents[contentId];
-  if (!content || content.kind !== "chart" || content.isDefaultChart) {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  if (!content || content.kind !== "chart" || !normalizedSymbol || (content.isDefaultChart && !allowDefaultChart)) {
+    return state;
+  }
+  if (content.symbol?.toUpperCase() === normalizedSymbol) {
     return state;
   }
   return {
@@ -410,7 +433,7 @@ export function setPanelContentSymbol(
       ...state.contents,
       [contentId]: {
         ...content,
-        symbol: symbol.toUpperCase()
+        symbol: normalizedSymbol
       }
     }
   };

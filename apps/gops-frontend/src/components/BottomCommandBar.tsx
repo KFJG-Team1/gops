@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, ChevronUp, LayoutPanelTop, SendHorizontal, Settings, Star, UserCircle, WalletCards } from "lucide-react";
+import { Bell, ChevronDown, ChevronUp, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
@@ -28,6 +28,7 @@ type BottomCommandBarProps = {
   symbols: ChartSymbolDto[];
   activeSymbol: string;
   isChartMode: boolean;
+  onAgentCancel: () => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
   onChartCommandModeChange: (enabled: boolean) => void;
@@ -55,6 +56,7 @@ export function BottomCommandBar({
   symbols,
   activeSymbol,
   isChartMode,
+  onAgentCancel,
   onAgentInputChange,
   onAgentSubmit,
   onChartCommandModeChange,
@@ -197,12 +199,14 @@ export function BottomCommandBar({
               disabled={agentBusy || !canUseAgent}
             />
             <button
-              type="submit"
-              aria-label={agentBusy ? "Agent 요청 처리 중" : "Agent에게 전송"}
-              title={agentBusy ? "Agent 요청 처리 중" : "Agent에게 전송"}
-              disabled={agentBusy || !canUseAgent}
+              type={agentBusy ? "button" : "submit"}
+              className={agentBusy ? "agent-stop-button" : undefined}
+              aria-label={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
+              title={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
+              disabled={!agentBusy && !canUseAgent}
+              onClick={agentBusy ? onAgentCancel : undefined}
             >
-              {agentBusy ? "..." : <SendHorizontal size={15} aria-hidden="true" />}
+              {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
             </button>
           </form>
         </div>

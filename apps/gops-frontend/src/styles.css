@@ -1358,6 +1358,10 @@ h2 {
   stroke-width: 2;
 }
 
+.agent-box button.agent-stop-button {
+  color: var(--color-danger);
+}
+
 .agent-box button:disabled,
 .agent-box input:disabled {
   cursor: not-allowed;

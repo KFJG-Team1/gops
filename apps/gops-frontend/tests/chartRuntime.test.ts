@@ -44,11 +44,13 @@ import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/inte
 import type { CandleDto } from "../src/chart/types";
 import {
   createInitialTiledPanelState,
+  defaultChartPanelSymbol,
   detectPanelBoundaries,
   insertPanelAtBoundary,
   layoutHasGapsOrOverlaps,
   panelGutter,
   scaleTiledPanelState,
+  setDefaultChartPanelSymbol,
   workspaceBounds
 } from "../src/layout/panelLayout";
 import { rectBottom, rectRight } from "../src/layout/panelGeometry";
@@ -885,6 +887,17 @@ assert.equal(tiledChartContext?.layoutPinned, false);
 assert.equal(tiledChartContext?.layoutWeight, 100);
 assert.equal(tiledChartContext?.symbol, "NVDA");
 assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
+const chartOnlySymbolState = setDefaultChartPanelSymbol(tiledState, "NVDA");
+assert.equal(defaultChartPanelSymbol(chartOnlySymbolState), "NVDA");
+const chartOnlyContext = buildTiledAgentLayoutContext(chartOnlySymbolState, tiledViewport, "AAPL");
+const chartOnlyChartPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-chart") as
+  | { symbol?: string }
+  | undefined;
+const chartOnlyNewsPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-news") as
+  | { symbol?: string }
+  | undefined;
+assert.equal(chartOnlyChartPanel?.symbol, "NVDA");
+assert.equal(chartOnlyNewsPanel?.symbol, undefined);
 const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled",
@@ -899,6 +912,22 @@ const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
 }, tiledViewport);
 const focusedOntologyRect = focusedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 assert.ok(focusedOntologyRect && originalOntologyRect && focusedOntologyRect.width > originalOntologyRect.width);
+const keepChartOnlyState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-remove",
+  title: "Keep chart",
+  rationale: "차트만 남기고 4개 패널을 숨겼습니다.",
+  autoApply: true,
+  panelPriorities: [{ panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-news" }, { panelId: "slot-news" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-ontology" }, { panelId: "slot-ontology" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-portfolio" }, { panelId: "slot-portfolio" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-trade" }, { panelId: "slot-trade" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+assert.equal(keepChartOnlyState.slots.length, 1);
+assert.equal(keepChartOnlyState.slots[0]?.id, "slot-chart");
 const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-arrange",
   title: "Arrange ontology",
@@ -1139,8 +1168,16 @@ assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /showChart/);
+assert.match(appSource, /showChartInCurrentPanel/);
+assert.match(appSource, /mainView\.mode === "chart"[\s\S]*showChartInCurrentPanel\(shortcut\.symbol\)/);
+assert.match(appSource, /normalizedShortcutSymbols/);
+assert.match(appSource, /shortcutSymbols\.length > 1/);
+assert.match(appSource, /setDefaultChartPanelSymbol\(panelState, primarySymbol\)/);
+assert.match(appSource, /차트를 같이 표시했습니다/);
 assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
+assert.match(appSource, /isInternalLayoutRationale/);
+assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
@@ -1181,6 +1218,7 @@ const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   chartAction: "add",
   chartPlacementIntent: "bottom",
   symbol: "NVDA",
+  symbols: ["NVDA", "AAPL"],
   canonicalName: "NVIDIA Corporation",
   matchedText: "엔비디아",
   matchedAlias: "엔비디아",
@@ -1193,6 +1231,7 @@ assert.equal(chartShortcutResolve.chartShortcut, true);
 assert.equal(chartShortcutResolve.chartAction, "add");
 assert.equal(chartShortcutResolve.chartPlacementIntent, "bottom");
 assert.equal(chartShortcutResolve.symbol, "NVDA");
+assert.deepEqual(chartShortcutResolve.symbols, ["NVDA", "AAPL"]);
 assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
 assert.equal(chartShortcutResolve.confidence, 0.98);
 
@@ -1226,6 +1265,16 @@ assert.equal(layoutResolve.status, "ui_layout");
 assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_clarify",
+  summary: "어떤 패널을 어떻게 바꿀지 조금 더 구체적으로 말해 주세요.",
+  route: { source: "ui-parser", intentType: "ui-clarify", selectedRoles: [] },
+  layoutProposal: null,
+  agentTrace: {}
+});
+assert.equal(layoutClarifyResolve.status, "ui_clarify");
+assert.equal(layoutClarifyResolve.summary, "어떤 패널을 어떻게 바꿀지 조금 더 구체적으로 말해 주세요.");
 
 const invalidLayoutResolve = normalizeAgentLayoutResolveResponse({ status: "mystery", layoutProposal: null });
 assert.equal(invalidLayoutResolve.status, "failed");
