@@ -1394,6 +1394,38 @@ assert.deepEqual(
   })
 );
 
+const continuousAnchorBaseScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100)],
+  visibleCount: 20
+}), 720, 360);
+const continuousAnchorUnit = continuousAnchorBaseScene.semantic.units.find((unit) => unit.kind === "candle");
+assert.ok(continuousAnchorUnit);
+const continuousAnchorBounds = {
+  left: continuousAnchorBaseScene.plot.left + continuousAnchorUnit.slotStart * continuousAnchorBaseScene.scales.slotWidth,
+  right: continuousAnchorBaseScene.plot.left + continuousAnchorUnit.slotEnd * continuousAnchorBaseScene.scales.slotWidth
+};
+const continuousAnchorX = continuousAnchorBounds.left + (continuousAnchorBounds.right - continuousAnchorBounds.left) * 0.75;
+const continuousAnchor = createFrontendCoordinateTransform(continuousAnchorBaseScene).pointToAnchor(
+  continuousAnchorX,
+  continuousAnchorBaseScene.plot.top + 20,
+  "AAPL"
+);
+assert.ok(continuousAnchor?.timestamp);
+assert.notEqual(continuousAnchor?.timestamp, "2026-06-25T13:30:00Z");
+const continuousAnchorExpandedScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100)],
+  visibleCount: 80
+}), 720, 360, { expansions: [readyExpansion] });
+const continuousAnchorPoint = continuousAnchor ? createFrontendCoordinateTransform(continuousAnchorExpandedScene).anchorToPoint(continuousAnchor) : null;
+const continuousAnchorExpansionRange = continuousAnchorExpandedScene.semantic.expansionRanges[0];
+assert.ok(continuousAnchorPoint);
+assert.equal(
+  Math.round(continuousAnchorPoint?.x ?? -1),
+  Math.round((continuousAnchorExpansionRange?.left ?? 0) + ((continuousAnchorExpansionRange?.right ?? 0) - (continuousAnchorExpansionRange?.left ?? 0)) * 0.75)
+);
+
 const dailyDrawingScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
