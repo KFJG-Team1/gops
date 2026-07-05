@@ -42,7 +42,16 @@ import {
 } from "../src/chart/semanticTimeline";
 import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
 import type { CandleDto } from "../src/chart/types";
-import { createInitialTiledPanelState } from "../src/layout/panelLayout";
+import {
+  createInitialTiledPanelState,
+  detectPanelBoundaries,
+  insertPanelAtBoundary,
+  layoutHasGapsOrOverlaps,
+  panelGutter,
+  scaleTiledPanelState,
+  workspaceBounds
+} from "../src/layout/panelLayout";
+import { rectBottom, rectRight } from "../src/layout/panelGeometry";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
@@ -815,6 +824,58 @@ assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport);
+const tiledWorkspace = workspaceBounds(tiledViewport);
+const tiledGutter = panelGutter(tiledViewport);
+const tiledInnerBottom = rectBottom(tiledWorkspace) - tiledGutter;
+const defaultChartSlot = tiledState.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(defaultChartSlot);
+assert.equal(defaultChartSlot.rect.left, tiledWorkspace.left);
+assert.equal(rectRight(defaultChartSlot.rect), rectRight(tiledWorkspace));
+assert.equal(rectBottom(defaultChartSlot.rect), tiledInnerBottom);
+assert.equal(layoutHasGapsOrOverlaps(tiledState, tiledViewport), false);
+const insertionViewport = { width: 1920, height: 900 };
+const insertionState = createInitialTiledPanelState(insertionViewport);
+const insertionWorkspace = workspaceBounds(insertionViewport);
+const insertionInnerBottom = rectBottom(insertionWorkspace) - panelGutter(insertionViewport);
+const rightChartBoundary = detectPanelBoundaries(insertionState, insertionViewport).find((boundary) => (
+  boundary.pageEdge === "right" && boundary.negativeSlotIds.includes("slot-chart")
+));
+assert.ok(rightChartBoundary);
+const stateWithRightNews = insertPanelAtBoundary(insertionState, rightChartBoundary.id, "news", insertionViewport);
+const rightNewsSlot = stateWithRightNews.slots.find((slot) => (
+  !insertionState.slots.some((existing) => existing.id === slot.id) &&
+  stateWithRightNews.contents[slot.contentId]?.kind === "news"
+));
+const chartAfterRightNews = stateWithRightNews.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(rightNewsSlot);
+assert.ok(chartAfterRightNews);
+assert.ok(Math.abs(rectBottom(chartAfterRightNews.rect) - rectBottom(rightNewsSlot.rect)) <= 1);
+assert.equal(rectBottom(rightNewsSlot.rect), insertionInnerBottom);
+assert.equal(layoutHasGapsOrOverlaps(stateWithRightNews, insertionViewport), false);
+const stateWithRightChart = insertPanelAtBoundary(insertionState, rightChartBoundary.id, "chart", insertionViewport, { symbol: "AAPL" });
+const rightChartSlot = stateWithRightChart.slots.find((slot) => (
+  !insertionState.slots.some((existing) => existing.id === slot.id) &&
+  stateWithRightChart.contents[slot.contentId]?.kind === "chart"
+));
+const chartAfterRightChart = stateWithRightChart.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(rightChartSlot);
+assert.ok(chartAfterRightChart);
+assert.ok(Math.abs(rectBottom(chartAfterRightChart.rect) - rectBottom(rightChartSlot.rect)) <= 1);
+assert.equal(rectBottom(rightChartSlot.rect), insertionInnerBottom);
+assert.equal(rectRight(rightChartSlot.rect), rectRight(insertionWorkspace));
+assert.equal(layoutHasGapsOrOverlaps(stateWithRightChart, insertionViewport), false);
+const legacyBottomFlushState = {
+  ...tiledState,
+  slots: tiledState.slots.map((slot) => (
+    slot.id === "slot-chart"
+      ? { ...slot, rect: { ...slot.rect, height: rectBottom(tiledWorkspace) - slot.rect.top } }
+      : slot
+  ))
+};
+const normalizedLegacyState = scaleTiledPanelState(legacyBottomFlushState, tiledViewport, tiledViewport);
+const normalizedLegacyChart = normalizedLegacyState.slots.find((slot) => slot.id === "slot-chart");
+assert.ok(normalizedLegacyChart);
+assert.equal(rectBottom(normalizedLegacyChart.rect), tiledInnerBottom);
 const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
 assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
 const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
@@ -897,7 +958,11 @@ const addedChartSlot = chartAddState.slots.find((slot) => slot.id === "panel-cha
 assert.ok(addedChartSlot);
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "AAPL");
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
+assert.equal(addedChartSlot.rect.left, tiledWorkspace.left);
+assert.equal(rectRight(addedChartSlot.rect), rectRight(tiledWorkspace));
+assert.equal(rectBottom(addedChartSlot.rect), tiledInnerBottom);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
+assert.equal(layoutHasGapsOrOverlaps(chartAddState, tiledViewport), false);
 
 const chartPanels = [
   runtimePanel("primary-chart", "chart"),

@@ -4,6 +4,7 @@ import {
   detectPanelBoundaries,
   insertOptionsForBoundary,
   insertPanelAtBoundary,
+  normalizeTiledPanelStateToWorkspace,
   panelGutter,
   panelContentTitle,
   setPanelContentLayoutWeight,
@@ -106,7 +107,7 @@ export function applyTiledAgentLayoutProposal(
       }
     }
   }
-  return next;
+  return normalizeTiledPanelStateToWorkspace(next, viewport);
 }
 
 function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize) {
@@ -177,7 +178,7 @@ function addPanelForCommand(
       slotId: panelId ?? undefined,
       symbol: symbol ?? undefined,
       layoutWeight: priority
-    });
+    }, viewport);
   }
   return ensurePanelKind(state, kind, viewport, {
     layoutWeight: layoutWeightForPanelId(proposal, readString(command.payload.panelId) ?? readString(command.target?.panelId)) ?? undefined
@@ -268,10 +269,10 @@ function applyPanelPlacement(
     return state;
   }
   const rect = rectForPlacement(placement, viewport);
-  return {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     slots: state.slots.map((item) => item.id === slot.id ? { ...item, rect } : item)
-  };
+  }, viewport);
 }
 
 function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize): PanelRect {
