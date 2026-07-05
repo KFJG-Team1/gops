@@ -1,7 +1,20 @@
 import {
+  getCandlesForDocument,
+  getDataStatusForDocument,
+  getStreamMessageForDocument,
+  getStreamStatusForDocument,
+  makeChartCommand,
+  type ChartRuntimeAction,
+  type ChartRuntimeState
+} from "@gops/chart-engine";
+import {
+  chartDocumentIdForContent
+} from "../chart/chartDocumentAdapter";
+import type { CandleDto } from "../chart/types";
+import type { ChartDocument } from "@gops/chart-engine";
+import {
   type Dispatch,
   type MouseEvent as ReactMouseEvent,
-  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
   useCallback,
@@ -21,7 +34,6 @@ import {
   panelSlotStyle,
   removePanelSlot,
   resizePanelBoundary,
-  setPanelContentSymbol,
   swapPanelContents,
   type BoundaryInsertOption,
   type PanelBoundary,
@@ -30,7 +42,7 @@ import {
   type TiledPanelState,
   type ViewportSize
 } from "../layout/panelLayout";
-import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import {
   boundaryAddMenuPosition,
@@ -46,10 +58,14 @@ type PanelWorkspaceProps = {
   viewportSize: ViewportSize;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
-  chartHeader: ChartHeaderSnapshot | null;
-  chartPanelRef: MutableRefObject<ChartPanelHandle | null>;
+  chartRuntime: ChartRuntimeState;
+  chartCommandTargetContentId: string | null;
+  canUseChartCommand: boolean;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
-  setChartHeader: Dispatch<SetStateAction<ChartHeaderSnapshot | null>>;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onChartCommandTargetChange: (contentId: string | null) => void;
+  onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
+  onSyncPageSymbolFromChart: (contentId: string) => void;
   onSelectSymbol: (symbol: string) => void;
 };
 
@@ -80,10 +96,14 @@ export function PanelWorkspace({
   viewportSize,
   activeSymbol,
   symbols,
-  chartHeader,
-  chartPanelRef,
+  chartRuntime,
+  chartCommandTargetContentId,
+  canUseChartCommand,
   setSemanticSelection,
-  setChartHeader,
+  onChartRuntimeAction,
+  onChartCommandTargetChange,
+  onChartHandleChange,
+  onSyncPageSymbolFromChart,
   onSelectSymbol
 }: PanelWorkspaceProps) {
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
@@ -91,6 +111,7 @@ export function PanelWorkspace({
   const [draggingSlotId, setDraggingSlotId] = useState<PanelSlotId | null>(null);
   const [addMenu, setAddMenu] = useState<BoundaryAddMenu | null>(null);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
+  const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -127,17 +148,14 @@ export function PanelWorkspace({
         ? current
         : { ...current, [content.id]: header }
     ));
-    if (content.isDefaultChart) {
-      setChartHeader((current) => (chartHeaderEquals(current, header) ? current : header));
-    }
-  }, [setChartHeader]);
+  }, []);
 
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     const drag = dragRef.current;
     if (drag?.mode === "swap" && event) {
       const target = hitTestSwappableSlot(panelStateRef.current, event.clientX, event.clientY, drag.sourceSlotId);
       if (target) {
-        setPanelState((current) => swapPanelContents(current, drag.sourceSlotId, target.id));
+        setPanelState((current) => swapPanelContents(current, drag.sourceSlotId, target.id, viewportSizeRef.current));
       }
     }
     dragRef.current = null;
@@ -263,7 +281,7 @@ export function PanelWorkspace({
       addMenu.boundaryId,
       option.kind,
       viewportSizeRef.current,
-      { symbol: option.kind === "chart" ? chartHeader?.symbol ?? activeSymbol : undefined }
+      { symbol: option.kind === "chart" ? activeSymbol : undefined }
     ));
     setAddMenu(null);
     setActiveBoundaryId(null);
@@ -278,6 +296,13 @@ export function PanelWorkspace({
         delete next[closing.contentId];
         return next;
       });
+      if (closing.contentId === chartCommandTargetContentId) {
+        onChartCommandTargetChange(null);
+      }
+      if (closing.contentId === drawingTargetContentId) {
+        setDrawingTargetContentId(null);
+      }
+      onChartHandleChange(closing.contentId, null);
     }
     setHoveredChartSlotId((current) => current === slotId ? null : current);
     setAddMenu(null);
@@ -285,15 +310,67 @@ export function PanelWorkspace({
   };
 
   const changePanelChartSymbol = (contentId: string, symbol: string) => {
-    setPanelState((current) => setPanelContentSymbol(current, contentId, symbol));
+    const slot = panelStateRef.current.slots.find((item) => item.contentId === contentId);
+    const content = slot ? panelStateRef.current.contents[slot.contentId] : null;
+    if (!slot || !content || content.kind !== "chart") {
+      return;
+    }
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand(
+        "chart.symbol.set",
+        "user",
+        { panelId: slot.id, chartDocumentId: chartDocumentIdForContent(content) },
+        { symbol }
+      )
+    });
   };
+
+  const resetDrawingTargetTool = (contentId: string) => {
+    const slot = panelStateRef.current.slots.find((item) => item.contentId === contentId);
+    const content = slot ? panelStateRef.current.contents[slot.contentId] : null;
+    if (!slot || !content || content.kind !== "chart") {
+      return;
+    }
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand(
+        "chart.drawing.clearSelection",
+        "user",
+        { panelId: slot.id, chartDocumentId: chartDocumentIdForContent(content) },
+        { mode: "pan" }
+      )
+    });
+  };
+
+  const toggleDrawingTarget = (contentId: string) => {
+    setDrawingTargetContentId((current) => {
+      if (current === contentId) {
+        resetDrawingTargetTool(contentId);
+        return null;
+      }
+      if (current) {
+        resetDrawingTargetTool(current);
+      }
+      return contentId;
+    });
+  };
+
+  const drawingTarget = drawingTargetContentId
+    ? targetChartForContentId(panelState, chartRuntime, drawingTargetContentId)
+    : null;
 
   return (
     <>
       {panelState.slots.map((slot) => {
         const content = panelState.contents[slot.contentId];
         const isChart = content.kind === "chart";
-        const isDefaultChart = Boolean(content.isDefaultChart);
+        const isLastPanel = panelState.slots.length <= 1;
+        const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
+        const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
+        const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
+        const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
+        const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
         return (
           <WorkspacePanelFrame
             key={slot.id}
@@ -306,10 +383,10 @@ export function PanelWorkspace({
               draggingSlotId === slot.id ? "is-panel-content-dragging" : ""
             ].filter(Boolean).join(" ")}
             isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
-            isChartHovered={isChart && hoveredChartSlotId === slot.id}
+            isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id)}
             showNav={!isChart}
-            canSwap={!isDefaultChart}
-            canClose={!isDefaultChart && !isChart}
+            canSwap
+            canClose={!isChart && !isLastPanel}
             onClose={closePanel}
             onSwapPointerDown={beginPanelSwap}
             onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
@@ -322,18 +399,31 @@ export function PanelWorkspace({
             <PanelContentRenderer
               slot={slot}
               content={content}
-              symbol={content.symbol ?? activeSymbol}
+              symbol={chartDocument?.symbol ?? activeSymbol}
               symbols={symbols}
               laneHeight={Math.max(120, isChart ? slot.rect.height : slot.rect.height - panelNavHeight)}
-              chartPanelRef={isDefaultChart ? chartPanelRef : null}
               chartHeaderSnapshot={chartHeaders[content.id]}
+              chartDocument={chartDocument}
+              chartCandles={chartCandles}
+              chartDataStatus={chartDataStatus}
+              chartStreamStatus={chartStreamStatus}
+              chartStreamMessage={chartStreamMessage}
+              canClose={!isLastPanel}
+              canUseChartCommand={canUseChartCommand}
+              chartCommandActive={chartCommandTargetContentId === content.id}
+              chartDrawingActive={drawingTargetContentId === content.id}
               setSemanticSelection={setSemanticSelection}
+              onChartRuntimeAction={onChartRuntimeAction}
               onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
               onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
+              onChartHandleChange={onChartHandleChange}
+              onChartCommandToggle={() => onChartCommandTargetChange(chartCommandTargetContentId === content.id ? null : content.id)}
+              onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
+              onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
               onClosePanel={closePanel}
               onChangePanelChartSymbol={changePanelChartSymbol}
               onSelectSymbol={onSelectSymbol}
-              onChartSwapPointerDown={!isDefaultChart ? beginPanelSwap(slot.id) : undefined}
+              onChartSwapPointerDown={beginPanelSwap(slot.id)}
             />
           </WorkspacePanelFrame>
         );
@@ -394,8 +484,30 @@ export function PanelWorkspace({
           ))}
         </div>
       )}
+      {drawingTarget && (
+        <ChartDrawingDock
+          document={drawingTarget.document}
+          panelId={drawingTarget.slot.id}
+          onChartRuntimeAction={onChartRuntimeAction}
+          onClose={() => setDrawingTargetContentId(null)}
+        />
+      )}
     </>
   );
+}
+
+function targetChartForContentId(
+  panelState: TiledPanelState,
+  chartRuntime: ChartRuntimeState,
+  contentId: string
+): { slot: NonNullable<TiledPanelState["slots"][number]>; content: PanelContentInstance; document: ChartDocument } | null {
+  const slot = panelState.slots.find((item) => item.contentId === contentId);
+  const content = slot ? panelState.contents[slot.contentId] : null;
+  if (!slot || !content || content.kind !== "chart") {
+    return null;
+  }
+  const document = chartRuntime.documents[chartDocumentIdForContent(content)];
+  return document ? { slot, content, document } : null;
 }
 
 function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHeaderSnapshot): boolean {

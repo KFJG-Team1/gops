@@ -61,11 +61,7 @@ export function ChartCanvas({
         return;
       }
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const chartForScene = previewDrawings.length
-        ? { ...chart, drawings: [...chart.drawings, ...previewDrawings] }
-        : chart;
-      const sceneForScale = buildChartScene(chartForScene, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
-      const scene = previewDrawings.length ? { ...sceneForScale, chart } : sceneForScale;
+      const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
       onScene?.(scene);
       drawChart(context, scene, crosshair, previewDrawings);
     };
@@ -203,9 +199,9 @@ function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
     const y = volumeY(scene, candle.volume);
+    const hovered = scene.hoveredNodeId === unit.id;
     context.save();
-    context.globalAlpha *= semanticContextOpacity(scene, unit);
-    const bodyWidth = candleBodyWidth(scene, unit);
+    const bodyWidth = candleBodyWidth(scene, unit, hovered);
     context.fillStyle = colors.volume;
     context.fillRect(
       unitCenterX(scene, unit) - bodyWidth / 2,
@@ -290,7 +286,7 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
       drawDrawingLabel(context, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
-    } else if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
+    } else if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
       const [start, end] = drawing.type === "trendLine"
         ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
         : [points[0], points[1]];
@@ -298,7 +294,7 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
       if (drawing.type === "arrow") {
         drawArrowHead(context, start, end);
       }
-      drawDrawingLabel(context, drawing.label ?? measurementLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+      drawDrawingLabel(context, drawing.label ?? lineMetricLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
       const y = Math.min(points[0].y, points[1].y);
@@ -375,7 +371,7 @@ function drawTimeWarpedLine(
   }
   const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
   if (midpoint) {
-    drawDrawingLabel(context, item.label ?? (drawing.type === "measurement" ? measurementLabel(drawing) : undefined), midpoint.x + 5, midpoint.y - 8, drawing);
+    drawDrawingLabel(context, item.label ?? lineMetricLabel(drawing), midpoint.x + 5, midpoint.y - 8, drawing);
   }
   if (selected) {
     context.setLineDash([]);
@@ -458,10 +454,13 @@ function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | und
   context.fillText(label, x, y);
 }
 
-function measurementLabel(drawing: DrawingEntity): string {
+function lineMetricLabel(drawing: DrawingEntity): string | undefined {
+  if (drawing.type !== "trendLine" && drawing.type !== "arrow") {
+    return undefined;
+  }
   const [start, end] = drawing.anchors;
   if (typeof start?.price !== "number" || typeof end?.price !== "number") {
-    return drawing.label ?? "측정";
+    return undefined;
   }
   const delta = end.price - start.price;
   const percent = (delta / Math.max(0.0001, start.price)) * 100;
@@ -600,13 +599,6 @@ function formatAxisTimestamp(value: string, interval: SemanticCandleUnit["interv
     return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(date);
   }
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit" }).format(date);
-}
-
-function semanticContextOpacity(scene: ChartScene, unit: SemanticRenderUnit): number {
-  if (!scene.hoveredNodeId || unit.id === scene.hoveredNodeId) {
-    return 1;
-  }
-  return 0.68;
 }
 
 function timeAxisY(scene: ChartScene): number {

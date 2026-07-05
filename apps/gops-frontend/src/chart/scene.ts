@@ -1,5 +1,5 @@
 import type { CandleDto, ChartState, DrawingAnchor } from "./types";
-import { normalizeViewport } from "./viewport";
+import { normalizeViewport, type ChartViewport } from "./viewport";
 import {
   buildSemanticTimeline,
   type SemanticExpansion,
@@ -87,25 +87,47 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     volumeTop: volumeHeight > 0 ? priceBottom + 10 : priceBottom
   };
   const plotWidth = Math.max(1, plot.right - plot.left);
-  const viewport = normalizeViewport(
+  const resolveViewportTimeline = (viewport: ChartViewport) => {
+    const viewportEndIndex = Math.max(0, chart.candles.length - viewport.rightOffset);
+    const viewportStartIndex = viewportEndIndex - viewport.visibleCount;
+    const visibleStartIndex = Math.max(0, Math.min(chart.candles.length, Math.floor(viewportStartIndex)));
+    const visibleEndIndex = Math.max(visibleStartIndex, Math.min(chart.candles.length, Math.ceil(viewportEndIndex)));
+    const semanticBase = buildSemanticTimeline({
+      symbol: chart.symbol,
+      interval: chart.interval,
+      candles: chart.candles,
+      expansions: options.expansions ?? [],
+      visibleStartIndex,
+      visibleEndIndex,
+      viewportStartIndex,
+      visibleSlotCount: viewport.visibleCount
+    });
+    return {
+      viewport,
+      viewportEndIndex,
+      viewportStartIndex,
+      visibleStartIndex,
+      visibleEndIndex,
+      semanticBase
+    };
+  };
+  const baseViewport = normalizeViewport(
     { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
     chart.candles.length,
     plotWidth
   );
-  const viewportEndIndex = Math.max(0, chart.candles.length - viewport.rightOffset);
-  const viewportStartIndex = viewportEndIndex - viewport.visibleCount;
-  const visibleStartIndex = Math.max(0, Math.min(chart.candles.length, Math.floor(viewportStartIndex)));
-  const visibleEndIndex = Math.max(visibleStartIndex, Math.min(chart.candles.length, Math.ceil(viewportEndIndex)));
-  const semanticBase = buildSemanticTimeline({
-    symbol: chart.symbol,
-    interval: chart.interval,
-    candles: chart.candles,
-    expansions: options.expansions ?? [],
-    visibleStartIndex,
-    visibleEndIndex,
-    viewportStartIndex,
-    visibleSlotCount: viewport.visibleCount
-  });
+  const baseFrame = resolveViewportTimeline(baseViewport);
+  const semanticFutureSlots = futureSlotsConsumedBySemanticContent(baseFrame.semanticBase);
+  const viewport = normalizeViewport(
+    { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
+    chart.candles.length,
+    plotWidth,
+    { extraFutureSlots: semanticFutureSlots }
+  );
+  const frame = viewport.visibleCount === baseFrame.viewport.visibleCount && viewport.rightOffset === baseFrame.viewport.rightOffset
+    ? baseFrame
+    : resolveViewportTimeline(viewport);
+  const { viewportEndIndex, viewportStartIndex, visibleStartIndex, visibleEndIndex, semanticBase } = frame;
   const candles = semanticBase.units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle").map((unit) => unit.candle);
   const priceRange = priceDomain(candles, chart);
   const maxVolume = Math.max(1, ...candles.map((candle) => candle.volume));
@@ -147,6 +169,10 @@ export function buildChartScene(chart: ChartState, width: number, height: number
       candleWidth
     }
   };
+}
+
+function futureSlotsConsumedBySemanticContent(timeline: SemanticTimeline): number {
+  return Math.max(0, Math.ceil(timeline.expansionExtraSlots));
 }
 
 export function createCoordinateTransform(scene: ChartScene): CoordinateTransform {
@@ -332,13 +358,6 @@ function priceDomain(candles: CandleDto[], chart: ChartState): { min: number; ma
     chart.layers.ma20 ? candle.ma20 : undefined,
     chart.layers.ma60 ? candle.ma60 : undefined
   ]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  chart.drawings.forEach((drawing) => {
-    drawing.anchors.forEach((anchor) => {
-      if (typeof anchor.price === "number") {
-        values.push(anchor.price);
-      }
-    });
-  });
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }

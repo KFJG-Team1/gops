@@ -15,8 +15,7 @@ const proposalCommandTypes: ChartCommandType[] = [
   "chart.drawing.clearSelection",
   "chart.comparison.add",
   "chart.comparison.remove",
-  "chart.comparison.update",
-  "chart.measurement.add"
+  "chart.comparison.update"
 ];
 
 export type ChartProposalRequestContext = {
@@ -111,8 +110,8 @@ export function buildChartAgentContext({
   entityFallbackSource?: "referenced-chart" | "selected-chart";
 }): ChartProposalRequestContext {
   const visibleCount = Math.min(document.viewport.visibleCount, candles.length);
-  const rightOffset = Math.min(document.viewport.rightOffset, Math.max(0, candles.length - 1));
-  const end = Math.max(0, candles.length - rightOffset);
+  const rightOffset = document.viewport.rightOffset;
+  const end = Math.max(0, Math.min(candles.length, candles.length - rightOffset));
   const visibleCandles = candles.slice(Math.max(0, end - visibleCount), end);
   const first = visibleCandles[0];
   const last = visibleCandles[visibleCandles.length - 1];

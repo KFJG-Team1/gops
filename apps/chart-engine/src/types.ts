@@ -155,8 +155,7 @@ export type ChartCommandType =
   | "chart.preview.clear"
   | "chart.comparison.add"
   | "chart.comparison.remove"
-  | "chart.comparison.update"
-  | "chart.measurement.add";
+  | "chart.comparison.update";
 
 export type ChartCommand = {
   id: string;
@@ -347,8 +346,7 @@ export type ChartToolMode =
   | "draw-textLabel"
   | "draw-pointMarker"
   | "draw-arrow"
-  | "draw-rangeBox"
-  | "draw-measurement";
+  | "draw-rangeBox";
 
 export type DrawingType =
   | "horizontalLine"
@@ -358,7 +356,6 @@ export type DrawingType =
   | "pointMarker"
   | "arrow"
   | "rangeBox"
-  | "measurement"
   | "ellipse"
   | "riskRewardBox"
   | "fibonacciRetracement";

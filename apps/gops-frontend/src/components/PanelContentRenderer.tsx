@@ -1,8 +1,9 @@
-import { X } from "lucide-react";
-import type { MutableRefObject, PointerEvent as ReactPointerEvent } from "react";
+import { Newspaper, X } from "lucide-react";
+import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
+import { useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
-import type { ChartSymbolDto } from "../chart/types";
+import { chartIntervals, type CandleDto, type ChartInterval, type ChartSymbolDto } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
@@ -18,11 +19,24 @@ type PanelContentRendererProps = {
   symbol: string;
   symbols: ChartSymbolDto[];
   laneHeight: number;
-  chartPanelRef: MutableRefObject<ChartPanelHandle | null> | null;
   chartHeaderSnapshot?: ChartHeaderSnapshot;
+  chartDocument?: ChartDocument;
+  chartCandles: CandleDto[];
+  chartDataStatus?: ChartDataStatus;
+  chartStreamStatus?: StreamStatus;
+  chartStreamMessage?: string;
+  canClose: boolean;
+  canUseChartCommand: boolean;
+  chartCommandActive: boolean;
+  chartDrawingActive: boolean;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHoverChange: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
+  onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
+  onChartCommandToggle: () => void;
+  onChartDrawingToggle: () => void;
+  onSyncPageSymbolFromChart: () => void;
   onClosePanel: (slotId: PanelSlotId) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
@@ -35,18 +49,37 @@ export function PanelContentRenderer({
   symbol,
   symbols,
   laneHeight,
-  chartPanelRef,
   chartHeaderSnapshot,
+  chartDocument,
+  chartCandles,
+  chartDataStatus,
+  chartStreamStatus,
+  chartStreamMessage,
+  canClose,
+  canUseChartCommand,
+  chartCommandActive,
+  chartDrawingActive,
   setSemanticSelection,
+  onChartRuntimeAction,
   onChartHoverChange,
   onHeaderChange,
+  onChartHandleChange,
+  onChartCommandToggle,
+  onChartDrawingToggle,
+  onSyncPageSymbolFromChart,
   onClosePanel,
   onChangePanelChartSymbol,
   onSelectSymbol,
   onChartSwapPointerDown
 }: PanelContentRendererProps) {
+  const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
+  const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
+    chartPanelHandleRef.current = handle;
+    onChartHandleChange(content.id, handle);
+  }, [content.id, onChartHandleChange]);
+
   if (content.kind === "news") {
-    return <NewsPanel symbol={(content.symbol ?? symbol).toUpperCase()} initialPayload={content.props} />;
+    return <NewsPanel symbol={symbol.toUpperCase()} initialPayload={content.props} />;
   }
 
   if (content.kind === "indices") {
@@ -85,21 +118,28 @@ export function PanelContentRenderer({
   }
 
   const selectedSymbol = symbol.toUpperCase();
-  const interval = chartHeaderSnapshot?.interval ?? "1D";
-  const editable = !content.isDefaultChart;
+  if (!chartDocument || !chartDataStatus || !chartStreamStatus) {
+    return <div className="workspace-panel-placeholder" aria-label="Chart document loading" data-panel-slot-id={slot.id}>차트를 준비 중입니다</div>;
+  }
+  const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
 
   return (
-    <div className={content.isDefaultChart ? "chart-instance is-default-chart" : "chart-instance is-editable-chart"}>
+    <div className="chart-instance is-editable-chart">
       <div
-        className={editable ? "chart-instance-symbol chart-instance-swap-handle" : "chart-instance-symbol"}
+        className="chart-panel-drag-strip chart-instance-swap-handle"
+        aria-label="차트 패널 이동"
         onPointerEnter={() => onChartHoverChange(true)}
         onPointerMove={() => onChartHoverChange(true)}
-        onPointerDown={editable ? onChartSwapPointerDown : undefined}
+        onPointerDown={onChartSwapPointerDown}
+      />
+      <div
+        className="chart-instance-symbol chart-instance-swap-handle"
+        onPointerEnter={() => onChartHoverChange(true)}
+        onPointerMove={() => onChartHoverChange(true)}
+        onPointerDown={onChartSwapPointerDown}
       >
-        <span className="chart-instance-interval">{interval}</span>
-        {!editable && <span className="chart-instance-symbol-text">{selectedSymbol}</span>}
-        {editable && (
-          <div className="chart-instance-symbol-search-wrap" onPointerDown={(event) => event.stopPropagation()}>
+        <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
+          <div className="chart-instance-symbol-search-wrap">
             <SymbolSearch
               symbols={symbols}
               className="chart-instance-symbol-search"
@@ -112,9 +152,30 @@ export function PanelContentRenderer({
               onPointerActivity={() => onChartHoverChange(true)}
             />
           </div>
-        )}
+          <button
+            type="button"
+            className="chart-instance-sync-page"
+            aria-label={`${selectedSymbol}을 현재 페이지 종목으로 설정`}
+            title="현재 페이지 종목으로 설정"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onSyncPageSymbolFromChart}
+          >
+            <Newspaper size={13} />
+          </button>
+          <select
+            className="chart-instance-interval"
+            value={interval}
+            aria-label="Interval"
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
+          >
+            {chartIntervals.map((nextInterval) => (
+              <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
+            ))}
+          </select>
+        </div>
       </div>
-      {editable && (
+      {canClose && (
         <button
           type="button"
           className="chart-instance-close"
@@ -127,10 +188,21 @@ export function PanelContentRenderer({
         </button>
       )}
       <ChartPanel
-        ref={chartPanelRef ?? undefined}
-        symbol={selectedSymbol}
+        ref={setChartPanelHandle}
+        panelId={slot.id}
+        document={chartDocument}
+        candles={chartCandles}
+        dataStatus={chartDataStatus}
+        streamStatus={chartStreamStatus}
+        streamMessage={chartStreamMessage}
         symbols={symbols}
         laneHeight={laneHeight}
+        chartCommandActive={chartCommandActive}
+        chartCommandEnabled={canUseChartCommand}
+        chartDrawingActive={chartDrawingActive}
+        onChartRuntimeAction={onChartRuntimeAction}
+        onChartCommandToggle={onChartCommandToggle}
+        onChartDrawingToggle={onChartDrawingToggle}
         onSemanticSelectionChange={setSemanticSelection}
         onChartHoverChange={onChartHoverChange}
         onHeaderChange={onHeaderChange}

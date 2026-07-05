@@ -2,6 +2,7 @@ import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
 import { normalizeSupportedSymbol } from "./symbols";
+import { clampRightOffset } from "./viewport";
 import type {
   ChartCommand,
   ChartCommandActor,
@@ -192,8 +193,7 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
     "chart.drawing.clearSelection",
     "chart.comparison.add",
     "chart.comparison.remove",
-    "chart.comparison.update",
-    "chart.measurement.add"
+    "chart.comparison.update"
   ]);
 
   for (const command of proposal.commands) {
@@ -212,12 +212,12 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
 }
 
 export function normalizeDrawingFromCommand(command: ChartCommand): DrawingEntity | null {
-  if (command.type !== "chart.drawing.add" && command.type !== "chart.measurement.add") {
+  if (command.type !== "chart.drawing.add") {
     return null;
   }
 
   const drawing = normalizeDrawingEntity(command.payload.drawing, command.actor, command.proposalId) ??
-    makeDrawingFromPayload(command.payload, command.actor, command.proposalId, command.type === "chart.measurement.add" ? "measurement" : undefined);
+    makeDrawingFromPayload(command.payload, command.actor, command.proposalId);
 
   return drawing && isSupportedDrawing(drawing) ? drawing : null;
 }
@@ -262,9 +262,13 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
     case "chart.viewport.set": {
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
+      const nextVisibleCount = visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 6, maxRequestBarsForInterval(document.timeframe));
+      const extraFutureSlots = maxRequestBarsForInterval(document.timeframe);
       document.viewport = {
-        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 6, maxRequestBarsForInterval(document.timeframe)),
-        rightOffset: rightOffset === null ? document.viewport.rightOffset : Math.max(0, Math.round(rightOffset))
+        visibleCount: nextVisibleCount,
+        rightOffset: rightOffset === null
+          ? document.viewport.rightOffset
+          : clampRightOffset(rightOffset, nextVisibleCount, Math.max(nextVisibleCount, extraFutureSlots), { extraFutureSlots })
       };
       return null;
     }
@@ -277,10 +281,9 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       document.layers = { ...document.layers, [layer]: visible };
       return null;
     }
-    case "chart.drawing.add":
-    case "chart.measurement.add": {
+    case "chart.drawing.add": {
       const drawing = readDrawing(command.payload.drawing, command.actor, command.proposalId) ??
-        makeDrawingFromPayload(command.payload, command.actor, command.proposalId, command.type === "chart.measurement.add" ? "measurement" : undefined);
+        makeDrawingFromPayload(command.payload, command.actor, command.proposalId);
       if (!drawing || !isSupportedDrawing(drawing)) {
         return "Invalid drawing payload.";
       }
@@ -443,8 +446,7 @@ function restoreChartDocumentFields(
   if (
     typeSet.has("chart.drawing.add") ||
     typeSet.has("chart.drawing.update") ||
-    typeSet.has("chart.drawing.remove") ||
-    typeSet.has("chart.measurement.add")
+    typeSet.has("chart.drawing.remove")
   ) {
     next.drawings = restored.drawings;
     next.selectedDrawingId = restored.selectedDrawingId;
@@ -472,8 +474,6 @@ function labelForCommand(command: ChartCommand): string {
       return "Chart layer visibility changed.";
     case "chart.drawing.add":
       return "Chart drawing added.";
-    case "chart.measurement.add":
-      return "Chart measurement added.";
     case "chart.drawing.update":
       return "Chart drawing updated.";
     case "chart.drawing.remove":
@@ -536,8 +536,7 @@ function isToolMode(value: unknown): value is ChartDocument["interactionState"][
     value === "draw-textLabel" ||
     value === "draw-pointMarker" ||
     value === "draw-arrow" ||
-    value === "draw-rangeBox" ||
-    value === "draw-measurement";
+    value === "draw-rangeBox";
 }
 
 function isLineExtension(value: unknown): value is ChartLineExtension {

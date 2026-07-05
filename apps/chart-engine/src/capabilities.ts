@@ -38,7 +38,7 @@ export const chartCapabilities: ChartCapability[] = [
       type: "object",
       properties: {
         visibleCount: { type: "number", minimum: 6, maximum: 525600 },
-        rightOffset: { type: "number", minimum: 0 }
+        rightOffset: { type: "number" }
       }
     },
     requiredContext: ["visibleRange", "chartDocumentId"],
@@ -47,7 +47,7 @@ export const chartCapabilities: ChartCapability[] = [
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-layer-visibility"],
-    validationRules: ["visibleCount and rightOffset are clamped to safe numeric bounds"]
+    validationRules: ["visibleCount and rightOffset are clamped to safe numeric bounds; rightOffset may be negative for future empty space"]
   },
   {
     id: "chart-layer-visibility",
@@ -87,7 +87,7 @@ export const chartCapabilities: ChartCapability[] = [
     autoApplyEligible: false,
     undoScope: "chart",
     conflictsWith: [],
-    recommendedWith: ["chart-preview", "chart-measurement", "chart-comparison"],
+    recommendedWith: ["chart-preview", "chart-comparison"],
     validationRules: ["drawing anchors must use timestamp/price/pane/symbol data coordinates", "pixel coordinates are rejected"]
   },
   {
@@ -117,19 +117,5 @@ export const chartCapabilities: ChartCapability[] = [
     conflictsWith: [],
     recommendedWith: ["chart-viewport", "chart-drawing"],
     validationRules: ["comparison uses percent scale", "comparison line must not mutate main price scale"]
-  },
-  {
-    id: "chart-measurement",
-    label: "Measurement",
-    description: "Measure price change, percent change, and duration between two anchors.",
-    commandTypes: ["chart.measurement.add"],
-    payloadSchema: { type: "object", properties: { anchors: { type: "array" } } },
-    requiredContext: ["chartDocumentId", "coordinateTransform"],
-    previewable: true,
-    autoApplyEligible: false,
-    undoScope: "chart",
-    conflictsWith: [],
-    recommendedWith: ["chart-drawing"],
-    validationRules: ["measurement requires two data-coordinate anchors"]
   }
 ];

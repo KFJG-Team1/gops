@@ -47,16 +47,17 @@ import {
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
+import { ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import type { CandleDto, ChartState, DrawingEntity } from "../src/chart/types";
 import {
   createInitialTiledPanelState,
-  defaultChartPanelSymbol,
   detectPanelBoundaries,
   insertPanelAtBoundary,
   layoutHasGapsOrOverlaps,
   panelGutter,
+  removePanelSlot,
   scaleTiledPanelState,
-  setDefaultChartPanelSymbol,
+  swapPanelContents,
   workspaceBounds
 } from "../src/layout/panelLayout";
 import { rectBottom, rectRight } from "../src/layout/panelGeometry";
@@ -73,7 +74,11 @@ import {
   zoomViewport
 } from "../../chart-engine/src/viewport";
 import {
+  clampRightOffset as frontendClampRightOffset,
+  dragDeltaToRightOffset as frontendDragDeltaToRightOffset,
+  futureEmptySlotCount as frontendFutureEmptySlotCount,
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
+  normalizeViewport as frontendNormalizeViewport,
   resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
 } from "../src/chart/viewport";
 import {
@@ -283,6 +288,17 @@ if (viewportResult.ok) {
   }
 }
 
+const futureViewportCommand = makeChartCommand("chart.viewport.set", "user", target("panel-a", documentA.id), {
+  visibleCount: 42,
+  rightOffset: -28
+});
+const futureViewportResult = executeChartCommand(documentA, futureViewportCommand);
+assert.equal(futureViewportResult.ok, true);
+if (futureViewportResult.ok) {
+  assert.equal(futureViewportResult.document.viewport.visibleCount, 42);
+  assert.equal(futureViewportResult.document.viewport.rightOffset, -28);
+}
+
 const noOpResult = executeChartCommand(
   documentA,
   makeChartCommand("chart.viewport.set", "user", target("panel-a", documentA.id), documentA.viewport)
@@ -434,6 +450,107 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+
+const semanticFutureCandles = Array.from(
+  { length: 80 },
+  (_, index) => testCandle(new Date(Date.parse("2026-05-01T00:00:00Z") + index * 86_400_000).toISOString(), 100 + index)
+);
+const semanticFutureParent = semanticFutureCandles[semanticFutureCandles.length - 1] as CandleDto;
+const semanticFutureParentNodeId = semanticNodeId("AAPL", "1D", semanticFutureParent.timestamp);
+const semanticFutureExpansion: SemanticExpansion = {
+  ...readyExpansion,
+  id: semanticExpansionId(semanticFutureParentNodeId),
+  parentNodeId: semanticFutureParentNodeId,
+  parentTimestamp: semanticFutureParent.timestamp,
+  parentCandle: semanticFutureParent,
+  from: semanticFutureParent.timestamp,
+  to: "2026-07-21T00:00:00.000Z"
+};
+const semanticFutureTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: semanticFutureCandles as CandleDto[],
+  expansions: [semanticFutureExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: semanticFutureCandles.length,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+});
+assert.ok(semanticFutureTimeline.occupiedSlotEnd > semanticFutureTimeline.totalSlots);
+const semanticFutureExtraSlots = Math.ceil(semanticFutureTimeline.expansionExtraSlots);
+assert.ok(semanticFutureExtraSlots > 0);
+const futureOffsetWithSemanticWidth = -(frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
+const noExpansionFutureScene = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 80,
+  rightOffset: futureOffsetWithSemanticWidth
+}), 800, 360);
+assert.equal(noExpansionFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80));
+const semanticFutureScene = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 80,
+  rightOffset: futureOffsetWithSemanticWidth
+}), 800, 360, { expansions: [semanticFutureExpansion] });
+assert.equal(semanticFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
+assert.equal(Math.ceil(semanticFutureScene.semantic.expansionExtraSlots), semanticFutureExtraSlots);
+const semanticFutureSceneAtBaseEmptySpace = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 80,
+  rightOffset: -frontendFutureEmptySlotCount(80)
+}), 800, 360, { expansions: [semanticFutureExpansion] });
+assert.equal(
+  Math.ceil(semanticFutureSceneAtBaseEmptySpace.semantic.expansionExtraSlots),
+  semanticFutureExtraSlots
+);
+assert.equal(
+  frontendDragDeltaToRightOffset(
+    -frontendFutureEmptySlotCount(80),
+    -semanticFutureSceneAtBaseEmptySpace.scales.slotWidth,
+    semanticFutureSceneAtBaseEmptySpace.scales.slotWidth,
+    80,
+    semanticFutureCandles.length,
+    { extraFutureSlots: semanticFutureSceneAtBaseEmptySpace.semantic.expansionExtraSlots }
+  ),
+  -frontendFutureEmptySlotCount(80) - 1
+);
+assert.equal(
+  frontendDragDeltaToRightOffset(
+    futureOffsetWithSemanticWidth,
+    -semanticFutureScene.scales.slotWidth,
+    semanticFutureScene.scales.slotWidth,
+    80,
+    semanticFutureCandles.length,
+    { extraFutureSlots: semanticFutureScene.semantic.expansionExtraSlots }
+  ),
+  futureOffsetWithSemanticWidth
+);
+
+const leftSemanticFutureParent = semanticFutureCandles[0] as CandleDto;
+const leftSemanticFutureParentNodeId = semanticNodeId("AAPL", "1D", leftSemanticFutureParent.timestamp);
+const leftSemanticFutureExpansion: SemanticExpansion = {
+  ...semanticFutureExpansion,
+  id: semanticExpansionId(leftSemanticFutureParentNodeId),
+  parentNodeId: leftSemanticFutureParentNodeId,
+  parentTimestamp: leftSemanticFutureParent.timestamp,
+  parentCandle: leftSemanticFutureParent,
+  from: leftSemanticFutureParent.timestamp,
+  to: "2026-05-02T00:00:00.000Z"
+};
+const leftExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: semanticFutureCandles as CandleDto[],
+  expansions: [leftSemanticFutureExpansion],
+  visibleStartIndex: 30,
+  visibleEndIndex: semanticFutureCandles.length,
+  viewportStartIndex: 30,
+  visibleSlotCount: 80
+});
+const firstVisibleAfterLeftExpansion = leftExpansionTimeline.units.find(
+  (unit) => unit.kind === "candle" && unit.sourceIndex === 30
+);
+assert.equal(Math.ceil(leftExpansionTimeline.expansionExtraSlots), semanticFutureExtraSlots);
+assert.ok(Math.abs((firstVisibleAfterLeftExpansion?.slotStart ?? -1) - leftExpansionTimeline.expansionExtraSlots) < 0.000001);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
@@ -916,7 +1033,7 @@ assert.equal(hotRanking[0]?.rank, 1);
 assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const tiledViewport = { width: 1280, height: 800 };
-const tiledState = createInitialTiledPanelState(tiledViewport);
+const tiledState = createInitialTiledPanelState(tiledViewport, { symbol: "NVDA" });
 const tiledWorkspace = workspaceBounds(tiledViewport);
 const tiledGutter = panelGutter(tiledViewport);
 const tiledInnerBottom = rectBottom(tiledWorkspace) - tiledGutter;
@@ -927,6 +1044,7 @@ const expectedInitialChartHeight = Math.max(190, Math.round(previousChartHeight 
 const defaultChartSlot = tiledState.slots.find((slot) => slot.id === "slot-chart");
 const initialNewsSlot = tiledState.slots.find((slot) => slot.id === "slot-news");
 const initialOntologySlot = tiledState.slots.find((slot) => slot.id === "slot-ontology");
+const defaultChartContent = defaultChartSlot ? tiledState.contents[defaultChartSlot.contentId] : undefined;
 assert.deepEqual(
   tiledState.slots.map((slot) => tiledState.contents[slot.contentId]?.kind).sort(),
   ["chart", "news", "ontology"]
@@ -934,6 +1052,17 @@ assert.deepEqual(
 assert.ok(defaultChartSlot);
 assert.ok(initialNewsSlot);
 assert.ok(initialOntologySlot);
+assert.equal(defaultChartContent?.kind, "chart");
+assert.equal(defaultChartContent?.props?.symbol, "NVDA");
+assert.equal(typeof defaultChartContent?.chartDocumentId, "string");
+const frontendInitialRuntime = ensureFrontendChartDocuments(createInitialChartRuntimeState(), tiledState, "NVDA");
+const defaultChartDocument = defaultChartContent?.chartDocumentId
+  ? frontendInitialRuntime.documents[defaultChartContent.chartDocumentId]
+  : undefined;
+assert.ok(defaultChartDocument);
+assert.equal(defaultChartDocument.layers.volume, false);
+assert.equal((defaultChartContent as Record<string, unknown> | undefined)?.isDefaultChart, undefined);
+assert.equal((defaultChartSlot as Record<string, unknown> | undefined)?.required, undefined);
 assert.equal(defaultChartSlot.rect.left, tiledWorkspace.left);
 assert.equal(rectRight(defaultChartSlot.rect), rectRight(tiledWorkspace));
 assert.equal(rectBottom(defaultChartSlot.rect), tiledInnerBottom);
@@ -942,6 +1071,33 @@ assert.equal(rectBottom(initialNewsSlot.rect) + tiledGutter, defaultChartSlot.re
 assert.equal(rectBottom(initialOntologySlot.rect), rectBottom(initialNewsSlot.rect));
 assert.ok(Math.abs(initialNewsSlot.rect.width - initialOntologySlot.rect.width) <= 1);
 assert.equal(layoutHasGapsOrOverlaps(tiledState, tiledViewport), false);
+
+const chartNewsSwapState = swapPanelContents(tiledState, "slot-chart", "slot-news", tiledViewport);
+const chartNewsSwapChartSlot = chartNewsSwapState.slots.find((slot) => chartNewsSwapState.contents[slot.contentId]?.kind === "chart");
+const chartNewsSwapNewsSlot = chartNewsSwapState.slots.find((slot) => chartNewsSwapState.contents[slot.contentId]?.kind === "news");
+assert.ok(chartNewsSwapChartSlot);
+assert.ok(chartNewsSwapNewsSlot);
+assert.equal(chartNewsSwapChartSlot.id, "slot-news");
+assert.equal(chartNewsSwapChartSlot.rect.left, tiledWorkspace.left);
+assert.equal(chartNewsSwapChartSlot.minHeight, 190);
+assert.equal(chartNewsSwapNewsSlot.id, "slot-chart");
+assert.equal(chartNewsSwapNewsSlot.rect.left, tiledWorkspace.left + tiledGutter);
+assert.equal(rectRight(chartNewsSwapNewsSlot.rect), rectRight(tiledWorkspace) - tiledGutter);
+assert.equal(chartNewsSwapNewsSlot.minHeight, 104);
+assert.equal(layoutHasGapsOrOverlaps(chartNewsSwapState, tiledViewport), false);
+
+const chartOntologySwapState = swapPanelContents(tiledState, "slot-chart", "slot-ontology", tiledViewport);
+const chartOntologySwapChartSlot = chartOntologySwapState.slots.find((slot) => chartOntologySwapState.contents[slot.contentId]?.kind === "chart");
+const chartOntologySwapOntologySlot = chartOntologySwapState.slots.find((slot) => chartOntologySwapState.contents[slot.contentId]?.kind === "ontology");
+assert.ok(chartOntologySwapChartSlot);
+assert.ok(chartOntologySwapOntologySlot);
+assert.equal(chartOntologySwapChartSlot.id, "slot-ontology");
+assert.equal(rectRight(chartOntologySwapChartSlot.rect), rectRight(tiledWorkspace));
+assert.equal(chartOntologySwapOntologySlot.id, "slot-chart");
+assert.equal(chartOntologySwapOntologySlot.rect.left, tiledWorkspace.left + tiledGutter);
+assert.equal(rectRight(chartOntologySwapOntologySlot.rect), rectRight(tiledWorkspace) - tiledGutter);
+assert.equal(layoutHasGapsOrOverlaps(chartOntologySwapState, tiledViewport), false);
+
 const insertionViewport = { width: 1920, height: 900 };
 const insertionState = createInitialTiledPanelState(insertionViewport);
 const insertionWorkspace = workspaceBounds(insertionViewport);
@@ -986,6 +1142,9 @@ const normalizedLegacyChart = normalizedLegacyState.slots.find((slot) => slot.id
 assert.ok(normalizedLegacyChart);
 assert.equal(rectBottom(normalizedLegacyChart.rect), tiledInnerBottom);
 const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
+assert.equal((tiledContext as { selectedPanelId?: string }).selectedPanelId, undefined);
+const selectedTiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA", "slot-chart");
+assert.equal(selectedTiledContext.selectedPanelId, "slot-chart");
 assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
 const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
   | { layoutPinned?: boolean; layoutWeight?: number; minSpan?: { colSpan?: number; rowSpan?: number }; symbol?: string }
@@ -994,17 +1153,25 @@ assert.equal(tiledChartContext?.layoutPinned, false);
 assert.equal(tiledChartContext?.layoutWeight, 100);
 assert.equal(tiledChartContext?.symbol, "NVDA");
 assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
-const chartOnlySymbolState = setDefaultChartPanelSymbol(tiledState, "NVDA");
-assert.equal(defaultChartPanelSymbol(chartOnlySymbolState), "NVDA");
-const chartOnlyContext = buildTiledAgentLayoutContext(chartOnlySymbolState, tiledViewport, "AAPL");
-const chartOnlyChartPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-chart") as
+assert.equal(typeof defaultChartContent?.chartDocumentId, "string");
+const documentBackedChartContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "AAPL", undefined, {
+  "slot-chart": "MSFT"
+});
+const documentBackedChartPanel = documentBackedChartContext.panels.find((panel) => panel.id === "slot-chart") as
+  | { symbol?: string; props?: { symbol?: string } }
+  | undefined;
+const documentBackedNewsPanel = documentBackedChartContext.panels.find((panel) => panel.id === "slot-news") as
   | { symbol?: string }
   | undefined;
-const chartOnlyNewsPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-news") as
-  | { symbol?: string }
-  | undefined;
-assert.equal(chartOnlyChartPanel?.symbol, "NVDA");
-assert.equal(chartOnlyNewsPanel?.symbol, undefined);
+assert.equal(documentBackedChartPanel?.symbol, "MSFT");
+assert.equal(documentBackedChartPanel?.props?.symbol, "MSFT");
+assert.equal(documentBackedNewsPanel?.symbol, undefined);
+const chartOnlyState = removePanelSlot(removePanelSlot(tiledState, "slot-news", tiledViewport), "slot-ontology", tiledViewport);
+assert.equal(chartOnlyState.slots.length, 1);
+assert.equal(chartOnlyState.slots[0]?.id, "slot-chart");
+const blockedLastPanelRemoveState = removePanelSlot(chartOnlyState, "slot-chart", tiledViewport);
+assert.equal(blockedLastPanelRemoveState.slots.length, 1);
+assert.equal(blockedLastPanelRemoveState.slots[0]?.id, "slot-chart");
 const tiledNewsPropsState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-news-props",
   title: "Update news props",
@@ -1049,7 +1216,7 @@ const tiledNewsPropsState = applyTiledAgentLayoutProposal(tiledState, {
   createdAt: "2026-06-29T00:00:00.000Z"
 }, tiledViewport);
 const tiledNewsContent = tiledNewsPropsState.contents[tiledNewsPropsState.slots.find((slot) => slot.id === "slot-news")?.contentId ?? ""];
-assert.equal(tiledNewsContent?.symbol, "NVDA");
+assert.equal(tiledNewsContent?.props?.symbol, "NVDA");
 assert.equal(tiledNewsContent?.props?.displayMode, "dailySummary");
 assert.equal(
   (((tiledNewsContent?.props?.dailySummaries as unknown[])[0] as Record<string, unknown>).sources as Array<Record<string, unknown>>)[0]?.url,
@@ -1121,7 +1288,7 @@ const restoredNewsState = applyTiledAgentLayoutProposal(keepChartOnlyState, {
 const restoredNewsSlot = restoredNewsState.slots.find((slot) => slot.id === "panel-news");
 assert.ok(restoredNewsSlot);
 assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.kind, "news");
-assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.symbol, "NVDA");
+assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.props?.symbol, "NVDA");
 assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.layoutWeight, 100);
 const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-arrange",
@@ -1180,7 +1347,8 @@ const chartAddState = applyTiledAgentLayoutProposal(tiledState, {
 }, tiledViewport);
 const addedChartSlot = chartAddState.slots.find((slot) => slot.id === "panel-chart-aapl");
 assert.ok(addedChartSlot);
-assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "AAPL");
+assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.props?.symbol, "AAPL");
+assert.equal(typeof chartAddState.contents[addedChartSlot?.contentId ?? ""]?.chartDocumentId, "string");
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
 assert.equal(addedChartSlot.rect.left, tiledWorkspace.left);
 assert.equal(rectRight(addedChartSlot.rect), rectRight(tiledWorkspace));
@@ -1202,11 +1370,19 @@ assert.equal(multiChartRuntime.documents[chartPanels[0]?.chartDocumentId ?? ""]?
 assert.equal(multiChartRuntime.documents[chartPanels[1]?.chartDocumentId ?? ""]?.symbol, "TSLA");
 
 assert.equal(clampRightOffset(120, 72, 160), 88);
+assert.equal(clampRightOffset(-120, 72, 160), -48);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
 assert.equal(horizontalWheelDeltaToRightOffset(8, 27, 9, 72, 160), 5);
 assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
 assert.equal(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1), 4);
+assert.equal(frontendClampRightOffset(-120, 72, 160), -48);
+assert.equal(frontendClampRightOffset(-120, 72, 160, { extraFutureSlots: 14 }), -62);
+assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120 }, 160, 640, { extraFutureSlots: 14 }), {
+  visibleCount: 72,
+  rightOffset: -62
+});
+assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
 assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
 assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
 assert.equal(resolveHorizontalWheelDelta(0, -4, true), -4);
@@ -1245,6 +1421,24 @@ assert.deepEqual(
     symbol: "AAPL"
   })
 );
+
+const drawingOutsideVisiblePriceRangeScene = buildFrontendChartScene(frontendChartState({
+  candles: [testCandle("2026-06-25T13:30:00.000Z", 100)],
+  visibleCount: 10,
+  rightOffset: 0,
+  drawings: [testDrawing({
+    id: "out-of-range-drawing",
+    type: "horizontalLine",
+    anchors: [{
+      timestamp: "2026-06-25T13:30:00.000Z",
+      logicalIndex: 0,
+      price: 10000,
+      paneId: "price",
+      symbol: "AAPL"
+    }]
+  })]
+}), 640, 360);
+assert.ok(drawingOutsideVisiblePriceRangeScene.scales.maxPrice < 1000);
 
 const continuousAnchorBaseScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -1491,14 +1685,16 @@ assert.match(appSource, /requestAgentAnalysis/);
 assert.match(appSource, /resolveAgentLayoutCommand/);
 assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionMessage/);
-assert.match(appSource, /chartCommandMode/);
+assert.match(appSource, /hasChartCommandTarget/);
 assert.match(appSource, /login\(\)/);
-assert.match(appSource, /showChart/);
-assert.match(appSource, /showChartInCurrentPanel/);
-assert.match(appSource, /mainView\.mode === "chart"[\s\S]*showChartInCurrentPanel\(shortcut\.symbol\)/);
+assert.match(appSource, /openSymbolPage/);
+assert.match(appSource, /syncPageSymbolFromChart/);
+assert.match(appSource, /chartCommandTargetContentId/);
+assert.match(appSource, /chartPanelHandlesRef/);
+assert.doesNotMatch(appSource, /showChartInCurrentPanel/);
 assert.match(appSource, /normalizedShortcutSymbols/);
 assert.match(appSource, /shortcutSymbols\.length > 1/);
-assert.match(appSource, /setDefaultChartPanelSymbol\(panelState, primarySymbol\)/);
+assert.match(appSource, /createInitialTiledPanelState\(viewportSizeRef\.current, \{ symbol: primarySymbol \}\)/);
 assert.match(appSource, /차트를 같이 표시했습니다/);
 assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
@@ -1506,15 +1702,18 @@ assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
-assert.match(appSource, /if \(!chartCommandMode\)[\s\S]*resolveAgentLayoutCommand/);
+assert.match(appSource, /if \(!hasChartCommandTarget\)[\s\S]*resolveAgentLayoutCommand/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
+assert.match(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
-assert.match(bottomCommandBarSource, /chart-agent-dev-toggle/);
+assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
+assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
+assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
 
@@ -1540,9 +1739,25 @@ assert.match(panelContentRendererSource, /NewsPanel/);
 assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
+assert.match(panelContentRendererSource, /chart-instance-interval/);
+assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
+assert.match(panelContentRendererSource, /chartIntervals\.map/);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
-assert.match(chartPanelSource, /volume: false/);
+const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
+assert.match(chartPanelSource, /chartStateFromDocument/);
+assert.match(chartPanelSource, /ChartDrawingDock/);
+assert.match(chartPanelSource, /Paintbrush/);
+assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
+assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
+assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
+assert.doesNotMatch(chartPanelSource, /interval-stepper/);
+assert.match(chartPanelSource, /chart\.timeframe\.set/);
+assert.match(chartPanelSource, /trendExtensionButtons\.map/);
+const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+assert.doesNotMatch(chartCanvasSource, /chartForScene/);
+assert.match(panelContentRendererSource, /chart-panel-drag-strip/);
+assert.match(chartDocumentAdapterSource, /volume: false/);
 
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelLayoutSource, /id: "slot-trade"/);

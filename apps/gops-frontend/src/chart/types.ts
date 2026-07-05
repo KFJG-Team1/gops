@@ -137,8 +137,7 @@ export type ChartToolMode =
   | "draw-textLabel"
   | "draw-pointMarker"
   | "draw-arrow"
-  | "draw-rangeBox"
-  | "draw-measurement";
+  | "draw-rangeBox";
 
 export type DrawingType =
   | "horizontalLine"
@@ -147,8 +146,7 @@ export type DrawingType =
   | "textLabel"
   | "pointMarker"
   | "arrow"
-  | "rangeBox"
-  | "measurement";
+  | "rangeBox";
 
 export type DrawingAnchor = {
   timestamp?: string;

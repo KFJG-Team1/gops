@@ -119,7 +119,7 @@ function timeWarpedLineItem(scene: ChartScene, drawing: DrawingEntity, timeRange
 }
 
 function isLineLikeDrawing(drawing: DrawingEntity): boolean {
-  return drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement";
+  return drawing.type === "trendLine" || drawing.type === "arrow";
 }
 
 function expansionProjectionItems(scene: ChartScene, drawing: DrawingEntity, timeRange: TimeRange | null): DrawingRenderItem[] {
@@ -217,8 +217,6 @@ function collapsedLabel(drawing: DrawingEntity): string {
       return "line";
     case "rangeBox":
       return "range";
-    case "measurement":
-      return "measure";
     default:
       return drawing.type;
   }

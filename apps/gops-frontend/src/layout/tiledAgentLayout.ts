@@ -10,7 +10,6 @@ import {
   removePanelSlot,
   setPanelContentLayoutWeight,
   setPanelContentProps,
-  setPanelContentSymbol,
   type PanelContentKind,
   type PanelRect,
   type TiledPanelState,
@@ -36,14 +35,21 @@ const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelConten
   orderTicket: "trade"
 };
 
-export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: ViewportSize, activeSymbol = "") {
+export function buildTiledAgentLayoutContext(
+  state: TiledPanelState,
+  viewport: ViewportSize,
+  activeSymbol = "",
+  selectedPanelId?: string,
+  chartDocumentSymbols: Record<string, string | undefined> = {}
+) {
   return {
     version: 1,
-    selectedPanelId: state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart")?.id,
+    ...(selectedPanelId ? { selectedPanelId } : {}),
     panels: state.slots.map((slot) => {
       const content = state.contents[slot.contentId];
       const kind = content?.kind ?? "chart";
-      const symbol = kind === "chart" ? (content?.symbol || activeSymbol || "").toUpperCase() : undefined;
+      const documentSymbol = chartDocumentSymbols[slot.id] ?? (content ? chartDocumentSymbols[content.id] : undefined);
+      const symbol = kind === "chart" ? (readString(documentSymbol) || readString(content?.props?.symbol) || activeSymbol || "").toUpperCase() : undefined;
       return {
         id: slot.id,
         type: kindToPanelType[kind],
@@ -206,7 +212,7 @@ function ensurePanelKind(
       next = setPanelContentProps(next, slot.contentId, options.props);
     }
     if (options.symbol) {
-      next = setPanelContentSymbol(next, slot.contentId, options.symbol);
+      next = setPanelContentProps(next, slot.contentId, { ...(next.contents[slot.contentId]?.props ?? {}), symbol: options.symbol, timeframe: "1D" });
     }
     if (options.layoutWeight !== undefined) {
       next = setPanelContentLayoutWeight(next, slot.contentId, options.layoutWeight);
@@ -322,10 +328,6 @@ function applyPanelPropsUpdate(
   }
   let next = state;
   const props = isRecord(command.payload.props) ? command.payload.props : command.payload;
-  const symbol = readString(props.symbol);
-  if (symbol) {
-    next = setPanelContentSymbol(next, slot.contentId, symbol);
-  }
   if (isRecord(command.payload.props)) {
     next = setPanelContentProps(next, slot.contentId, command.payload.props);
   }
@@ -456,7 +458,7 @@ function hasChartSymbol(state: TiledPanelState, symbol: string): boolean {
   const normalized = symbol.toUpperCase();
   return state.slots.some((slot) => {
     const content = state.contents[slot.contentId];
-    return content?.kind === "chart" && content.symbol?.toUpperCase() === normalized;
+    return content?.kind === "chart" && readString(content.props?.symbol)?.toUpperCase() === normalized;
   });
 }
 

@@ -24,14 +24,13 @@ type BottomCommandBarProps = {
   authLoading: boolean;
   authUser: AuthUser | null;
   canUseAgent: boolean;
-  chartCommandMode: boolean;
+  hasChartCommandTarget: boolean;
   symbols: ChartSymbolDto[];
   activeSymbol: string;
   isChartMode: boolean;
   onAgentCancel: () => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
-  onChartCommandModeChange: (enabled: boolean) => void;
   onCloseMenu: () => void;
   onLogin: () => void;
   onLogout: () => void;
@@ -52,14 +51,13 @@ export function BottomCommandBar({
   authLoading,
   authUser,
   canUseAgent,
-  chartCommandMode,
+  hasChartCommandTarget,
   symbols,
   activeSymbol,
   isChartMode,
   onAgentCancel,
   onAgentInputChange,
   onAgentSubmit,
-  onChartCommandModeChange,
   onCloseMenu,
   onLogin,
   onLogout,
@@ -159,16 +157,6 @@ export function BottomCommandBar({
           onToggleMenu={toggleBottomMenu}
         />
         <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
-          {canUseAgent && (
-            <label className="chart-agent-dev-toggle" title="개발용 차트 조작 에이전트 경로">
-              <input
-                type="checkbox"
-                checked={chartCommandMode}
-                onChange={(event) => onChartCommandModeChange(event.target.checked)}
-              />
-              <span>Chart</span>
-            </label>
-          )}
           <button
             type="button"
             className="agent-dock-toggle"
@@ -190,11 +178,11 @@ export function BottomCommandBar({
               )}
             </div>
           </section>
-          <form className="agent-box surface-recessed" onSubmit={submitAgentPrompt}>
+          <form className="agent-box surface-floating" onSubmit={submitAgentPrompt}>
             <input
               value={agentInput}
               onChange={(event) => onAgentInputChange(event.target.value)}
-              placeholder={agentPlaceholder(isChartMode, canUseAgent, chartCommandMode)}
+              placeholder={agentPlaceholder(isChartMode, canUseAgent, hasChartCommandTarget)}
               aria-label="Agent command"
               disabled={agentBusy || !canUseAgent}
             />
@@ -356,12 +344,12 @@ function BottomMenuPanel({
   );
 }
 
-function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean, chartCommandMode: boolean): string {
+function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean, hasChartCommandTarget: boolean): string {
   if (!canUseAgent) {
     return "로그인 후 Agent를 사용할 수 있습니다";
   }
-  if (chartCommandMode) {
-    return isChartMode ? "차트 조작 에이전트 테스트" : "종목 차트를 연 뒤 테스트";
+  if (hasChartCommandTarget) {
+    return isChartMode ? "선택한 차트에 명령하기" : "종목 차트를 연 뒤 차트를 선택하세요";
   }
   return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
 }
