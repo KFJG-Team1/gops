@@ -17,7 +17,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "news" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind = "chart" | "news" | "indices" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -94,7 +94,7 @@ const defaultInsertHeight = 142;
 const boundarySnapTolerance = 10;
 const epsilon = 0.5;
 
-export const insertablePanelKinds: PanelContentKind[] = ["news", "ontology", "portfolio", "trade", "chart"];
+export const insertablePanelKinds: PanelContentKind[] = ["indices", "news", "ontology", "portfolio", "trade", "chart"];
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -182,6 +182,7 @@ export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number
   return {
     chart: "",
     news: "뉴스",
+    indices: "지수",
     ontology: "온톨로지",
     portfolio: "포트폴리오",
     trade: "주문"
