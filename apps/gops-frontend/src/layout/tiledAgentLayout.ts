@@ -1,4 +1,4 @@
-import type { LayoutProposal, PanelType } from "./types";
+import type { AgentLayoutPanelType, AgentLayoutProposal } from "./agentLayoutTypes";
 import {
   addPanelSlotAtRect,
   detectPanelBoundaries,
@@ -6,6 +6,7 @@ import {
   insertPanelAtBoundary,
   panelGutter,
   panelContentTitle,
+  removePanelSlot,
   setPanelContentLayoutWeight,
   setPanelContentSymbol,
   type PanelContentKind,
@@ -15,7 +16,7 @@ import {
   workspaceBounds
 } from "./panelLayout";
 
-const kindToPanelType: Record<PanelContentKind, PanelType> = {
+const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
   news: "newsFeed",
   ontology: "ontologyGraph",
@@ -23,7 +24,7 @@ const kindToPanelType: Record<PanelContentKind, PanelType> = {
   trade: "orderTicket"
 };
 
-const panelTypeToKind: Partial<Record<PanelType | string, PanelContentKind>> = {
+const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelContentKind>> = {
   chart: "chart",
   newsFeed: "news",
   ontologyGraph: "ontology",
@@ -65,7 +66,7 @@ export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: V
 
 export function applyTiledAgentLayoutProposal(
   state: TiledPanelState,
-  proposal: LayoutProposal,
+  proposal: AgentLayoutProposal,
   viewport: ViewportSize
 ): TiledPanelState {
   if (proposal.autoApply === false || proposal.commands.length === 0) {
@@ -77,6 +78,11 @@ export function applyTiledAgentLayoutProposal(
     command.type === "layout.panels.arrange" || command.type === "layout.panel.move"
   );
   for (const command of proposal.commands) {
+    if (command.type === "layout.panel.remove") {
+      const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
+      next = panelId ? removePanelSlot(next, panelId, viewport) : next;
+      continue;
+    }
     const kind = targetKindForCommand(next, command, proposal);
     if (!kind) {
       continue;
@@ -127,8 +133,8 @@ function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport
 
 function targetKindForCommand(
   state: TiledPanelState,
-  command: LayoutProposal["commands"][number],
-  proposal: LayoutProposal
+  command: AgentLayoutProposal["commands"][number],
+  proposal: AgentLayoutProposal
 ): PanelContentKind | null {
   const payloadPanelType = readString(command.payload.panelType);
   if (payloadPanelType && panelTypeToKind[payloadPanelType]) {
@@ -158,8 +164,8 @@ function targetKindForCommand(
 function addPanelForCommand(
   state: TiledPanelState,
   kind: PanelContentKind,
-  command: LayoutProposal["commands"][number],
-  proposal: LayoutProposal,
+  command: AgentLayoutProposal["commands"][number],
+  proposal: AgentLayoutProposal,
   viewport: ViewportSize
 ): TiledPanelState {
   if (kind === "chart") {
@@ -290,7 +296,7 @@ function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize
 
 function applyPanelPropsUpdate(
   state: TiledPanelState,
-  command: LayoutProposal["commands"][number]
+  command: AgentLayoutProposal["commands"][number]
 ): TiledPanelState {
   const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
   if (!panelId) {
@@ -315,7 +321,7 @@ function applyPanelPropsUpdate(
 
 function applyPrioritySet(
   state: TiledPanelState,
-  command: LayoutProposal["commands"][number]
+  command: AgentLayoutProposal["commands"][number]
 ): TiledPanelState {
   const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
   const layoutWeight = readNumber(command.payload.layoutWeight);
@@ -442,7 +448,7 @@ function readPanelSymbol(payload: Record<string, unknown>): string | null {
   return readString(props?.symbol) ?? readString(payload.symbol);
 }
 
-function layoutWeightForPanelId(proposal: LayoutProposal, panelId: string | null): number | null {
+function layoutWeightForPanelId(proposal: AgentLayoutProposal, panelId: string | null): number | null {
   if (!panelId) {
     return null;
   }

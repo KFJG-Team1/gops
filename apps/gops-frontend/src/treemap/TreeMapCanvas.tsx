@@ -178,8 +178,7 @@ function drawIndustry(context: CanvasRenderingContext2D, tile: TreeMapTile, them
   }
   context.save();
   context.font = `500 9px ${theme.serif}`;
-  context.fillStyle = theme.colors.muted;
-  context.globalAlpha = 0.64;
+  context.fillStyle = theme.colors.footprint;
   context.textBaseline = "top";
   fillFittedText(context, tile.label, tile.x + 5, tile.y + 3, tile.width - 10);
   context.restore();

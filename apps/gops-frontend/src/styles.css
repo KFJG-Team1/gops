@@ -2,44 +2,45 @@
   color-scheme: light;
   --font-ui-serif: "Times New Roman", Times, Georgia, "Nanum Myeongjo", "Noto Serif KR", serif;
   --font-data-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --gops-black: #000000;
-  --gops-white: #FFFFFF;
-  --gops-ink: #343532;
-  --gops-background: #ece4d0;
-  --gops-umber: #66461c;
-  --gops-umber-soft: #9a7038;
-  --gops-violet: #463b61;
-  --gops-violet-soft: #776b91;
-  --gops-crimson: #6ed65b;
-  --gops-crimson-soft: #04915b;
-  --gops-teal: #b00001;
-  --gops-teal-soft: #620101;
-  --gops-moss: #3d4a08;
-  --gops-moss-soft: #788447;
+  --gops-background: #efefe8;
+  --gops-ink: #1a1a0e;
+  --gops-ink-rgb: 26 26 14;
+  --gops-down: #bf160c;
+  --gops-up: #226627;
   --color-background: var(--gops-background);
   --color-surface: var(--gops-background);
   --color-surface-strong: var(--gops-background);
   --color-text: var(--gops-ink);
-  --color-muted: var(--gops-ink);
-  --color-border: color-mix(in srgb, var(--gops-background) 68%, var(--gops-white));
+  --color-muted: rgb(var(--gops-ink-rgb) / 0.66);
+  --color-muted-medium: rgb(var(--gops-ink-rgb) / 0.45);
+  --color-muted-soft: rgb(var(--gops-ink-rgb) / 0.38);
+  --color-text-medium: rgb(var(--gops-ink-rgb) / 0.78);
+  --color-text-soft: rgb(var(--gops-ink-rgb) / 0.68);
+  --color-border: rgb(var(--gops-ink-rgb) / 0.26);
+  --color-rule-soft: rgb(var(--gops-ink-rgb) / 0.3);
   --color-shadow: var(--gops-ink);
-  --color-up: var(--gops-crimson);
-  --color-up-soft: var(--gops-crimson-soft);
-  --color-down: var(--gops-teal);
-  --color-down-soft: var(--gops-teal-soft);
-  --color-change-up: var(--gops-crimson-soft);
-  --color-change-down: var(--gops-teal-soft);
+  --color-up: var(--gops-up);
+  --color-up-soft: var(--gops-up);
+  --color-down: var(--gops-down);
+  --color-down-soft: var(--gops-down);
+  --color-change-up: var(--gops-up);
+  --color-change-down: var(--gops-down);
   --color-bullish: var(--color-change-up);
   --color-bearish: var(--color-change-down);
   --color-danger: var(--color-change-down);
-  --color-ma5: var(--gops-ink);
-  --color-ma20: var(--gops-ink);
-  --color-ma60: var(--gops-ink);
+  --color-ma5: rgb(var(--gops-ink-rgb) / 0.44);
+  --color-ma20: rgb(var(--gops-ink-rgb) / 0.32);
+  --color-ma60: rgb(var(--gops-ink-rgb) / 0.24);
   --color-drawing: var(--gops-ink);
   --color-preview: var(--gops-ink);
-  --color-footprint: var(--gops-ink);
-  --color-grid: var(--gops-ink);
-  --color-axis: var(--gops-ink);
+  --color-footprint: rgb(var(--gops-ink-rgb) / 0.42);
+  --color-volume: rgb(var(--gops-ink-rgb) / 0.12);
+  --color-grid: rgb(var(--gops-ink-rgb) / 0.08);
+  --color-axis: var(--color-muted);
+  --color-axis-soft: rgb(var(--gops-ink-rgb) / 0.5);
+  --color-chart-readout: rgb(var(--gops-ink-rgb) / 0.48);
+  --color-ontology-edge: rgb(var(--gops-ink-rgb) / 0.28);
+  --color-ontology-edge-muted: rgb(var(--gops-ink-rgb) / 0.12);
   --color-crosshair: var(--gops-ink);
   --color-tile-text: var(--gops-ink);
   --color-tile-text-inverse: var(--gops-background);
@@ -48,23 +49,23 @@
   --bottom-nav-height: 76px;
   --bottom-control-size: 44px;
   --surface-radius: 8px;
-  --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, var(--gops-white));
-  --surface-raised-highlight-shadow: -3px -3px 8px var(--color-border);
-  --surface-raised-depth-shadow: 5px 6px 12px var(--color-shadow);
-  --surface-raised-depth-opacity: 0.16;
+  --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
+  --surface-raised-highlight-shadow: -2px -2px 6px var(--color-border);
+  --surface-raised-depth-shadow: 3px 4px 8px var(--color-shadow);
+  --surface-raised-depth-opacity: 0.08;
   --surface-floating-depth-shadow: 0 16px 34px var(--color-shadow);
   --surface-floating-depth-opacity: 0.1;
   --surface-recessed-shadow: inset 0 0 12px var(--color-shadow);
   --surface-recessed-opacity: 0.2;
   --surface-recessed-strong-opacity: 0.3;
-  --paper-fiber-light: color-mix(in srgb, var(--color-background) 74%, var(--gops-white));
+  --paper-fiber-light: color-mix(in srgb, var(--color-background) 74%, rgb(255 255 255));
   --paper-fiber-mid: color-mix(in srgb, var(--color-background) 86%, var(--color-text));
   --paper-fiber-deep: color-mix(in srgb, var(--color-background) 78%, var(--color-text));
-  --paper-grain-light: color-mix(in srgb, var(--color-background) 82%, var(--gops-white));
+  --paper-grain-light: color-mix(in srgb, var(--color-background) 82%, rgb(255 255 255));
   --paper-grain-mid: color-mix(in srgb, var(--color-background) 90%, var(--color-text));
   --paper-grain-deep: color-mix(in srgb, var(--color-background) 84%, var(--color-text));
-  --paper-texture-opacity: 0.2;
-  --paper-grain-opacity: 0.18;
+  --paper-texture-opacity: 0.12;
+  --paper-grain-opacity: 0.1;
   font-family: var(--font-data-sans);
   font-size: 14px;
   background: var(--color-background);
@@ -237,7 +238,7 @@ button {
   right: var(--layout-gutter);
   bottom: 5px;
   height: 1px;
-  background: var(--gops-black);
+  background: var(--color-text);
   opacity: 0.86;
   pointer-events: none;
   content: "";
@@ -379,10 +380,9 @@ button {
 
 .bottom-menu-empty {
   margin: 0;
-  color: var(--color-muted);
+  color: var(--color-muted-soft);
   font-family: var(--font-ui-serif);
   font-size: 12px;
-  opacity: 0.58;
 }
 
 .bottom-menu-dismiss-layer {
@@ -491,11 +491,10 @@ button {
 }
 
 .bottom-chat-message-role {
-  color: var(--color-muted);
+  color: var(--color-muted-medium);
   font-family: var(--font-ui-serif);
   font-size: 11px;
   font-weight: 700;
-  opacity: 0.68;
 }
 
 .bottom-chat-message p,
@@ -504,10 +503,9 @@ button {
 }
 
 .bottom-chat-empty {
-  color: var(--color-muted);
+  color: var(--color-muted-soft);
   font-family: var(--font-ui-serif);
   font-size: 12px;
-  opacity: 0.58;
 }
 
 .bottom-watchlist {
@@ -657,12 +655,11 @@ h1 span {
   align-items: baseline;
   column-gap: 10px;
   margin: 2px 0 0;
-  color: var(--color-muted);
+  color: var(--color-chart-readout);
   font-size: 9px;
   font-weight: 480;
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
-  opacity: 0.72;
 }
 
 .hover-ohlc-overlay {
@@ -686,8 +683,7 @@ h1 span {
 }
 
 .hover-ohlc dt {
-  color: var(--color-axis);
-  opacity: 0.76;
+  color: var(--color-axis-soft);
 }
 
 .hover-ohlc-time {
@@ -1001,13 +997,12 @@ h2 {
 
 .treemap-hover-meta span {
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--color-text-medium);
   font-family: var(--font-ui-serif);
   font-size: 11px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.78;
 }
 
 .treemap-hover-meta em {
@@ -1020,13 +1015,12 @@ h2 {
 
 .treemap-hover-meta small {
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--color-text-soft);
   font-family: var(--font-ui-serif);
   font-size: 10px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.68;
 }
 
 .chart-canvas {
@@ -1302,8 +1296,7 @@ h2 {
   top: 50%;
   width: calc(50% - 17px);
   height: 1px;
-  background: var(--color-text);
-  opacity: 0.3;
+  background: var(--color-rule-soft);
   content: "";
 }
 
@@ -1363,6 +1356,10 @@ h2 {
 
 .agent-box button svg {
   stroke-width: 2;
+}
+
+.agent-box button.agent-stop-button {
+  color: var(--color-danger);
 }
 
 .agent-box button:disabled,
@@ -1957,14 +1954,13 @@ h2 {
 }
 
 .ontology-edge {
-  stroke: var(--color-text);
+  stroke: var(--color-ontology-edge);
   stroke-width: 1;
-  opacity: 0.28;
   vector-effect: non-scaling-stroke;
 }
 
 .ontology-edge.is-muted {
-  opacity: 0.12;
+  stroke: var(--color-ontology-edge-muted);
 }
 
 .ontology-node {
@@ -2208,7 +2204,7 @@ h2 {
 }
 
 .panel-boundary.is-page-edge .panel-boundary-add {
-  background: var(--gops-white);
+  background: rgb(255 255 255);
   box-shadow: none;
 }
 

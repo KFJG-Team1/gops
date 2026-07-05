@@ -1,3 +1,5 @@
+import { setDefaultChartStyle, type ChartDocumentStyle } from "@gops/chart-engine/theme";
+
 export type ThemeColorToken =
   | "background"
   | "surface"
@@ -18,6 +20,7 @@ export type ThemeColorToken =
   | "drawing"
   | "preview"
   | "footprint"
+  | "volume"
   | "grid"
   | "axis"
   | "crosshair"
@@ -48,6 +51,7 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   drawing: "--color-drawing",
   preview: "--color-preview",
   footprint: "--color-footprint",
+  volume: "--color-volume",
   grid: "--color-grid",
   axis: "--color-axis",
   crosshair: "--color-crosshair",
@@ -56,20 +60,10 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
 };
 
 const paletteVariables = [
-  "--gops-black",
-  "--gops-white",
-  "--gops-ink",
   "--gops-background",
-  "--gops-umber",
-  "--gops-umber-soft",
-  "--gops-violet",
-  "--gops-violet-soft",
-  "--gops-crimson",
-  "--gops-crimson-soft",
-  "--gops-teal",
-  "--gops-teal-soft",
-  "--gops-moss",
-  "--gops-moss-soft"
+  "--gops-ink",
+  "--gops-down",
+  "--gops-up"
 ];
 
 export function readThemeColors(): ThemeColors {
@@ -81,6 +75,36 @@ export function readThemeColors(): ThemeColors {
     Object.entries(cssVariableByToken).map(([token, variable]) => [token, read(variable) || fallback])
   ) as Record<ThemeColorToken, string>;
   return { ...colors, palette };
+}
+
+export function chartDocumentStyleFromTheme(theme: ThemeColors): ChartDocumentStyle {
+  return {
+    background: theme.background,
+    surface: theme.surface,
+    surfaceStrong: theme.surfaceStrong,
+    border: theme.border,
+    shadow: theme.shadow,
+    grid: theme.grid,
+    axis: theme.axis,
+    crosshair: theme.crosshair,
+    text: theme.text,
+    muted: theme.muted,
+    bullish: theme.upSoft,
+    bearish: theme.downSoft,
+    ma5: theme.ma5,
+    ma20: theme.ma20,
+    ma60: theme.ma60,
+    volume: theme.volume,
+    drawing: theme.drawing,
+    preview: theme.preview
+  };
+}
+
+export function syncChartEngineThemeFromCss(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  setDefaultChartStyle(chartDocumentStyleFromTheme(readThemeColors()));
 }
 
 export function resolveThemeColor(theme: ThemeColors, token: ThemeColorToken): string {
