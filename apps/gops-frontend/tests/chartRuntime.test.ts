@@ -34,6 +34,14 @@ import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from ".
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
 import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
+import {
+  buildSemanticTimeline,
+  semanticExpansionId,
+  semanticNodeId,
+  type SemanticExpansion
+} from "../src/chart/semanticTimeline";
+import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
+import type { CandleDto } from "../src/chart/types";
 import { createInitialTiledPanelState } from "../src/layout/panelLayout";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
@@ -41,10 +49,16 @@ import {
   clampRightOffset,
   clampVisibleCount,
   dragDeltaToRightOffset,
+  horizontalWheelDeltaToRightOffset,
   normalizeViewport,
+  resolveHorizontalWheelDelta,
   resolveViewportVisibleCount,
   zoomViewport
 } from "../../chart-engine/src/viewport";
+import {
+  horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
+  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
+} from "../src/chart/viewport";
 
 function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
@@ -113,6 +127,18 @@ function fakeApiResponse(input: { ok: boolean; status: number; body: string; con
       get: (name: string) => name.toLowerCase() === "content-type" ? input.contentType ?? "application/json" : null
     },
     text: async () => input.body
+  };
+}
+
+function testCandle(timestamp: string, close = 100): CandleDto {
+  return {
+    timestamp,
+    open: close - 0.2,
+    high: close + 0.4,
+    low: close - 0.5,
+    close,
+    volume: 100,
+    isClosed: true
   };
 }
 
@@ -237,6 +263,75 @@ const candleC: CandleData = {
   isClosed: false
 };
 const correctedA: CandleData = { ...candleA, close: 10.9, high: 11.1 };
+const expansionParentNodeId = semanticNodeId("AAPL", "1D", candleA.timestamp);
+const emptyExpansionMessage = "Candle fill timed out before all sources finished.";
+const emptyExpansion: SemanticExpansion = {
+  id: semanticExpansionId(expansionParentNodeId),
+  symbol: "AAPL",
+  parentNodeId: expansionParentNodeId,
+  parentTimestamp: candleA.timestamp,
+  parentInterval: "1D",
+  parentCandle: candleA as CandleDto,
+  childInterval: "10m",
+  from: candleA.timestamp,
+  to: "2026-06-26T13:30:00Z",
+  depth: 1,
+  status: "empty",
+  candles: [],
+  message: emptyExpansionMessage,
+  openedAt: "2026-06-25T13:30:01Z"
+};
+const emptyExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [emptyExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 20
+});
+const emptyExpansionPlaceholder = emptyExpansionTimeline.units.find((unit) => unit.kind === "placeholder");
+assert.equal(emptyExpansionPlaceholder?.message, emptyExpansionMessage);
+
+const loadingExpansion: SemanticExpansion = {
+  ...emptyExpansion,
+  status: "loading",
+  candles: [],
+  message: undefined
+};
+const readyExpansion: SemanticExpansion = {
+  ...loadingExpansion,
+  status: "ready",
+  candles: Array.from(
+    { length: 39 },
+    (_, index) => testCandle(new Date(Date.parse("2026-06-25T13:30:00Z") + index * 10 * 60_000).toISOString(), 100 + index)
+  )
+};
+const loadingExpansionRange = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [loadingExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+}).expansionRanges[0];
+const readyExpansionRange = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [readyExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+}).expansionRanges[0];
+assert.equal(
+  (loadingExpansionRange?.slotEnd ?? 0) - (loadingExpansionRange?.slotStart ?? 0),
+  (readyExpansionRange?.slotEnd ?? 0) - (readyExpansionRange?.slotStart ?? 0)
+);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
@@ -720,13 +815,15 @@ assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport);
-const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport);
+const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
 assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
 const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
-  | { layoutPinned?: boolean; minSpan?: { colSpan?: number; rowSpan?: number } }
+  | { layoutPinned?: boolean; layoutWeight?: number; minSpan?: { colSpan?: number; rowSpan?: number }; symbol?: string }
   | undefined;
 assert.equal(tiledChartContext?.layoutPinned, false);
-assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 4, rowSpan: 2 });
+assert.equal(tiledChartContext?.layoutWeight, 100);
+assert.equal(tiledChartContext?.symbol, "NVDA");
+assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
 const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled",
@@ -762,6 +859,46 @@ const arrangedOntologyRect = arrangedOntologyState.slots.find((slot) => slot.id 
 assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.width > originalOntologyRect.width);
 assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.height > originalOntologyRect.height);
 
+const chartAddState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-chart-add",
+  title: "Add AAPL chart",
+  rationale: "Test chart add.",
+  autoApply: true,
+  panelPriorities: [
+    { panelId: "panel-chart-aapl", panelType: "chart", layoutWeight: 120 },
+    { panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }
+  ],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
+      panelId: "panel-chart-aapl",
+      panelType: "chart",
+      props: { symbol: "AAPL" },
+      layoutWeight: 120,
+      placement: testPlacement(1, 4, 4, 2)
+    }, { panelId: "panel-chart-aapl" }),
+    makeAgentLayoutCommand("layout.panel.priority.set", "llm", {
+      panelId: "panel-chart-aapl",
+      layoutWeight: 120
+    }, { panelId: "panel-chart-aapl" }),
+    makeAgentLayoutCommand("layout.panels.arrange", "llm", {
+      placements: [
+        { panelId: "slot-news", placement: testPlacement(1, 1, 1, 1), layoutWeight: 40 },
+        { panelId: "slot-ontology", placement: testPlacement(2, 1, 1, 1), layoutWeight: 40 },
+        { panelId: "slot-portfolio", placement: testPlacement(3, 1, 1, 1), layoutWeight: 35 },
+        { panelId: "slot-trade", placement: testPlacement(4, 1, 1, 1), layoutWeight: 35 },
+        { panelId: "slot-chart", placement: testPlacement(1, 2, 4, 2), layoutWeight: 100 },
+        { panelId: "panel-chart-aapl", placement: testPlacement(1, 4, 4, 2), layoutWeight: 120 }
+      ]
+    }, { panelIds: ["slot-chart", "panel-chart-aapl"] })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const addedChartSlot = chartAddState.slots.find((slot) => slot.id === "panel-chart-aapl");
+assert.ok(addedChartSlot);
+assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "AAPL");
+assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
+assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
+
 const chartPanels = [
   runtimePanel("primary-chart", "chart"),
   runtimePanel("secondary-chart", "chart", { symbol: "TSLA" })
@@ -778,6 +915,24 @@ assert.equal(multiChartRuntime.documents[chartPanels[1]?.chartDocumentId ?? ""]?
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
+assert.equal(horizontalWheelDeltaToRightOffset(8, 27, 9, 72, 160), 5);
+assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
+assert.equal(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1), 4);
+assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
+assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
+assert.equal(resolveHorizontalWheelDelta(0, -4, true), -4);
+assert.equal(resolveHorizontalWheelDelta(0, -4), null);
+assert.equal(frontendResolveHorizontalWheelDelta(2, 20), 2);
+const visibleCandlesBeforePrepend = Array.from({ length: 10 }, (_, index) => testCandle(`2026-06-25T13:${String(30 + index).padStart(2, "0")}:00Z`, 100 + index));
+const prependedCandles = Array.from({ length: 5 }, (_, index) => testCandle(`2026-06-25T13:${String(25 + index).padStart(2, "0")}:00Z`, 90 + index));
+assert.deepEqual(
+  viewportPreservingRightEdgeAfterCandlesChange(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 3 }
+  ),
+  { visibleCount: 6, rightOffset: 3 }
+);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
 assert.equal(clampVisibleCount(1, 160, 400), 6);
@@ -919,9 +1074,16 @@ assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /showChart/);
+assert.match(appSource, /chartAction === "add"/);
+assert.match(appSource, /chartTargetSymbol/);
+assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
+assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
+assert.match(bottomCommandBarSource, /AgentSubmitResult/);
+assert.match(bottomCommandBarSource, /chart-shortcut/);
+assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
 assert.match(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
@@ -951,6 +1113,8 @@ assert.match(panelLayoutSource, /trade: "주문"/);
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",
   chartShortcut: true,
+  chartAction: "add",
+  chartPlacementIntent: "bottom",
   symbol: "NVDA",
   canonicalName: "NVIDIA Corporation",
   matchedText: "엔비디아",
@@ -961,6 +1125,8 @@ const chartShortcutResolve = normalizeAgentEntityResolveResponse({
 });
 assert.equal(chartShortcutResolve.status, "confirmed");
 assert.equal(chartShortcutResolve.chartShortcut, true);
+assert.equal(chartShortcutResolve.chartAction, "add");
+assert.equal(chartShortcutResolve.chartPlacementIntent, "bottom");
 assert.equal(chartShortcutResolve.symbol, "NVDA");
 assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
 assert.equal(chartShortcutResolve.confidence, 0.98);
@@ -968,6 +1134,7 @@ assert.equal(chartShortcutResolve.confidence, 0.98);
 const unsupportedChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "confirmed", chartShortcut: false });
 assert.equal(unsupportedChartShortcutResolve.status, "confirmed");
 assert.equal(unsupportedChartShortcutResolve.chartShortcut, false);
+assert.equal(unsupportedChartShortcutResolve.chartAction, undefined);
 
 const invalidChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "mystery", chartShortcut: true, symbol: "" });
 assert.equal(invalidChartShortcutResolve.status, "unsupported");

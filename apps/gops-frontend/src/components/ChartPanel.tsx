@@ -49,7 +49,12 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
-import { adjacentInterval, anchoredViewportForCandles, type ViewportAnchor } from "../chart/intervalNavigation";
+import {
+  adjacentInterval,
+  anchoredViewportForCandles,
+  viewportPreservingRightEdgeAfterCandlesChange,
+  type ViewportAnchor
+} from "../chart/intervalNavigation";
 import {
   candleRange,
   childQueryRange,
@@ -57,13 +62,23 @@ import {
   nextDigTargetInterval,
   semanticExpansionId,
   snapshotFromSemanticUnit,
+  type ExpansionStatus,
   type SemanticExpansion,
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
 import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
-import { dragDeltaToRightOffset, latestCandleRightOffset, normalizeViewport, zoomViewport, zoomViewportAt, type ChartViewport } from "../chart/viewport";
+import {
+  dragDeltaToRightOffset,
+  horizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset,
+  normalizeViewport,
+  resolveHorizontalWheelDelta,
+  zoomViewport,
+  zoomViewportAt,
+  type ChartViewport
+} from "../chart/viewport";
 
 const initialLayers: Record<ChartLayerKey, boolean> = {
   candles: true,
@@ -281,23 +296,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ma: [5, 20, 60]
     }, controller.signal)
       .then((response) => {
-        const current = chartRef.current;
-        const sameChart = current.symbol === symbol && current.interval === interval;
-        const merged = sameChart ? mergeCandlesByTimestamp(response.candles, current.candles) : [];
-        const addedCount = sameChart ? Math.max(0, merged.length - current.candles.length) : 0;
-        if (sameChart) {
-          setChart((existing) => (
-            existing.symbol === symbol && existing.interval === interval
-              ? {
-                  ...existing,
-                  candles: merged,
-                  status: response.status,
-                  message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
-                  rightOffset: addedCount > 0 ? existing.rightOffset + addedCount : existing.rightOffset
-                }
-              : existing
-          ));
-        }
+        setChart((existing) => {
+          if (existing.symbol !== symbol || existing.interval !== interval) {
+            return existing;
+          }
+          const merged = mergeCandlesByTimestamp(response.candles, existing.candles);
+          const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+          const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
+            existing.candles,
+            merged,
+            { visibleCount: existing.visibleCount, rightOffset: existing.rightOffset },
+            plotWidth
+          );
+          return {
+            ...existing,
+            candles: merged,
+            status: response.status,
+            message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
+            ...nextViewport
+          };
+        });
       })
       .catch((error: unknown) => {
         setChart((current) => (
@@ -671,7 +689,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         chartRef.current.symbol === symbol
           ? {
               ...item,
-              status: response.candles.length ? "ready" : response.status === "error" ? "error" : "empty",
+              status: expansionStatusForCandleResponse(response),
               candles: response.candles,
               message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill)
             }
@@ -751,9 +769,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     onChartHoverChange?.(true);
-    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
-    const delta = event.deltaY > 0 ? step : -step;
+    const horizontalDelta = event.deltaX;
+    const verticalDelta = event.deltaY;
+    const deltaMode = event.deltaMode;
+    const resolvedHorizontalDelta = resolveHorizontalWheelDelta(horizontalDelta, verticalDelta, event.shiftKey);
     const scene = sceneRef.current;
+    if (resolvedHorizontalDelta !== null) {
+      const plotWidth = scene ? Math.max(1, scene.plot.right - scene.plot.left) : undefined;
+      const sceneSlotWidth = scene?.scales.slotWidth;
+      const current = chartRef.current;
+      const currentViewport = normalizeViewport(
+        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+        current.candles.length,
+        plotWidth
+      );
+      const slotWidth = sceneSlotWidth
+        ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
+      const nextRightOffset = horizontalWheelDeltaToRightOffset(
+        currentViewport.rightOffset,
+        resolvedHorizontalDelta,
+        slotWidth,
+        currentViewport.visibleCount,
+        current.candles.length,
+        deltaMode,
+        plotWidth
+      );
+      applyViewport({
+        visibleCount: currentViewport.visibleCount,
+        rightOffset: nextRightOffset
+      });
+      return;
+    }
+    if (verticalDelta === 0) {
+      return;
+    }
+    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
+    const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
       zoomBy(delta);
       return;
@@ -1304,6 +1355,16 @@ function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
     return "Only partial candles were found for the requested range.";
   }
   return "Candle fill failed for the requested range.";
+}
+
+function expansionStatusForCandleResponse(response: CandleQueryResponseDto): ExpansionStatus {
+  if (response.candles.length) {
+    return "ready";
+  }
+  if (response.status === "error" || response.fill?.status === "timeout" || response.fill?.status === "failed") {
+    return "error";
+  }
+  return "empty";
 }
 
 function chartMemoryKey(symbol: string, interval: ChartInterval): string {

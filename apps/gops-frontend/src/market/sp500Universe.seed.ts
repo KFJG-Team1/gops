@@ -3,7 +3,18 @@ export type Sp500UniverseItem = {
   companyName: string;
   sector: string;
   industry: string;
+  cik?: string | null;
   marketCap: number;
+  marketCapSource?: string | null;
+  sharesOutstanding?: number | null;
+  fundamentalsSource?: string | null;
+  fundamentalsAsOf?: string | null;
+  fiscalPeriod?: string | null;
+  periodEndDate?: string | null;
+  filedAt?: string | null;
+  lastPrice?: number | null;
+  priceSource?: string | null;
+  priceUpdatedAt?: string | null;
   indexWeight?: number;
   changePercent: number;
 };

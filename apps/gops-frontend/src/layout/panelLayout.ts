@@ -47,6 +47,7 @@ export type PanelContentInstance = {
   instanceIndex: number;
   symbol?: string;
   isDefaultChart?: boolean;
+  layoutWeight?: number;
 };
 
 export type TiledPanelState = {
@@ -79,6 +80,8 @@ export type BoundaryInsertOption = {
 
 export type InsertPanelOptions = {
   symbol?: string;
+  slotId?: PanelSlotId;
+  layoutWeight?: number;
 };
 
 const panelMinWidth = 180;
@@ -116,11 +119,11 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
   const supportLeft = workspace.left + gutter;
   const supportWidth = (workspace.width - gutter * 5) / 4;
   const contents: Record<PanelContentId, PanelContentInstance> = {};
-  const chart = createPanelContent("chart", 1, { isDefaultChart: true });
-  const news = createPanelContent("news", 2);
-  const ontology = createPanelContent("ontology", 3);
-  const portfolio = createPanelContent("portfolio", 4);
-  const trade = createPanelContent("trade", 5);
+  const chart = createPanelContent("chart", 1, { isDefaultChart: true, layoutWeight: 100 });
+  const news = createPanelContent("news", 2, { layoutWeight: 50 });
+  const ontology = createPanelContent("ontology", 3, { layoutWeight: 50 });
+  const portfolio = createPanelContent("portfolio", 4, { layoutWeight: 35 });
+  const trade = createPanelContent("trade", 5, { layoutWeight: 35 });
   [chart, news, ontology, portfolio, trade].forEach((content) => {
     contents[content.id] = content;
   });
@@ -304,10 +307,11 @@ export function insertPanelAtBoundary(
     sideShrinkCapacity(state, boundary, "positive")
   );
   const content = createPanelContent(kind, state.nextInstance, {
-    symbol: kind === "chart" ? options.symbol : undefined
+    symbol: kind === "chart" ? options.symbol : undefined,
+    layoutWeight: options.layoutWeight
   });
   const slot: PanelSlot = {
-    id: `slot-${kind}-${state.nextInstance}`,
+    id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
     contentId: content.id,
     rect: insertedPanelRect(state, boundary, negative, insertSize, gutter, kind, workspace),
     minWidth: panelMinWidth,
@@ -326,6 +330,34 @@ export function insertPanelAtBoundary(
     ]
   };
   return layoutHasGapsOrOverlaps(next, inferredViewport) ? state : next;
+}
+
+export function addPanelSlotAtRect(
+  state: TiledPanelState,
+  kind: PanelContentKind,
+  rect: PanelRect,
+  options: InsertPanelOptions = {}
+): TiledPanelState {
+  const content = createPanelContent(kind, state.nextInstance, {
+    symbol: kind === "chart" ? options.symbol : undefined,
+    layoutWeight: options.layoutWeight
+  });
+  const slot: PanelSlot = {
+    id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
+    contentId: content.id,
+    rect,
+    minWidth: panelMinWidth,
+    minHeight: kind === "chart" ? chartMinHeight : panelMinHeight
+  };
+  return {
+    ...state,
+    contents: {
+      ...state.contents,
+      [content.id]: content
+    },
+    nextInstance: state.nextInstance + 1,
+    slots: [...state.slots, slot]
+  };
 }
 
 export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
@@ -378,6 +410,27 @@ export function setPanelContentSymbol(
       [contentId]: {
         ...content,
         symbol: symbol.toUpperCase()
+      }
+    }
+  };
+}
+
+export function setPanelContentLayoutWeight(
+  state: TiledPanelState,
+  contentId: PanelContentId,
+  layoutWeight: number
+): TiledPanelState {
+  const content = state.contents[contentId];
+  if (!content || content.layoutWeight === layoutWeight) {
+    return state;
+  }
+  return {
+    ...state,
+    contents: {
+      ...state.contents,
+      [contentId]: {
+        ...content,
+        layoutWeight
       }
     }
   };
@@ -547,7 +600,7 @@ export function panelGutter(viewport: ViewportSize): number {
 function createPanelContent(
   kind: PanelContentKind,
   instanceIndex: number,
-  options: Pick<PanelContentInstance, "symbol" | "isDefaultChart"> = {}
+  options: Pick<PanelContentInstance, "symbol" | "isDefaultChart" | "layoutWeight"> = {}
 ): PanelContentInstance {
   return {
     id: `content-${kind}-${instanceIndex}`,
@@ -556,6 +609,18 @@ function createPanelContent(
     instanceIndex,
     ...options
   };
+}
+
+function uniquePanelSlotId(state: TiledPanelState, preferredId: string): PanelSlotId {
+  const base = preferredId.trim() || `slot-${state.nextInstance}`;
+  if (!state.slots.some((slot) => slot.id === base)) {
+    return base;
+  }
+  let suffix = 2;
+  while (state.slots.some((slot) => slot.id === `${base}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}-${suffix}`;
 }
 
 function boundaryInsertTitle(kind: PanelContentKind): string {

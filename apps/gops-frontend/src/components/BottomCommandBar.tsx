@@ -11,6 +11,7 @@ export type ChatLogEntry = {
   text: string;
   pending?: boolean;
 };
+export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
 
 type BottomMenuSide = "left" | "right";
 
@@ -28,7 +29,7 @@ type BottomCommandBarProps = {
   activeSymbol: string;
   isChartMode: boolean;
   onAgentInputChange: (value: string) => void;
-  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
   onChartCommandModeChange: (enabled: boolean) => void;
   onCloseMenu: () => void;
   onLogin: () => void;
@@ -113,14 +114,19 @@ export function BottomCommandBar({
     onToggleMenu(key);
   };
 
-  const submitAgentPrompt = (event: FormEvent<HTMLFormElement>) => {
-    if (agentInput.trim()) {
-      if (activeMenu) {
-        onCloseMenu();
-      }
+  const submitAgentPrompt = async (event: FormEvent<HTMLFormElement>) => {
+    const hasPrompt = Boolean(agentInput.trim());
+    if (hasPrompt && activeMenu) {
+      onCloseMenu();
+    }
+    const result = await onAgentSubmit(event);
+    if (hasPrompt && result === "chart-shortcut") {
+      setChatPanelOpen(false);
+      return;
+    }
+    if (hasPrompt && result === "chat-log") {
       setChatPanelOpen(true);
     }
-    onAgentSubmit(event);
   };
 
   return (
@@ -353,7 +359,7 @@ function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean, chartComma
   if (chartCommandMode) {
     return isChartMode ? "차트 조작 에이전트 테스트" : "종목 차트를 연 뒤 테스트";
   }
-  return isChartMode ? "Agent에게 물어보기" : "종목을 선택한 뒤 Agent에게 물어보기";
+  return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
 }
 
 function bottomMenuIcon(key: BottomMenuKey): ReactNode {
