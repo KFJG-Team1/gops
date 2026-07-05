@@ -868,17 +868,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
       if (!drawingNeedsTwoAnchors(drawingType)) {
-        const drawing = makeDrawing(drawingType, [anchor], { trendLineExtension: chart.trendLineExtension });
+        const drawing = makeDrawing(drawingType, [anchor], { trendLineExtension: chart.trendLineExtension, sourceInterval: chart.interval });
         dispatchChartAction({ type: "addDrawing", drawing });
         return;
       }
       if (drawingDraft?.type === drawingType) {
-        const drawing = makeDrawing(drawingType, [drawingDraft.first, anchor], { trendLineExtension: chart.trendLineExtension });
+        const drawing = makeDrawing(drawingType, [drawingDraft.first, anchor], { trendLineExtension: chart.trendLineExtension, sourceInterval: chart.interval });
         setDrawingDraft(null);
         setTransientDrawings(null);
         dispatchChartAction({ type: "addDrawing", drawing });
       } else {
-        setDrawingDraft({ type: drawingType, first: anchor });
+        setDrawingDraft({ type: drawingType, first: anchor, sourceInterval: chart.interval });
         setTransientDrawings(null);
       }
       return;
@@ -933,7 +933,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       setTransientDrawings([
         ...chart.drawings,
-        buildSingleAnchorPreviewDrawing(activeDrawingType, anchor, chart.trendLineExtension)
+        buildSingleAnchorPreviewDrawing(activeDrawingType, anchor, chart.trendLineExtension, chart.interval)
       ]);
       return;
     }

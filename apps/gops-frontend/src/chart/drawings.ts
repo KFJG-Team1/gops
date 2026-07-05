@@ -1,4 +1,5 @@
 import type {
+  ChartInterval,
   ChartLineExtension,
   ChartToolMode,
   DrawingAnchor,
@@ -12,6 +13,7 @@ import { createCoordinateTransform } from "./scene";
 export type DrawingDraft = {
   type: DrawingType;
   first: DrawingAnchor;
+  sourceInterval?: ChartInterval;
 };
 
 export type DrawingDrag = {
@@ -48,6 +50,7 @@ export function makeDrawing(
   options: {
     trendLineExtension?: ChartLineExtension;
     createdBy?: "user" | "agent";
+    sourceInterval?: ChartInterval;
     style?: DrawingStyle;
     label?: string;
   } = {}
@@ -57,6 +60,7 @@ export function makeDrawing(
     id: `drawing-${crypto.randomUUID()}`,
     type,
     anchors,
+    sourceInterval: options.sourceInterval,
     style: options.style ?? defaultDrawingStyle(type, options.trendLineExtension),
     label: options.label ?? defaultDrawingLabel(type),
     visible: true,
@@ -71,6 +75,7 @@ export function buildDraftPreviewDrawing(draft: DrawingDraft, anchor: DrawingAnc
     id: "drawing-draft-preview",
     type: draft.type,
     anchors: [draft.first, anchor],
+    sourceInterval: draft.sourceInterval,
     style: { ...defaultDrawingStyle(draft.type, trendLineExtension), opacity: 0.58, lineDash: [6, 4] },
     label: defaultDrawingLabel(draft.type),
     visible: true,
@@ -80,11 +85,17 @@ export function buildDraftPreviewDrawing(draft: DrawingDraft, anchor: DrawingAnc
   };
 }
 
-export function buildSingleAnchorPreviewDrawing(type: DrawingType, anchor: DrawingAnchor, trendLineExtension: ChartLineExtension): DrawingEntity {
+export function buildSingleAnchorPreviewDrawing(
+  type: DrawingType,
+  anchor: DrawingAnchor,
+  trendLineExtension: ChartLineExtension,
+  sourceInterval?: ChartInterval
+): DrawingEntity {
   return {
     id: "drawing-draft-preview",
     type,
     anchors: [anchor],
+    sourceInterval,
     style: { ...defaultDrawingStyle(type, trendLineExtension), opacity: 0.46, lineDash: [5, 5] },
     label: defaultDrawingLabel(type),
     visible: true,
@@ -161,13 +172,17 @@ export function projectTrendLine(
 }
 
 export function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, scene: ChartScene): DrawingAnchor[] {
+  const timestampIndex = new Map(scene.allCandles.map((candle, index) => [candle.timestamp, index]));
+  const dragStartLogical = anchorLogicalIndex(drag.anchor, timestampIndex);
+  const dragEndLogical = anchorLogicalIndex(anchor, timestampIndex);
   return drag.drawing.anchors.map((item, index) => {
     if (drag.anchorIndex !== null) {
       return index === drag.anchorIndex ? anchor : item;
     }
     const priceDelta = (anchor.price ?? 0) - (drag.anchor.price ?? 0);
-    const logicalDelta = (anchor.logicalIndex ?? 0) - (drag.anchor.logicalIndex ?? 0);
-    const nextLogical = typeof item.logicalIndex === "number" ? item.logicalIndex + logicalDelta : item.logicalIndex;
+    const logicalDelta = dragEndLogical - dragStartLogical;
+    const itemLogical = anchorLogicalIndex(item, timestampIndex);
+    const nextLogical = itemLogical + logicalDelta;
     const nextTimestamp = typeof nextLogical === "number"
       ? scene.allCandles[Math.max(0, Math.min(scene.allCandles.length - 1, Math.round(nextLogical)))]?.timestamp ?? item.timestamp
       : item.timestamp;
@@ -178,6 +193,16 @@ export function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, sc
       price: typeof item.price === "number" ? item.price + priceDelta : item.price
     };
   });
+}
+
+function anchorLogicalIndex(anchor: DrawingAnchor, timestampIndex: Map<string, number>): number {
+  if (anchor.timestamp) {
+    const index = timestampIndex.get(anchor.timestamp);
+    if (typeof index === "number") {
+      return index;
+    }
+  }
+  return typeof anchor.logicalIndex === "number" ? anchor.logicalIndex : 0;
 }
 
 export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawing: DrawingEntity; anchorIndex: number | null } | null {

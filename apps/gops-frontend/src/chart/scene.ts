@@ -181,9 +181,12 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
     timestampToX,
     anchorToPoint: (anchor) => {
       const value = anchor.price;
-      const x = typeof anchor.logicalIndex === "number"
-        ? logicalToX(anchor.logicalIndex)
-        : anchor.timestamp ? timestampToX(anchor.timestamp) : scene.plot.left;
+      const timestampX = anchor.timestamp ? timestampToX(anchor.timestamp) : null;
+      const x = typeof timestampX === "number"
+        ? timestampX
+        : typeof anchor.logicalIndex === "number"
+          ? logicalToX(anchor.logicalIndex)
+          : scene.plot.left;
       if (typeof x !== "number") {
         return null;
       }
@@ -200,7 +203,8 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
           logicalIndex: semanticHit.sourceIndex,
           price: yToPrice(y),
           paneId: "price",
-          symbol
+          symbol,
+          interval: semanticHit.interval
         };
       }
       const logicalIndex = Math.max(0, Math.min(Math.max(scene.viewportEndIndex - 1, scene.allCandles.length - 1), Math.round(xToLogical(x))));
@@ -213,7 +217,8 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
         logicalIndex,
         price: yToPrice(y),
         paneId: "price",
-        symbol
+        symbol,
+        interval: scene.chart.interval
       };
     }
   };

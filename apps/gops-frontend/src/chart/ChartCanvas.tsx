@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ChartState, DrawingEntity } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
+import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
@@ -282,7 +283,9 @@ function movingAverageAlpha(key: "ma5" | "ma20" | "ma60"): number {
 
 function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
   const transform = createCoordinateTransform(scene);
-  drawings.filter((drawing) => drawing.visible !== false).forEach((drawing) => {
+  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
+  const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
+  drawings.filter((drawing) => drawing.visible !== false && fullDrawingIds.has(drawing.id)).forEach((drawing) => {
     const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
     const preview = previewLayer || drawing.id === "drawing-draft-preview";
     const style = drawing.style ?? {};
@@ -340,6 +343,70 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     }
     context.restore();
   });
+
+  renderItems.forEach((item) => {
+    if (item.kind === "expansionProjection") {
+      drawExpansionProjectionDrawing(context, scene, item, previewLayer);
+    } else if (item.kind === "collapsed") {
+      drawCollapsedDrawing(context, scene, item, previewLayer);
+    }
+  });
+}
+
+function drawExpansionProjectionDrawing(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "expansionProjection" }>,
+  preview: boolean
+) {
+  const style = item.drawing.style ?? {};
+  const left = Math.max(scene.plot.left, Math.min(scene.plot.right, item.left));
+  const right = Math.max(scene.plot.left, Math.min(scene.plot.right, item.right));
+  const width = right - left;
+  const top = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, item.top));
+  const bottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, item.bottom));
+  const height = bottom - top;
+  if (width <= 3 || height <= 1) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
+  context.lineWidth = style.lineWidth ?? 1.4;
+  context.setLineDash(style.lineDash ?? [5, 3]);
+  const previousAlpha = context.globalAlpha;
+  context.globalAlpha = previousAlpha * (style.fillOpacity ?? 0.1);
+  context.fillRect(left, top, width, height);
+  context.globalAlpha = previousAlpha * (style.opacity ?? 1) * 0.82;
+  context.strokeRect(left, top, width, height);
+  context.setLineDash([]);
+  drawDrawingLabel(context, item.label, left + 5, top + 13, item.drawing);
+  context.restore();
+}
+
+function drawCollapsedDrawing(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "collapsed" }>,
+  preview: boolean
+) {
+  const style = item.drawing.style ?? {};
+  const x = Math.max(scene.plot.left + 8, Math.min(scene.plot.right - 8, item.x));
+  const y = Math.max(scene.plot.top + 10, Math.min(scene.plot.priceBottom - 10, item.y));
+  context.save();
+  context.globalAlpha = preview ? 0.58 : style.opacity ?? 0.78;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = colors.surfaceStrong;
+  context.lineWidth = 1.2;
+  context.setLineDash([3, 3]);
+  line(context, x, scene.plot.top, x, scene.plot.priceBottom);
+  context.setLineDash([]);
+  circle(context, x, y, 4);
+  context.fill();
+  context.stroke();
+  drawDrawingLabel(context, item.label, x + 7, y - 7, item.drawing);
+  context.restore();
 }
 
 function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | undefined, x: number, y: number, drawing: DrawingEntity) {
