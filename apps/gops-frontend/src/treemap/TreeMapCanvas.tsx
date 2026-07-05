@@ -32,7 +32,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
     sector: item.sector,
     industry: item.industry,
     value: sp500WeightValue(item),
-    marketCap: item.marketCap,
+    marketCap: item.layoutMarketCap ?? item.marketCap,
     indexWeight: item.indexWeight,
     changePercent: item.changePercent
   })), [items]);
