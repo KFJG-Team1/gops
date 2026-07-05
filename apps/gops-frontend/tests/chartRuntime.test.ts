@@ -39,6 +39,7 @@ import {
   semanticNodeId,
   type SemanticExpansion
 } from "../src/chart/semanticTimeline";
+import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
 import type { CandleDto } from "../src/chart/types";
 import {
   applyLayoutProposal,
@@ -163,6 +164,18 @@ function fakeApiResponse(input: { ok: boolean; status: number; body: string; con
       get: (name: string) => name.toLowerCase() === "content-type" ? input.contentType ?? "application/json" : null
     },
     text: async () => input.body
+  };
+}
+
+function testCandle(timestamp: string, close = 100): CandleDto {
+  return {
+    timestamp,
+    open: close - 0.2,
+    high: close + 0.4,
+    low: close - 0.5,
+    close,
+    volume: 100,
+    isClosed: true
   };
 }
 
@@ -380,6 +393,45 @@ const emptyExpansionTimeline = buildSemanticTimeline({
 });
 const emptyExpansionPlaceholder = emptyExpansionTimeline.units.find((unit) => unit.kind === "placeholder");
 assert.equal(emptyExpansionPlaceholder?.message, emptyExpansionMessage);
+
+const loadingExpansion: SemanticExpansion = {
+  ...emptyExpansion,
+  status: "loading",
+  candles: [],
+  message: undefined
+};
+const readyExpansion: SemanticExpansion = {
+  ...loadingExpansion,
+  status: "ready",
+  candles: Array.from(
+    { length: 39 },
+    (_, index) => testCandle(new Date(Date.parse("2026-06-25T13:30:00Z") + index * 10 * 60_000).toISOString(), 100 + index)
+  )
+};
+const loadingExpansionRange = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [loadingExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+}).expansionRanges[0];
+const readyExpansionRange = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [readyExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+}).expansionRanges[0];
+assert.equal(
+  (loadingExpansionRange?.slotEnd ?? 0) - (loadingExpansionRange?.slotStart ?? 0),
+  (readyExpansionRange?.slotEnd ?? 0) - (readyExpansionRange?.slotStart ?? 0)
+);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
@@ -1271,6 +1323,16 @@ assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
 assert.equal(resolveHorizontalWheelDelta(0, -4, true), -4);
 assert.equal(resolveHorizontalWheelDelta(0, -4), null);
 assert.equal(frontendResolveHorizontalWheelDelta(2, 20), 2);
+const visibleCandlesBeforePrepend = Array.from({ length: 10 }, (_, index) => testCandle(`2026-06-25T13:${String(30 + index).padStart(2, "0")}:00Z`, 100 + index));
+const prependedCandles = Array.from({ length: 5 }, (_, index) => testCandle(`2026-06-25T13:${String(25 + index).padStart(2, "0")}:00Z`, 90 + index));
+assert.deepEqual(
+  viewportPreservingRightEdgeAfterCandlesChange(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 3 }
+  ),
+  { visibleCount: 6, rightOffset: 3 }
+);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
 assert.equal(clampVisibleCount(1, 160, 400), 6);
