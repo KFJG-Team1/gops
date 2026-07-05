@@ -57,11 +57,12 @@ import {
   nextDigTargetInterval,
   semanticExpansionId,
   snapshotFromSemanticUnit,
+  type ExpansionStatus,
   type SemanticExpansion,
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
 import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
 import { dragDeltaToRightOffset, latestCandleRightOffset, normalizeViewport, zoomViewport, zoomViewportAt, type ChartViewport } from "../chart/viewport";
 
@@ -671,7 +672,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         chartRef.current.symbol === symbol
           ? {
               ...item,
-              status: response.candles.length ? "ready" : response.status === "error" ? "error" : "empty",
+              status: expansionStatusForCandleResponse(response),
               candles: response.candles,
               message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill)
             }
@@ -1304,6 +1305,16 @@ function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
     return "Only partial candles were found for the requested range.";
   }
   return "Candle fill failed for the requested range.";
+}
+
+function expansionStatusForCandleResponse(response: CandleQueryResponseDto): ExpansionStatus {
+  if (response.candles.length) {
+    return "ready";
+  }
+  if (response.status === "error" || response.fill?.status === "timeout" || response.fill?.status === "failed") {
+    return "error";
+  }
+  return "empty";
 }
 
 function chartMemoryKey(symbol: string, interval: ChartInterval): string {

@@ -34,6 +34,13 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { agentProgressLabel, isAgentAnalysisIntent, normalizeAgentEntityResolveResponse } from "../src/components/SystemArea";
 import {
+  buildSemanticTimeline,
+  semanticExpansionId,
+  semanticNodeId,
+  type SemanticExpansion
+} from "../src/chart/semanticTimeline";
+import type { CandleDto } from "../src/chart/types";
+import {
   applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
   executeCommand as executeLayoutCommand,
@@ -335,6 +342,36 @@ const candleC: CandleData = {
   isClosed: false
 };
 const correctedA: CandleData = { ...candleA, close: 10.9, high: 11.1 };
+const expansionParentNodeId = semanticNodeId("AAPL", "1D", candleA.timestamp);
+const emptyExpansionMessage = "Candle fill timed out before all sources finished.";
+const emptyExpansion: SemanticExpansion = {
+  id: semanticExpansionId(expansionParentNodeId),
+  symbol: "AAPL",
+  parentNodeId: expansionParentNodeId,
+  parentTimestamp: candleA.timestamp,
+  parentInterval: "1D",
+  parentCandle: candleA as CandleDto,
+  childInterval: "10m",
+  from: candleA.timestamp,
+  to: "2026-06-26T13:30:00Z",
+  depth: 1,
+  status: "empty",
+  candles: [],
+  message: emptyExpansionMessage,
+  openedAt: "2026-06-25T13:30:01Z"
+};
+const emptyExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [emptyExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 20
+});
+const emptyExpansionPlaceholder = emptyExpansionTimeline.units.find((unit) => unit.kind === "placeholder");
+assert.equal(emptyExpansionPlaceholder?.message, emptyExpansionMessage);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",

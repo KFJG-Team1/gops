@@ -235,7 +235,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       const message = expansion.status === "loading"
         ? "loading"
         : expansion.status === "empty"
-          ? "empty"
+          ? expansion.message ?? "empty"
           : expansion.message ?? "error";
       cursor = appendPlaceholder(expansion, "placeholder", cursor, message);
     }
