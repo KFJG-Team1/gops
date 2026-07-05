@@ -865,6 +865,42 @@ const keepChartOnlyState = applyTiledAgentLayoutProposal(tiledState, {
 }, tiledViewport);
 assert.equal(keepChartOnlyState.slots.length, 1);
 assert.equal(keepChartOnlyState.slots[0]?.id, "slot-chart");
+const restoredNewsState = applyTiledAgentLayoutProposal(keepChartOnlyState, {
+  id: "layout-proposal-restore-news",
+  title: "Restore news",
+  rationale: "시장 뉴스 패널을 열었습니다.",
+  autoApply: true,
+  panelPriorities: [
+    { panelId: "panel-news", panelType: "newsFeed", layoutWeight: 100 },
+    { panelId: "slot-chart", panelType: "chart", layoutWeight: 60 }
+  ],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
+      panelId: "panel-news",
+      panelType: "newsFeed",
+      props: { symbol: "NVDA" },
+      symbol: "NVDA",
+      layoutWeight: 100,
+      placement: testPlacement(1, 1, 2, 2)
+    }, { panelId: "panel-news" }),
+    makeAgentLayoutCommand("layout.panel.priority.set", "llm", {
+      panelId: "panel-news",
+      layoutWeight: 100
+    }, { panelId: "panel-news" }),
+    makeAgentLayoutCommand("layout.panels.arrange", "llm", {
+      placements: [
+        { panelId: "panel-news", placement: testPlacement(1, 1, 2, 2), layoutWeight: 100 },
+        { panelId: "slot-chart", placement: testPlacement(1, 3, 4, 3), layoutWeight: 60 }
+      ]
+    }, { panelId: "panel-news" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const restoredNewsSlot = restoredNewsState.slots.find((slot) => slot.id === "panel-news");
+assert.ok(restoredNewsSlot);
+assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.kind, "news");
+assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.symbol, "NVDA");
+assert.equal(restoredNewsState.contents[restoredNewsSlot?.contentId ?? ""]?.layoutWeight, 100);
 const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-arrange",
   title: "Arrange ontology",
@@ -1096,7 +1132,7 @@ assert.equal(chatOnlyResult.proposal, undefined);
 const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf-8");
 assert.match(appSource, /requestAgentAnalysis/);
 assert.match(appSource, /resolveAgentLayoutCommand/);
-assert.match(appSource, /isLikelyLayoutCommand/);
+assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
@@ -1113,6 +1149,7 @@ assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
+assert.match(appSource, /if \(!chartCommandMode\)[\s\S]*resolveAgentLayoutCommand/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
@@ -1245,11 +1282,11 @@ const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<stri
 assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
-assert.equal(Array.isArray(agentLayoutOrderPanel?.aliases), true);
+assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "portfolioHoldings");
 assert.equal(agentLayoutPortfolioPanel?.title, "포트폴리오");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
-assert.equal((agentLayoutPortfolioPanel?.aliases as string[] | undefined)?.includes("보유종목"), true);
+assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
 
 const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
   ok: true,

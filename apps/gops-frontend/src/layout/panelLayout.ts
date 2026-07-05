@@ -307,7 +307,7 @@ export function insertPanelAtBoundary(
     sideShrinkCapacity(state, boundary, "positive")
   );
   const content = createPanelContent(kind, state.nextInstance, {
-    symbol: kind === "chart" ? options.symbol : undefined,
+    symbol: options.symbol,
     layoutWeight: options.layoutWeight
   });
   const slot: PanelSlot = {
@@ -339,7 +339,7 @@ export function addPanelSlotAtRect(
   options: InsertPanelOptions = {}
 ): TiledPanelState {
   const content = createPanelContent(kind, state.nextInstance, {
-    symbol: kind === "chart" ? options.symbol : undefined,
+    symbol: options.symbol,
     layoutWeight: options.layoutWeight
   });
   const slot: PanelSlot = {

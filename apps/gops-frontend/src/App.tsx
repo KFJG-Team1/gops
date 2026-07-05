@@ -462,7 +462,7 @@ export function App() {
     }
 
     const runChartPrompt = async () => {
-      if (!chartCommandMode && isLikelyLayoutCommand(prompt)) {
+      if (!chartCommandMode) {
         setAgentBusy(true);
         try {
           const analysisPayload = {
@@ -765,18 +765,6 @@ function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string
 
 function isInternalLayoutRationale(value: string): boolean {
   return /^(The conductor|Closing or removing|UIAgent|Prepared to|The UI agent|LLM actor)/.test(value.trim());
-}
-
-function isLikelyLayoutCommand(prompt: string): boolean {
-  const text = prompt.toLowerCase();
-  const compacted = text.replace(/\s+/g, "");
-  const explicitLayoutTerms = ["패널", "페널", "레이아웃", "화면", "영역", "섹션", "카드", "위젯", "ui", "panel", "layout", "section", "widget"];
-  const targetTerms = ["차트", "뉴스", "온톨로지", "포트폴리오", "주문", "chart", "news", "ontology", "portfolio", "order"];
-  const actionTerms = ["키워", "크게", "줄여", "작게", "열어", "띄워", "보여", "닫", "숨겨", "없애", "제거", "빼고", "남겨", "옮겨", "배치", "정리", "바꿔", "변경", "크기", "resize", "open", "close", "hide", "remove", "move", "arrange", "keep"];
-  if (explicitLayoutTerms.some((term) => compacted.includes(term))) {
-    return true;
-  }
-  return targetTerms.some((term) => compacted.includes(term)) && actionTerms.some((term) => compacted.includes(term));
 }
 
 function isLikelyChartOpenCommand(prompt: string): boolean {
