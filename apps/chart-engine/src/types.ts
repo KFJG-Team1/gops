@@ -228,14 +228,23 @@ export type ChartDocument = {
   layers: Record<ChartLayerKey, boolean>;
   style: {
     background: string;
+    surface: string;
+    surfaceStrong: string;
+    border: string;
+    shadow: string;
     grid: string;
+    axis: string;
+    crosshair: string;
     text: string;
+    muted: string;
     bullish: string;
     bearish: string;
     ma5: string;
     ma20: string;
     ma60: string;
     volume: string;
+    drawing: string;
+    preview: string;
   };
   interactionState: {
     mode: ChartToolMode;
@@ -367,10 +376,13 @@ export type ChartLineExtension = "segment" | "ray" | "line";
 
 export type DrawingStyle = {
   color?: string;
+  colorToken?: string;
   lineWidth?: number;
   lineDash?: number[];
   fillColor?: string;
+  fillToken?: string;
   textColor?: string;
+  textToken?: string;
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;

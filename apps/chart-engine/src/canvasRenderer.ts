@@ -1,6 +1,7 @@
 import { createCoordinateTransform } from "./scales";
 import { normalizeLineExtension, projectTrendLine } from "./drawingGeometry";
 import type { CandleData, DrawingEntity, RenderScene } from "./types";
+import { resolveChartStyleColor } from "./theme";
 
 export function drawChartScene(
   canvas: HTMLCanvasElement,
@@ -139,9 +140,8 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const x = candleCenter(scene, index);
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
-    const color = colorWithAlpha(candle.close >= candle.open ? scene.document.style.bullish : scene.document.style.bearish, 0.24);
 
-    ctx.fillStyle = color;
+    ctx.fillStyle = scene.document.style.volume;
     ctx.fillRect(x - scene.scales.candleWidth / 2, y, scene.scales.candleWidth, height);
   });
 }
@@ -183,7 +183,7 @@ function drawComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     }
     ctx.save();
     ctx.globalAlpha = series.comparison.style.opacity ?? 1;
-    ctx.strokeStyle = series.comparison.style.color ?? "#111111";
+    ctx.strokeStyle = resolveDrawingColor(scene, series.comparison.style, "colorToken", "color", "drawing");
     ctx.lineWidth = series.comparison.style.lineWidth ?? 1.4;
     ctx.setLineDash(series.comparison.style.lineDash ?? []);
     ctx.beginPath();
@@ -197,7 +197,7 @@ function drawComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     ctx.stroke();
     const last = series.points[series.points.length - 1];
     if (last) {
-      ctx.fillStyle = series.comparison.style.textColor ?? series.comparison.style.color ?? "#111111";
+      ctx.fillStyle = resolveDrawingColor(scene, series.comparison.style, "textToken", "textColor", "drawing");
       ctx.font = "11px Inter, system-ui, sans-serif";
       ctx.textAlign = "right";
       ctx.fillText(`${series.comparison.label ?? series.comparison.symbol} ${last.percent >= 0 ? "+" : ""}${last.percent.toFixed(2)}%`, scene.plot.right, last.y - 8);
@@ -212,7 +212,7 @@ function drawPreviewComparisons(ctx: CanvasRenderingContext2D, scene: RenderScen
     return;
   }
   ctx.save();
-  ctx.fillStyle = "rgba(17, 17, 17, 0.74)";
+  ctx.fillStyle = colorWithAlpha(scene.document.style.text, 0.74);
   ctx.font = "11px Inter, system-ui, sans-serif";
   ctx.textAlign = "left";
   previewComparisons.forEach((comparison, index) => {
@@ -228,18 +228,21 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
     const style = drawing.style ?? {};
     ctx.save();
     ctx.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
-    ctx.strokeStyle = style.color ?? (preview ? "#2563eb" : "#111111");
-    ctx.fillStyle = style.fillColor ?? (preview ? "rgba(37, 99, 235, 0.08)" : "rgba(17, 17, 17, 0.08)");
+    ctx.strokeStyle = resolveDrawingColor(scene, style, "colorToken", "color", preview ? "preview" : "drawing");
+    ctx.fillStyle = style.fillColor ?? colorWithAlpha(
+      resolveDrawingColor(scene, style, "fillToken", "fillColor", preview ? "preview" : "drawing"),
+      preview ? 0.08 : 0.08
+    );
     ctx.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
     ctx.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
 
     if (drawing.type === "horizontalLine" && points[0]) {
       line(ctx, scene.plot.left, points[0].y, scene.plot.right, points[0].y);
-      drawDrawingLabel(ctx, drawing.label, scene.plot.right - 4, points[0].y - 8, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label, scene.plot.right - 4, points[0].y - 8, drawing);
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(ctx, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
-      drawDrawingLabel(ctx, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
     } else if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
       const [start, end] = drawing.type === "trendLine"
         ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
@@ -248,7 +251,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
       if (drawing.type === "arrow") {
         drawArrowHead(ctx, start, end);
       }
-      drawDrawingLabel(ctx, drawing.label ?? measurementLabel(drawing, scene), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label ?? measurementLabel(drawing, scene), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
       const y = Math.min(points[0].y, points[1].y);
@@ -256,17 +259,17 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
       const height = Math.abs(points[1].y - points[0].y);
       ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
-      drawDrawingLabel(ctx, drawing.label, x + 5, y + 13, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label, x + 5, y + 13, drawing);
     } else if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0]) {
       circle(ctx, points[0].x, points[0].y, drawing.type === "pointMarker" ? 4 : 3);
       ctx.fill();
-      drawDrawingLabel(ctx, drawing.label ?? (drawing.type === "textLabel" ? "메모" : ""), points[0].x + 7, points[0].y - 7, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label ?? (drawing.type === "textLabel" ? "메모" : ""), points[0].x + 7, points[0].y - 7, drawing);
     }
 
     if (selected && points.length > 0) {
       ctx.setLineDash([]);
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#111111";
+      ctx.fillStyle = scene.document.style.surface;
+      ctx.strokeStyle = scene.document.style.drawing;
       points.forEach((point) => {
         circle(ctx, point.x, point.y, 4);
         ctx.fill();
@@ -277,16 +280,30 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
   });
 }
 
-function drawDrawingLabel(ctx: CanvasRenderingContext2D, label: string | undefined, x: number, y: number, drawing: DrawingEntity) {
+function drawDrawingLabel(ctx: CanvasRenderingContext2D, scene: RenderScene, label: string | undefined, x: number, y: number, drawing: DrawingEntity) {
   if (!label) {
     return;
   }
   const style = drawing.style ?? {};
-  ctx.fillStyle = style.textColor ?? style.color ?? "#111111";
+  ctx.fillStyle = resolveDrawingColor(scene, style, "textToken", "textColor", "drawing");
   ctx.font = `${style.fontSize ?? 12}px Inter, system-ui, sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(label, x, y);
+}
+
+function resolveDrawingColor(
+  scene: RenderScene,
+  style: DrawingEntity["style"],
+  tokenKey: "colorToken" | "fillToken" | "textToken",
+  rawKey: "color" | "fillColor" | "textColor",
+  fallback: keyof RenderScene["document"]["style"]
+): string {
+  const raw = style[rawKey];
+  if (raw) {
+    return raw;
+  }
+  return resolveChartStyleColor(scene.document.style, style[tokenKey], fallback);
 }
 
 function measurementLabel(drawing: DrawingEntity, scene: RenderScene): string {
@@ -331,7 +348,7 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   }
 
   ctx.save();
-  ctx.strokeStyle = "rgba(20, 20, 20, 0.42)";
+  ctx.strokeStyle = colorWithAlpha(scene.document.style.crosshair, 0.42);
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   line(ctx, crosshair.x, scene.plot.top, crosshair.x, scene.plot.bottom);
@@ -345,8 +362,8 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   const textWidth = Math.min(scene.plot.right - scene.plot.left - 12, ctx.measureText(text).width + 12);
   const boxX = Math.min(scene.plot.right - textWidth, Math.max(scene.plot.left, crosshair.x + 8));
   const boxY = scene.plot.top + 8;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.strokeStyle = "rgba(17, 17, 17, 0.72)";
+  ctx.fillStyle = colorWithAlpha(scene.document.style.surfaceStrong, 0.92);
+  ctx.strokeStyle = colorWithAlpha(scene.document.style.drawing, 0.72);
   roundedRect(ctx, boxX, boxY, textWidth, 25, 5);
   ctx.fill();
   ctx.stroke();
@@ -454,14 +471,38 @@ function buildTimeTicks(scene: RenderScene, targetCount: number): Array<{ candle
   }).filter((tick): tick is { candle: CandleData; x: number } => Boolean(tick.candle));
 }
 
-function colorWithAlpha(hex: string, alpha: number): string {
-  const normalized = hex.trim().replace(/^#/, "");
-  if (!/^[\da-fA-F]{6}$/.test(normalized)) {
-    return `rgba(102, 112, 133, ${alpha})`;
+function colorWithAlpha(color: string, alpha: number): string {
+  const rgb = parseRgb(color);
+  if (!rgb) {
+    return color;
   }
-  const value = Number.parseInt(normalized, 16);
-  const red = (value >> 16) & 255;
-  const green = (value >> 8) & 255;
-  const blue = value & 255;
+  const { red, green, blue } = rgb;
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function parseRgb(color: string): { red: number; green: number; blue: number } | null {
+  const value = color.trim();
+  const hex = value.replace(/^#/, "");
+  if (/^[\da-fA-F]{6}$/.test(hex)) {
+    const parsed = Number.parseInt(hex, 16);
+    return {
+      red: (parsed >> 16) & 255,
+      green: (parsed >> 8) & 255,
+      blue: parsed & 255
+    };
+  }
+
+  const rgb = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (!rgb) {
+    return null;
+  }
+  return {
+    red: clampColor(Number.parseFloat(rgb[1] ?? "0")),
+    green: clampColor(Number.parseFloat(rgb[2] ?? "0")),
+    blue: clampColor(Number.parseFloat(rgb[3] ?? "0"))
+  };
+}
+
+function clampColor(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(Number.isFinite(value) ? value : 0)));
 }

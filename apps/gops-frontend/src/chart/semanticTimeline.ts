@@ -201,7 +201,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     slotStart: number,
     message: string
   ): number => {
-    const width = kind === "footprint" ? footprintSlotWidth : placeholderSlotWidth;
+    const width = kind === "footprint" ? footprintSlotWidth : placeholderSlotWidthForExpansion(expansion);
     const slotEnd = slotStart + width;
     rememberUnit({
       kind,
@@ -354,6 +354,32 @@ function expansionSlotWidth(
       const childExpansion = expansionByParent.get(childNodeId);
       return total + (childExpansion ? expansionSlotWidth(childExpansion, expansionByParent, nextVisited) : 1);
     }, 0));
+  }
+  return placeholderSlotWidthForExpansion(expansion);
+}
+
+function placeholderSlotWidthForExpansion(expansion: SemanticExpansion): number {
+  if (expansion.status !== "loading") {
+    return placeholderSlotWidth;
+  }
+  return estimatedLoadingExpansionSlotWidth(expansion);
+}
+
+function estimatedLoadingExpansionSlotWidth(expansion: SemanticExpansion): number {
+  if (expansion.parentInterval === "1M" && expansion.childInterval === "1W") {
+    return 4;
+  }
+  if (expansion.parentInterval === "1W" && expansion.childInterval === "1D") {
+    return 5;
+  }
+  if (expansion.parentInterval === "1D" && expansion.childInterval === "10m") {
+    return 39;
+  }
+  if (expansion.parentInterval === "10m" && expansion.childInterval === "1m") {
+    return 10;
+  }
+  if (expansion.parentInterval === "5m" && expansion.childInterval === "1m") {
+    return 5;
   }
   return placeholderSlotWidth;
 }

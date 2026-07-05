@@ -1,6 +1,7 @@
 import { defaultVisibleBarsForInterval, normalizeChartInterval, type ChartInterval } from "./intervals";
 import type { ChartDocument, ChartDocumentSnapshot } from "./types";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
+import { getDefaultChartStyle, normalizeChartStyle } from "./theme";
 
 export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe: ChartInterval | string = "1m"): ChartDocument {
   const resolvedTimeframe = normalizeChartInterval(timeframe) ?? "1m";
@@ -23,17 +24,7 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       ma20: true,
       ma60: true
     },
-    style: {
-      background: "#ffffff",
-      grid: "#edf1f7",
-      text: "#667085",
-      bullish: "#16a86b",
-      bearish: "#e94b5b",
-      ma5: "#2478f2",
-      ma20: "#c98210",
-      ma60: "#7557d9",
-      volume: "#9ca3af"
-    },
+    style: getDefaultChartStyle(),
     interactionState: {
       mode: "pan",
       trendLineExtension: "segment"
@@ -58,7 +49,7 @@ export function snapshotChartDocument(document: ChartDocument): ChartDocumentSna
     viewport: { ...document.viewport },
     panes: structuredClone(document.panes) as ChartDocument["panes"],
     layers: { ...document.layers },
-    style: { ...document.style },
+    style: normalizeChartStyle(document.style),
     interactionState: { ...document.interactionState },
     drawings: structuredClone(document.drawings) as ChartDocument["drawings"],
     comparisons: structuredClone(document.comparisons) as ChartDocument["comparisons"],
@@ -78,7 +69,7 @@ export function restoreChartDocumentSnapshot(
     viewport: { ...snapshot.viewport },
     panes: structuredClone(snapshot.panes) as ChartDocument["panes"],
     layers: { ...snapshot.layers },
-    style: { ...snapshot.style },
+    style: normalizeChartStyle(snapshot.style),
     interactionState: { ...snapshot.interactionState },
     drawings: structuredClone(snapshot.drawings) as ChartDocument["drawings"],
     comparisons: structuredClone(snapshot.comparisons) as ChartDocument["comparisons"],

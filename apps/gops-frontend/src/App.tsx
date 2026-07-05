@@ -41,13 +41,18 @@ import {
   navigationGap,
   treeMapHoverMetaReserve
 } from "./layout/workspaceMetrics";
+import {
+  createMainViewUrl,
+  mainViewsEqual,
+  mainViewUrlPath,
+  normalizeStoredSymbol,
+  resolveMainViewFromUrl,
+  type MainView
+} from "./navigation/mainViewUrl";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
-import { sp500UniverseSeed } from "./market/sp500Universe.seed";
+import { fetchMarketHeatmap } from "./market/heatmapApi";
+import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
-
-type MainView =
-  | { mode: "treemap" }
-  | { mode: "chart"; symbol: string };
 
 type LayoutDrag =
   { mode: "treemap"; type: "resize-bottom"; startY: number; startHeight: number };
@@ -59,7 +64,6 @@ type ActiveAgentRun = {
   cancelRequested: boolean;
 };
 
-const mainViewStorageKey = "gops:main-view";
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 
 let chatLogEntrySequence = 0;
@@ -89,19 +93,76 @@ export function App() {
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartCommandMode, setChartCommandMode] = useState(false);
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelRef = useRef<ChartPanelHandle | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
+  const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
 
+  const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
+    setSemanticSelection(null);
+    setTreeMapLaneHover(false);
+    setChartHeader(null);
+    if (options.closeBottomMenu || nextView.mode === "treemap") {
+      setActiveBottomMenu(null);
+    }
+    persistMainView(nextView);
+    setMainView(nextView);
+  }, []);
+
+  const navigateMainView = useCallback((nextView: MainView, options: { replace?: boolean; closeBottomMenu?: boolean } = {}) => {
+    if (typeof window !== "undefined" && window.history) {
+      const currentView = resolveMainViewFromUrl(window.location.href).view;
+      const nextUrl = createMainViewUrl(window.location.href, nextView);
+      const currentUrl = mainViewUrlPath(window.location.href);
+      if (nextUrl !== currentUrl) {
+        if (options.replace || mainViewsEqual(currentView, nextView)) {
+          window.history.replaceState(window.history.state, "", nextUrl);
+        } else {
+          window.history.pushState(window.history.state, "", nextUrl);
+        }
+      }
+    }
+    applyMainViewState(nextView, { closeBottomMenu: options.closeBottomMenu });
+  }, [applyMainViewState]);
+
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.history?.replaceState) {
+      return;
+    }
+    const resolved = resolveMainViewFromUrl(window.location.href);
+    const currentUrl = mainViewUrlPath(window.location.href);
+    if (resolved.url !== currentUrl) {
+      window.history.replaceState(window.history.state, "", resolved.url);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const handlePopState = () => {
+      const resolved = resolveMainViewFromUrl(window.location.href);
+      const currentUrl = mainViewUrlPath(window.location.href);
+      if (window.history?.replaceState && resolved.url !== currentUrl) {
+        window.history.replaceState(window.history.state, "", resolved.url);
+      }
+      applyMainViewState(resolved.view, { closeBottomMenu: true });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [applyMainViewState]);
 
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     void event;
@@ -159,12 +220,12 @@ export function App() {
     width: viewportSize.width
   };
 
-  const universeSymbols = useMemo((): ChartSymbolDto[] => sp500UniverseSeed.map((item) => ({
+  const universeSymbols = useMemo((): ChartSymbolDto[] => treeMapItems.map((item) => ({
     symbol: item.symbol,
     name: item.companyName,
     sector: item.sector,
     isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
-  })), []);
+  })), [treeMapItems]);
   const activeHeaderSymbol = mainView.mode === "chart" ? chartHeader?.symbol ?? defaultChartPanelSymbol(panelState) ?? mainView.symbol : "";
   const activeHeaderQuote = chartHeader?.liveQuote;
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
@@ -172,14 +233,9 @@ export function App() {
   const showChart = useCallback((symbol: string) => {
     const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
-    setSemanticSelection(null);
-    setTreeMapLaneHover(false);
-    setChartHeader(null);
     setPanelState((current) => setDefaultChartPanelSymbol(current, normalizedSymbol));
-    persistMainView(nextView);
-    replaceMainViewUrl(nextView);
-    setMainView(nextView);
-  }, []);
+    navigateMainView(nextView);
+  }, [navigateMainView]);
 
   const showChartInCurrentPanel = useCallback((symbol: string) => {
     const normalizedSymbol = normalizeStoredSymbol(symbol);
@@ -197,14 +253,44 @@ export function App() {
     }
   }, [canUseAgent, chartCommandMode]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId: number | undefined;
+    let controller: AbortController | null = null;
+
+    const loadHeatmap = async () => {
+      controller = new AbortController();
+      let nextRefreshSeconds = 60;
+      try {
+        const payload = await fetchMarketHeatmap(controller.signal);
+        nextRefreshSeconds = payload.quoteRefreshSeconds || nextRefreshSeconds;
+        if (!cancelled && payload.items.length > 0) {
+          const previousLayoutAsOf = treeMapLayoutAsOfRef.current;
+          const shouldUpdateLayout = !previousLayoutAsOf || payload.layoutAsOf !== previousLayoutAsOf;
+          setTreeMapItems((current) => mergeTreeMapItems(current, payload.items, shouldUpdateLayout));
+          treeMapLayoutAsOfRef.current = payload.layoutAsOf || previousLayoutAsOf;
+        }
+      } catch {
+        // Seed data stays visible when the projection API is warming up or unavailable.
+      } finally {
+        if (!cancelled) {
+          timeoutId = window.setTimeout(loadHeatmap, nextRefreshSeconds * 1000);
+        }
+      }
+    };
+
+    void loadHeatmap();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
   const showTreeMap = () => {
-    const nextView: MainView = { mode: "treemap" };
-    setSemanticSelection(null);
-    setChartHeader(null);
-    setActiveBottomMenu(null);
-    persistMainView(nextView);
-    replaceMainViewUrl(nextView);
-    setMainView(nextView);
+    navigateMainView({ mode: "treemap" }, { closeBottomMenu: true });
   };
 
   const toggleBottomMenu = (key: BottomMenuKey) => {
@@ -279,9 +365,7 @@ export function App() {
           setPanelState(nextPanelState);
           if (mainView.mode !== "chart") {
             const nextView: MainView = { mode: "chart", symbol: primarySymbol };
-            persistMainView(nextView);
-            replaceMainViewUrl(nextView);
-            setMainView(nextView);
+            navigateMainView(nextView, { replace: true });
           }
           setChatLog((current) => [
             ...current,
@@ -480,7 +564,7 @@ export function App() {
 
     void runChartPrompt();
     return "chat-log";
-  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView, panelState, showChart, showChartInCurrentPanel, viewportSize]);
+  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView, navigateMainView, panelState, showChart, showChartInCurrentPanel, viewportSize]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -542,7 +626,7 @@ export function App() {
               }
             }}
           >
-            <TreeMapCanvas items={sp500UniverseSeed} onSelectSymbol={showChart} />
+            <TreeMapCanvas items={treeMapItems} onSelectSymbol={showChart} />
             <div
               className="chart-resize-grip bottom"
               aria-hidden="true"
@@ -605,56 +689,45 @@ function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = 
   };
 }
 
+function mergeTreeMapItems(
+  current: readonly Sp500UniverseItem[],
+  incoming: readonly Sp500UniverseItem[],
+  updateLayout: boolean
+): Sp500UniverseItem[] {
+  if (incoming.length === 0) {
+    return [...current];
+  }
+  const currentBySymbol = new Map(current.map((item) => [item.symbol, item]));
+  return incoming.map((item) => {
+    const previous = currentBySymbol.get(item.symbol);
+    if (!previous || updateLayout) {
+      return item;
+    }
+    return {
+      ...previous,
+      ...item,
+      marketCap: previous.marketCap,
+      indexWeight: previous.indexWeight
+    };
+  });
+}
+
 function initialMainView(): MainView {
   if (typeof window === "undefined") {
     return { mode: "treemap" };
   }
-  const urlSymbol = normalizeStoredSymbol(new URLSearchParams(window.location.search).get("symbol"));
-  if (urlSymbol) {
-    return { mode: "chart", symbol: urlSymbol };
-  }
-  try {
-    const storedView = window.localStorage.getItem(mainViewStorageKey);
-    const storedSymbol = normalizeStoredSymbol(window.localStorage.getItem(lastChartSymbolStorageKey));
-    if (storedView === "chart" && storedSymbol) {
-      return { mode: "chart", symbol: storedSymbol };
-    }
-  } catch {
-    return { mode: "treemap" };
-  }
-  return { mode: "treemap" };
+  return resolveMainViewFromUrl(window.location.href).view;
 }
 
 function persistMainView(view: MainView) {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || view.mode !== "chart") {
     return;
   }
   try {
-    window.localStorage.setItem(mainViewStorageKey, view.mode);
-    if (view.mode === "chart") {
-      window.localStorage.setItem(lastChartSymbolStorageKey, view.symbol);
-    }
+    window.localStorage.setItem(lastChartSymbolStorageKey, view.symbol);
   } catch {
     // Browsers can disable storage; URL state still carries direct links.
   }
-}
-
-function replaceMainViewUrl(view: MainView) {
-  if (typeof window === "undefined" || !window.history?.replaceState) {
-    return;
-  }
-  const url = new URL(window.location.href);
-  if (view.mode === "chart") {
-    url.searchParams.set("symbol", view.symbol);
-  } else {
-    url.searchParams.delete("symbol");
-  }
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-function normalizeStoredSymbol(value: string | null | undefined): string {
-  const symbol = String(value ?? "").trim().toUpperCase();
-  return /^[A-Z0-9.\-]{1,16}$/.test(symbol) ? symbol : "";
 }
 
 function normalizedShortcutSymbols(shortcut: AgentEntityResolveResponse): string[] {

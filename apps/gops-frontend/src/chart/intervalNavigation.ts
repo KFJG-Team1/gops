@@ -93,6 +93,37 @@ export function anchoredViewportForCandles(
   );
 }
 
+export function viewportPreservingRightEdgeAfterCandlesChange(
+  previousCandles: CandleDto[],
+  nextCandles: CandleDto[],
+  viewport: ChartViewport,
+  plotWidth?: number
+): ChartViewport {
+  const previousViewport = normalizeViewport(viewport, previousCandles.length, plotWidth);
+  if (previousViewport.rightOffset < 0) {
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+  }
+
+  const previousRightEdgeTimestamp = visibleRightEdgeTimestamp(previousCandles, previousViewport);
+  if (!previousRightEdgeTimestamp) {
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+  }
+
+  const nextRightEdgeIndex = findCandleIndexByTimestamp(nextCandles, previousRightEdgeTimestamp);
+  if (nextRightEdgeIndex < 0) {
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+  }
+
+  return normalizeViewport(
+    {
+      visibleCount: previousViewport.visibleCount,
+      rightOffset: nextCandles.length - nextRightEdgeIndex - 1
+    },
+    nextCandles.length,
+    plotWidth
+  );
+}
+
 function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): number {
   const target = new Date(timestamp).getTime();
   if (!Number.isFinite(target)) {
@@ -111,4 +142,23 @@ function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): num
     break;
   }
   return best;
+}
+
+function visibleRightEdgeTimestamp(candles: CandleDto[], viewport: ChartViewport): string | undefined {
+  if (!candles.length) {
+    return undefined;
+  }
+  const visibleEndIndex = Math.max(1, Math.min(candles.length, candles.length - viewport.rightOffset));
+  return candles[visibleEndIndex - 1]?.timestamp ?? candles.at(-1)?.timestamp;
+}
+
+function findCandleIndexByTimestamp(candles: CandleDto[], timestamp: string): number {
+  const targetTime = new Date(timestamp).getTime();
+  if (!Number.isFinite(targetTime)) {
+    return -1;
+  }
+  return candles.findIndex((candle) => {
+    const candleTime = new Date(candle.timestamp).getTime();
+    return Number.isFinite(candleTime) && candleTime === targetTime;
+  });
 }

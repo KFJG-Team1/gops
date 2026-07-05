@@ -149,7 +149,6 @@ function volumeAtY(scene: ChartScene, y: number): number {
 function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.save();
   context.strokeStyle = colors.grid;
-  context.globalAlpha = 0.12;
   context.lineWidth = 1;
   const right = horizontalGuideRight(scene);
   scene.scales.priceTicks.forEach((price) => {
@@ -162,7 +161,6 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
     });
     context.save();
     context.strokeStyle = colors.border;
-    context.globalAlpha = 0.26;
     context.lineWidth = 1.2;
     line(context, scene.plot.left, scene.plot.priceBottom, right, scene.plot.priceBottom);
     context.restore();
@@ -179,27 +177,27 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
     const high = priceToY(scene, candle.high);
     const low = priceToY(scene, candle.low);
     const up = candle.close >= candle.open;
-    const candleColor = candleStrokeColor(scene, unit, up);
+    const hovered = scene.hoveredNodeId === unit.id;
+    const candleColor = candleStrokeColor(up);
+    const candleWidth = hovered
+      ? Math.min(scene.scales.slotWidth, scene.scales.candleWidth * 1.35)
+      : scene.scales.candleWidth;
     context.save();
     context.strokeStyle = candleColor;
     context.fillStyle = candleColor;
-    context.lineWidth = 1.25;
+    context.lineWidth = hovered ? 2.2 : 1.25;
     const bodyTop = Math.min(open, close);
     const bodyHeight = Math.max(2, Math.abs(close - open));
     const bodyBottom = bodyTop + bodyHeight;
     line(context, center, high, center, bodyTop);
     line(context, center, bodyBottom, center, low);
-    context.fillRect(center - scene.scales.candleWidth / 2, bodyTop, scene.scales.candleWidth, bodyHeight);
+    context.fillRect(center - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
     context.restore();
   });
 }
 
-function candleStrokeColor(scene: ChartScene, unit: SemanticCandleUnit, up: boolean): string {
-  const hovered = scene.hoveredNodeId === unit.id;
-  if (up) {
-    return hovered ? colors.up : colors.upSoft;
-  }
-  return hovered ? colors.down : colors.downSoft;
+function candleStrokeColor(up: boolean): string {
+  return up ? colors.upSoft : colors.downSoft;
 }
 
 function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -208,8 +206,7 @@ function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
     const y = volumeY(scene, candle.volume);
     context.save();
     context.globalAlpha *= semanticContextOpacity(scene, unit);
-    context.fillStyle = colors.muted;
-    context.globalAlpha *= 0.18;
+    context.fillStyle = colors.volume;
     context.fillRect(
       unitCenterX(scene, unit) - scene.scales.candleWidth / 2,
       y,
@@ -232,7 +229,6 @@ function drawMovingAverage(
   }
   context.save();
   context.strokeStyle = stroke;
-  context.globalAlpha *= movingAverageAlpha(key);
   context.lineWidth = 1.05;
   let started = false;
   let lastSegmentKey = "";
@@ -268,16 +264,6 @@ function drawMovingAverage(
     context.stroke();
   }
   context.restore();
-}
-
-function movingAverageAlpha(key: "ma5" | "ma20" | "ma60"): number {
-  if (key === "ma5") {
-    return 0.44;
-  }
-  if (key === "ma20") {
-    return 0.32;
-  }
-  return 0.24;
 }
 
 function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
@@ -383,8 +369,6 @@ function drawTimeGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.strokeStyle = colors.grid;
   context.lineWidth = 1;
   ticks.forEach((tick) => {
-    const alpha = tick.parentExpansionId ? 0.13 : 0.09;
-    context.globalAlpha = alpha;
     line(context, tick.x, scene.plot.top, tick.x, Math.min(scene.height, timeAxisY(scene) - 10));
   });
   context.restore();
