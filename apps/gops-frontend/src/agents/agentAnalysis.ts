@@ -93,6 +93,22 @@ export type AgentNewsPanelItem = {
   importanceScore?: number;
 };
 
+export type AgentNewsSourceLink = {
+  articleId?: string;
+  title: string;
+  name?: string;
+  url: string;
+  publishedAt?: string;
+};
+
+export type AgentNewsPriceChange = {
+  date: string;
+  previousClose: number;
+  close: number;
+  change: number;
+  changePercent: number;
+};
+
 export type AgentDailyNewsSummary = {
   date: string;
   symbol?: string;
@@ -107,10 +123,13 @@ export type AgentDailyNewsSummary = {
   mentionCount?: number;
   status?: string;
   generatedAt?: string;
+  sources: AgentNewsSourceLink[];
+  priceChange?: AgentNewsPriceChange;
 };
 
 export type AgentNewsPanelData = {
   symbol?: string;
+  displayMode?: string;
   updatedAt?: string;
   status?: string;
   emptyMessage?: string;
@@ -402,7 +421,44 @@ function normalizeDailySummary(value: unknown): AgentDailyNewsSummary | null {
     articleCount: readNumber(source.articleCount) ?? undefined,
     mentionCount: readNumber(source.mentionCount) ?? undefined,
     status: readString(source.status) ?? undefined,
-    generatedAt: readString(source.generatedAt) ?? undefined
+    generatedAt: readString(source.generatedAt) ?? undefined,
+    sources: readArray(source.sources).map(normalizeNewsSourceLink).filter((item): item is AgentNewsSourceLink => Boolean(item)),
+    priceChange: normalizeNewsPriceChange(source.priceChange) ?? undefined
+  };
+}
+
+function normalizeNewsPriceChange(value: unknown): AgentNewsPriceChange | null {
+  const source = readObject(value);
+  const date = readString(source?.date);
+  const previousClose = readNumber(source?.previousClose);
+  const close = readNumber(source?.close);
+  const change = readNumber(source?.change);
+  const changePercent = readNumber(source?.changePercent) ?? 0;
+  if (!source || !date || previousClose === null || close === null || change === null) {
+    return null;
+  }
+  return {
+    date: date.slice(0, 10),
+    previousClose,
+    close,
+    change,
+    changePercent
+  };
+}
+
+function normalizeNewsSourceLink(value: unknown): AgentNewsSourceLink | null {
+  const source = readObject(value);
+  const title = readString(source?.title);
+  const url = readString(source?.url);
+  if (!source || !title || !url) {
+    return null;
+  }
+  return {
+    articleId: readString(source.articleId) ?? undefined,
+    title,
+    name: readString(source.name) ?? readString(source.source) ?? undefined,
+    url,
+    publishedAt: readString(source.publishedAt) ?? undefined
   };
 }
 

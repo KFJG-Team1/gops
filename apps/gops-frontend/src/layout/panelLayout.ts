@@ -48,6 +48,7 @@ export type PanelContentInstance = {
   symbol?: string;
   isDefaultChart?: boolean;
   layoutWeight?: number;
+  props?: Record<string, unknown>;
 };
 
 export type TiledPanelState = {
@@ -82,6 +83,7 @@ export type InsertPanelOptions = {
   symbol?: string;
   slotId?: PanelSlotId;
   layoutWeight?: number;
+  props?: Record<string, unknown>;
 };
 
 const panelMinWidth = 180;
@@ -286,7 +288,8 @@ export function insertPanelAtBoundary(
   );
   const content = createPanelContent(kind, state.nextInstance, {
     symbol: options.symbol,
-    layoutWeight: options.layoutWeight
+    layoutWeight: options.layoutWeight,
+    props: options.props
   });
   const slot: PanelSlot = {
     id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
@@ -319,7 +322,8 @@ export function addPanelSlotAtRect(
 ): TiledPanelState {
   const content = createPanelContent(kind, state.nextInstance, {
     symbol: options.symbol,
-    layoutWeight: options.layoutWeight
+    layoutWeight: options.layoutWeight,
+    props: options.props
   });
   const slot: PanelSlot = {
     id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
@@ -378,12 +382,12 @@ export function setPanelContentSymbol(
   contentId: PanelContentId,
   symbol: string
 ): TiledPanelState {
-  return setChartContentSymbol(state, contentId, symbol, false);
+  return setContentSymbol(state, contentId, symbol, false);
 }
 
 export function setDefaultChartPanelSymbol(state: TiledPanelState, symbol: string): TiledPanelState {
   const content = Object.values(state.contents).find((item) => item.kind === "chart" && item.isDefaultChart);
-  return content ? setChartContentSymbol(state, content.id, symbol, true) : state;
+  return content ? setContentSymbol(state, content.id, symbol, true) : state;
 }
 
 export function defaultChartPanelSymbol(state: TiledPanelState): string | undefined {
@@ -391,7 +395,7 @@ export function defaultChartPanelSymbol(state: TiledPanelState): string | undefi
   return content?.symbol?.toUpperCase();
 }
 
-function setChartContentSymbol(
+function setContentSymbol(
   state: TiledPanelState,
   contentId: PanelContentId,
   symbol: string,
@@ -399,7 +403,7 @@ function setChartContentSymbol(
 ): TiledPanelState {
   const content = state.contents[contentId];
   const normalizedSymbol = symbol.trim().toUpperCase();
-  if (!content || content.kind !== "chart" || !normalizedSymbol || (content.isDefaultChart && !allowDefaultChart)) {
+  if (!content || !normalizedSymbol || (content.kind === "chart" && content.isDefaultChart && !allowDefaultChart)) {
     return state;
   }
   if (content.symbol?.toUpperCase() === normalizedSymbol) {
@@ -412,6 +416,30 @@ function setChartContentSymbol(
       [contentId]: {
         ...content,
         symbol: normalizedSymbol
+      }
+    }
+  };
+}
+
+export function setPanelContentProps(
+  state: TiledPanelState,
+  contentId: PanelContentId,
+  props: Record<string, unknown>
+): TiledPanelState {
+  const content = state.contents[contentId];
+  if (!content) {
+    return state;
+  }
+  return {
+    ...state,
+    contents: {
+      ...state.contents,
+      [contentId]: {
+        ...content,
+        props: {
+          ...(content.props ?? {}),
+          ...props
+        }
       }
     }
   };
@@ -620,7 +648,7 @@ export function panelGutter(viewport: ViewportSize): number {
 function createPanelContent(
   kind: PanelContentKind,
   instanceIndex: number,
-  options: Pick<PanelContentInstance, "symbol" | "isDefaultChart" | "layoutWeight"> = {}
+  options: Pick<PanelContentInstance, "symbol" | "isDefaultChart" | "layoutWeight" | "props"> = {}
 ): PanelContentInstance {
   return {
     id: `content-${kind}-${instanceIndex}`,

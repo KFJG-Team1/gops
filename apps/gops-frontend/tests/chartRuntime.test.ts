@@ -1005,6 +1005,60 @@ const chartOnlyNewsPanel = chartOnlyContext.panels.find((panel) => panel.id === 
   | undefined;
 assert.equal(chartOnlyChartPanel?.symbol, "NVDA");
 assert.equal(chartOnlyNewsPanel?.symbol, undefined);
+const tiledNewsPropsState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-news-props",
+  title: "Update news props",
+  rationale: "Test news panel props preservation.",
+  autoApply: true,
+  panelPriorities: [{ panelId: "slot-news", panelType: "newsFeed", layoutWeight: 80 }],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
+      panelType: "newsFeed",
+      props: {
+        symbol: "NVDA",
+        displayMode: "dailySummary",
+        dailySummaries: [
+          {
+            date: "2026-07-01",
+            symbol: "NVDA",
+            summary: "엔비디아 일일 뉴스 요약입니다.",
+            keyPoints: [],
+            articleIds: ["nvda-daily-1"],
+            priceChange: {
+              date: "2026-07-01",
+              previousClose: 158.35,
+              close: 158.5,
+              change: 0.15,
+              changePercent: 0.0947
+            },
+            sources: [
+              {
+                articleId: "nvda-daily-1",
+                title: "NVIDIA shares rise",
+                name: "Example News",
+                url: "https://example.com/nvda-daily"
+              }
+            ]
+          }
+        ],
+        latestNews: [],
+        majorNews: []
+      }
+    }, { panelId: "slot-news" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const tiledNewsContent = tiledNewsPropsState.contents[tiledNewsPropsState.slots.find((slot) => slot.id === "slot-news")?.contentId ?? ""];
+assert.equal(tiledNewsContent?.symbol, "NVDA");
+assert.equal(tiledNewsContent?.props?.displayMode, "dailySummary");
+assert.equal(
+  (((tiledNewsContent?.props?.dailySummaries as unknown[])[0] as Record<string, unknown>).sources as Array<Record<string, unknown>>)[0]?.url,
+  "https://example.com/nvda-daily"
+);
+assert.equal(
+  (((tiledNewsContent?.props?.dailySummaries as unknown[])[0] as Record<string, unknown>).priceChange as Record<string, unknown>)?.change,
+  0.15
+);
 const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled",
@@ -1472,7 +1526,13 @@ assert.match(agentAnalysisClientSource, /EventSource/);
 assert.doesNotMatch(agentAnalysisClientSource, /\/api\/llm\/chat/);
 
 const newsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)), "utf-8");
-assert.match(newsPanelSource, /\/api\/market\/news\/latest/);
+assert.match(newsPanelSource, /\/api\/market\/news\/daily/);
+assert.match(newsPanelSource, /dailySummaries/);
+assert.match(newsPanelSource, /sources/);
+assert.match(newsPanelSource, /priceChange/);
+assert.match(newsPanelSource, /market-news-source-row/);
+assert.match(newsPanelSource, /sourceIconUrl/);
+assert.doesNotMatch(newsPanelSource, /일자별 뉴스 요약/);
 assert.match(newsPanelSource, /impactDirection/);
 
 const panelContentRendererSource = readFileSync(fileURLToPath(new URL("../src/components/PanelContentRenderer.tsx", import.meta.url)), "utf-8");
@@ -1770,6 +1830,7 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
           panelType: "newsFeed",
           props: {
             symbol: "NVDA",
+            displayMode: "dailySummary",
             dailySummaries: [
               {
                 date: "2026-07-01",
@@ -1782,7 +1843,23 @@ const agentNewsPanelReport = normalizeAgentAnalysisReport({
                 articleIds: ["nvda-daily-1"],
                 articleCount: 1,
                 mentionCount: 0,
-                status: "final"
+                status: "final",
+                priceChange: {
+                  date: "2026-07-01",
+                  previousClose: 158.35,
+                  close: 158.5,
+                  change: 0.15,
+                  changePercent: 0.0947
+                },
+                sources: [
+                  {
+                    articleId: "nvda-daily-1",
+                    title: "NVIDIA shares rise after earnings",
+                    name: "Example News",
+                    url: "https://example.com/nvda-daily",
+                    publishedAt: "2026-07-01T12:00:00.000Z"
+                  }
+                ]
               }
             ],
             latestNews: [
@@ -1818,6 +1895,16 @@ assert.equal(agentNewsPanelReport.dailySummaries.length, 0);
 assert.equal(
   ((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as unknown[])?.length,
   1
+);
+assert.equal(
+  ((((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as unknown[])[0] as Record<string, unknown>)
+    .sources as Array<Record<string, unknown>>)[0]?.url,
+  "https://example.com/nvda-daily"
+);
+assert.equal(
+  (((agentNewsPanelReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.dailySummaries as Array<Record<string, unknown>>)[0]
+    .priceChange as Record<string, unknown>)?.change,
+  0.15
 );
 
 const agentNewsPanelUpdateReport = normalizeAgentAnalysisReport({

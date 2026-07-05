@@ -9,6 +9,7 @@ import {
   panelContentTitle,
   removePanelSlot,
   setPanelContentLayoutWeight,
+  setPanelContentProps,
   setPanelContentSymbol,
   type PanelContentKind,
   type PanelRect,
@@ -177,10 +178,12 @@ function addPanelForCommand(
       layoutWeight: priority
     }, viewport);
   }
+  const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
   return ensurePanelKind(state, kind, viewport, {
-    slotId: readString(command.payload.panelId) ?? readString(command.target?.panelId) ?? undefined,
+    slotId: panelId ?? undefined,
     symbol: readPanelSymbol(command.payload) ?? undefined,
-    layoutWeight: layoutWeightForPanelId(proposal, readString(command.payload.panelId) ?? readString(command.target?.panelId)) ?? readNumber(command.payload.layoutWeight) ?? undefined
+    layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
+    props: readPanelProps(command.payload)
   });
 }
 
@@ -188,10 +191,25 @@ function ensurePanelKind(
   state: TiledPanelState,
   kind: PanelContentKind,
   viewport: ViewportSize,
-  options: { slotId?: string; symbol?: string; layoutWeight?: number } = {}
+  options: { slotId?: string; symbol?: string; layoutWeight?: number; props?: Record<string, unknown> } = {}
 ): TiledPanelState {
   if (hasPanelKind(state, kind)) {
-    return focusPanelKind(state, kind, viewport);
+    const focused = focusPanelKind(state, kind, viewport);
+    const slot = focused.slots.find((item) => focused.contents[item.contentId]?.kind === kind);
+    if (!slot) {
+      return focused;
+    }
+    let next = focused;
+    if (options.props) {
+      next = setPanelContentProps(next, slot.contentId, options.props);
+    }
+    if (options.symbol) {
+      next = setPanelContentSymbol(next, slot.contentId, options.symbol);
+    }
+    if (options.layoutWeight !== undefined) {
+      next = setPanelContentLayoutWeight(next, slot.contentId, options.layoutWeight);
+    }
+    return next;
   }
   for (const boundary of detectPanelBoundaries(state, viewport)) {
     if (!insertOptionsForBoundary(state, boundary.id, viewport).some((option) => option.kind === kind)) {
@@ -305,6 +323,9 @@ function applyPanelPropsUpdate(
   const symbol = readString(props.symbol);
   if (symbol) {
     next = setPanelContentSymbol(next, slot.contentId, symbol);
+  }
+  if (isRecord(command.payload.props)) {
+    next = setPanelContentProps(next, slot.contentId, command.payload.props);
   }
   const layoutWeight = readNumber(command.payload.layoutWeight) ?? readNumber(props.layoutWeight);
   if (layoutWeight !== null) {
@@ -440,6 +461,10 @@ function hasChartSymbol(state: TiledPanelState, symbol: string): boolean {
 function readPanelSymbol(payload: Record<string, unknown>): string | null {
   const props = isRecord(payload.props) ? payload.props : null;
   return readString(props?.symbol) ?? readString(payload.symbol);
+}
+
+function readPanelProps(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  return isRecord(payload.props) ? payload.props : undefined;
 }
 
 function layoutWeightForPanelId(proposal: AgentLayoutProposal, panelId: string | null): number | null {

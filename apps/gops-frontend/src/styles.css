@@ -1654,6 +1654,236 @@ h2 {
   font-size: 10px;
 }
 
+.market-news-daily-row {
+  display: grid;
+  gap: 7px;
+}
+
+.market-news-date {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.market-news-date-row,
+.panel-news-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.market-news-price-change,
+.panel-news-price-change {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.market-news-price-change.positive,
+.panel-news-price-change.positive {
+  color: var(--color-bullish);
+}
+
+.market-news-price-change.negative,
+.panel-news-price-change.negative {
+  color: var(--color-bearish);
+}
+
+.market-news-price-change.flat,
+.panel-news-price-change.flat {
+  color: var(--color-muted);
+}
+
+.market-news-summary {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.48;
+}
+
+.market-news-source-row,
+.panel-news-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.market-news-source-row > span,
+.panel-news-source-row > span {
+  flex: 0 0 auto;
+  font-weight: 720;
+}
+
+.market-news-source-links,
+.panel-news-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  min-width: 0;
+}
+
+.market-news-source-icon,
+.panel-news-source-links a {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.market-news-source-icon + .market-news-source-icon,
+.panel-news-source-links a + a {
+  margin-left: -6px;
+}
+
+.market-news-source-icon:hover,
+.market-news-source-icon:focus-visible,
+.panel-news-source-links a:hover,
+.panel-news-source-links a:focus-visible {
+  z-index: 2;
+}
+
+.market-news-source-icon img,
+.panel-news-source-links a img {
+  position: relative;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--color-background);
+  object-fit: cover;
+}
+
+.market-news-source-icon svg,
+.panel-news-source-links a svg {
+  position: absolute;
+  z-index: 0;
+}
+
+.market-news-source-icon:hover,
+.market-news-source-icon:focus-visible,
+.panel-news-source-links a:hover,
+.panel-news-source-links a:focus-visible {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+
+.market-news-source-link,
+.panel-news-source-link {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.market-news-source-link span,
+.panel-news-source-link span {
+  flex: 0 0 auto;
+  color: var(--color-text);
+  font-weight: 720;
+}
+
+.market-news-source-link em,
+.panel-news-source-link em {
+  min-width: 0;
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+}
+
+.panel-news-feed,
+.panel-news-list,
+.panel-news-row-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.panel-news-feed {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 10px;
+  color: var(--color-text);
+}
+
+.panel-news-toolbar {
+  display: flex;
+  gap: 4px;
+}
+
+.panel-news-toolbar button {
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 8px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.panel-news-toolbar button.active {
+  color: var(--color-text);
+  font-weight: 760;
+}
+
+.panel-news-row {
+  display: grid;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 9px;
+  background: var(--color-surface);
+}
+
+.panel-news-row-main a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.panel-news-row-main p,
+.panel-news-daily-points {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.panel-news-daily-points {
+  padding-left: 16px;
+}
+
+.panel-news-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
 .news-impact.positive,
 .market-up {
   color: var(--color-bullish);

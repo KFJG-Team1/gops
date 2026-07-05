@@ -45,7 +45,7 @@ export function PanelContentRenderer({
   onChartSwapPointerDown
 }: PanelContentRendererProps) {
   if (content.kind === "news") {
-    return <NewsPanel symbol={symbol.toUpperCase()} />;
+    return <NewsPanel symbol={(content.symbol ?? symbol).toUpperCase()} initialPayload={content.props} />;
   }
 
   if (content.kind === "ontology") {
