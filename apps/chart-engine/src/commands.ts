@@ -588,12 +588,18 @@ function readAnchors(value: unknown): DrawingAnchor[] | null {
 
 function readStyle(value: unknown): DrawingStyle {
   const source = readObject(value) ?? {};
+  const color = readString(source.color);
+  const fillColor = readString(source.fillColor);
+  const textColor = readString(source.textColor);
   return {
-    color: readString(source.color) ?? "#111111",
+    color: color ?? undefined,
+    colorToken: readString(source.colorToken) ?? (color ? undefined : "drawing"),
     lineWidth: readNumber(source.lineWidth) ?? 1.5,
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
-    fillColor: readString(source.fillColor) ?? "rgba(17, 17, 17, 0.08)",
-    textColor: readString(source.textColor) ?? readString(source.color) ?? "#111111",
+    fillColor: fillColor ?? undefined,
+    fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),
+    textColor: textColor ?? color ?? undefined,
+    textToken: readString(source.textToken) ?? (textColor || color ? undefined : "drawing"),
     fontSize: readNumber(source.fontSize) ?? 12,
     opacity: readNumber(source.opacity) ?? 1,
     extension: isLineExtension(source.extension) ? source.extension : undefined

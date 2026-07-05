@@ -6,7 +6,6 @@ import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
 import {
   buildAgentAnalysisRequest,
-  buildAgentLayoutContext,
   formatAgentAnalysisReport,
   normalizeAgentAnalysisReport,
   shouldAutoApplyAgentLayoutProposal
@@ -28,11 +27,13 @@ import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChar
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
-import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart-engine/src/runtime";
+import { chartRuntimeReducer, createInitialChartRuntimeState, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
+import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
   semanticExpansionId,
@@ -47,27 +48,9 @@ import {
 } from "../src/chart/scene";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import type { CandleDto, ChartState, DrawingEntity } from "../src/chart/types";
-import {
-  applyLayoutProposal,
-  createInitialRuntimeState as createInitialLayoutRuntimeState,
-  executeCommand as executeLayoutCommand,
-  layoutPresentationSnapshotsEqual,
-  layoutSnapshotsEqual,
-  makeCommand as makeLayoutCommand
-} from "../src/layout/commands";
-import { createInitialTiledPanelState } from "../src/layout/panelLayout";
+import { createInitialTiledPanelState, defaultChartPanelSymbol, setDefaultChartPanelSymbol } from "../src/layout/panelLayout";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
-import {
-  createPanelDropCommand,
-  createPanelDropPreview,
-  findMaxEmptyWorkspaceRect,
-  findWorkspacePanelAtCell,
-  getWorkspaceDropCell,
-  PANEL_CATALOG_TYPES
-} from "../src/layout/panelCatalogDrop";
-import { getPanelDefinition } from "../src/layout/panelRegistry";
-import { createPanelInstance, createPresetLayout } from "../src/layout/seed";
-import type { PanelInstance, PanelPlacement, PanelType, WorkspaceLayout } from "../src/layout/types";
+import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
   clampRightOffset,
   clampVisibleCount,
@@ -87,21 +70,25 @@ function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
 }
 
-function chartPanel(panelId: string, chartDocumentId: string, symbol = "AAPL"): PanelInstance {
+function chartPanel(panelId: string, chartDocumentId: string, symbol = "AAPL"): ChartRuntimePanel {
   return {
     id: panelId,
     type: "chart",
-    title: "Chart",
-    placement: { group: "workspace", zone: "main", col: 1, row: 1, colSpan: 1, rowSpan: 1 },
     props: { symbol },
-    chartDocumentId,
-    variant: "standard",
-    createdBy: "system",
-    updatedAt: "2026-06-26T00:00:00.000Z"
+    chartDocumentId
   };
 }
 
-function testPlacement(col: number, row: number, colSpan = 1, rowSpan = 1): PanelPlacement {
+type TestPanelPlacement = {
+  group: "workspace";
+  zone: "main" | "context" | "mainContext";
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+};
+
+function testPlacement(col: number, row: number, colSpan = 1, rowSpan = 1): TestPanelPlacement {
   return {
     group: "workspace",
     zone: col === 4 && colSpan === 1 ? "context" : col + colSpan - 1 <= 3 ? "main" : "mainContext",
@@ -112,52 +99,28 @@ function testPlacement(col: number, row: number, colSpan = 1, rowSpan = 1): Pane
   };
 }
 
-function testPanel(id: string, type: PanelType, placement: PanelPlacement, pinned = false): PanelInstance {
+function runtimePanel(id: string, type: string, props: Record<string, unknown> = {}): ChartRuntimePanel {
   return {
-    ...createPanelInstance(type, placement, "system", {}, id),
-    layoutPinned: pinned
+    id,
+    type,
+    props,
+    chartDocumentId: type === "chart" ? `${id}-chartDocument` : undefined
   };
 }
 
-function testLayout(panels: PanelInstance[], selectedPanelId = panels[0]?.id): WorkspaceLayout {
+function makeAgentLayoutCommand(
+  type: AgentLayoutCommandType,
+  actor: CommandActor,
+  payload: Record<string, unknown> = {},
+  target?: AgentLayoutCommand["target"]
+): AgentLayoutCommand {
   return {
-    version: 1,
-    zones: {
-      workspace: { columns: 4, rows: 5, mainColumns: 3, contextColumns: 1 },
-      agentRail: { columns: 1, rows: 5 }
-    },
-    settings: {
-      llmLayoutAutoApply: false,
-      reflowMode: "auto"
-    },
-    panels,
-    selectedPanelId
-  };
-}
-
-function filledLayoutExcept(emptyCells: string[]): WorkspaceLayout {
-  const empty = new Set(emptyCells);
-  const panels: PanelInstance[] = [];
-  for (let row = 1; row <= 5; row += 1) {
-    for (let col = 1; col <= 4; col += 1) {
-      if (!empty.has(`${col}:${row}`)) {
-        panels.push(testPanel(`panel-${col}-${row}`, "aiSummary", testPlacement(col, row)));
-      }
-    }
-  }
-  return testLayout(panels);
-}
-
-function pickPlacement(placement?: PanelPlacement | null) {
-  if (!placement) {
-    return null;
-  }
-
-  return {
-    col: placement.col,
-    row: placement.row,
-    colSpan: placement.colSpan,
-    rowSpan: placement.rowSpan
+    id: `test-layout-command-${type}-${Math.random().toString(16).slice(2)}`,
+    type,
+    actor,
+    target,
+    payload,
+    createdAt: "2026-06-29T00:00:00.000Z"
   };
 }
 
@@ -217,98 +180,35 @@ function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
   };
 }
 
-const initialLayoutRuntime = createInitialLayoutRuntimeState();
-assert.equal(initialLayoutRuntime.layout.selectedPanelId, undefined);
-assert.equal(createPresetLayout("chart").selectedPanelId, undefined);
-assert.equal(createPresetLayout("overview").selectedPanelId, undefined);
-assert.equal(getPanelDefinition("orderTicket").title, "주문");
-assert.equal(getPanelDefinition("portfolioHoldings").title, "내 투자");
-assert.equal(getPanelDefinition("hotRanking").title, "Hot Ranking");
-assert.equal(getPanelDefinition("ontologyGraph").title, "온톨로지");
-assert.deepEqual(PANEL_CATALOG_TYPES, ["chart", "newsFeed", "hotRanking", "indicatorCompare", "aiSummary", "portfolioHoldings", "orderTicket", "ontologyGraph"]);
-const orderPanelInstance = createPanelInstance("orderTicket", testPlacement(4, 4, 1, 2), "system", {}, "test-order");
-assert.equal(orderPanelInstance.type, "orderTicket");
-assert.equal(orderPanelInstance.resourceRefs?.[0]?.kind, "orderTicket");
-const portfolioPanelInstance = createPanelInstance("portfolioHoldings", testPlacement(1, 4, 1, 2), "system", {}, "test-portfolio");
-assert.equal(portfolioPanelInstance.type, "portfolioHoldings");
-assert.equal(portfolioPanelInstance.resourceRefs?.[0]?.kind, "portfolioView");
-const ontologyPanelInstance = createPanelInstance("ontologyGraph", testPlacement(4, 1, 1, 2), "system", {}, "test-ontology");
-assert.equal(ontologyPanelInstance.type, "ontologyGraph");
-assert.equal(ontologyPanelInstance.resourceRefs?.[0]?.kind, "ontologyGraph");
-const chartPresetPortfolioPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-portfolio");
-assert.equal(chartPresetPortfolioPanel?.type, "portfolioHoldings");
-assert.deepEqual(pickPlacement(chartPresetPortfolioPanel?.placement), { col: 1, row: 4, colSpan: 1, rowSpan: 2 });
-const chartPresetOrderPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-order");
-assert.equal(chartPresetOrderPanel?.type, "orderTicket");
-assert.deepEqual(pickPlacement(chartPresetOrderPanel?.placement), { col: 4, row: 4, colSpan: 1, rowSpan: 2 });
-const chartPresetHotPanel = createPresetLayout("chart").panels.find((panel) => panel.id === "panel-hot-ranking");
-assert.equal(chartPresetHotPanel?.type, "hotRanking");
-assert.deepEqual(pickPlacement(chartPresetHotPanel?.placement), { col: 2, row: 4, colSpan: 1, rowSpan: 2 });
-const chartPresetRuntimeCopy = createPresetLayout("chart");
-const chartPresetSavedCopy = createPresetLayout("chart");
-assert.equal(layoutSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), false);
-assert.equal(layoutPresentationSnapshotsEqual(chartPresetRuntimeCopy, chartPresetSavedCopy), true);
-
-const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-const fakeLocalStorageRecords = new Map<string, string>();
-Object.defineProperty(globalThis, "localStorage", {
-  configurable: true,
-  value: {
-    getItem: (key: string) => fakeLocalStorageRecords.get(key) ?? null,
-    setItem: (key: string, value: string) => fakeLocalStorageRecords.set(key, value),
-    removeItem: (key: string) => fakeLocalStorageRecords.delete(key),
-    clear: () => fakeLocalStorageRecords.clear()
-  }
+assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style.background, fallbackChartStyle.background);
+assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
+assert.equal(fallbackChartStyle.background, "#efefe8");
+assert.equal(fallbackChartStyle.text, "#1a1a0e");
+assert.equal(fallbackChartStyle.grid, "rgba(26, 26, 14, 0.08)");
+assert.equal(fallbackChartStyle.volume, "rgba(26, 26, 14, 0.12)");
+assert.equal(fallbackChartStyle.bullish, "#226627");
+assert.equal(fallbackChartStyle.bearish, "#bf160c");
+setDefaultChartStyle({
+  background: "#101010",
+  bullish: "#00ff00",
+  bearish: "#ff0000",
+  ma5: "#abcdef"
 });
+const themedDocument = createChartDocument("chart-doc-themed-custom", "AAPL", "1m");
+assert.equal(themedDocument.style.background, "#101010");
+assert.equal(themedDocument.style.bullish, "#00ff00");
+assert.equal(themedDocument.style.bearish, "#ff0000");
+assert.equal(themedDocument.style.ma5, "#abcdef");
+setDefaultChartStyle(fallbackChartStyle);
+assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
+assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
 
-try {
-  const staleChartDefault = createPresetLayout("chart");
-  const staleOrderPlacement = staleChartDefault.panels.find((panel) => panel.id === "panel-order")?.placement ?? testPlacement(4, 4, 1, 2);
-  staleChartDefault.panels = staleChartDefault.panels.map((panel) =>
-    panel.id === "panel-order"
-      ? createPanelInstance("newsFeed", staleOrderPlacement, "system", { query: "stale default" }, "panel-stale-news")
-      : panel
-  );
-  fakeLocalStorageRecords.set("gops.savedLayouts.v1", JSON.stringify([{
-    id: "default-chart",
-    name: "Chart",
-    version: 1,
-    savedAt: "2026-06-26T00:00:00.000Z",
-    kind: "default",
-    defaultKey: "chart",
-    layout: staleChartDefault
-  }]));
-
-  const runtimeWithStaleDefault = createInitialLayoutRuntimeState();
-  const mergedChartDefault = runtimeWithStaleDefault.savedLayouts.find((record) => record.kind === "default" && record.defaultKey === "chart");
-  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-order" && panel.type === "orderTicket"), true);
-  assert.equal(mergedChartDefault?.layout.panels.some((panel) => panel.id === "panel-stale-news"), false);
-} finally {
-  if (originalLocalStorageDescriptor) {
-    Object.defineProperty(globalThis, "localStorage", originalLocalStorageDescriptor);
-  } else {
-    Reflect.deleteProperty(globalThis, "localStorage");
-  }
-}
-
-const selectedSavedPanel = testPanel("selected-saved-chart", "chart", testPlacement(1, 1));
-const selectedSavedLayout = testLayout([selectedSavedPanel], selectedSavedPanel.id);
-const loadedWithoutSelection = executeLayoutCommand(
-  {
-    ...initialLayoutRuntime,
-    layout: testLayout([testPanel("active-before-load", "newsFeed", testPlacement(2, 1))]),
-    savedLayouts: [{
-      id: "saved-selected-layout",
-      name: "Saved selected layout",
-      version: 1,
-      savedAt: "2026-06-26T00:00:00.000Z",
-      kind: "user",
-      layout: selectedSavedLayout
-    }]
-  },
-  makeLayoutCommand("layout.load", "user", { savedLayoutId: "saved-selected-layout" })
-);
-assert.equal(loadedWithoutSelection.layout.selectedPanelId, undefined);
+assert.deepEqual(resolveMainViewFromUrl("http://localhost/?view=home").view, { mode: "treemap" });
+assert.equal(resolveMainViewFromUrl("http://localhost/").url, "/?view=home");
+assert.deepEqual(resolveMainViewFromUrl("http://localhost/?symbol=nvda").view, { mode: "chart", symbol: "NVDA" });
+assert.equal(resolveMainViewFromUrl("http://localhost/?view=home&symbol=NVDA").url, "/?symbol=NVDA");
+assert.equal(createMainViewUrl("http://localhost/?symbol=NVDA&panel=left#watch", { mode: "treemap" }), "/?panel=left&view=home#watch");
+assert.equal(createMainViewUrl("http://localhost/?view=home&panel=left#watch", { mode: "chart", symbol: "aapl" }), "/?panel=left&symbol=AAPL#watch");
 
 const documentA = createChartDocument("chart-doc-a", "AAPL", "1m");
 const viewportCommand = makeChartCommand("chart.viewport.set", "user", target("panel-a", documentA.id), {
@@ -966,258 +866,6 @@ assert.equal(hotRanking[0]?.symbol, "IBM");
 assert.equal(hotRanking[0]?.rank, 1);
 assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
-const frameCell = getWorkspaceDropCell({ left: 10, top: 20, width: 550, height: 500 }, 12, 24);
-assert.deepEqual(frameCell, { col: 1, row: 1 });
-const systemAreaCell = getWorkspaceDropCell({ left: 0, top: 0, width: 550, height: 500 }, 530, 20);
-assert.equal(systemAreaCell, null);
-
-const singleEmptyLayout = filledLayoutExcept(["4:5"]);
-const singleEmptyRect = findMaxEmptyWorkspaceRect(singleEmptyLayout, { col: 4, row: 5 });
-assert.deepEqual(singleEmptyRect && pickPlacement(singleEmptyRect), { col: 4, row: 5, colSpan: 1, rowSpan: 1 });
-
-const twoByTwoEmptyLayout = filledLayoutExcept(["2:2", "3:2", "2:3", "3:3"]);
-const twoByTwoRect = findMaxEmptyWorkspaceRect(twoByTwoEmptyLayout, { col: 2, row: 2 });
-assert.deepEqual(twoByTwoRect && pickPlacement(twoByTwoRect), { col: 2, row: 2, colSpan: 2, rowSpan: 2 });
-
-const lShapedEmptyLayout = filledLayoutExcept(["1:1", "2:1", "1:2"]);
-const lShapedRect = findMaxEmptyWorkspaceRect(lShapedEmptyLayout, { col: 1, row: 1 });
-assert.deepEqual(lShapedRect && pickPlacement(lShapedRect), { col: 1, row: 1, colSpan: 2, rowSpan: 1 });
-assert.equal(findWorkspacePanelAtCell(lShapedEmptyLayout, { col: 3, row: 1 })?.id, "panel-3-1");
-
-const emptyDropCommand = createPanelDropCommand({
-  layout: singleEmptyLayout,
-  panelType: "chart",
-  activeSymbol: "NVDA",
-  cell: { col: 4, row: 5 }
-});
-assert.equal(emptyDropCommand?.type, "layout.panel.add");
-assert.equal((emptyDropCommand?.payload.props as Record<string, unknown> | undefined)?.symbol, "NVDA");
-assert.deepEqual(pickPlacement(emptyDropCommand?.payload.placement as PanelPlacement), { col: 4, row: 5, colSpan: 1, rowSpan: 1 });
-const emptyDropPreview = createPanelDropPreview({
-  layout: singleEmptyLayout,
-  panelType: "chart",
-  activeSymbol: "NVDA",
-  cell: { col: 4, row: 5 }
-});
-assert.equal(emptyDropPreview?.kind, "add");
-assert.deepEqual(pickPlacement(emptyDropPreview?.placement), { col: 4, row: 5, colSpan: 1, rowSpan: 1 });
-
-const replaceTarget = testPanel("replace-news", "newsFeed", testPlacement(2, 2, 2, 2));
-const replaceLayout = testLayout([replaceTarget]);
-const replaceCommand = createPanelDropCommand({
-  layout: replaceLayout,
-  panelType: "chart",
-  activeSymbol: "MSFT",
-  targetPanelId: replaceTarget.id
-});
-assert.equal(replaceCommand?.type, "layout.panel.replace");
-const orderReplaceCommand = createPanelDropCommand({
-  layout: replaceLayout,
-  panelType: "orderTicket",
-  activeSymbol: "MSFT",
-  targetPanelId: replaceTarget.id
-});
-assert.equal(orderReplaceCommand?.type, "layout.panel.replace");
-assert.equal(orderReplaceCommand?.payload.panelType, "orderTicket");
-const replacePreview = createPanelDropPreview({
-  layout: replaceLayout,
-  panelType: "chart",
-  activeSymbol: "MSFT",
-  targetPanelId: replaceTarget.id
-});
-assert.equal(replacePreview?.kind, "replace");
-if (replacePreview?.kind === "replace") {
-  assert.equal(replacePreview.panelId, replaceTarget.id);
-}
-let replaceState = {
-  ...createInitialLayoutRuntimeState(),
-  layout: replaceLayout,
-  history: [],
-  future: [],
-  journal: [],
-  errors: []
-};
-replaceState = executeLayoutCommand(replaceState, replaceCommand ?? makeLayoutCommand("layout.reflow", "user"));
-assert.equal(replaceState.layout.panels[0]?.id, replaceTarget.id);
-assert.equal(replaceState.layout.panels[0]?.type, "chart");
-assert.equal(replaceState.layout.panels[0]?.placement.colSpan, 2);
-assert.equal(replaceState.layout.panels[0]?.props.symbol, "MSFT");
-assert.ok(replaceState.layout.panels[0]?.chartDocumentId);
-assert.equal(replaceState.history.length, 1);
-
-const pinnedTarget = testPanel("pinned-news", "newsFeed", testPlacement(1, 1), true);
-const pinnedLayout = testLayout([pinnedTarget]);
-const pinnedPreview = createPanelDropPreview({
-  layout: pinnedLayout,
-  panelType: "chart",
-  activeSymbol: "TSLA",
-  targetPanelId: pinnedTarget.id
-});
-assert.equal(pinnedPreview?.kind, "blocked");
-if (pinnedPreview?.kind === "blocked") {
-  assert.match(pinnedPreview.reason, /Pinned/);
-}
-assert.equal(createPanelDropCommand({
-  layout: pinnedLayout,
-  panelType: "chart",
-  activeSymbol: "TSLA",
-  targetPanelId: pinnedTarget.id
-}), null);
-const pinnedState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: pinnedLayout,
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.replace", "user", { panelId: pinnedTarget.id, panelType: "chart", props: { symbol: "TSLA" } })
-);
-assert.equal(pinnedState.layout.panels[0]?.type, "newsFeed");
-assert.equal(pinnedState.history.length, 0);
-assert.equal(pinnedState.errors.length, 1);
-
-const sameTypeTarget = testPanel("same-chart", "chart", testPlacement(1, 1), false);
-const sameTypeLayout = testLayout([sameTypeTarget]);
-const sameTypeState = {
-  ...createInitialLayoutRuntimeState(),
-  layout: sameTypeLayout,
-  history: [],
-  future: [],
-  journal: [],
-  errors: []
-};
-const sameTypeResult = executeLayoutCommand(
-  sameTypeState,
-  makeLayoutCommand("layout.panel.replace", "user", { panelId: sameTypeTarget.id, panelType: "chart", props: { symbol: "SPY" } })
-);
-assert.equal(sameTypeResult.history.length, 0);
-assert.equal(sameTypeResult.journal.length, 0);
-assert.equal(sameTypeResult.layout.panels[0]?.chartDocumentId, sameTypeTarget.chartDocumentId);
-
-const priorityTarget = testPanel("priority-news", "newsFeed", testPlacement(1, 1), false);
-const priorityState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([priorityTarget]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.priority.set", "user", { panelId: priorityTarget.id, layoutWeight: 100 })
-);
-assert.equal(priorityState.layout.panels[0]?.layoutWeight, 100);
-assert.equal(priorityState.history.length, 1);
-
-const resizeMoveTarget = testPanel("resize-move-order", "orderTicket", testPlacement(4, 4, 1, 2));
-const resizeMoveState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([resizeMoveTarget]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.move", "user", {
-    panelId: resizeMoveTarget.id,
-    placement: testPlacement(1, 1, 3, 5)
-  }, { panelId: resizeMoveTarget.id })
-);
-const resizedMovePanel = resizeMoveState.layout.panels.find((panel) => panel.id === resizeMoveTarget.id);
-assert.deepEqual(resizedMovePanel && pickPlacement(resizedMovePanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
-
-const arrangeOrderPanel = testPanel("arrange-order", "orderTicket", testPlacement(4, 4, 1, 2));
-const arrangeState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([
-      testPanel("arrange-chart", "chart", testPlacement(1, 1, 3, 3)),
-      testPanel("arrange-news", "newsFeed", testPlacement(1, 4, 2, 2)),
-      testPanel("arrange-ontology", "ontologyGraph", testPlacement(4, 1, 1, 2)),
-      arrangeOrderPanel
-    ], arrangeOrderPanel.id),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panels.arrange", "user", {
-    placements: [
-      { panelId: arrangeOrderPanel.id, placement: testPlacement(1, 1, 3, 5), layoutWeight: 100 },
-      { panelId: "arrange-chart", placement: testPlacement(4, 1), layoutWeight: 40 },
-      { panelId: "arrange-news", placement: testPlacement(4, 2), layoutWeight: 40 },
-      { panelId: "arrange-ontology", placement: testPlacement(4, 3), layoutWeight: 40 }
-    ]
-  })
-);
-const arrangedOrderPanel = arrangeState.layout.panels.find((panel) => panel.id === arrangeOrderPanel.id);
-assert.deepEqual(arrangedOrderPanel && pickPlacement(arrangedOrderPanel.placement), { col: 1, row: 1, colSpan: 3, rowSpan: 5 });
-assert.equal(arrangedOrderPanel?.layoutWeight, 100);
-assert.equal(arrangeState.history.length, 1);
-
-const pinnedArrangePanel = testPanel("pinned-arrange-news", "newsFeed", testPlacement(2, 2), true);
-const pinnedArrangeState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([pinnedArrangePanel]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panels.arrange", "user", {
-    placements: [
-      { panelId: pinnedArrangePanel.id, placement: testPlacement(1, 1), layoutWeight: 100 }
-    ]
-  })
-);
-assert.deepEqual(pickPlacement(pinnedArrangeState.layout.panels[0]?.placement), { col: 2, row: 2, colSpan: 1, rowSpan: 1 });
-assert.equal(pinnedArrangeState.history.length, 0);
-assert.equal(pinnedArrangeState.errors.at(-1)?.message.includes("Pinned panel cannot be arranged"), true);
-
-const autoProposalTarget = testPanel("auto-proposal-news", "newsFeed", testPlacement(1, 1), false);
-const autoProposalBaseState = {
-  ...createInitialLayoutRuntimeState(),
-  layout: testLayout([autoProposalTarget]),
-  history: [],
-  future: [],
-  journal: [],
-  errors: [],
-  pendingProposals: []
-};
-const autoProposalState = applyLayoutProposal(autoProposalBaseState, {
-  id: "layout-proposal-auto",
-  title: "Agent analysis workspace",
-  rationale: "Test auto proposal.",
-  autoApply: true,
-  panelPriorities: [],
-  commands: [
-    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 95 })
-  ],
-  createdAt: "2026-06-29T00:00:00.000Z"
-});
-assert.equal(autoProposalState.layout.panels[0]?.layoutWeight, 95);
-assert.equal(autoProposalState.pendingProposals.length, 0);
-assert.equal(autoProposalState.journal[0]?.status, "applied");
-
-const failedProposalState = applyLayoutProposal(autoProposalBaseState, {
-  id: "layout-proposal-fail",
-  title: "Broken agent layout",
-  rationale: "Test rollback.",
-  autoApply: true,
-  panelPriorities: [],
-  commands: [
-    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: autoProposalTarget.id, layoutWeight: 96 }),
-    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "missing-panel", layoutWeight: 97 })
-  ],
-  createdAt: "2026-06-29T00:00:00.000Z"
-});
-assert.equal(failedProposalState.layout.panels[0]?.layoutWeight, autoProposalTarget.layoutWeight);
-assert.equal(failedProposalState.errors.length, 1);
-
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport);
 const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
@@ -1229,6 +877,17 @@ assert.equal(tiledChartContext?.layoutPinned, false);
 assert.equal(tiledChartContext?.layoutWeight, 100);
 assert.equal(tiledChartContext?.symbol, "NVDA");
 assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
+const chartOnlySymbolState = setDefaultChartPanelSymbol(tiledState, "NVDA");
+assert.equal(defaultChartPanelSymbol(chartOnlySymbolState), "NVDA");
+const chartOnlyContext = buildTiledAgentLayoutContext(chartOnlySymbolState, tiledViewport, "AAPL");
+const chartOnlyChartPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-chart") as
+  | { symbol?: string }
+  | undefined;
+const chartOnlyNewsPanel = chartOnlyContext.panels.find((panel) => panel.id === "slot-news") as
+  | { symbol?: string }
+  | undefined;
+assert.equal(chartOnlyChartPanel?.symbol, "NVDA");
+assert.equal(chartOnlyNewsPanel?.symbol, undefined);
 const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled",
@@ -1237,12 +896,28 @@ const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   autoApply: true,
   panelPriorities: [{ panelId: "slot-ontology", panelType: "ontologyGraph", layoutWeight: 100 }],
   commands: [
-    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 }, { panelId: "slot-ontology" })
+    makeAgentLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 }, { panelId: "slot-ontology" })
   ],
   createdAt: "2026-06-29T00:00:00.000Z"
 }, tiledViewport);
 const focusedOntologyRect = focusedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 assert.ok(focusedOntologyRect && originalOntologyRect && focusedOntologyRect.width > originalOntologyRect.width);
+const keepChartOnlyState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-remove",
+  title: "Keep chart",
+  rationale: "차트만 남기고 4개 패널을 숨겼습니다.",
+  autoApply: true,
+  panelPriorities: [{ panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }],
+  commands: [
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-news" }, { panelId: "slot-news" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-ontology" }, { panelId: "slot-ontology" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-portfolio" }, { panelId: "slot-portfolio" }),
+    makeAgentLayoutCommand("layout.panel.remove", "llm", { panelId: "slot-trade" }, { panelId: "slot-trade" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+assert.equal(keepChartOnlyState.slots.length, 1);
+assert.equal(keepChartOnlyState.slots[0]?.id, "slot-chart");
 const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled-arrange",
   title: "Arrange ontology",
@@ -1250,7 +925,7 @@ const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   autoApply: true,
   panelPriorities: [{ panelId: "slot-ontology", panelType: "ontologyGraph", layoutWeight: 100 }],
   commands: [
-    makeLayoutCommand("layout.panels.arrange", "llm", {
+    makeAgentLayoutCommand("layout.panels.arrange", "llm", {
       placements: [
         { panelId: "slot-ontology", placement: testPlacement(1, 1, 2, 3), layoutWeight: 100 },
         { panelId: "slot-chart", placement: testPlacement(1, 4, 4, 2), layoutWeight: 60 },
@@ -1274,18 +949,18 @@ const chartAddState = applyTiledAgentLayoutProposal(tiledState, {
     { panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }
   ],
   commands: [
-    makeLayoutCommand("layout.panel.add", "llm", {
+    makeAgentLayoutCommand("layout.panel.add", "llm", {
       panelId: "panel-chart-aapl",
       panelType: "chart",
       props: { symbol: "AAPL" },
       layoutWeight: 120,
       placement: testPlacement(1, 4, 4, 2)
     }, { panelId: "panel-chart-aapl" }),
-    makeLayoutCommand("layout.panel.priority.set", "llm", {
+    makeAgentLayoutCommand("layout.panel.priority.set", "llm", {
       panelId: "panel-chart-aapl",
       layoutWeight: 120
     }, { panelId: "panel-chart-aapl" }),
-    makeLayoutCommand("layout.panels.arrange", "llm", {
+    makeAgentLayoutCommand("layout.panels.arrange", "llm", {
       placements: [
         { panelId: "slot-news", placement: testPlacement(1, 1, 1, 1), layoutWeight: 40 },
         { panelId: "slot-ontology", placement: testPlacement(2, 1, 1, 1), layoutWeight: 40 },
@@ -1304,66 +979,18 @@ assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "A
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
 
-const primaryChart = testPanel("primary-chart", "chart", testPlacement(1, 1, 2, 2), false);
-const multiChartLayout = testLayout([primaryChart]);
-const multiChartState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: multiChartLayout,
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.add", "user", {
-    panelType: "chart",
-    placement: testPlacement(3, 1, 1, 2),
-    props: { symbol: "TSLA" }
-  })
-);
-const chartPanels = multiChartState.layout.panels.filter((panel) => panel.type === "chart");
+const chartPanels = [
+  runtimePanel("primary-chart", "chart"),
+  runtimePanel("secondary-chart", "chart", { symbol: "TSLA" })
+];
 assert.equal(chartPanels.length, 2);
 assert.notEqual(chartPanels[0]?.chartDocumentId, chartPanels[1]?.chartDocumentId);
 let multiChartRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.ensureDocuments",
-  panels: multiChartState.layout.panels
+  panels: chartPanels
 });
 assert.equal(multiChartRuntime.documents[chartPanels[0]?.chartDocumentId ?? ""]?.symbol, DEFAULT_CHART_SYMBOL);
 assert.equal(multiChartRuntime.documents[chartPanels[1]?.chartDocumentId ?? ""]?.symbol, "TSLA");
-
-const orderAddState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.add", "user", {
-    panelType: "orderTicket",
-    placement: testPlacement(4, 4, 1, 2)
-  })
-);
-assert.equal(orderAddState.layout.panels[0]?.type, "orderTicket");
-assert.equal(orderAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "orderTicket");
-
-const portfolioAddState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.add", "user", {
-    panelType: "portfolioHoldings",
-    placement: testPlacement(1, 4, 1, 2)
-  })
-);
-assert.equal(portfolioAddState.layout.panels[0]?.type, "portfolioHoldings");
-assert.equal(portfolioAddState.layout.panels[0]?.resourceRefs?.[0]?.kind, "portfolioView");
 
 assert.equal(clampRightOffset(120, 72, 160), 88);
 assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
@@ -1658,8 +1285,16 @@ assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /showChart/);
+assert.match(appSource, /showChartInCurrentPanel/);
+assert.match(appSource, /mainView\.mode === "chart"[\s\S]*showChartInCurrentPanel\(shortcut\.symbol\)/);
+assert.match(appSource, /normalizedShortcutSymbols/);
+assert.match(appSource, /shortcutSymbols\.length > 1/);
+assert.match(appSource, /setDefaultChartPanelSymbol\(panelState, primarySymbol\)/);
+assert.match(appSource, /차트를 같이 표시했습니다/);
 assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
+assert.match(appSource, /isInternalLayoutRationale/);
+assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
@@ -1700,6 +1335,7 @@ const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   chartAction: "add",
   chartPlacementIntent: "bottom",
   symbol: "NVDA",
+  symbols: ["NVDA", "AAPL"],
   canonicalName: "NVIDIA Corporation",
   matchedText: "엔비디아",
   matchedAlias: "엔비디아",
@@ -1712,6 +1348,7 @@ assert.equal(chartShortcutResolve.chartShortcut, true);
 assert.equal(chartShortcutResolve.chartAction, "add");
 assert.equal(chartShortcutResolve.chartPlacementIntent, "bottom");
 assert.equal(chartShortcutResolve.symbol, "NVDA");
+assert.deepEqual(chartShortcutResolve.symbols, ["NVDA", "AAPL"]);
 assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
 assert.equal(chartShortcutResolve.confidence, 0.98);
 
@@ -1735,7 +1372,7 @@ const layoutResolve = normalizeAgentLayoutResolveResponse({
     autoApply: true,
     panelPriorities: [],
     commands: [
-      makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 })
+      makeAgentLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 })
     ],
     createdAt: "2026-06-29T00:00:00.000Z"
   },
@@ -1745,6 +1382,16 @@ assert.equal(layoutResolve.status, "ui_layout");
 assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_clarify",
+  summary: "어떤 패널을 어떻게 바꿀지 조금 더 구체적으로 말해 주세요.",
+  route: { source: "ui-parser", intentType: "ui-clarify", selectedRoles: [] },
+  layoutProposal: null,
+  agentTrace: {}
+});
+assert.equal(layoutClarifyResolve.status, "ui_clarify");
+assert.equal(layoutClarifyResolve.summary, "어떤 패널을 어떻게 바꿀지 조금 더 구체적으로 말해 주세요.");
 
 const invalidLayoutResolve = normalizeAgentLayoutResolveResponse({ status: "mystery", layoutProposal: null });
 assert.equal(invalidLayoutResolve.status, "failed");
@@ -1777,14 +1424,14 @@ const agentAnalysisMultiAgentRequest = buildAgentAnalysisRequest({
 assert.equal(agentAnalysisMultiAgentRequest.analysisMode, "multi_agent");
 assert.deepEqual(agentAnalysisMultiAgentRequest.agentIds, ["agent-01", "agent-02"]);
 
-const agentLayoutContext = buildAgentLayoutContext(createPresetLayout("chart"));
+const agentLayoutContext = buildTiledAgentLayoutContext(createInitialTiledPanelState(tiledViewport), tiledViewport);
 const agentLayoutOrderPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "orderTicket");
 assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 4, rowSpan: 5 });
 assert.equal(Array.isArray(agentLayoutOrderPanel?.aliases), true);
 const agentLayoutPortfolioPanel = (agentLayoutContext as { panels: Array<Record<string, unknown>> }).panels.find((panel) => panel.type === "portfolioHoldings");
-assert.equal(agentLayoutPortfolioPanel?.title, "내 투자");
+assert.equal(agentLayoutPortfolioPanel?.title, "포트폴리오");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.equal((agentLayoutPortfolioPanel?.aliases as string[] | undefined)?.includes("보유종목"), true);
 
@@ -2018,42 +1665,10 @@ const agentNewsPanelUpdateReport = normalizeAgentAnalysisReport({
   }
 });
 assert.equal(agentNewsPanelUpdateReport.layoutProposal?.commands[0]?.type, "layout.panel.props.update");
-
-const newsPropsPanel = testPanel("news-props", "newsFeed", testPlacement(2, 2, 2, 2));
-const newsPropsState = executeLayoutCommand(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([newsPropsPanel]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  makeLayoutCommand("layout.panel.props.update", "system", {
-    panelId: newsPropsPanel.id,
-    props: {
-      latestNews: [{ title: "NVDA shares rise", symbols: ["NVDA"], impactDirection: "positive" }],
-      majorNews: []
-    }
-  })
+assert.equal(
+  (((agentNewsPanelUpdateReport.layoutProposal?.commands[0]?.payload.props as Record<string, unknown>)?.latestNews as unknown[]) ?? []).length,
+  1
 );
-assert.equal((newsPropsState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
-assert.equal(newsPropsState.history.length, 0);
-
-const newsProposalPanel = testPanel("panel-news", "newsFeed", testPlacement(2, 2, 2, 2));
-const newsProposalState = applyLayoutProposal(
-  {
-    ...createInitialLayoutRuntimeState(),
-    layout: testLayout([newsProposalPanel]),
-    history: [],
-    future: [],
-    journal: [],
-    errors: []
-  },
-  agentNewsPanelUpdateReport.layoutProposal!
-);
-assert.equal((newsProposalState.layout.panels[0]?.props.latestNews as unknown[])?.length, 1);
-assert.equal(newsProposalState.errors.length, 0);
 
 assert.deepEqual(getChartAgentAccess([{ id: "agent-01" }]), { enabled: true, reason: "agent-01" });
 assert.deepEqual(getChartAgentAccess([{ id: "agent-02" }]), { enabled: false, reason: "no-chart-agent" });
@@ -2093,28 +1708,10 @@ if (trendToolResult.ok) {
   assert.equal(trendToolResult.document.interactionState.trendLineExtension, "line");
 }
 
-const regressionPanelA = createPanelInstance(
-  "chart",
-  testPlacement(1, 1, 2, 3),
-  "system",
-  { symbol: "AAPL" },
-  "regression-chart-a"
-);
-const regressionPanelB = createPanelInstance(
-  "chart",
-  testPlacement(3, 1, 1, 3),
-  "system",
-  { symbol: "TSLA" },
-  "regression-chart-b"
-);
-const regressionNewsPanel = createPanelInstance(
-  "newsFeed",
-  testPlacement(4, 1, 1, 1),
-  "system",
-  {},
-  "regression-news"
-);
-const regressionLayout = testLayout([regressionPanelA, regressionPanelB, regressionNewsPanel], regressionPanelB.id);
+const regressionPanelA = runtimePanel("regression-chart-a", "chart", { symbol: "AAPL" });
+const regressionPanelB = runtimePanel("regression-chart-b", "chart", { symbol: "TSLA" });
+const regressionNewsPanel = runtimePanel("regression-news", "newsFeed");
+const regressionPanels = [regressionPanelA, regressionPanelB, regressionNewsPanel];
 const regressionDocAId = regressionPanelA.chartDocumentId ?? "";
 const regressionDocBId = regressionPanelB.chartDocumentId ?? "";
 assert.ok(regressionDocAId);
@@ -2123,25 +1720,25 @@ assert.notEqual(regressionDocAId, regressionDocBId);
 
 let regressionRuntime = chartRuntimeReducer(createInitialChartRuntimeState(), {
   kind: "chart.ensureDocuments",
-  panels: regressionLayout.panels
+  panels: regressionPanels
 });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.symbol, "AAPL");
 assert.equal(regressionRuntime.documents[regressionDocBId]?.symbol, "TSLA");
 
-assert.equal(findTargetChartPanel(regressionLayout.panels, regressionPanelB.id)?.id, regressionPanelB.id);
-assert.equal(findTargetChartPanel(regressionLayout.panels, regressionNewsPanel.id)?.id, regressionPanelA.id);
-assert.equal(findTargetChartPanel({ ...regressionLayout, selectedPanelId: undefined }.panels, undefined)?.id, regressionPanelA.id);
-assert.equal(resolveAgentChartReference(regressionLayout.panels, regressionRuntime, undefined), null);
+assert.equal(findTargetChartPanel(regressionPanels, regressionPanelB.id)?.id, regressionPanelB.id);
+assert.equal(findTargetChartPanel(regressionPanels, regressionNewsPanel.id)?.id, regressionPanelA.id);
+assert.equal(findTargetChartPanel(regressionPanels, undefined)?.id, regressionPanelA.id);
+assert.equal(resolveAgentChartReference(regressionPanels, regressionRuntime, undefined), null);
 const referenceToA = { panelId: regressionPanelA.id, chartDocumentId: regressionDocAId, draftSeed: DEFAULT_AGENT_DRAFT_SEED };
-const resolvedReferenceToA = resolveAgentChartReference(regressionLayout.panels, regressionRuntime, referenceToA);
+const resolvedReferenceToA = resolveAgentChartReference(regressionPanels, regressionRuntime, referenceToA);
 assert.equal(resolvedReferenceToA?.panel.id, regressionPanelA.id);
 assert.equal(resolvedReferenceToA?.document.id, regressionDocAId);
-assert.equal(resolveAgentChartReference(regressionLayout.panels, regressionRuntime, {
+assert.equal(resolveAgentChartReference(regressionPanels, regressionRuntime, {
   panelId: regressionNewsPanel.id,
   chartDocumentId: regressionDocAId
 }), null);
-assert.equal(isAgentChartReferenceAvailable(regressionLayout.panels, referenceToA), true);
-assert.equal(isAgentChartReferenceAvailable(regressionLayout.panels.filter((panel) => panel.id !== regressionPanelA.id), referenceToA), false);
+assert.equal(isAgentChartReferenceAvailable(regressionPanels, referenceToA), true);
+assert.equal(isAgentChartReferenceAvailable(regressionPanels.filter((panel) => panel.id !== regressionPanelA.id), referenceToA), false);
 assert.equal(resolveAgentSendContent("", DEFAULT_AGENT_DRAFT_SEED), DEFAULT_AGENT_DRAFT_SEED);
 assert.equal(resolveAgentSendContent("  MSFT도 비교해줘  ", DEFAULT_AGENT_DRAFT_SEED), "MSFT도 비교해줘");
 
@@ -2273,26 +1870,8 @@ assert.equal(regressionRuntime.pendingProposals.length, 1);
 assert.equal(regressionRuntime.pendingProposals[0]?.target.chartDocumentId, regressionDocBId);
 assert.deepEqual(regressionRuntime.documents[regressionDocBId]?.viewport, beforeViewportB);
 
-const regressionLayoutState = {
-  ...createInitialLayoutRuntimeState(),
-  layout: regressionLayout,
-  history: [],
-  future: [],
-  journal: [],
-  errors: []
-};
-const movedLayoutState = executeLayoutCommand(
-  regressionLayoutState,
-  makeLayoutCommand("layout.panel.move", "user", {
-    panelId: regressionNewsPanel.id,
-    placement: testPlacement(4, 2, 1, 1)
-  }, { panelId: regressionNewsPanel.id, group: "workspace", zone: "context" })
-);
-assert.equal(movedLayoutState.history.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.history.length, 3);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.history.length, 0);
-const undoneLayoutState = executeLayoutCommand(movedLayoutState, makeLayoutCommand("layout.undo", "user"));
-assert.equal(undoneLayoutState.layout.panels.find((panel) => panel.id === regressionNewsPanel.id)?.placement.row, 1);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.drawings.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.comparisons.length, 0);
 
@@ -2325,7 +1904,7 @@ regressionRuntime = {
 };
 const removedChartARuntime = chartRuntimeReducer(regressionRuntime, {
   kind: "chart.ensureDocuments",
-  panels: regressionLayout.panels.filter((panel) => panel.id !== regressionPanelA.id)
+  panels: regressionPanels.filter((panel) => panel.id !== regressionPanelA.id)
 });
 assert.equal(removedChartARuntime.documents[regressionDocAId], undefined);
 assert.ok(removedChartARuntime.documents[regressionDocBId]);
@@ -2683,9 +2262,11 @@ loosePreviewState = chartRuntimeReducer(loosePreviewState, {
 const loosePreview = loosePreviewState.pendingPreviewByDocumentId[loosePreviewDocument.id];
 assert.equal(loosePreview?.drawings.length, 1);
 assert.equal(loosePreview?.comparisons.length, 1);
-assert.equal(loosePreview?.drawings[0]?.style.color, "#111111");
+assert.equal(loosePreview?.drawings[0]?.style.color, undefined);
+assert.equal(loosePreview?.drawings[0]?.style.colorToken, "drawing");
 assert.equal(loosePreview?.drawings[0]?.style.lineWidth, 1.5);
-assert.equal(loosePreview?.comparisons[0]?.style.color, "#111111");
+assert.equal(loosePreview?.comparisons[0]?.style.color, undefined);
+assert.equal(loosePreview?.comparisons[0]?.style.colorToken, "drawing");
 const loosePreviewScene = buildRenderScene({
   state: "ready",
   document: loosePreviewDocument,
@@ -2734,5 +2315,7 @@ directPreviewState = chartRuntimeReducer(directPreviewState, {
 const directPreview = directPreviewState.pendingPreviewByDocumentId[directPreviewDocument.id];
 assert.equal(directPreview?.drawings.length, 1);
 assert.equal(directPreview?.comparisons.length, 1);
-assert.equal(directPreview?.drawings[0]?.style.color, "#111111");
-assert.equal(directPreview?.comparisons[0]?.style.color, "#111111");
+assert.equal(directPreview?.drawings[0]?.style.color, undefined);
+assert.equal(directPreview?.drawings[0]?.style.colorToken, "drawing");
+assert.equal(directPreview?.comparisons[0]?.style.color, undefined);
+assert.equal(directPreview?.comparisons[0]?.style.colorToken, "drawing");

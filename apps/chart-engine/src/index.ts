@@ -16,5 +16,6 @@ export * from "./renderScene";
 export * from "./runtime";
 export * from "./scales";
 export * from "./symbols";
+export * from "./theme";
 export * from "./types";
 export * from "./viewport";

@@ -5,17 +5,30 @@ import {
   type AgentAnalysisReport,
   type IntentRoute
 } from "../agents/agentAnalysis";
-import type { LayoutProposal } from "../layout/types";
+import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 
-const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed"]);
+const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed", "canceled"]);
 const AGENT_REPORT_POLL_INTERVAL_MS = 1000;
 const AGENT_REPORT_POLL_TIMEOUT_MS = 120000;
 const AGENT_ENTITY_RESOLVE_STATUSES = new Set<AgentEntityResolveStatus>(["confirmed", "not_found", "ambiguous", "unsupported"]);
-const AGENT_LAYOUT_RESOLVE_STATUSES = new Set<AgentLayoutResolveStatus>(["ui_layout", "not_ui", "failed"]);
+const AGENT_LAYOUT_RESOLVE_STATUSES = new Set<AgentLayoutResolveStatus>(["ui_layout", "ui_clarify", "not_ui", "failed"]);
 
 type AgentAnalysisRequest = {
   symbol: string;
   prompt: string;
+};
+
+export type AgentAnalysisAccepted = {
+  analysisId: string;
+  status: string;
+  statusUrl: string;
+  streamUrl?: string;
+};
+
+export type AgentAnalysisRequestOptions = {
+  requestId?: string;
+  signal?: AbortSignal;
+  onAccepted?: (accepted: AgentAnalysisAccepted) => void;
 };
 
 export type AgentEntityResolveStatus = "confirmed" | "not_found" | "ambiguous" | "unsupported";
@@ -26,6 +39,7 @@ export type AgentEntityResolveResponse = {
   chartAction?: "replace" | "add" | "none";
   chartPlacementIntent?: "top" | "bottom" | "left" | "right" | "center";
   symbol?: string;
+  symbols?: string[];
   canonicalName?: string;
   matchedText?: string;
   matchedAlias?: string;
@@ -34,7 +48,7 @@ export type AgentEntityResolveResponse = {
   reason?: string;
 };
 
-export type AgentLayoutResolveStatus = "ui_layout" | "not_ui" | "failed";
+export type AgentLayoutResolveStatus = "ui_layout" | "ui_clarify" | "not_ui" | "failed";
 
 export type AgentLayoutResolveResponse = {
   status: AgentLayoutResolveStatus;
@@ -42,7 +56,7 @@ export type AgentLayoutResolveResponse = {
   rationale?: string;
   analysisId?: string;
   route: IntentRoute | null;
-  layoutProposal: LayoutProposal | null;
+  layoutProposal: AgentLayoutProposal | null;
   agentTrace: Record<string, unknown>;
 };
 
@@ -55,20 +69,26 @@ export async function requestAgentAnalysis({ symbol, prompt }: AgentAnalysisRequ
   });
 }
 
-export async function requestAgentAnalysisPayload(payload: unknown): Promise<AgentAnalysisReport> {
+export async function requestAgentAnalysisPayload(payload: unknown, options: AgentAnalysisRequestOptions = {}): Promise<AgentAnalysisReport> {
+  const requestId = options.requestId ?? makeAgentRequestId();
   const response = await fetch("/api/agents/analyze", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Idempotency-Key": makeIdempotencyKey()
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payloadWithRequestId(payload, requestId)),
+    signal: options.signal
   });
   const responsePayload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(readApiErrorMessage(response, responsePayload, "Agent analysis API"));
   }
-  return waitForAgentAnalysisReport(responsePayload);
+  const accepted = normalizeAgentAccepted(responsePayload);
+  if (accepted) {
+    options.onAccepted?.(accepted);
+  }
+  return waitForAgentAnalysisReport(responsePayload, options.signal);
 }
 
 export function formatAgentAnalysisForChat(report: AgentAnalysisReport): string {
@@ -109,6 +129,30 @@ export async function resolveAgentChartShortcut(query: string): Promise<AgentEnt
   }
 }
 
+export async function cancelAgentAnalysis(analysisId: string): Promise<AgentAnalysisReport | null> {
+  const requestId = analysisId.trim();
+  if (!requestId) {
+    return null;
+  }
+  const response = await fetch(`/api/agents/reports/${encodeURIComponent(requestId)}/cancel`, {
+    method: "POST",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(readApiErrorMessage(response, payload, "Agent cancel API"));
+  }
+  return normalizeAgentAnalysisPayload(payload);
+}
+
+export function createAgentAnalysisRequestId(): string {
+  return makeAgentRequestId();
+}
+
+export function isAgentRequestAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export function normalizeAgentLayoutResolveResponse(payload: unknown): AgentLayoutResolveResponse {
   const source = readObject(payload);
   const rawStatus = readString(source?.status);
@@ -138,6 +182,7 @@ export function normalizeAgentEntityResolveResponse(payload: unknown): AgentEnti
     chartAction: readChartAction(source?.chartAction),
     chartPlacementIntent: readChartPlacementIntent(source?.chartPlacementIntent),
     symbol: readString(source?.symbol) ?? undefined,
+    symbols: readArray(source?.symbols).map(readString).filter((item): item is string => Boolean(item)),
     canonicalName: readString(source?.canonicalName) ?? undefined,
     matchedText: readString(source?.matchedText) ?? undefined,
     matchedAlias: readString(source?.matchedAlias) ?? undefined,
@@ -171,7 +216,8 @@ function normalizeIntentRoute(value: unknown): IntentRoute | null {
   };
 }
 
-async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalysisReport> {
+async function waitForAgentAnalysisReport(payload: unknown, signal?: AbortSignal): Promise<AgentAnalysisReport> {
+  throwIfAborted(signal);
   let report = normalizeAgentAnalysisPayload(payload);
   if (isTerminalAgentReport(report)) {
     return report;
@@ -180,8 +226,11 @@ async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalys
   const streamUrl = resolveAgentReportStreamUrl(payload);
   if (streamUrl && typeof EventSource !== "undefined") {
     try {
-      return await waitForAgentAnalysisReportStream(streamUrl);
-    } catch {
+      return await waitForAgentAnalysisReportStream(streamUrl, signal);
+    } catch (error) {
+      if (isAgentRequestAbortError(error)) {
+        throw error;
+      }
       // Redis/SSE may be unavailable in local and compatibility deployments.
     }
   }
@@ -189,8 +238,9 @@ async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalys
   const statusUrl = resolveAgentReportStatusUrl(payload, report);
   const deadline = Date.now() + AGENT_REPORT_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    await sleep(AGENT_REPORT_POLL_INTERVAL_MS);
-    const response = await fetch(statusUrl, { headers: { Accept: "application/json" } });
+    throwIfAborted(signal);
+    await sleep(AGENT_REPORT_POLL_INTERVAL_MS, signal);
+    const response = await fetch(statusUrl, { headers: { Accept: "application/json" }, signal });
     const nextPayload = await response.json().catch(() => null);
     if (!response.ok) {
       throw new Error(readApiErrorMessage(response, nextPayload, "Agent report API"));
@@ -204,8 +254,9 @@ async function waitForAgentAnalysisReport(payload: unknown): Promise<AgentAnalys
   throw new Error("AI 분석 결과를 제한 시간 안에 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
 }
 
-function waitForAgentAnalysisReportStream(streamUrl: string): Promise<AgentAnalysisReport> {
+function waitForAgentAnalysisReportStream(streamUrl: string, signal?: AbortSignal): Promise<AgentAnalysisReport> {
   return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
     const source = new EventSource(streamUrl);
     let settled = false;
     const timeout = globalThis.setTimeout(() => {
@@ -219,8 +270,14 @@ function waitForAgentAnalysisReportStream(streamUrl: string): Promise<AgentAnaly
       settled = true;
       globalThis.clearTimeout(timeout);
       source.close();
+      signal?.removeEventListener("abort", handleAbort);
       complete();
     };
+
+    const handleAbort = () => {
+      finish(() => reject(new DOMException("Aborted", "AbortError")));
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
 
     source.addEventListener("report", (event) => {
       try {
@@ -297,6 +354,9 @@ function statusSummaryForAgentReport(status: string): string {
   if (status === "failed") {
     return "AI 분석에 실패했습니다.";
   }
+  if (status === "canceled") {
+    return "AI 분석을 중단했습니다.";
+  }
   return `AI 분석 상태: ${status}`;
 }
 
@@ -331,8 +391,53 @@ function makeIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+function makeAgentRequestId(): string {
+  return `agent-request-${makeIdempotencyKey().replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`;
+}
+
+function payloadWithRequestId(payload: unknown, requestId: string): unknown {
+  const source = readObject(payload);
+  if (!source) {
+    return payload;
+  }
+  return {
+    ...source,
+    requestId,
+    analysisId: readString(source.analysisId) ?? requestId
+  };
+}
+
+function normalizeAgentAccepted(payload: unknown): AgentAnalysisAccepted | null {
+  const report = normalizeAgentAnalysisPayload(payload);
+  const source = readObject(payload);
+  const statusUrl = readString(source?.status_url) ?? readString(source?.statusUrl) ?? `/api/agents/reports/${encodeURIComponent(report.analysisId)}`;
+  return {
+    analysisId: report.analysisId,
+    status: report.status ?? "unknown",
+    statusUrl,
+    streamUrl: readString(source?.stream_url) ?? readString(source?.streamUrl) ?? undefined
+  };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+}
+
+function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, milliseconds);
+    const handleAbort = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
+  });
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
