@@ -1299,26 +1299,15 @@ h2 {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 34px;
+  width: 30px;
   height: 34px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: var(--color-surface);
+  border-radius: 0;
+  background: none;
   color: var(--color-preview);
   font-size: 12px;
   font-weight: 800;
-  box-shadow: var(--surface-raised-highlight-shadow);
-}
-
-.agent-box button::after {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: var(--surface-raised-depth-shadow);
-  opacity: var(--surface-raised-depth-opacity);
-  pointer-events: none;
-  content: "";
 }
 
 .agent-box button svg {
