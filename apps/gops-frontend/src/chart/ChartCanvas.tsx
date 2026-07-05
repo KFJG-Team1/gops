@@ -188,9 +188,10 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
     const bodyTop = Math.min(open, close);
     const bodyHeight = Math.max(2, Math.abs(close - open));
     const bodyBottom = bodyTop + bodyHeight;
+    const bodyWidth = candleBodyWidth(scene, unit);
     line(context, center, high, center, bodyTop);
     line(context, center, bodyBottom, center, low);
-    context.fillRect(center - scene.scales.candleWidth / 2, bodyTop, scene.scales.candleWidth, bodyHeight);
+    context.fillRect(center - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
     context.restore();
   });
 }
@@ -211,10 +212,11 @@ function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
     context.globalAlpha *= semanticContextOpacity(scene, unit);
     context.fillStyle = colors.muted;
     context.globalAlpha *= 0.18;
+    const bodyWidth = candleBodyWidth(scene, unit);
     context.fillRect(
-      unitCenterX(scene, unit) - scene.scales.candleWidth / 2,
+      unitCenterX(scene, unit) - bodyWidth / 2,
       y,
-      scene.scales.candleWidth,
+      bodyWidth,
       scene.plot.bottom - y
     );
     context.restore();
@@ -949,6 +951,13 @@ function isThemeColorToken(value: unknown): value is ThemeColorToken {
 
 function candleUnits(scene: ChartScene): SemanticCandleUnit[] {
   return scene.semantic.units.filter((unit): unit is SemanticCandleUnit => unit.kind === "candle");
+}
+
+function candleBodyWidth(scene: ChartScene, unit: SemanticCandleUnit): number {
+  const unitSlotWidth = Math.max(0.2, unit.slotEnd - unit.slotStart);
+  const unitPixelWidth = unitSlotWidth * scene.scales.slotWidth;
+  const minWidth = unit.depth > 0 ? 0.7 : 2;
+  return Math.max(minWidth, Math.min(72, unitPixelWidth * 0.78));
 }
 
 function circle(context: CanvasRenderingContext2D, x: number, y: number, radius: number) {

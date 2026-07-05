@@ -116,6 +116,9 @@ type BuildSemanticTimelineInput = {
 
 const placeholderSlotWidth = 8;
 const footprintSlotWidth = 12;
+const intradayChildCandleSlotWidth = 0.36;
+const dailyChildCandleSlotWidth = 0.5;
+const weeklyChildCandleSlotWidth = 0.6;
 
 export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterval {
   switch (interval) {
@@ -181,8 +184,8 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const unitById = new Map<string, SemanticRenderUnit>();
   const expansionByParent = new Map(input.expansions.map((expansion) => [expansion.parentNodeId, expansion]));
   const maxExpansionWidth = Math.max(0, ...input.expansions.map((expansion) => expansionSlotWidth(expansion, expansionByParent)));
-  const renderStartIndex = Math.max(0, input.visibleStartIndex - maxExpansionWidth - 2);
-  const renderEndIndex = Math.min(input.candles.length, input.visibleEndIndex + maxExpansionWidth + 2);
+  const renderStartIndex = Math.max(0, Math.floor(input.visibleStartIndex - maxExpansionWidth - 2));
+  const renderEndIndex = Math.min(input.candles.length, Math.ceil(input.visibleEndIndex + maxExpansionWidth + 2));
 
   const rememberUnit = (unit: SemanticRenderUnit) => {
     units.push(unit);
@@ -202,7 +205,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     message: string
   ): number => {
     const width = kind === "footprint" ? footprintSlotWidth : placeholderSlotWidthForExpansion(expansion);
-    const slotEnd = slotStart + width;
+    const slotEnd = normalizeSlot(slotStart + width);
     rememberUnit({
       kind,
       id: `${kind}:${expansion.id}`,
@@ -217,7 +220,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       message,
       slotStart,
       slotEnd,
-      slotCenter: (slotStart + slotEnd) / 2
+      slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
     });
     return slotEnd;
   };
@@ -228,8 +231,9 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       cursor = appendPlaceholder(expansion, "footprint", cursor, "footprint");
     } else if (expansion.status === "ready" && expansion.candles.length > 0) {
       const childInterval = expansion.childInterval;
+      const childSlotWidth = childCandleSlotWidthForExpansion(expansion);
       expansion.candles.forEach((childCandle) => {
-        cursor = appendCandle(childCandle, childInterval, expansion.depth, expansion.id, undefined, cursor, true);
+        cursor = appendCandle(childCandle, childInterval, expansion.depth, expansion.id, undefined, cursor, true, childSlotWidth);
       });
     } else {
       const message = expansion.status === "loading"
@@ -239,8 +243,8 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
           : expansion.message ?? "error";
       cursor = appendPlaceholder(expansion, "placeholder", cursor, message);
     }
-    const slotEnd = Math.max(slotStart + 1, cursor);
-    const slotCenter = (slotStart + slotEnd) / 2;
+    const slotEnd = normalizeSlot(Math.max(slotStart + 1, cursor));
+    const slotCenter = normalizeSlot((slotStart + slotEnd) / 2);
     if (!timestampToSlot.has(expansion.parentTimestamp)) {
       timestampToSlot.set(expansion.parentTimestamp, slotCenter);
     }
@@ -259,7 +263,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       slotStart,
       slotEnd
     });
-    return cursor;
+    return slotEnd;
   };
 
   const appendCandle = (
@@ -269,7 +273,8 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     parentExpansionId: string | undefined,
     sourceIndex: number | undefined,
     slotStart: number,
-    allowExpansion: boolean
+    allowExpansion: boolean,
+    slotWidth = 1
   ): number => {
     const range = candleRange(candle, interval);
     const id = semanticNodeId(input.symbol, interval, candle.timestamp, parentExpansionId);
@@ -282,6 +287,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       return slotEnd;
     }
 
+    const slotEnd = normalizeSlot(slotStart + slotWidth);
     const unit: SemanticCandleUnit = {
       kind: "candle",
       id,
@@ -295,8 +301,8 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       parentExpansionId,
       sourceIndex,
       slotStart,
-      slotEnd: slotStart + 1,
-      slotCenter: slotStart + 0.5
+      slotEnd,
+      slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
     };
     rememberUnit(unit);
     if (typeof sourceIndex === "number") {
@@ -322,7 +328,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       continue;
     }
     const slotEnd = appendCandle(candle, input.interval, 0, undefined, index, slotStart, true);
-    extraSlots += Math.max(0, slotEnd - slotStart - 1);
+    extraSlots = normalizeSlot(extraSlots + Math.max(0, slotEnd - slotStart - 1));
   }
 
   return {
@@ -349,13 +355,28 @@ function expansionSlotWidth(
     return footprintSlotWidth;
   }
   if (expansion.status === "ready" && expansion.candles.length > 0) {
-    return Math.max(1, expansion.candles.reduce((total, candle) => {
+    const childCandleSlotWidth = childCandleSlotWidthForExpansion(expansion);
+    return normalizeSlot(Math.max(1, expansion.candles.reduce((total, candle) => {
       const childNodeId = semanticNodeId(expansion.symbol, childInterval, candle.timestamp, expansion.id);
       const childExpansion = expansionByParent.get(childNodeId);
-      return total + (childExpansion ? expansionSlotWidth(childExpansion, expansionByParent, nextVisited) : 1);
-    }, 0));
+      return total + (childExpansion ? expansionSlotWidth(childExpansion, expansionByParent, nextVisited) : childCandleSlotWidth);
+    }, 0)));
   }
   return placeholderSlotWidthForExpansion(expansion);
+}
+
+function normalizeSlot(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function childCandleSlotWidthForExpansion(expansion: SemanticExpansion): number {
+  if (expansion.childInterval === "1W") {
+    return weeklyChildCandleSlotWidth;
+  }
+  if (expansion.childInterval === "1D") {
+    return dailyChildCandleSlotWidth;
+  }
+  return intradayChildCandleSlotWidth;
 }
 
 function placeholderSlotWidthForExpansion(expansion: SemanticExpansion): number {
@@ -367,19 +388,19 @@ function placeholderSlotWidthForExpansion(expansion: SemanticExpansion): number 
 
 function estimatedLoadingExpansionSlotWidth(expansion: SemanticExpansion): number {
   if (expansion.parentInterval === "1M" && expansion.childInterval === "1W") {
-    return 4;
+    return normalizeSlot(Math.max(1, 4 * childCandleSlotWidthForExpansion(expansion)));
   }
   if (expansion.parentInterval === "1W" && expansion.childInterval === "1D") {
-    return 5;
+    return normalizeSlot(Math.max(1, 5 * childCandleSlotWidthForExpansion(expansion)));
   }
   if (expansion.parentInterval === "1D" && expansion.childInterval === "10m") {
-    return 39;
+    return normalizeSlot(Math.max(1, 39 * childCandleSlotWidthForExpansion(expansion)));
   }
   if (expansion.parentInterval === "10m" && expansion.childInterval === "1m") {
-    return 10;
+    return normalizeSlot(Math.max(1, 10 * childCandleSlotWidthForExpansion(expansion)));
   }
   if (expansion.parentInterval === "5m" && expansion.childInterval === "1m") {
-    return 5;
+    return normalizeSlot(Math.max(1, 5 * childCandleSlotWidthForExpansion(expansion)));
   }
   return placeholderSlotWidth;
 }
