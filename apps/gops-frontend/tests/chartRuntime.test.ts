@@ -40,7 +40,12 @@ import {
   type SemanticExpansion
 } from "../src/chart/semanticTimeline";
 import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
-import type { CandleDto } from "../src/chart/types";
+import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
+import {
+  buildChartScene as buildFrontendChartScene,
+  createCoordinateTransform as createFrontendCoordinateTransform
+} from "../src/chart/scene";
+import type { CandleDto, ChartState, DrawingEntity } from "../src/chart/types";
 import {
   applyLayoutProposal,
   createInitialRuntimeState as createInitialLayoutRuntimeState,
@@ -176,6 +181,38 @@ function testCandle(timestamp: string, close = 100): CandleDto {
     close,
     volume: 100,
     isClosed: true
+  };
+}
+
+function frontendChartState(overrides: Partial<ChartState>): ChartState {
+  return {
+    symbol: "AAPL",
+    interval: "1D",
+    candles: [],
+    status: "ready",
+    layers: { candles: true, volume: true, ma5: false, ma20: false, ma60: false },
+    volumeRatio: 0.2,
+    visibleCount: 20,
+    rightOffset: 0,
+    toolMode: "select",
+    trendLineExtension: "segment",
+    drawings: [],
+    streamState: "idle",
+    ...overrides
+  };
+}
+
+function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
+  return {
+    id: "drawing-test",
+    type: "rangeBox",
+    anchors: [],
+    style: { color: "#2563eb", fillColor: "#2563eb", fillOpacity: 0.12 },
+    visible: true,
+    createdBy: "user",
+    createdAt: "2026-06-25T00:00:00.000Z",
+    updatedAt: "2026-06-25T00:00:00.000Z",
+    ...overrides
   };
 }
 
@@ -1333,6 +1370,68 @@ assert.deepEqual(
   ),
   { visibleCount: 6, rightOffset: 3 }
 );
+const drawingAnchorBeforePrepend = {
+  timestamp: visibleCandlesBeforePrepend[4]?.timestamp,
+  logicalIndex: 4,
+  price: visibleCandlesBeforePrepend[4]?.close,
+  paneId: "price" as const,
+  symbol: "AAPL"
+};
+const prependedScene = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: [...prependedCandles, ...visibleCandlesBeforePrepend],
+  visibleCount: 10,
+  rightOffset: 0
+}), 640, 360);
+const prependedTransform = createFrontendCoordinateTransform(prependedScene);
+assert.deepEqual(
+  prependedTransform.anchorToPoint(drawingAnchorBeforePrepend),
+  prependedTransform.anchorToPoint({
+    timestamp: drawingAnchorBeforePrepend.timestamp,
+    price: drawingAnchorBeforePrepend.price,
+    paneId: "price",
+    symbol: "AAPL"
+  })
+);
+
+const dailyDrawingScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
+  visibleCount: 20,
+  drawings: [testDrawing({
+    id: "drawing-daily-zone",
+    sourceInterval: "1D",
+    anchors: [
+      { timestamp: "2026-06-25T13:30:00Z", price: 98, paneId: "price", symbol: "AAPL" },
+      { timestamp: "2026-06-26T13:30:00Z", price: 108, paneId: "price", symbol: "AAPL" }
+    ],
+    label: "Daily zone"
+  })]
+}), 720, 360, { expansions: [readyExpansion] });
+const dailyProjection = resolveDrawingRenderItems(dailyDrawingScene, dailyDrawingScene.chart.drawings)
+  .find((item) => item.kind === "expansionProjection");
+assert.ok(dailyProjection);
+assert.equal(dailyProjection.expansionId, readyExpansion.id);
+assert.equal(Math.round(dailyProjection.left), Math.round(dailyDrawingScene.semantic.expansionRanges[0]?.left ?? -1));
+assert.equal(Math.round(dailyProjection.right), Math.round(dailyDrawingScene.semantic.expansionRanges[0]?.right ?? -1));
+
+const intradayDrawingScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
+  drawings: [testDrawing({
+    id: "drawing-intraday-line",
+    type: "trendLine",
+    sourceInterval: "1m",
+    anchors: [
+      { timestamp: "2026-06-25T13:40:00Z", price: 101, paneId: "price", symbol: "AAPL" },
+      { timestamp: "2026-06-25T13:45:00Z", price: 102, paneId: "price", symbol: "AAPL" }
+    ],
+    label: "1m scalp"
+  })]
+}), 720, 360);
+const intradayRenderItems = resolveDrawingRenderItems(intradayDrawingScene, intradayDrawingScene.chart.drawings);
+assert.equal(intradayRenderItems.some((item) => item.kind === "full" && item.drawing.id === "drawing-intraday-line"), false);
+assert.equal(intradayRenderItems.some((item) => item.kind === "collapsed" && item.drawing.id === "drawing-intraday-line"), true);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
 assert.equal(clampVisibleCount(1, 160, 400), 6);
