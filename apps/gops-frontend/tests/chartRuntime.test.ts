@@ -470,6 +470,21 @@ assert.equal(
   (loadingExpansionRange?.slotEnd ?? 0) - (loadingExpansionRange?.slotStart ?? 0),
   (readyExpansionRange?.slotEnd ?? 0) - (readyExpansionRange?.slotStart ?? 0)
 );
+const readyExpansionWidth = (readyExpansionRange?.slotEnd ?? 0) - (readyExpansionRange?.slotStart ?? 0);
+assert.ok(readyExpansionWidth < readyExpansion.candles.length / 2);
+const readyExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [readyExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 80
+});
+const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
+assert.ok(readyExpansionChildCandle);
+assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
