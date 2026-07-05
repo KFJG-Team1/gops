@@ -1,5 +1,10 @@
-import type { CommandActor, LayoutCommand, LayoutCommandType, LayoutProposal, PanelType, WorkspaceLayout } from "../layout/types";
-import { getPanelDefinition } from "../layout/panelRegistry";
+import {
+  agentLayoutCommandTypes,
+  type AgentLayoutCommand,
+  type AgentLayoutCommandType,
+  type AgentLayoutProposal,
+  type CommandActor
+} from "../layout/agentLayoutTypes";
 
 export type AgentEvidenceItem = {
   provider: string;
@@ -136,7 +141,7 @@ export type AgentAnalysisReport = {
   providerEvidence: AgentEvidenceItem[];
   dailySummaries: AgentDailyNewsSummary[];
   notificationDecision?: NotificationDecision | null;
-  layoutProposal?: LayoutProposal | null;
+  layoutProposal?: AgentLayoutProposal | null;
   timing?: AgentAnalysisTiming | null;
 };
 
@@ -157,17 +162,6 @@ export type AgentAnalysisMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   [key: string]: unknown;
-};
-
-const panelAliases: Record<PanelType, string[]> = {
-  chart: ["차트", "캔들", "가격 그래프", "chart"],
-  newsFeed: ["뉴스", "시장 뉴스", "기사", "헤드라인", "news"],
-  hotRanking: ["Hot Ranking", "거래대금", "거래대금 순위", "랭킹", "ranking"],
-  indicatorCompare: ["지표", "지표 비교", "인디케이터", "거시", "indicator"],
-  orderTicket: ["주문", "주문 입력", "주문창", "매수창", "매도창", "order", "ticket"],
-  portfolioHoldings: ["내 투자", "보유종목", "잔고", "계좌", "포트폴리오", "portfolio", "holdings", "balance"],
-  aiSummary: ["AI 요약", "요약", "AI 어시스턴트", "assistant"],
-  ontologyGraph: ["온톨로지", "관계 그래프", "기업 관계", "ontology"]
 };
 
 export function buildAgentAnalysisRequest({
@@ -195,28 +189,6 @@ export function buildAgentAnalysisRequest({
 export function shouldAutoApplyAgentLayoutProposal(report: AgentAnalysisReport, analysisMode: AgentAnalysisMode): boolean {
   const proposal = report.layoutProposal;
   return analysisMode === "auto" && proposal?.autoApply !== false && Boolean(proposal?.commands.length);
-}
-
-export function buildAgentLayoutContext(layout: WorkspaceLayout) {
-  return {
-    version: layout.version,
-    selectedPanelId: layout.selectedPanelId,
-    panels: layout.panels.map((panel) => {
-      const definition = getPanelDefinition(panel.type);
-      return {
-        id: panel.id,
-        type: panel.type,
-        title: panel.title ?? definition.title,
-        variant: panel.variant,
-        placement: panel.placement,
-        layoutPinned: Boolean(panel.layoutPinned),
-        layoutWeight: panel.layoutWeight,
-        minSpan: definition.minSpan,
-        maxSpan: definition.maxSpan,
-        aliases: panelAliases[panel.type]
-      };
-    })
-  };
 }
 
 export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisReport {
@@ -534,34 +506,7 @@ function normalizeTiming(value: unknown): AgentAnalysisTiming | null {
   };
 }
 
-const layoutCommandTypes: LayoutCommandType[] = [
-  "layout.panel.add",
-  "layout.panel.remove",
-  "layout.panel.move",
-  "layout.panel.replace",
-  "layout.panel.props.update",
-  "layout.panel.pin",
-  "layout.panel.unpin",
-  "layout.panel.select",
-  "layout.panel.priority.set",
-  "layout.panels.arrange",
-  "layout.boundary.resize",
-  "layout.reflow",
-  "layout.undo",
-  "layout.redo",
-  "layout.save",
-  "layout.update",
-  "layout.delete",
-  "layout.load",
-  "layout.favorite.set",
-  "layout.default.restore",
-  "layout.reset",
-  "layout.autoApply.set",
-  "layout.proposal.accept",
-  "layout.proposal.reject"
-];
-
-export function normalizeLayoutProposal(value: unknown): LayoutProposal | null {
+export function normalizeLayoutProposal(value: unknown): AgentLayoutProposal | null {
   const source = readObject(value);
   const title = readString(source?.title);
   const rationale = readString(source?.rationale);
@@ -576,15 +521,15 @@ export function normalizeLayoutProposal(value: unknown): LayoutProposal | null {
     autoApply: typeof source.autoApply === "boolean" ? source.autoApply : true,
     panelPriorities: readArray(source.panelPriorities)
       .map(normalizePanelPriority)
-      .filter((item): item is NonNullable<LayoutProposal["panelPriorities"]>[number] => Boolean(item)),
+      .filter((item): item is NonNullable<AgentLayoutProposal["panelPriorities"]>[number] => Boolean(item)),
     commands: readArray(source.commands)
       .map(normalizeLayoutCommand)
-      .filter((item): item is LayoutCommand => Boolean(item)),
+      .filter((item): item is AgentLayoutCommand => Boolean(item)),
     createdAt: readString(source.createdAt) ?? new Date().toISOString()
   };
 }
 
-function normalizePanelPriority(value: unknown): NonNullable<LayoutProposal["panelPriorities"]>[number] | null {
+function normalizePanelPriority(value: unknown): NonNullable<AgentLayoutProposal["panelPriorities"]>[number] | null {
   const source = readObject(value);
   const panelId = readString(source?.panelId);
   const layoutWeight = readNumber(source?.layoutWeight);
@@ -599,7 +544,7 @@ function normalizePanelPriority(value: unknown): NonNullable<LayoutProposal["pan
   };
 }
 
-function normalizeLayoutCommand(value: unknown): LayoutCommand | null {
+function normalizeLayoutCommand(value: unknown): AgentLayoutCommand | null {
   const source = readObject(value);
   const type = readLayoutCommandType(source?.type);
   const payload = readObject(source?.payload);
@@ -626,9 +571,9 @@ function normalizeLayoutCommand(value: unknown): LayoutCommand | null {
   };
 }
 
-function readLayoutCommandType(value: unknown): LayoutCommandType | null {
-  return typeof value === "string" && layoutCommandTypes.includes(value as LayoutCommandType)
-    ? value as LayoutCommandType
+function readLayoutCommandType(value: unknown): AgentLayoutCommandType | null {
+  return typeof value === "string" && agentLayoutCommandTypes.includes(value as AgentLayoutCommandType)
+    ? value as AgentLayoutCommandType
     : null;
 }
 

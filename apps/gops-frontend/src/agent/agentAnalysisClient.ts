@@ -5,7 +5,7 @@ import {
   type AgentAnalysisReport,
   type IntentRoute
 } from "../agents/agentAnalysis";
-import type { LayoutProposal } from "../layout/types";
+import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 
 const AGENT_REPORT_TERMINAL_STATUSES = new Set(["completed", "deep_completed", "failed"]);
 const AGENT_REPORT_POLL_INTERVAL_MS = 1000;
@@ -40,7 +40,7 @@ export type AgentLayoutResolveResponse = {
   rationale?: string;
   analysisId?: string;
   route: IntentRoute | null;
-  layoutProposal: LayoutProposal | null;
+  layoutProposal: AgentLayoutProposal | null;
   agentTrace: Record<string, unknown>;
 };
 

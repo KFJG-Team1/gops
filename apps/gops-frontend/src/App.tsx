@@ -35,18 +35,21 @@ import {
   navigationGap,
   treeMapHoverMetaReserve
 } from "./layout/workspaceMetrics";
+import {
+  createMainViewUrl,
+  mainViewsEqual,
+  mainViewUrlPath,
+  normalizeStoredSymbol,
+  resolveMainViewFromUrl,
+  type MainView
+} from "./navigation/mainViewUrl";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
 import { sp500UniverseSeed } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
-type MainView =
-  | { mode: "treemap" }
-  | { mode: "chart"; symbol: string };
-
 type LayoutDrag =
   { mode: "treemap"; type: "resize-bottom"; startY: number; startHeight: number };
 
-const mainViewStorageKey = "gops:main-view";
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 
 let chatLogEntrySequence = 0;
@@ -85,9 +88,64 @@ export function App() {
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
 
+  const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
+    setSemanticSelection(null);
+    setTreeMapLaneHover(false);
+    setChartHeader(null);
+    if (options.closeBottomMenu || nextView.mode === "treemap") {
+      setActiveBottomMenu(null);
+    }
+    persistMainView(nextView);
+    setMainView(nextView);
+  }, []);
+
+  const navigateMainView = useCallback((nextView: MainView, options: { replace?: boolean; closeBottomMenu?: boolean } = {}) => {
+    if (typeof window !== "undefined" && window.history) {
+      const currentView = resolveMainViewFromUrl(window.location.href).view;
+      const nextUrl = createMainViewUrl(window.location.href, nextView);
+      const currentUrl = mainViewUrlPath(window.location.href);
+      if (nextUrl !== currentUrl) {
+        if (options.replace || mainViewsEqual(currentView, nextView)) {
+          window.history.replaceState(window.history.state, "", nextUrl);
+        } else {
+          window.history.pushState(window.history.state, "", nextUrl);
+        }
+      }
+    }
+    applyMainViewState(nextView, { closeBottomMenu: options.closeBottomMenu });
+  }, [applyMainViewState]);
+
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.history?.replaceState) {
+      return;
+    }
+    const resolved = resolveMainViewFromUrl(window.location.href);
+    const currentUrl = mainViewUrlPath(window.location.href);
+    if (resolved.url !== currentUrl) {
+      window.history.replaceState(window.history.state, "", resolved.url);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const handlePopState = () => {
+      const resolved = resolveMainViewFromUrl(window.location.href);
+      const currentUrl = mainViewUrlPath(window.location.href);
+      if (window.history?.replaceState && resolved.url !== currentUrl) {
+        window.history.replaceState(window.history.state, "", resolved.url);
+      }
+      applyMainViewState(resolved.view, { closeBottomMenu: true });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [applyMainViewState]);
 
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     void event;
@@ -157,13 +215,8 @@ export function App() {
 
   const showChart = useCallback((symbol: string) => {
     const nextView: MainView = { mode: "chart", symbol: normalizeStoredSymbol(symbol) || "NVDA" };
-    setSemanticSelection(null);
-    setTreeMapLaneHover(false);
-    setChartHeader(null);
-    persistMainView(nextView);
-    replaceMainViewUrl(nextView);
-    setMainView(nextView);
-  }, []);
+    navigateMainView(nextView);
+  }, [navigateMainView]);
 
   useEffect(() => {
     if (!canUseAgent && chartCommandMode) {
@@ -172,13 +225,7 @@ export function App() {
   }, [canUseAgent, chartCommandMode]);
 
   const showTreeMap = () => {
-    const nextView: MainView = { mode: "treemap" };
-    setSemanticSelection(null);
-    setChartHeader(null);
-    setActiveBottomMenu(null);
-    persistMainView(nextView);
-    replaceMainViewUrl(nextView);
-    setMainView(nextView);
+    navigateMainView({ mode: "treemap" }, { closeBottomMenu: true });
   };
 
   const toggleBottomMenu = (key: BottomMenuKey) => {
@@ -411,52 +458,18 @@ function initialMainView(): MainView {
   if (typeof window === "undefined") {
     return { mode: "treemap" };
   }
-  const urlSymbol = normalizeStoredSymbol(new URLSearchParams(window.location.search).get("symbol"));
-  if (urlSymbol) {
-    return { mode: "chart", symbol: urlSymbol };
-  }
-  try {
-    const storedView = window.localStorage.getItem(mainViewStorageKey);
-    const storedSymbol = normalizeStoredSymbol(window.localStorage.getItem(lastChartSymbolStorageKey));
-    if (storedView === "chart" && storedSymbol) {
-      return { mode: "chart", symbol: storedSymbol };
-    }
-  } catch {
-    return { mode: "treemap" };
-  }
-  return { mode: "treemap" };
+  return resolveMainViewFromUrl(window.location.href).view;
 }
 
 function persistMainView(view: MainView) {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || view.mode !== "chart") {
     return;
   }
   try {
-    window.localStorage.setItem(mainViewStorageKey, view.mode);
-    if (view.mode === "chart") {
-      window.localStorage.setItem(lastChartSymbolStorageKey, view.symbol);
-    }
+    window.localStorage.setItem(lastChartSymbolStorageKey, view.symbol);
   } catch {
     // Browsers can disable storage; URL state still carries direct links.
   }
-}
-
-function replaceMainViewUrl(view: MainView) {
-  if (typeof window === "undefined" || !window.history?.replaceState) {
-    return;
-  }
-  const url = new URL(window.location.href);
-  if (view.mode === "chart") {
-    url.searchParams.set("symbol", view.symbol);
-  } else {
-    url.searchParams.delete("symbol");
-  }
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-function normalizeStoredSymbol(value: string | null | undefined): string {
-  const symbol = String(value ?? "").trim().toUpperCase();
-  return /^[A-Z0-9.\-]{1,16}$/.test(symbol) ? symbol : "";
 }
 
 function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string {
