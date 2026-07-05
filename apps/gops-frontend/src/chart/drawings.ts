@@ -140,6 +140,18 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
   }
 }
 
+export function sourceIntervalForDrawingAnchors(anchors: DrawingAnchor[], fallback?: ChartInterval): ChartInterval | undefined {
+  const intervals = anchors
+    .map((anchor) => anchor.interval)
+    .filter((interval): interval is ChartInterval => isChartInterval(interval));
+  if (!intervals.length) {
+    return fallback;
+  }
+  return intervals.reduce((best, interval) => (
+    intervalGranularityRank(interval) < intervalGranularityRank(best) ? interval : best
+  ), intervals[0]);
+}
+
 export function normalizeLineExtension(extension: unknown): ChartLineExtension {
   return extension === "ray" || extension === "line" ? extension : "segment";
 }
@@ -203,6 +215,27 @@ function anchorLogicalIndex(anchor: DrawingAnchor, timestampIndex: Map<string, n
     }
   }
   return typeof anchor.logicalIndex === "number" ? anchor.logicalIndex : 0;
+}
+
+function isChartInterval(value: unknown): value is ChartInterval {
+  return value === "1m" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M";
+}
+
+function intervalGranularityRank(interval: ChartInterval): number {
+  switch (interval) {
+    case "1m":
+      return 1;
+    case "5m":
+      return 5;
+    case "10m":
+      return 10;
+    case "1D":
+      return 1_440;
+    case "1W":
+      return 10_080;
+    case "1M":
+      return 43_200;
+  }
 }
 
 export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawing: DrawingEntity; anchorIndex: number | null } | null {

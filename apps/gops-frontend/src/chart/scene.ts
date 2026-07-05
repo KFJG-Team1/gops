@@ -170,7 +170,10 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
       return slotCenterToX(scene, semanticSlot);
     }
     const logicalIndex = timestampIndex.get(timestamp);
-    return typeof logicalIndex === "number" ? logicalToX(logicalIndex) : null;
+    if (typeof logicalIndex === "number") {
+      return logicalToX(logicalIndex);
+    }
+    return continuousTimestampToX(scene, timestamp);
   };
 
   return {
@@ -199,7 +202,7 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
       const semanticHit = hitTestSemanticNode(scene, x, y);
       if (semanticHit?.kind === "candle") {
         return {
-          timestamp: semanticHit.timestamp,
+          timestamp: timestampAtUnitX(scene, semanticHit, x),
           logicalIndex: semanticHit.sourceIndex,
           price: yToPrice(y),
           paneId: "price",
@@ -222,6 +225,50 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
       };
     }
   };
+}
+
+function continuousTimestampToX(scene: ChartScene, timestamp: string): number | null {
+  const time = Date.parse(timestamp);
+  if (!Number.isFinite(time)) {
+    return null;
+  }
+  const expansion = scene.semantic.expansionRanges.find((range) => {
+    const start = Date.parse(range.from);
+    const end = Date.parse(range.to);
+    return Number.isFinite(start) && Number.isFinite(end) && time >= Math.min(start, end) && time <= Math.max(start, end);
+  });
+  if (expansion) {
+    const start = Date.parse(expansion.from);
+    const end = Date.parse(expansion.to);
+    const span = Math.max(1, Math.abs(end - start));
+    const ratio = Math.max(0, Math.min(1, (time - Math.min(start, end)) / span));
+    return expansion.left + (expansion.right - expansion.left) * ratio;
+  }
+  const unit = scene.semantic.units.find((item) => {
+    const start = Date.parse(item.from);
+    const end = Date.parse(item.to);
+    return Number.isFinite(start) && Number.isFinite(end) && time >= Math.min(start, end) && time <= Math.max(start, end);
+  });
+  if (!unit) {
+    return null;
+  }
+  const start = Date.parse(unit.from);
+  const end = Date.parse(unit.to);
+  const span = Math.max(1, Math.abs(end - start));
+  const ratio = Math.max(0, Math.min(1, (time - Math.min(start, end)) / span));
+  const bounds = unitBoundsX(scene, unit);
+  return bounds.left + (bounds.right - bounds.left) * ratio;
+}
+
+function timestampAtUnitX(scene: ChartScene, unit: SemanticRenderUnit, x: number): string {
+  const start = Date.parse(unit.from);
+  const end = Date.parse(unit.to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) {
+    return unit.kind === "candle" ? unit.timestamp : unit.from;
+  }
+  const bounds = unitBoundsX(scene, unit);
+  const ratio = Math.max(0.000001, Math.min(0.999999, (x - bounds.left) / Math.max(0.0001, bounds.right - bounds.left)));
+  return new Date(Math.min(start, end) + Math.abs(end - start) * ratio).toISOString();
 }
 
 export function priceToY(scene: Pick<ChartScene, "plot" | "scales">, value: number): number {
