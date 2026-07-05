@@ -49,7 +49,12 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
-import { adjacentInterval, anchoredViewportForCandles, type ViewportAnchor } from "../chart/intervalNavigation";
+import {
+  adjacentInterval,
+  anchoredViewportForCandles,
+  viewportPreservingRightEdgeAfterCandlesChange,
+  type ViewportAnchor
+} from "../chart/intervalNavigation";
 import {
   candleRange,
   childQueryRange,
@@ -291,23 +296,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ma: [5, 20, 60]
     }, controller.signal)
       .then((response) => {
-        const current = chartRef.current;
-        const sameChart = current.symbol === symbol && current.interval === interval;
-        const merged = sameChart ? mergeCandlesByTimestamp(response.candles, current.candles) : [];
-        const addedCount = sameChart ? Math.max(0, merged.length - current.candles.length) : 0;
-        if (sameChart) {
-          setChart((existing) => (
-            existing.symbol === symbol && existing.interval === interval
-              ? {
-                  ...existing,
-                  candles: merged,
-                  status: response.status,
-                  message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
-                  rightOffset: addedCount > 0 ? existing.rightOffset + addedCount : existing.rightOffset
-                }
-              : existing
-          ));
-        }
+        setChart((existing) => {
+          if (existing.symbol !== symbol || existing.interval !== interval) {
+            return existing;
+          }
+          const merged = mergeCandlesByTimestamp(response.candles, existing.candles);
+          const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+          const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
+            existing.candles,
+            merged,
+            { visibleCount: existing.visibleCount, rightOffset: existing.rightOffset },
+            plotWidth
+          );
+          return {
+            ...existing,
+            candles: merged,
+            status: response.status,
+            message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
+            ...nextViewport
+          };
+        });
       })
       .catch((error: unknown) => {
         setChart((current) => (
