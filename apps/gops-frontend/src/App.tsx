@@ -36,7 +36,8 @@ import {
   treeMapHoverMetaReserve
 } from "./layout/workspaceMetrics";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
-import { sp500UniverseSeed } from "./market/sp500Universe.seed";
+import { fetchMarketHeatmap } from "./market/heatmapApi";
+import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
 type MainView =
@@ -76,11 +77,13 @@ export function App() {
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartCommandMode, setChartCommandMode] = useState(false);
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelRef = useRef<ChartPanelHandle | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
+  const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
@@ -145,12 +148,12 @@ export function App() {
     width: viewportSize.width
   };
 
-  const universeSymbols = useMemo((): ChartSymbolDto[] => sp500UniverseSeed.map((item) => ({
+  const universeSymbols = useMemo((): ChartSymbolDto[] => treeMapItems.map((item) => ({
     symbol: item.symbol,
     name: item.companyName,
     sector: item.sector,
     isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
-  })), []);
+  })), [treeMapItems]);
   const activeHeaderSymbol = mainView.mode === "chart" ? chartHeader?.symbol ?? mainView.symbol : "";
   const activeHeaderQuote = chartHeader?.liveQuote;
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
@@ -170,6 +173,42 @@ export function App() {
       setChartCommandMode(false);
     }
   }, [canUseAgent, chartCommandMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId: number | undefined;
+    let controller: AbortController | null = null;
+
+    const loadHeatmap = async () => {
+      controller = new AbortController();
+      let nextRefreshSeconds = 60;
+      try {
+        const payload = await fetchMarketHeatmap(controller.signal);
+        nextRefreshSeconds = payload.quoteRefreshSeconds || nextRefreshSeconds;
+        if (!cancelled && payload.items.length > 0) {
+          const previousLayoutAsOf = treeMapLayoutAsOfRef.current;
+          const shouldUpdateLayout = !previousLayoutAsOf || payload.layoutAsOf !== previousLayoutAsOf;
+          setTreeMapItems((current) => mergeTreeMapItems(current, payload.items, shouldUpdateLayout));
+          treeMapLayoutAsOfRef.current = payload.layoutAsOf || previousLayoutAsOf;
+        }
+      } catch {
+        // Seed data stays visible when the projection API is warming up or unavailable.
+      } finally {
+        if (!cancelled) {
+          timeoutId = window.setTimeout(loadHeatmap, nextRefreshSeconds * 1000);
+        }
+      }
+    };
+
+    void loadHeatmap();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
 
   const showTreeMap = () => {
     const nextView: MainView = { mode: "treemap" };
@@ -392,7 +431,7 @@ export function App() {
               }
             }}
           >
-            <TreeMapCanvas items={sp500UniverseSeed} onSelectSymbol={showChart} />
+            <TreeMapCanvas items={treeMapItems} onSelectSymbol={showChart} />
             <div
               className="chart-resize-grip bottom"
               aria-hidden="true"
@@ -452,6 +491,29 @@ function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = 
     text,
     pending
   };
+}
+
+function mergeTreeMapItems(
+  current: readonly Sp500UniverseItem[],
+  incoming: readonly Sp500UniverseItem[],
+  updateLayout: boolean
+): Sp500UniverseItem[] {
+  if (incoming.length === 0) {
+    return [...current];
+  }
+  const currentBySymbol = new Map(current.map((item) => [item.symbol, item]));
+  return incoming.map((item) => {
+    const previous = currentBySymbol.get(item.symbol);
+    if (!previous || updateLayout) {
+      return item;
+    }
+    return {
+      ...previous,
+      ...item,
+      marketCap: previous.marketCap,
+      indexWeight: previous.indexWeight
+    };
+  });
 }
 
 function initialMainView(): MainView {
