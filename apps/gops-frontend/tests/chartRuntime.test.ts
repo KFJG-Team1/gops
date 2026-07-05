@@ -1330,6 +1330,7 @@ assert.equal(agentAnalysisReport.layoutProposal, null);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
+assert.match(agentAnalysisMessage, /■ 확인된 근거/);
 assert.match(agentAnalysisMessage, /Headline: News summary/);
 assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
 assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
@@ -1342,8 +1343,23 @@ assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guar
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
 assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
+assert.doesNotMatch(agentAnalysisMessage, /■ 제한 사항/);
+assert.doesNotMatch(agentAnalysisMessage, /Macro provider not configured\./);
 assert.match(agentAnalysisMessage, /검색 0\.2초 \/ 전체 1\.1초/);
 assert.doesNotMatch(agentAnalysisMessage, /캐시 사용/);
+
+const frontendStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
+assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);
+assert.match(frontendStylesSource, /\.bottom-chat-message \{[\s\S]*max-width: min\(720px, 88%\);/);
+assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
+
+const zeroTimingReport = normalizeAgentAnalysisReport({
+  ...agentAnalysisReport,
+  analysisId: "analysis-zero-timing",
+  timing: { totalMs: 0, newsFetchMs: 0 }
+});
+assert.doesNotMatch(formatAgentAnalysisReport(zeroTimingReport), /검색 0\.0초|전체 0\.0초/);
+
 assert.throws(
   () => normalizeAgentAnalysisReport({ findings: [] }),
   /멀티에이전트 분석 응답 형식이 올바르지 않습니다\./

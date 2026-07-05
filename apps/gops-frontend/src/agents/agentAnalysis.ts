@@ -280,27 +280,23 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
 }
 
 function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: boolean } = {}): string[] {
-  const lines = [finalAnswer.title, finalAnswer.summary];
+  const lines = [finalAnswer.title, "", finalAnswer.summary];
   for (const section of finalAnswer.sections.slice(0, 3)) {
     if (!section.title || section.bullets.length === 0) {
       continue;
     }
-    lines.push("", section.title);
-    lines.push(...section.bullets.slice(0, options.compactNews ? 3 : 5).map((bullet) => `- ${bullet}`));
+    lines.push("", `■ ${section.title}`);
+    lines.push(...section.bullets.slice(0, options.compactNews ? 3 : 5).map((bullet) => `  - ${bullet}`));
   }
   if (options.compactNews) {
     return lines;
   }
   const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url));
   if (linkedCitations.length) {
-    lines.push("", "근거 링크:");
+    lines.push("", "■ 근거 링크");
     lines.push(...linkedCitations.slice(0, 5).map((citation) =>
-      `- ${citation.title} (${citation.url})`
+      `  - ${citation.title} (${citation.url})`
     ));
-  }
-  if (finalAnswer.limitations.length) {
-    lines.push("", "제한 사항:");
-    lines.push(...finalAnswer.limitations.slice(0, 5).map((limitation) => `- ${limitation}`));
   }
   return lines;
 }
@@ -646,11 +642,12 @@ function formatTimingSummary(timing?: AgentAnalysisTiming | null): string | null
   if (!timing) {
     return null;
   }
+  const minVisibleMs = 50;
   const parts: string[] = [];
-  if (typeof timing.newsFetchMs === "number") {
+  if (typeof timing.newsFetchMs === "number" && timing.newsFetchMs >= minVisibleMs) {
     parts.push(`검색 ${formatMilliseconds(timing.newsFetchMs)}`);
   }
-  if (typeof timing.totalMs === "number") {
+  if (typeof timing.totalMs === "number" && timing.totalMs >= minVisibleMs) {
     parts.push(`전체 ${formatMilliseconds(timing.totalMs)}`);
   }
   if (!parts.length) {
