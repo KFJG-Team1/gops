@@ -1115,13 +1115,15 @@ assert.equal(failedProposalState.errors.length, 1);
 
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport);
-const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport);
+const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "NVDA");
 assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
 const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
-  | { layoutPinned?: boolean; minSpan?: { colSpan?: number; rowSpan?: number } }
+  | { layoutPinned?: boolean; layoutWeight?: number; minSpan?: { colSpan?: number; rowSpan?: number }; symbol?: string }
   | undefined;
 assert.equal(tiledChartContext?.layoutPinned, false);
-assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 4, rowSpan: 2 });
+assert.equal(tiledChartContext?.layoutWeight, 100);
+assert.equal(tiledChartContext?.symbol, "NVDA");
+assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
 const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
   id: "layout-proposal-tiled",
@@ -1156,6 +1158,46 @@ const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
 const arrangedOntologyRect = arrangedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
 assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.width > originalOntologyRect.width);
 assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.height > originalOntologyRect.height);
+
+const chartAddState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-chart-add",
+  title: "Add AAPL chart",
+  rationale: "Test chart add.",
+  autoApply: true,
+  panelPriorities: [
+    { panelId: "panel-chart-aapl", panelType: "chart", layoutWeight: 120 },
+    { panelId: "slot-chart", panelType: "chart", layoutWeight: 100 }
+  ],
+  commands: [
+    makeLayoutCommand("layout.panel.add", "llm", {
+      panelId: "panel-chart-aapl",
+      panelType: "chart",
+      props: { symbol: "AAPL" },
+      layoutWeight: 120,
+      placement: testPlacement(1, 4, 4, 2)
+    }, { panelId: "panel-chart-aapl" }),
+    makeLayoutCommand("layout.panel.priority.set", "llm", {
+      panelId: "panel-chart-aapl",
+      layoutWeight: 120
+    }, { panelId: "panel-chart-aapl" }),
+    makeLayoutCommand("layout.panels.arrange", "llm", {
+      placements: [
+        { panelId: "slot-news", placement: testPlacement(1, 1, 1, 1), layoutWeight: 40 },
+        { panelId: "slot-ontology", placement: testPlacement(2, 1, 1, 1), layoutWeight: 40 },
+        { panelId: "slot-portfolio", placement: testPlacement(3, 1, 1, 1), layoutWeight: 35 },
+        { panelId: "slot-trade", placement: testPlacement(4, 1, 1, 1), layoutWeight: 35 },
+        { panelId: "slot-chart", placement: testPlacement(1, 2, 4, 2), layoutWeight: 100 },
+        { panelId: "panel-chart-aapl", placement: testPlacement(1, 4, 4, 2), layoutWeight: 120 }
+      ]
+    }, { panelIds: ["slot-chart", "panel-chart-aapl"] })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const addedChartSlot = chartAddState.slots.find((slot) => slot.id === "panel-chart-aapl");
+assert.ok(addedChartSlot);
+assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.symbol, "AAPL");
+assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
+assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
 
 const primaryChart = testPanel("primary-chart", "chart", testPlacement(1, 1, 2, 2), false);
 const multiChartLayout = testLayout([primaryChart]);
@@ -1370,9 +1412,16 @@ assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /showChart/);
+assert.match(appSource, /chartAction === "add"/);
+assert.match(appSource, /chartTargetSymbol/);
+assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
+assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
+assert.match(bottomCommandBarSource, /AgentSubmitResult/);
+assert.match(bottomCommandBarSource, /chart-shortcut/);
+assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
 assert.match(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
@@ -1402,6 +1451,8 @@ assert.match(panelLayoutSource, /trade: "주문"/);
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",
   chartShortcut: true,
+  chartAction: "add",
+  chartPlacementIntent: "bottom",
   symbol: "NVDA",
   canonicalName: "NVIDIA Corporation",
   matchedText: "엔비디아",
@@ -1412,6 +1463,8 @@ const chartShortcutResolve = normalizeAgentEntityResolveResponse({
 });
 assert.equal(chartShortcutResolve.status, "confirmed");
 assert.equal(chartShortcutResolve.chartShortcut, true);
+assert.equal(chartShortcutResolve.chartAction, "add");
+assert.equal(chartShortcutResolve.chartPlacementIntent, "bottom");
 assert.equal(chartShortcutResolve.symbol, "NVDA");
 assert.equal(chartShortcutResolve.canonicalName, "NVIDIA Corporation");
 assert.equal(chartShortcutResolve.confidence, 0.98);
@@ -1419,6 +1472,7 @@ assert.equal(chartShortcutResolve.confidence, 0.98);
 const unsupportedChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "confirmed", chartShortcut: false });
 assert.equal(unsupportedChartShortcutResolve.status, "confirmed");
 assert.equal(unsupportedChartShortcutResolve.chartShortcut, false);
+assert.equal(unsupportedChartShortcutResolve.chartAction, undefined);
 
 const invalidChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "mystery", chartShortcut: true, symbol: "" });
 assert.equal(invalidChartShortcutResolve.status, "unsupported");

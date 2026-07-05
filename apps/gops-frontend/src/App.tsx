@@ -18,7 +18,7 @@ import {
   resolveAgentLayoutCommand,
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
-import { BottomCommandBar, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
+import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
@@ -189,11 +189,11 @@ export function App() {
     setActiveBottomMenu((current) => (current === key ? null : key));
   };
 
-  const runAgentPrompt = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+  const runAgentPrompt = useCallback(async (event: FormEvent<HTMLFormElement>): Promise<AgentSubmitResult> => {
     event.preventDefault();
     const prompt = agentInput.trim();
     if (!prompt || agentBusy) {
-      return;
+      return "ignored";
     }
     const userEntry = createChatLogEntry("user", prompt);
     setAgentInput("");
@@ -203,32 +203,73 @@ export function App() {
         userEntry,
         createChatLogEntry("system", authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.")
       ]);
-      return;
+      return "chat-log";
+    }
+    const shortcut = await resolveAgentChartShortcut(prompt);
+    if (shortcut?.status === "confirmed" && shortcut.chartShortcut && shortcut.symbol) {
+      const chartAction = shortcut.chartAction ?? "replace";
+      if (chartAction === "add" && mainView.mode === "chart") {
+        setAgentBusy(true);
+        try {
+          const layoutResolution = await resolveAgentLayoutCommand({
+            symbol: shortcut.symbol,
+            intent: prompt,
+            routerMode: "hybrid",
+            messages: [{ role: "user", content: prompt }],
+            chartAction: "add",
+            chartTargetSymbol: shortcut.symbol,
+            chartPlacementIntent: shortcut.chartPlacementIntent,
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+          });
+          if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
+            setPanelState((current) => applyTiledAgentLayoutProposal(current, layoutResolution.layoutProposal!, viewportSizeRef.current));
+            setChatLog((current) => [
+              ...current,
+              userEntry,
+              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+            ]);
+            return "chat-log";
+          }
+          setChatLog((current) => [
+            ...current,
+            userEntry,
+            createChatLogEntry("system", layoutResolution?.rationale || "차트 패널을 추가할 수 없습니다.")
+          ]);
+          return "chat-log";
+        } catch (error: unknown) {
+          setChatLog((current) => [
+            ...current,
+            userEntry,
+            createChatLogEntry("system", error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.")
+          ]);
+          return "chat-log";
+        } finally {
+          setAgentBusy(false);
+        }
+      }
+      showChart(shortcut.symbol);
+      return "chart-shortcut";
     }
     if (mainView.mode !== "chart") {
       setChatLog((current) => [
         ...current,
         userEntry,
-        createChatLogEntry("system", "차트를 선택하면 분석할 수 있습니다.")
+        createChatLogEntry("system", "기업명/티커만 입력하면 차트를 열 수 있고, 분석은 차트 화면에서 가능합니다.")
       ]);
-      return;
+      return "chat-log";
     }
-    if (!chartCommandMode) {
-      const shortcut = await resolveAgentChartShortcut(prompt);
-      if (shortcut?.status === "confirmed" && shortcut.chartShortcut && shortcut.symbol) {
-        showChart(shortcut.symbol);
-        return;
-      }
-      if (isLikelyLayoutCommand(prompt)) {
-        const analysisPayload = {
-          symbol: activeHeaderSymbol || mainView.symbol,
-          intent: prompt,
-          routerMode: "hybrid",
-          messages: [{ role: "user", content: prompt }],
-          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize)
-        };
+
+    const runChartPrompt = async () => {
+      if (!chartCommandMode && isLikelyLayoutCommand(prompt)) {
         setAgentBusy(true);
         try {
+          const analysisPayload = {
+            symbol: activeHeaderSymbol || mainView.symbol,
+            intent: prompt,
+            routerMode: "hybrid",
+            messages: [{ role: "user", content: prompt }],
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+          };
           const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
           if (layoutResolution?.status === "ui_layout") {
             if (layoutResolution.layoutProposal) {
@@ -241,48 +282,54 @@ export function App() {
             ]);
             return;
           }
+        } catch {
+          // Layout resolve is an optimization; analysis remains the fallback.
         } finally {
           setAgentBusy(false);
         }
       }
-    }
-    const pendingEntry = createChatLogEntry(
-      "assistant",
-      chartCommandMode ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
-      true
-    );
-    setAgentBusy(true);
-    setChatLog((current) => [...current, userEntry, pendingEntry]);
-    try {
-      if (chartCommandMode) {
-        const chartPanel = chartPanelRef.current;
-        if (!chartPanel) {
-          throw new Error("차트가 준비되면 다시 시도해주세요.");
-        }
-        const result = await chartPanel.runAgentPrompt(prompt);
-        replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
-      } else {
-        const report = await requestAgentAnalysisPayload({
-          symbol: activeHeaderSymbol || mainView.symbol,
-          intent: prompt,
-          routerMode: "hybrid",
-          messages: [{ role: "user", content: prompt }],
-          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize)
-        });
-        if (report.layoutProposal) {
-          setPanelState((current) => applyTiledAgentLayoutProposal(current, report.layoutProposal!, viewportSizeRef.current));
-        }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
-      }
-    } catch (error: unknown) {
-      replaceChatLogEntry(
-        setChatLog,
-        pendingEntry.id,
-        error instanceof Error ? error.message : "Agent 요청에 실패했습니다."
+
+      const pendingEntry = createChatLogEntry(
+        "assistant",
+        chartCommandMode ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
+        true
       );
-    } finally {
-      setAgentBusy(false);
-    }
+      setAgentBusy(true);
+      setChatLog((current) => [...current, userEntry, pendingEntry]);
+      try {
+        if (chartCommandMode) {
+          const chartPanel = chartPanelRef.current;
+          if (!chartPanel) {
+            throw new Error("차트가 준비되면 다시 시도해주세요.");
+          }
+          const result = await chartPanel.runAgentPrompt(prompt);
+          replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
+        } else {
+          const report = await requestAgentAnalysisPayload({
+            symbol: activeHeaderSymbol || mainView.symbol,
+            intent: prompt,
+            routerMode: "hybrid",
+            messages: [{ role: "user", content: prompt }],
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+          });
+          if (report.layoutProposal) {
+            setPanelState((current) => applyTiledAgentLayoutProposal(current, report.layoutProposal!, viewportSizeRef.current));
+          }
+          replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
+        }
+      } catch (error: unknown) {
+        replaceChatLogEntry(
+          setChatLog,
+          pendingEntry.id,
+          error instanceof Error ? error.message : "Agent 요청에 실패했습니다."
+        );
+      } finally {
+        setAgentBusy(false);
+      }
+    };
+
+    void runChartPrompt();
+    return "chat-log";
   }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView, panelState, showChart, viewportSize]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
