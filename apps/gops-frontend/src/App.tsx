@@ -11,7 +11,13 @@ import {
   useState
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
-import { formatAgentAnalysisForChat, requestAgentAnalysis } from "./agent/agentAnalysisClient";
+import {
+  formatAgentAnalysisForChat,
+  requestAgentAnalysisPayload,
+  resolveAgentChartShortcut,
+  resolveAgentLayoutCommand,
+  type AgentLayoutResolveResponse
+} from "./agent/agentAnalysisClient";
 import { BottomCommandBar, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
@@ -29,6 +35,7 @@ import {
   navigationGap,
   treeMapHoverMetaReserve
 } from "./layout/workspaceMetrics";
+import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
 import { sp500UniverseSeed } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
@@ -148,7 +155,7 @@ export function App() {
   const activeHeaderQuote = chartHeader?.liveQuote;
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
 
-  const showChart = (symbol: string) => {
+  const showChart = useCallback((symbol: string) => {
     const nextView: MainView = { mode: "chart", symbol: normalizeStoredSymbol(symbol) || "NVDA" };
     setSemanticSelection(null);
     setTreeMapLaneHover(false);
@@ -156,7 +163,7 @@ export function App() {
     persistMainView(nextView);
     replaceMainViewUrl(nextView);
     setMainView(nextView);
-  };
+  }, []);
 
   useEffect(() => {
     if (!canUseAgent && chartCommandMode) {
@@ -206,6 +213,39 @@ export function App() {
       ]);
       return;
     }
+    if (!chartCommandMode) {
+      const shortcut = await resolveAgentChartShortcut(prompt);
+      if (shortcut?.status === "confirmed" && shortcut.chartShortcut && shortcut.symbol) {
+        showChart(shortcut.symbol);
+        return;
+      }
+      if (isLikelyLayoutCommand(prompt)) {
+        const analysisPayload = {
+          symbol: activeHeaderSymbol || mainView.symbol,
+          intent: prompt,
+          routerMode: "hybrid",
+          messages: [{ role: "user", content: prompt }],
+          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize)
+        };
+        setAgentBusy(true);
+        try {
+          const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
+          if (layoutResolution?.status === "ui_layout") {
+            if (layoutResolution.layoutProposal) {
+              setPanelState((current) => applyTiledAgentLayoutProposal(current, layoutResolution.layoutProposal!, viewportSizeRef.current));
+            }
+            setChatLog((current) => [
+              ...current,
+              userEntry,
+              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+            ]);
+            return;
+          }
+        } finally {
+          setAgentBusy(false);
+        }
+      }
+    }
     const pendingEntry = createChatLogEntry(
       "assistant",
       chartCommandMode ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
@@ -222,7 +262,16 @@ export function App() {
         const result = await chartPanel.runAgentPrompt(prompt);
         replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
       } else {
-        const report = await requestAgentAnalysis({ symbol: activeHeaderSymbol || mainView.symbol, prompt });
+        const report = await requestAgentAnalysisPayload({
+          symbol: activeHeaderSymbol || mainView.symbol,
+          intent: prompt,
+          routerMode: "hybrid",
+          messages: [{ role: "user", content: prompt }],
+          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize)
+        });
+        if (report.layoutProposal) {
+          setPanelState((current) => applyTiledAgentLayoutProposal(current, report.layoutProposal!, viewportSizeRef.current));
+        }
         replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
       }
     } catch (error: unknown) {
@@ -234,7 +283,7 @@ export function App() {
     } finally {
       setAgentBusy(false);
     }
-  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView]);
+  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView, panelState, showChart, viewportSize]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -408,6 +457,27 @@ function replaceMainViewUrl(view: MainView) {
 function normalizeStoredSymbol(value: string | null | undefined): string {
   const symbol = String(value ?? "").trim().toUpperCase();
   return /^[A-Z0-9.\-]{1,16}$/.test(symbol) ? symbol : "";
+}
+
+function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string {
+  const proposal = resolution.layoutProposal;
+  const applied = Boolean(proposal && proposal.autoApply !== false && proposal.commands.length > 0);
+  if (applied) {
+    return resolution.summary || "변경했습니다.";
+  }
+  return resolution.rationale || resolution.summary || "변경할 수 없습니다.";
+}
+
+function isLikelyLayoutCommand(prompt: string): boolean {
+  const text = prompt.toLowerCase();
+  const compacted = text.replace(/\s+/g, "");
+  const explicitLayoutTerms = ["패널", "레이아웃", "화면", "ui", "panel", "layout"];
+  const targetTerms = ["뉴스", "온톨로지", "포트폴리오", "주문", "news", "ontology", "portfolio", "order"];
+  const actionTerms = ["키워", "크게", "줄여", "작게", "열어", "띄워", "보여", "닫", "옮겨", "배치", "정리", "바꿔", "변경", "크기", "resize", "open", "close", "move", "arrange"];
+  if (explicitLayoutTerms.some((term) => compacted.includes(term))) {
+    return true;
+  }
+  return targetTerms.some((term) => compacted.includes(term)) && actionTerms.some((term) => compacted.includes(term));
 }
 
 function replaceChatLogEntry(

@@ -32,7 +32,7 @@ import { chartRuntimeReducer, createInitialChartRuntimeState } from "../../chart
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
-import { agentProgressLabel, isAgentAnalysisIntent, normalizeAgentEntityResolveResponse } from "../src/components/SystemArea";
+import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
 import {
   buildSemanticTimeline,
   semanticExpansionId,
@@ -48,6 +48,8 @@ import {
   layoutSnapshotsEqual,
   makeCommand as makeLayoutCommand
 } from "../src/layout/commands";
+import { createInitialTiledPanelState } from "../src/layout/panelLayout";
+import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
 import {
   createPanelDropCommand,
   createPanelDropPreview,
@@ -1105,6 +1107,50 @@ const failedProposalState = applyLayoutProposal(autoProposalBaseState, {
 assert.equal(failedProposalState.layout.panels[0]?.layoutWeight, autoProposalTarget.layoutWeight);
 assert.equal(failedProposalState.errors.length, 1);
 
+const tiledViewport = { width: 1280, height: 800 };
+const tiledState = createInitialTiledPanelState(tiledViewport);
+const tiledContext = buildTiledAgentLayoutContext(tiledState, tiledViewport);
+assert.equal((tiledContext.panels.find((panel) => panel.id === "slot-news") as { type?: string } | undefined)?.type, "newsFeed");
+const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot-chart") as
+  | { layoutPinned?: boolean; minSpan?: { colSpan?: number; rowSpan?: number } }
+  | undefined;
+assert.equal(tiledChartContext?.layoutPinned, false);
+assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 4, rowSpan: 2 });
+const originalOntologyRect = tiledState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
+const focusedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled",
+  title: "Focus ontology",
+  rationale: "Test tiled focus.",
+  autoApply: true,
+  panelPriorities: [{ panelId: "slot-ontology", panelType: "ontologyGraph", layoutWeight: 100 }],
+  commands: [
+    makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 }, { panelId: "slot-ontology" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const focusedOntologyRect = focusedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
+assert.ok(focusedOntologyRect && originalOntologyRect && focusedOntologyRect.width > originalOntologyRect.width);
+const arrangedOntologyState = applyTiledAgentLayoutProposal(tiledState, {
+  id: "layout-proposal-tiled-arrange",
+  title: "Arrange ontology",
+  rationale: "Test tiled arrange.",
+  autoApply: true,
+  panelPriorities: [{ panelId: "slot-ontology", panelType: "ontologyGraph", layoutWeight: 100 }],
+  commands: [
+    makeLayoutCommand("layout.panels.arrange", "llm", {
+      placements: [
+        { panelId: "slot-ontology", placement: testPlacement(1, 1, 2, 3), layoutWeight: 100 },
+        { panelId: "slot-chart", placement: testPlacement(1, 4, 4, 2), layoutWeight: 60 },
+        { panelId: "slot-news", placement: testPlacement(3, 1, 1, 1), layoutWeight: 50 }
+      ]
+    }, { panelId: "slot-ontology" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+}, tiledViewport);
+const arrangedOntologyRect = arrangedOntologyState.slots.find((slot) => slot.id === "slot-ontology")?.rect;
+assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.width > originalOntologyRect.width);
+assert.ok(arrangedOntologyRect && originalOntologyRect && arrangedOntologyRect.height > originalOntologyRect.height);
+
 const primaryChart = testPanel("primary-chart", "chart", testPlacement(1, 1, 2, 2), false);
 const multiChartLayout = testLayout([primaryChart]);
 const multiChartState = executeLayoutCommand(
@@ -1302,21 +1348,15 @@ const chatOnlyResult = normalizeAgentChatResponse({
 assert.equal(chatOnlyResult.reply, "No chart command is needed.");
 assert.equal(chatOnlyResult.proposal, undefined);
 
-const systemAreaSource = readFileSync(fileURLToPath(new URL("../src/components/SystemArea.tsx", import.meta.url)), "utf-8");
-assert.doesNotMatch(systemAreaSource, /\/api\/llm\/chat/);
-assert.doesNotMatch(systemAreaSource, /shouldUseAgentAnalysisEndpoint/);
-assert.match(systemAreaSource, /\/api\/agents\/analyze/);
-assert.match(systemAreaSource, /\/api\/agents\/entities\/resolve/);
-assert.match(systemAreaSource, /onSelectSymbol\(shortcut\.symbol\)/);
-assert.match(systemAreaSource, /analysisMode: agentAnalysisMode/);
-assert.match(systemAreaSource, /agentIds: selectedAgents\.map/);
-assert.match(systemAreaSource, /shouldAutoApplyAgentLayoutProposal/);
-
 const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf-8");
 assert.match(appSource, /requestAgentAnalysis/);
+assert.match(appSource, /resolveAgentLayoutCommand/);
+assert.match(appSource, /isLikelyLayoutCommand/);
+assert.match(appSource, /layoutResolutionMessage/);
 assert.match(appSource, /chartCommandMode/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /showChart/);
+assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
@@ -1326,6 +1366,9 @@ assert.match(bottomCommandBarSource, /알림설정/);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
+assert.match(agentAnalysisClientSource, /\/api\/agents\/layout\/resolve/);
+assert.match(agentAnalysisClientSource, /\/api\/agents\/entities\/resolve/);
+assert.match(agentAnalysisClientSource, /EventSource/);
 assert.doesNotMatch(agentAnalysisClientSource, /\/api\/llm\/chat/);
 
 const newsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)), "utf-8");
@@ -1341,10 +1384,6 @@ assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
 assert.match(panelLayoutSource, /slot-trade/);
 assert.match(panelLayoutSource, /trade: "주문"/);
-assert.equal(isAgentAnalysisIntent("UI 바꿔줘 온톨로지 기반으로"), true);
-assert.equal(agentProgressLabel(0.2, [{ id: "agent-02", label: "뉴스 AI", description: "", iconUrl: "" }], "시장 뉴스 보여줘"), "뉴스 검색 중");
-assert.equal(agentProgressLabel(4, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "근거 분석 중");
-assert.equal(agentProgressLabel(9, [{ id: "agent-01", label: "AI", description: "", iconUrl: "" }], "분석해줘"), "답변 정리 중");
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",
@@ -1370,6 +1409,32 @@ assert.equal(unsupportedChartShortcutResolve.chartShortcut, false);
 const invalidChartShortcutResolve = normalizeAgentEntityResolveResponse({ status: "mystery", chartShortcut: true, symbol: "" });
 assert.equal(invalidChartShortcutResolve.status, "unsupported");
 assert.equal(invalidChartShortcutResolve.chartShortcut, true);
+
+const layoutResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_layout",
+  summary: "변경했습니다.",
+  route: { source: "ui-parser", intentType: "ui-layout", selectedRoles: [] },
+  layoutProposal: {
+    id: "layout-proposal-ui",
+    title: "UI layout request",
+    rationale: "Arranged ontology.",
+    autoApply: true,
+    panelPriorities: [],
+    commands: [
+      makeLayoutCommand("layout.panel.priority.set", "llm", { panelId: "slot-ontology", layoutWeight: 100 })
+    ],
+    createdAt: "2026-06-29T00:00:00.000Z"
+  },
+  agentTrace: { uiLayoutFastAck: true }
+});
+assert.equal(layoutResolve.status, "ui_layout");
+assert.equal(layoutResolve.summary, "변경했습니다.");
+assert.equal(layoutResolve.route?.intentType, "ui-layout");
+assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const invalidLayoutResolve = normalizeAgentLayoutResolveResponse({ status: "mystery", layoutProposal: null });
+assert.equal(invalidLayoutResolve.status, "failed");
+assert.equal(invalidLayoutResolve.layoutProposal, null);
 
 const agentAnalysisRequest = buildAgentAnalysisRequest({
   messages: [{ id: "message-1", role: "user", content: "NVDA 급등 원인 알려줘", createdAt: "2026-06-29T00:00:00.000Z" }],
