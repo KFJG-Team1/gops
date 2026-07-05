@@ -22,6 +22,7 @@ import {
   type AgentEntityResolveResponse,
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
+import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
@@ -541,6 +542,7 @@ export function App() {
             setPanelState((current) => applyTiledAgentLayoutProposal(current, report.layoutProposal!, viewportSizeRef.current));
           }
           replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
+          publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
         }
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;

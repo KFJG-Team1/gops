@@ -48,6 +48,7 @@ type SimNode = d3.SimulationNodeDatum & {
   count?: number;
   __wasPinned?: boolean;
   __moved?: boolean;
+  __sized?: boolean;
 };
 
 type SimLink = { source: string | SimNode; target: string | SimNode; kind: "chip" | "control" | "cross" };
@@ -126,6 +127,16 @@ function changeIntensity(change: number): number {
   return Math.min(1, Math.abs(change) / 3) * 0.75 + 0.25;
 }
 
+// 문자열 -> [0,1) 결정적 해시. 같은 id는 항상 같은 초기 위치를 갖는다.
+function hash01(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
 function createGraphController(
   svgElement: SVGSVGElement,
   model: OntologyModel,
@@ -189,10 +200,17 @@ function createGraphController(
   const svg = d3.select(svgElement);
   svg.selectAll("*").remove();
   const root = svg.append("g");
+  let userAdjustedView = false;
+  let fitTimer: number | undefined;
   const zoomBehavior = d3
     .zoom<SVGSVGElement, unknown>()
-    .scaleExtent([0.5, 2.5])
-    .on("zoom", (event) => root.attr("transform", event.transform.toString()));
+    .scaleExtent([0.4, 2.5])
+    .on("zoom", (event) => {
+      if (event.sourceEvent) {
+        userAdjustedView = true;
+      }
+      root.attr("transform", event.transform.toString());
+    });
   svg.call(zoomBehavior);
   const hullLayer = root.append("g");
   const linkLayer = root.append("g");
@@ -221,6 +239,55 @@ function createGraphController(
     const cy = d3.mean(members, (m) => m.y ?? 0) ?? 0;
     const r = Math.max(48, (d3.max(members, (m) => Math.hypot((m.x ?? 0) - cx, (m.y ?? 0) - cy) + m.r) ?? 0) + 24);
     return { cx, cy, r, members };
+  }
+
+  // 내용물 경계에 맞춰 자동 줌 — 노드가 적을 땐 확대, 펼쳐지면 축소.
+  // 사용자가 직접 줌/팬 하면 이후 자동 조정은 하지 않는다.
+  let lastFitSignature = "";
+
+  function fitView(immediate: boolean): void {
+    const nodes = simulation.nodes();
+    if (!nodes.length) {
+      return;
+    }
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of nodes) {
+      minX = Math.min(minX, (node.x ?? 0) - node.r);
+      maxX = Math.max(maxX, (node.x ?? 0) + node.r);
+      minY = Math.min(minY, (node.y ?? 0) - node.r);
+      maxY = Math.max(maxY, (node.y ?? 0) + node.r);
+    }
+    for (const theme of expandedThemes) {
+      const geom = hullGeometry(theme, byId);
+      if (geom) {
+        minX = Math.min(minX, geom.cx - geom.r);
+        maxX = Math.max(maxX, geom.cx + geom.r);
+        minY = Math.min(minY, geom.cy - geom.r - 20);
+        maxY = Math.max(maxY, geom.cy + geom.r);
+      }
+    }
+    const pad = 26;
+    const width = Math.max(1, maxX - minX + pad * 2);
+    const height = Math.max(1, maxY - minY + pad * 2);
+    const scale = Math.max(0.4, Math.min(2.2, Math.min(LOGICAL_WIDTH / width, LOGICAL_HEIGHT / height)));
+    const tx = LOGICAL_WIDTH / 2 - (scale * (minX + maxX)) / 2;
+    const ty = LOGICAL_HEIGHT / 2 - (scale * (minY + maxY)) / 2;
+    svg.transition().duration(immediate ? 0 : 420).call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }
+
+  function scheduleFit(immediate: boolean): void {
+    if (fitTimer !== undefined) {
+      window.clearTimeout(fitTimer);
+    }
+    fitTimer = window.setTimeout(() => {
+      if (!userAdjustedView) {
+        fitView(immediate);
+      }
+    }, immediate ? 80 : 650);
   }
 
   function themeMemberNodes(theme: string): SimNode[] {
@@ -270,8 +337,8 @@ function createGraphController(
         kind: "stock",
         label: "",
         r: 10,
-        x: LOGICAL_WIDTH / 2 + (Math.random() - 0.5) * 40,
-        y: LOGICAL_HEIGHT / 2 + (Math.random() - 0.5) * 40,
+        x: LOGICAL_WIDTH / 2 + Math.cos(hash01(id) * Math.PI * 2) * 24,
+        y: LOGICAL_HEIGHT / 2 + Math.sin(hash01(id) * Math.PI * 2) * 24,
         ...init
       } as SimNode);
     }
@@ -282,7 +349,11 @@ function createGraphController(
     const nodes: SimNode[] = [];
     const links: SimLink[] = [];
     for (const ticker of visibleStocks) {
-      const node = getNode("s:" + ticker, { kind: "stock", label: ticker, r: stockRadius(ticker) });
+      const node = getNode("s:" + ticker, { kind: "stock", label: ticker });
+      if (!node.__sized) {
+        node.r = stockRadius(ticker);
+        node.__sized = true;
+      }
       if (ticker === model.focal && visibleStocks.size === 1) {
         node.fx = LOGICAL_WIDTH / 2;
         node.fy = LOGICAL_HEIGHT / 2;
@@ -292,21 +363,58 @@ function createGraphController(
       }
       nodes.push(node);
     }
+    const chipsByAnchor = new Map<string, string[]>();
     for (const [theme, anchor] of chips) {
       if (!visibleStocks.has(anchor)) {
         continue;
       }
-      nodes.push(getNode("t:" + theme, { kind: "chip", label: theme, count: (model.themes.get(theme) ?? []).length, r: 26 }));
-      links.push({ source: "s:" + anchor, target: "t:" + theme, kind: "chip" });
+      if (!chipsByAnchor.has(anchor)) {
+        chipsByAnchor.set(anchor, []);
+      }
+      chipsByAnchor.get(anchor)?.push(theme);
     }
+    chipsByAnchor.forEach((chipThemes, anchor) => {
+      chipThemes.sort();
+      const anchorNode = nodeCache.get("s:" + anchor);
+      chipThemes.forEach((theme, index) => {
+        const isNew = !nodeCache.has("t:" + theme);
+        const node = getNode("t:" + theme, { kind: "chip", label: theme, count: (model.themes.get(theme) ?? []).length, r: 26 });
+        if (isNew && anchorNode) {
+          // 칩은 항상 기준 종목의 "위쪽" 부채꼴에 이름순으로 생성
+          const angle = -Math.PI / 2 + (index - (chipThemes.length - 1) / 2) * 0.55;
+          node.x = (anchorNode.x ?? 0) + Math.cos(angle) * 115;
+          node.y = (anchorNode.y ?? 0) + Math.sin(angle) * 115;
+        }
+        nodes.push(node);
+        links.push({ source: "s:" + anchor, target: "t:" + theme, kind: "chip" });
+      });
+    });
+    const companiesByParent = new Map<string, string[]>();
     for (const company of visibleCompanies) {
       const parent = model.companies.get(company);
-      if (!parent || !visibleStocks.has(parent)) {
-        continue;
+      if (parent && visibleStocks.has(parent)) {
+        if (!companiesByParent.has(parent)) {
+          companiesByParent.set(parent, []);
+        }
+        companiesByParent.get(parent)?.push(company);
       }
-      nodes.push(getNode("c:" + company, { kind: "company", label: company, r: 12 }));
-      links.push({ source: "s:" + parent, target: "c:" + company, kind: "control" });
     }
+    companiesByParent.forEach((companyNames, parent) => {
+      companyNames.sort();
+      const parentNode = nodeCache.get("s:" + parent);
+      companyNames.forEach((company, index) => {
+        const isNew = !nodeCache.has("c:" + company);
+        const node = getNode("c:" + company, { kind: "company", label: company, r: 12 });
+        if (isNew && parentNode) {
+          // 자회사는 항상 모회사의 "아래쪽" 부채꼴에 이름순으로 생성
+          const angle = Math.PI / 2 + (index - (companyNames.length - 1) / 2) * 0.5;
+          node.x = (parentNode.x ?? 0) + Math.cos(angle) * 95;
+          node.y = (parentNode.y ?? 0) + Math.sin(angle) * 95;
+        }
+        nodes.push(node);
+        links.push({ source: "s:" + parent, target: "c:" + company, kind: "control" });
+      });
+    });
     for (const cross of model.crossLinks) {
       if (visibleStocks.has(cross.a) && visibleStocks.has(cross.b)) {
         links.push({ source: "s:" + cross.a, target: "s:" + cross.b, kind: "cross" });
@@ -319,14 +427,16 @@ function createGraphController(
   function expandTheme(theme: string, origin: SimNode): void {
     expandedThemes.add(theme);
     chips.delete(theme);
-    for (const ticker of model.themes.get(theme) ?? []) {
-      if (!visibleStocks.has(ticker)) {
-        visibleStocks.add(ticker);
-        const node = getNode("s:" + ticker, {});
-        node.x = (origin.x ?? LOGICAL_WIDTH / 2) + (Math.random() - 0.5) * 50;
-        node.y = (origin.y ?? LOGICAL_HEIGHT / 2) + (Math.random() - 0.5) * 50;
-      }
-    }
+    const newcomers = (model.themes.get(theme) ?? []).filter((ticker) => !visibleStocks.has(ticker));
+    // 시총 큰 순으로 12시부터 시계방향 링 배치 — 생성 방향이 항상 일정
+    newcomers.sort((a, b) => ((getQuote(b)?.marketCap ?? 0) - (getQuote(a)?.marketCap ?? 0)) || a.localeCompare(b));
+    newcomers.forEach((ticker, index) => {
+      visibleStocks.add(ticker);
+      const node = getNode("s:" + ticker, {});
+      const angle = (index / Math.max(1, newcomers.length)) * Math.PI * 2 - Math.PI / 2;
+      node.x = (origin.x ?? LOGICAL_WIDTH / 2) + Math.cos(angle) * 75;
+      node.y = (origin.y ?? LOGICAL_HEIGHT / 2) + Math.sin(angle) * 75;
+    });
     update(0.45);
   }
 
@@ -357,16 +467,28 @@ function createGraphController(
 
   function expandStock(id: string): void {
     const ticker = id.slice(2);
+    let revealed = false;
     for (const theme of themesOf(ticker)) {
       if (!expandedThemes.has(theme) && !chips.has(theme)) {
         chips.set(theme, ticker);
+        revealed = true;
       }
     }
-    childrenOf(ticker).forEach((company) => visibleCompanies.add(company));
-    crossPartnersOf(ticker).forEach((partner) => visibleStocks.add(partner));
+    childrenOf(ticker).forEach((company) => {
+      if (!visibleCompanies.has(company)) {
+        visibleCompanies.add(company);
+        revealed = true;
+      }
+    });
+    crossPartnersOf(ticker).forEach((partner) => {
+      if (!visibleStocks.has(partner)) {
+        visibleStocks.add(partner);
+        revealed = true;
+      }
+    });
     selectedId = id;
     onSelect(ticker);
-    update(0.35);
+    update(revealed ? 0.35 : 0.03);
   }
 
   // ---------- 렌더링 ----------
@@ -382,6 +504,13 @@ function createGraphController(
         .strength(0.5)
     );
     simulation.alpha(alpha).restart();
+    // 노드 구성이 실제로 바뀐 경우에만 auto-fit — 선택/시세 갱신으로는 배율이 출렁이지 않게
+    const signature = nodes.map((node) => node.id).sort().join(",");
+    if (signature !== lastFitSignature) {
+      const firstFit = lastFitSignature === "";
+      lastFitSignature = signature;
+      scheduleFit(firstFit);
+    }
 
     linkLayer
       .selectAll<SVGLineElement, SimLink>("line")
@@ -587,6 +716,9 @@ function createGraphController(
         .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
     },
     destroy(): void {
+      if (fitTimer !== undefined) {
+        window.clearTimeout(fitTimer);
+      }
       simulation.stop();
       svg.on("click", null);
       svg.on(".zoom", null);
@@ -674,7 +806,15 @@ export function OntologyForceGraph({
           </button>
         </div>
       )}
-      <div className="ofg-legend">초록=상승 · 빨강=하락 · 진하기=등락 폭 · 원 크기=시총 · 점선 원=테마(점선 드래그=이동)</div>
+      <div className="ofg-legend-hint" tabIndex={0} aria-label="범례">
+        ⓘ
+        <div className="ofg-legend-pop" role="tooltip">
+          <div>초록 = 상승 · 빨강 = 하락, 진할수록 등락 폭 큼</div>
+          <div>원 크기 = 시가총액</div>
+          <div>점선 원 = 테마, 점선을 드래그하면 그룹째 이동</div>
+          <div>칩 클릭 = 테마 펼치기 · 종목 클릭 = 관계 확장</div>
+        </div>
+      </div>
     </div>
   );
 }
