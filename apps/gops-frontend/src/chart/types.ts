@@ -156,6 +156,7 @@ export type DrawingAnchor = {
   price?: number;
   paneId?: "price" | "volume";
   symbol?: string;
+  interval?: ChartInterval;
 };
 
 export type ChartLineExtension = "segment" | "ray" | "line";
@@ -179,6 +180,7 @@ export type DrawingEntity = {
   id: string;
   type: DrawingType;
   anchors: DrawingAnchor[];
+  sourceInterval?: ChartInterval;
   style: DrawingStyle;
   label?: string;
   visible: boolean;

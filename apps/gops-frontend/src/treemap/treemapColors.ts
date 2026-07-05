@@ -1,33 +1,71 @@
 import type { ThemeColors } from "../theme/colors";
 
+const minOpacity = 0.3;
+const maxOpacity = 0.92;
+const flatThreshold = 0.08;
+const inverseTextOpacityThreshold = 0.58;
+const maxReferencePercentile = 0.95;
+
+export type TreeMapOpacityScale = {
+  minOpacity: number;
+  maxOpacity: number;
+  flatThreshold: number;
+  referenceChange: number;
+};
+
+export function createTreeMapOpacityScale(changePercents: Array<number | undefined>): TreeMapOpacityScale {
+  const changes = changePercents
+    .map((value) => Number.isFinite(value) ? Math.abs(Number(value)) : null)
+    .filter((value): value is number => value !== null && value >= flatThreshold)
+    .sort((left, right) => left - right);
+  return {
+    minOpacity,
+    maxOpacity,
+    flatThreshold,
+    referenceChange: percentile(changes, maxReferencePercentile)
+  };
+}
+
 export function tileFillForChange(changePercent: number | undefined, theme: ThemeColors): string {
   const change = Number.isFinite(changePercent) ? Number(changePercent) : 0;
-  if (Math.abs(change) < 0.08) {
+  if (Math.abs(change) < flatThreshold) {
     return theme.muted;
   }
   return change > 0 ? theme.upSoft : theme.downSoft;
 }
 
-export function tileOpacityForChange(changePercent: number | undefined): number {
+export function tileOpacityForChange(changePercent: number | undefined, scale: TreeMapOpacityScale): number {
   const change = Number.isFinite(changePercent) ? Math.abs(Number(changePercent)) : 0;
-  if (change < 0.08) {
-    return 0.18;
+  if (change < scale.flatThreshold || scale.referenceChange <= scale.flatThreshold) {
+    return scale.minOpacity;
   }
-  return Math.min(0.92, 0.28 + change / 6);
+  const intensity = clamp(change / scale.referenceChange, 0, 1);
+  return clamp(scale.minOpacity + intensity * (scale.maxOpacity - scale.minOpacity), scale.minOpacity, scale.maxOpacity);
 }
 
-export function tileTextForChange(changePercent: number | undefined, theme: ThemeColors): string {
-  const change = Number.isFinite(changePercent) ? Number(changePercent) : 0;
-  return Math.abs(change) >= 1.5 ? theme.tileTextInverse : theme.tileText;
+export function tileTextForOpacity(opacity: number, theme: ThemeColors): string {
+  return opacity >= inverseTextOpacityThreshold ? theme.tileTextInverse : theme.tileText;
 }
 
 export function toneForChange(changePercent: number | undefined): "up" | "down" | "flat" {
   const change = Number.isFinite(changePercent) ? Number(changePercent) : 0;
-  if (change > 0.08) {
+  if (change > flatThreshold) {
     return "up";
   }
-  if (change < -0.08) {
+  if (change < -flatThreshold) {
     return "down";
   }
   return "flat";
+}
+
+function percentile(values: number[], percentileValue: number): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const index = Math.ceil(clamp(percentileValue, 0, 1) * values.length) - 1;
+  return values[Math.max(0, Math.min(values.length - 1, index))] ?? 0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }

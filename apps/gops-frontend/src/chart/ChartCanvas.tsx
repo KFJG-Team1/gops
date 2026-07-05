@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ChartState, DrawingEntity } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
+import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
@@ -179,9 +180,7 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
     const up = candle.close >= candle.open;
     const hovered = scene.hoveredNodeId === unit.id;
     const candleColor = candleStrokeColor(up);
-    const candleWidth = hovered
-      ? Math.min(scene.scales.slotWidth, scene.scales.candleWidth * 1.35)
-      : scene.scales.candleWidth;
+    const candleWidth = candleBodyWidth(scene, unit, hovered);
     context.save();
     context.strokeStyle = candleColor;
     context.fillStyle = candleColor;
@@ -206,11 +205,12 @@ function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
     const y = volumeY(scene, candle.volume);
     context.save();
     context.globalAlpha *= semanticContextOpacity(scene, unit);
+    const bodyWidth = candleBodyWidth(scene, unit);
     context.fillStyle = colors.volume;
     context.fillRect(
-      unitCenterX(scene, unit) - scene.scales.candleWidth / 2,
+      unitCenterX(scene, unit) - bodyWidth / 2,
       y,
-      scene.scales.candleWidth,
+      bodyWidth,
       scene.plot.bottom - y
     );
     context.restore();
@@ -268,7 +268,9 @@ function drawMovingAverage(
 
 function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
   const transform = createCoordinateTransform(scene);
-  drawings.filter((drawing) => drawing.visible !== false).forEach((drawing) => {
+  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
+  const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
+  drawings.filter((drawing) => drawing.visible !== false && fullDrawingIds.has(drawing.id)).forEach((drawing) => {
     const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
     const preview = previewLayer || drawing.id === "drawing-draft-preview";
     const style = drawing.style ?? {};
@@ -326,6 +328,122 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     }
     context.restore();
   });
+
+  renderItems.forEach((item) => {
+    if (item.kind === "timeWarpedLine") {
+      drawTimeWarpedLine(context, scene, item, previewLayer);
+    } else if (item.kind === "expansionProjection") {
+      drawExpansionProjectionDrawing(context, scene, item, previewLayer);
+    } else if (item.kind === "collapsed") {
+      drawCollapsedDrawing(context, scene, item, previewLayer);
+    }
+  });
+}
+
+function drawTimeWarpedLine(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "timeWarpedLine" }>,
+  previewLayer: boolean
+) {
+  if (item.points.length < 2) {
+    return;
+  }
+  const drawing = item.drawing;
+  const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
+  const preview = previewLayer || drawing.id === "drawing-draft-preview";
+  const style = drawing.style ?? {};
+  context.save();
+  context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = context.strokeStyle;
+  context.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
+  context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
+  context.beginPath();
+  item.points.forEach((point, index) => {
+    const x = Math.round(point.x) + 0.5;
+    const y = Math.round(point.y) + 0.5;
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  });
+  context.stroke();
+  if (drawing.type === "arrow") {
+    drawArrowHead(context, item.points[item.points.length - 2], item.points[item.points.length - 1]);
+  }
+  const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
+  if (midpoint) {
+    drawDrawingLabel(context, item.label ?? (drawing.type === "measurement" ? measurementLabel(drawing) : undefined), midpoint.x + 5, midpoint.y - 8, drawing);
+  }
+  if (selected) {
+    context.setLineDash([]);
+    context.fillStyle = colors.surface;
+    context.strokeStyle = colors.drawing;
+    [item.points[0], item.points[item.points.length - 1]].forEach((point) => {
+      circle(context, point.x, point.y, 4);
+      context.fill();
+      context.stroke();
+    });
+  }
+  context.restore();
+}
+
+function drawExpansionProjectionDrawing(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "expansionProjection" }>,
+  preview: boolean
+) {
+  const style = item.drawing.style ?? {};
+  const left = Math.max(scene.plot.left, Math.min(scene.plot.right, item.left));
+  const right = Math.max(scene.plot.left, Math.min(scene.plot.right, item.right));
+  const width = right - left;
+  const top = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, item.top));
+  const bottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, item.bottom));
+  const height = bottom - top;
+  if (width <= 3 || height <= 1) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
+  context.lineWidth = style.lineWidth ?? 1.4;
+  context.setLineDash(style.lineDash ?? [5, 3]);
+  const previousAlpha = context.globalAlpha;
+  context.globalAlpha = previousAlpha * (style.fillOpacity ?? 0.1);
+  context.fillRect(left, top, width, height);
+  context.globalAlpha = previousAlpha * (style.opacity ?? 1) * 0.82;
+  context.strokeRect(left, top, width, height);
+  context.setLineDash([]);
+  drawDrawingLabel(context, item.label, left + 5, top + 13, item.drawing);
+  context.restore();
+}
+
+function drawCollapsedDrawing(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "collapsed" }>,
+  preview: boolean
+) {
+  const style = item.drawing.style ?? {};
+  const x = Math.max(scene.plot.left + 8, Math.min(scene.plot.right - 8, item.x));
+  const y = Math.max(scene.plot.top + 10, Math.min(scene.plot.priceBottom - 10, item.y));
+  context.save();
+  context.globalAlpha = preview ? 0.58 : style.opacity ?? 0.78;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = colors.surfaceStrong;
+  context.lineWidth = 1.2;
+  context.setLineDash([3, 3]);
+  line(context, x, scene.plot.top, x, scene.plot.priceBottom);
+  context.setLineDash([]);
+  circle(context, x, y, 4);
+  context.fill();
+  context.stroke();
+  drawDrawingLabel(context, item.label, x + 7, y - 7, item.drawing);
+  context.restore();
 }
 
 function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | undefined, x: number, y: number, drawing: DrawingEntity) {
@@ -814,6 +932,14 @@ function isThemeColorToken(value: unknown): value is ThemeColorToken {
 
 function candleUnits(scene: ChartScene): SemanticCandleUnit[] {
   return scene.semantic.units.filter((unit): unit is SemanticCandleUnit => unit.kind === "candle");
+}
+
+function candleBodyWidth(scene: ChartScene, unit: SemanticCandleUnit, hovered = false): number {
+  const unitSlotWidth = Math.max(0.2, unit.slotEnd - unit.slotStart);
+  const unitPixelWidth = unitSlotWidth * scene.scales.slotWidth;
+  const minWidth = unit.depth > 0 ? 0.7 : 2;
+  const baseWidth = Math.max(minWidth, Math.min(72, unitPixelWidth * 0.78));
+  return hovered ? Math.min(unitPixelWidth, baseWidth * 1.35) : baseWidth;
 }
 
 function circle(context: CanvasRenderingContext2D, x: number, y: number, radius: number) {

@@ -4,10 +4,12 @@ import {
   detectPanelBoundaries,
   insertOptionsForBoundary,
   insertPanelAtBoundary,
+  normalizeTiledPanelStateToWorkspace,
   panelGutter,
   panelContentTitle,
   removePanelSlot,
   setPanelContentLayoutWeight,
+  setPanelContentProps,
   setPanelContentSymbol,
   type PanelContentKind,
   type PanelRect,
@@ -18,6 +20,7 @@ import {
 
 const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
+  indices: "marketIndices",
   news: "newsFeed",
   ontology: "ontologyGraph",
   portfolio: "portfolioHoldings",
@@ -26,18 +29,11 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
 
 const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelContentKind>> = {
   chart: "chart",
+  marketIndices: "indices",
   newsFeed: "news",
   ontologyGraph: "ontology",
   portfolioHoldings: "portfolio",
   orderTicket: "trade"
-};
-
-const panelAliases: Record<PanelContentKind, string[]> = {
-  chart: ["차트", "캔들", "가격", "chart"],
-  news: ["뉴스", "기사", "헤드라인", "news"],
-  ontology: ["온톨로지", "관계", "기업 관계", "ontology"],
-  portfolio: ["포트폴리오", "보유종목", "잔고", "portfolio"],
-  trade: ["주문", "주문창", "매수", "매도", "order"]
 };
 
 export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: ViewportSize, activeSymbol = "") {
@@ -57,7 +53,6 @@ export function buildTiledAgentLayoutContext(state: TiledPanelState, viewport: V
         layoutWeight: content?.layoutWeight ?? defaultLayoutWeightForKind(kind),
         minSpan: minSpanForKind(kind),
         maxSpan: maxSpanForKind(kind),
-        aliases: panelAliases[kind],
         ...(symbol ? { symbol, props: { symbol } } : {})
       };
     })
@@ -112,7 +107,7 @@ export function applyTiledAgentLayoutProposal(
       }
     }
   }
-  return next;
+  return normalizeTiledPanelStateToWorkspace(next, viewport);
 }
 
 function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize) {
@@ -183,10 +178,14 @@ function addPanelForCommand(
       slotId: panelId ?? undefined,
       symbol: symbol ?? undefined,
       layoutWeight: priority
-    });
+    }, viewport);
   }
+  const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
   return ensurePanelKind(state, kind, viewport, {
-    layoutWeight: layoutWeightForPanelId(proposal, readString(command.payload.panelId) ?? readString(command.target?.panelId)) ?? undefined
+    slotId: panelId ?? undefined,
+    symbol: readPanelSymbol(command.payload) ?? undefined,
+    layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
+    props: readPanelProps(command.payload)
   });
 }
 
@@ -194,10 +193,25 @@ function ensurePanelKind(
   state: TiledPanelState,
   kind: PanelContentKind,
   viewport: ViewportSize,
-  options: { layoutWeight?: number } = {}
+  options: { slotId?: string; symbol?: string; layoutWeight?: number; props?: Record<string, unknown> } = {}
 ): TiledPanelState {
   if (hasPanelKind(state, kind)) {
-    return focusPanelKind(state, kind, viewport);
+    const focused = focusPanelKind(state, kind, viewport);
+    const slot = focused.slots.find((item) => focused.contents[item.contentId]?.kind === kind);
+    if (!slot) {
+      return focused;
+    }
+    let next = focused;
+    if (options.props) {
+      next = setPanelContentProps(next, slot.contentId, options.props);
+    }
+    if (options.symbol) {
+      next = setPanelContentSymbol(next, slot.contentId, options.symbol);
+    }
+    if (options.layoutWeight !== undefined) {
+      next = setPanelContentLayoutWeight(next, slot.contentId, options.layoutWeight);
+    }
+    return next;
   }
   for (const boundary of detectPanelBoundaries(state, viewport)) {
     if (!insertOptionsForBoundary(state, boundary.id, viewport).some((option) => option.kind === kind)) {
@@ -274,10 +288,10 @@ function applyPanelPlacement(
     return state;
   }
   const rect = rectForPlacement(placement, viewport);
-  return {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     slots: state.slots.map((item) => item.id === slot.id ? { ...item, rect } : item)
-  };
+  }, viewport);
 }
 
 function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize): PanelRect {
@@ -309,8 +323,11 @@ function applyPanelPropsUpdate(
   let next = state;
   const props = isRecord(command.payload.props) ? command.payload.props : command.payload;
   const symbol = readString(props.symbol);
-  if (symbol && state.contents[slot.contentId]?.kind === "chart") {
+  if (symbol) {
     next = setPanelContentSymbol(next, slot.contentId, symbol);
+  }
+  if (isRecord(command.payload.props)) {
+    next = setPanelContentProps(next, slot.contentId, command.payload.props);
   }
   const layoutWeight = readNumber(command.payload.layoutWeight) ?? readNumber(props.layoutWeight);
   if (layoutWeight !== null) {
@@ -446,6 +463,10 @@ function hasChartSymbol(state: TiledPanelState, symbol: string): boolean {
 function readPanelSymbol(payload: Record<string, unknown>): string | null {
   const props = isRecord(payload.props) ? payload.props : null;
   return readString(props?.symbol) ?? readString(payload.symbol);
+}
+
+function readPanelProps(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  return isRecord(payload.props) ? payload.props : undefined;
 }
 
 function layoutWeightForPanelId(proposal: AgentLayoutProposal, panelId: string | null): number | null {

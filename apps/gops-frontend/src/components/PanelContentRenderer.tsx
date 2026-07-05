@@ -6,6 +6,7 @@ import type { ChartSymbolDto } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
@@ -45,7 +46,11 @@ export function PanelContentRenderer({
   onChartSwapPointerDown
 }: PanelContentRendererProps) {
   if (content.kind === "news") {
-    return <NewsPanel symbol={symbol.toUpperCase()} />;
+    return <NewsPanel symbol={(content.symbol ?? symbol).toUpperCase()} initialPayload={content.props} />;
+  }
+
+  if (content.kind === "indices") {
+    return <IndexPanel />;
   }
 
   if (content.kind === "ontology") {

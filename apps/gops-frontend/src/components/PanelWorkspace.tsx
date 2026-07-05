@@ -263,7 +263,7 @@ export function PanelWorkspace({
       addMenu.boundaryId,
       option.kind,
       viewportSizeRef.current,
-      { symbol: chartHeader?.symbol ?? activeSymbol }
+      { symbol: option.kind === "chart" ? chartHeader?.symbol ?? activeSymbol : undefined }
     ));
     setAddMenu(null);
     setActiveBoundaryId(null);
