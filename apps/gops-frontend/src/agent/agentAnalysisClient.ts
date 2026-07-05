@@ -23,6 +23,8 @@ export type AgentEntityResolveStatus = "confirmed" | "not_found" | "ambiguous" |
 export type AgentEntityResolveResponse = {
   status: AgentEntityResolveStatus;
   chartShortcut: boolean;
+  chartAction?: "replace" | "add" | "none";
+  chartPlacementIntent?: "top" | "bottom" | "left" | "right" | "center";
   symbol?: string;
   canonicalName?: string;
   matchedText?: string;
@@ -133,6 +135,8 @@ export function normalizeAgentEntityResolveResponse(payload: unknown): AgentEnti
   return {
     status,
     chartShortcut: source?.chartShortcut === true,
+    chartAction: readChartAction(source?.chartAction),
+    chartPlacementIntent: readChartPlacementIntent(source?.chartPlacementIntent),
     symbol: readString(source?.symbol) ?? undefined,
     canonicalName: readString(source?.canonicalName) ?? undefined,
     matchedText: readString(source?.matchedText) ?? undefined,
@@ -141,6 +145,14 @@ export function normalizeAgentEntityResolveResponse(payload: unknown): AgentEnti
     entityType: readString(source?.entityType) ?? undefined,
     reason: readString(source?.reason) ?? undefined
   };
+}
+
+function readChartAction(value: unknown): AgentEntityResolveResponse["chartAction"] {
+  return value === "replace" || value === "add" || value === "none" ? value : undefined;
+}
+
+function readChartPlacementIntent(value: unknown): AgentEntityResolveResponse["chartPlacementIntent"] {
+  return value === "top" || value === "bottom" || value === "left" || value === "right" || value === "center" ? value : undefined;
 }
 
 function normalizeIntentRoute(value: unknown): IntentRoute | null {
