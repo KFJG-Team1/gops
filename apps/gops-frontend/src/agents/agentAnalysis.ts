@@ -561,7 +561,7 @@ const layoutCommandTypes: LayoutCommandType[] = [
   "layout.proposal.reject"
 ];
 
-function normalizeLayoutProposal(value: unknown): LayoutProposal | null {
+export function normalizeLayoutProposal(value: unknown): LayoutProposal | null {
   const source = readObject(value);
   const title = readString(source?.title);
   const rationale = readString(source?.rationale);
