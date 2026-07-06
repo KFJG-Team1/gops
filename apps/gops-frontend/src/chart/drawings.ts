@@ -28,11 +28,10 @@ export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; labe
   { mode: "draw-horizontalLine", type: "horizontalLine", label: "H-Line" },
   { mode: "draw-verticalMarker", type: "verticalMarker", label: "Marker" },
   { mode: "draw-trendLine", type: "trendLine", label: "Trend" },
+  { mode: "draw-arrow", type: "arrow", label: "Arrow" },
   { mode: "draw-textLabel", type: "textLabel", label: "Text" },
   { mode: "draw-pointMarker", type: "pointMarker", label: "Point" },
-  { mode: "draw-arrow", type: "arrow", label: "Arrow" },
-  { mode: "draw-rangeBox", type: "rangeBox", label: "Range" },
-  { mode: "draw-measurement", type: "measurement", label: "Measure" }
+  { mode: "draw-rangeBox", type: "rangeBox", label: "Range" }
 ];
 
 export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null {
@@ -41,7 +40,7 @@ export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null
 }
 
 export function drawingNeedsTwoAnchors(type: DrawingType): boolean {
-  return type === "trendLine" || type === "arrow" || type === "rangeBox" || type === "measurement";
+  return type === "trendLine" || type === "arrow" || type === "rangeBox";
 }
 
 export function makeDrawing(
@@ -112,9 +111,6 @@ export function defaultDrawingStyle(type: DrawingType, trendLineExtension: Chart
   if (type === "trendLine") {
     return { colorToken: "drawing", lineWidth: 1.5, extension: trendLineExtension };
   }
-  if (type === "measurement") {
-    return { colorToken: "ma20", textToken: "ma20", lineWidth: 1.4 };
-  }
   if (type === "arrow") {
     return { colorToken: "ma60", lineWidth: 1.6 };
   }
@@ -133,8 +129,6 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
       return "포인트";
     case "rangeBox":
       return "범위";
-    case "measurement":
-      return "측정";
     default:
       return undefined;
   }
@@ -218,11 +212,12 @@ function anchorLogicalIndex(anchor: DrawingAnchor, timestampIndex: Map<string, n
 }
 
 function isChartInterval(value: unknown): value is ChartInterval {
-  return value === "1m" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M";
+  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M";
 }
 
 function intervalGranularityRank(interval: ChartInterval): number {
   switch (interval) {
+    case "footprint":
     case "1m":
       return 1;
     case "5m":
@@ -255,7 +250,7 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawi
     if (drawing.type === "verticalMarker" && points[0] && Math.abs(points[0].x - x) <= 6 && y >= scene.plot.top && y <= scene.plot.priceBottom) {
       return { drawing, anchorIndex: null };
     }
-    if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
+    if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
       const [start, end] = drawing.type === "trendLine"
         ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(drawing.style.extension))
         : [points[0], points[1]];

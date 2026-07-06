@@ -609,8 +609,7 @@ function normalizePreviewPayload(
 
 function isPreviewFirstCommand(command: ChartCommand): boolean {
   return command.type.startsWith("chart.drawing.") ||
-    command.type.startsWith("chart.comparison.") ||
-    command.type === "chart.measurement.add";
+    command.type.startsWith("chart.comparison.");
 }
 
 function setDataStatus(

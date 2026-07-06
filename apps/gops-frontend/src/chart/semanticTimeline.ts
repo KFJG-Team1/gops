@@ -1,4 +1,4 @@
-import type { CandleDto, ChartInterval } from "./types";
+import type { CandleDto, ChartInterval, FootprintBucketDto } from "./types";
 
 export type DigTargetInterval = ChartInterval | "footprint";
 
@@ -18,6 +18,7 @@ export type SemanticExpansion = {
   depth: number;
   status: ExpansionStatus;
   candles: CandleDto[];
+  footprintBucket?: FootprintBucketDto | null;
   message?: string;
   openedAt: string;
 };
@@ -51,6 +52,7 @@ export type SemanticPlaceholderUnit = {
   depth: number;
   status: ExpansionStatus;
   message: string;
+  footprintBucket?: FootprintBucketDto | null;
   slotStart: number;
   slotEnd: number;
   slotCenter: number;
@@ -80,6 +82,9 @@ export type SemanticTimeline = {
   units: SemanticRenderUnit[];
   expansionRanges: Omit<SemanticExpansionRange, "left" | "right">[];
   totalSlots: number;
+  occupiedSlotStart: number;
+  occupiedSlotEnd: number;
+  expansionExtraSlots: number;
   logicalIndexToSlot: Map<number, number>;
   timestampToSlot: Map<string, number>;
   unitById: Map<string, SemanticRenderUnit>;
@@ -122,6 +127,8 @@ const weeklyChildCandleSlotWidth = 0.6;
 
 export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterval {
   switch (interval) {
+    case "footprint":
+      return "footprint";
     case "1M":
       return "1W";
     case "1W":
@@ -183,6 +190,18 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const timestampToSlot = new Map<string, number>();
   const unitById = new Map<string, SemanticRenderUnit>();
   const expansionByParent = new Map(input.expansions.map((expansion) => [expansion.parentNodeId, expansion]));
+  const rootExpansionExtraByIndex = new Map<number, number>();
+  const rootExpansionExtraBefore: number[] = new Array(input.candles.length + 1).fill(0);
+  for (let index = 0; index < input.candles.length; index += 1) {
+    const candle = input.candles[index];
+    const rootNodeId = candle ? semanticNodeId(input.symbol, input.interval, candle.timestamp) : "";
+    const expansion = rootNodeId ? expansionByParent.get(rootNodeId) : undefined;
+    const expansionExtra = expansion ? Math.max(0, normalizeSlot(expansionSlotWidth(expansion, expansionByParent) - 1)) : 0;
+    if (expansionExtra > 0) {
+      rootExpansionExtraByIndex.set(index, expansionExtra);
+    }
+    rootExpansionExtraBefore[index + 1] = normalizeSlot(rootExpansionExtraBefore[index] + expansionExtra);
+  }
   const maxExpansionWidth = Math.max(0, ...input.expansions.map((expansion) => expansionSlotWidth(expansion, expansionByParent)));
   const renderStartIndex = Math.max(0, Math.floor(input.visibleStartIndex - maxExpansionWidth - 2));
   const renderEndIndex = Math.min(input.candles.length, Math.ceil(input.visibleEndIndex + maxExpansionWidth + 2));
@@ -218,6 +237,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       depth: expansion.depth,
       status: expansion.status,
       message,
+      footprintBucket: kind === "footprint" ? expansion.footprintBucket ?? null : undefined,
       slotStart,
       slotEnd,
       slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
@@ -312,7 +332,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     return unit.slotEnd;
   };
 
-  let extraSlots = 0;
+  let extraSlots = rootExpansionExtraBefore[renderStartIndex] ?? 0;
   for (let index = renderStartIndex; index < renderEndIndex; index += 1) {
     const candle = input.candles[index];
     if (!candle) {
@@ -321,20 +341,29 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     const slotStart = index - input.viewportStartIndex + extraSlots;
     const rootNodeId = semanticNodeId(input.symbol, input.interval, candle.timestamp);
     const expansion = expansionByParent.get(rootNodeId);
-    const width = expansion ? expansionSlotWidth(expansion, expansionByParent) : 1;
+    const expansionExtra = rootExpansionExtraByIndex.get(index) ?? 0;
+    const width = expansion ? expansionExtra + 1 : 1;
     const rootVisible = index >= input.visibleStartIndex && index < input.visibleEndIndex;
     const overlapsViewport = slotStart < input.visibleSlotCount && slotStart + width > 0;
     if (!rootVisible && !overlapsViewport) {
+      extraSlots = normalizeSlot(extraSlots + expansionExtra);
       continue;
     }
     const slotEnd = appendCandle(candle, input.interval, 0, undefined, index, slotStart, true);
-    extraSlots = normalizeSlot(extraSlots + Math.max(0, slotEnd - slotStart - 1));
+    extraSlots = normalizeSlot(extraSlots + (expansion ? expansionExtra : Math.max(0, slotEnd - slotStart - 1)));
   }
+
+  const occupiedSlotStart = units.length ? Math.min(...units.map((unit) => unit.slotStart)) : 0;
+  const occupiedSlotEnd = units.length ? Math.max(...units.map((unit) => unit.slotEnd)) : input.visibleSlotCount;
+  const expansionExtraSlots = Math.max(0, normalizeSlot(rootExpansionExtraBefore[input.candles.length] ?? 0));
 
   return {
     units,
     expansionRanges,
     totalSlots: Math.max(1, input.visibleSlotCount),
+    occupiedSlotStart,
+    occupiedSlotEnd,
+    expansionExtraSlots,
     logicalIndexToSlot,
     timestampToSlot,
     unitById
@@ -457,6 +486,7 @@ function parseIso(value: string): Date {
 function addInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   switch (interval) {
+    case "footprint":
     case "1m":
       next.setUTCMinutes(next.getUTCMinutes() + 1);
       return next;
@@ -481,6 +511,7 @@ function floorInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   next.setUTCSeconds(0, 0);
   switch (interval) {
+    case "footprint":
     case "1m":
       return next;
     case "5m":

@@ -243,7 +243,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(ctx, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
       drawDrawingLabel(ctx, scene, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
-    } else if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
+    } else if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
       const [start, end] = drawing.type === "trendLine"
         ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
         : [points[0], points[1]];
@@ -251,7 +251,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
       if (drawing.type === "arrow") {
         drawArrowHead(ctx, start, end);
       }
-      drawDrawingLabel(ctx, scene, drawing.label ?? measurementLabel(drawing, scene), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+      drawDrawingLabel(ctx, scene, drawing.label ?? lineMetricLabel(drawing, scene), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
       const y = Math.min(points[0].y, points[1].y);
@@ -292,6 +292,26 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, scene: RenderScene, lab
   ctx.fillText(label, x, y);
 }
 
+function lineMetricLabel(drawing: DrawingEntity, scene: RenderScene): string | undefined {
+  if (drawing.type !== "trendLine" && drawing.type !== "arrow") {
+    return undefined;
+  }
+  const [start, end] = drawing.anchors;
+  if (typeof start?.price !== "number" || typeof end?.price !== "number") {
+    return undefined;
+  }
+  const delta = end.price - start.price;
+  const percent = (delta / Math.max(0.0001, start.price)) * 100;
+  const startIndex = scene.allCandles.findIndex((candle) => candle.timestamp === start.timestamp);
+  const endIndex = scene.allCandles.findIndex((candle) => candle.timestamp === end.timestamp);
+  const bars = startIndex >= 0 && endIndex >= 0
+    ? Math.abs(endIndex - startIndex)
+    : typeof start.logicalIndex === "number" && typeof end.logicalIndex === "number"
+      ? Math.abs(end.logicalIndex - start.logicalIndex)
+      : 0;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars}봉`;
+}
+
 function resolveDrawingColor(
   scene: RenderScene,
   style: DrawingEntity["style"],
@@ -304,19 +324,6 @@ function resolveDrawingColor(
     return raw;
   }
   return resolveChartStyleColor(scene.document.style, style[tokenKey], fallback);
-}
-
-function measurementLabel(drawing: DrawingEntity, scene: RenderScene): string {
-  const [start, end] = drawing.anchors;
-  if (typeof start?.price !== "number" || typeof end?.price !== "number") {
-    return drawing.label ?? "측정";
-  }
-  const delta = end.price - start.price;
-  const percent = (delta / Math.max(0.0001, start.price)) * 100;
-  const startIndex = scene.allCandles.findIndex((candle) => candle.timestamp === start.timestamp);
-  const endIndex = scene.allCandles.findIndex((candle) => candle.timestamp === end.timestamp);
-  const bars = startIndex >= 0 && endIndex >= 0 ? Math.abs(endIndex - startIndex) : 0;
-  return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars}봉`;
 }
 
 function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {

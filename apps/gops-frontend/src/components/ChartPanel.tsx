@@ -1,17 +1,19 @@
 import {
   ArrowUpRight,
-  Check,
-  ChevronDown,
-  ChevronUp,
+  Activity,
+  Bot,
+  ChartColumn,
+  ChartLine,
+  ChartNoAxesCombined,
+  ChartSpline,
   CircleDot,
   Eraser,
   Hand,
-  Eye,
-  EyeOff,
-  Minus,
+  Layers2,
   MousePointer2,
   Palette,
-  Ruler,
+  PanelBottom,
+  Paintbrush,
   Square,
   Trash2,
   Type,
@@ -29,10 +31,22 @@ import {
   useState,
   WheelEvent as ReactWheelEvent
 } from "react";
+import {
+  makeChartCommand,
+  type CandleEvent,
+  type CandleSnapshot,
+  type ChartCommand,
+  type ChartCommandActor,
+  type ChartCommandType,
+  type ChartDataStatus,
+  type ChartDocument,
+  type ChartRuntimeAction,
+  type StreamStatus
+} from "@gops/chart-engine";
 import { requestChartAgentActions } from "../agent/chartAgent";
-import { applyChartAction, applyChartActions } from "../chart/actions";
+import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { fetchCandles, openChartSocket } from "../chart/cdcClient";
+import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -49,9 +63,8 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
-import { createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
-  adjacentInterval,
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
   type ViewportAnchor
@@ -68,28 +81,18 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
-import { chartIntervals, defaultVisibleBarsForInterval } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
   horizontalWheelDeltaToRightOffset,
-  latestCandleRightOffset,
   normalizeViewport,
   resolveHorizontalWheelDelta,
   zoomViewport,
   zoomViewportAt,
-  type ChartViewport
+  type ChartViewport,
+  type ViewportClampOptions
 } from "../chart/viewport";
-
-const initialLayers: Record<ChartLayerKey, boolean> = {
-  candles: true,
-  volume: false,
-  ma5: true,
-  ma20: true,
-  ma60: true
-};
-
-const initialVolumeRatio = 0.22;
 
 function segmentedClass(active = false): string {
   return active ? "segmented active" : "segmented";
@@ -99,28 +102,17 @@ function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
 }
 
-function createInitialChart(symbol: string): ChartState {
-  return {
-    symbol: symbol.toUpperCase(),
-    interval: "1D",
-    candles: [],
-    status: "loading",
-    layers: initialLayers,
-    volumeRatio: initialVolumeRatio,
-    visibleCount: defaultVisibleBarsForInterval("1D"),
-    rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1D")),
-    toolMode: "pan",
-    trendLineExtension: "segment",
-    drawings: [],
-    streamState: "connecting"
-  };
-}
-
 type DragAnchor = {
   x: number;
   y: number;
   rightOffset: number;
   visibleCount: number;
+};
+
+type PaneResizeAnchor = {
+  pointerId: number;
+  startRatio: number;
+  nextRatio: number;
 };
 
 type PendingSemanticClick = {
@@ -138,23 +130,6 @@ type ExpansionOverlay = {
   status: string;
 };
 
-type ChartMemory = {
-  expansions: SemanticExpansion[];
-  drawings: DrawingEntity[];
-  layers: Record<ChartLayerKey, boolean>;
-  volumeRatio: number;
-  visibleCount: number;
-  rightOffset: number;
-  selectedDrawingId?: string;
-};
-
-type PendingAgentDrawingPreview = {
-  id: string;
-  actions: ChartAction[];
-  drawings: DrawingEntity[];
-  visible: boolean;
-};
-
 export type LiveQuote = {
   priceText: string;
   changeText: string;
@@ -163,9 +138,22 @@ export type LiveQuote = {
 };
 
 type ChartPanelProps = {
-  symbol: string;
+  panelId: string;
+  document: ChartDocument;
+  candles: CandleDto[];
+  dataStatus: ChartDataStatus;
+  streamStatus: StreamStatus;
+  streamMessage?: string;
   symbols: ChartSymbolDto[];
   laneHeight?: number;
+  chartCommandActive?: boolean;
+  chartCommandEnabled?: boolean;
+  chartDrawingActive?: boolean;
+  chartAddActive?: boolean;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onChartCommandToggle?: () => void;
+  onChartDrawingToggle?: () => void;
+  onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
@@ -173,6 +161,9 @@ type ChartPanelProps = {
 
 export type ChartPanelHandle = {
   runAgentPrompt: (prompt: string) => Promise<ChartAgentPromptResult>;
+  getSnapshot: () => ChartState;
+  setInterval: (interval: ChartInterval) => void;
+  setChartType: (chartType: ChartType) => void;
 };
 
 export type ChartAgentPromptResult = {
@@ -187,12 +178,6 @@ export type ChartHeaderSnapshot = {
   liveQuote: LiveQuote;
 };
 
-type VolumeResizeDrag = {
-  startY: number;
-  startRatio: number;
-  sceneHeight: number;
-};
-
 const priceFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2
@@ -205,45 +190,92 @@ const unavailableQuote: LiveQuote = {
   tone: "unavailable"
 };
 
-const minLaneHeightForVolume = 245;
+const baseChartMinHeightForBelowPanes = 170;
+const belowPaneMinHeight = 70;
+const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
+  ["segment", "Segment"],
+  ["ray", "Ray"],
+  ["line", "Line"]
+];
 
 export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function ChartPanel({
-  symbol,
+  panelId,
+  document,
+  candles,
+  dataStatus,
+  streamStatus,
+  streamMessage,
   symbols,
   laneHeight,
+  chartCommandActive = false,
+  chartCommandEnabled = true,
+  chartDrawingActive = false,
+  chartAddActive = false,
+  onChartRuntimeAction,
+  onChartCommandToggle,
+  onChartDrawingToggle,
+  onChartAddToggle,
   onSemanticSelectionChange,
   onChartHoverChange,
   onHeaderChange
 }: ChartPanelProps, ref) {
-  const [chart, setChart] = useState<ChartState>(() => createInitialChart(symbol));
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
-  const [chartMemory, setChartMemory] = useState<Record<string, ChartMemory>>({});
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
-  const [volumeHandleTop, setVolumeHandleTop] = useState<number | null>(null);
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
-  const [agentDrawingPreview, setAgentDrawingPreview] = useState<PendingAgentDrawingPreview | null>(null);
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
-  const [maMenuOpen, setMaMenuOpen] = useState(false);
-  const [trendMenuOpen, setTrendMenuOpen] = useState(false);
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
+  const [transientVolumeRatio, setTransientVolumeRatio] = useState<number | null>(null);
+  const [indicatorSeries, setIndicatorSeries] = useState<IndicatorSeries>({});
+  const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
+  const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
+  const chart = useMemo(() => (
+    chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
+  ), [candles, dataStatus, document, streamMessage, streamStatus]);
+  const activeIndicatorLayers = useMemo(() => activeServerIndicatorLayers(chart), [
+    chart.layers.ma5,
+    chart.layers.ma20,
+    chart.layers.ma60,
+    chart.layers["sma:5"],
+    chart.layers["sma:20"],
+    chart.layers["sma:60"],
+    chart.layers["ema:20"],
+    chart.layers["wma:20"],
+    chart.layers["bollinger:20:2"],
+    chart.layers["rsi:14"],
+    chart.layers["stochastic:14:3:3"],
+    chart.layers["macd:12:26:9"]
+  ]);
+  const visibleProfileRange = useMemo(() => visibleCandleRangeForProfile(chart, transientViewport), [
+    chart.candles,
+    chart.rightOffset,
+    chart.visibleCount,
+    transientViewport
+  ]);
+  const activeBelowPaneOrder = useMemo(() => activeBelowPaneIds(chart), [
+    chart.layers.volume,
+    chart.layers["rsi:14"],
+    chart.layers["stochastic:14:3:3"],
+    chart.layers["macd:12:26:9"],
+    chart.panes
+  ]);
   const sceneRef = useRef<ChartScene | null>(null);
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
-  const chartMemoryRef = useRef<Record<string, ChartMemory>>(chartMemory);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
+  const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
-  const volumeResizeRef = useRef<VolumeResizeDrag | null>(null);
+  const transientVolumeRatioRef = useRef<number | null>(null);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -253,29 +285,35 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeExpansionsRef.current = activeExpansions;
   }, [activeExpansions]);
 
-  useEffect(() => {
-    chartMemoryRef.current = chartMemory;
-  }, [chartMemory]);
+  const commandTarget = useMemo(() => ({
+    panelId,
+    chartDocumentId: document.id
+  }), [document.id, panelId]);
 
-  useEffect(() => {
-    const key = chartMemoryKey(chart.symbol, chart.interval);
-    const memory = captureChartMemory(chart, activeExpansions);
-    setChartMemory((current) => (
-      chartMemoryEquals(current[key], memory)
-        ? current
-        : { ...current, [key]: memory }
-    ));
-  }, [
-    activeExpansions,
-    chart.drawings,
-    chart.interval,
-    chart.layers,
-    chart.rightOffset,
-    chart.selectedDrawingId,
-    chart.symbol,
-    chart.visibleCount,
-    chart.volumeRatio
-  ]);
+  const dispatchDocumentCommand = useCallback((
+    type: ChartCommandType,
+    payload: Record<string, unknown> = {},
+    actor: ChartCommandActor = "user"
+  ) => {
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand(type, actor, commandTarget, payload)
+    });
+  }, [commandTarget, onChartRuntimeAction]);
+
+  const dispatchDocumentCommandGroup = useCallback((
+    commands: ChartCommand[],
+    label: string
+  ) => {
+    if (!commands.length) {
+      return;
+    }
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    onChartRuntimeAction({ kind: "chart.command.group", commands, label });
+  }, [onChartRuntimeAction]);
 
   const loadOlderCandles = useCallback((
     symbol: string,
@@ -291,86 +329,84 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const controller = new AbortController();
     fetchCandles({
       symbol,
-      interval,
+      interval: candleSourceInterval(interval),
       before,
       limit,
-      ma: [5, 20, 60]
+      ma: []
     }, controller.signal)
       .then((response) => {
-        setChart((existing) => {
-          if (existing.symbol !== symbol || existing.interval !== interval) {
-            return existing;
-          }
-          const merged = mergeCandlesByTimestamp(response.candles, existing.candles);
-          const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-          const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
-            existing.candles,
-            merged,
-            { visibleCount: existing.visibleCount, rightOffset: existing.rightOffset },
-            plotWidth
-          );
-          return {
-            ...existing,
-            candles: merged,
-            status: response.status,
-            message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? existing.message,
-            ...nextViewport
-          };
-        });
+        const current = chartRef.current;
+        if (current.symbol !== symbol || current.interval !== interval) {
+          return;
+        }
+        const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+        const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
+        const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
+          current.candles,
+          merged,
+          { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+          plotWidth
+        );
+        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, interval) });
+        dispatchDocumentCommand("chart.viewport.set", nextViewport);
       })
       .catch((error: unknown) => {
-        setChart((current) => (
-          current.symbol === symbol && current.interval === interval
-            ? { ...current, message: error instanceof Error ? error.message : "Historical range request failed" }
-            : current
-        ));
+        onChartRuntimeAction({
+          kind: "chart.snapshot.failed",
+          symbol,
+          interval,
+          message: error instanceof Error ? error.message : "Historical range request failed"
+        });
       })
       .finally(() => {
         olderRangeRequestsRef.current.delete(requestKey);
       });
-  }, []);
+  }, [dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
     const controller = new AbortController();
     const requestKey = chartMemoryKey(chart.symbol, chart.interval);
     const pendingLoad = pendingViewportAnchorRef.current?.key === requestKey ? pendingViewportAnchorRef.current : null;
-    setChart((current) => ({ ...current, status: "loading", message: "Loading CDC candles..." }));
-    fetchCandles({
+    onChartRuntimeAction({
+      kind: "chart.data.status",
       symbol: chart.symbol,
       interval: chart.interval,
+      status: { state: "loading", message: "Loading CDC candles..." }
+    });
+    fetchCandles({
+      symbol: chart.symbol,
+      interval: candleSourceInterval(chart.interval),
       limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: [5, 20, 60]
+      ma: []
     }, controller.signal)
       .then((response) => {
-        setChart((current) => ({
-          ...current,
-          candles: response.candles,
-          status: response.status,
-          message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
-          ...anchoredViewportForCandles(
-            response.candles,
-            current.interval,
-            pendingLoad?.anchor ?? null,
-            {
-              visibleCount: current.visibleCount,
-              rightOffset: current.rightOffset
-            },
-            sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
-          )
-        }));
+        const current = chartRef.current;
+        const nextViewport = anchoredViewportForCandles(
+          response.candles,
+          current.interval,
+          pendingLoad?.anchor ?? null,
+          {
+            visibleCount: current.visibleCount,
+            rightOffset: current.rightOffset
+          },
+          sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
+        );
+        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
+        dispatchDocumentCommand("chart.viewport.set", nextViewport);
         if (pendingViewportAnchorRef.current?.key === requestKey) {
           pendingViewportAnchorRef.current = null;
         }
       })
       .catch((error: unknown) => {
-        setChart((current) => ({
-          ...current,
-          status: "error",
+        onChartRuntimeAction({
+          kind: "chart.snapshot.failed",
+          symbol: chart.symbol,
+          interval: chart.interval,
           message: error instanceof Error ? error.message : "Candle request failed"
-        }));
+        });
       });
     return () => controller.abort();
-  }, [chart.symbol, chart.interval]);
+  }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -389,58 +425,184 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     return openChartSocket(
       chart.symbol,
-      chart.interval,
-      (event) => setChart((current) => applyCandleEvent(current, event)),
-      (streamState) => setChart((current) => ({ ...current, streamState }))
+      candleSourceInterval(chart.interval),
+      (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) }),
+      (nextStreamState) => onChartRuntimeAction({
+        kind: "chart.stream.status",
+        symbol: chart.symbol,
+        interval: chart.interval,
+        status: normalizeStreamStatus(nextStreamState)
+      })
     );
-  }, [chart.symbol, chart.interval]);
+  }, [chart.interval, chart.symbol, onChartRuntimeAction]);
+
+  useEffect(() => {
+    const firstTimestamp = chart.candles[0]?.timestamp;
+    const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
+    if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
+      setIndicatorSeries({});
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const loadIndicators = (attempt = 0) => {
+      fetchIndicators({
+        symbol: chart.symbol,
+        interval: candleSourceInterval(chart.interval),
+        from: firstTimestamp,
+        to: lastTimestamp,
+        limit: Math.max(chart.candles.length, defaultVisibleBarsForInterval(chart.interval)),
+        layers: activeIndicatorLayers
+      }, controller.signal)
+        .then((response) => {
+          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          if (shouldRetryDerived(response, attempt)) {
+            retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
+            return;
+          }
+          setIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setIndicatorSeries({});
+          }
+        });
+    };
+    loadIndicators();
+    return () => {
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    activeIndicatorLayers,
+    chart.candles,
+    chart.interval,
+    chart.symbol
+  ]);
+
+  useEffect(() => {
+    if (!chart.layers["volume-profile"] || !visibleProfileRange) {
+      setVolumeProfile(null);
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      const loadProfile = (attempt = 0) => {
+        fetchVolumeProfile({
+          symbol: chart.symbol,
+          from: visibleProfileRange.from,
+          to: visibleProfileRange.to,
+          targetBins: 10,
+          priceMin: visibleProfileRange.priceMin,
+          priceMax: visibleProfileRange.priceMax
+        }, controller.signal)
+          .then((response) => {
+            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+              return;
+            }
+            if (shouldRetryDerived(response, attempt)) {
+              retryTimer = window.setTimeout(() => loadProfile(attempt + 1), derivedRetryDelay(response));
+              return;
+            }
+            setVolumeProfile(response.derived?.state === "failed" ? null : response);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) {
+              setVolumeProfile(null);
+            }
+          });
+      };
+      loadProfile();
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    chart.interval,
+    chart.layers["volume-profile"],
+    chart.symbol,
+    visibleProfileRange
+  ]);
+
+  useEffect(() => {
+    if (chart.interval !== "footprint" || !visibleProfileRange) {
+      setFootprint(null);
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      const loadFootprint = (attempt = 0) => {
+        fetchFootprint({
+          symbol: chart.symbol,
+          from: visibleProfileRange.from,
+          to: visibleProfileRange.to,
+          limit: 20000
+        }, controller.signal)
+          .then((response) => {
+            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+              return;
+            }
+            if (shouldRetryDerived(response, attempt)) {
+              retryTimer = window.setTimeout(() => loadFootprint(attempt + 1), derivedRetryDelay(response));
+              return;
+            }
+            setFootprint(response.derived?.state === "failed" ? null : response);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) {
+              setFootprint(null);
+            }
+          });
+      };
+      loadFootprint();
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    chart.interval,
+    chart.symbol,
+    visibleProfileRange
+  ]);
 
   useEffect(() => {
     onSemanticSelectionChange?.(selectedSemanticNode);
   }, [onSemanticSelectionChange, selectedSemanticNode]);
 
   useEffect(() => {
-    if (typeof laneHeight !== "number" || laneHeight >= minLaneHeightForVolume) {
+    if (typeof laneHeight !== "number") {
       return;
     }
-    setChart((current) => (
-      current.layers.volume
-        ? applyChartAction(current, { type: "setLayer", layer: "volume", enabled: false })
-        : current
-    ));
-  }, [laneHeight]);
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const drag = volumeResizeRef.current;
-      if (!drag) {
-        return;
+    const capacity = maxBelowPaneCountForHeight(laneHeight);
+    if (activeBelowPaneOrder.length > capacity) {
+      const paneId = activeBelowPaneOrder[activeBelowPaneOrder.length - 1];
+      const layer = belowLayerForPaneId(paneId);
+      if (layer) {
+        dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: false });
       }
-      event.preventDefault();
-      const nextRatio = drag.startRatio - (event.clientY - drag.startY) / drag.sceneHeight;
-      setChart((current) => applyChartAction(current, { type: "setVolumeRatio", ratio: nextRatio }));
-    };
-    const handlePointerEnd = () => {
-      volumeResizeRef.current = null;
-    };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerEnd);
-      window.removeEventListener("pointercancel", handlePointerEnd);
-    };
-  }, []);
+    }
+  }, [activeBelowPaneOrder, dispatchDocumentCommand, laneHeight]);
 
   const renderChart = useMemo(() => ({
     ...chart,
+    indicatorSeries,
+    volumeProfile,
+    footprint,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
+    volumeRatio: transientVolumeRatio ?? chart.volumeRatio,
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, transientDrawings, transientViewport]);
+  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientVolumeRatio, volumeProfile]);
   const renderExpansions = activeExpansions;
-  const previewDrawings = useMemo(() => agentDrawingPreview?.visible ? agentDrawingPreview.drawings : [], [agentDrawingPreview]);
+  const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
   const currentSymbol = symbols.find((symbol) => symbol.symbol === chart.symbol) ?? {
     symbol: chart.symbol,
@@ -468,146 +630,97 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     onHeaderChange
   ]);
 
-  const dispatchChartAction = useCallback((action: ChartAction) => {
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    setChart((current) => applyChartAction(current, action));
-  }, []);
-
-  const persistCurrentChartMemory = useCallback(() => {
-    const current = chartRef.current;
-    const key = chartMemoryKey(current.symbol, current.interval);
-    const memory = captureChartMemory(current, activeExpansionsRef.current);
-    chartMemoryRef.current = { ...chartMemoryRef.current, [key]: memory };
-    setChartMemory((existing) => (
-      chartMemoryEquals(existing[key], memory)
-        ? existing
-        : { ...existing, [key]: memory }
-    ));
-  }, []);
-
   const clearSemanticState = useCallback(() => {
     setHoveredSemanticNodeId(undefined);
     setHoverSnapshot(null);
     setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-    setMaMenuOpen(false);
-    setTrendMenuOpen(false);
   }, []);
 
-  const switchSymbolInterval = useCallback((
-    symbol: string,
-    interval: ChartInterval,
-    options: { anchor?: ViewportAnchor } = {}
-  ) => {
-    persistCurrentChartMemory();
-    const normalizedSymbol = symbol.toUpperCase();
-    const key = chartMemoryKey(normalizedSymbol, interval);
-    const memory = chartMemoryRef.current[key];
-    const nextExpansions = memory?.expansions ?? [];
-    if (options.anchor) {
-      pendingViewportAnchorRef.current = {
-        key,
-        anchor: {
-          ...options.anchor,
-          visibleCount: options.anchor.visibleCount ?? memory?.visibleCount ?? defaultVisibleBarsForInterval(interval)
-        }
-      };
-    } else {
-      pendingViewportAnchorRef.current = null;
-    }
-    activeExpansionsRef.current = nextExpansions;
-    setActiveExpansions(nextExpansions);
-    setAgentDrawingPreview(null);
+  useEffect(() => {
+    activeExpansionsRef.current = [];
+    setActiveExpansions([]);
+    pendingViewportAnchorRef.current = null;
+    setDrawingDraft(null);
+    setTransientDrawings(null);
+    setVolumeProfile(null);
+    setFootprint(null);
     clearSemanticState();
-    setChart((current) => restoreChartFromMemory(current, normalizedSymbol, interval, memory));
-  }, [clearSemanticState, persistCurrentChartMemory]);
-
-  const setSymbol = useCallback((symbol: string) => {
-    switchSymbolInterval(symbol, chartRef.current.interval);
-  }, [switchSymbolInterval]);
+  }, [chart.interval, chart.symbol, clearSemanticState]);
 
   useEffect(() => {
-    const normalizedSymbol = symbol.toUpperCase();
-    if (normalizedSymbol !== chartRef.current.symbol) {
-      setSymbol(normalizedSymbol);
+    if (chart.chartType !== "line") {
+      return;
     }
-  }, [setSymbol, symbol]);
+    activeExpansionsRef.current = [];
+    setActiveExpansions([]);
+    pendingSemanticClickRef.current = null;
+    setSelectedSemanticNode(null);
+    setExpansionOverlays([]);
+  }, [chart.chartType]);
 
   const setInterval = useCallback((interval: ChartInterval) => {
     const current = chartRef.current;
     if (current.interval === interval) {
       return;
     }
-    switchSymbolInterval(current.symbol, interval, {
+    pendingViewportAnchorRef.current = {
+      key: chartMemoryKey(current.symbol, interval),
       anchor: {
         mode: "right",
         timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
-        visibleCount: chartMemoryRef.current[chartMemoryKey(current.symbol, interval)]?.visibleCount ?? defaultVisibleBarsForInterval(interval)
+        visibleCount: defaultVisibleBarsForInterval(interval)
       }
-    });
-  }, [switchSymbolInterval]);
+    };
+    activeExpansionsRef.current = [];
+    setActiveExpansions([]);
+    clearSemanticState();
+    dispatchDocumentCommand("chart.timeframe.set", { timeframe: interval });
+  }, [clearSemanticState, dispatchDocumentCommand]);
+
+  const setChartType = useCallback((chartType: ChartType) => {
+    if (chartRef.current.chartType === chartType) {
+      return;
+    }
+    if (chartType === "line") {
+      activeExpansionsRef.current = [];
+      setActiveExpansions([]);
+      pendingSemanticClickRef.current = null;
+      setSelectedSemanticNode(null);
+      setExpansionOverlays([]);
+    }
+    dispatchDocumentCommand("chart.type.set", { chartType });
+  }, [dispatchDocumentCommand]);
 
   const setToolMode = useCallback((toolMode: ChartToolMode) => {
-    dispatchChartAction({ type: "setTool", toolMode });
-  }, [dispatchChartAction]);
+    dispatchDocumentCommand("chart.drawing.clearSelection", { mode: toolMode });
+  }, [dispatchDocumentCommand]);
 
   const setTrendLineExtension = useCallback((extension: ChartLineExtension) => {
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    setChart((current) => ({ ...current, toolMode: "draw-trendLine", trendLineExtension: extension }));
-  }, []);
+    dispatchDocumentCommand("chart.drawing.clearSelection", { mode: "draw-trendLine", trendLineExtension: extension });
+  }, [dispatchDocumentCommand]);
 
   const toggleLayer = useCallback((layer: ChartLayerKey) => {
     setDrawingDraft(null);
     setTransientDrawings(null);
-    setChart((current) => {
-      if (layer === "volume") {
-        const enabled = !current.layers.volume;
-        if (enabled && typeof laneHeight === "number" && laneHeight < minLaneHeightForVolume) {
-          return current;
-        }
-        return applyChartAction(current, { type: "setLayer", layer, enabled });
-      }
-      return applyChartAction(current, { type: "toggleLayer", layer });
-    });
-  }, [laneHeight]);
-
-  const applyAgentActions = useCallback((actions: ChartAction[]) => {
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    const drawingActions = actions.filter(isDrawingAction);
-    const immediateActions = actions.filter((action) => !isDrawingAction(action));
-    const baseChart = immediateActions.length ? applyChartActions(chartRef.current, immediateActions) : chartRef.current;
-    if (immediateActions.length) {
-      setChart(baseChart);
-    }
-    if (drawingActions.length) {
-      const previewChart = applyChartActions(baseChart, drawingActions);
-      setAgentDrawingPreview({
-        id: `agent-preview-${Date.now()}`,
-        actions: drawingActions,
-        drawings: changedPreviewDrawings(baseChart.drawings, previewChart.drawings),
-        visible: true
-      });
-    } else {
-      setAgentDrawingPreview(null);
-    }
-  }, []);
-
-  const applyAgentDrawingPreview = useCallback(() => {
-    const preview = agentDrawingPreview;
-    if (!preview) {
+    const enabled = !chartRef.current.layers[layer];
+    if (enabled && isBelowLayer(layer) && typeof laneHeight === "number" && activeBelowPaneIds(chartRef.current).length >= maxBelowPaneCountForHeight(laneHeight)) {
       return;
     }
-    setChart((current) => applyChartActions(current, preview.actions));
-    setAgentDrawingPreview(null);
-  }, [agentDrawingPreview]);
+    dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: enabled });
+  }, [dispatchDocumentCommand, laneHeight]);
+
+  const applyAgentActions = useCallback((actions: ChartAction[]) => {
+    const commands = actionsToChartCommands(actions, chartRef.current, commandTarget, "llm");
+    dispatchDocumentCommandGroup(commands, "Chart agent actions");
+  }, [commandTarget, dispatchDocumentCommandGroup]);
 
   const applyViewport = useCallback((viewport: ChartViewport) => {
     const currentChart = chartRef.current;
-    const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-    const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth);
+    const currentScene = sceneRef.current;
+    const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
+    const clampOptions = viewportClampOptionsForScene(currentScene);
+    const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth, clampOptions);
     const maxRightOffset = Math.max(0, currentChart.candles.length - Math.min(requestedViewport.visibleCount, currentChart.candles.length));
     const oldest = currentChart.candles[0]?.timestamp;
     if (oldest && requestedViewport.rightOffset >= maxRightOffset - 1) {
@@ -618,14 +731,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount)
       );
     }
-    setChart((current) => {
-      const nextViewport = normalizeViewport(viewport, current.candles.length, plotWidth);
-      if (nextViewport.visibleCount === current.visibleCount && nextViewport.rightOffset === current.rightOffset) {
-        return current;
-      }
-      return applyChartAction(current, { type: "setViewport", ...nextViewport });
-    });
-  }, [loadOlderCandles]);
+    const nextViewport = requestedViewport;
+    if (nextViewport.visibleCount === currentChart.visibleCount && nextViewport.rightOffset === currentChart.rightOffset) {
+      return;
+    }
+    dispatchDocumentCommand("chart.viewport.set", nextViewport);
+  }, [dispatchDocumentCommand, loadOlderCandles]);
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
@@ -648,10 +759,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       overlayKeyRef.current = key;
       setExpansionOverlays(overlays);
     }
-    const nextVolumeHandleTop = scene.chart.layers.volume && scene.plot.volumeTop < scene.plot.bottom ? scene.plot.priceBottom : null;
-    setVolumeHandleTop((current) => (
-      current === nextVolumeHandleTop ? current : nextVolumeHandleTop
-    ));
     const nextHoverOhlcTop = topPriceGridY(scene) + 2;
     setHoverOhlcTop((current) => (
       Math.abs(current - nextHoverOhlcTop) < 0.5 ? current : nextHoverOhlcTop
@@ -683,7 +790,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         from: queryRange.from,
         to: queryRange.to,
         limit: expansionLimitForInterval(expansion.childInterval),
-        ma: [5, 20, 60]
+        ma: []
       });
       setActiveExpansions((current) => current.map((item) => (
         item.id === expansion.id &&
@@ -710,7 +817,47 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
   }, []);
 
+  const loadExpansionFootprint = useCallback(async (expansion: SemanticExpansion, symbol: string) => {
+    if (expansion.childInterval !== "footprint") {
+      return;
+    }
+    try {
+      const response = await fetchFootprint({
+        symbol,
+        from: expansion.from,
+        to: expansion.to,
+        limit: 20000
+      });
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: response.buckets.length ? "ready" : "empty",
+              footprintBucket: response.buckets[0] ?? null,
+              message: response.buckets.length ? undefined : "No footprint data"
+            }
+          : item
+      )));
+    } catch (error: unknown) {
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: "error",
+              footprintBucket: null,
+              message: error instanceof Error ? error.message : "Footprint request failed"
+            }
+          : item
+      )));
+    }
+  }, []);
+
   const openSemanticExpansion = useCallback((unit: SemanticRenderUnit) => {
+    if (chartRef.current.chartType === "line") {
+      return;
+    }
     selectSemanticUnit(unit);
     if (unit.kind !== "candle") {
       return;
@@ -721,25 +868,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (expansion.childInterval === "footprint") {
       setSelectedSemanticNode({
         ...snapshotFromSemanticUnit(unit),
-        status: "ready"
+        status: "loading"
       });
+      void loadExpansionFootprint(expansion, unit.symbol);
       return;
     }
     void loadExpansionCandles(expansion, unit.symbol);
-  }, [loadExpansionCandles, selectSemanticUnit]);
+  }, [loadExpansionCandles, loadExpansionFootprint, selectSemanticUnit]);
 
   const zoomBy = useCallback((delta: number) => {
-    setChart((current) => {
-      const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-      const nextViewport = zoomViewport(
-        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
-        delta,
-        current.candles.length,
-        plotWidth
-      );
-      return applyChartAction(current, { type: "setViewport", ...nextViewport });
-    });
-  }, []);
+    const current = chartRef.current;
+    const currentScene = sceneRef.current;
+    const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
+    const nextViewport = zoomViewport(
+      { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+      delta,
+      current.candles.length,
+      plotWidth,
+      viewportClampOptionsForScene(currentScene)
+    );
+    applyViewport(nextViewport);
+  }, [applyViewport]);
 
   const runAgentPrompt = useCallback(async (rawPrompt: string): Promise<ChartAgentPromptResult> => {
     const prompt = rawPrompt.trim();
@@ -753,19 +902,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     return { message: result.message };
   }, [applyAgentActions]);
 
-  useImperativeHandle(ref, () => ({ runAgentPrompt }), [runAgentPrompt]);
-
-  const maLayerButtons = useMemo(() => ([
-    ["ma5", "MA5"],
-    ["ma20", "MA20"],
-    ["ma60", "MA60"]
-  ] as Array<[ChartLayerKey, string]>), []);
-  const trendExtensionButtons = useMemo(() => ([
-    ["segment", "Segment"],
-    ["ray", "Ray"],
-    ["line", "Line"]
-  ] as Array<[ChartLineExtension, string]>), []);
-  const anyMaEnabled = chart.layers.ma5 || chart.layers.ma20 || chart.layers.ma60;
+  useImperativeHandle(ref, () => ({
+    runAgentPrompt,
+    getSnapshot: () => chartRef.current,
+    setInterval,
+    setChartType
+  }), [runAgentPrompt, setChartType, setInterval]);
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -782,7 +924,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const currentViewport = normalizeViewport(
         { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
         current.candles.length,
-        plotWidth
+        plotWidth,
+        viewportClampOptionsForScene(scene)
       );
       const slotWidth = sceneSlotWidth
         ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
@@ -793,7 +936,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         currentViewport.visibleCount,
         current.candles.length,
         deltaMode,
-        plotWidth
+        plotWidth,
+        viewportClampOptionsForScene(scene)
       );
       applyViewport({
         visibleCount: currentViewport.visibleCount,
@@ -814,16 +958,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const x = event.clientX - rect.left;
     const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
     const anchorRatio = (x - scene.plot.left) / plotWidth;
-    setChart((current) => {
-      const nextViewport = zoomViewportAt(
-        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
-        delta,
-        current.candles.length,
-        anchorRatio,
-        plotWidth
-      );
-      return applyChartAction(current, { type: "setViewport", ...nextViewport });
-    });
+    const current = chartRef.current;
+    const nextViewport = zoomViewportAt(
+      { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+      delta,
+      current.candles.length,
+      anchorRatio,
+      plotWidth,
+      viewportClampOptionsForScene(scene)
+    );
+    applyViewport(nextViewport);
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -831,8 +975,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (event.button !== 0) {
       return;
     }
-    setMaMenuOpen(false);
-    setTrendMenuOpen(false);
     const scene = sceneRef.current;
     if (!scene) {
       return;
@@ -840,25 +982,34 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (isPaneBoundaryHit(scene, point)) {
+      const ratio = volumeRatioForPointerY(scene, point.y);
+      const resizeAnchor = { pointerId: event.pointerId, startRatio: chart.volumeRatio, nextRatio: ratio };
+      paneResizeRef.current = resizeAnchor;
+      transientVolumeRatioRef.current = ratio;
+      setTransientVolumeRatio(ratio);
+      return;
+    }
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
+    const semanticDigEnabled = chart.chartType !== "line";
 
     if (chart.toolMode === "select") {
       const hit = hitTestDrawing(scene, point.x, point.y);
       if (!hit) {
-        if (semanticHit) {
+        if (semanticHit && semanticDigEnabled) {
           pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
           selectSemanticUnit(semanticHit);
           return;
         }
-        dispatchChartAction({ type: "selectDrawing" });
+        dispatchDocumentCommand("chart.drawing.clearSelection", { mode: chart.toolMode });
         return;
       }
       const anchor = transform.pointToAnchor(point.x, point.y, chart.symbol);
       if (anchor) {
         drawingDragRef.current = { drawing: hit.drawing, anchor, anchorIndex: hit.anchorIndex };
       }
-      dispatchChartAction({ type: "selectDrawing", drawingId: hit.drawing.id });
+      dispatchDocumentCommand("chart.drawing.select", { drawingId: hit.drawing.id });
       return;
     }
 
@@ -873,7 +1024,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           trendLineExtension: chart.trendLineExtension,
           sourceInterval: sourceIntervalForDrawingAnchors([anchor], chart.interval)
         });
-        dispatchChartAction({ type: "addDrawing", drawing });
+        dispatchDocumentCommand("chart.drawing.add", { drawing });
         return;
       }
       if (drawingDraft?.type === drawingType) {
@@ -884,7 +1035,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         });
         setDrawingDraft(null);
         setTransientDrawings(null);
-        dispatchChartAction({ type: "addDrawing", drawing });
+        dispatchDocumentCommand("chart.drawing.add", { drawing });
       } else {
         setDrawingDraft({ type: drawingType, first: anchor, sourceInterval: sourceIntervalForDrawingAnchors([anchor], chart.interval) });
         setTransientDrawings(null);
@@ -892,10 +1043,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
 
-    if (semanticHit) {
+    if (semanticHit && semanticDigEnabled) {
       pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
     }
-    const currentViewport = normalizeViewport({ visibleCount: chart.visibleCount, rightOffset: chart.rightOffset }, chart.candles.length, scene.plot.right - scene.plot.left);
+    const currentViewport = normalizeViewport(
+      { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
+      chart.candles.length,
+      scene.plot.right - scene.plot.left,
+      viewportClampOptionsForScene(scene)
+    );
     dragAnchorRef.current = {
       x: event.clientX,
       y: event.clientY,
@@ -913,6 +1069,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setCrosshair(point);
     const scene = sceneRef.current;
     if (!scene) {
+      return;
+    }
+    const paneResize = paneResizeRef.current;
+    if (paneResize) {
+      const ratio = volumeRatioForPointerY(scene, point.y);
+      paneResize.nextRatio = ratio;
+      transientVolumeRatioRef.current = ratio;
+      setTransientVolumeRatio(ratio);
       return;
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
@@ -970,7 +1134,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         event.clientX - dragAnchor.x,
         scene.scales.slotWidth,
         dragAnchor.visibleCount,
-        chart.candles.length
+        chart.candles.length,
+        viewportClampOptionsForScene(scene)
       )
     };
     transientViewportRef.current = nextViewport;
@@ -980,14 +1145,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drawingDrag = drawingDragRef.current;
     const dragAnchor = dragAnchorRef.current;
+    const paneResize = paneResizeRef.current;
     const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
+    const nextVolumeRatio = transientVolumeRatioRef.current;
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
+    paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
+    transientVolumeRatioRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
+    setTransientVolumeRatio(null);
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
@@ -1000,7 +1170,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const anchor = scene ? createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol) : null;
       if (scene && anchor) {
         const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
-        dispatchChartAction({ type: "updateDrawing", drawingId: drawingDrag.drawing.id, patch: { anchors } });
+        dispatchDocumentCommand("chart.drawing.update", {
+          drawingId: drawingDrag.drawing.id,
+          drawingPatch: { anchors }
+        });
+      }
+      return;
+    }
+    if (paneResize && typeof nextVolumeRatio === "number") {
+      if (Math.abs(nextVolumeRatio - paneResize.startRatio) > 0.004) {
+        dispatchDocumentCommand("chart.pane.ratio.set", { paneId: "volume", heightRatio: nextVolumeRatio });
       }
       return;
     }
@@ -1019,10 +1198,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const cancelDrag = () => {
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
+    paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
+    transientVolumeRatioRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
+    setTransientVolumeRatio(null);
     setHoveredSemanticNodeId(undefined);
     setHoverSnapshot(null);
     setCrosshair(undefined);
@@ -1030,7 +1212,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const clearChartHover = useCallback(() => {
-    if (dragAnchorRef.current || drawingDragRef.current) {
+    if (dragAnchorRef.current || drawingDragRef.current || paneResizeRef.current) {
       return;
     }
     setHoveredSemanticNodeId(undefined);
@@ -1043,7 +1225,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!selectedDrawing) {
       return;
     }
-    dispatchChartAction({ type: "deleteDrawing", drawingId: selectedDrawing.id });
+    dispatchDocumentCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
   };
 
   const updateSelectedDrawingStyle = () => {
@@ -1052,76 +1234,31 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const defaultStyle = defaultDrawingStyle(selectedDrawing.type, chart.trendLineExtension);
     const nextToken = selectedDrawing.style.colorToken === "down" ? defaultStyle.colorToken : "down";
-    dispatchChartAction({
-      type: "updateDrawing",
+    dispatchDocumentCommand("chart.drawing.update", {
       drawingId: selectedDrawing.id,
-      patch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
+      drawingPatch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
     });
   };
 
   const clearAllDrawings = () => {
     setDrawingDraft(null);
     setTransientDrawings(null);
-    dispatchChartAction({ type: "clearDrawings" });
+    const commands = chart.drawings.map((drawing) => makeChartCommand(
+      "chart.drawing.remove",
+      "user",
+      commandTarget,
+      { drawingId: drawing.id }
+    ));
+    dispatchDocumentCommandGroup(commands, "Clear drawings");
   };
 
-  const beginVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const scene = sceneRef.current;
-    if (!scene || !chart.layers.volume) {
-      return;
-    }
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    onChartHoverChange?.(true);
-    volumeResizeRef.current = {
-      startY: event.clientY,
-      startRatio: chart.volumeRatio,
-      sceneHeight: Math.max(1, scene.height)
-    };
-  };
-
-  const updateVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = volumeResizeRef.current;
-    if (!drag) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const nextRatio = drag.startRatio - (event.clientY - drag.startY) / drag.sceneHeight;
-    setChart((current) => applyChartAction(current, { type: "setVolumeRatio", ratio: nextRatio }));
-  };
-
-  const endVolumeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    volumeResizeRef.current = null;
-    try {
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    } catch {
-      // Pointer capture can already be released after a resize drag.
-    }
-  };
-
-  const smallerInterval = adjacentInterval(chart.interval, "smaller");
-  const largerInterval = adjacentInterval(chart.interval, "larger");
-  const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0 || Object.entries(chartMemory).some(([key, memory]) => (
-    key.startsWith(`${chart.symbol}:`) && memory.expansions.length > 0
-  ));
+  const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0;
 
   const clearAllDigging = () => {
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
     setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-    setChartMemory((current) => {
-      const next = { ...current };
-      Object.entries(next).forEach(([key, memory]) => {
-        if (key.startsWith(`${chart.symbol}:`) && memory.expansions.length > 0) {
-          next[key] = { ...memory, expansions: [] };
-        }
-      });
-      chartMemoryRef.current = next;
-      return next;
-    });
   };
 
   return (
@@ -1140,111 +1277,45 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </dl>
       )}
 
-      <div className="toolbar" aria-label="Chart controls">
+      <div className={chartCommandActive || chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
         <div className="toolbar-row">
-          <div className="interval-stepper" aria-label="Interval controls">
-            <button type="button" className={iconButtonClass()} aria-label="Smaller interval" title="Smaller interval" disabled={!smallerInterval} onClick={() => smallerInterval && setInterval(smallerInterval)}>
-              <ChevronDown size={15} />
-            </button>
-            <select value={chart.interval} onChange={(event) => setInterval(event.target.value as ChartInterval)} aria-label="Interval">
-              {chartIntervals.map((interval) => <option key={interval} value={interval}>{interval}</option>)}
-            </select>
-            <button type="button" className={iconButtonClass()} aria-label="Larger interval" title="Larger interval" disabled={!largerInterval} onClick={() => largerInterval && setInterval(largerInterval)}>
-              <ChevronUp size={15} />
-            </button>
-          </div>
-          <button className={segmentedClass(chart.layers.volume)} onClick={() => toggleLayer("volume")} type="button">
-            VOL
-          </button>
           <button className={segmentedClass()} disabled={!hasAnyCurrentSymbolExpansion} onClick={clearAllDigging} type="button" title="Clear all digging">
             DIG OFF
           </button>
-          <div className="ma-control">
-            <button
-              type="button"
-              className={segmentedClass(anyMaEnabled)}
-              aria-expanded={maMenuOpen}
-              onClick={() => {
-                setTrendMenuOpen(false);
-                setMaMenuOpen((current) => !current);
-              }}
-            >
-              MA
-            </button>
-            {maMenuOpen && (
-              <div className="ma-menu" role="menu" aria-label="Moving averages">
-                {maLayerButtons.map(([layer, label]) => (
-                  <button
-                    key={layer}
-                    type="button"
-                    className={segmentedClass(chart.layers[layer])}
-                    onClick={() => toggleLayer(layer)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <span className="toolbar-separator" aria-hidden="true" />
-          {drawingTools.map((tool) => (
-            tool.mode === "draw-trendLine" ? (
-              <div className="trend-control" key={tool.mode}>
-                <button
-                  type="button"
-                  className={iconButtonClass(chart.toolMode === tool.mode)}
-                  aria-label={tool.label}
-                  title={tool.label}
-                  aria-expanded={trendMenuOpen}
-                  onClick={() => {
-                    setMaMenuOpen(false);
-                    setToolMode(tool.mode);
-                    setTrendMenuOpen((current) => chart.toolMode === tool.mode ? !current : true);
-                  }}
-                >
-                  <ToolIcon toolMode={tool.mode} />
-                </button>
-                {trendMenuOpen && (
-                  <div className="trend-menu" role="menu" aria-label="Trend line type">
-                    {trendExtensionButtons.map(([extension, label]) => (
-                      <button
-                        key={extension}
-                        type="button"
-                        className={iconButtonClass(chart.trendLineExtension === extension)}
-                        aria-label={label}
-                        title={label}
-                        onClick={() => setTrendLineExtension(extension)}
-                      >
-                        <TrendExtensionIcon extension={extension} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                key={tool.mode}
-                type="button"
-                className={iconButtonClass(chart.toolMode === tool.mode)}
-                aria-label={tool.label}
-                title={tool.label}
-                onClick={() => {
-                  setTrendMenuOpen(false);
-                  setToolMode(tool.mode);
-                }}
-              >
-                <ToolIcon toolMode={tool.mode} />
-              </button>
-            )
-          ))}
-          <button type="button" className={iconButtonClass()} aria-label="Selected drawing color" title="Selected drawing color" disabled={!selectedDrawing} onClick={updateSelectedDrawingStyle}>
-            <Palette size={16} />
+          <button
+            type="button"
+            className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
+            aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+            title={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+            aria-pressed={chartAddActive}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onChartAddToggle}
+          >
+            <ChartNoAxesCombined size={16} />
           </button>
-          <button type="button" className={iconButtonClass()} aria-label="Delete selected drawing" title="Delete selected drawing" disabled={!selectedDrawing} onClick={removeSelectedDrawing}>
-            <Eraser size={16} />
+          <button
+            type="button"
+            className={`${iconButtonClass(chartDrawingActive)} chart-drawing-target-button ${chartDrawingActive ? "is-active" : ""}`}
+            aria-label={chartDrawingActive ? "차트 그리기 도구 닫기" : "차트 그리기 도구 열기"}
+            title={chartDrawingActive ? "그리기 도구 닫기" : "그리기 도구 열기"}
+            aria-pressed={chartDrawingActive}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onChartDrawingToggle}
+          >
+            <Paintbrush size={16} />
           </button>
-          <button type="button" className={iconButtonClass()} aria-label="Clear drawings" title="Clear drawings" disabled={chart.drawings.length === 0} onClick={clearAllDrawings}>
-            <Trash2 size={16} />
+          <button
+            type="button"
+            className={`${iconButtonClass(chartCommandActive)} chart-command-target-button ${chartCommandActive ? "is-active" : ""}`}
+            aria-label={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
+            title={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
+            aria-pressed={chartCommandActive}
+            disabled={!chartCommandEnabled}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onChartCommandToggle}
+          >
+            <Bot size={16} />
           </button>
           {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
         </div>
@@ -1265,13 +1336,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerLeave={() => {
             setHoveredSemanticNodeId(undefined);
             setHoverSnapshot(null);
-            if (!dragAnchorRef.current && !drawingDragRef.current) {
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               onChartHoverChange?.(false);
             }
-            if (!dragAnchorRef.current) {
+            if (!dragAnchorRef.current && !paneResizeRef.current) {
               setCrosshair(undefined);
             }
-            if (!dragAnchorRef.current && !drawingDragRef.current) {
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               setTransientDrawings(null);
             }
           }}
@@ -1279,18 +1350,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
-        {volumeHandleTop !== null && (
-          <div
-            className="volume-resize-handle"
-            style={{ top: volumeHandleTop - 5 }}
-            aria-label="Resize volume chart"
-            role="separator"
-            onPointerDown={beginVolumeResize}
-            onPointerMove={updateVolumeResize}
-            onPointerUp={endVolumeResize}
-            onPointerCancel={endVolumeResize}
-          />
-        )}
         {expansionOverlays.map((overlay) => (
           <button
             key={overlay.id}
@@ -1306,31 +1365,243 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         ))}
       </div>
 
-      {agentDrawingPreview && (
-        <div className="agent-preview-controls" onPointerEnter={clearChartHover} onPointerMove={clearChartHover}>
-          <button
-            type="button"
-            className={agentDrawingPreview.visible ? "active" : ""}
-            aria-label={agentDrawingPreview.visible ? "Hide agent drawing preview" : "Show agent drawing preview"}
-            title={agentDrawingPreview.visible ? "Hide preview" : "Show preview"}
-            onClick={() => setAgentDrawingPreview((current) => current ? { ...current, visible: !current.visible } : current)}
-          >
-            {agentDrawingPreview.visible ? <EyeOff size={14} /> : <Eye size={14} />}
-            Preview
-          </button>
-          <button type="button" aria-label="Apply agent drawing preview" title="Apply preview" onClick={applyAgentDrawingPreview}>
-            <Check size={14} />
-            Apply
-          </button>
-          <button type="button" aria-label="Discard agent drawing preview" title="Discard preview" onClick={() => setAgentDrawingPreview(null)}>
-            <X size={14} />
-            Discard
-          </button>
-        </div>
-      )}
     </section>
   );
 });
+
+type ChartDrawingDockProps = {
+  document: ChartDocument;
+  panelId: string;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onClose: () => void;
+};
+
+export function ChartDrawingDock({
+  document,
+  panelId,
+  onChartRuntimeAction,
+  onClose
+}: ChartDrawingDockProps) {
+  const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
+  const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
+  const dispatchCommand = useCallback((type: ChartCommandType, payload: Record<string, unknown> = {}) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand(type, "user", target, payload)
+    });
+  }, [onChartRuntimeAction, target]);
+  const dispatchCommandGroup = useCallback((commands: ChartCommand[], label: string) => {
+    if (!commands.length) {
+      return;
+    }
+    onChartRuntimeAction({ kind: "chart.command.group", commands, label });
+  }, [onChartRuntimeAction]);
+  const setToolMode = (toolMode: ChartToolMode) => {
+    dispatchCommand("chart.drawing.clearSelection", { mode: toolMode });
+  };
+  const setTrendLineExtension = (extension: ChartLineExtension) => {
+    dispatchCommand("chart.drawing.clearSelection", { mode: "draw-trendLine", trendLineExtension: extension });
+  };
+  const closeDock = () => {
+    dispatchCommand("chart.drawing.clearSelection", { mode: "pan" });
+    onClose();
+  };
+  const updateSelectedDrawingStyle = () => {
+    if (!selectedDrawing) {
+      return;
+    }
+    const defaultStyle = defaultDrawingStyle(selectedDrawing.type as DrawingEntity["type"], document.interactionState.trendLineExtension);
+    const nextToken = selectedDrawing.style.colorToken === "down" ? defaultStyle.colorToken : "down";
+    dispatchCommand("chart.drawing.update", {
+      drawingId: selectedDrawing.id,
+      drawingPatch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
+    });
+  };
+  const removeSelectedDrawing = () => {
+    if (selectedDrawing) {
+      dispatchCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
+    }
+  };
+  const clearAllDrawings = () => {
+    dispatchCommandGroup(
+      document.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", "user", target, { drawingId: drawing.id })),
+      "Clear drawings"
+    );
+  };
+
+  return (
+    <div className="chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart drawing tools" onPointerDown={(event) => event.stopPropagation()}>
+      <button type="button" className="icon-button chart-drawing-dock-close" aria-label="그리기 도구 닫기" title="그리기 도구 닫기" onClick={closeDock}>
+        <X size={15} />
+      </button>
+      {drawingTools.flatMap((tool) => {
+        const controls = tool.mode === "draw-trendLine"
+          ? trendExtensionButtons.map(([extension, label]) => (
+            <button
+              key={`${tool.mode}-${extension}`}
+              type="button"
+              className={iconButtonClass(document.interactionState.mode === tool.mode && document.interactionState.trendLineExtension === extension)}
+              aria-label={`Trend ${label}`}
+              title={`Trend ${label}`}
+              onClick={() => setTrendLineExtension(extension)}
+            >
+              <TrendExtensionIcon extension={extension} />
+            </button>
+          ))
+          : [(
+            <button
+              key={tool.mode}
+              type="button"
+              className={iconButtonClass(document.interactionState.mode === tool.mode)}
+              aria-label={tool.label}
+              title={tool.label}
+              onClick={() => setToolMode(tool.mode)}
+            >
+              <ToolIcon toolMode={tool.mode} />
+            </button>
+          )];
+        return tool.mode === "draw-horizontalLine"
+          ? [<span key="drawing-tools-line-separator" className="toolbar-separator" aria-hidden="true" />, ...controls]
+          : controls;
+      })}
+      <span className="toolbar-separator" aria-hidden="true" />
+      <button type="button" className={iconButtonClass()} aria-label="Selected drawing color" title="Selected drawing color" disabled={!selectedDrawing} onClick={updateSelectedDrawingStyle}>
+        <Palette size={16} />
+      </button>
+      <button type="button" className={iconButtonClass()} aria-label="Delete selected drawing" title="Delete selected drawing" disabled={!selectedDrawing} onClick={removeSelectedDrawing}>
+        <Eraser size={16} />
+      </button>
+      <button type="button" className={iconButtonClass()} aria-label="Clear drawings" title="Clear drawings" disabled={document.drawings.length === 0} onClick={clearAllDrawings}>
+        <Trash2 size={16} />
+      </button>
+    </div>
+  );
+}
+
+type ChartAddPlacement = "overlay" | "below";
+
+type ChartAddDockProps = {
+  document: ChartDocument;
+  panelId: string;
+  laneHeight: number;
+  placement: ChartAddPlacement;
+  onPlacementChange: (placement: ChartAddPlacement) => void;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onClose: () => void;
+};
+
+type ChartAddLayerConfig = {
+  layer: ChartLayerKey;
+  label: string;
+  placement: ChartAddPlacement;
+  title: string;
+  disabledReason?: string;
+};
+
+const chartAddLayers: ChartAddLayerConfig[] = [
+  { layer: "sma:5", label: "SMA 5", placement: "overlay", title: "SMA 5" },
+  { layer: "sma:20", label: "SMA 20", placement: "overlay", title: "SMA 20" },
+  { layer: "sma:60", label: "SMA 60", placement: "overlay", title: "SMA 60" },
+  { layer: "ema:20", label: "EMA 20", placement: "overlay", title: "EMA 20" },
+  { layer: "wma:20", label: "WMA 20", placement: "overlay", title: "WMA 20" },
+  { layer: "bollinger:20:2", label: "Bollinger Bands", placement: "overlay", title: "Bollinger Bands 20,2" },
+  { layer: "volume-profile", label: "Volume Profile", placement: "overlay", title: "Volume Profile" },
+  { layer: "volume", label: "VOL", placement: "below", title: "VOL" },
+  { layer: "rsi:14", label: "RSI 14", placement: "below", title: "RSI 14" },
+  { layer: "stochastic:14:3:3", label: "Stochastic", placement: "below", title: "Stochastic 14,3,3" },
+  { layer: "macd:12:26:9", label: "MACD", placement: "below", title: "MACD 12,26,9" }
+];
+
+export function ChartAddDock({
+  document,
+  panelId,
+  laneHeight,
+  placement,
+  onPlacementChange,
+  onChartRuntimeAction,
+  onClose
+}: ChartAddDockProps) {
+  const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
+  const activeBelowCount = documentBelowPaneOrder(document).length;
+  const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
+  useEffect(() => {
+    if (placement === "below" && !canAddBelow) {
+      onPlacementChange("overlay");
+    }
+  }, [canAddBelow, onPlacementChange, placement]);
+
+  const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
+    });
+  }, [onChartRuntimeAction, target]);
+
+  return (
+    <div className="chart-add-dock chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
+      <button type="button" className="icon-button chart-drawing-dock-close" aria-label="차트 추가 도구 닫기" title="차트 추가 도구 닫기" onClick={onClose}>
+        <X size={15} />
+      </button>
+      <div className="chart-placement-toggle" role="group" aria-label="Chart layer placement">
+        <button
+          type="button"
+          className={iconButtonClass(placement === "overlay")}
+          aria-label="Overlay"
+          title="Overlay"
+          onClick={() => onPlacementChange("overlay")}
+        >
+          <Layers2 size={15} />
+        </button>
+        <button
+          type="button"
+          className={iconButtonClass(placement === "below")}
+          aria-label="Below pane"
+          title={canAddBelow ? "Below pane" : "Below pane unavailable at this height"}
+          disabled={!canAddBelow}
+          onClick={() => onPlacementChange("below")}
+        >
+          <PanelBottom size={15} />
+        </button>
+      </div>
+      <span className="toolbar-separator" aria-hidden="true" />
+      {chartAddLayers.map((item) => {
+        const active = Boolean(document.layers[item.layer]);
+        const disabledByPlacement = item.placement !== placement;
+        const disabledByCapacity = item.placement === "below" && !active && !canAddBelow;
+        const disabled = !active && (disabledByPlacement || disabledByCapacity || Boolean(item.disabledReason));
+        return (
+          <button
+            key={item.layer}
+            type="button"
+            className={`${iconButtonClass(active)} chart-add-layer-button`}
+            aria-label={item.label}
+            title={item.disabledReason ?? item.title}
+            disabled={disabled}
+            onClick={() => dispatchLayer(item.layer, !active)}
+          >
+            <ChartAddLayerIcon layer={item.layer} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
+  if (layer === "bollinger:20:2" || layer === "stochastic:14:3:3") {
+    return <ChartSpline size={15} />;
+  }
+  if (layer === "volume" || layer === "volume-profile") {
+    return <ChartColumn size={15} />;
+  }
+  if (layer === "rsi:14") {
+    return <Activity size={15} />;
+  }
+  if (layer === "macd:12:26:9") {
+    return <ChartNoAxesCombined size={15} />;
+  }
+  return <ChartLine size={15} />;
+}
 
 function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
   const byTimestamp = new Map<string, CandleDto>();
@@ -1340,6 +1611,188 @@ function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
     });
   });
   return Array.from(byTimestamp.values()).sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+}
+
+function activeServerIndicatorLayers(chart: ChartState): string[] {
+  const layers: string[] = [];
+  if (chart.layers["sma:5"] ?? chart.layers.ma5) {
+    layers.push("sma:5");
+  }
+  if (chart.layers["sma:20"] ?? chart.layers.ma20) {
+    layers.push("sma:20");
+  }
+  if (chart.layers["sma:60"] ?? chart.layers.ma60) {
+    layers.push("sma:60");
+  }
+  ([
+    "ema:20",
+    "wma:20",
+    "bollinger:20:2",
+    "rsi:14",
+    "stochastic:14:3:3",
+    "macd:12:26:9"
+  ] as const).forEach((layer) => {
+    if (chart.layers[layer]) {
+      layers.push(layer);
+    }
+  });
+  return layers;
+}
+
+function visibleCandleRangeForProfile(chart: ChartState, transientViewport: ChartViewport | null): {
+  from: string;
+  to: string;
+  priceMin: number;
+  priceMax: number;
+} | null {
+  if (!chart.candles.length) {
+    return null;
+  }
+  const visibleCount = Math.max(1, Math.floor(transientViewport?.visibleCount ?? chart.visibleCount));
+  const rightOffset = Math.max(0, Math.floor(transientViewport?.rightOffset ?? chart.rightOffset));
+  const viewportEnd = Math.max(0, chart.candles.length - rightOffset);
+  const startIndex = Math.max(0, Math.min(chart.candles.length - 1, Math.floor(viewportEnd - visibleCount)));
+  const endIndex = Math.max(startIndex + 1, Math.min(chart.candles.length, Math.ceil(viewportEnd)));
+  const visibleCandles = chart.candles.slice(startIndex, endIndex);
+  if (!visibleCandles.length) {
+    return null;
+  }
+  const priceValues = visibleCandles
+    .flatMap((candle) => [candle.low, candle.high])
+    .filter((value): value is number => Number.isFinite(value));
+  if (!priceValues.length) {
+    return null;
+  }
+  return {
+    from: visibleCandles[0].timestamp,
+    to: visibleCandles[visibleCandles.length - 1].timestamp,
+    priceMin: Math.min(...priceValues),
+    priceMax: Math.max(...priceValues)
+  };
+}
+
+const belowLayerPaneMap: Partial<Record<ChartLayerKey, string>> = {
+  volume: "volume",
+  "rsi:14": "rsi:14",
+  "stochastic:14:3:3": "stochastic:14:3:3",
+  "macd:12:26:9": "macd:12:26:9"
+};
+
+function isBelowLayer(layer: ChartLayerKey): boolean {
+  return Boolean(belowLayerPaneMap[layer]);
+}
+
+function belowLayerForPaneId(paneId: string): ChartLayerKey | null {
+  const found = Object.entries(belowLayerPaneMap).find(([, id]) => id === paneId);
+  return found ? found[0] as ChartLayerKey : null;
+}
+
+function maxBelowPaneCountForHeight(height: number): number {
+  return Math.max(0, Math.floor((height - baseChartMinHeightForBelowPanes) / belowPaneMinHeight));
+}
+
+function documentBelowPaneOrder(document: ChartDocument): string[] {
+  const visiblePaneIds = Object.entries(belowLayerPaneMap)
+    .filter(([layer]) => Boolean(document.layers[layer as ChartLayerKey]))
+    .map(([, paneId]) => paneId)
+    .filter((paneId): paneId is string => Boolean(paneId));
+  const visible = new Set(visiblePaneIds);
+  const ordered = document.panes
+    .map((pane) => pane.id)
+    .filter((paneId) => paneId !== "price" && visible.has(paneId));
+  const missing = visiblePaneIds.filter((paneId) => !ordered.includes(paneId));
+  return [...ordered, ...missing];
+}
+
+function candleSnapshotFromResponse(response: CandleQueryResponseDto, intervalOverride?: ChartInterval): CandleSnapshot {
+  const interval = intervalOverride ?? response.interval;
+  return {
+    symbol: response.symbol.toUpperCase(),
+    interval,
+    source: "api",
+    feed: "local",
+    dataStatus: response.status === "pending" ? "partial" : response.status,
+    sourceInterval: response.sourceInterval ?? (interval !== response.interval ? response.interval : undefined),
+    message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
+    requestedLimit: response.requestedLimit ?? response.request.limit,
+    returnedCount: response.returnedCount ?? response.candles.length,
+    targetStoredCount: response.targetStoredCount,
+    targetRangeFrom: response.targetRangeFrom,
+    storedCandleCount: response.storedCandleCount,
+    availableFrom: response.availableFrom,
+    availableTo: response.availableTo,
+    hasMoreBefore: response.hasMoreBefore,
+    hasMoreAfter: response.hasMoreAfter,
+    coverage: response.coverage as CandleSnapshot["coverage"],
+    indicators: {
+      ma: response.indicators?.ma ?? [],
+      volume: response.indicators?.volume ?? true
+    },
+    candles: response.candles
+  };
+}
+
+function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
+  return {
+    type: event.type,
+    symbol: event.symbol.toUpperCase(),
+    interval: intervalOverride ?? event.interval,
+    sourceInterval: intervalOverride && intervalOverride !== event.interval ? event.interval : undefined,
+    data: event.data
+  };
+}
+
+function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {
+  return status === "connecting" || status === "idle" || status === "live" || status === "error" ? status : "idle";
+}
+
+function actionsToChartCommands(
+  actions: ChartAction[],
+  chart: ChartState,
+  target: ChartCommand["target"],
+  actor: ChartCommandActor
+): ChartCommand[] {
+  return actions.flatMap((action) => chartActionToCommands(action, chart, target, actor));
+}
+
+function chartActionToCommands(
+  action: ChartAction,
+  chart: ChartState,
+  target: ChartCommand["target"],
+  actor: ChartCommandActor
+): ChartCommand[] {
+  switch (action.type) {
+    case "setSymbol":
+      return [makeChartCommand("chart.symbol.set", actor, target, { symbol: action.symbol })];
+    case "setInterval":
+      return [makeChartCommand("chart.timeframe.set", actor, target, { timeframe: action.interval })];
+    case "setChartType":
+      return [makeChartCommand("chart.type.set", actor, target, { chartType: action.chartType })];
+    case "setTool":
+      return [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: action.toolMode })];
+    case "toggleLayer":
+      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: !chart.layers[action.layer] })];
+    case "setLayer":
+      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: action.enabled })];
+    case "setViewport":
+      return [makeChartCommand("chart.viewport.set", actor, target, { visibleCount: action.visibleCount, rightOffset: action.rightOffset })];
+    case "addDrawing":
+      return [makeChartCommand("chart.drawing.add", actor, target, { drawing: action.drawing })];
+    case "updateDrawing":
+      return [makeChartCommand("chart.drawing.update", actor, target, { drawingId: action.drawingId, drawingPatch: action.patch })];
+    case "deleteDrawing":
+      return [makeChartCommand("chart.drawing.remove", actor, target, { drawingId: action.drawingId })];
+    case "selectDrawing":
+      return action.drawingId
+        ? [makeChartCommand("chart.drawing.select", actor, target, { drawingId: action.drawingId })]
+        : [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: chart.toolMode })];
+    case "clearDrawings":
+      return chart.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", actor, target, { drawingId: drawing.id }));
+    case "setVolumeRatio":
+      return [makeChartCommand("chart.pane.ratio.set", actor, target, { paneId: "volume", heightRatio: action.ratio })];
+    default:
+      return [];
+  }
 }
 
 function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
@@ -1377,6 +1830,34 @@ function expansionStatusForCandleResponse(response: CandleQueryResponseDto): Exp
 
 function chartMemoryKey(symbol: string, interval: ChartInterval): string {
   return `${symbol.toUpperCase()}:${interval}`;
+}
+
+function candleSourceInterval(interval: ChartInterval): ChartInterval {
+  return interval === "footprint" ? "1m" : interval;
+}
+
+function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
+  return response.derived?.state === "pending" && attempt < 2;
+}
+
+function derivedRetryDelay(response: { derived?: { retryAfterMs?: number } }): number {
+  const delay = response.derived?.retryAfterMs;
+  return typeof delay === "number" && Number.isFinite(delay) ? Math.max(250, Math.min(delay, 3000)) : 1000;
+}
+
+function isPaneBoundaryHit(scene: ChartScene, point: { x: number; y: number }): boolean {
+  if (!scene.chart.layers.volume || scene.plot.volumeTop >= scene.plot.bottom) {
+    return false;
+  }
+  if (point.x < scene.plot.left || point.x > scene.plot.right) {
+    return false;
+  }
+  return Math.abs(point.y - scene.plot.priceBottom) <= 7;
+}
+
+function volumeRatioForPointerY(scene: ChartScene, y: number): number {
+  const desiredVolumeHeight = scene.plot.bottom - Math.max(scene.plot.top + 34, Math.min(scene.plot.bottom - 34, y));
+  return Math.max(0.1, Math.min(0.45, desiredVolumeHeight / Math.max(1, scene.height)));
 }
 
 function expansionCloseLeft(scene: ChartScene, range: ChartScene["semantic"]["expansionRanges"][number]): number {
@@ -1417,71 +1898,20 @@ function removeExpansionTree(expansions: SemanticExpansion[], expansionId: strin
   return expansions.filter((expansion) => !removed.has(expansion.id));
 }
 
-function captureChartMemory(chart: ChartState, expansions: SemanticExpansion[]): ChartMemory {
-  return {
-    expansions,
-    drawings: chart.drawings,
-    layers: { ...chart.layers },
-    volumeRatio: chart.volumeRatio,
-    visibleCount: chart.visibleCount,
-    rightOffset: chart.rightOffset,
-    selectedDrawingId: chart.selectedDrawingId
-  };
-}
-
-function chartMemoryEquals(left: ChartMemory | undefined, right: ChartMemory): boolean {
-  if (!left) {
-    return false;
-  }
-  return (
-    sameExpansionList(left.expansions, right.expansions) &&
-    left.drawings === right.drawings &&
-    left.volumeRatio === right.volumeRatio &&
-    left.visibleCount === right.visibleCount &&
-    left.rightOffset === right.rightOffset &&
-    left.selectedDrawingId === right.selectedDrawingId &&
-    left.layers.candles === right.layers.candles &&
-    left.layers.volume === right.layers.volume &&
-    left.layers.ma5 === right.layers.ma5 &&
-    left.layers.ma20 === right.layers.ma20 &&
-    left.layers.ma60 === right.layers.ma60
-  );
-}
-
-function sameExpansionList(left: SemanticExpansion[], right: SemanticExpansion[]): boolean {
-  return left.length === right.length && left.every((item, index) => item === right[index]);
-}
-
-function restoreChartFromMemory(
-  current: ChartState,
-  symbol: string,
-  interval: ChartInterval,
-  memory: ChartMemory | undefined
-): ChartState {
-  const sameDataKey = current.symbol === symbol && current.interval === interval;
-  return {
-    ...current,
-    symbol,
-    interval,
-    candles: sameDataKey ? current.candles : [],
-    status: "loading",
-    message: "Loading CDC candles...",
-    layers: memory?.layers ? { ...memory.layers } : { ...initialLayers },
-    volumeRatio: memory?.volumeRatio ?? initialVolumeRatio,
-    visibleCount: memory?.visibleCount ?? defaultVisibleBarsForInterval(interval),
-    rightOffset: memory?.rightOffset ?? latestCandleRightOffset(defaultVisibleBarsForInterval(interval)),
-    drawings: memory?.drawings ?? [],
-    selectedDrawingId: memory?.selectedDrawingId,
-    streamState: sameDataKey ? current.streamState : "connecting"
-  };
-}
-
 function visibleRightAnchorTimestamp(scene: ChartScene | null, chart: ChartState): string | undefined {
   if (scene && scene.chart.symbol === chart.symbol && scene.chart.interval === chart.interval) {
     const index = Math.max(0, scene.visibleEndIndex - 1);
     return scene.allCandles[index]?.timestamp ?? chart.candles.at(-1)?.timestamp;
   }
   return chart.candles.at(-1)?.timestamp;
+}
+
+function viewportClampOptionsForScene(scene: ChartScene | null | undefined): ViewportClampOptions {
+  if (!scene) {
+    return {};
+  }
+  const extraFutureSlots = Math.max(0, Math.ceil(scene.semantic.expansionExtraSlots));
+  return extraFutureSlots > 0 ? { extraFutureSlots } : {};
 }
 
 function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candle" }>): SemanticExpansion {
@@ -1499,7 +1929,7 @@ function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candl
     from: range.from,
     to: range.to,
     depth: unit.depth + 1,
-    status: childInterval === "footprint" ? "ready" : "loading",
+    status: "loading",
     candles: [],
     openedAt: new Date().toISOString()
   };
@@ -1599,7 +2029,7 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
     case "pan":
       return <Hand size={16} />;
     case "draw-horizontalLine":
-      return <Minus size={16} />;
+      return <span className="tool-glyph horizontal-line" aria-hidden="true" />;
     case "draw-trendLine":
       return <span className="tool-glyph diagonal-line" aria-hidden="true" />;
     case "draw-verticalMarker":
@@ -1612,8 +2042,6 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
       return <ArrowUpRight size={16} />;
     case "draw-rangeBox":
       return <Square size={16} />;
-    case "draw-measurement":
-      return <Ruler size={16} />;
     default:
       return <MousePointer2 size={16} />;
   }

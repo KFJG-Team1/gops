@@ -1,11 +1,11 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
-import type { ChartState, DrawingEntity } from "./types";
-import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import type { ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
+import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
-import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit } from "./semanticTimeline";
+import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
 type ChartCanvasProps = {
@@ -61,11 +61,7 @@ export function ChartCanvas({
         return;
       }
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const chartForScene = previewDrawings.length
-        ? { ...chart, drawings: [...chart.drawings, ...previewDrawings] }
-        : chart;
-      const sceneForScale = buildChartScene(chartForScene, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
-      const scene = previewDrawings.length ? { ...sceneForScale, chart } : sceneForScale;
+      const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
       onScene?.(scene);
       drawChart(context, scene, crosshair, previewDrawings);
     };
@@ -80,7 +76,7 @@ export function ChartCanvas({
     <canvas
       ref={canvasRef}
       className="chart-canvas"
-      aria-label="GOPS candle chart"
+      aria-label={`GOPS ${chart.chartType} chart`}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -110,19 +106,55 @@ function drawChart(
     () => drawExpansionRanges(context, scene, Boolean(crosshair)),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
-    () => hasVolumePane(scene) && drawPlotClipped(context, scene, () => drawVolume(context, scene)),
-    () => scene.chart.layers.candles && drawPlotClipped(context, scene, () => drawCandles(context, scene)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", scene.chart.layers.ma5, colors.ma5)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", scene.chart.layers.ma20, colors.ma20)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", scene.chart.layers.ma60, colors.ma60)),
+    () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
+    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
+    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
+    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
+    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.preview)),
+    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.axis)),
+    () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
+    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
+    () => drawBelowIndicatorPanes(context, scene),
     () => drawDrawings(context, scene, scene.chart.drawings, false),
     () => drawDrawings(context, scene, previewDrawings, true),
     () => drawExpansionParentSummaries(context, scene),
+    () => drawFootprintEstimatedLabel(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
     () => drawCrosshair(context, scene, crosshair)
   ];
   layers.forEach((drawLayer) => drawLayer());
+}
+
+function basePriceLayerVisible(scene: ChartScene): boolean {
+  return scene.chart.layers.candles !== false;
+}
+
+function movingAverageLayerVisible(scene: ChartScene, key: "ma5" | "ma20" | "ma60"): boolean {
+  if (key === "ma5") {
+    return Boolean(scene.chart.layers["sma:5"] ?? scene.chart.layers.ma5);
+  }
+  if (key === "ma20") {
+    return Boolean(scene.chart.layers["sma:20"] ?? scene.chart.layers.ma20);
+  }
+  return Boolean(scene.chart.layers["sma:60"] ?? scene.chart.layers.ma60);
+}
+
+function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene) {
+  if (scene.chart.interval === "footprint") {
+    drawFootprintBuckets(context, scene);
+    return;
+  }
+  if (scene.chart.chartType === "line") {
+    drawLineChart(context, scene);
+    return;
+  }
+  if (scene.chart.chartType === "ohlc") {
+    drawOhlcBars(context, scene);
+    return;
+  }
+  drawCandles(context, scene);
 }
 
 function drawPlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, draw: () => void) {
@@ -134,17 +166,41 @@ function drawPlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, d
   context.restore();
 }
 
+function drawPaneClipped(context: CanvasRenderingContext2D, scene: ChartScene, pane: ChartScene["plot"]["belowPanes"][number] | undefined, draw: () => void) {
+  if (!pane) {
+    return;
+  }
+  context.save();
+  context.beginPath();
+  context.rect(scene.plot.left, pane.top, Math.max(1, scene.plot.right - scene.plot.left), Math.max(1, pane.bottom - pane.top));
+  context.clip();
+  draw();
+  context.restore();
+}
+
+function paneById(scene: ChartScene, id: string): ChartScene["plot"]["belowPanes"][number] | undefined {
+  return scene.plot.belowPanes.find((pane) => pane.id === id);
+}
+
 function volumeY(scene: ChartScene, value: number): number {
+  const pane = paneById(scene, "volume");
+  if (!pane) {
+    return scene.plot.bottom;
+  }
   const range = Math.max(1, scene.scales.maxVolume);
-  const height = Math.max(1, scene.plot.bottom - scene.plot.volumeTop);
-  return scene.plot.bottom - (Math.max(0, value) / range) * height;
+  const height = Math.max(1, pane.bottom - pane.top);
+  return pane.bottom - (Math.max(0, value) / range) * height;
 }
 
 function volumeAtY(scene: ChartScene, y: number): number {
+  const pane = paneById(scene, "volume");
+  if (!pane) {
+    return 0;
+  }
   const range = Math.max(1, scene.scales.maxVolume);
-  const height = Math.max(1, scene.plot.bottom - scene.plot.volumeTop);
-  const clampedY = Math.max(scene.plot.volumeTop, Math.min(scene.plot.bottom, y));
-  return ((scene.plot.bottom - clampedY) / height) * range;
+  const height = Math.max(1, pane.bottom - pane.top);
+  const clampedY = Math.max(pane.top, Math.min(pane.bottom, y));
+  return ((pane.bottom - clampedY) / height) * range;
 }
 
 function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -160,10 +216,15 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
     scene.scales.volumeTicks.forEach((volume) => {
       line(context, scene.plot.left, volumeY(scene, volume), right, volumeY(scene, volume));
     });
+  }
+  if (scene.plot.belowPanes.length) {
     context.save();
     context.strokeStyle = colors.border;
     context.lineWidth = 1.2;
     line(context, scene.plot.left, scene.plot.priceBottom, right, scene.plot.priceBottom);
+    scene.plot.belowPanes.slice(1).forEach((pane) => {
+      line(context, scene.plot.left, pane.top - 3, right, pane.top - 3);
+    });
     context.restore();
   }
   context.restore();
@@ -195,23 +256,171 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
   });
 }
 
+function drawLineChart(context: CanvasRenderingContext2D, scene: ChartScene) {
+  context.save();
+  context.strokeStyle = colors.upSoft;
+  context.lineWidth = 1.7;
+  context.beginPath();
+  let started = false;
+  let lastSegmentKey = "";
+  candleUnits(scene).forEach((unit) => {
+    const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
+    if (started && segmentKey !== lastSegmentKey) {
+      context.stroke();
+      context.beginPath();
+      started = false;
+    }
+    const x = unitCenterX(scene, unit);
+    const y = priceToY(scene, unit.candle.close);
+    if (!started) {
+      context.moveTo(x, y);
+      started = true;
+    } else {
+      context.lineTo(x, y);
+    }
+    lastSegmentKey = segmentKey;
+  });
+  if (started) {
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
+  candleUnits(scene).forEach((unit) => {
+    const candle = unit.candle;
+    const center = unitCenterX(scene, unit);
+    const open = priceToY(scene, candle.open);
+    const close = priceToY(scene, candle.close);
+    const high = priceToY(scene, candle.high);
+    const low = priceToY(scene, candle.low);
+    const up = candle.close >= candle.open;
+    const hovered = scene.hoveredNodeId === unit.id;
+    const tickWidth = Math.max(3, Math.min(12, candleBodyWidth(scene, unit, hovered) * 0.72));
+    context.save();
+    context.strokeStyle = candleStrokeColor(up);
+    context.lineWidth = hovered ? 2.2 : 1.35;
+    line(context, center, high, center, low);
+    line(context, center - tickWidth, open, center, open);
+    line(context, center, close, center + tickWidth, close);
+    context.restore();
+  });
+}
+
 function candleStrokeColor(up: boolean): string {
   return up ? colors.upSoft : colors.downSoft;
 }
 
+function drawFootprintBuckets(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const buckets = new Map((scene.chart.footprint?.buckets ?? []).map((bucket) => [bucket.timestamp, bucket]));
+  if (!buckets.size) {
+    context.save();
+    context.globalAlpha = 0.22;
+    drawCandles(context, scene);
+    context.restore();
+    drawFootprintEmptyState(context, scene);
+    return;
+  }
+  const maxLevelVolume = Math.max(1, ...Array.from(buckets.values()).flatMap((bucket) => bucket.priceLevels.map((level) => level.totalVolume)));
+  candleUnits(scene).forEach((unit) => {
+    const bucket = buckets.get(unit.candle.timestamp);
+    if (!bucket?.priceLevels.length) {
+      drawFootprintGhostCandle(context, scene, unit);
+      return;
+    }
+    drawFootprintBucket(context, scene, unit, bucket, maxLevelVolume);
+  });
+}
+
+function drawFootprintBucket(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  unit: SemanticCandleUnit,
+  bucket: FootprintBucketDto,
+  maxLevelVolume: number
+) {
+  const center = unitCenterX(scene, unit);
+  const baseWidth = Math.max(10, Math.min(42, candleBodyWidth(scene, unit, scene.hoveredNodeId === unit.id) * 2.6));
+  const halfWidth = baseWidth / 2;
+  const rowHeight = Math.max(3, Math.min(12, baseWidth * 0.22));
+  context.save();
+  context.strokeStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
+  context.globalAlpha = 0.32;
+  line(context, center, priceToY(scene, bucket.high ?? unit.candle.high), center, priceToY(scene, bucket.low ?? unit.candle.low));
+  context.globalAlpha = 1;
+  bucket.priceLevels.forEach((level) => {
+    const y = priceToY(scene, level.price);
+    if (y < scene.plot.top - rowHeight || y > scene.plot.priceBottom + rowHeight) {
+      return;
+    }
+    const bidWidth = Math.max(0, (halfWidth - 1) * (level.bidVolume / maxLevelVolume));
+    const askWidth = Math.max(0, (halfWidth - 1) * (level.askVolume / maxLevelVolume));
+    const unknownWidth = Math.max(0, (baseWidth - 2) * (level.unknownVolume / maxLevelVolume));
+    context.globalAlpha = 0.44;
+    context.fillStyle = colors.downSoft;
+    context.fillRect(center - bidWidth, y - rowHeight / 2, bidWidth, rowHeight);
+    context.fillStyle = colors.upSoft;
+    context.fillRect(center, y - rowHeight / 2, askWidth, rowHeight);
+    if (unknownWidth > 0.5) {
+      context.globalAlpha = 0.18;
+      context.fillStyle = colors.axis;
+      context.fillRect(center - unknownWidth / 2, y - rowHeight / 2, unknownWidth, rowHeight);
+    }
+    if (baseWidth > 28 && Math.abs(level.delta) > 0) {
+      context.globalAlpha = 0.72;
+      context.fillStyle = level.delta >= 0 ? colors.upSoft : colors.downSoft;
+      context.font = "8px var(--font-data-sans)";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(String(Math.round(level.delta)), center, y, baseWidth);
+    }
+  });
+  if (baseWidth > 18) {
+    context.globalAlpha = 0.78;
+    context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
+    context.font = "700 9px var(--font-data-sans)";
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    context.fillText(`${bucket.delta >= 0 ? "+" : ""}${Math.round(bucket.delta)}`, center, Math.min(scene.plot.priceBottom - 12, priceToY(scene, bucket.low ?? unit.candle.low) + 3), baseWidth + 8);
+  }
+  context.restore();
+}
+
+function drawFootprintGhostCandle(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
+  context.save();
+  context.globalAlpha = 0.18;
+  const center = unitCenterX(scene, unit);
+  line(context, center, priceToY(scene, unit.candle.high), center, priceToY(scene, unit.candle.low));
+  context.restore();
+}
+
+function drawFootprintEmptyState(context: CanvasRenderingContext2D, scene: ChartScene) {
+  context.save();
+  context.fillStyle = colors.muted;
+  context.font = "11px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("No footprint data", (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 28);
+  context.restore();
+}
+
 function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const pane = paneById(scene, "volume");
+  if (!pane) {
+    return;
+  }
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
     const y = volumeY(scene, candle.volume);
+    const hovered = scene.hoveredNodeId === unit.id;
     context.save();
-    context.globalAlpha *= semanticContextOpacity(scene, unit);
-    const bodyWidth = candleBodyWidth(scene, unit);
+    const bodyWidth = candleBodyWidth(scene, unit, hovered);
     context.fillStyle = colors.volume;
     context.fillRect(
       unitCenterX(scene, unit) - bodyWidth / 2,
       y,
       bodyWidth,
-      scene.plot.bottom - y
+      pane.bottom - y
     );
     context.restore();
   });
@@ -227,6 +436,7 @@ function drawMovingAverage(
   if (!enabled) {
     return;
   }
+  const serverValues = indicatorValueMap(scene, movingAverageLayerId(key));
   context.save();
   context.strokeStyle = stroke;
   context.lineWidth = 1.05;
@@ -235,7 +445,8 @@ function drawMovingAverage(
   context.beginPath();
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
-    const value = candle[key];
+    const serverValue = serverValues.get(candle.timestamp);
+    const value = typeof serverValue === "number" ? serverValue : candle[key];
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number") {
       if (started) {
@@ -266,6 +477,280 @@ function drawMovingAverage(
   context.restore();
 }
 
+function movingAverageLayerId(key: "ma5" | "ma20" | "ma60"): "sma:5" | "sma:20" | "sma:60" {
+  if (key === "ma5") {
+    return "sma:5";
+  }
+  if (key === "ma20") {
+    return "sma:20";
+  }
+  return "sma:60";
+}
+
+function indicatorValueMap(scene: ChartScene, layerId: string): Map<string, number | null | undefined> {
+  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point.value]));
+}
+
+function indicatorPointMap(scene: ChartScene, layerId: string): Map<string, IndicatorPointDto> {
+  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point]));
+}
+
+function drawLineIndicator(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean, stroke: string) {
+  if (!enabled) {
+    return;
+  }
+  const values = indicatorValueMap(scene, layerId);
+  drawSeriesLine(context, scene, (unit) => values.get(unit.candle.timestamp), (value) => priceToY(scene, value), stroke, 1.05);
+}
+
+function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean) {
+  if (!enabled) {
+    return;
+  }
+  const points = indicatorPointMap(scene, layerId);
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.upper, (value) => priceToY(scene, value), colors.axis, 0.85);
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.middle, (value) => priceToY(scene, value), colors.preview, 1);
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.lower, (value) => priceToY(scene, value), colors.axis, 0.85);
+}
+
+function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const profile = scene.chart.volumeProfile;
+  if (!scene.chart.layers["volume-profile"] || !profile?.bins?.length || profile.totalVolume <= 0) {
+    return;
+  }
+  const maxVolume = Math.max(...profile.bins.map((bucket) => bucket.volume));
+  if (!Number.isFinite(maxVolume) || maxVolume <= 0) {
+    return;
+  }
+  const maxWidth = Math.max(36, Math.min(168, (scene.plot.right - scene.plot.left) * 0.24));
+  const right = scene.plot.right - 4;
+  context.save();
+  if (profile.valueArea) {
+    const top = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.high)));
+    const bottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.low)));
+    context.globalAlpha = 0.12;
+    context.fillStyle = colors.volume;
+    context.fillRect(scene.plot.left, Math.min(top, bottom), scene.plot.right - scene.plot.left, Math.max(1, Math.abs(bottom - top)));
+  }
+  profile.bins.forEach((bucket) => {
+    if (!Number.isFinite(bucket.volume) || bucket.volume <= 0) {
+      return;
+    }
+    const yTop = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMax)));
+    const yBottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMin)));
+    const top = Math.min(yTop, yBottom);
+    const bottom = Math.max(yTop, yBottom);
+    const height = Math.max(1, bottom - top - 1);
+    const width = Math.max(2, maxWidth * (bucket.volume / maxVolume));
+    context.globalAlpha = bucket.isPoc ? 0.38 : bucket.inValueArea ? 0.24 : 0.14;
+    context.fillStyle = bucket.isPoc ? colors.preview : bucket.inValueArea ? colors.volume : colors.axis;
+    context.fillRect(right - width, top, width, height);
+  });
+  if (profile.poc) {
+    const y = priceToY(scene, profile.poc.priceMid);
+    context.globalAlpha = 0.66;
+    context.strokeStyle = colors.preview;
+    context.lineWidth = 1;
+    context.setLineDash([4, 4]);
+    line(context, Math.max(scene.plot.left, right - maxWidth - 8), y, right, y);
+    context.setLineDash([]);
+  }
+  context.globalAlpha = 0.72;
+  context.fillStyle = colors.muted;
+  context.font = "10px Inter, system-ui, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "top";
+  context.fillText("VP", right, scene.plot.top + 6);
+  context.restore();
+}
+
+function drawBelowIndicatorPanes(context: CanvasRenderingContext2D, scene: ChartScene) {
+  scene.plot.belowPanes.forEach((pane) => {
+    if (pane.id === "volume") {
+      return;
+    }
+    drawPaneClipped(context, scene, pane, () => drawBelowIndicatorPane(context, scene, pane));
+    drawPaneLabel(context, pane, indicatorPaneLabel(pane.id));
+  });
+}
+
+function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartScene, pane: ChartScene["plot"]["belowPanes"][number]) {
+  if (pane.id === "rsi:14") {
+    const domain = { min: 0, max: 100 };
+    drawPaneGuide(context, scene, pane, domain, 70);
+    drawPaneGuide(context, scene, pane, domain, 30);
+    drawPaneSeries(context, scene, pane, pane.id, "value", domain, colors.preview);
+    return;
+  }
+  if (pane.id === "stochastic:14:3:3") {
+    const domain = { min: 0, max: 100 };
+    drawPaneGuide(context, scene, pane, domain, 80);
+    drawPaneGuide(context, scene, pane, domain, 20);
+    drawPaneSeries(context, scene, pane, pane.id, "k", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.axis);
+    return;
+  }
+  if (pane.id === "macd:12:26:9") {
+    const domain = macdDomain(scene, pane.id);
+    drawPaneGuide(context, scene, pane, domain, 0);
+    drawMacdHistogram(context, scene, pane, pane.id, domain);
+    drawPaneSeries(context, scene, pane, pane.id, "macd", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.axis);
+  }
+}
+
+function drawPaneSeries(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  pane: ChartScene["plot"]["belowPanes"][number],
+  layerId: string,
+  field: keyof IndicatorPointDto,
+  domain: { min: number; max: number },
+  stroke: string
+) {
+  const points = indicatorPointMap(scene, layerId);
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => {
+      const value = points.get(unit.candle.timestamp)?.[field];
+      return typeof value === "number" ? value : undefined;
+    },
+    (value) => indicatorY(pane, domain, value),
+    stroke,
+    1.05
+  );
+}
+
+function drawSeriesLine(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  valueForUnit: (unit: SemanticCandleUnit) => number | null | undefined,
+  yForValue: (value: number) => number,
+  stroke: string,
+  width: number
+) {
+  context.save();
+  context.strokeStyle = stroke;
+  context.lineWidth = width;
+  let started = false;
+  let lastSegmentKey = "";
+  context.beginPath();
+  candleUnits(scene).forEach((unit) => {
+    const value = valueForUnit(unit);
+    const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      if (started) {
+        context.stroke();
+        context.beginPath();
+        started = false;
+      }
+      return;
+    }
+    if (started && segmentKey !== lastSegmentKey) {
+      context.stroke();
+      context.beginPath();
+      started = false;
+    }
+    const x = unitCenterX(scene, unit);
+    const y = yForValue(value);
+    if (!started) {
+      context.moveTo(x, y);
+      started = true;
+    } else {
+      context.lineTo(x, y);
+    }
+    lastSegmentKey = segmentKey;
+  });
+  if (started) {
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawPaneGuide(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  pane: ChartScene["plot"]["belowPanes"][number],
+  domain: { min: number; max: number },
+  value: number
+) {
+  context.save();
+  context.strokeStyle = colors.grid;
+  context.lineWidth = 1;
+  line(context, scene.plot.left, indicatorY(pane, domain, value), horizontalGuideRight(scene), indicatorY(pane, domain, value));
+  context.restore();
+}
+
+function drawPaneLabel(context: CanvasRenderingContext2D, pane: ChartScene["plot"]["belowPanes"][number], label: string) {
+  context.save();
+  context.font = "700 9px var(--font-data-sans)";
+  context.fillStyle = colors.axis;
+  context.textAlign = "right";
+  context.textBaseline = "top";
+  context.fillText(label, Math.max(0, paneRightForLabel(context, pane)), pane.top + 3);
+  context.restore();
+}
+
+function paneRightForLabel(context: CanvasRenderingContext2D, pane: ChartScene["plot"]["belowPanes"][number]): number {
+  return Math.max(40, context.canvas.clientWidth - 68);
+}
+
+function indicatorPaneLabel(id: string): string {
+  if (id === "rsi:14") {
+    return "RSI 14";
+  }
+  if (id === "stochastic:14:3:3") {
+    return "STOCH 14,3,3";
+  }
+  if (id === "macd:12:26:9") {
+    return "MACD 12,26,9";
+  }
+  return id.toUpperCase();
+}
+
+function indicatorY(pane: ChartScene["plot"]["belowPanes"][number], domain: { min: number; max: number }, value: number): number {
+  const range = Math.max(0.0001, domain.max - domain.min);
+  return pane.bottom - ((value - domain.min) / range) * Math.max(1, pane.bottom - pane.top);
+}
+
+function macdDomain(scene: ChartScene, layerId: string): { min: number; max: number } {
+  const visible = new Set(scene.candles.map((candle) => candle.timestamp));
+  const values = (scene.chart.indicatorSeries?.[layerId] ?? [])
+    .filter((point) => visible.has(point.timestamp))
+    .flatMap((point) => [point.macd, point.signal, point.histogram])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (!values.length) {
+    return { min: -1, max: 1 };
+  }
+  const maxAbs = Math.max(0.01, ...values.map((value) => Math.abs(value)));
+  return { min: -maxAbs * 1.15, max: maxAbs * 1.15 };
+}
+
+function drawMacdHistogram(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  pane: ChartScene["plot"]["belowPanes"][number],
+  layerId: string,
+  domain: { min: number; max: number }
+) {
+  const points = indicatorPointMap(scene, layerId);
+  const zeroY = indicatorY(pane, domain, 0);
+  candleUnits(scene).forEach((unit) => {
+    const histogram = points.get(unit.candle.timestamp)?.histogram;
+    if (typeof histogram !== "number" || !Number.isFinite(histogram)) {
+      return;
+    }
+    const y = indicatorY(pane, domain, histogram);
+    const width = Math.max(1, Math.min(9, candleBodyWidth(scene, unit) * 0.72));
+    context.save();
+    context.fillStyle = histogram >= 0 ? colors.upSoft : colors.downSoft;
+    context.globalAlpha = 0.55;
+    context.fillRect(unitCenterX(scene, unit) - width / 2, Math.min(y, zeroY), width, Math.max(1, Math.abs(zeroY - y)));
+    context.restore();
+  });
+}
+
 function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
   const transform = createCoordinateTransform(scene);
   const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
@@ -290,7 +775,7 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
       drawDrawingLabel(context, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
-    } else if ((drawing.type === "trendLine" || drawing.type === "arrow" || drawing.type === "measurement") && points.length >= 2) {
+    } else if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
       const [start, end] = drawing.type === "trendLine"
         ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
         : [points[0], points[1]];
@@ -298,7 +783,7 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
       if (drawing.type === "arrow") {
         drawArrowHead(context, start, end);
       }
-      drawDrawingLabel(context, drawing.label ?? measurementLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+      drawDrawingLabel(context, drawing.label ?? lineMetricLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
       const y = Math.min(points[0].y, points[1].y);
@@ -375,7 +860,7 @@ function drawTimeWarpedLine(
   }
   const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
   if (midpoint) {
-    drawDrawingLabel(context, item.label ?? (drawing.type === "measurement" ? measurementLabel(drawing) : undefined), midpoint.x + 5, midpoint.y - 8, drawing);
+    drawDrawingLabel(context, item.label ?? lineMetricLabel(drawing), midpoint.x + 5, midpoint.y - 8, drawing);
   }
   if (selected) {
     context.setLineDash([]);
@@ -458,10 +943,13 @@ function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | und
   context.fillText(label, x, y);
 }
 
-function measurementLabel(drawing: DrawingEntity): string {
+function lineMetricLabel(drawing: DrawingEntity): string | undefined {
+  if (drawing.type !== "trendLine" && drawing.type !== "arrow") {
+    return undefined;
+  }
   const [start, end] = drawing.anchors;
   if (typeof start?.price !== "number" || typeof end?.price !== "number") {
-    return drawing.label ?? "측정";
+    return undefined;
   }
   const delta = end.price - start.price;
   const percent = (delta / Math.max(0.0001, start.price)) * 100;
@@ -573,6 +1061,7 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
   }
   const minute = date.getUTCMinutes();
   switch (unit.interval) {
+    case "footprint":
     case "1m":
       return minute % (slotWidth > 10 ? 5 : 15) === 0;
     case "5m":
@@ -602,15 +1091,8 @@ function formatAxisTimestamp(value: string, interval: SemanticCandleUnit["interv
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit" }).format(date);
 }
 
-function semanticContextOpacity(scene: ChartScene, unit: SemanticRenderUnit): number {
-  if (!scene.hoveredNodeId || unit.id === scene.hoveredNodeId) {
-    return 1;
-  }
-  return 0.68;
-}
-
 function timeAxisY(scene: ChartScene): number {
-  const target = hasVolumePane(scene) ? scene.plot.bottom + 20 : scene.plot.priceBottom + 20;
+  const target = scene.plot.belowPanes.length ? scene.plot.bottom + 20 : scene.plot.priceBottom + 20;
   return Math.min(scene.height - 15, Math.max(scene.plot.top + 22, target));
 }
 
@@ -667,7 +1149,7 @@ function formatPriceAxisValue(value: number): string {
 }
 
 function hasVolumePane(scene: ChartScene): boolean {
-  return scene.chart.layers.volume && scene.plot.volumeTop < scene.plot.bottom;
+  return Boolean(scene.chart.layers.volume) && Boolean(paneById(scene, "volume"));
 }
 
 function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, crosshair?: { x: number; y: number }) {
@@ -686,7 +1168,8 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
     ? formatSemanticTimestamp(semanticHit.timestamp, semanticHit.interval)
     : formatSemanticTimestamp(semanticHit.from, semanticHit.interval);
   const inPricePane = crosshair.y <= scene.plot.priceBottom;
-  const inVolumePane = hasVolumePane(scene) && crosshair.y >= scene.plot.volumeTop && crosshair.y <= scene.plot.bottom;
+  const activeBelowPane = scene.plot.belowPanes.find((pane) => crosshair.y >= pane.top && crosshair.y <= pane.bottom);
+  const inVolumePane = activeBelowPane?.id === "volume";
   context.save();
   context.strokeStyle = colors.crosshair;
   context.globalAlpha = alpha;
@@ -695,7 +1178,7 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   line(context, x, 0, x, scene.height);
   if (inPricePane) {
     line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
-  } else if (inVolumePane) {
+  } else if (activeBelowPane) {
     line(context, scene.plot.left, crosshair.y, horizontalGuideRight(scene), crosshair.y);
   }
   context.globalAlpha = 1;
@@ -902,6 +1385,10 @@ function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: Chart
   if (visibleWidth <= 4) {
     return;
   }
+  if (unit.kind === "footprint" && unit.footprintBucket?.priceLevels?.length) {
+    drawSemanticFootprint(context, scene, unit, visibleLeft, visibleRight);
+    return;
+  }
   const x = (visibleLeft + visibleRight) / 2;
   const y = scene.plot.top + (scene.plot.priceBottom - scene.plot.top) / 2;
   context.save();
@@ -910,6 +1397,61 @@ function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: Chart
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(unit.message, x, y, Math.max(24, visibleWidth - 8));
+  context.restore();
+}
+
+function drawSemanticFootprint(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  unit: SemanticPlaceholderUnit,
+  left: number,
+  right: number
+) {
+  const bucket = unit.footprintBucket;
+  if (!bucket) {
+    return;
+  }
+  const center = (left + right) / 2;
+  const width = Math.max(18, Math.min(76, right - left - 8));
+  const halfWidth = width / 2;
+  const maxLevelVolume = Math.max(1, ...bucket.priceLevels.map((level) => level.totalVolume));
+  context.save();
+  context.fillStyle = colors.footprint;
+  context.globalAlpha = 0.08;
+  context.fillRect(left + 3, scene.plot.top + 12, Math.max(1, right - left - 6), Math.max(1, scene.plot.priceBottom - scene.plot.top - 24));
+  bucket.priceLevels.forEach((level) => {
+    const y = priceToY(scene, level.price);
+    if (y < scene.plot.top || y > scene.plot.priceBottom) {
+      return;
+    }
+    const bidWidth = (halfWidth - 1) * (level.bidVolume / maxLevelVolume);
+    const askWidth = (halfWidth - 1) * (level.askVolume / maxLevelVolume);
+    context.globalAlpha = 0.5;
+    context.fillStyle = colors.downSoft;
+    context.fillRect(center - bidWidth, y - 2, bidWidth, 4);
+    context.fillStyle = colors.upSoft;
+    context.fillRect(center, y - 2, askWidth, 4);
+  });
+  context.globalAlpha = 0.78;
+  context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
+  context.font = "700 9px var(--font-data-sans)";
+  context.textAlign = "center";
+  context.textBaseline = "top";
+  context.fillText(`${bucket.delta >= 0 ? "+" : ""}${Math.round(bucket.delta)}`, center, scene.plot.top + 16, width);
+  context.restore();
+}
+
+function drawFootprintEstimatedLabel(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const hasFootprint = scene.chart.interval === "footprint" || scene.semantic.units.some((unit) => unit.kind === "footprint");
+  if (!hasFootprint) {
+    return;
+  }
+  context.save();
+  context.fillStyle = colors.muted;
+  context.font = "10px Inter, system-ui, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "top";
+  context.fillText("Estimated", scene.plot.right - 4, topPriceGridY(scene) + 2);
   context.restore();
 }
 

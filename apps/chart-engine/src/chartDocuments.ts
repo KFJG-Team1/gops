@@ -8,6 +8,7 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
   return {
     id,
     symbol,
+    chartType: "candle",
     timeframe: resolvedTimeframe,
     viewport: {
       rightOffset: 0,
@@ -22,7 +23,17 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       volume: true,
       ma5: true,
       ma20: true,
-      ma60: true
+      ma60: true,
+      "sma:5": true,
+      "sma:20": true,
+      "sma:60": true,
+      "ema:20": false,
+      "wma:20": false,
+      "bollinger:20:2": false,
+      "rsi:14": false,
+      "stochastic:14:3:3": false,
+      "macd:12:26:9": false,
+      "volume-profile": false
     },
     style: getDefaultChartStyle(),
     interactionState: {
@@ -45,6 +56,7 @@ export function snapshotChartDocument(document: ChartDocument): ChartDocumentSna
   return {
     id: document.id,
     symbol: document.symbol,
+    chartType: document.chartType ?? "candle",
     timeframe: document.timeframe,
     viewport: { ...document.viewport },
     panes: structuredClone(document.panes) as ChartDocument["panes"],
@@ -65,6 +77,7 @@ export function restoreChartDocumentSnapshot(
   return {
     ...current,
     symbol: snapshot.symbol,
+    chartType: snapshot.chartType ?? "candle",
     timeframe: snapshot.timeframe,
     viewport: { ...snapshot.viewport },
     panes: structuredClone(snapshot.panes) as ChartDocument["panes"],

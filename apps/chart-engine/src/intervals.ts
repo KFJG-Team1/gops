@@ -1,4 +1,4 @@
-export const chartIntervals = ["1m", "5m", "10m", "1D", "1W", "1M"] as const;
+export const chartIntervals = ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"] as const;
 
 export type ChartInterval = typeof chartIntervals[number];
 
@@ -9,6 +9,7 @@ const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * histo
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
   "1m": 120,
+  "footprint": 120,
   "5m": 120,
   "10m": 120,
   "1D": 120,
@@ -18,6 +19,7 @@ const defaultVisibleBars: Record<ChartInterval, number> = {
 
 const maxRequestBars: Record<ChartInterval, number> = {
   "1m": intradayLazyTargetBars,
+  "footprint": intradayLazyTargetBars,
   "5m": Math.ceil(intradayLazyTargetBars / 5),
   "10m": Math.ceil(intradayLazyTargetBars / 10),
   "1D": tradingDaysPerYear * historicalTargetYears,
@@ -38,6 +40,9 @@ export function normalizeChartInterval(value: unknown): ChartInterval | null {
   }
   if (trimmed === "1mo" || trimmed === "1MO" || trimmed === "1month") {
     return "1M";
+  }
+  if (trimmed.toLowerCase() === "footprint") {
+    return "footprint";
   }
   return chartIntervals.includes(trimmed as ChartInterval) ? trimmed as ChartInterval : null;
 }

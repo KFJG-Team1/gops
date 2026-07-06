@@ -12,6 +12,18 @@ import {
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
 import {
+  chartRuntimeReducer,
+  createInitialChartRuntimeState,
+  makeChartCommand,
+  type ChartCommand,
+  type ChartRuntimeAction,
+  type ChartRuntimeState
+} from "@gops/chart-engine";
+import {
+  chartDocumentIdForContent,
+  ensureFrontendChartDocuments
+} from "./chart/chartDocumentAdapter";
+import {
   cancelAgentAnalysis,
   createAgentAnalysisRequestId,
   formatAgentAnalysisForChat,
@@ -24,7 +36,7 @@ import {
 } from "./agent/agentAnalysisClient";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
-import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./components/ChartPanel";
+import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { ChartSymbolDto } from "./chart/types";
@@ -32,9 +44,7 @@ import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./ch
 import { gridGutter } from "./layout/grid";
 import {
   createInitialTiledPanelState,
-  defaultChartPanelSymbol,
   scaleTiledPanelState,
-  setDefaultChartPanelSymbol,
   type TiledPanelState,
   type ViewportSize
 } from "./layout/panelLayout";
@@ -52,6 +62,7 @@ import {
   type MainView
 } from "./navigation/mainViewUrl";
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
+import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
@@ -71,11 +82,26 @@ const maxWatchlistSymbols = 10;
 
 let chatLogEntrySequence = 0;
 
+const unavailableHeaderQuote: LiveQuote = {
+  priceText: "-",
+  changeText: "-",
+  percentText: "-",
+  tone: "unavailable"
+};
+
+const headerQuoteFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
 function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
     return createInitialTiledPanelState({ width: 1280, height: 720 });
   }
-  return createInitialTiledPanelState(currentViewportSize());
+  const initialView = resolveMainViewFromUrl(window.location.href).view;
+  return createInitialTiledPanelState(currentViewportSize(), {
+    symbol: initialView.mode === "chart" ? initialView.symbol : undefined
+  });
 }
 
 function initialTreeMapHeight(): number {
@@ -85,17 +111,24 @@ function initialTreeMapHeight(): number {
   return treeMapMaxHeight(window.innerHeight);
 }
 
+function initialChartCommandTargetContentId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return resolveMainViewFromUrl(window.location.href).view.mode === "chart" ? "content-chart-1" : null;
+}
+
 export function App() {
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
   const [treeMapHeight, setTreeMapHeight] = useState(() => initialTreeMapHeight());
-  const [chartHeader, setChartHeader] = useState<ChartHeaderSnapshot | null>(null);
   const [, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
   const [agentInput, setAgentInput] = useState("");
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
-  const [chartCommandMode, setChartCommandMode] = useState(false);
+  const [chartCommandTargetContentId, setChartCommandTargetContentId] = useState<string | null>(() => initialChartCommandTargetContentId());
+  const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
@@ -106,7 +139,7 @@ export function App() {
   const [, setWatchlistError] = useState<string | null>(null);
   const [, setWatchlistMessage] = useState<string | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
-  const chartPanelRef = useRef<ChartPanelHandle | null>(null);
+  const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const dragRef = useRef<LayoutDrag | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
   const watchlistSavingRef = useRef(false);
@@ -114,13 +147,17 @@ export function App() {
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
+  const hasChartCommandTarget = Boolean(chartCommandTargetContentId);
 
   const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
     setSemanticSelection(null);
     setTreeMapLaneHover(false);
-    setChartHeader(null);
     if (options.closeBottomMenu || nextView.mode === "treemap") {
       setActiveBottomMenu(null);
+    }
+    if (nextView.mode === "treemap") {
+      setChartCommandTargetContentId(null);
+      chartPanelHandlesRef.current.clear();
     }
     persistMainView(nextView);
     setMainView(nextView);
@@ -236,8 +273,18 @@ export function App() {
     sector: item.sector,
     isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
   })), [treeMapItems]);
-  const activeHeaderSymbol = mainView.mode === "chart" ? chartHeader?.symbol ?? defaultChartPanelSymbol(panelState) ?? mainView.symbol : "";
-  const activeHeaderQuote = chartHeader?.liveQuote;
+  const activePageSymbol = mainView.mode === "chart" ? mainView.symbol : "";
+  const activeHeaderQuote = useMemo(() => (
+    mainView.mode === "chart" ? headerQuoteForSymbol(treeMapItems, mainView.symbol) : unavailableHeaderQuote
+  ), [mainView, treeMapItems]);
+  const chartCommandTargetSlotId = useMemo(() => (
+    chartCommandTargetContentId
+      ? panelState.slots.find((slot) => slot.contentId === chartCommandTargetContentId)?.id
+      : undefined
+  ), [chartCommandTargetContentId, panelState]);
+  const chartDocumentSymbolsByPanelId = useMemo(() => (
+    chartDocumentSymbolsForLayout(panelState, chartRuntime)
+  ), [chartRuntime, panelState]);
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
   const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
   const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
@@ -286,21 +333,8 @@ export function App() {
     };
   }, [authEnabled, authLoading, user]);
 
-  const showChart = useCallback((symbol: string) => {
-    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
-    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
-    setPanelState((current) => setDefaultChartPanelSymbol(current, normalizedSymbol));
-    navigateMainView(nextView);
-  }, [navigateMainView]);
-
-  const showChartInCurrentPanel = useCallback((symbol: string) => {
-    const normalizedSymbol = normalizeStoredSymbol(symbol);
-    if (!normalizedSymbol) {
-      return;
-    }
-    setSemanticSelection(null);
-    setChartHeader(null);
-    setPanelState((current) => setDefaultChartPanelSymbol(current, normalizedSymbol));
+  const dispatchChartRuntimeAction = useCallback((action: ChartRuntimeAction) => {
+    setChartRuntime((current) => chartRuntimeReducer(current, action));
   }, []);
 
   const requestWatchlistLogin = useCallback(() => {
@@ -419,10 +453,73 @@ export function App() {
   }, [canEditWatchlist, requestWatchlistLogin, saveWatchlistSymbols, watchlistSymbols]);
 
   useEffect(() => {
-    if (!canUseAgent && chartCommandMode) {
-      setChartCommandMode(false);
+    setChartRuntime((current) => ensureFrontendChartDocuments(
+      current,
+      panelState,
+      mainView.mode === "chart" ? mainView.symbol : "NVDA"
+    ));
+  }, [mainView, panelState]);
+
+  const openSymbolPage = useCallback((symbol: string, options: { replace?: boolean } = {}) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
+    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
+    chartPanelHandlesRef.current.clear();
+    setChartCommandTargetContentId("content-chart-1");
+    setChartRuntime(createInitialChartRuntimeState());
+    setPanelState(createInitialTiledPanelState(viewportSizeRef.current, { symbol: normalizedSymbol }));
+    navigateMainView(nextView, { replace: options.replace });
+  }, [navigateMainView]);
+
+  const syncPageSymbolFromChart = useCallback((contentId: string) => {
+    const content = panelState.contents[contentId];
+    const document = content?.kind === "chart" ? chartRuntime.documents[chartDocumentIdForContent(content)] : null;
+    const normalizedSymbol = normalizeStoredSymbol(document?.symbol);
+    if (!content || content.kind !== "chart" || !document || !normalizedSymbol) {
+      return;
     }
-  }, [canUseAgent, chartCommandMode]);
+    navigateMainView({ mode: "chart", symbol: normalizedSymbol });
+  }, [chartRuntime.documents, navigateMainView, panelState]);
+
+  const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
+    if (handle) {
+      chartPanelHandlesRef.current.set(contentId, handle);
+    } else {
+      chartPanelHandlesRef.current.delete(contentId);
+    }
+  }, []);
+
+  const applyAgentLayoutProposal = useCallback((proposal: AgentLayoutProposal) => {
+    setPanelState((current) => {
+      const next = applyTiledAgentLayoutProposal(current, proposal, viewportSizeRef.current);
+      const commands = chartDocumentCommandsForPanelPropChanges(current, next);
+      if (commands.length) {
+        setChartRuntime((runtime) => {
+          const activeCommands = commands.filter((command) => runtime.documents[command.target.chartDocumentId]);
+          return activeCommands.length
+            ? chartRuntimeReducer(runtime, { kind: "chart.command.group", commands: activeCommands, label: "Apply layout chart props" })
+            : runtime;
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && authEnabled && !user && chartCommandTargetContentId) {
+      setChartCommandTargetContentId(null);
+    }
+  }, [authEnabled, authLoading, chartCommandTargetContentId, user]);
+
+  useEffect(() => {
+    if (!chartCommandTargetContentId) {
+      return;
+    }
+    const target = panelState.contents[chartCommandTargetContentId];
+    if (!target || target.kind !== "chart") {
+      setChartCommandTargetContentId(null);
+      chartPanelHandlesRef.current.delete(chartCommandTargetContentId);
+    }
+  }, [chartCommandTargetContentId, panelState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -513,7 +610,7 @@ export function App() {
           if (!primarySymbol) {
             throw new Error("비교할 차트 종목을 확정하지 못했습니다.");
           }
-          let nextPanelState = setDefaultChartPanelSymbol(panelState, primarySymbol);
+          let nextPanelState = createInitialTiledPanelState(viewportSizeRef.current, { symbol: primarySymbol });
           for (const addSymbol of shortcutSymbols.slice(1)) {
             const layoutResolution = await resolveAgentLayoutCommand({
               symbol: addSymbol,
@@ -523,7 +620,7 @@ export function App() {
               chartAction: "add",
               chartTargetSymbol: addSymbol,
               chartPlacementIntent: shortcut.chartPlacementIntent,
-              layoutContext: buildTiledAgentLayoutContext(nextPanelState, viewportSize, primarySymbol)
+              layoutContext: buildTiledAgentLayoutContext(nextPanelState, viewportSize, primarySymbol, "slot-chart")
             });
             if (layoutResolution?.status !== "ui_layout" || !layoutResolution.layoutProposal) {
               throw new Error(`${addSymbol} 차트 패널을 추가할 수 없습니다.`);
@@ -532,12 +629,11 @@ export function App() {
           }
           setSemanticSelection(null);
           setTreeMapLaneHover(false);
-          setChartHeader(null);
+          chartPanelHandlesRef.current.clear();
+          setChartCommandTargetContentId("content-chart-1");
+          setChartRuntime(createInitialChartRuntimeState());
           setPanelState(nextPanelState);
-          if (mainView.mode !== "chart") {
-            const nextView: MainView = { mode: "chart", symbol: primarySymbol };
-            navigateMainView(nextView, { replace: true });
-          }
+          navigateMainView({ mode: "chart", symbol: primarySymbol });
           setChatLog((current) => [
             ...current,
             userEntry,
@@ -567,10 +663,10 @@ export function App() {
             chartAction: "add",
             chartTargetSymbol: shortcut.symbol,
             chartPlacementIntent: shortcut.chartPlacementIntent,
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
-            setPanelState((current) => applyTiledAgentLayoutProposal(current, layoutResolution.layoutProposal!, viewportSizeRef.current));
+            applyAgentLayoutProposal(layoutResolution.layoutProposal);
             setChatLog((current) => [
               ...current,
               userEntry,
@@ -604,7 +700,7 @@ export function App() {
         }
       }
       if (mainView.mode === "chart") {
-        showChartInCurrentPanel(shortcut.symbol);
+        openSymbolPage(shortcut.symbol);
         setChatLog((current) => [
           ...current,
           userEntry,
@@ -612,7 +708,7 @@ export function App() {
         ]);
         return "chat-log";
       }
-      showChart(shortcut.symbol);
+      openSymbolPage(shortcut.symbol);
       return "chart-shortcut";
     }
     if (isLikelyChartOpenCommand(prompt)) {
@@ -633,15 +729,15 @@ export function App() {
     }
 
     const runChartPrompt = async () => {
-      if (!chartCommandMode) {
+      if (!hasChartCommandTarget) {
         setAgentBusy(true);
         try {
           const analysisPayload = {
-            symbol: activeHeaderSymbol || mainView.symbol,
+            symbol: mainView.symbol,
             intent: prompt,
             routerMode: "hybrid",
             messages: [{ role: "user", content: prompt }],
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
           };
           const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
           if (layoutResolution?.status === "ui_layout") {
@@ -672,16 +768,16 @@ export function App() {
 
       const pendingEntry = createChatLogEntry(
         "assistant",
-        chartCommandMode ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
+        hasChartCommandTarget ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
         true
       );
       setAgentBusy(true);
       setChatLog((current) => [...current, userEntry, pendingEntry]);
       try {
-        if (chartCommandMode) {
-          const chartPanel = chartPanelRef.current;
+        if (hasChartCommandTarget) {
+          const chartPanel = chartCommandTargetContentId ? chartPanelHandlesRef.current.get(chartCommandTargetContentId) : null;
           if (!chartPanel) {
-            throw new Error("차트가 준비되면 다시 시도해주세요.");
+            throw new Error("차트 조작 대상 차트를 선택해주세요.");
           }
           const result = await chartPanel.runAgentPrompt(prompt);
           replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
@@ -696,11 +792,11 @@ export function App() {
           };
           activeAgentRunRef.current = activeRun;
           const report = await requestAgentAnalysisPayload({
-            symbol: activeHeaderSymbol || mainView.symbol,
+            symbol: mainView.symbol,
             intent: prompt,
             routerMode: "hybrid",
             messages: [{ role: "user", content: prompt }],
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, activeHeaderSymbol || mainView.symbol)
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
           }, {
             requestId,
             signal: controller.signal,
@@ -709,7 +805,7 @@ export function App() {
             }
           });
           if (report.layoutProposal) {
-            setPanelState((current) => applyTiledAgentLayoutProposal(current, report.layoutProposal!, viewportSizeRef.current));
+            applyAgentLayoutProposal(report.layoutProposal);
           }
           replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
           publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
@@ -736,7 +832,7 @@ export function App() {
 
     void runChartPrompt();
     return "chat-log";
-  }, [activeHeaderSymbol, agentBusy, agentInput, authLoading, canUseAgent, chartCommandMode, mainView, navigateMainView, panelState, showChart, showChartInCurrentPanel, viewportSize]);
+  }, [agentBusy, agentInput, applyAgentLayoutProposal, authLoading, canUseAgent, chartDocumentSymbolsByPanelId, hasChartCommandTarget, chartCommandTargetContentId, chartCommandTargetSlotId, mainView, navigateMainView, openSymbolPage, panelState, viewportSize]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -777,7 +873,7 @@ export function App() {
               <span className="quote-change">{activeHeaderQuote?.changeText ?? "-"}</span>
             </span>
           </div>
-          <h1 className="company-ticker">{activeHeaderSymbol}</h1>
+          <h1 className="company-ticker">{activePageSymbol}</h1>
           <div className="workspace-top-nav-spacer" aria-hidden="true" />
         </header>
       )}
@@ -798,7 +894,7 @@ export function App() {
               }
             }}
           >
-            <TreeMapCanvas items={treeMapItems} onSelectSymbol={showChart} />
+            <TreeMapCanvas items={treeMapItems} onSelectSymbol={openSymbolPage} />
             <div
               className="chart-resize-grip bottom"
               aria-hidden="true"
@@ -815,11 +911,16 @@ export function App() {
             viewportSize={viewportSize}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
-            chartHeader={chartHeader}
-            chartPanelRef={chartPanelRef}
+            marketItems={treeMapItems}
+            chartRuntime={chartRuntime}
+            chartCommandTargetContentId={chartCommandTargetContentId}
+            canUseChartCommand={canUseAgent}
             setSemanticSelection={setSemanticSelection}
-            setChartHeader={setChartHeader}
-            onSelectSymbol={showChart}
+            onChartRuntimeAction={dispatchChartRuntimeAction}
+            onChartCommandTargetChange={setChartCommandTargetContentId}
+            onChartHandleChange={handleChartHandleChange}
+            onSyncPageSymbolFromChart={syncPageSymbolFromChart}
+            onSelectSymbol={openSymbolPage}
           />
         )}
       </section>
@@ -832,26 +933,25 @@ export function App() {
         authLoading={authLoading}
         authUser={user}
         canUseAgent={canUseAgent}
-        chartCommandMode={chartCommandMode}
+        hasChartCommandTarget={hasChartCommandTarget}
         symbols={universeSymbols}
         watchlistSymbols={visibleWatchlistSymbols}
         watchlistPersisted={watchlistPersisted}
         watchlistLoading={watchlistLoading}
         watchlistSaving={watchlistSaving}
         canEditWatchlist={canEditWatchlist}
-        activeSymbol={activeHeaderSymbol}
+        activeSymbol={activePageSymbol}
         isChartMode={mainView.mode === "chart"}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentSubmit={runAgentPrompt}
-        onChartCommandModeChange={setChartCommandMode}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
         onLogin={login}
         onLogout={() => void logout()}
         onReorderWatchlistSymbol={reorderWatchlistSymbol}
         onRemoveWatchlistSymbol={removeWatchlistSymbol}
-        onSelectSymbol={showChart}
+        onSelectSymbol={openSymbolPage}
         onShowTreeMap={showTreeMap}
         onToggleMenu={toggleBottomMenu}
       />
@@ -894,6 +994,82 @@ function mergeTreeMapItems(
       indexWeight: previous.indexWeight
     };
   });
+}
+
+function headerQuoteForSymbol(items: readonly Sp500UniverseItem[], symbol: string): LiveQuote {
+  const item = items.find((entry) => entry.symbol.toUpperCase() === symbol.toUpperCase());
+  const price = item?.lastPrice;
+  const changePercent = item?.changePercent;
+  if (typeof price !== "number" || !Number.isFinite(price) || typeof changePercent !== "number" || !Number.isFinite(changePercent)) {
+    return unavailableHeaderQuote;
+  }
+  const previous = price / (1 + changePercent / 100);
+  const change = Number.isFinite(previous) ? price - previous : 0;
+  const tone = changePercent > 0 ? "up" : changePercent < 0 ? "down" : "flat";
+  return {
+    priceText: headerQuoteFormatter.format(price),
+    changeText: formatSignedHeaderNumber(change),
+    percentText: `${formatSignedHeaderNumber(changePercent)}%`,
+    tone
+  };
+}
+
+function formatSignedHeaderNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${headerQuoteFormatter.format(Math.abs(value))}`;
+}
+
+function chartDocumentSymbolsForLayout(
+  panelState: TiledPanelState,
+  chartRuntime: ChartRuntimeState
+): Record<string, string | undefined> {
+  const symbols: Record<string, string | undefined> = {};
+  for (const slot of panelState.slots) {
+    const content = panelState.contents[slot.contentId];
+    if (!content || content.kind !== "chart") {
+      continue;
+    }
+    const document = chartRuntime.documents[chartDocumentIdForContent(content)];
+    if (!document?.symbol) {
+      continue;
+    }
+    symbols[slot.id] = document.symbol;
+    symbols[content.id] = document.symbol;
+  }
+  return symbols;
+}
+
+function chartDocumentCommandsForPanelPropChanges(
+  before: TiledPanelState,
+  after: TiledPanelState
+): ChartCommand[] {
+  const commands: ChartCommand[] = [];
+  for (const slot of after.slots) {
+    const content = after.contents[slot.contentId];
+    if (!content || content.kind !== "chart") {
+      continue;
+    }
+    const beforeContent = before.contents[slot.contentId];
+    const beforeSymbol = readString(beforeContent?.props?.symbol)?.toUpperCase();
+    const nextSymbol = readString(content.props?.symbol)?.toUpperCase();
+    if (!nextSymbol || nextSymbol === beforeSymbol) {
+      continue;
+    }
+    commands.push(makeChartCommand(
+      "chart.symbol.set",
+      "llm",
+      { panelId: slot.id, chartDocumentId: chartDocumentIdForContent(content) },
+      { symbol: nextSymbol }
+    ));
+  }
+  return commands;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function initialMainView(): MainView {

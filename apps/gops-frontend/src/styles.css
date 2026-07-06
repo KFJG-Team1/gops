@@ -881,10 +881,10 @@ h2 {
 
 .toolbar {
   position: absolute;
-  top: 16px;
+  top: 9px;
   right: 44px;
   left: auto;
-  z-index: 4;
+  z-index: 36;
   display: grid;
   gap: 4px;
   justify-content: flex-end;
@@ -899,6 +899,12 @@ h2 {
   transition: opacity 130ms ease, transform 130ms ease;
 }
 
+.toolbar.has-active-chart-target {
+  opacity: 1;
+  pointer-events: none;
+  transform: translateY(0);
+}
+
 .toolbar-row {
   display: flex;
   align-items: center;
@@ -907,33 +913,33 @@ h2 {
   min-width: 0;
 }
 
+.toolbar.has-active-chart-target .toolbar-row > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toolbar.has-active-chart-target .chart-command-target-button.is-active,
+.toolbar.has-active-chart-target .chart-drawing-target-button.is-active,
+.toolbar.has-active-chart-target .chart-add-target-button.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .chart-lane-frame.is-chart-hovered .toolbar,
 .chart-lane-frame:hover .toolbar,
+.chart-lane-frame:focus-within .toolbar,
 .toolbar:focus-within {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
 }
 
-.toolbar select {
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-  padding: 0 24px 0 8px;
-  font-size: 11px;
-}
-
-.interval-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.interval-stepper select {
-  min-width: 64px;
+.chart-lane-frame.is-chart-hovered .toolbar-row > *,
+.chart-lane-frame:hover .toolbar-row > *,
+.chart-lane-frame:focus-within .toolbar-row > *,
+.toolbar:focus-within .toolbar-row > * {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .segmented,
@@ -984,14 +990,12 @@ h2 {
   background: var(--color-border);
 }
 
-.ma-control,
-.trend-control {
+.ma-control {
   position: relative;
   display: inline-grid;
 }
 
-.ma-menu,
-.trend-menu {
+.ma-menu {
   position: absolute;
   top: 30px;
   right: 0;
@@ -1001,11 +1005,6 @@ h2 {
   border-radius: 8px;
   background: var(--color-surface);
   backdrop-filter: blur(12px);
-}
-
-.trend-menu {
-  right: auto;
-  left: 0;
 }
 
 .tool-glyph {
@@ -1024,6 +1023,11 @@ h2 {
   border-radius: 999px;
   background: currentColor;
   content: "";
+}
+
+.tool-glyph.horizontal-line::before {
+  width: 13px;
+  height: 2px;
 }
 
 .tool-glyph.diagonal-line::before {
@@ -1150,33 +1154,6 @@ h2 {
   border-radius: 0;
   cursor: crosshair;
   touch-action: none;
-}
-
-.volume-resize-handle {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 4;
-  height: 10px;
-  cursor: ns-resize;
-  touch-action: none;
-}
-
-.volume-resize-handle::before {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 5px;
-  height: 1px;
-  background: var(--color-border);
-  opacity: 0;
-  content: "";
-  transition: opacity 120ms ease;
-}
-
-.volume-resize-handle:hover::before,
-.volume-resize-handle:focus-visible::before {
-  opacity: 0.72;
 }
 
 .semantic-expansion-close {
@@ -1364,7 +1341,7 @@ h2 {
   min-height: var(--bottom-control-size);
   padding: 5px;
   border-radius: 999px;
-  background: var(--color-surface);
+  background: var(--surface-raised-surface);
   backdrop-filter: blur(14px);
   pointer-events: auto;
 }
@@ -1385,32 +1362,6 @@ h2 {
   opacity: 0;
   transform: translateX(-50%);
   transition: opacity 140ms ease;
-}
-
-.chart-agent-dev-toggle {
-  position: absolute;
-  right: 10px;
-  top: -25px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0;
-  background: none;
-  color: var(--color-text);
-  cursor: pointer;
-  font-family: var(--font-ui-serif);
-  font-size: 11px;
-  font-weight: 780;
-  line-height: 1;
-  opacity: 0.82;
-}
-
-.chart-agent-dev-toggle input {
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  accent-color: var(--color-preview);
 }
 
 .agent-dock-toggle::before,
@@ -1464,20 +1415,23 @@ h2 {
 }
 
 .agent-box button {
+  position: relative;
   display: inline-grid;
   place-items: center;
-  width: 34px;
+  width: 30px;
   height: 34px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: var(--color-surface-strong);
+  border-radius: 0;
+  background: none;
   color: var(--color-preview);
   font-size: 12px;
   font-weight: 800;
 }
 
 .agent-box button svg {
+  position: relative;
+  z-index: 1;
   stroke-width: 2;
 }
 
@@ -1657,6 +1611,7 @@ h2 {
 
 .market-news-panel,
 .market-indices-panel,
+.popular-stocks-panel,
 .portfolio-holdings-panel,
 .order-ticket {
   display: flex;
@@ -1780,6 +1735,99 @@ h2 {
   display: grid;
   gap: 10px;
   min-height: 0;
+}
+
+.popular-stocks-panel {
+  overflow: hidden;
+}
+
+.popular-stocks-table-wrap {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--color-rule-soft);
+}
+
+.popular-stocks-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11px;
+}
+
+.popular-stocks-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-background);
+}
+
+.popular-stocks-table th,
+.popular-stocks-table td {
+  overflow: hidden;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--color-rule-soft);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popular-stocks-table th {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.popular-stock-company-col {
+  width: 34%;
+}
+
+.popular-stock-money-col {
+  width: 18%;
+}
+
+.popular-stock-industry-col {
+  width: 30%;
+}
+
+.popular-stock-row {
+  cursor: pointer;
+}
+
+.popular-stock-row:hover,
+.popular-stock-row:focus-visible {
+  outline: none;
+}
+
+.popular-stock-row:hover > td,
+.popular-stock-row:focus-visible > td {
+  background: color-mix(in srgb, var(--color-text) 7%, var(--color-background));
+}
+
+.popular-stock-company strong {
+  display: block;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popular-stock-company span {
+  display: block;
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popular-stock-industry {
+  color: var(--color-muted);
+}
+
+.popular-stock-money {
+  color: var(--color-text);
+  font-weight: 760;
 }
 
 .market-index-group {
@@ -2770,34 +2818,70 @@ h2 {
   height: 100%;
 }
 
+.chart-panel-drag-strip {
+  position: absolute;
+  z-index: 28;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 42px;
+  pointer-events: auto;
+}
+
 .chart-instance-symbol {
   position: absolute;
   z-index: 34;
-  top: 8px;
-  left: 12px;
-  display: grid;
-  grid-template-columns: 42px 118px;
+  top: 7px;
+  left: calc(var(--layout-gutter) + 9px);
+  display: flex;
   align-items: center;
-  column-gap: 8px;
   min-width: 0;
-  height: 26px;
+  height: 30px;
   color: var(--color-text);
   font-family: var(--font-ui-serif);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 760;
   line-height: 1;
   pointer-events: auto;
 }
 
-.chart-instance-interval {
-  display: block;
+.chart-lane-frame.has-left-boundary .chart-instance-symbol {
+  left: 9px;
+}
+
+.chart-instance-symbol-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
+  pointer-events: auto;
+}
+
+.chart-instance-select {
+  display: inline-block;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
   color: var(--color-muted);
   font-family: var(--font-data-sans);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 720;
   text-align: left;
   white-space: nowrap;
+  pointer-events: none;
+  transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+
+.chart-instance-chart-type {
+  min-width: 74px;
+}
+
+.chart-instance-interval {
+  min-width: 54px;
 }
 
 .chart-instance-symbol-text {
@@ -2822,37 +2906,102 @@ h2 {
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search-wrap {
   position: relative;
-  width: 118px;
+  width: 148px;
   height: 26px;
   pointer-events: auto;
 }
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search {
   position: relative;
-  width: 118px;
+  width: 148px;
   height: 26px;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+}
+
+.chart-instance.is-editable-chart .chart-instance-symbol-search::after {
+  inset: auto 0 2px;
+  height: 1px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-text) 44%, transparent);
+  box-shadow: none;
+  opacity: 0;
 }
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search input {
   height: 26px;
-  padding: 0 28px 0 9px;
+  padding: 0 28px 0 0;
   font-family: var(--font-ui-serif);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 760;
 }
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search button {
   width: 26px;
   height: 24px;
+  margin-right: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-text);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
+}
+
+.chart-instance.is-editable-chart .chart-instance-symbol-search button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.chart-instance-sync-page {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, background 120ms ease;
 }
 
 .workspace-panel-frame.is-chart-hovered .chart-instance.is-editable-chart .chart-instance-symbol-search button,
 .chart-instance.is-editable-chart .chart-instance-symbol-search:focus-within button,
 .chart-instance.is-editable-chart .chart-instance-symbol-search.is-active button {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.workspace-panel-frame.is-chart-hovered .chart-instance.is-editable-chart .chart-instance-symbol-search::after,
+.chart-instance.is-editable-chart .chart-instance-symbol-search:focus-within::after,
+.chart-instance.is-editable-chart .chart-instance-symbol-search.is-active::after {
+  opacity: 1;
+}
+
+.workspace-panel-frame.is-chart-hovered .chart-instance-sync-page,
+.chart-instance-symbol-controls:focus-within .chart-instance-sync-page,
+.chart-instance-sync-page:focus-visible {
+  opacity: 0.9;
+  pointer-events: auto;
+}
+
+.chart-instance-sync-page:hover {
+  background: var(--color-surface-strong);
+}
+
+.workspace-panel-frame.is-chart-hovered .chart-instance-select,
+.chart-lane-frame:hover .chart-instance-select,
+.chart-instance-symbol-controls:focus-within .chart-instance-select,
+.chart-instance-select:focus-visible {
+  padding: 0 22px 0 8px;
+  appearance: auto;
+  -webkit-appearance: auto;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-border);
   pointer-events: auto;
 }
 
@@ -2884,6 +3033,111 @@ h2 {
 .workspace-panel-frame:focus-within .chart-instance-close,
 .chart-instance-close:focus-visible {
   opacity: 0.9;
+}
+
+.chart-command-target-button,
+.chart-drawing-target-button,
+.chart-add-target-button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.chart-lane-frame.is-chart-hovered .chart-command-target-button,
+.chart-lane-frame:hover .chart-command-target-button,
+.chart-command-target-button.is-active,
+.chart-lane-frame.is-chart-hovered .chart-drawing-target-button,
+.chart-lane-frame:hover .chart-drawing-target-button,
+.chart-drawing-target-button.is-active,
+.chart-lane-frame.is-chart-hovered .chart-add-target-button,
+.chart-lane-frame:hover .chart-add-target-button,
+.chart-add-target-button.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-command-target-button:not(.is-active),
+.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-drawing-target-button:not(.is-active),
+.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-add-target-button:not(.is-active) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chart-drawing-dock {
+  position: fixed;
+  right: 50%;
+  bottom: 82px;
+  z-index: 42;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: min(820px, calc(100vw - 28px));
+  padding: 5px 7px;
+  background: transparent;
+  box-shadow: none;
+  transform: translateX(50%);
+  overflow-x: auto;
+}
+
+.chart-tool-dock-row {
+  position: fixed;
+  left: 50%;
+  bottom: 82px;
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  max-width: calc(100vw - 28px);
+  background: transparent;
+  box-shadow: none;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.chart-tool-dock-row .chart-drawing-dock {
+  position: static;
+  right: auto;
+  bottom: auto;
+  max-width: min(820px, calc((100vw - 52px) / 2));
+  transform: none;
+  pointer-events: auto;
+}
+
+.chart-tool-dock-row .chart-drawing-dock:only-child {
+  max-width: min(820px, calc(100vw - 28px));
+}
+
+.chart-drawing-dock .icon-button,
+.chart-drawing-dock .segmented {
+  flex: 0 0 auto;
+}
+
+.chart-drawing-dock-close {
+  margin-right: 2px;
+}
+
+.chart-placement-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.chart-placement-toggle .icon-button {
+  border-radius: 0;
+}
+
+.chart-placement-toggle .icon-button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.chart-placement-toggle .icon-button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.chart-add-dock .chart-add-layer-button {
+  width: 28px;
 }
 
 @media (max-width: 980px) {
