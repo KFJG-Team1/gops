@@ -771,6 +771,32 @@ button {
   font-size: 12px;
 }
 
+.alert-field .alert-input-with-unit {
+  position: relative;
+  display: block;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.alert-field .alert-input-with-unit .alert-input {
+  width: 100%;
+  padding-right: 28px;
+}
+
+.alert-field .alert-input-unit {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .alert-input.symbol {
   font-weight: 780;
   text-transform: uppercase;

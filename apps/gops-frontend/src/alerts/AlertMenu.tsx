@@ -315,16 +315,19 @@ export function AlertMenu({ activeSymbol, symbols, authEnabled, authLoading, aut
                     />
                   </label>
                   <label className="alert-field">
-                    <span>기간</span>
-                    <input
-                      className="alert-input"
-                      inputMode="numeric"
-                      value={windowMin}
-                      aria-label="감지 시간"
-                      placeholder="분"
-                      onChange={(event) => setWindowMin(event.target.value.replace(/[^\d]/g, ""))}
-                    />
-                    <small className="alert-field-note">현재가를 몇 분 전 가격과 비교할지 정합니다.</small>
+                    <span>비교 시간</span>
+                    <span className="alert-input-with-unit">
+                      <input
+                        className="alert-input"
+                        inputMode="numeric"
+                        value={windowMin}
+                        aria-label="비교 시간"
+                        onChange={(event) => setWindowMin(event.target.value.replace(/[^\d]/g, ""))}
+                      />
+                      <span className="alert-input-unit" aria-hidden="true">
+                        분
+                      </span>
+                    </span>
                   </label>
                 </div>
               )}
