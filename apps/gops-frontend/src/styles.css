@@ -1636,17 +1636,23 @@ h2 {
   min-height: 0;
 }
 
-.company-metric-column,
-.company-earnings-panel {
+.company-chart-column {
+  display: grid;
+  align-content: start;
+  gap: 14px;
   min-width: 0;
   padding: 0 18px;
 }
 
-.company-metric-column {
+.company-chart-column {
   border-right: 1px solid rgb(var(--gops-ink-rgb) / 0.18);
 }
 
-.company-metric-column h3,
+.company-chart-column:last-child {
+  border-right: 0;
+}
+
+.company-chart-column h3,
 .company-earnings-panel h3 {
   margin: 0 0 10px;
   color: var(--color-text);
@@ -1655,58 +1661,409 @@ h2 {
   line-height: 1.15;
 }
 
-.company-metric-column dl {
+.company-valuation-panel,
+.company-earnings-panel {
   display: grid;
-  gap: 0;
-  margin: 0;
-}
-
-.company-metric-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
-  align-items: baseline;
-  min-height: 42px;
-  gap: 14px;
-  border-top: 1px dashed rgb(var(--gops-ink-rgb) / 0.14);
-}
-
-.company-metric-row dt,
-.company-metric-row dd {
+  gap: 10px;
   min-width: 0;
-  margin: 0;
 }
 
-.company-metric-row dt {
+.company-valuation-gauge-grid {
   display: grid;
-  gap: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.company-metric-row dt strong {
+.company-valuation-gauge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 146px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.11);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 44%, rgb(var(--gops-ink-rgb) / 0.055), transparent 48%),
+    rgb(var(--gops-ink-rgb) / 0.012);
+  padding: 12px 8px 10px;
+}
+
+.company-valuation-gauge svg {
+  width: 86px;
+  height: 86px;
+  transform: rotate(-90deg);
+}
+
+.company-gauge-track,
+.company-gauge-value {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 8;
+}
+
+.company-gauge-track {
+  stroke: rgb(var(--gops-ink-rgb) / 0.13);
+}
+
+.company-gauge-value {
+  stroke: rgb(var(--gops-ink-rgb) / 0.88);
+  transition: stroke-dashoffset 220ms ease;
+}
+
+.company-gauge-center {
+  position: absolute;
+  top: 38px;
+  left: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.company-gauge-center strong {
+  max-width: 88px;
   overflow: hidden;
   color: var(--color-text);
+  font-family: var(--font-data-sans);
   font-size: 13px;
   font-weight: 760;
-  line-height: 1.2;
+  line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.company-metric-row dt span {
+.company-gauge-center span,
+.company-valuation-gauge p {
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 10px;
+  font-weight: 680;
+  line-height: 1.2;
+}
+
+.company-valuation-gauge p {
+  margin: 4px 0 0;
+  text-align: center;
+}
+
+.company-profitability-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.company-profitability-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  min-height: 36px;
+}
+
+.company-profitability-copy strong {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.company-profitability-copy span {
   overflow: hidden;
   color: var(--color-muted);
   font-family: var(--font-data-sans);
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.company-metric-row dd {
+.company-profitability-plot {
+  display: block;
+  width: 100%;
+  min-height: 170px;
+  overflow: visible;
+}
+
+.company-profitability-empty-card {
+  display: grid;
+  min-height: 170px;
+  place-items: center;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
+  border-radius: 8px;
+  background: rgb(var(--gops-ink-rgb) / 0.012);
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 12px;
+}
+
+.company-profitability-plot line {
+  stroke: rgb(var(--gops-ink-rgb) / 0.08);
+  stroke-width: 1;
+}
+
+.company-profitability-zero {
+  stroke: rgb(var(--gops-ink-rgb) / 0.22);
+}
+
+.company-profitability-plot text {
+  fill: var(--color-muted);
   font-family: var(--font-data-sans);
   font-size: 13px;
+}
+
+.company-profitability-period,
+.company-profitability-empty {
+  text-anchor: middle;
+}
+
+.company-profitability-bar.revenue {
+  fill: #2f67d8;
+  opacity: 0.92;
+}
+
+.company-profitability-bar.net-income {
+  fill: #6aa2f0;
+  opacity: 0.42;
+}
+
+.company-profitability-margin-line {
+  fill: none;
+  stroke: #f3be38;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-profitability-margin-dot {
+  fill: var(--color-surface);
+  stroke: #f3be38;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-profitability-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 13px;
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.company-profitability-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.company-profitability-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.company-profitability-legend i.revenue {
+  background: #2f67d8;
+}
+
+.company-profitability-legend i.net-income {
+  background: #6aa2f0;
+}
+
+.company-profitability-legend i.margin {
+  border: 2px solid #f3be38;
+  background: transparent;
+}
+
+.company-stability-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.company-stability-copy {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 36px;
+}
+
+.company-stability-copy strong {
+  color: var(--color-text);
+  font-size: 15px;
   font-weight: 760;
+}
+
+.company-stability-copy span {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-stability-bar.equity {
+  fill: #15989b;
+  opacity: 0.92;
+}
+
+.company-stability-bar.liabilities {
+  fill: #8ad3cf;
+  opacity: 0.42;
+}
+
+.company-stability-ratio-line {
+  fill: none;
+  stroke: #e87319;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-stability-ratio-dot {
+  fill: var(--color-surface);
+  stroke: #e87319;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-stability-legend i.equity {
+  background: #15989b;
+}
+
+.company-stability-legend i.liabilities {
+  background: #8ad3cf;
+}
+
+.company-stability-legend i.debt-ratio {
+  border: 2px solid #e87319;
+  background: transparent;
+}
+
+.company-financial-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  padding-top: 8px;
+}
+
+.company-financial-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+}
+
+.company-financial-table th,
+.company-financial-table td {
+  min-width: 76px;
+  padding: 10px 9px;
+  font-size: 12px;
+  line-height: 1.15;
   text-align: right;
   white-space: nowrap;
+}
+
+.company-financial-table thead th {
+  color: var(--color-muted);
+  font-weight: 680;
+}
+
+.company-financial-table th:first-child,
+.company-financial-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 108px;
+  background: linear-gradient(90deg, var(--color-surface) 82%, transparent);
+  text-align: left;
+}
+
+.company-financial-table tbody tr:nth-child(odd) th,
+.company-financial-table tbody tr:nth-child(odd) td {
+  background-color: rgb(var(--gops-ink-rgb) / 0.025);
+}
+
+.company-financial-table tbody tr:nth-child(odd) th:first-child {
+  background: linear-gradient(90deg, rgb(var(--gops-ink-rgb) / 0.025) 82%, transparent);
+}
+
+.company-financial-table tbody th {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  font-weight: 760;
+}
+
+.company-financial-table tbody th i {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.company-financial-table tbody th i.revenue,
+.company-financial-table tbody th i.net-income {
+  background: #2f67d8;
+}
+
+.company-financial-table tbody th i.margin,
+.company-financial-table tbody th i.growth {
+  border: 2px solid #f3be38;
+  background: transparent;
+}
+
+.company-financial-table tbody th i.equity {
+  background: #15989b;
+}
+
+.company-financial-table tbody th i.liabilities {
+  background: #8ad3cf;
+}
+
+.company-financial-table tbody th i.debt-ratio {
+  border: 2px solid #e87319;
+  background: transparent;
+}
+
+.company-financial-table td.up {
+  color: var(--color-change-down);
+}
+
+.company-financial-table td.down {
+  color: #2f76ff;
+}
+
+.company-financial-table-scroll {
+  width: 74%;
+  height: 7px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: rgb(var(--gops-ink-rgb) / 0.18);
+}
+
+.company-financial-table-empty {
+  display: grid;
+  min-height: 74px;
+  place-items: center;
+  border-top: 1px solid rgb(var(--gops-ink-rgb) / 0.1);
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 12px;
 }
 
 .company-earnings-heading {
@@ -1787,6 +2144,116 @@ h2 {
   font-style: normal;
 }
 
+.company-earnings-history-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
+  border-radius: 8px;
+  background: rgb(var(--gops-ink-rgb) / 0.012);
+  padding: 10px 10px 6px;
+}
+
+.company-earnings-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1;
+}
+
+.company-earnings-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.company-earnings-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.company-earnings-legend i.estimate {
+  border: 1.5px solid rgb(var(--gops-ink-rgb) / 0.45);
+  background: transparent;
+}
+
+.company-earnings-legend i.beat {
+  background: #ad3d4d;
+}
+
+.company-earnings-legend i.miss {
+  background: #06742d;
+}
+
+.company-earnings-legend i.match {
+  background: rgb(var(--gops-ink-rgb) / 0.46);
+}
+
+.company-earnings-plot {
+  display: block;
+  width: 100%;
+  min-height: 196px;
+  overflow: visible;
+}
+
+.company-earnings-plot line {
+  stroke: rgb(var(--gops-ink-rgb) / 0.08);
+  stroke-width: 1;
+}
+
+.company-earnings-plot text {
+  fill: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 14px;
+}
+
+.company-earnings-period {
+  text-anchor: middle;
+}
+
+.company-earnings-empty {
+  text-anchor: middle;
+}
+
+.company-earnings-dot {
+  vector-effect: non-scaling-stroke;
+}
+
+.company-earnings-dot.estimate {
+  fill: var(--color-surface);
+  stroke: rgb(var(--gops-ink-rgb) / 0.48);
+  stroke-width: 3;
+}
+
+.company-earnings-dot.actual {
+  stroke: rgb(var(--gops-ink-rgb) / 0.08);
+  stroke-width: 1;
+}
+
+.company-earnings-dot.beat {
+  fill: #ad3d4d;
+}
+
+.company-earnings-dot.miss {
+  fill: #06742d;
+}
+
+.company-earnings-dot.match,
+.company-earnings-dot.actual-only {
+  fill: rgb(var(--gops-ink-rgb) / 0.48);
+}
+
 .company-peer-list {
   position: relative;
   z-index: 1;
@@ -1845,18 +2312,18 @@ h2 {
   min-width: 0;
 }
 
-.company-earnings-summary dt,
-.company-earnings-summary dd {
+.company-earnings-summary span,
+.company-earnings-summary strong {
   min-width: 0;
   margin: 0;
 }
 
-.company-earnings-summary dt {
+.company-earnings-summary span {
   color: var(--color-muted);
   font-size: 11px;
 }
 
-.company-earnings-summary dd {
+.company-earnings-summary strong {
   overflow: hidden;
   font-family: var(--font-data-sans);
   font-size: 12px;
@@ -3439,13 +3906,11 @@ h2 {
     row-gap: 18px;
   }
 
-  .company-earnings-panel {
+  .company-valuation-column {
     grid-column: 1 / -1;
-    border-top: 1px solid rgb(var(--gops-ink-rgb) / 0.16);
-    padding-top: 16px;
   }
 
-  .company-metric-column:nth-child(2) {
+  .company-chart-column:nth-child(2) {
     border-right: 0;
   }
 
@@ -3476,10 +3941,14 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .company-metric-column {
+  .company-chart-column {
     border-right: 0;
     border-bottom: 1px solid rgb(var(--gops-ink-rgb) / 0.16);
     padding: 0 0 16px;
+  }
+
+  .company-chart-column:last-child {
+    border-bottom: 0;
   }
 
   .company-earnings-panel {
