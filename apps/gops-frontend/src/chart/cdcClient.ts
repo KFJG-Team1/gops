@@ -19,6 +19,7 @@ export type CandleQuery = {
   from?: string;
   to?: string;
   ma?: number[];
+  includePreviousClose?: boolean;
 };
 
 export type IndicatorQuery = {
@@ -53,9 +54,11 @@ export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Pr
     symbol: query.symbol,
     interval: query.interval,
     limit: String(query.limit),
-    session: "regular",
     ma: (query.ma ?? []).join(",")
   });
+  if (query.includePreviousClose) {
+    params.set("includePreviousClose", "true");
+  }
   if (query.before) {
     params.set("before", query.before);
   }
@@ -217,8 +220,7 @@ function normalizeCandleResponse(payload: unknown): CandleQueryResponseDto {
   }
   const status = source.status ?? source.dataStatus ?? (source.candles.length ? "ready" : "empty");
   const request = source.request ?? {
-    limit: source.requestedLimit ?? source.candles.length,
-    session: "regular" as const
+    limit: source.requestedLimit ?? source.candles.length
   };
   return {
     ...source,

@@ -399,11 +399,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       interval: chart.interval,
       status: { state: "loading", message: "Loading CDC candles..." }
     });
+    setPreviousClose(null);
     fetchCandles({
       symbol: chart.symbol,
       interval: candleSourceInterval(chart.interval),
       limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: []
+      ma: [],
+      includePreviousClose: true
     }, controller.signal)
       .then((response) => {
         const current = chartRef.current;
@@ -418,6 +420,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
         );
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
+        setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
         if (pendingViewportAnchorRef.current?.key === requestKey) {
           pendingViewportAnchorRef.current = null;
@@ -435,22 +438,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setPreviousClose(null);
-    fetchCandles({ symbol: chart.symbol, interval: "1D", limit: 5, ma: [] }, controller.signal)
-      .then((response) => {
-        const closed = [...response.candles].reverse().find((candle) => candle.isClosed && Number.isFinite(candle.close));
-        setPreviousClose(closed?.close ?? null);
-      })
-      .catch(() => {
-        setPreviousClose(null);
-      });
-    return () => controller.abort();
-  }, [chart.symbol]);
-
-  useEffect(() => {
     const socketSymbol = chart.symbol.trim().toUpperCase();
-    if (!socketSymbol) {
+    if (!socketSymbol || !isRealtimeStreamInterval(chart.interval)) {
       onChartRuntimeAction({
         kind: "chart.stream.status",
         symbol: chart.symbol,
@@ -2328,6 +2317,10 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
   return interval === "footprint" ? "1m" : interval;
 }
 
+function isRealtimeStreamInterval(interval: ChartInterval): boolean {
+  return interval === "1m" || interval === "5m" || interval === "10m";
+}
+
 function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
   return response.derived?.state === "pending" && attempt < 2;
 }
@@ -2532,28 +2525,4 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
     default:
       return <MousePointer2 size={16} />;
   }
-}
-
-function applyCandleEvent(chart: ChartState, event: CandleEventDto): ChartState {
-  if (event.symbol !== chart.symbol || event.interval !== chart.interval) {
-    return chart;
-  }
-  const timestamp = event.data.timestamp;
-  const nextCandle = { ...event.data };
-  const candles = [...chart.candles].sort(compareCandles);
-  const index = candles.findIndex((candle) => candle.timestamp === timestamp);
-  if (index >= 0) {
-    candles[index] = nextCandle;
-    return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
-  }
-  const latest = candles.at(-1);
-  if (latest && Date.parse(timestamp) < Date.parse(latest.timestamp)) {
-    return chart;
-  }
-  candles.push(nextCandle);
-  return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
-}
-
-function compareCandles(left: CandleDto, right: CandleDto): number {
-  return Date.parse(left.timestamp) - Date.parse(right.timestamp);
 }

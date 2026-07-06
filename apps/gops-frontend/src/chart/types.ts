@@ -260,6 +260,12 @@ export type CandleFillTraceDto = {
   renderable?: boolean;
   minimumReturnedCount?: number;
   minimumRenderableSourceBars?: number;
+  backgroundFill?: {
+    queued?: boolean;
+    state?: "not_needed" | "queued" | "already_queued" | "disabled" | "failed" | string;
+    requestId?: string | null;
+    reason?: string | null;
+  };
   durationMs?: number;
 };
 
@@ -271,7 +277,7 @@ export type CandleQueryResponseDto = {
     before?: string;
     from?: string;
     to?: string;
-    session: "regular";
+    session?: "regular";
   };
   status: "ready" | "partial" | "empty" | "pending" | "error";
   candles: CandleDto[];
@@ -294,6 +300,7 @@ export type CandleQueryResponseDto = {
   availableTo?: string;
   hasMoreBefore?: boolean;
   hasMoreAfter?: boolean;
+  previousClose?: number | null;
   retryAfterMs?: number;
   error?: {
     code: string;
