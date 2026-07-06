@@ -388,6 +388,38 @@ export type DrawingEntity = {
   updatedAt: string;
 };
 
+export type ComparisonBase = {
+  mode: "visibleRangeStart" | "timestamp";
+  timestamp?: string;
+};
+
+export type ChartComparisonStatus = "idle" | "loading" | "ready" | "empty" | "error";
+
+export type ChartComparisonCandleScope = {
+  key: string;
+  interval: ChartInterval;
+  from?: string;
+  to?: string;
+  parentExpansionId?: string;
+  candles: CandleDto[];
+  status: ChartComparisonStatus;
+  message?: string;
+};
+
+export type ChartComparisonSeries = {
+  id: string;
+  symbol: string;
+  label?: string;
+  scaleMode: "percent";
+  base?: ComparisonBase;
+  style: DrawingStyle;
+  candles: CandleDto[];
+  scopes?: ChartComparisonCandleScope[];
+  interval?: ChartInterval;
+  status: ChartComparisonStatus;
+  message?: string;
+};
+
 export type ChartAction =
   | { type: "setSymbol"; symbol: string }
   | { type: "setInterval"; interval: ChartInterval }
@@ -421,6 +453,7 @@ export type ChartState = {
   toolMode: ChartToolMode;
   trendLineExtension: ChartLineExtension;
   drawings: DrawingEntity[];
+  comparisons: ChartComparisonSeries[];
   selectedDrawingId?: string;
   streamState: "connecting" | "live" | "idle" | "error";
 };

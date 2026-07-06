@@ -516,6 +516,7 @@ export function PanelWorkspace({
               document={chartAddTarget.document}
               panelId={chartAddTarget.slot.id}
               laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
+              symbols={symbols}
               onChartRuntimeAction={onChartRuntimeAction}
               onClose={() => setChartAddTargetContentId(null)}
             />

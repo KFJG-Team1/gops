@@ -7,7 +7,7 @@ import {
   type StreamStatus
 } from "@gops/chart-engine";
 import type { PanelContentInstance, TiledPanelState } from "../layout/panelLayout";
-import type { CandleDto, ChartInterval, ChartState, ChartType, DrawingEntity } from "./types";
+import type { CandleDto, ChartComparisonSeries, ChartInterval, ChartState, ChartType, DrawingEntity } from "./types";
 
 const defaultFrontendChartInterval: ChartInterval = "1D";
 
@@ -88,6 +88,16 @@ export function chartStateFromDocument(
     toolMode: document.interactionState.mode,
     trendLineExtension: document.interactionState.trendLineExtension,
     drawings: document.drawings as unknown as DrawingEntity[],
+    comparisons: document.comparisons.map((comparison): ChartComparisonSeries => ({
+      id: comparison.id,
+      symbol: comparison.symbol.toUpperCase(),
+      label: comparison.label,
+      scaleMode: "percent",
+      base: comparison.base,
+      style: comparison.style,
+      candles: [],
+      status: "idle"
+    })),
     selectedDrawingId: document.selectedDrawingId,
     streamState: streamStatus === "stale" ? "idle" : streamStatus
   };

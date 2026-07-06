@@ -1,6 +1,6 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
-import type { ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
+import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
@@ -117,6 +117,7 @@ function drawChart(
     () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
     () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
     () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
     () => drawBelowIndicatorPanes(context, scene),
     () => drawExpansionParentSummaries(context, scene),
     () => drawFootprintEstimatedLabel(context, scene),
@@ -158,6 +159,187 @@ function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene
     return;
   }
   drawCandles(context, scene);
+}
+
+type ComparisonRenderPoint = {
+  x: number;
+  percent: number;
+};
+
+type ComparisonRenderSeries = {
+  comparison: ChartComparisonSeries;
+  segments: Array<{ points: ComparisonRenderPoint[] }>;
+};
+
+function drawComparisons(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const series = scene.chart.comparisons
+    .map((comparison) => buildComparisonRenderSeries(scene, comparison))
+    .filter((item) => item.segments.some((segment) => segment.points.length >= 2));
+  const percents = series.flatMap((item) => item.segments.flatMap((segment) => segment.points.map((point) => point.percent)));
+  if (!percents.length) {
+    return;
+  }
+  const percentRange = comparisonPercentRange(percents);
+  const zeroY = comparisonPercentToY(scene, 0, percentRange);
+
+  context.save();
+  if (zeroY >= scene.plot.top && zeroY <= scene.plot.priceBottom) {
+    context.globalAlpha = 0.38;
+    context.strokeStyle = colors.axis;
+    context.lineWidth = 1;
+    context.setLineDash([4, 4]);
+    line(context, scene.plot.left, zeroY, scene.plot.right, zeroY);
+  }
+  context.restore();
+
+  series.forEach((item, index) => {
+    const fallbackToken = comparisonDefaultColorToken(index);
+    const stroke = resolveDrawingColor(item.comparison.style, "colorToken", "color", fallbackToken);
+    const text = resolveDrawingColor(item.comparison.style, "textToken", "textColor", fallbackToken);
+    const allPoints = item.segments.flatMap((segment) => segment.points).sort((left, right) => left.x - right.x);
+    const lastPoint = allPoints[allPoints.length - 1];
+    context.save();
+    context.globalAlpha = item.comparison.style.opacity ?? 0.92;
+    context.strokeStyle = stroke;
+    context.lineWidth = item.comparison.style.lineWidth ?? 1.45;
+    context.setLineDash(item.comparison.style.lineDash ?? []);
+    item.segments.forEach((segment) => {
+      if (segment.points.length < 2) {
+        return;
+      }
+      context.beginPath();
+      segment.points.forEach((point, pointIndex) => {
+        const y = comparisonPercentToY(scene, point.percent, percentRange);
+        if (pointIndex === 0) {
+          context.moveTo(point.x, y);
+        } else {
+          context.lineTo(point.x, y);
+        }
+      });
+      context.stroke();
+    });
+    if (lastPoint) {
+      const y = Math.max(scene.plot.top + 12, Math.min(scene.plot.priceBottom - 5, comparisonPercentToY(scene, lastPoint.percent, percentRange) - 7));
+      context.globalAlpha = 0.98;
+      context.fillStyle = text;
+      context.font = "700 11px Inter, system-ui, sans-serif";
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      const label = `${item.comparison.label ?? item.comparison.symbol} ${lastPoint.percent >= 0 ? "+" : ""}${lastPoint.percent.toFixed(2)}%`;
+      context.fillText(label, scene.plot.right - 4, y, 116);
+    }
+    context.restore();
+  });
+}
+
+function buildComparisonRenderSeries(scene: ChartScene, comparison: ChartComparisonSeries): ComparisonRenderSeries {
+  const scopes = comparison.scopes?.length
+    ? comparison.scopes
+    : [{
+        key: `${comparison.symbol}:root`,
+        interval: comparison.interval ?? scene.chart.interval,
+        candles: comparison.candles,
+        status: comparison.status
+      }];
+  const baseClose = comparisonBaseClose(scene, comparison, scopes);
+  if (typeof baseClose !== "number" || !Number.isFinite(baseClose) || baseClose === 0) {
+    return { comparison, segments: [] };
+  }
+  const units = candleUnits(scene).filter((unit) => semanticUnitVisibleInPlot(scene, unit));
+  const segments = scopes.flatMap((scope) => {
+    const candlesByTimestamp = new Map(scope.candles.map((candle) => [candle.timestamp, candle]));
+    const scopeSegments: Array<{ points: ComparisonRenderPoint[] }> = [];
+    let current: ComparisonRenderPoint[] = [];
+    const flush = () => {
+      if (current.length >= 2) {
+        scopeSegments.push({ points: current });
+      }
+      current = [];
+    };
+    units.forEach((unit) => {
+      if (!comparisonScopeMatchesUnit(scope, unit)) {
+        flush();
+        return;
+      }
+      const candle = candlesByTimestamp.get(unit.timestamp);
+      if (!candle || !Number.isFinite(candle.close)) {
+        flush();
+        return;
+      }
+      current.push({
+        x: unitCenterX(scene, unit),
+        percent: ((candle.close - baseClose) / Math.max(0.0001, baseClose)) * 100
+      });
+    });
+    flush();
+    return scopeSegments;
+  });
+  return { comparison, segments };
+}
+
+function comparisonBaseClose(
+  scene: ChartScene,
+  comparison: ChartComparisonSeries,
+  scopes: NonNullable<ChartComparisonSeries["scopes"]>
+): number | null {
+  if (comparison.base?.mode === "timestamp" && comparison.base.timestamp) {
+    const timestampMatch = scopes
+      .flatMap((scope) => scope.candles)
+      .find((candle) => candle.timestamp === comparison.base?.timestamp);
+    if (typeof timestampMatch?.close === "number" && Number.isFinite(timestampMatch.close)) {
+      return timestampMatch.close;
+    }
+  }
+  const units = candleUnits(scene).filter((unit) => semanticUnitVisibleInPlot(scene, unit));
+  for (const unit of units) {
+    for (const scope of scopes) {
+      if (!comparisonScopeMatchesUnit(scope, unit)) {
+        continue;
+      }
+      const candle = scope.candles.find((candidate) => candidate.timestamp === unit.timestamp);
+      if (typeof candle?.close === "number" && Number.isFinite(candle.close)) {
+        return candle.close;
+      }
+    }
+  }
+  return null;
+}
+
+function comparisonScopeMatchesUnit(
+  scope: { interval: string; parentExpansionId?: string },
+  unit: SemanticCandleUnit
+): boolean {
+  return scope.interval === unit.interval && (scope.parentExpansionId ?? undefined) === (unit.parentExpansionId ?? undefined);
+}
+
+function semanticUnitVisibleInPlot(scene: ChartScene, unit: SemanticCandleUnit): boolean {
+  const bounds = unitBoundsX(scene, unit);
+  return bounds.right >= scene.plot.left && bounds.left <= scene.plot.right;
+}
+
+function comparisonPercentRange(percents: number[]): { min: number; max: number } {
+  const min = Math.min(-1, ...percents);
+  const max = Math.max(1, ...percents);
+  const pad = Math.max(0.25, (max - min) * 0.08);
+  return { min: min - pad, max: max + pad };
+}
+
+function comparisonPercentToY(scene: ChartScene, percent: number, range: { min: number; max: number }): number {
+  const span = Math.max(0.0001, range.max - range.min);
+  return scene.plot.top + ((range.max - percent) / span) * Math.max(1, scene.plot.priceBottom - scene.plot.top);
+}
+
+function comparisonDefaultColorToken(index: number): ThemeColorToken {
+  if (index === 0) {
+    return "signal";
+  }
+  if (index === 1) {
+    return "caution";
+  }
+  if (index === 2) {
+    return "purple";
+  }
+  return "drawing";
 }
 
 function drawPlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, draw: () => void) {

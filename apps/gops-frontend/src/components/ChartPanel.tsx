@@ -77,7 +77,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
@@ -89,6 +89,7 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
+import { SymbolSearch } from "./SymbolSearch";
 
 function segmentedClass(active = false): string {
   return active ? "segmented active" : "segmented";
@@ -128,6 +129,18 @@ type ExpansionOverlay = {
   top: number;
   status: string;
 };
+
+type ComparisonScopeRequest = {
+  key: string;
+  symbol: string;
+  interval: ChartInterval;
+  from: string;
+  to: string;
+  limit: number;
+  parentExpansionId?: string;
+};
+
+type ComparisonScopeData = ChartComparisonCandleScope;
 
 export type LiveQuote = {
   priceText: string;
@@ -191,6 +204,7 @@ const unavailableQuote: LiveQuote = {
 
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
+const maxComparisonCount = 4;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -234,6 +248,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
   const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
+  const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const chart = useMemo(() => (
     chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
   ), [candles, dataStatus, document, streamMessage, streamStatus]);
@@ -257,6 +272,24 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.visibleCount,
     transientViewport
   ]);
+  const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
+    chart.candles,
+    chart.rightOffset,
+    chart.visibleCount,
+    transientViewport
+  ]);
+  const comparisonScopeRequests = useMemo(() => (
+    buildComparisonScopeRequests(chart, visibleComparisonRange, activeExpansions)
+  ), [
+    activeExpansions,
+    chart.comparisons,
+    chart.interval,
+    chart.symbol,
+    visibleComparisonRange
+  ]);
+  const comparisonScopeRequestKey = useMemo(() => (
+    comparisonScopeRequests.map((request) => request.key).join("|")
+  ), [comparisonScopeRequests]);
   const activeBelowPaneOrder = useMemo(() => activeBelowPaneIds(chart), [
     chart.layers.volume,
     chart.layers["rsi:14"],
@@ -438,6 +471,83 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       })
     );
   }, [chart.interval, chart.symbol, onChartRuntimeAction]);
+
+  useEffect(() => {
+    if (!comparisonScopeRequests.length) {
+      setComparisonScopeData({});
+      return;
+    }
+    const activeKeys = new Set(comparisonScopeRequests.map((request) => request.key));
+    setComparisonScopeData((current) => {
+      const next: Record<string, ComparisonScopeData> = {};
+      for (const request of comparisonScopeRequests) {
+        next[request.key] = current[request.key] ?? {
+          key: request.key,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          parentExpansionId: request.parentExpansionId,
+          candles: [],
+          status: "loading"
+        };
+      }
+      Object.entries(current).forEach(([key, value]) => {
+        if (activeKeys.has(key) && !next[key]) {
+          next[key] = value;
+        }
+      });
+      return next;
+    });
+
+    const controller = new AbortController();
+    comparisonScopeRequests.forEach((request) => {
+      fetchCandles({
+        symbol: request.symbol,
+        interval: request.interval,
+        from: request.from,
+        to: request.to,
+        limit: request.limit,
+        ma: []
+      }, controller.signal)
+        .then((response) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setComparisonScopeData((current) => ({
+            ...current,
+            [request.key]: {
+              key: request.key,
+              interval: request.interval,
+              from: request.from,
+              to: request.to,
+              parentExpansionId: request.parentExpansionId,
+              candles: response.candles,
+              status: comparisonStatusForCandleResponse(response),
+              message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill)
+            }
+          }));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setComparisonScopeData((current) => ({
+            ...current,
+            [request.key]: {
+              key: request.key,
+              interval: request.interval,
+              from: request.from,
+              to: request.to,
+              parentExpansionId: request.parentExpansionId,
+              candles: [],
+              status: "error",
+              message: error instanceof Error ? error.message : "Comparison candle request failed"
+            }
+          }));
+        });
+    });
+    return () => controller.abort();
+  }, [comparisonScopeRequestKey]);
 
   useEffect(() => {
     const firstTimestamp = chart.candles[0]?.timestamp;
@@ -667,11 +777,37 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
   }, [activeBelowPaneOrder, dispatchDocumentCommand, laneHeight]);
 
+  const renderComparisons = useMemo(() => (
+    chart.comparisons.map((comparison) => {
+      const scopes = comparisonScopeRequests
+        .filter((request) => request.symbol === comparison.symbol)
+        .map((request): ChartComparisonCandleScope => comparisonScopeData[request.key] ?? {
+          key: request.key,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          parentExpansionId: request.parentExpansionId,
+          candles: [],
+          status: "loading"
+        });
+      const candlesForComparison = mergeCandlesByTimestamp(...scopes.map((scope) => scope.candles));
+      return {
+        ...comparison,
+        candles: candlesForComparison,
+        scopes,
+        interval: chart.interval,
+        status: comparisonStatusFromScopes(scopes),
+        message: comparisonMessageFromScopes(scopes)
+      };
+    })
+  ), [chart.comparisons, chart.interval, comparisonScopeData, comparisonScopeRequests]);
+
   const renderChart = useMemo(() => ({
     ...chart,
     indicatorSeries,
     volumeProfile,
     footprint,
+    comparisons: renderComparisons,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
     volumeRatio: transientPaneRatios?.["volume"] ?? chart.volumeRatio,
@@ -680,7 +816,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [chart, footprint, indicatorSeries, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
@@ -727,6 +863,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setVolumeProfile(null);
     setFootprint(null);
     setExpansionIndicatorSeries({});
+    setComparisonScopeData({});
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
 
@@ -1391,6 +1528,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setExpansionOverlays([]);
   };
 
+  const removeComparisonFromChart = useCallback((comparisonId: string) => {
+    dispatchDocumentCommand("chart.comparison.remove", { comparisonId });
+  }, [dispatchDocumentCommand]);
+
   return (
     <section className="chart-panel">
       {hoverSnapshot?.kind === "candle" && (
@@ -1480,6 +1621,25 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {renderComparisons.length > 0 && (
+          <div className="chart-comparison-legend" aria-label="Comparison overlays">
+            {renderComparisons.map((comparison, index) => (
+              <button
+                key={comparison.id}
+                type="button"
+                className={`chart-comparison-legend-item ${comparison.status}`}
+                style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
+                title={`${comparison.symbol} 비교 삭제`}
+                onClick={() => removeComparisonFromChart(comparison.id)}
+              >
+                <span className="chart-comparison-legend-swatch" aria-hidden="true" />
+                <span>{comparison.label ?? comparison.symbol}</span>
+                <span className="chart-comparison-legend-status">{comparisonStatusLabel(comparison.status)}</span>
+                <X size={12} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
         {expansionOverlays.map((overlay) => (
           <button
             key={overlay.id}
@@ -1614,6 +1774,7 @@ type ChartAddDockProps = {
   document: ChartDocument;
   panelId: string;
   laneHeight: number;
+  symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onClose: () => void;
 };
@@ -1644,17 +1805,55 @@ export function ChartAddDock({
   document,
   panelId,
   laneHeight,
+  symbols,
   onChartRuntimeAction,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
+  const comparisonSymbols = new Set(document.comparisons.map((comparison) => comparison.symbol.toUpperCase()));
+  const canAddComparison = document.comparisons.length < maxComparisonCount;
+  const comparisonSearchSymbols = symbols.filter((symbol) => {
+    const normalized = symbol.symbol.toUpperCase();
+    return normalized !== document.symbol.toUpperCase() && !comparisonSymbols.has(normalized);
+  });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
     onChartRuntimeAction({
       kind: "chart.command",
       command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
+    });
+  }, [onChartRuntimeAction, target]);
+
+  const addComparison = useCallback((symbol: string) => {
+    const normalized = symbol.toUpperCase();
+    if (!canAddComparison || normalized === document.symbol.toUpperCase() || comparisonSymbols.has(normalized)) {
+      return;
+    }
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.comparison.add", "user", target, {
+        comparison: {
+          symbol: normalized,
+          label: normalized,
+          scaleMode: "percent",
+          base: { mode: "visibleRangeStart" },
+          style: {
+            colorToken: comparisonDefaultColorToken(document.comparisons.length),
+            textToken: comparisonDefaultColorToken(document.comparisons.length),
+            lineWidth: 1.45,
+            opacity: 0.9
+          }
+        }
+      })
+    });
+  }, [canAddComparison, comparisonSymbols, document.comparisons.length, document.symbol, onChartRuntimeAction, target]);
+
+  const removeComparison = useCallback((comparisonId: string) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.comparison.remove", "user", target, { comparisonId })
     });
   }, [onChartRuntimeAction, target]);
 
@@ -1683,6 +1882,38 @@ export function ChartAddDock({
           </button>
         );
       })}
+      <span className="toolbar-separator" aria-hidden="true" />
+      <div className="chart-comparison-picker" aria-label="Comparison symbols">
+        {canAddComparison ? (
+          <SymbolSearch
+            symbols={comparisonSearchSymbols}
+            selectedLabel=""
+            placeholder="비교 종목"
+            compact
+            onSelectSymbol={addComparison}
+          />
+        ) : (
+          <span className="chart-comparison-limit">MAX 4</span>
+        )}
+      </div>
+      {document.comparisons.map((comparison, index) => (
+        <button
+          key={comparison.id}
+          type="button"
+          className="chart-comparison-chip"
+          aria-label={`${comparison.symbol} 비교 삭제`}
+          title={`${comparison.symbol} 비교 삭제`}
+          onClick={() => removeComparison(comparison.id)}
+        >
+          <span
+            className="chart-comparison-chip-swatch"
+            style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
+            aria-hidden="true"
+          />
+          <span>{comparison.symbol}</span>
+          <X size={12} aria-hidden="true" />
+        </button>
+      ))}
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);
@@ -1731,6 +1962,57 @@ function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
       return <>MACD</>;
     default:
       return <>{layer}</>;
+  }
+}
+
+function comparisonDefaultColorToken(index: number): string {
+  if (index === 0) {
+    return "signal";
+  }
+  if (index === 1) {
+    return "caution";
+  }
+  if (index === 2) {
+    return "purple";
+  }
+  return "drawing";
+}
+
+function comparisonLegendColor(style: { color?: string; colorToken?: string }, index: number): string {
+  if (style.color) {
+    return style.color;
+  }
+  switch (style.colorToken ?? comparisonDefaultColorToken(index)) {
+    case "signal":
+      return "var(--color-signal)";
+    case "caution":
+      return "var(--color-caution)";
+    case "purple":
+      return "var(--color-purple)";
+    case "drawing":
+      return "var(--color-drawing)";
+    case "down":
+      return "var(--color-down)";
+    case "up":
+      return "var(--color-up)";
+    default:
+      return "var(--color-preview)";
+  }
+}
+
+function comparisonStatusLabel(status: ChartComparisonStatus): string {
+  switch (status) {
+    case "loading":
+      return "loading";
+    case "empty":
+      return "empty";
+    case "error":
+      return "error";
+    case "ready":
+      return "ready";
+    case "idle":
+    default:
+      return "idle";
   }
 }
 
@@ -1800,6 +2082,124 @@ function visibleCandleRangeForProfile(chart: ChartState, transientViewport: Char
     priceMin: Math.min(...priceValues),
     priceMax: Math.max(...priceValues)
   };
+}
+
+function visibleCandleRangeForComparison(chart: ChartState, transientViewport: ChartViewport | null): {
+  from: string;
+  to: string;
+  candleCount: number;
+} | null {
+  if (chart.interval === "footprint" || !chart.candles.length) {
+    return null;
+  }
+  const visibleCount = Math.max(1, Math.floor(transientViewport?.visibleCount ?? chart.visibleCount));
+  const rightOffset = Math.max(0, Math.floor(transientViewport?.rightOffset ?? chart.rightOffset));
+  const viewportEnd = Math.max(0, chart.candles.length - rightOffset);
+  const startIndex = Math.max(0, Math.min(chart.candles.length - 1, Math.floor(viewportEnd - visibleCount)));
+  const endIndex = Math.max(startIndex + 1, Math.min(chart.candles.length, Math.ceil(viewportEnd)));
+  const visibleCandles = chart.candles.slice(startIndex, endIndex);
+  const first = visibleCandles[0];
+  const last = visibleCandles[visibleCandles.length - 1];
+  if (!first || !last) {
+    return null;
+  }
+  return {
+    from: first.timestamp,
+    to: last.timestamp,
+    candleCount: visibleCandles.length
+  };
+}
+
+function buildComparisonScopeRequests(
+  chart: ChartState,
+  visibleRange: ReturnType<typeof visibleCandleRangeForComparison>,
+  activeExpansions: SemanticExpansion[]
+): ComparisonScopeRequest[] {
+  const comparisonSymbols = Array.from(new Set(
+    chart.comparisons
+      .map((comparison) => comparison.symbol.toUpperCase())
+      .filter((symbol) => symbol && symbol !== chart.symbol.toUpperCase())
+  )).slice(0, maxComparisonCount);
+  if (!comparisonSymbols.length || chart.interval === "footprint") {
+    return [];
+  }
+  const requests: ComparisonScopeRequest[] = [];
+  comparisonSymbols.forEach((symbol) => {
+    if (visibleRange) {
+      requests.push({
+        key: comparisonScopeKey(symbol, chart.interval, visibleRange.from, visibleRange.to),
+        symbol,
+        interval: chart.interval,
+        from: visibleRange.from,
+        to: visibleRange.to,
+        limit: Math.max(visibleRange.candleCount, defaultVisibleBarsForInterval(chart.interval))
+      });
+    }
+    activeExpansions
+      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .forEach((expansion) => {
+        const first = expansion.candles[0];
+        const last = expansion.candles[expansion.candles.length - 1];
+        if (!first || !last || expansion.childInterval === "footprint") {
+          return;
+        }
+        requests.push({
+          key: comparisonScopeKey(symbol, expansion.childInterval, first.timestamp, last.timestamp, expansion.id),
+          symbol,
+          interval: expansion.childInterval,
+          from: first.timestamp,
+          to: last.timestamp,
+          limit: Math.max(expansion.candles.length, defaultVisibleBarsForInterval(expansion.childInterval)),
+          parentExpansionId: expansion.id
+        });
+      });
+  });
+  return requests;
+}
+
+function comparisonScopeKey(
+  symbol: string,
+  interval: ChartInterval,
+  from: string,
+  to: string,
+  parentExpansionId = "root"
+): string {
+  return [symbol.toUpperCase(), parentExpansionId, interval, from, to].join("|");
+}
+
+function comparisonStatusForCandleResponse(response: CandleQueryResponseDto): ChartComparisonStatus {
+  if (response.candles.length) {
+    return "ready";
+  }
+  if (response.status === "error" || response.fill?.status === "timeout" || response.fill?.status === "failed") {
+    return "error";
+  }
+  return "empty";
+}
+
+function comparisonStatusFromScopes(scopes: ChartComparisonCandleScope[]): ChartComparisonStatus {
+  if (!scopes.length) {
+    return "idle";
+  }
+  if (scopes.some((scope) => scope.status === "loading")) {
+    return "loading";
+  }
+  if (scopes.some((scope) => scope.status === "ready")) {
+    return "ready";
+  }
+  if (scopes.some((scope) => scope.status === "error")) {
+    return "error";
+  }
+  if (scopes.some((scope) => scope.status === "empty")) {
+    return "empty";
+  }
+  return "idle";
+}
+
+function comparisonMessageFromScopes(scopes: ChartComparisonCandleScope[]): string | undefined {
+  return scopes.find((scope) => scope.status === "error" && scope.message)?.message
+    ?? scopes.find((scope) => scope.status === "empty" && scope.message)?.message
+    ?? scopes.find((scope) => scope.status === "loading")?.message;
 }
 
 const belowLayerPaneMap: Partial<Record<ChartLayerKey, string>> = {

@@ -49,7 +49,7 @@ import {
 } from "../src/chart/scene";
 import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
-import { ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
+import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
 import {
   createInitialTiledPanelState,
@@ -1885,10 +1885,14 @@ assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
+assert.match(chartPanelSource, /chart\.comparison\.add/);
+assert.match(chartPanelSource, /chart\.comparison\.remove/);
+assert.match(chartPanelSource, /maxComparisonCount = 4/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
+assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(panelContentRendererSource, /chart-panel-drag-strip/);
 assert.match(chartDocumentAdapterSource, /volume: false/);
@@ -2697,6 +2701,37 @@ const comparisonResult = executeChartCommand(
 assert.equal(comparisonResult.ok, true);
 if (comparisonResult.ok) {
   assert.equal(comparisonResult.document.comparisons.length, 1);
+  const frontendComparisonChart = chartStateFromDocument(
+    comparisonResult.document,
+    [candleA, candleB],
+    { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+    "idle"
+  );
+  assert.equal(frontendComparisonChart.comparisons.length, 1);
+  const frontendSpyComparison = frontendComparisonChart.comparisons[0];
+  assert.ok(frontendSpyComparison);
+  assert.equal(frontendSpyComparison.symbol, "SPY");
+  const highPriceComparisonCandles = [
+    { ...candleA, open: 900, high: 930, low: 880, close: 900 },
+    { ...candleB, open: 900, high: 950, low: 890, close: 990 }
+  ];
+  const frontendComparisonScene = buildFrontendChartScene({
+    ...frontendComparisonChart,
+    visibleCount: 2,
+    rightOffset: 0,
+    comparisons: [{
+      ...frontendSpyComparison,
+      candles: highPriceComparisonCandles,
+      scopes: [{
+        key: "SPY|root|1m|test",
+        interval: "1m",
+        candles: highPriceComparisonCandles,
+        status: "ready"
+      }],
+      status: "ready"
+    }]
+  }, 640, 320);
+  assert.ok(frontendComparisonScene.scales.maxPrice < 20);
 }
 
 const nvdaComparisonResult = executeChartCommand(
