@@ -119,7 +119,7 @@ function timeWarpedLineItem(scene: ChartScene, drawing: DrawingEntity, timeRange
 }
 
 function isLineLikeDrawing(drawing: DrawingEntity): boolean {
-  return drawing.type === "trendLine" || drawing.type === "arrow";
+  return drawing.type === "trendLine";
 }
 
 function expansionProjectionItems(scene: ChartScene, drawing: DrawingEntity, timeRange: TimeRange | null): DrawingRenderItem[] {

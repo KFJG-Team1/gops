@@ -20,7 +20,6 @@ export const drawingRegistry: Record<DrawingType, DrawingDefinition> = {
   verticalMarker: { type: "verticalMarker", label: "Marker", minAnchors: 1, maxAnchors: 1, commandType: "chart.drawing.add" },
   textLabel: { type: "textLabel", label: "Text", minAnchors: 1, maxAnchors: 1, commandType: "chart.drawing.add" },
   pointMarker: { type: "pointMarker", label: "Point", minAnchors: 1, maxAnchors: 1, commandType: "chart.drawing.add" },
-  arrow: { type: "arrow", label: "Arrow", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   rangeBox: { type: "rangeBox", label: "Range", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   ellipse: { type: "ellipse", label: "Ellipse", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   riskRewardBox: { type: "riskRewardBox", label: "Risk", minAnchors: 3, maxAnchors: 3, commandType: "chart.drawing.add" },
@@ -35,7 +34,6 @@ export const chartToolRegistry: ChartToolDefinition[] = [
   { id: "draw-trendLine", label: "Trend", drawingType: "trendLine" },
   { id: "draw-textLabel", label: "Text", drawingType: "textLabel" },
   { id: "draw-pointMarker", label: "Point", drawingType: "pointMarker" },
-  { id: "draw-arrow", label: "Arrow", drawingType: "arrow" },
   { id: "draw-rangeBox", label: "Range", drawingType: "rangeBox" }
 ];
 

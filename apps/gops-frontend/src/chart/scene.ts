@@ -79,16 +79,58 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     bottom: belowPaneIds.length ? 36 : 30,
     left: 0
   };
-  const volumeRatio = Math.max(0.1, Math.min(0.45, chart.volumeRatio || 0.2));
+  const allActivePaneIds = ["price", ...belowPaneIds];
+  const activeRatios = allActivePaneIds.map(id => getPaneRatio(chart, id));
+  const minHeights = allActivePaneIds.map((id) => id === "price" ? 92 : 54);
   const availablePlotHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
-  const belowPaneMinHeight = 54;
-  const priceMinPlotHeight = 92;
-  const rawBelowStackHeight = Math.max(belowPaneIds.length * belowPaneMinHeight, Math.floor(safeHeight * volumeRatio));
-  const belowStackHeight = belowPaneIds.length && availablePlotHeight >= priceMinPlotHeight + belowPaneIds.length * belowPaneMinHeight
-    ? Math.min(availablePlotHeight - priceMinPlotHeight, rawBelowStackHeight)
-    : 0;
-  const priceBottom = Math.max(padding.top + 26, safeHeight - padding.bottom - belowStackHeight);
-  const belowPanes = buildBelowPanePlots(belowPaneIds, priceBottom, safeHeight - padding.bottom);
+  const gapTotal = belowPaneIds.length ? (10 + 6 * (belowPaneIds.length - 1)) : 0;
+  const netHeight = Math.max(1, availablePlotHeight - gapTotal);
+
+  let heights = new Array(allActivePaneIds.length).fill(0);
+  const totalMinHeight = minHeights.reduce((sum, h) => sum + h, 0);
+  if (netHeight <= totalMinHeight) {
+    heights = minHeights;
+  } else {
+    let remainingHeight = netHeight;
+    let remainingRatiosSum = activeRatios.reduce((sum, r) => sum + r, 0);
+    const activeIndices = new Set(allActivePaneIds.keys());
+    for (let iter = 0; iter < allActivePaneIds.length; iter++) {
+      let changed = false;
+      for (const i of activeIndices) {
+        const ratio = activeRatios[i];
+        const share = (ratio / Math.max(0.0001, remainingRatiosSum)) * remainingHeight;
+        const minH = minHeights[i];
+        if (share < minH) {
+          heights[i] = minH;
+          remainingHeight -= minH;
+          remainingRatiosSum -= ratio;
+          activeIndices.delete(i);
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) {
+        for (const i of activeIndices) {
+          heights[i] = (activeRatios[i] / Math.max(0.0001, remainingRatiosSum)) * remainingHeight;
+        }
+        break;
+      }
+    }
+  }
+
+  const priceBottom = Math.round(padding.top + heights[0]);
+  let currentTop = priceBottom + 10;
+  const belowPanes = belowPaneIds.map((id, index) => {
+    const h = heights[index + 1];
+    const paneTop = currentTop;
+    const paneBottom = paneTop + h;
+    currentTop = paneBottom + 6;
+    return {
+      id,
+      top: paneTop,
+      bottom: paneBottom
+    };
+  });
   const volumePane = belowPanes.find((pane) => pane.id === "volume");
   const plot: ChartPlot = {
     left: padding.left,
@@ -207,22 +249,15 @@ export function activeBelowPaneIds(chart: ChartState): string[] {
   return [...ordered, ...missing];
 }
 
-function buildBelowPanePlots(paneIds: string[], priceBottom: number, plotBottom: number): ChartBelowPanePlot[] {
-  if (!paneIds.length || plotBottom <= priceBottom + 10) {
-    return [];
+export function getPaneRatio(chart: ChartState, paneId: string): number {
+  const pane = chart.panes?.find((p) => p.id === paneId);
+  if (pane && typeof pane.heightRatio === "number") {
+    return pane.heightRatio;
   }
-  const gap = 6;
-  const top = priceBottom + 10;
-  const available = Math.max(1, plotBottom - top - gap * Math.max(0, paneIds.length - 1));
-  const paneHeight = available / paneIds.length;
-  return paneIds.map((id, index) => {
-    const paneTop = top + index * (paneHeight + gap);
-    return {
-      id,
-      top: paneTop,
-      bottom: paneTop + paneHeight
-    };
-  });
+  if (paneId === "price") {
+    return 0.74;
+  }
+  return 0.22;
 }
 
 export function createCoordinateTransform(scene: ChartScene): CoordinateTransform {

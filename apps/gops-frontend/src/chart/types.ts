@@ -339,7 +339,6 @@ export type ChartToolMode =
   | "draw-verticalMarker"
   | "draw-textLabel"
   | "draw-pointMarker"
-  | "draw-arrow"
   | "draw-rangeBox";
 
 export type DrawingType =
@@ -348,7 +347,6 @@ export type DrawingType =
   | "verticalMarker"
   | "textLabel"
   | "pointMarker"
-  | "arrow"
   | "rangeBox";
 
 export type DrawingAnchor = {

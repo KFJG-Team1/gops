@@ -1,11 +1,6 @@
 import {
-  ArrowUpRight,
-  Activity,
   Bot,
-  ChartColumn,
-  ChartLine,
   ChartNoAxesCombined,
-  ChartSpline,
   CircleDot,
   Eraser,
   Hand,
@@ -63,7 +58,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
-import { activeBelowPaneIds, createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -111,8 +106,11 @@ type DragAnchor = {
 
 type PaneResizeAnchor = {
   pointerId: number;
-  startRatio: number;
-  nextRatio: number;
+  index: number;
+  startY: number;
+  paneIds: string[];
+  startRatios: number[];
+  startHeights: number[];
 };
 
 type PendingSemanticClick = {
@@ -230,7 +228,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
-  const [transientVolumeRatio, setTransientVolumeRatio] = useState<number | null>(null);
+  const [transientPaneRatios, setTransientPaneRatios] = useState<Record<string, number> | null>(null);
   const [indicatorSeries, setIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
   const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
@@ -275,7 +273,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
-  const transientVolumeRatioRef = useRef<number | null>(null);
+  const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -599,9 +597,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     footprint,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
-    volumeRatio: transientVolumeRatio ?? chart.volumeRatio,
+    volumeRatio: transientPaneRatios?.["volume"] ?? chart.volumeRatio,
+    panes: chart.panes?.map((pane) => ({
+      ...pane,
+      heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
+    })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientVolumeRatio, volumeProfile]);
+  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
@@ -983,12 +985,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    if (isPaneBoundaryHit(scene, point)) {
-      const ratio = volumeRatioForPointerY(scene, point.y);
-      const resizeAnchor = { pointerId: event.pointerId, startRatio: chart.volumeRatio, nextRatio: ratio };
-      paneResizeRef.current = resizeAnchor;
-      transientVolumeRatioRef.current = ratio;
-      setTransientVolumeRatio(ratio);
+    const boundary = findBoundaryHit(scene, point);
+    if (boundary) {
+      const allActivePaneIds = ["price", ...activeBelowPaneIds(chart)];
+      const startRatios = allActivePaneIds.map((id) => getPaneRatio(chart, id));
+      const startHeights = [
+        scene.plot.priceBottom - scene.plot.top,
+        ...scene.plot.belowPanes.map((p) => p.bottom - p.top)
+      ];
+      paneResizeRef.current = {
+        pointerId: event.pointerId,
+        index: boundary.index,
+        startY: point.y,
+        paneIds: allActivePaneIds,
+        startRatios,
+        startHeights
+      };
+      transientPaneRatiosRef.current = Object.fromEntries(
+        allActivePaneIds.map((id, index) => [id, startRatios[index]])
+      );
+      setTransientPaneRatios(transientPaneRatiosRef.current);
       return;
     }
     const transform = createCoordinateTransform(scene);
@@ -1073,11 +1089,41 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const paneResize = paneResizeRef.current;
+    const boundaryHit = findBoundaryHit(scene, point);
+    if (paneResize || boundaryHit) {
+      event.currentTarget.style.cursor = "ns-resize";
+    } else {
+      event.currentTarget.style.cursor = "crosshair";
+    }
+
     if (paneResize) {
-      const ratio = volumeRatioForPointerY(scene, point.y);
-      paneResize.nextRatio = ratio;
-      transientVolumeRatioRef.current = ratio;
-      setTransientVolumeRatio(ratio);
+      const deltaY = point.y - paneResize.startY;
+      const i = paneResize.index;
+      const minH_i = i === 0 ? 92 : 54;
+      const minH_next = 54;
+
+      let newH_i = paneResize.startHeights[i] + deltaY;
+      let newH_next = paneResize.startHeights[i + 1] - deltaY;
+
+      if (newH_i < minH_i) {
+        const diff = minH_i - newH_i;
+        newH_i = minH_i;
+        newH_next -= diff;
+      }
+      if (newH_next < minH_next) {
+        const diff = minH_next - newH_next;
+        newH_next = minH_next;
+        newH_i -= diff;
+      }
+
+      const nextRatios = [...paneResize.startRatios];
+      nextRatios[i] = paneResize.startRatios[i] * (newH_i / paneResize.startHeights[i]);
+      nextRatios[i + 1] = paneResize.startRatios[i + 1] * (newH_next / paneResize.startHeights[i + 1]);
+
+      transientPaneRatiosRef.current = Object.fromEntries(
+        paneResize.paneIds.map((id, idx) => [id, nextRatios[idx]])
+      );
+      setTransientPaneRatios(transientPaneRatiosRef.current);
       return;
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
@@ -1149,16 +1195,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const paneResize = paneResizeRef.current;
     const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
-    const nextVolumeRatio = transientVolumeRatioRef.current;
+    const nextRatios = transientPaneRatiosRef.current;
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
-    transientVolumeRatioRef.current = null;
+    transientPaneRatiosRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
-    setTransientVolumeRatio(null);
+    setTransientPaneRatios(null);
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
@@ -1178,10 +1224,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       return;
     }
-    if (paneResize && typeof nextVolumeRatio === "number") {
-      if (Math.abs(nextVolumeRatio - paneResize.startRatio) > 0.004) {
-        dispatchDocumentCommand("chart.pane.ratio.set", { paneId: "volume", heightRatio: nextVolumeRatio });
-      }
+    if (paneResize && nextRatios) {
+      paneResize.paneIds.forEach((id) => {
+        const startR = paneResize.startRatios[paneResize.paneIds.indexOf(id)];
+        const finalR = nextRatios[id];
+        if (typeof finalR === "number" && Math.abs(finalR - startR) > 0.001) {
+          dispatchDocumentCommand("chart.pane.ratio.set", { paneId: id, heightRatio: finalR });
+        }
+      });
       return;
     }
     if (pendingSemanticClick) {
@@ -1202,10 +1252,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
-    transientVolumeRatioRef.current = null;
+    transientPaneRatiosRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
-    setTransientVolumeRatio(null);
+    setTransientPaneRatios(null);
     setHoveredSemanticNodeId(undefined);
     setHoverSnapshot(null);
     setCrosshair(undefined);
@@ -1485,8 +1535,6 @@ type ChartAddDockProps = {
   document: ChartDocument;
   panelId: string;
   laneHeight: number;
-  placement: ChartAddPlacement;
-  onPlacementChange: (placement: ChartAddPlacement) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onClose: () => void;
 };
@@ -1517,19 +1565,12 @@ export function ChartAddDock({
   document,
   panelId,
   laneHeight,
-  placement,
-  onPlacementChange,
   onChartRuntimeAction,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
-  useEffect(() => {
-    if (placement === "below" && !canAddBelow) {
-      onPlacementChange("overlay");
-    }
-  }, [canAddBelow, onPlacementChange, placement]);
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
     onChartRuntimeAction({
@@ -1538,38 +1579,17 @@ export function ChartAddDock({
     });
   }, [onChartRuntimeAction, target]);
 
+  const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
+  const belowLayers = chartAddLayers.filter(item => item.placement === "below");
+
   return (
     <div className="chart-add-dock chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
       <button type="button" className="icon-button chart-drawing-dock-close" aria-label="차트 추가 도구 닫기" title="차트 추가 도구 닫기" onClick={onClose}>
         <X size={15} />
       </button>
-      <div className="chart-placement-toggle" role="group" aria-label="Chart layer placement">
-        <button
-          type="button"
-          className={iconButtonClass(placement === "overlay")}
-          aria-label="Overlay"
-          title="Overlay"
-          onClick={() => onPlacementChange("overlay")}
-        >
-          <Layers2 size={15} />
-        </button>
-        <button
-          type="button"
-          className={iconButtonClass(placement === "below")}
-          aria-label="Below pane"
-          title={canAddBelow ? "Below pane" : "Below pane unavailable at this height"}
-          disabled={!canAddBelow}
-          onClick={() => onPlacementChange("below")}
-        >
-          <PanelBottom size={15} />
-        </button>
-      </div>
-      <span className="toolbar-separator" aria-hidden="true" />
-      {chartAddLayers.map((item) => {
+      {overlayLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);
-        const disabledByPlacement = item.placement !== placement;
-        const disabledByCapacity = item.placement === "below" && !active && !canAddBelow;
-        const disabled = !active && (disabledByPlacement || disabledByCapacity || Boolean(item.disabledReason));
+        const disabled = !active && Boolean(item.disabledReason);
         return (
           <button
             key={item.layer}
@@ -1584,24 +1604,55 @@ export function ChartAddDock({
           </button>
         );
       })}
+      <span className="toolbar-separator" aria-hidden="true" />
+      {belowLayers.map((item) => {
+        const active = Boolean(document.layers[item.layer]);
+        const disabled = !active && (!canAddBelow || Boolean(item.disabledReason));
+        return (
+          <button
+            key={item.layer}
+            type="button"
+            className={`${iconButtonClass(active)} chart-add-layer-button`}
+            aria-label={item.label}
+            title={item.disabledReason ?? (canAddBelow ? item.title : "Below pane unavailable at this height")}
+            disabled={disabled}
+            onClick={() => dispatchLayer(item.layer, !active)}
+          >
+            <ChartAddLayerIcon layer={item.layer} />
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
-  if (layer === "bollinger:20:2" || layer === "stochastic:14:3:3") {
-    return <ChartSpline size={15} />;
+  switch (layer) {
+    case "sma:5":
+      return <>MA5</>;
+    case "sma:20":
+      return <>MA20</>;
+    case "sma:60":
+      return <>MA60</>;
+    case "ema:20":
+      return <>EMA</>;
+    case "wma:20":
+      return <>WMA</>;
+    case "bollinger:20:2":
+      return <>BB</>;
+    case "volume-profile":
+      return <>VP</>;
+    case "volume":
+      return <>VOL</>;
+    case "rsi:14":
+      return <>RSI</>;
+    case "stochastic:14:3:3":
+      return <>STO</>;
+    case "macd:12:26:9":
+      return <>MACD</>;
+    default:
+      return <>{layer}</>;
   }
-  if (layer === "volume" || layer === "volume-profile") {
-    return <ChartColumn size={15} />;
-  }
-  if (layer === "rsi:14") {
-    return <Activity size={15} />;
-  }
-  if (layer === "macd:12:26:9") {
-    return <ChartNoAxesCombined size={15} />;
-  }
-  return <ChartLine size={15} />;
 }
 
 function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
@@ -1846,19 +1897,23 @@ function derivedRetryDelay(response: { derived?: { retryAfterMs?: number } }): n
   return typeof delay === "number" && Number.isFinite(delay) ? Math.max(250, Math.min(delay, 3000)) : 1000;
 }
 
-function isPaneBoundaryHit(scene: ChartScene, point: { x: number; y: number }): boolean {
-  if (!scene.chart.layers.volume || scene.plot.volumeTop >= scene.plot.bottom) {
-    return false;
-  }
+function findBoundaryHit(scene: ChartScene, point: { x: number; y: number }): { type: "price" | "below"; index: number; y: number } | null {
   if (point.x < scene.plot.left || point.x > scene.plot.right) {
-    return false;
+    return null;
   }
-  return Math.abs(point.y - scene.plot.priceBottom) <= 7;
-}
-
-function volumeRatioForPointerY(scene: ChartScene, y: number): number {
-  const desiredVolumeHeight = scene.plot.bottom - Math.max(scene.plot.top + 34, Math.min(scene.plot.bottom - 34, y));
-  return Math.max(0.1, Math.min(0.45, desiredVolumeHeight / Math.max(1, scene.height)));
+  // Check priceBottom boundary
+  if (scene.plot.belowPanes.length > 0 && Math.abs(point.y - scene.plot.priceBottom) <= 7) {
+    return { type: "price", index: 0, y: scene.plot.priceBottom };
+  }
+  // Check subsequent boundaries
+  for (let i = 1; i < scene.plot.belowPanes.length; i++) {
+    const pane = scene.plot.belowPanes[i];
+    const boundaryY = pane.top - 3;
+    if (Math.abs(point.y - boundaryY) <= 7) {
+      return { type: "below", index: i, y: boundaryY };
+    }
+  }
+  return null;
 }
 
 function expansionCloseLeft(scene: ChartScene, range: ChartScene["semantic"]["expansionRanges"][number]): number {
@@ -2039,8 +2094,6 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
       return <Type size={16} />;
     case "draw-pointMarker":
       return <CircleDot size={16} />;
-    case "draw-arrow":
-      return <ArrowUpRight size={16} />;
     case "draw-rangeBox":
       return <Square size={16} />;
     default:

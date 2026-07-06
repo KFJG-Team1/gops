@@ -177,13 +177,14 @@ function drawMovingAverage(ctx: CanvasRenderingContext2D, scene: RenderScene, ke
 }
 
 function drawComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
-  scene.comparisonSeries.forEach((series) => {
+  scene.comparisonSeries.forEach((series, index) => {
     if (series.points.length < 2) {
       return;
     }
+    const defaultToken = comparisonDefaultColorToken(index);
     ctx.save();
     ctx.globalAlpha = series.comparison.style.opacity ?? 1;
-    ctx.strokeStyle = resolveDrawingColor(scene, series.comparison.style, "colorToken", "color", "drawing");
+    ctx.strokeStyle = resolveDrawingColor(scene, series.comparison.style, "colorToken", "color", defaultToken);
     ctx.lineWidth = series.comparison.style.lineWidth ?? 1.4;
     ctx.setLineDash(series.comparison.style.lineDash ?? []);
     ctx.beginPath();
@@ -197,13 +198,26 @@ function drawComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     ctx.stroke();
     const last = series.points[series.points.length - 1];
     if (last) {
-      ctx.fillStyle = resolveDrawingColor(scene, series.comparison.style, "textToken", "textColor", "drawing");
+      ctx.fillStyle = resolveDrawingColor(scene, series.comparison.style, "textToken", "textColor", defaultToken);
       ctx.font = "11px Inter, system-ui, sans-serif";
       ctx.textAlign = "right";
       ctx.fillText(`${series.comparison.label ?? series.comparison.symbol} ${last.percent >= 0 ? "+" : ""}${last.percent.toFixed(2)}%`, scene.plot.right, last.y - 8);
     }
     ctx.restore();
   });
+}
+
+function comparisonDefaultColorToken(index: number): keyof RenderScene["document"]["style"] {
+  if (index === 0) {
+    return "signal";
+  }
+  if (index === 1) {
+    return "caution";
+  }
+  if (index === 2) {
+    return "purple";
+  }
+  return "drawing";
 }
 
 function drawPreviewComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -233,7 +247,7 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
       resolveDrawingColor(scene, style, "fillToken", "fillColor", preview ? "preview" : "drawing"),
       preview ? 0.08 : 0.08
     );
-    ctx.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
+    ctx.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1.0) : style.lineWidth ?? 1.0;
     ctx.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
 
@@ -243,14 +257,9 @@ function drawDrawings(ctx: CanvasRenderingContext2D, scene: RenderScene, drawing
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(ctx, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
       drawDrawingLabel(ctx, scene, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
-    } else if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
-      const [start, end] = drawing.type === "trendLine"
-        ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
-        : [points[0], points[1]];
+    } else if (drawing.type === "trendLine" && points.length >= 2) {
+      const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
       line(ctx, start.x, start.y, end.x, end.y);
-      if (drawing.type === "arrow") {
-        drawArrowHead(ctx, start, end);
-      }
       drawDrawingLabel(ctx, scene, drawing.label ?? lineMetricLabel(drawing, scene), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
@@ -293,7 +302,7 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, scene: RenderScene, lab
 }
 
 function lineMetricLabel(drawing: DrawingEntity, scene: RenderScene): string | undefined {
-  if (drawing.type !== "trendLine" && drawing.type !== "arrow") {
+  if (drawing.type !== "trendLine") {
     return undefined;
   }
   const [start, end] = drawing.anchors;
@@ -402,17 +411,6 @@ function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number,
 function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
-}
-
-function drawArrowHead(ctx: CanvasRenderingContext2D, from: { x: number; y: number }, to: { x: number; y: number }) {
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const length = 9;
-  ctx.beginPath();
-  ctx.moveTo(to.x, to.y);
-  ctx.lineTo(to.x - length * Math.cos(angle - Math.PI / 6), to.y - length * Math.sin(angle - Math.PI / 6));
-  ctx.moveTo(to.x, to.y);
-  ctx.lineTo(to.x - length * Math.cos(angle + Math.PI / 6), to.y - length * Math.sin(angle + Math.PI / 6));
-  ctx.stroke();
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {

@@ -250,16 +250,16 @@ const treeMapScale = createTreeMapOpacityScale([
   30
 ]);
 assert.equal(tileFillForChange(0.01, treeMapTestTheme), treeMapTestTheme.muted);
-assert.equal(tileOpacityForChange(0.01, treeMapScale), 0.3);
-assert.equal(tileOpacityForChange(undefined, treeMapScale), 0.3);
+assert.equal(tileOpacityForChange(0.01, treeMapScale), 0.48);
+assert.equal(tileOpacityForChange(undefined, treeMapScale), 0.48);
 assert.ok(Math.abs(tileOpacityForChange(4, treeMapScale) - 0.92) < 0.001);
 assert.equal(tileOpacityForChange(30, treeMapScale), 0.92);
 const quietTreeMapScale = createTreeMapOpacityScale([0.01, 0.04, 0.08, 0.12, 0.2]);
-assert.equal(tileOpacityForChange(0.04, quietTreeMapScale), 0.3);
+assert.equal(tileOpacityForChange(0.04, quietTreeMapScale), 0.48);
 assert.ok(tileOpacityForChange(0.12, quietTreeMapScale) > tileOpacityForChange(0.08, quietTreeMapScale));
 assert.equal(tileOpacityForChange(0.2, quietTreeMapScale), 0.92);
 const emptyTreeMapScale = createTreeMapOpacityScale([undefined, Number.NaN]);
-assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.3);
+assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.48);
 assert.equal(tileTextForOpacity(0.57, treeMapTestTheme), treeMapTestTheme.tileText);
 assert.equal(tileTextForOpacity(0.58, treeMapTestTheme), treeMapTestTheme.tileTextInverse);
 
@@ -2867,7 +2867,7 @@ assert.equal(loosePreview?.drawings.length, 1);
 assert.equal(loosePreview?.comparisons.length, 1);
 assert.equal(loosePreview?.drawings[0]?.style.color, undefined);
 assert.equal(loosePreview?.drawings[0]?.style.colorToken, "drawing");
-assert.equal(loosePreview?.drawings[0]?.style.lineWidth, 1.5);
+assert.equal(loosePreview?.drawings[0]?.style.lineWidth, 1.0);
 assert.equal(loosePreview?.comparisons[0]?.style.color, undefined);
 assert.equal(loosePreview?.comparisons[0]?.style.colorToken, "drawing");
 const loosePreviewScene = buildRenderScene({

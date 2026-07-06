@@ -113,7 +113,6 @@ export function PanelWorkspace({
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
-  const [chartAddPlacement, setChartAddPlacement] = useState<"overlay" | "below">("overlay");
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -505,8 +504,6 @@ export function PanelWorkspace({
               document={chartAddTarget.document}
               panelId={chartAddTarget.slot.id}
               laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
-              placement={chartAddPlacement}
-              onPlacementChange={setChartAddPlacement}
               onChartRuntimeAction={onChartRuntimeAction}
               onClose={() => setChartAddTargetContentId(null)}
             />

@@ -28,7 +28,6 @@ export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; labe
   { mode: "draw-horizontalLine", type: "horizontalLine", label: "H-Line" },
   { mode: "draw-verticalMarker", type: "verticalMarker", label: "Marker" },
   { mode: "draw-trendLine", type: "trendLine", label: "Trend" },
-  { mode: "draw-arrow", type: "arrow", label: "Arrow" },
   { mode: "draw-textLabel", type: "textLabel", label: "Text" },
   { mode: "draw-pointMarker", type: "pointMarker", label: "Point" },
   { mode: "draw-rangeBox", type: "rangeBox", label: "Range" }
@@ -40,7 +39,7 @@ export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null
 }
 
 export function drawingNeedsTwoAnchors(type: DrawingType): boolean {
-  return type === "trendLine" || type === "arrow" || type === "rangeBox";
+  return type === "trendLine" || type === "rangeBox";
 }
 
 export function makeDrawing(
@@ -106,15 +105,12 @@ export function buildSingleAnchorPreviewDrawing(
 
 export function defaultDrawingStyle(type: DrawingType, trendLineExtension: ChartLineExtension = "segment"): DrawingStyle {
   if (type === "rangeBox") {
-    return { colorToken: "preview", fillToken: "preview", fillOpacity: 0.12, lineWidth: 1.4 };
+    return { colorToken: "preview", fillToken: "preview", fillOpacity: 0.12, lineWidth: 1.0 };
   }
   if (type === "trendLine") {
-    return { colorToken: "drawing", lineWidth: 1.5, extension: trendLineExtension };
+    return { colorToken: "drawing", lineWidth: 1.0, extension: trendLineExtension };
   }
-  if (type === "arrow") {
-    return { colorToken: "ma60", lineWidth: 1.6 };
-  }
-  return { colorToken: "drawing", lineWidth: 1.5 };
+  return { colorToken: "drawing", lineWidth: 1.0 };
 }
 
 export function defaultDrawingLabel(type?: DrawingType): string | undefined {
@@ -250,10 +246,8 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawi
     if (drawing.type === "verticalMarker" && points[0] && Math.abs(points[0].x - x) <= 6 && y >= scene.plot.top && y <= scene.plot.priceBottom) {
       return { drawing, anchorIndex: null };
     }
-    if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
-      const [start, end] = drawing.type === "trendLine"
-        ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(drawing.style.extension))
-        : [points[0], points[1]];
+    if (drawing.type === "trendLine" && points.length >= 2) {
+      const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(drawing.style.extension));
       if (distanceToSegment(x, y, start, end) <= 7) {
         return { drawing, anchorIndex: null };
       }

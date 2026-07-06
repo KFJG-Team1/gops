@@ -7,6 +7,12 @@
   --gops-ink-rgb: 26 26 14;
   --gops-down: #b31a0f;
   --gops-up: #1b6a29;
+  --gops-signal: #1D4D8C;
+  --gops-signal-rgb: 29 77 140;
+  --gops-caution: #D99B00;
+  --gops-caution-rgb: 217 155 0;
+  --gops-purple: #783A6B;
+  --gops-purple-rgb: 120 58 107;
   --color-background: var(--gops-background);
   --color-surface: var(--gops-background);
   --color-surface-strong: var(--gops-background);
@@ -28,9 +34,9 @@
   --color-bullish: var(--color-change-up);
   --color-bearish: var(--color-change-down);
   --color-danger: var(--color-change-down);
-  --color-ma5: rgb(var(--gops-ink-rgb) / 0.44);
-  --color-ma20: rgb(var(--gops-ink-rgb) / 0.32);
-  --color-ma60: rgb(var(--gops-ink-rgb) / 0.24);
+  --color-ma5: rgb(var(--gops-purple-rgb) / 0.22);
+  --color-ma20: rgb(var(--gops-purple-rgb) / 0.40);
+  --color-ma60: rgb(var(--gops-purple-rgb) / 0.68);
   --color-drawing: var(--gops-ink);
   --color-preview: var(--gops-ink);
   --color-footprint: rgb(var(--gops-ink-rgb) / 0.42);
@@ -44,6 +50,12 @@
   --color-crosshair: var(--gops-ink);
   --color-tile-text: var(--gops-ink);
   --color-tile-text-inverse: var(--gops-background);
+  --color-signal: var(--gops-signal);
+  --color-signal-soft: rgb(var(--gops-signal-rgb) / 0.48);
+  --color-caution: var(--gops-caution);
+  --color-caution-soft: rgb(var(--gops-caution-rgb) / 0.48);
+  --color-purple: var(--gops-purple);
+  --color-purple-soft: rgb(var(--gops-purple-rgb) / 0.48);
   --layout-gutter: 24px;
   --top-nav-height: 68px;
   --bottom-nav-height: 76px;
@@ -2925,7 +2937,17 @@ h2 {
 }
 
 .chart-add-dock .chart-add-layer-button {
-  width: 28px;
+  width: auto;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  font-family: var(--font-ui-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 @media (max-width: 980px) {
