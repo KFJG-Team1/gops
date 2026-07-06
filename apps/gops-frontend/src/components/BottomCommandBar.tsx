@@ -1,5 +1,7 @@
 import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards, X } from "lucide-react";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { AlertMenu } from "../alerts/AlertMenu";
+import { fetchNotifications, normalizeNotificationPayload, notificationSocketUrl } from "../alerts/alertApi";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
@@ -91,7 +93,9 @@ export function BottomCommandBar({
   const [watchlistDragSource, setWatchlistDragSource] = useState<string | null>(null);
   const [watchlistDragTarget, setWatchlistDragTarget] = useState<WatchlistDragTarget | null>(null);
   const [watchlistPreviewSymbols, setWatchlistPreviewSymbols] = useState<ChartSymbolDto[] | null>(null);
+  const [alertUnreadCount, setAlertUnreadCount] = useState(0);
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
+  const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
 
   useEffect(() => {
     if (!hasFloatingPanel) {
@@ -116,6 +120,54 @@ export function BottomCommandBar({
     document.addEventListener("pointerdown", handleOutsidePointerDown, true);
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
   }, [activeMenu, chatPanelOpen, hasFloatingPanel, onCloseMenu]);
+
+  useEffect(() => {
+    if (!canUseAlerts) {
+      setAlertUnreadCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    void fetchNotifications(controller.signal)
+      .then((payload) => {
+        if (!cancelled) {
+          setAlertUnreadCount(payload.unreadCount);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlertUnreadCount(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [canUseAlerts]);
+
+  useEffect(() => {
+    if (!canUseAlerts) {
+      return undefined;
+    }
+    const socket = new WebSocket(notificationSocketUrl());
+    socket.onmessage = (event) => {
+      const payload = readSocketPayload(event.data);
+      if (payload.type === "snapshot") {
+        const notifications = Array.isArray(payload.notifications)
+          ? payload.notifications.map(normalizeNotificationPayload).filter(Boolean)
+          : [];
+        setAlertUnreadCount(asNumber(payload.unreadCount) ?? notifications.filter((item) => !item?.readAt).length);
+        return;
+      }
+      if (payload.type === "notification") {
+        const notification = normalizeNotificationPayload(payload.notification);
+        if (!notification?.readAt) {
+          setAlertUnreadCount((current) => current + 1);
+        }
+      }
+    };
+    return () => socket.close();
+  }, [canUseAlerts]);
 
   const closeFloatingPanels = () => {
     if (activeMenu) {
@@ -247,6 +299,8 @@ export function BottomCommandBar({
           onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
+          alertUnreadCount={alertUnreadCount}
+          onAlertUnreadCountChange={setAlertUnreadCount}
         />
         <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
           <button
@@ -319,6 +373,8 @@ export function BottomCommandBar({
           onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
+          alertUnreadCount={alertUnreadCount}
+          onAlertUnreadCountChange={setAlertUnreadCount}
         />
       </nav>
     </>
@@ -353,7 +409,9 @@ function MenuActionGroup({
   onSelectSymbol,
   onShowTreeMap,
   onCloseMenu,
-  onToggleMenu
+  onToggleMenu,
+  alertUnreadCount,
+  onAlertUnreadCountChange
 }: {
   side: BottomMenuSide;
   keys: BottomMenuKey[];
@@ -383,6 +441,8 @@ function MenuActionGroup({
   onShowTreeMap: () => void;
   onCloseMenu: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
+  alertUnreadCount: number;
+  onAlertUnreadCountChange: (count: number) => void;
 }) {
   const isMenuOpen = activeMenu !== null && keys.includes(activeMenu);
 
@@ -418,18 +478,19 @@ function MenuActionGroup({
         onSelectSymbol={onSelectSymbol}
         onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
+        onAlertUnreadCountChange={onAlertUnreadCountChange}
       />
       {keys.map((label) => (
         <button
           key={label}
           type="button"
           className={`workspace-nav-button surface-raised ${activeMenu === label ? "is-active" : ""}`}
-          aria-label={bottomMenuLabel(label)}
-          title={bottomMenuLabel(label)}
+          aria-label={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
+          title={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
           aria-expanded={activeMenu === label}
           onClick={() => onToggleMenu(label)}
         >
-          {bottomMenuIcon(label)}
+          {bottomMenuIcon(label, label === "IV" ? alertUnreadCount : 0)}
         </button>
       ))}
     </div>
@@ -462,7 +523,8 @@ function BottomMenuPanel({
   onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
-  onClose
+  onClose,
+  onAlertUnreadCountChange
 }: {
   side: BottomMenuSide;
   activeKey: BottomMenuKey | null;
@@ -490,6 +552,7 @@ function BottomMenuPanel({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  onAlertUnreadCountChange: (count: number) => void;
 }) {
   const sideKeys = side === "left" ? leftMenuKeys : rightMenuKeys;
   const isOpen = activeKey !== null && sideKeys.includes(activeKey);
@@ -519,7 +582,8 @@ function BottomMenuPanel({
       onRemoveWatchlistSymbol,
       onSelectSymbol,
       onShowTreeMap,
-      onClose
+      onClose,
+      onAlertUnreadCountChange
     })
     : <p className="bottom-menu-empty">Menu</p>;
 
@@ -544,20 +608,50 @@ function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean, hasChartCo
   return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
 }
 
-function bottomMenuIcon(key: BottomMenuKey): ReactNode {
+function readSocketPayload(value: unknown): Record<string, unknown> {
+  if (typeof value !== "string") {
+    return {};
+  }
+  try {
+    const payload = JSON.parse(value);
+    return payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return undefined;
+}
+
+function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
   const size = 17;
+  if (key === "IV") {
+    return (
+      <span className="workspace-nav-icon-wrap">
+        <Bell size={size} aria-hidden="true" />
+        {alertUnreadCount > 0 && (
+          <span className="workspace-nav-badge" aria-hidden="true">
+            {formatBadgeCount(alertUnreadCount)}
+          </span>
+        )}
+      </span>
+    );
+  }
   return {
     I: <LayoutPanelTop size={size} aria-hidden="true" />,
     II: <WalletCards size={size} aria-hidden="true" />,
     III: <Star size={size} aria-hidden="true" />,
-    IV: <Bell size={size} aria-hidden="true" />,
     V: <UserCircle size={size} aria-hidden="true" />,
     VI: <Settings size={size} aria-hidden="true" />
   }[key];
 }
 
-function bottomMenuLabel(key: BottomMenuKey): string {
-  return {
+function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
+  const label = {
     I: "레이아웃/페이지",
     II: "포트폴리오",
     III: "관심종목",
@@ -565,6 +659,14 @@ function bottomMenuLabel(key: BottomMenuKey): string {
     V: "로그인/프로필",
     VI: "설정"
   }[key];
+  if (key === "IV" && alertUnreadCount > 0) {
+    return `${label}, 읽지 않은 알림 ${alertUnreadCount}개`;
+  }
+  return label;
+}
+
+function formatBadgeCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
 }
 
 function previewWatchlistReorder(
@@ -615,7 +717,8 @@ function bottomMenuContent({
   onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
-  onClose
+  onClose,
+  onAlertUnreadCountChange
 }: {
   activeKey: BottomMenuKey | null;
   authEnabled: boolean;
@@ -642,6 +745,7 @@ function bottomMenuContent({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
     case "I":
@@ -771,10 +875,15 @@ function bottomMenuContent({
       );
     case "IV":
       return (
-        <div className="bottom-menu-section">
-          <MenuTitle icon={<Bell size={15} />} title="알림설정" detail="실시간 알림 진입점" />
-          <p className="bottom-menu-empty">알림 스트림 연결은 후속 단계로 남겨두고, 현재는 진입점만 제공합니다.</p>
-        </div>
+        <AlertMenu
+          activeSymbol={activeSymbol}
+          symbols={symbols}
+          authEnabled={authEnabled}
+          authLoading={authLoading}
+          authUser={authUser}
+          onLogin={onLogin}
+          onUnreadCountChange={onAlertUnreadCountChange}
+        />
       );
     case "V":
       return (
