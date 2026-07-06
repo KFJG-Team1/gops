@@ -524,7 +524,7 @@ button {
 }
 
 .bottom-chat-message.is-pending {
-  opacity: 0.64;
+  color: var(--color-muted-medium);
 }
 
 .bottom-chat-message-role {
@@ -542,6 +542,26 @@ button {
 .bottom-chat-message p {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.bottom-chat-message.is-pending .bottom-chat-message-text {
+  color: var(--color-muted-medium);
+  font-weight: 400;
+}
+
+.bottom-chat-loading-mark {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--color-text);
+  font-weight: 800;
+  transform-origin: 50% 52%;
+  animation: bottom-chat-loading-spin 0.9s steps(4, end) infinite;
+}
+
+@keyframes bottom-chat-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .bottom-chat-empty {
@@ -769,6 +789,32 @@ button {
   color: var(--color-text);
   font-family: var(--font-ui-serif);
   font-size: 12px;
+}
+
+.alert-field .alert-input-with-unit {
+  position: relative;
+  display: block;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.alert-field .alert-input-with-unit .alert-input {
+  width: 100%;
+  padding-right: 28px;
+}
+
+.alert-field .alert-input-unit {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .alert-input.symbol {
@@ -4744,7 +4790,7 @@ h2 {
   fill: rgb(var(--gops-ink-rgb) / 0.03);
   stroke: rgb(var(--gops-ink-rgb) / 0.55);
   stroke-width: 1.6;
-  stroke-dasharray: 8 6;
+  stroke-dasharray: 4 5;
   pointer-events: none;
 }
 .ofg-hull-grab {
@@ -4767,6 +4813,14 @@ h2 {
 .ofg-link-chip { stroke-dasharray: 5 5; }
 .ofg-link-cross { stroke-width: 2; stroke: rgb(var(--gops-ink-rgb) / 0.55); }
 .ofg-node { cursor: pointer; }
+.ofg-node-scale {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 140ms ease;
+}
+.ofg-node:hover .ofg-node-scale {
+  transform: scale(1.3);
+}
 .ofg-node text { pointer-events: none; text-anchor: middle; font-family: var(--font-data-sans); }
 .ofg-ticker { font-weight: 700; dominant-baseline: middle; }
 .ofg-pct { font-size: 9px; }
@@ -4790,7 +4844,11 @@ h2 {
   position: absolute;
   top: 8px;
   right: 8px;
-  max-width: 190px;
+  width: min(220px, calc(100% - 20px));
+  min-width: 160px;
+  max-width: min(420px, calc(100% - 20px));
+  min-height: 150px;
+  max-height: calc(100% - 24px);
   background: var(--gops-background);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -4801,6 +4859,8 @@ h2 {
   flex-direction: column;
   gap: 5px;
   color: var(--gops-ink);
+  overflow: auto;
+  resize: both;
 }
 .ofg-detail strong { font-size: 14px; }
 .ofg-detail-name { color: var(--color-muted); font-size: 11px; }
