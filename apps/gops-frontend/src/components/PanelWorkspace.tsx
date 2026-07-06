@@ -11,6 +11,7 @@ import {
   chartDocumentIdForContent
 } from "../chart/chartDocumentAdapter";
 import type { CandleDto } from "../chart/types";
+import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import type { ChartDocument } from "@gops/chart-engine";
 import {
   type Dispatch,
@@ -58,6 +59,7 @@ type PanelWorkspaceProps = {
   viewportSize: ViewportSize;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
+  marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
   chartCommandTargetContentId: string | null;
   canUseChartCommand: boolean;
@@ -96,6 +98,7 @@ export function PanelWorkspace({
   viewportSize,
   activeSymbol,
   symbols,
+  marketItems,
   chartRuntime,
   chartCommandTargetContentId,
   canUseChartCommand,
@@ -412,6 +415,7 @@ export function PanelWorkspace({
               content={content}
               symbol={chartDocument?.symbol ?? activeSymbol}
               symbols={symbols}
+              marketItems={marketItems}
               laneHeight={Math.max(120, isChart ? slot.rect.height : slot.rect.height - panelNavHeight)}
               chartHeaderSnapshot={chartHeaders[content.id]}
               chartDocument={chartDocument}

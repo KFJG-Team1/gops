@@ -1821,6 +1821,7 @@ assert.doesNotMatch(agentAnalysisClientSource, /\/api\/llm\/chat/);
 
 const newsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(newsPanelSource, /\/api\/market\/news\/daily/);
+assert.match(newsPanelSource, /limit:\s*"30"/);
 assert.match(newsPanelSource, /dailySummaries/);
 assert.match(newsPanelSource, /sources/);
 assert.match(newsPanelSource, /priceChange/);

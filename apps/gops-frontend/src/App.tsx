@@ -40,6 +40,7 @@ import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { ChartSymbolDto } from "./chart/types";
+import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./chart/watchlistApi";
 import { gridGutter } from "./layout/grid";
 import {
   createInitialTiledPanelState,
@@ -77,6 +78,7 @@ type ActiveAgentRun = {
 };
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
+const maxWatchlistSymbols = 10;
 
 let chatLogEntrySequence = 0;
 
@@ -130,10 +132,17 @@ export function App() {
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
+  const [watchlistPersisted, setWatchlistPersisted] = useState(false);
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
+  const [watchlistSaving, setWatchlistSaving] = useState(false);
+  const [, setWatchlistError] = useState<string | null>(null);
+  const [, setWatchlistMessage] = useState<string | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const dragRef = useRef<LayoutDrag | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
+  const watchlistSavingRef = useRef(false);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const isTreeMapMode = mainView.mode === "treemap";
@@ -277,10 +286,171 @@ export function App() {
     chartDocumentSymbolsForLayout(panelState, chartRuntime)
   ), [chartRuntime, panelState]);
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
+  const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
+  const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
+
+  useEffect(() => {
+    if (authLoading) {
+      return undefined;
+    }
+    if (authEnabled && !user) {
+      setWatchlistSymbols([]);
+      setWatchlistPersisted(false);
+      setWatchlistLoading(false);
+      setWatchlistError(null);
+      setWatchlistMessage(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    setWatchlistLoading(true);
+    setWatchlistError(null);
+    setWatchlistMessage(null);
+    void fetchWatchlist(controller.signal)
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setWatchlistSymbols(payload.symbols);
+        setWatchlistPersisted(payload.persisted);
+      })
+      .catch((error: unknown) => {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+        setWatchlistError(watchlistErrorMessage(error, "관심종목을 불러오지 못했습니다."));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWatchlistLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [authEnabled, authLoading, user]);
 
   const dispatchChartRuntimeAction = useCallback((action: ChartRuntimeAction) => {
     setChartRuntime((current) => chartRuntimeReducer(current, action));
   }, []);
+
+  const requestWatchlistLogin = useCallback(() => {
+    setWatchlistError(null);
+    setWatchlistMessage(null);
+    if (!authLoading && authEnabled) {
+      login();
+    }
+  }, [authEnabled, authLoading, login]);
+
+  const saveWatchlistSymbols = useCallback(async (symbols: string[]) => {
+    if (watchlistSavingRef.current) {
+      return;
+    }
+    watchlistSavingRef.current = true;
+    setWatchlistSaving(true);
+    setWatchlistError(null);
+    setWatchlistMessage(null);
+    try {
+      const payload = await replaceWatchlistSymbols(symbols);
+      setWatchlistSymbols(payload.symbols);
+      setWatchlistPersisted(payload.persisted);
+    } catch (error: unknown) {
+      if (error instanceof WatchlistApiError && error.status === 401) {
+        setWatchlistError("로그인 후 관심종목을 수정할 수 있습니다.");
+        if (authEnabled) {
+          login();
+        }
+      } else {
+        setWatchlistError(watchlistErrorMessage(error, "관심종목을 저장하지 못했습니다."));
+      }
+    } finally {
+      watchlistSavingRef.current = false;
+      setWatchlistSaving(false);
+    }
+  }, [authEnabled, login]);
+
+  const addWatchlistSymbol = useCallback((symbol: string) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol);
+    if (!normalizedSymbol) {
+      return;
+    }
+    if (!canEditWatchlist) {
+      requestWatchlistLogin();
+      return;
+    }
+    if (watchlistSavingRef.current) {
+      return;
+    }
+    const currentSymbols = currentWatchlistSymbolValues(watchlistSymbols);
+    if (currentSymbols.includes(normalizedSymbol)) {
+      setWatchlistError(null);
+      setWatchlistMessage(null);
+      return;
+    }
+    if (currentSymbols.length >= maxWatchlistSymbols) {
+      setWatchlistError(null);
+      setWatchlistMessage(null);
+      return;
+    }
+    void saveWatchlistSymbols([...currentSymbols, normalizedSymbol]);
+  }, [canEditWatchlist, requestWatchlistLogin, saveWatchlistSymbols, watchlistSymbols]);
+
+  const removeWatchlistSymbol = useCallback((symbol: string) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol);
+    if (!normalizedSymbol) {
+      return;
+    }
+    if (!canEditWatchlist) {
+      requestWatchlistLogin();
+      return;
+    }
+    if (watchlistSavingRef.current) {
+      return;
+    }
+    const currentSymbols = currentWatchlistSymbolValues(watchlistSymbols);
+    if (!currentSymbols.includes(normalizedSymbol)) {
+      return;
+    }
+    void saveWatchlistSymbols(currentSymbols.filter((item) => item !== normalizedSymbol));
+  }, [canEditWatchlist, requestWatchlistLogin, saveWatchlistSymbols, watchlistSymbols]);
+
+  const reorderWatchlistSymbol = useCallback((draggedSymbol: string, targetSymbol: string, placement: "before" | "after") => {
+    const normalizedDragged = normalizeStoredSymbol(draggedSymbol);
+    const normalizedTarget = normalizeStoredSymbol(targetSymbol);
+    if (!normalizedDragged || !normalizedTarget || normalizedDragged === normalizedTarget) {
+      return;
+    }
+    if (!canEditWatchlist) {
+      requestWatchlistLogin();
+      return;
+    }
+    if (watchlistSavingRef.current) {
+      return;
+    }
+    const currentSymbols = currentWatchlistSymbolValues(watchlistSymbols);
+    if (!currentSymbols.includes(normalizedDragged) || !currentSymbols.includes(normalizedTarget)) {
+      return;
+    }
+    const withoutDragged = currentSymbols.filter((item) => item !== normalizedDragged);
+    const targetIndex = withoutDragged.indexOf(normalizedTarget);
+    if (targetIndex < 0) {
+      return;
+    }
+    const nextSymbols = [...withoutDragged];
+    nextSymbols.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, normalizedDragged);
+    if (nextSymbols.every((symbol, index) => symbol === currentSymbols[index])) {
+      return;
+    }
+    const currentBySymbol = new Map(watchlistSymbols.map((item) => [normalizeStoredSymbol(item.symbol), item]));
+    const reorderedItems = nextSymbols.map((symbol) => currentBySymbol.get(symbol)).filter((item): item is ChartSymbolDto => Boolean(item));
+    if (reorderedItems.length === watchlistSymbols.length) {
+      setWatchlistSymbols(reorderedItems);
+    }
+    void saveWatchlistSymbols(nextSymbols);
+  }, [canEditWatchlist, requestWatchlistLogin, saveWatchlistSymbols, watchlistSymbols]);
 
   useEffect(() => {
     setChartRuntime((current) => ensureFrontendChartDocuments(
@@ -741,6 +911,7 @@ export function App() {
             viewportSize={viewportSize}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
+            marketItems={treeMapItems}
             chartRuntime={chartRuntime}
             chartCommandTargetContentId={chartCommandTargetContentId}
             canUseChartCommand={canUseAgent}
@@ -764,14 +935,22 @@ export function App() {
         canUseAgent={canUseAgent}
         hasChartCommandTarget={hasChartCommandTarget}
         symbols={universeSymbols}
+        watchlistSymbols={visibleWatchlistSymbols}
+        watchlistPersisted={watchlistPersisted}
+        watchlistLoading={watchlistLoading}
+        watchlistSaving={watchlistSaving}
+        canEditWatchlist={canEditWatchlist}
         activeSymbol={activePageSymbol}
         isChartMode={mainView.mode === "chart"}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentSubmit={runAgentPrompt}
+        onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
         onLogin={login}
         onLogout={() => void logout()}
+        onReorderWatchlistSymbol={reorderWatchlistSymbol}
+        onRemoveWatchlistSymbol={removeWatchlistSymbol}
         onSelectSymbol={openSymbolPage}
         onShowTreeMap={showTreeMap}
         onToggleMenu={toggleBottomMenu}
@@ -968,6 +1147,24 @@ function replaceChatLogEntry(
       ? { ...entry, text, pending: false }
       : entry
   )));
+}
+
+function currentWatchlistSymbolValues(symbols: readonly ChartSymbolDto[]): string[] {
+  const values: string[] = [];
+  for (const item of symbols) {
+    const symbol = normalizeStoredSymbol(item.symbol);
+    if (symbol && !values.includes(symbol)) {
+      values.push(symbol);
+    }
+  }
+  return values;
+}
+
+function watchlistErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
 }
 
 function currentViewportSize(): ViewportSize {

@@ -5,11 +5,13 @@ import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
+import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
+import { PopularStocksPanel } from "./PopularStocksPanel";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 
@@ -18,6 +20,7 @@ type PanelContentRendererProps = {
   content: PanelContentInstance;
   symbol: string;
   symbols: ChartSymbolDto[];
+  marketItems: Sp500UniverseItem[];
   laneHeight: number;
   chartHeaderSnapshot?: ChartHeaderSnapshot;
   chartDocument?: ChartDocument;
@@ -50,6 +53,7 @@ export function PanelContentRenderer({
   content,
   symbol,
   symbols,
+  marketItems,
   laneHeight,
   chartHeaderSnapshot,
   chartDocument,
@@ -88,6 +92,10 @@ export function PanelContentRenderer({
 
   if (content.kind === "indices") {
     return <IndexPanel />;
+  }
+
+  if (content.kind === "popular") {
+    return <PopularStocksPanel items={marketItems} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (content.kind === "ontology") {
