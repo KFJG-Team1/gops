@@ -7,6 +7,7 @@ export type CommandActor = "user" | "llm" | "system";
 export type AgentLayoutPanelType =
   | "chart"
   | "marketIndices"
+  | "companyProfile"
   | "popularStocks"
   | "newsFeed"
   | "ontologyGraph"

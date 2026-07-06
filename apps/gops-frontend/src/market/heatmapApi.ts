@@ -1,4 +1,4 @@
-import type { Sp500UniverseItem } from "./sp500Universe.seed";
+import type { CompanyFinancialSeriesPoint, Sp500UniverseItem } from "./sp500Universe.seed";
 
 export type MarketHeatmapPayload = {
   source: string;
@@ -22,6 +22,26 @@ export async function fetchMarketHeatmap(signal?: AbortSignal): Promise<MarketHe
     throw new Error(`Heatmap API failed: ${response.status}`);
   }
   return normalizeMarketHeatmapPayload(await response.json());
+}
+
+export async function fetchCompanyFinancialSeries(
+  symbol: string,
+  signal?: AbortSignal,
+  options: { years?: number; period?: "quarterly" | "annual" } = {}
+): Promise<CompanyFinancialSeriesPoint[]> {
+  const params = new URLSearchParams({
+    years: String(options.years ?? 3),
+    period: options.period ?? "quarterly"
+  });
+  const response = await fetch(`/api/market/fundamentals/${encodeURIComponent(symbol)}/series?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    signal
+  });
+  if (!response.ok) {
+    throw new Error(`Financial series API failed: ${response.status}`);
+  }
+  const payload = asRecord(await response.json());
+  return normalizeFinancialSeries(payload.items);
 }
 
 function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {
@@ -53,6 +73,10 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     sector: asString(item.sector) || "Unclassified",
     industry: asString(item.industry) || "Unclassified",
     cik: asString(item.cik),
+    exchange: asString(item.exchange),
+    market: asString(item.market),
+    country: asString(item.country),
+    listingDate: asString(item.listingDate) || asString(item.listing_date),
     marketCap: asNumber(item.marketCap) ?? 1,
     marketCapSource: asString(item.marketCapSource),
     layoutPrice: asNumber(item.layoutPrice),
@@ -66,6 +90,18 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     fiscalPeriod: asString(item.fiscalPeriod),
     periodEndDate: asString(item.periodEndDate),
     filedAt: asString(item.filedAt),
+    revenue: asNumber(item.revenue),
+    operatingIncome: asNumber(item.operatingIncome),
+    netIncome: asNumber(item.netIncome),
+    eps: asNumber(item.eps),
+    totalAssets: asNumber(item.totalAssets),
+    totalLiabilities: asNumber(item.totalLiabilities),
+    totalEquity: asNumber(item.totalEquity),
+    operatingCashFlow: asNumber(item.operatingCashFlow),
+    freeCashFlow: asNumber(item.freeCashFlow),
+    ebitda: asNumber(item.ebitda),
+    earningsSeries: normalizeEarningsSeries(item.earningsSeries),
+    financialSeries: normalizeFinancialSeries(item.financialSeries),
     lastPrice: asNumber(item.lastPrice),
     priceSource: asString(item.priceSource),
     priceUpdatedAt: asString(item.priceUpdatedAt),
@@ -74,6 +110,64 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     currency: asString(item.currency),
     changePercent: asNumber(item.changePercent) ?? 0
   };
+}
+
+function normalizeFinancialSeries(value: unknown): CompanyFinancialSeriesPoint[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      const row = asRecord(entry);
+      const period = asString(row.period) || asString(row.fiscalPeriod);
+      if (!period) {
+        return null;
+      }
+      return {
+        period,
+        periodEndDate: asString(row.periodEndDate),
+        revenue: asNumber(row.revenue),
+        operatingIncome: asNumber(row.operatingIncome),
+        netIncome: asNumber(row.netIncome),
+        eps: asNumber(row.eps),
+        totalAssets: asNumber(row.totalAssets),
+        totalLiabilities: asNumber(row.totalLiabilities),
+        totalEquity: asNumber(row.totalEquity),
+        operatingCashFlow: asNumber(row.operatingCashFlow),
+        freeCashFlow: asNumber(row.freeCashFlow),
+        sharesOutstanding: asNumber(row.sharesOutstanding),
+        source: asString(row.source),
+        filedAt: asString(row.filedAt)
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+}
+
+function normalizeEarningsSeries(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => {
+      const row = asRecord(entry);
+      const period = asString(row.period) || asString(row.fiscalPeriod);
+      if (!period) {
+        return null;
+      }
+      return {
+        period,
+        periodEndDate: asString(row.periodEndDate),
+        actualEps: asNumber(row.actualEps),
+        estimatedEps: asNumber(row.estimatedEps),
+        actualRevenue: asNumber(row.actualRevenue),
+        estimatedRevenue: asNumber(row.estimatedRevenue),
+        source: asString(row.source),
+        estimateSource: asString(row.estimateSource),
+        filedAt: asString(row.filedAt),
+        collectedAt: asString(row.collectedAt)
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 }
 
 function asRecord(value: unknown): RawHeatmapRecord {

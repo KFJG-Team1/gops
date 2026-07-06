@@ -4,6 +4,10 @@ export type Sp500UniverseItem = {
   sector: string;
   industry: string;
   cik?: string | null;
+  exchange?: string | null;
+  market?: string | null;
+  country?: string | null;
+  listingDate?: string | null;
   marketCap: number;
   marketCapSource?: string | null;
   layoutPrice?: number | null;
@@ -17,6 +21,18 @@ export type Sp500UniverseItem = {
   fiscalPeriod?: string | null;
   periodEndDate?: string | null;
   filedAt?: string | null;
+  revenue?: number | null;
+  operatingIncome?: number | null;
+  netIncome?: number | null;
+  eps?: number | null;
+  totalAssets?: number | null;
+  totalLiabilities?: number | null;
+  totalEquity?: number | null;
+  operatingCashFlow?: number | null;
+  freeCashFlow?: number | null;
+  ebitda?: number | null;
+  earningsSeries?: CompanyEarningsSeriesPoint[];
+  financialSeries?: CompanyFinancialSeriesPoint[];
   lastPrice?: number | null;
   priceSource?: string | null;
   priceUpdatedAt?: string | null;
@@ -25,6 +41,36 @@ export type Sp500UniverseItem = {
   currency?: string | null;
   indexWeight?: number;
   changePercent: number;
+};
+
+export type CompanyEarningsSeriesPoint = {
+  period: string;
+  periodEndDate?: string | null;
+  actualEps?: number | null;
+  estimatedEps?: number | null;
+  actualRevenue?: number | null;
+  estimatedRevenue?: number | null;
+  source?: string | null;
+  estimateSource?: string | null;
+  filedAt?: string | null;
+  collectedAt?: string | null;
+};
+
+export type CompanyFinancialSeriesPoint = {
+  period: string;
+  periodEndDate?: string | null;
+  revenue?: number | null;
+  operatingIncome?: number | null;
+  netIncome?: number | null;
+  eps?: number | null;
+  totalAssets?: number | null;
+  totalLiabilities?: number | null;
+  totalEquity?: number | null;
+  operatingCashFlow?: number | null;
+  freeCashFlow?: number | null;
+  sharesOutstanding?: number | null;
+  source?: string | null;
+  filedAt?: string | null;
 };
 
 // Constituent identity fields are generated from the public S&P 500 constituents table.

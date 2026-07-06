@@ -513,7 +513,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   context.save();
   context.beginPath();
   let started = false;
-  
+
   units.forEach((unit) => {
     const pt = pointForUnit(unit);
     if (typeof pt?.upper === "number" && Number.isFinite(pt.upper)) {
@@ -1169,7 +1169,7 @@ function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
       return;
     }
     lastLabelX = x;
-    
+
     context.save();
     context.textBaseline = "middle";
     context.textAlign = "center";
@@ -1199,7 +1199,7 @@ function buildTimeTicks(scene: ChartScene): TimeTick[] {
 
   const isDivider = new Array(candles.length).fill(false);
   const dividerLabels = new Array(candles.length).fill("");
-  
+
   if (candles.length >= 2 && (isIntraday || isDaily || isWeekly || isMonthly)) {
     let prevComp = getKstComponents(candles[0].timestamp);
     for (let i = 1; i < candles.length; i++) {
@@ -1309,7 +1309,7 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
   if (Number.isNaN(date.getTime())) {
     return false;
   }
-  
+
   const kstTime = date.getTime() + 9 * 60 * 60 * 1000;
   const kstDate = new Date(kstTime);
   const minute = kstDate.getUTCMinutes();
@@ -1317,7 +1317,7 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
   const dayOfWeek = kstDate.getUTCDay();
   const dayOfMonth = kstDate.getUTCDate();
   const month = kstDate.getUTCMonth() + 1;
-  
+
   const candlesPerTick = Math.ceil(62 / slotWidth);
 
   switch (unit.interval) {
