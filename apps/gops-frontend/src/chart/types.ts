@@ -1,4 +1,4 @@
-export type ChartInterval = "1m" | "footprint" | "5m" | "10m" | "1D" | "1W" | "1M";
+export type ChartInterval = "footprint" | "1m" | "5m" | "10m" | "1D" | "1W" | "1M";
 
 export type ChartType = "candle" | "line" | "ohlc";
 
@@ -102,9 +102,11 @@ export type VolumeProfileValueAreaDto = {
 
 export type VolumeProfileResponseDto = {
   symbol: string;
+  interval?: ChartInterval;
+  sourceInterval?: ChartInterval;
   from: string;
   to: string;
-  timeBucket: "1m";
+  timeBucket: ChartInterval;
   targetBins: number;
   bucketCount: number;
   priceBinSize: number;
@@ -114,6 +116,9 @@ export type VolumeProfileResponseDto = {
   feed: string;
   feedProfile?: string | null;
   calculationVersion: string;
+  classificationVersion?: string;
+  sideClassification?: "estimated";
+  estimationMethod?: string;
   dataStatus: "ready" | "empty" | "pending" | "failed";
   priceRange: {
     min?: number | null;
@@ -123,6 +128,7 @@ export type VolumeProfileResponseDto = {
   };
   totalVolume: number;
   totalTradeCount: number;
+  sourceCandleCount?: number;
   bins: VolumeProfileBucketDto[];
   poc?: VolumeProfileSummaryDto | null;
   valueArea?: VolumeProfileValueAreaDto | null;
@@ -423,7 +429,7 @@ export type ChartState = {
 
 export const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
 
-export const chartIntervals: ChartInterval[] = ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"];
+export const chartIntervals: ChartInterval[] = ["footprint", "1m", "5m", "10m", "1D", "1W", "1M"];
 
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
   "1m": 120,

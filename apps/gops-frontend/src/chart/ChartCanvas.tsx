@@ -107,22 +107,22 @@ function drawChart(
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
-    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
     () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.preview)),
     () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.axis)),
     () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
-    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
+    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
     () => drawBelowIndicatorPanes(context, scene),
-    () => drawDrawings(context, scene, scene.chart.drawings, false),
-    () => drawDrawings(context, scene, previewDrawings, true),
     () => drawExpansionParentSummaries(context, scene),
     () => drawFootprintEstimatedLabel(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
-    () => drawCrosshair(context, scene, crosshair)
+    () => drawCrosshair(context, scene, crosshair),
+    () => drawDrawings(context, scene, scene.chart.drawings, false),
+    () => drawDrawings(context, scene, previewDrawings, true)
   ];
   layers.forEach((drawLayer) => drawLayer());
 }
@@ -522,45 +522,41 @@ function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene)
   if (!Number.isFinite(maxVolume) || maxVolume <= 0) {
     return;
   }
-  const maxWidth = Math.max(36, Math.min(168, (scene.plot.right - scene.plot.left) * 0.24));
-  const right = scene.plot.right - 4;
+  const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
+  const profileLeft = scene.plot.left + 8;
+  const profileWidth = Math.max(1, Math.min(920, Math.max(320, plotWidth * 0.82), plotWidth - 16));
+  const right = profileLeft + profileWidth;
   context.save();
-  if (profile.valueArea) {
-    const top = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.high)));
-    const bottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.low)));
-    context.globalAlpha = 0.12;
-    context.fillStyle = colors.volume;
-    context.fillRect(scene.plot.left, Math.min(top, bottom), scene.plot.right - scene.plot.left, Math.max(1, Math.abs(bottom - top)));
-  }
   profile.bins.forEach((bucket) => {
-    if (!Number.isFinite(bucket.volume) || bucket.volume <= 0) {
-      return;
-    }
     const yTop = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMax)));
     const yBottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMin)));
     const top = Math.min(yTop, yBottom);
     const bottom = Math.max(yTop, yBottom);
-    const height = Math.max(1, bottom - top - 1);
-    const width = Math.max(2, maxWidth * (bucket.volume / maxVolume));
-    context.globalAlpha = bucket.isPoc ? 0.38 : bucket.inValueArea ? 0.24 : 0.14;
-    context.fillStyle = bucket.isPoc ? colors.preview : bucket.inValueArea ? colors.volume : colors.axis;
-    context.fillRect(right - width, top, width, height);
+    const height = Math.max(2, bottom - top - 1);
+    if (!Number.isFinite(bucket.volume) || bucket.volume <= 0) {
+      return;
+    }
+    const normalizedVolume = Math.max(0, Math.min(1, bucket.volume / maxVolume));
+    const width = Math.max(4, profileWidth * normalizedVolume);
+    context.globalAlpha = bucket.isPoc ? 0.42 : Math.min(0.36, 0.08 + normalizedVolume * 0.24 + (bucket.inValueArea ? 0.03 : 0));
+    context.fillStyle = colors.preview;
+    context.fillRect(profileLeft, top, width, height);
   });
   if (profile.poc) {
     const y = priceToY(scene, profile.poc.priceMid);
-    context.globalAlpha = 0.66;
+    context.globalAlpha = 0.38;
     context.strokeStyle = colors.preview;
     context.lineWidth = 1;
     context.setLineDash([4, 4]);
-    line(context, Math.max(scene.plot.left, right - maxWidth - 8), y, right, y);
+    line(context, profileLeft, y, right, y);
     context.setLineDash([]);
   }
   context.globalAlpha = 0.72;
   context.fillStyle = colors.muted;
   context.font = "10px Inter, system-ui, sans-serif";
-  context.textAlign = "right";
+  context.textAlign = "left";
   context.textBaseline = "top";
-  context.fillText("VP", right, scene.plot.top + 6);
+  context.fillText(profile.sideClassification === "estimated" ? "Estimated VP" : "VP", profileLeft, scene.plot.top + 6);
   context.restore();
 }
 

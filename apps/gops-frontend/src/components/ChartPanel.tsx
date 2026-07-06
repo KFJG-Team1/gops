@@ -493,6 +493,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const loadProfile = (attempt = 0) => {
         fetchVolumeProfile({
           symbol: chart.symbol,
+          interval: chart.interval === "footprint" ? "1m" : chart.interval,
           from: visibleProfileRange.from,
           to: visibleProfileRange.to,
           targetBins: 10,
