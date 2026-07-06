@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchCompanyFinancialSeries } from "../market/heatmapApi";
+import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
 
 type CompanySummaryPanelProps = {
@@ -50,6 +50,7 @@ type FinancialChartPoint = {
 export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
   const [financialSeries, setFinancialSeries] = useState<CompanyFinancialSeriesPoint[] | null>(null);
+  const [earningsSeriesFromApi, setEarningsSeriesFromApi] = useState<CompanyEarningsSeriesPoint[] | null>(null);
   const normalizedSymbol = symbol.toUpperCase();
   const companyName = item?.companyName || normalizedSymbol;
   const price = item?.lastPrice ?? item?.layoutPrice ?? null;
@@ -62,7 +63,10 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
     () => buildFinancialSeries(financialSeries ?? item?.financialSeries, item),
     [financialSeries, item]
   );
-  const earningsSeries = useMemo(() => buildEarningsSeries(item, profitabilitySeries), [item, profitabilitySeries]);
+  const earningsSeries = useMemo(
+    () => buildEarningsSeries(item, profitabilitySeries, earningsSeriesFromApi),
+    [earningsSeriesFromApi, item, profitabilitySeries]
+  );
   const valuationMetrics = useMemo(
     () => buildValuationMetrics(price, marketCap, item),
     [price, marketCap, item]
@@ -71,11 +75,19 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
   useEffect(() => {
     const controller = new AbortController();
     setFinancialSeries(null);
+    setEarningsSeriesFromApi(null);
     fetchCompanyFinancialSeries(normalizedSymbol, controller.signal, { years: 3, period: "quarterly" })
       .then((series) => setFinancialSeries(series))
       .catch(() => {
         if (!controller.signal.aborted) {
           setFinancialSeries([]);
+        }
+      });
+    fetchCompanyEarningsSeries(normalizedSymbol, controller.signal, { years: 3 })
+      .then((series) => setEarningsSeriesFromApi(series))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setEarningsSeriesFromApi([]);
         }
       });
     return () => controller.abort();
@@ -671,8 +683,12 @@ function buildProfitabilityHeadline(points: FinancialChartPoint[]): string {
   return `${period} 순이익은 ${formatUsdCompact(latestIncome)}로 직전 분기 대비 ${formatSignedRatio(change)}입니다.`;
 }
 
-function buildEarningsSeries(item: Sp500UniverseItem | undefined, financialSeries: FinancialChartPoint[] = []): EarningsChartPoint[] {
-  const fromSeries = item?.earningsSeries?.map((point) => normalizeEarningsPoint(point)) ?? [];
+function buildEarningsSeries(
+  item: Sp500UniverseItem | undefined,
+  financialSeries: FinancialChartPoint[] = [],
+  apiSeries: CompanyEarningsSeriesPoint[] | null = null
+): EarningsChartPoint[] {
+  const fromSeries = (apiSeries?.length ? apiSeries : item?.earningsSeries)?.map((point) => normalizeEarningsPoint(point)) ?? [];
   const validSeries = fromSeries.filter((point) => (
     Number.isFinite(point.actualEps ?? NaN) ||
     Number.isFinite(point.estimatedEps ?? NaN) ||
