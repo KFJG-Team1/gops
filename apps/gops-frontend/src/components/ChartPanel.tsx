@@ -58,6 +58,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
+import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
@@ -229,7 +230,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
   const [transientPaneRatios, setTransientPaneRatios] = useState<Record<string, number> | null>(null);
-  const [indicatorSeries, setIndicatorSeries] = useState<IndicatorSeries>({});
+  const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
+  const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
   const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
   const chart = useMemo(() => (
@@ -274,6 +276,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
+  const indicatorSeries = useMemo(() => (
+    mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
+  ), [baseIndicatorSeries, expansionIndicatorSeries]);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -438,7 +443,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const firstTimestamp = chart.candles[0]?.timestamp;
     const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
     if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
-      setIndicatorSeries({});
+      setBaseIndicatorSeries({});
       return;
     }
     const controller = new AbortController();
@@ -460,11 +465,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
             return;
           }
-          setIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+          setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
         })
         .catch(() => {
           if (!controller.signal.aborted) {
-            setIndicatorSeries({});
+            setBaseIndicatorSeries({});
           }
         });
     };
@@ -476,6 +481,78 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [
     activeIndicatorLayers,
     chart.candles,
+    chart.interval,
+    chart.symbol
+  ]);
+
+  useEffect(() => {
+    if (!activeIndicatorLayers.length) {
+      setExpansionIndicatorSeries({});
+      return;
+    }
+    const requests = activeExpansions
+      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .map((expansion) => {
+        const first = expansion.candles[0];
+        const last = expansion.candles[expansion.candles.length - 1];
+        return first && last
+          ? {
+              id: expansion.id,
+              interval: expansion.childInterval,
+              from: first.timestamp,
+              to: last.timestamp,
+              candleCount: expansion.candles.length
+            }
+          : null;
+      })
+      .filter((request): request is { id: string; interval: ChartInterval; from: string; to: string; candleCount: number } => Boolean(request));
+    if (!requests.length) {
+      setExpansionIndicatorSeries({});
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const loadExpansionIndicators = (attempt = 0) => {
+      Promise.allSettled(requests.map((request) => (
+        fetchIndicators({
+          symbol: chart.symbol,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          limit: Math.max(request.candleCount, defaultVisibleBarsForInterval(request.interval)),
+          layers: activeIndicatorLayers
+        }, controller.signal).then((response) => ({ request, response }))
+      )))
+        .then((results) => {
+          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          const fulfilled = results
+            .filter((result): result is PromiseFulfilledResult<{
+              request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
+              response: Awaited<ReturnType<typeof fetchIndicators>>;
+            }> => result.status === "fulfilled")
+            .map((result) => result.value);
+          const pending = fulfilled.find(({ response }) => shouldRetryDerived(response, attempt));
+          if (pending) {
+            retryTimer = window.setTimeout(() => loadExpansionIndicators(attempt + 1), derivedRetryDelay(pending.response));
+            return;
+          }
+          setExpansionIndicatorSeries(mergeIndicatorSeries(
+            ...fulfilled
+              .filter(({ response }) => response.derived?.state !== "failed")
+              .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
+          ));
+        });
+    };
+    loadExpansionIndicators();
+    return () => {
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    activeExpansions,
+    activeIndicatorLayers,
     chart.interval,
     chart.symbol
   ]);
@@ -646,8 +723,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
     setTransientDrawings(null);
+    setBaseIndicatorSeries({});
     setVolumeProfile(null);
     setFootprint(null);
+    setExpansionIndicatorSeries({});
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
 

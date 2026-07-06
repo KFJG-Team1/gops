@@ -1,4 +1,5 @@
 import type { CandleDto, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
+import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import { normalizeViewport, type ChartViewport } from "./viewport";
 import {
   buildSemanticTimeline,
@@ -183,8 +184,9 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     ? baseFrame
     : resolveViewportTimeline(viewport);
   const { viewportEndIndex, viewportStartIndex, visibleStartIndex, visibleEndIndex, semanticBase } = frame;
-  const candles = semanticBase.units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle").map((unit) => unit.candle);
-  const priceRange = priceDomain(candles, chart);
+  const candleUnits = semanticBase.units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
+  const candles = candleUnits.map((unit) => unit.candle);
+  const priceRange = priceDomain(candleUnits, chart);
   const maxVolume = Math.max(1, ...candles.map((candle) => candle.volume));
   const volumeRange = volumeDomain(maxVolume);
   const slotWidth = plotWidth / Math.max(1, semanticBase.totalSlots);
@@ -435,21 +437,20 @@ export function hitTestSemanticNode(scene: ChartScene, x: number, y: number): Se
   return best;
 }
 
-function priceDomain(candles: CandleDto[], chart: ChartState): { min: number; max: number; ticks: number[] } {
-  const visibleTimestamps = new Set(candles.map((candle) => candle.timestamp));
-  const values = candles.flatMap((candle) => [
-    candle.high,
-    candle.low,
-    (chart.layers["sma:5"] ?? chart.layers.ma5) ? candle.ma5 : undefined,
-    (chart.layers["sma:20"] ?? chart.layers.ma20) ? candle.ma20 : undefined,
-    (chart.layers["sma:60"] ?? chart.layers.ma60) ? candle.ma60 : undefined
+function priceDomain(units: Extract<SemanticRenderUnit, { kind: "candle" }>[], chart: ChartState): { min: number; max: number; ticks: number[] } {
+  const values = units.flatMap((unit) => [
+    unit.candle.high,
+    unit.candle.low,
+    (chart.layers["sma:5"] ?? chart.layers.ma5) && unit.interval === chart.interval ? unit.candle.ma5 : undefined,
+    (chart.layers["sma:20"] ?? chart.layers.ma20) && unit.interval === chart.interval ? unit.candle.ma20 : undefined,
+    (chart.layers["sma:60"] ?? chart.layers.ma60) && unit.interval === chart.interval ? unit.candle.ma60 : undefined
   ])
-    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), visibleTimestamps))
-    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), visibleTimestamps))
-    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), visibleTimestamps))
-    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), visibleTimestamps))
-    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), visibleTimestamps))
-    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), visibleTimestamps))
+    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), units))
+    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), units))
+    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), units))
+    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), units))
+    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), units))
+    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), units))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
@@ -461,23 +462,36 @@ function priceDomain(candles: CandleDto[], chart: ChartState): { min: number; ma
   return integerPriceDomain(min - pad, max + pad);
 }
 
-function indicatorDomainValues(chart: ChartState, layerId: string, enabled: boolean, visibleTimestamps: Set<string>): number[] {
+function indicatorDomainValues(
+  chart: ChartState,
+  layerId: string,
+  enabled: boolean,
+  units: Extract<SemanticRenderUnit, { kind: "candle" }>[]
+): number[] {
   if (!enabled) {
     return [];
   }
-  return (chart.indicatorSeries?.[layerId] ?? [])
-    .filter((point) => visibleTimestamps.has(point.timestamp))
-    .map((point) => point.value)
+  const valueForUnit = createIndicatorValueLookup(chart.indicatorSeries, layerId, chart.interval);
+  return units
+    .map((unit) => valueForUnit(unit))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
-function bollingerDomainValues(chart: ChartState, layerId: string, enabled: boolean, visibleTimestamps: Set<string>): number[] {
+function bollingerDomainValues(
+  chart: ChartState,
+  layerId: string,
+  enabled: boolean,
+  units: Extract<SemanticRenderUnit, { kind: "candle" }>[]
+): number[] {
   if (!enabled) {
     return [];
   }
-  return (chart.indicatorSeries?.[layerId] ?? [])
-    .filter((point) => visibleTimestamps.has(point.timestamp))
-    .flatMap((point) => [point.upper, point.lower])
+  const pointForUnit = createIndicatorPointLookup(chart.indicatorSeries, layerId, chart.interval);
+  return units
+    .flatMap((unit) => {
+      const point = pointForUnit(unit);
+      return [point?.upper, point?.lower];
+    })
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 

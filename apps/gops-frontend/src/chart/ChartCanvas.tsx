@@ -5,6 +5,7 @@ import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceT
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
+import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
@@ -438,7 +439,7 @@ function drawMovingAverage(
   if (!enabled) {
     return;
   }
-  const serverValues = indicatorValueMap(scene, movingAverageLayerId(key));
+  const serverValueForUnit = createIndicatorValueLookup(scene.chart.indicatorSeries, movingAverageLayerId(key), scene.chart.interval);
   context.save();
   context.strokeStyle = stroke;
   context.lineWidth = 1.05;
@@ -447,8 +448,12 @@ function drawMovingAverage(
   context.beginPath();
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
-    const serverValue = serverValues.get(candle.timestamp);
-    const value = typeof serverValue === "number" ? serverValue : candle[key];
+    const serverValue = serverValueForUnit(unit);
+    const value = typeof serverValue === "number"
+      ? serverValue
+      : unit.interval === scene.chart.interval
+        ? candle[key]
+        : undefined;
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number") {
       if (started) {
@@ -489,27 +494,19 @@ function movingAverageLayerId(key: "ma5" | "ma20" | "ma60"): "sma:5" | "sma:20" 
   return "sma:60";
 }
 
-function indicatorValueMap(scene: ChartScene, layerId: string): Map<string, number | null | undefined> {
-  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point.value]));
-}
-
-function indicatorPointMap(scene: ChartScene, layerId: string): Map<string, IndicatorPointDto> {
-  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point]));
-}
-
 function drawLineIndicator(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean, stroke: string) {
   if (!enabled) {
     return;
   }
-  const values = indicatorValueMap(scene, layerId);
-  drawSeriesLine(context, scene, (unit) => values.get(unit.candle.timestamp), (value) => priceToY(scene, value), stroke, 1.05);
+  const valueForUnit = createIndicatorValueLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
+  drawSeriesLine(context, scene, valueForUnit, (value) => priceToY(scene, value), stroke, 1.05);
 }
 
 function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean) {
   if (!enabled) {
     return;
   }
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const units = candleUnits(scene);
 
   // 1. Draw transparent black area between upper and lower bands
@@ -518,7 +515,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   let started = false;
   
   units.forEach((unit) => {
-    const pt = points.get(unit.candle.timestamp);
+    const pt = pointForUnit(unit);
     if (typeof pt?.upper === "number" && Number.isFinite(pt.upper)) {
       const x = unitCenterX(scene, unit);
       const y = priceToY(scene, pt.upper);
@@ -533,7 +530,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
 
   for (let i = units.length - 1; i >= 0; i--) {
     const unit = units[i];
-    const pt = points.get(unit.candle.timestamp);
+    const pt = pointForUnit(unit);
     if (typeof pt?.lower === "number" && Number.isFinite(pt.lower)) {
       const x = unitCenterX(scene, unit);
       const y = priceToY(scene, pt.lower);
@@ -550,13 +547,13 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   context.restore();
 
   // 2. Draw upper and lower lines (진한 검정)
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
 
   // 3. Draw middle line (굵은 점선)
   context.save();
   context.setLineDash([6, 4]);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
   context.restore();
 }
 
@@ -655,12 +652,12 @@ function drawPaneSeries(
   domain: { min: number; max: number },
   stroke: string
 ) {
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   drawSeriesLine(
     context,
     scene,
     (unit) => {
-      const value = points.get(unit.candle.timestamp)?.[field];
+      const value = pointForUnit(unit)?.[field];
       return typeof value === "number" ? value : undefined;
     },
     (value) => indicatorY(pane, domain, value),
@@ -762,10 +759,12 @@ function indicatorY(pane: ChartScene["plot"]["belowPanes"][number], domain: { mi
 }
 
 function macdDomain(scene: ChartScene, layerId: string): { min: number; max: number } {
-  const visible = new Set(scene.candles.map((candle) => candle.timestamp));
-  const values = (scene.chart.indicatorSeries?.[layerId] ?? [])
-    .filter((point) => visible.has(point.timestamp))
-    .flatMap((point) => [point.macd, point.signal, point.histogram])
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
+  const values = candleUnits(scene)
+    .flatMap((unit) => {
+      const point = pointForUnit(unit);
+      return [point?.macd, point?.signal, point?.histogram];
+    })
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: -1, max: 1 };
@@ -781,10 +780,10 @@ function drawMacdHistogram(
   layerId: string,
   domain: { min: number; max: number }
 ) {
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const zeroY = indicatorY(pane, domain, 0);
   candleUnits(scene).forEach((unit) => {
-    const histogram = points.get(unit.candle.timestamp)?.histogram;
+    const histogram = pointForUnit(unit)?.histogram;
     if (typeof histogram !== "number" || !Number.isFinite(histogram)) {
       return;
     }

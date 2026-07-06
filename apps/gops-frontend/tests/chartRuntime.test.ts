@@ -47,6 +47,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
+import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -522,6 +523,41 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+const scopedRsiLookup = createIndicatorPointLookup({
+  "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
+  [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
+}, "rsi:14", "1D");
+assert.equal(scopedRsiLookup({ interval: "1D", candle: { timestamp: candleA.timestamp } })?.value, 55);
+assert.equal(scopedRsiLookup({ interval: "10m", candle: { timestamp: candleA.timestamp } })?.value, 77);
+const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  visibleCount: 80,
+  layers: {
+    candles: true,
+    volume: false,
+    "ema:20": true,
+    "rsi:14": true
+  },
+  indicatorSeries: {
+    "ema:20": [{ timestamp: candleA.timestamp, value: 110 }],
+    [scopedIndicatorSeriesKey("10m", "ema:20")]: readyExpansion.candles.map((candle, index) => ({
+      timestamp: candle.timestamp,
+      value: 90 + index
+    })),
+    [scopedIndicatorSeriesKey("10m", "rsi:14")]: readyExpansion.candles.map((candle, index) => ({
+      timestamp: candle.timestamp,
+      value: 40 + (index % 20)
+    }))
+  }
+}), 720, 360, { expansions: [readyExpansion] });
+const expandedIndicatorChild = expandedIndicatorScene.semantic.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
+assert.ok(expandedIndicatorChild?.kind === "candle");
+if (expandedIndicatorChild?.kind === "candle") {
+  const expandedRsiLookup = createIndicatorPointLookup(expandedIndicatorScene.chart.indicatorSeries, "rsi:14", expandedIndicatorScene.chart.interval);
+  assert.equal(expandedRsiLookup(expandedIndicatorChild)?.value, 40);
+  assert.ok(expandedIndicatorScene.scales.minPrice <= 90);
+}
 
 const semanticFutureCandles = Array.from(
   { length: 80 },
