@@ -1284,7 +1284,6 @@ h2 {
   pointer-events: none;
 }
 
-.toolbar.has-active-chart-target .chart-command-target-button.is-active,
 .toolbar.has-active-chart-target .chart-drawing-target-button.is-active,
 .toolbar.has-active-chart-target .chart-add-target-button.is-active {
   opacity: 1;
@@ -1520,6 +1519,66 @@ h2 {
   border-radius: 0;
   cursor: crosshair;
   touch-action: none;
+}
+
+.chart-comparison-legend {
+  position: absolute;
+  top: 48px;
+  left: 10px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  max-width: min(420px, calc(100% - 20px));
+  pointer-events: auto;
+}
+
+.chart-comparison-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 132px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--comparison-color, var(--color-preview)) 34%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-ui-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  backdrop-filter: blur(12px);
+}
+
+.chart-comparison-legend-item.empty,
+.chart-comparison-legend-item.error {
+  color: var(--color-muted);
+}
+
+.chart-comparison-legend-swatch,
+.chart-comparison-chip-swatch {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--comparison-color, var(--color-preview));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--comparison-color, var(--color-preview)) 18%, transparent);
+}
+
+.chart-comparison-legend-item > span:nth-child(2) {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-comparison-legend-status {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 800;
 }
 
 .semantic-expansion-close {
@@ -1766,6 +1825,39 @@ h2 {
 .agent-box > * {
   position: relative;
   z-index: 1;
+}
+
+.agent-selected-sources {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-caution) 16%, var(--surface-raised-surface));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-shadow) 14%, transparent);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.agent-box button.agent-selected-sources-clear {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: var(--color-muted);
+}
+
+.agent-box button.agent-selected-sources-clear:hover,
+.agent-box button.agent-selected-sources-clear:focus-visible {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 .agent-box input {
@@ -2903,6 +2995,31 @@ h2 {
   padding: 10px;
   background: var(--color-surface);
   color: var(--color-text);
+}
+
+.market-news-row {
+  cursor: pointer;
+  outline: none;
+}
+
+.market-news-row:hover,
+.market-news-row:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.market-news-row.is-agent-reference-selected {
+  box-shadow: none;
+  background: var(--color-surface);
+}
+
+.market-news-row.is-agent-reference-selected .market-news-summary > span,
+.market-news-row.is-agent-reference-selected .market-news-main .market-news-text-highlight,
+.market-news-row.is-agent-reference-selected .market-news-main p > span {
+  border-radius: 3px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: color-mix(in srgb, var(--color-caution) 34%, transparent);
 }
 
 .market-indices-header-meta {
@@ -4379,7 +4496,6 @@ h2 {
   opacity: 0.9;
 }
 
-.chart-command-target-button,
 .chart-drawing-target-button,
 .chart-add-target-button {
   opacity: 0;
@@ -4387,9 +4503,6 @@ h2 {
   transition: opacity 120ms ease;
 }
 
-.chart-lane-frame.is-chart-hovered .chart-command-target-button,
-.chart-lane-frame:hover .chart-command-target-button,
-.chart-command-target-button.is-active,
 .chart-lane-frame.is-chart-hovered .chart-drawing-target-button,
 .chart-lane-frame:hover .chart-drawing-target-button,
 .chart-drawing-target-button.is-active,
@@ -4400,7 +4513,6 @@ h2 {
   pointer-events: auto;
 }
 
-.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-command-target-button:not(.is-active),
 .chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-drawing-target-button:not(.is-active),
 .chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-add-target-button:not(.is-active) {
   opacity: 0;
@@ -4488,10 +4600,80 @@ h2 {
   font-family: var(--font-ui-sans);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.chart-comparison-picker {
+  flex: 0 0 154px;
+  min-width: 134px;
+}
+
+.chart-comparison-picker .symbol-search {
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.chart-comparison-picker .symbol-search input {
+  height: 28px;
+  padding-inline: 9px 4px;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.chart-comparison-picker .symbol-search > button {
+  width: 24px;
+  height: 22px;
+  margin-right: 3px;
+  border-radius: 7px;
+}
+
+.chart-comparison-picker .symbol-search-menu {
+  top: auto;
+  right: 0;
+  bottom: 34px;
+  width: min(260px, calc(100vw - 44px));
+}
+
+.chart-comparison-limit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.chart-comparison-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  max-width: 92px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--comparison-color, var(--color-preview)) 30%, var(--color-border));
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.chart-comparison-chip span:nth-child(2) {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 980px) {

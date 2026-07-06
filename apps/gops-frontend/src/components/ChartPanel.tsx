@@ -1,5 +1,4 @@
 import {
-  Bot,
   ChartNoAxesCombined,
   CircleDot,
   Eraser,
@@ -9,6 +8,7 @@ import {
   Palette,
   PanelBottom,
   Paintbrush,
+  RotateCcw,
   Square,
   Trash2,
   Type,
@@ -38,7 +38,6 @@ import {
   type ChartRuntimeAction,
   type StreamStatus
 } from "@gops/chart-engine";
-import { requestChartAgentActions } from "../agent/chartAgent";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
 import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
@@ -58,6 +57,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
+import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
@@ -76,7 +76,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
@@ -88,6 +88,7 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
+import { SymbolSearch } from "./SymbolSearch";
 
 function segmentedClass(active = false): string {
   return active ? "segmented active" : "segmented";
@@ -115,6 +116,7 @@ type PaneResizeAnchor = {
 
 type PendingSemanticClick = {
   unit: SemanticRenderUnit;
+  action: "dig" | "agent-select";
   x: number;
   y: number;
 };
@@ -127,6 +129,18 @@ type ExpansionOverlay = {
   top: number;
   status: string;
 };
+
+type ComparisonScopeRequest = {
+  key: string;
+  symbol: string;
+  interval: ChartInterval;
+  from: string;
+  to: string;
+  limit: number;
+  parentExpansionId?: string;
+};
+
+type ComparisonScopeData = ChartComparisonCandleScope;
 
 export type LiveQuote = {
   priceText: string;
@@ -144,12 +158,9 @@ type ChartPanelProps = {
   streamMessage?: string;
   symbols: ChartSymbolDto[];
   laneHeight?: number;
-  chartCommandActive?: boolean;
-  chartCommandEnabled?: boolean;
   chartDrawingActive?: boolean;
   chartAddActive?: boolean;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onChartCommandToggle?: () => void;
   onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
@@ -158,14 +169,9 @@ type ChartPanelProps = {
 };
 
 export type ChartPanelHandle = {
-  runAgentPrompt: (prompt: string) => Promise<ChartAgentPromptResult>;
   getSnapshot: () => ChartState;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
-};
-
-export type ChartAgentPromptResult = {
-  message: string;
 };
 
 export type ChartHeaderSnapshot = {
@@ -190,6 +196,7 @@ const unavailableQuote: LiveQuote = {
 
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
+const maxComparisonCount = 4;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -205,12 +212,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   streamMessage,
   symbols,
   laneHeight,
-  chartCommandActive = false,
-  chartCommandEnabled = true,
   chartDrawingActive = false,
   chartAddActive = false,
   onChartRuntimeAction,
-  onChartCommandToggle,
   onChartDrawingToggle,
   onChartAddToggle,
   onSemanticSelectionChange,
@@ -219,6 +223,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
+  const [digEnabled, setDigEnabled] = useState(true);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
@@ -229,9 +234,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
   const [transientPaneRatios, setTransientPaneRatios] = useState<Record<string, number> | null>(null);
-  const [indicatorSeries, setIndicatorSeries] = useState<IndicatorSeries>({});
+  const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
+  const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
   const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
+  const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const chart = useMemo(() => (
     chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
   ), [candles, dataStatus, document, streamMessage, streamStatus]);
@@ -255,6 +262,24 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.visibleCount,
     transientViewport
   ]);
+  const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
+    chart.candles,
+    chart.rightOffset,
+    chart.visibleCount,
+    transientViewport
+  ]);
+  const comparisonScopeRequests = useMemo(() => (
+    buildComparisonScopeRequests(chart, visibleComparisonRange, activeExpansions)
+  ), [
+    activeExpansions,
+    chart.comparisons,
+    chart.interval,
+    chart.symbol,
+    visibleComparisonRange
+  ]);
+  const comparisonScopeRequestKey = useMemo(() => (
+    comparisonScopeRequests.map((request) => request.key).join("|")
+  ), [comparisonScopeRequests]);
   const activeBelowPaneOrder = useMemo(() => activeBelowPaneIds(chart), [
     chart.layers.volume,
     chart.layers["rsi:14"],
@@ -274,6 +299,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
+  const indicatorSeries = useMemo(() => (
+    mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
+  ), [baseIndicatorSeries, expansionIndicatorSeries]);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -435,10 +463,87 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.interval, chart.symbol, onChartRuntimeAction]);
 
   useEffect(() => {
+    if (!comparisonScopeRequests.length) {
+      setComparisonScopeData({});
+      return;
+    }
+    const activeKeys = new Set(comparisonScopeRequests.map((request) => request.key));
+    setComparisonScopeData((current) => {
+      const next: Record<string, ComparisonScopeData> = {};
+      for (const request of comparisonScopeRequests) {
+        next[request.key] = current[request.key] ?? {
+          key: request.key,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          parentExpansionId: request.parentExpansionId,
+          candles: [],
+          status: "loading"
+        };
+      }
+      Object.entries(current).forEach(([key, value]) => {
+        if (activeKeys.has(key) && !next[key]) {
+          next[key] = value;
+        }
+      });
+      return next;
+    });
+
+    const controller = new AbortController();
+    comparisonScopeRequests.forEach((request) => {
+      fetchCandles({
+        symbol: request.symbol,
+        interval: request.interval,
+        from: request.from,
+        to: request.to,
+        limit: request.limit,
+        ma: []
+      }, controller.signal)
+        .then((response) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setComparisonScopeData((current) => ({
+            ...current,
+            [request.key]: {
+              key: request.key,
+              interval: request.interval,
+              from: request.from,
+              to: request.to,
+              parentExpansionId: request.parentExpansionId,
+              candles: response.candles,
+              status: comparisonStatusForCandleResponse(response),
+              message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill)
+            }
+          }));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setComparisonScopeData((current) => ({
+            ...current,
+            [request.key]: {
+              key: request.key,
+              interval: request.interval,
+              from: request.from,
+              to: request.to,
+              parentExpansionId: request.parentExpansionId,
+              candles: [],
+              status: "error",
+              message: error instanceof Error ? error.message : "Comparison candle request failed"
+            }
+          }));
+        });
+    });
+    return () => controller.abort();
+  }, [comparisonScopeRequestKey]);
+
+  useEffect(() => {
     const firstTimestamp = chart.candles[0]?.timestamp;
     const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
     if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
-      setIndicatorSeries({});
+      setBaseIndicatorSeries({});
       return;
     }
     const controller = new AbortController();
@@ -460,11 +565,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
             return;
           }
-          setIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+          setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
         })
         .catch(() => {
           if (!controller.signal.aborted) {
-            setIndicatorSeries({});
+            setBaseIndicatorSeries({});
           }
         });
     };
@@ -476,6 +581,78 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [
     activeIndicatorLayers,
     chart.candles,
+    chart.interval,
+    chart.symbol
+  ]);
+
+  useEffect(() => {
+    if (!activeIndicatorLayers.length) {
+      setExpansionIndicatorSeries({});
+      return;
+    }
+    const requests = activeExpansions
+      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .map((expansion) => {
+        const first = expansion.candles[0];
+        const last = expansion.candles[expansion.candles.length - 1];
+        return first && last
+          ? {
+              id: expansion.id,
+              interval: expansion.childInterval,
+              from: first.timestamp,
+              to: last.timestamp,
+              candleCount: expansion.candles.length
+            }
+          : null;
+      })
+      .filter((request): request is { id: string; interval: ChartInterval; from: string; to: string; candleCount: number } => Boolean(request));
+    if (!requests.length) {
+      setExpansionIndicatorSeries({});
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const loadExpansionIndicators = (attempt = 0) => {
+      Promise.allSettled(requests.map((request) => (
+        fetchIndicators({
+          symbol: chart.symbol,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          limit: Math.max(request.candleCount, defaultVisibleBarsForInterval(request.interval)),
+          layers: activeIndicatorLayers
+        }, controller.signal).then((response) => ({ request, response }))
+      )))
+        .then((results) => {
+          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          const fulfilled = results
+            .filter((result): result is PromiseFulfilledResult<{
+              request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
+              response: Awaited<ReturnType<typeof fetchIndicators>>;
+            }> => result.status === "fulfilled")
+            .map((result) => result.value);
+          const pending = fulfilled.find(({ response }) => shouldRetryDerived(response, attempt));
+          if (pending) {
+            retryTimer = window.setTimeout(() => loadExpansionIndicators(attempt + 1), derivedRetryDelay(pending.response));
+            return;
+          }
+          setExpansionIndicatorSeries(mergeIndicatorSeries(
+            ...fulfilled
+              .filter(({ response }) => response.derived?.state !== "failed")
+              .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
+          ));
+        });
+    };
+    loadExpansionIndicators();
+    return () => {
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    activeExpansions,
+    activeIndicatorLayers,
     chart.interval,
     chart.symbol
   ]);
@@ -590,11 +767,37 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
   }, [activeBelowPaneOrder, dispatchDocumentCommand, laneHeight]);
 
+  const renderComparisons = useMemo(() => (
+    chart.comparisons.map((comparison) => {
+      const scopes = comparisonScopeRequests
+        .filter((request) => request.symbol === comparison.symbol)
+        .map((request): ChartComparisonCandleScope => comparisonScopeData[request.key] ?? {
+          key: request.key,
+          interval: request.interval,
+          from: request.from,
+          to: request.to,
+          parentExpansionId: request.parentExpansionId,
+          candles: [],
+          status: "loading"
+        });
+      const candlesForComparison = mergeCandlesByTimestamp(...scopes.map((scope) => scope.candles));
+      return {
+        ...comparison,
+        candles: candlesForComparison,
+        scopes,
+        interval: chart.interval,
+        status: comparisonStatusFromScopes(scopes),
+        message: comparisonMessageFromScopes(scopes)
+      };
+    })
+  ), [chart.comparisons, chart.interval, comparisonScopeData, comparisonScopeRequests]);
+
   const renderChart = useMemo(() => ({
     ...chart,
     indicatorSeries,
     volumeProfile,
     footprint,
+    comparisons: renderComparisons,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
     volumeRatio: transientPaneRatios?.["volume"] ?? chart.volumeRatio,
@@ -603,7 +806,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [chart, footprint, indicatorSeries, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
@@ -646,8 +849,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
     setTransientDrawings(null);
+    setBaseIndicatorSeries({});
     setVolumeProfile(null);
     setFootprint(null);
+    setExpansionIndicatorSeries({});
+    setComparisonScopeData({});
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
 
@@ -713,11 +919,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: enabled });
   }, [dispatchDocumentCommand, laneHeight]);
 
-  const applyAgentActions = useCallback((actions: ChartAction[]) => {
-    const commands = actionsToChartCommands(actions, chartRef.current, commandTarget, "llm");
-    dispatchDocumentCommandGroup(commands, "Chart agent actions");
-  }, [commandTarget, dispatchDocumentCommandGroup]);
-
   const applyViewport = useCallback((viewport: ChartViewport) => {
     const currentChart = chartRef.current;
     const currentScene = sceneRef.current;
@@ -768,8 +969,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     ));
   }, []);
 
-  const selectSemanticUnit = useCallback((unit: SemanticRenderUnit) => {
-    setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
+  const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
+    if (unit.kind !== "candle") {
+      return;
+    }
+    setSelectedSemanticNode((current) => (
+      current?.nodeId === unit.id ? null : snapshotFromSemanticUnit(unit)
+    ));
   }, []);
 
   const closeExpansion = useCallback((expansionId: string) => {
@@ -861,7 +1067,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (chartRef.current.chartType === "line") {
       return;
     }
-    selectSemanticUnit(unit);
     if (unit.kind !== "candle") {
       return;
     }
@@ -869,15 +1074,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeExpansionsRef.current = upsertExpansion(activeExpansionsRef.current, expansion);
     setActiveExpansions((current) => upsertExpansion(current, expansion));
     if (expansion.childInterval === "footprint") {
-      setSelectedSemanticNode({
-        ...snapshotFromSemanticUnit(unit),
-        status: "loading"
-      });
       void loadExpansionFootprint(expansion, unit.symbol);
       return;
     }
     void loadExpansionCandles(expansion, unit.symbol);
-  }, [loadExpansionCandles, loadExpansionFootprint, selectSemanticUnit]);
+  }, [loadExpansionCandles, loadExpansionFootprint]);
 
   const zoomBy = useCallback((delta: number) => {
     const current = chartRef.current;
@@ -893,24 +1094,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     applyViewport(nextViewport);
   }, [applyViewport]);
 
-  const runAgentPrompt = useCallback(async (rawPrompt: string): Promise<ChartAgentPromptResult> => {
-    const prompt = rawPrompt.trim();
-    if (!prompt) {
-      return { message: "" };
-    }
-    const result = await requestChartAgentActions({ prompt, chart: chartRef.current });
-    if (result.actions.length) {
-      applyAgentActions(result.actions);
-    }
-    return { message: result.message };
-  }, [applyAgentActions]);
-
   useImperativeHandle(ref, () => ({
-    runAgentPrompt,
     getSnapshot: () => chartRef.current,
     setInterval,
     setChartType
-  }), [runAgentPrompt, setChartType, setInterval]);
+  }), [setChartType, setInterval]);
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -1009,14 +1197,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
-    const semanticDigEnabled = chart.chartType !== "line";
+    const semanticSelectionEnabled = chart.chartType !== "line";
+    const semanticDigEnabled = digEnabled && semanticSelectionEnabled;
 
     if (chart.toolMode === "select") {
       const hit = hitTestDrawing(scene, point.x, point.y);
       if (!hit) {
-        if (semanticHit && semanticDigEnabled) {
-          pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
-          selectSemanticUnit(semanticHit);
+        if (semanticHit && semanticSelectionEnabled) {
+          if (semanticDigEnabled) {
+            pendingSemanticClickRef.current = { unit: semanticHit, action: "dig", x: event.clientX, y: event.clientY };
+          } else {
+            toggleAgentSemanticUnitSelection(semanticHit);
+          }
           return;
         }
         dispatchDocumentCommand("chart.drawing.clearSelection", { mode: chart.toolMode });
@@ -1060,8 +1252,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
 
-    if (semanticHit && semanticDigEnabled) {
-      pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
+    if (semanticHit && semanticSelectionEnabled) {
+      pendingSemanticClickRef.current = {
+        unit: semanticHit,
+        action: semanticDigEnabled ? "dig" : "agent-select",
+        x: event.clientX,
+        y: event.clientY
+      };
     }
     const currentViewport = normalizeViewport(
       { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
@@ -1237,7 +1434,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (pendingSemanticClick) {
       const distance = Math.hypot(event.clientX - pendingSemanticClick.x, event.clientY - pendingSemanticClick.y);
       if (distance <= 5) {
-        void openSemanticExpansion(pendingSemanticClick.unit);
+        if (pendingSemanticClick.action === "dig") {
+          void openSemanticExpansion(pendingSemanticClick.unit);
+        } else {
+          toggleAgentSemanticUnitSelection(pendingSemanticClick.unit);
+        }
         return;
       }
     }
@@ -1304,13 +1505,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0;
+  const semanticDigAvailable = chart.chartType !== "line";
 
   const clearAllDigging = () => {
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
-    setSelectedSemanticNode(null);
+    pendingSemanticClickRef.current = null;
     setExpansionOverlays([]);
   };
+
+  const removeComparisonFromChart = useCallback((comparisonId: string) => {
+    dispatchDocumentCommand("chart.comparison.remove", { comparisonId });
+  }, [dispatchDocumentCommand]);
 
   return (
     <section className="chart-panel">
@@ -1328,10 +1534,36 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </dl>
       )}
 
-      <div className={chartCommandActive || chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
+      <div className={chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
         <div className="toolbar-row">
-          <button className={segmentedClass()} disabled={!hasAnyCurrentSymbolExpansion} onClick={clearAllDigging} type="button" title="Clear all digging">
-            DIG OFF
+          <button
+            className={segmentedClass(semanticDigAvailable && digEnabled)}
+            disabled={!semanticDigAvailable}
+            onClick={() => {
+              setDigEnabled((current) => {
+                const next = !current;
+                if (next) {
+                  setSelectedSemanticNode(null);
+                  pendingSemanticClickRef.current = null;
+                }
+                return next;
+              });
+            }}
+            type="button"
+            aria-pressed={semanticDigAvailable && digEnabled}
+            title={semanticDigAvailable ? digEnabled ? "DIG 확장 끄기" : "DIG 확장 켜기" : "라인 차트에서는 DIG 확장을 사용할 수 없습니다"}
+          >
+            {semanticDigAvailable && digEnabled ? "DIG ON" : "DIG OFF"}
+          </button>
+          <button
+            className={iconButtonClass()}
+            disabled={!hasAnyCurrentSymbolExpansion}
+            onClick={clearAllDigging}
+            type="button"
+            aria-label="DIG 확장 되돌리기"
+            title="DIG 확장 되돌리기"
+          >
+            <RotateCcw size={15} aria-hidden="true" />
           </button>
           <span className="toolbar-separator" aria-hidden="true" />
           <button
@@ -1355,18 +1587,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             onClick={onChartDrawingToggle}
           >
             <Paintbrush size={16} />
-          </button>
-          <button
-            type="button"
-            className={`${iconButtonClass(chartCommandActive)} chart-command-target-button ${chartCommandActive ? "is-active" : ""}`}
-            aria-label={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
-            title={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
-            aria-pressed={chartCommandActive}
-            disabled={!chartCommandEnabled}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onChartCommandToggle}
-          >
-            <Bot size={16} />
           </button>
           {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
         </div>
@@ -1401,6 +1621,25 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {renderComparisons.length > 0 && (
+          <div className="chart-comparison-legend" aria-label="Comparison overlays">
+            {renderComparisons.map((comparison, index) => (
+              <button
+                key={comparison.id}
+                type="button"
+                className={`chart-comparison-legend-item ${comparison.status}`}
+                style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
+                title={`${comparison.symbol} 비교 삭제`}
+                onClick={() => removeComparisonFromChart(comparison.id)}
+              >
+                <span className="chart-comparison-legend-swatch" aria-hidden="true" />
+                <span>{comparison.label ?? comparison.symbol}</span>
+                <span className="chart-comparison-legend-status">{comparisonStatusLabel(comparison.status)}</span>
+                <X size={12} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
         {expansionOverlays.map((overlay) => (
           <button
             key={overlay.id}
@@ -1535,6 +1774,7 @@ type ChartAddDockProps = {
   document: ChartDocument;
   panelId: string;
   laneHeight: number;
+  symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onClose: () => void;
 };
@@ -1565,17 +1805,55 @@ export function ChartAddDock({
   document,
   panelId,
   laneHeight,
+  symbols,
   onChartRuntimeAction,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
+  const comparisonSymbols = new Set(document.comparisons.map((comparison) => comparison.symbol.toUpperCase()));
+  const canAddComparison = document.comparisons.length < maxComparisonCount;
+  const comparisonSearchSymbols = symbols.filter((symbol) => {
+    const normalized = symbol.symbol.toUpperCase();
+    return normalized !== document.symbol.toUpperCase() && !comparisonSymbols.has(normalized);
+  });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
     onChartRuntimeAction({
       kind: "chart.command",
       command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
+    });
+  }, [onChartRuntimeAction, target]);
+
+  const addComparison = useCallback((symbol: string) => {
+    const normalized = symbol.toUpperCase();
+    if (!canAddComparison || normalized === document.symbol.toUpperCase() || comparisonSymbols.has(normalized)) {
+      return;
+    }
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.comparison.add", "user", target, {
+        comparison: {
+          symbol: normalized,
+          label: normalized,
+          scaleMode: "percent",
+          base: { mode: "visibleRangeStart" },
+          style: {
+            colorToken: comparisonDefaultColorToken(document.comparisons.length),
+            textToken: comparisonDefaultColorToken(document.comparisons.length),
+            lineWidth: 1.45,
+            opacity: 0.9
+          }
+        }
+      })
+    });
+  }, [canAddComparison, comparisonSymbols, document.comparisons.length, document.symbol, onChartRuntimeAction, target]);
+
+  const removeComparison = useCallback((comparisonId: string) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.comparison.remove", "user", target, { comparisonId })
     });
   }, [onChartRuntimeAction, target]);
 
@@ -1604,6 +1882,38 @@ export function ChartAddDock({
           </button>
         );
       })}
+      <span className="toolbar-separator" aria-hidden="true" />
+      <div className="chart-comparison-picker" aria-label="Comparison symbols">
+        {canAddComparison ? (
+          <SymbolSearch
+            symbols={comparisonSearchSymbols}
+            selectedLabel=""
+            placeholder="비교 종목"
+            compact
+            onSelectSymbol={addComparison}
+          />
+        ) : (
+          <span className="chart-comparison-limit">MAX 4</span>
+        )}
+      </div>
+      {document.comparisons.map((comparison, index) => (
+        <button
+          key={comparison.id}
+          type="button"
+          className="chart-comparison-chip"
+          aria-label={`${comparison.symbol} 비교 삭제`}
+          title={`${comparison.symbol} 비교 삭제`}
+          onClick={() => removeComparison(comparison.id)}
+        >
+          <span
+            className="chart-comparison-chip-swatch"
+            style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
+            aria-hidden="true"
+          />
+          <span>{comparison.symbol}</span>
+          <X size={12} aria-hidden="true" />
+        </button>
+      ))}
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);
@@ -1652,6 +1962,57 @@ function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
       return <>MACD</>;
     default:
       return <>{layer}</>;
+  }
+}
+
+function comparisonDefaultColorToken(index: number): string {
+  if (index === 0) {
+    return "signal";
+  }
+  if (index === 1) {
+    return "caution";
+  }
+  if (index === 2) {
+    return "purple";
+  }
+  return "drawing";
+}
+
+function comparisonLegendColor(style: { color?: string; colorToken?: string }, index: number): string {
+  if (style.color) {
+    return style.color;
+  }
+  switch (style.colorToken ?? comparisonDefaultColorToken(index)) {
+    case "signal":
+      return "var(--color-signal)";
+    case "caution":
+      return "var(--color-caution)";
+    case "purple":
+      return "var(--color-purple)";
+    case "drawing":
+      return "var(--color-drawing)";
+    case "down":
+      return "var(--color-down)";
+    case "up":
+      return "var(--color-up)";
+    default:
+      return "var(--color-preview)";
+  }
+}
+
+function comparisonStatusLabel(status: ChartComparisonStatus): string {
+  switch (status) {
+    case "loading":
+      return "loading";
+    case "empty":
+      return "empty";
+    case "error":
+      return "error";
+    case "ready":
+      return "ready";
+    case "idle":
+    default:
+      return "idle";
   }
 }
 
@@ -1721,6 +2082,124 @@ function visibleCandleRangeForProfile(chart: ChartState, transientViewport: Char
     priceMin: Math.min(...priceValues),
     priceMax: Math.max(...priceValues)
   };
+}
+
+function visibleCandleRangeForComparison(chart: ChartState, transientViewport: ChartViewport | null): {
+  from: string;
+  to: string;
+  candleCount: number;
+} | null {
+  if (chart.interval === "footprint" || !chart.candles.length) {
+    return null;
+  }
+  const visibleCount = Math.max(1, Math.floor(transientViewport?.visibleCount ?? chart.visibleCount));
+  const rightOffset = Math.max(0, Math.floor(transientViewport?.rightOffset ?? chart.rightOffset));
+  const viewportEnd = Math.max(0, chart.candles.length - rightOffset);
+  const startIndex = Math.max(0, Math.min(chart.candles.length - 1, Math.floor(viewportEnd - visibleCount)));
+  const endIndex = Math.max(startIndex + 1, Math.min(chart.candles.length, Math.ceil(viewportEnd)));
+  const visibleCandles = chart.candles.slice(startIndex, endIndex);
+  const first = visibleCandles[0];
+  const last = visibleCandles[visibleCandles.length - 1];
+  if (!first || !last) {
+    return null;
+  }
+  return {
+    from: first.timestamp,
+    to: last.timestamp,
+    candleCount: visibleCandles.length
+  };
+}
+
+function buildComparisonScopeRequests(
+  chart: ChartState,
+  visibleRange: ReturnType<typeof visibleCandleRangeForComparison>,
+  activeExpansions: SemanticExpansion[]
+): ComparisonScopeRequest[] {
+  const comparisonSymbols = Array.from(new Set(
+    chart.comparisons
+      .map((comparison) => comparison.symbol.toUpperCase())
+      .filter((symbol) => symbol && symbol !== chart.symbol.toUpperCase())
+  )).slice(0, maxComparisonCount);
+  if (!comparisonSymbols.length || chart.interval === "footprint") {
+    return [];
+  }
+  const requests: ComparisonScopeRequest[] = [];
+  comparisonSymbols.forEach((symbol) => {
+    if (visibleRange) {
+      requests.push({
+        key: comparisonScopeKey(symbol, chart.interval, visibleRange.from, visibleRange.to),
+        symbol,
+        interval: chart.interval,
+        from: visibleRange.from,
+        to: visibleRange.to,
+        limit: Math.max(visibleRange.candleCount, defaultVisibleBarsForInterval(chart.interval))
+      });
+    }
+    activeExpansions
+      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .forEach((expansion) => {
+        const first = expansion.candles[0];
+        const last = expansion.candles[expansion.candles.length - 1];
+        if (!first || !last || expansion.childInterval === "footprint") {
+          return;
+        }
+        requests.push({
+          key: comparisonScopeKey(symbol, expansion.childInterval, first.timestamp, last.timestamp, expansion.id),
+          symbol,
+          interval: expansion.childInterval,
+          from: first.timestamp,
+          to: last.timestamp,
+          limit: Math.max(expansion.candles.length, defaultVisibleBarsForInterval(expansion.childInterval)),
+          parentExpansionId: expansion.id
+        });
+      });
+  });
+  return requests;
+}
+
+function comparisonScopeKey(
+  symbol: string,
+  interval: ChartInterval,
+  from: string,
+  to: string,
+  parentExpansionId = "root"
+): string {
+  return [symbol.toUpperCase(), parentExpansionId, interval, from, to].join("|");
+}
+
+function comparisonStatusForCandleResponse(response: CandleQueryResponseDto): ChartComparisonStatus {
+  if (response.candles.length) {
+    return "ready";
+  }
+  if (response.status === "error" || response.fill?.status === "timeout" || response.fill?.status === "failed") {
+    return "error";
+  }
+  return "empty";
+}
+
+function comparisonStatusFromScopes(scopes: ChartComparisonCandleScope[]): ChartComparisonStatus {
+  if (!scopes.length) {
+    return "idle";
+  }
+  if (scopes.some((scope) => scope.status === "loading")) {
+    return "loading";
+  }
+  if (scopes.some((scope) => scope.status === "ready")) {
+    return "ready";
+  }
+  if (scopes.some((scope) => scope.status === "error")) {
+    return "error";
+  }
+  if (scopes.some((scope) => scope.status === "empty")) {
+    return "empty";
+  }
+  return "idle";
+}
+
+function comparisonMessageFromScopes(scopes: ChartComparisonCandleScope[]): string | undefined {
+  return scopes.find((scope) => scope.status === "error" && scope.message)?.message
+    ?? scopes.find((scope) => scope.status === "empty" && scope.message)?.message
+    ?? scopes.find((scope) => scope.status === "loading")?.message;
 }
 
 const belowLayerPaneMap: Partial<Record<ChartLayerKey, string>> = {
@@ -1796,55 +2275,6 @@ function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInter
 
 function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {
   return status === "connecting" || status === "idle" || status === "live" || status === "error" ? status : "idle";
-}
-
-function actionsToChartCommands(
-  actions: ChartAction[],
-  chart: ChartState,
-  target: ChartCommand["target"],
-  actor: ChartCommandActor
-): ChartCommand[] {
-  return actions.flatMap((action) => chartActionToCommands(action, chart, target, actor));
-}
-
-function chartActionToCommands(
-  action: ChartAction,
-  chart: ChartState,
-  target: ChartCommand["target"],
-  actor: ChartCommandActor
-): ChartCommand[] {
-  switch (action.type) {
-    case "setSymbol":
-      return [makeChartCommand("chart.symbol.set", actor, target, { symbol: action.symbol })];
-    case "setInterval":
-      return [makeChartCommand("chart.timeframe.set", actor, target, { timeframe: action.interval })];
-    case "setChartType":
-      return [makeChartCommand("chart.type.set", actor, target, { chartType: action.chartType })];
-    case "setTool":
-      return [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: action.toolMode })];
-    case "toggleLayer":
-      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: !chart.layers[action.layer] })];
-    case "setLayer":
-      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: action.enabled })];
-    case "setViewport":
-      return [makeChartCommand("chart.viewport.set", actor, target, { visibleCount: action.visibleCount, rightOffset: action.rightOffset })];
-    case "addDrawing":
-      return [makeChartCommand("chart.drawing.add", actor, target, { drawing: action.drawing })];
-    case "updateDrawing":
-      return [makeChartCommand("chart.drawing.update", actor, target, { drawingId: action.drawingId, drawingPatch: action.patch })];
-    case "deleteDrawing":
-      return [makeChartCommand("chart.drawing.remove", actor, target, { drawingId: action.drawingId })];
-    case "selectDrawing":
-      return action.drawingId
-        ? [makeChartCommand("chart.drawing.select", actor, target, { drawingId: action.drawingId })]
-        : [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: chart.toolMode })];
-    case "clearDrawings":
-      return chart.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", actor, target, { drawingId: drawing.id }));
-    case "setVolumeRatio":
-      return [makeChartCommand("chart.pane.ratio.set", actor, target, { paneId: "volume", heightRatio: action.ratio })];
-    default:
-      return [];
-  }
 }
 
 function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
@@ -1989,13 +2419,6 @@ function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candl
     candles: [],
     openedAt: new Date().toISOString()
   };
-}
-
-function isDrawingAction(action: ChartAction): boolean {
-  return action.type === "addDrawing" ||
-    action.type === "updateDrawing" ||
-    action.type === "deleteDrawing" ||
-    action.type === "clearDrawings";
 }
 
 function changedPreviewDrawings(baseDrawings: DrawingEntity[], previewDrawings: DrawingEntity[]): DrawingEntity[] {

@@ -1,10 +1,12 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
-import type { ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
+import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
+import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
+import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
@@ -12,6 +14,7 @@ type ChartCanvasProps = {
   chart: ChartState;
   expansions?: SemanticExpansion[];
   previewDrawings?: DrawingEntity[];
+  agentVisualOverlays?: AgentVisualOverlay[];
   hoveredNodeId?: string;
   selectedNodeId?: string;
   crosshair?: { x: number; y: number };
@@ -31,6 +34,7 @@ export function ChartCanvas({
   chart,
   expansions = [],
   previewDrawings = [],
+  agentVisualOverlays = [],
   hoveredNodeId,
   selectedNodeId,
   crosshair,
@@ -63,14 +67,14 @@ export function ChartCanvas({
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
       onScene?.(scene);
-      drawChart(context, scene, crosshair, previewDrawings);
+      drawChart(context, scene, crosshair, previewDrawings, agentVisualOverlays);
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     resize();
     return () => observer.disconnect();
-  }, [chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
+  }, [agentVisualOverlays, chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
 
   return (
     <canvas
@@ -92,7 +96,8 @@ function drawChart(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   crosshair?: { x: number; y: number },
-  previewDrawings: DrawingEntity[] = []
+  previewDrawings: DrawingEntity[] = [],
+  agentVisualOverlays: AgentVisualOverlay[] = []
 ) {
   colors = readThemeColors();
   context.clearRect(0, 0, scene.width, scene.height);
@@ -107,6 +112,7 @@ function drawChart(
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
+    () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
     () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
     () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
@@ -116,6 +122,7 @@ function drawChart(
     () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
     () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
     () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
     () => drawBelowIndicatorPanes(context, scene),
     () => drawExpansionParentSummaries(context, scene),
     () => drawFootprintEstimatedLabel(context, scene),
@@ -157,6 +164,187 @@ function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene
     return;
   }
   drawCandles(context, scene);
+}
+
+type ComparisonRenderPoint = {
+  x: number;
+  percent: number;
+};
+
+type ComparisonRenderSeries = {
+  comparison: ChartComparisonSeries;
+  segments: Array<{ points: ComparisonRenderPoint[] }>;
+};
+
+function drawComparisons(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const series = scene.chart.comparisons
+    .map((comparison) => buildComparisonRenderSeries(scene, comparison))
+    .filter((item) => item.segments.some((segment) => segment.points.length >= 2));
+  const percents = series.flatMap((item) => item.segments.flatMap((segment) => segment.points.map((point) => point.percent)));
+  if (!percents.length) {
+    return;
+  }
+  const percentRange = comparisonPercentRange(percents);
+  const zeroY = comparisonPercentToY(scene, 0, percentRange);
+
+  context.save();
+  if (zeroY >= scene.plot.top && zeroY <= scene.plot.priceBottom) {
+    context.globalAlpha = 0.38;
+    context.strokeStyle = colors.axis;
+    context.lineWidth = 1;
+    context.setLineDash([4, 4]);
+    line(context, scene.plot.left, zeroY, scene.plot.right, zeroY);
+  }
+  context.restore();
+
+  series.forEach((item, index) => {
+    const fallbackToken = comparisonDefaultColorToken(index);
+    const stroke = resolveDrawingColor(item.comparison.style, "colorToken", "color", fallbackToken);
+    const text = resolveDrawingColor(item.comparison.style, "textToken", "textColor", fallbackToken);
+    const allPoints = item.segments.flatMap((segment) => segment.points).sort((left, right) => left.x - right.x);
+    const lastPoint = allPoints[allPoints.length - 1];
+    context.save();
+    context.globalAlpha = item.comparison.style.opacity ?? 0.92;
+    context.strokeStyle = stroke;
+    context.lineWidth = item.comparison.style.lineWidth ?? 1.45;
+    context.setLineDash(item.comparison.style.lineDash ?? []);
+    item.segments.forEach((segment) => {
+      if (segment.points.length < 2) {
+        return;
+      }
+      context.beginPath();
+      segment.points.forEach((point, pointIndex) => {
+        const y = comparisonPercentToY(scene, point.percent, percentRange);
+        if (pointIndex === 0) {
+          context.moveTo(point.x, y);
+        } else {
+          context.lineTo(point.x, y);
+        }
+      });
+      context.stroke();
+    });
+    if (lastPoint) {
+      const y = Math.max(scene.plot.top + 12, Math.min(scene.plot.priceBottom - 5, comparisonPercentToY(scene, lastPoint.percent, percentRange) - 7));
+      context.globalAlpha = 0.98;
+      context.fillStyle = text;
+      context.font = "700 11px Inter, system-ui, sans-serif";
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      const label = `${item.comparison.label ?? item.comparison.symbol} ${lastPoint.percent >= 0 ? "+" : ""}${lastPoint.percent.toFixed(2)}%`;
+      context.fillText(label, scene.plot.right - 4, y, 116);
+    }
+    context.restore();
+  });
+}
+
+function buildComparisonRenderSeries(scene: ChartScene, comparison: ChartComparisonSeries): ComparisonRenderSeries {
+  const scopes = comparison.scopes?.length
+    ? comparison.scopes
+    : [{
+        key: `${comparison.symbol}:root`,
+        interval: comparison.interval ?? scene.chart.interval,
+        candles: comparison.candles,
+        status: comparison.status
+      }];
+  const baseClose = comparisonBaseClose(scene, comparison, scopes);
+  if (typeof baseClose !== "number" || !Number.isFinite(baseClose) || baseClose === 0) {
+    return { comparison, segments: [] };
+  }
+  const units = candleUnits(scene).filter((unit) => semanticUnitVisibleInPlot(scene, unit));
+  const segments = scopes.flatMap((scope) => {
+    const candlesByTimestamp = new Map(scope.candles.map((candle) => [candle.timestamp, candle]));
+    const scopeSegments: Array<{ points: ComparisonRenderPoint[] }> = [];
+    let current: ComparisonRenderPoint[] = [];
+    const flush = () => {
+      if (current.length >= 2) {
+        scopeSegments.push({ points: current });
+      }
+      current = [];
+    };
+    units.forEach((unit) => {
+      if (!comparisonScopeMatchesUnit(scope, unit)) {
+        flush();
+        return;
+      }
+      const candle = candlesByTimestamp.get(unit.timestamp);
+      if (!candle || !Number.isFinite(candle.close)) {
+        flush();
+        return;
+      }
+      current.push({
+        x: unitCenterX(scene, unit),
+        percent: ((candle.close - baseClose) / Math.max(0.0001, baseClose)) * 100
+      });
+    });
+    flush();
+    return scopeSegments;
+  });
+  return { comparison, segments };
+}
+
+function comparisonBaseClose(
+  scene: ChartScene,
+  comparison: ChartComparisonSeries,
+  scopes: NonNullable<ChartComparisonSeries["scopes"]>
+): number | null {
+  if (comparison.base?.mode === "timestamp" && comparison.base.timestamp) {
+    const timestampMatch = scopes
+      .flatMap((scope) => scope.candles)
+      .find((candle) => candle.timestamp === comparison.base?.timestamp);
+    if (typeof timestampMatch?.close === "number" && Number.isFinite(timestampMatch.close)) {
+      return timestampMatch.close;
+    }
+  }
+  const units = candleUnits(scene).filter((unit) => semanticUnitVisibleInPlot(scene, unit));
+  for (const unit of units) {
+    for (const scope of scopes) {
+      if (!comparisonScopeMatchesUnit(scope, unit)) {
+        continue;
+      }
+      const candle = scope.candles.find((candidate) => candidate.timestamp === unit.timestamp);
+      if (typeof candle?.close === "number" && Number.isFinite(candle.close)) {
+        return candle.close;
+      }
+    }
+  }
+  return null;
+}
+
+function comparisonScopeMatchesUnit(
+  scope: { interval: string; parentExpansionId?: string },
+  unit: SemanticCandleUnit
+): boolean {
+  return scope.interval === unit.interval && (scope.parentExpansionId ?? undefined) === (unit.parentExpansionId ?? undefined);
+}
+
+function semanticUnitVisibleInPlot(scene: ChartScene, unit: SemanticCandleUnit): boolean {
+  const bounds = unitBoundsX(scene, unit);
+  return bounds.right >= scene.plot.left && bounds.left <= scene.plot.right;
+}
+
+function comparisonPercentRange(percents: number[]): { min: number; max: number } {
+  const min = Math.min(-1, ...percents);
+  const max = Math.max(1, ...percents);
+  const pad = Math.max(0.25, (max - min) * 0.08);
+  return { min: min - pad, max: max + pad };
+}
+
+function comparisonPercentToY(scene: ChartScene, percent: number, range: { min: number; max: number }): number {
+  const span = Math.max(0.0001, range.max - range.min);
+  return scene.plot.top + ((range.max - percent) / span) * Math.max(1, scene.plot.priceBottom - scene.plot.top);
+}
+
+function comparisonDefaultColorToken(index: number): ThemeColorToken {
+  if (index === 0) {
+    return "signal";
+  }
+  if (index === 1) {
+    return "caution";
+  }
+  if (index === 2) {
+    return "purple";
+  }
+  return "drawing";
 }
 
 function drawPlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, draw: () => void) {
@@ -232,6 +420,85 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.restore();
 }
 
+function drawAgentVisualOverlays(context: CanvasRenderingContext2D, scene: ChartScene, overlays: AgentVisualOverlay[]) {
+  const active = overlays.filter((overlay) => !overlay.expiresAt || Date.parse(overlay.expiresAt) > Date.now());
+  if (!active.length) {
+    return;
+  }
+  context.save();
+  active.forEach((overlay) => {
+    const fill = overlayColor(overlay.styleToken);
+    if (overlay.kind === "candleHighlight") {
+      overlay.anchors.forEach((anchor) => {
+        const unit = candleUnits(scene).find((item) => (
+          item.symbol === anchor.symbol &&
+          item.interval === anchor.interval &&
+          item.timestamp === anchor.timestamp
+        ));
+        if (!unit) {
+          return;
+        }
+        const bounds = unitBoundsX(scene, unit);
+        drawOverlayBand(context, scene, bounds.left, bounds.right, fill, 0.16);
+      });
+      return;
+    }
+    overlay.anchors.forEach((anchor) => {
+      const units = candleUnits(scene).filter((unit) => (
+        unit.symbol === anchor.symbol &&
+        unit.interval === anchor.interval &&
+        rangesOverlap(unit.from, unit.to, anchor.from, anchor.to)
+      ));
+      if (!units.length) {
+        return;
+      }
+      const left = Math.min(...units.map((unit) => unitBoundsX(scene, unit).left));
+      const right = Math.max(...units.map((unit) => unitBoundsX(scene, unit).right));
+      drawOverlayBand(context, scene, left, right, fill, 0.12);
+    });
+  });
+  context.restore();
+}
+
+function drawOverlayBand(context: CanvasRenderingContext2D, scene: ChartScene, left: number, right: number, color: string, alpha: number) {
+  context.save();
+  context.globalAlpha = alpha;
+  context.fillStyle = color;
+  context.fillRect(
+    Math.max(scene.plot.left, left),
+    scene.plot.top,
+    Math.max(1, Math.min(scene.plot.right, right) - Math.max(scene.plot.left, left)),
+    Math.max(1, scene.plot.priceBottom - scene.plot.top)
+  );
+  context.globalAlpha = Math.min(1, alpha + 0.14);
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  line(context, Math.max(scene.plot.left, left), scene.plot.top, Math.max(scene.plot.left, left), scene.plot.priceBottom);
+  line(context, Math.min(scene.plot.right, right), scene.plot.top, Math.min(scene.plot.right, right), scene.plot.priceBottom);
+  context.restore();
+}
+
+function overlayColor(token: AgentVisualOverlay["styleToken"]): string {
+  if (token === "caution") {
+    return colors.caution;
+  }
+  if (token === "preview") {
+    return colors.preview;
+  }
+  return colors.signal;
+}
+
+function rangesOverlap(leftFrom: string, leftTo: string, rightFrom: string, rightTo: string): boolean {
+  const leftStart = Date.parse(leftFrom);
+  const leftEnd = Date.parse(leftTo);
+  const rightStart = Date.parse(rightFrom);
+  const rightEnd = Date.parse(rightTo);
+  if (![leftStart, leftEnd, rightStart, rightEnd].every(Number.isFinite)) {
+    return leftFrom <= rightTo && rightFrom <= leftTo;
+  }
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
 function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
@@ -242,12 +509,16 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
     const low = priceToY(scene, candle.low);
     const up = candle.close >= candle.open;
     const hovered = scene.hoveredNodeId === unit.id;
-    const candleColor = candleStrokeColor(up);
+    const selected = scene.selectedNodeId === unit.id;
+    const candleColor = selected ? colors.caution : candleStrokeColor(up);
     const candleWidth = candleBodyWidth(scene, unit, hovered);
+    if (selected) {
+      drawSelectedCandleHighlight(context, scene, unit);
+    }
     context.save();
     context.strokeStyle = candleColor;
     context.fillStyle = candleColor;
-    context.lineWidth = hovered ? 2.2 : 1.25;
+    context.lineWidth = selected ? 2.4 : hovered ? 2.2 : 1.25;
     const bodyTop = Math.min(open, close);
     const bodyHeight = Math.max(2, Math.abs(close - open));
     const bodyBottom = bodyTop + bodyHeight;
@@ -298,10 +569,14 @@ function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
     const low = priceToY(scene, candle.low);
     const up = candle.close >= candle.open;
     const hovered = scene.hoveredNodeId === unit.id;
+    const selected = scene.selectedNodeId === unit.id;
     const tickWidth = Math.max(3, Math.min(12, candleBodyWidth(scene, unit, hovered) * 0.72));
+    if (selected) {
+      drawSelectedCandleHighlight(context, scene, unit);
+    }
     context.save();
-    context.strokeStyle = candleStrokeColor(up);
-    context.lineWidth = hovered ? 2.2 : 1.35;
+    context.strokeStyle = selected ? colors.caution : candleStrokeColor(up);
+    context.lineWidth = selected ? 2.4 : hovered ? 2.2 : 1.35;
     line(context, center, high, center, low);
     line(context, center - tickWidth, open, center, open);
     line(context, center, close, center + tickWidth, close);
@@ -311,6 +586,18 @@ function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
 
 function candleStrokeColor(up: boolean): string {
   return up ? colors.upSoft : colors.downSoft;
+}
+
+function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
+  const bounds = unitBoundsX(scene, unit);
+  drawOverlayBand(
+    context,
+    scene,
+    Math.min(bounds.left, bounds.center - 4),
+    Math.max(bounds.right, bounds.center + 4),
+    colors.caution,
+    0.18
+  );
 }
 
 function drawFootprintBuckets(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -438,7 +725,7 @@ function drawMovingAverage(
   if (!enabled) {
     return;
   }
-  const serverValues = indicatorValueMap(scene, movingAverageLayerId(key));
+  const serverValueForUnit = createIndicatorValueLookup(scene.chart.indicatorSeries, movingAverageLayerId(key), scene.chart.interval);
   context.save();
   context.strokeStyle = stroke;
   context.lineWidth = 1.05;
@@ -447,8 +734,12 @@ function drawMovingAverage(
   context.beginPath();
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
-    const serverValue = serverValues.get(candle.timestamp);
-    const value = typeof serverValue === "number" ? serverValue : candle[key];
+    const serverValue = serverValueForUnit(unit);
+    const value = typeof serverValue === "number"
+      ? serverValue
+      : unit.interval === scene.chart.interval
+        ? candle[key]
+        : undefined;
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number") {
       if (started) {
@@ -489,27 +780,19 @@ function movingAverageLayerId(key: "ma5" | "ma20" | "ma60"): "sma:5" | "sma:20" 
   return "sma:60";
 }
 
-function indicatorValueMap(scene: ChartScene, layerId: string): Map<string, number | null | undefined> {
-  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point.value]));
-}
-
-function indicatorPointMap(scene: ChartScene, layerId: string): Map<string, IndicatorPointDto> {
-  return new Map((scene.chart.indicatorSeries?.[layerId] ?? []).map((point) => [point.timestamp, point]));
-}
-
 function drawLineIndicator(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean, stroke: string) {
   if (!enabled) {
     return;
   }
-  const values = indicatorValueMap(scene, layerId);
-  drawSeriesLine(context, scene, (unit) => values.get(unit.candle.timestamp), (value) => priceToY(scene, value), stroke, 1.05);
+  const valueForUnit = createIndicatorValueLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
+  drawSeriesLine(context, scene, valueForUnit, (value) => priceToY(scene, value), stroke, 1.05);
 }
 
 function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, layerId: string, enabled: boolean) {
   if (!enabled) {
     return;
   }
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const units = candleUnits(scene);
 
   // 1. Draw transparent black area between upper and lower bands
@@ -518,7 +801,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   let started = false;
 
   units.forEach((unit) => {
-    const pt = points.get(unit.candle.timestamp);
+    const pt = pointForUnit(unit);
     if (typeof pt?.upper === "number" && Number.isFinite(pt.upper)) {
       const x = unitCenterX(scene, unit);
       const y = priceToY(scene, pt.upper);
@@ -533,7 +816,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
 
   for (let i = units.length - 1; i >= 0; i--) {
     const unit = units[i];
-    const pt = points.get(unit.candle.timestamp);
+    const pt = pointForUnit(unit);
     if (typeof pt?.lower === "number" && Number.isFinite(pt.lower)) {
       const x = unitCenterX(scene, unit);
       const y = priceToY(scene, pt.lower);
@@ -550,13 +833,13 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   context.restore();
 
   // 2. Draw upper and lower lines (진한 검정)
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
 
   // 3. Draw middle line (굵은 점선)
   context.save();
   context.setLineDash([6, 4]);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
   context.restore();
 }
 
@@ -655,12 +938,12 @@ function drawPaneSeries(
   domain: { min: number; max: number },
   stroke: string
 ) {
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   drawSeriesLine(
     context,
     scene,
     (unit) => {
-      const value = points.get(unit.candle.timestamp)?.[field];
+      const value = pointForUnit(unit)?.[field];
       return typeof value === "number" ? value : undefined;
     },
     (value) => indicatorY(pane, domain, value),
@@ -762,10 +1045,12 @@ function indicatorY(pane: ChartScene["plot"]["belowPanes"][number], domain: { mi
 }
 
 function macdDomain(scene: ChartScene, layerId: string): { min: number; max: number } {
-  const visible = new Set(scene.candles.map((candle) => candle.timestamp));
-  const values = (scene.chart.indicatorSeries?.[layerId] ?? [])
-    .filter((point) => visible.has(point.timestamp))
-    .flatMap((point) => [point.macd, point.signal, point.histogram])
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
+  const values = candleUnits(scene)
+    .flatMap((unit) => {
+      const point = pointForUnit(unit);
+      return [point?.macd, point?.signal, point?.histogram];
+    })
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: -1, max: 1 };
@@ -781,10 +1066,10 @@ function drawMacdHistogram(
   layerId: string,
   domain: { min: number; max: number }
 ) {
-  const points = indicatorPointMap(scene, layerId);
+  const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const zeroY = indicatorY(pane, domain, 0);
   candleUnits(scene).forEach((unit) => {
-    const histogram = points.get(unit.candle.timestamp)?.histogram;
+    const histogram = pointForUnit(unit)?.histogram;
     if (typeof histogram !== "number" || !Number.isFinite(histogram)) {
       return;
     }

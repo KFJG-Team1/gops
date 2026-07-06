@@ -1,4 +1,4 @@
-import type { CompanyFinancialSeriesPoint, Sp500UniverseItem } from "./sp500Universe.seed";
+import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "./sp500Universe.seed";
 
 export type MarketHeatmapPayload = {
   source: string;
@@ -42,6 +42,25 @@ export async function fetchCompanyFinancialSeries(
   }
   const payload = asRecord(await response.json());
   return normalizeFinancialSeries(payload.items);
+}
+
+export async function fetchCompanyEarningsSeries(
+  symbol: string,
+  signal?: AbortSignal,
+  options: { years?: number } = {}
+): Promise<CompanyEarningsSeriesPoint[]> {
+  const params = new URLSearchParams({
+    years: String(options.years ?? 3)
+  });
+  const response = await fetch(`/api/market/fundamentals/${encodeURIComponent(symbol)}/earnings?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    signal
+  });
+  if (!response.ok) {
+    throw new Error(`Earnings series API failed: ${response.status}`);
+  }
+  const payload = asRecord(await response.json());
+  return normalizeEarningsSeries(payload.items) ?? [];
 }
 
 function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {

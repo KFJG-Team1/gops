@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
+import { compileDeterministicChartOperations } from "../src/agent/chartOperationCompiler";
 import {
   buildAgentAnalysisRequest,
   formatAgentAnalysisReport,
@@ -47,8 +48,9 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
+import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
-import { ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
+import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
 import {
   createInitialTiledPanelState,
@@ -203,6 +205,38 @@ function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
     ...overrides
   };
 }
+
+const compiledChartOps = compileDeterministicChartOperations({
+  query: "7월 4일 종가 기준으로 수평선 그리고, 볼린저 밴드만 보여줘",
+  chart: frontendChartState({
+    candles: [
+      testCandle("2026-07-03T00:00:00Z", 101),
+      testCandle("2026-07-04T00:00:00Z", 104)
+    ],
+    layers: {
+      candles: true,
+      volume: true,
+      "sma:20": true,
+      "bollinger:20:2": false,
+      "rsi:14": true
+    }
+  })
+});
+assert.equal(compiledChartOps.handled, true);
+assert.equal(compiledChartOps.operationIR?.operations.length, 3);
+assert.ok(compiledChartOps.actions.some((action) => action.type === "setLayer" && action.layer === "bollinger:20:2" && action.enabled));
+assert.ok(compiledChartOps.actions.some((action) => action.type === "setLayer" && action.layer === "sma:20" && !action.enabled));
+const compiledHorizontalLine = compiledChartOps.actions.find((action) => action.type === "addDrawing");
+assert.equal(compiledHorizontalLine?.type, "addDrawing");
+if (compiledHorizontalLine?.type === "addDrawing") {
+  assert.equal(compiledHorizontalLine.drawing.anchors[0]?.price, 104);
+  assert.equal(compiledHorizontalLine.drawing.anchors[0]?.timestamp, "2026-07-04T00:00:00Z");
+}
+assert.ok(compiledChartOps.visualOverlays.some((overlay) => (
+  overlay.kind === "candleHighlight" &&
+  overlay.styleToken === "signal" &&
+  overlay.anchors.some((anchor) => anchor.timestamp === "2026-07-04T00:00:00Z")
+)));
 
 assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style.background, fallbackChartStyle.background);
 assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
@@ -522,6 +556,41 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+const scopedRsiLookup = createIndicatorPointLookup({
+  "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
+  [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
+}, "rsi:14", "1D");
+assert.equal(scopedRsiLookup({ interval: "1D", candle: { timestamp: candleA.timestamp } })?.value, 55);
+assert.equal(scopedRsiLookup({ interval: "10m", candle: { timestamp: candleA.timestamp } })?.value, 77);
+const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  visibleCount: 80,
+  layers: {
+    candles: true,
+    volume: false,
+    "ema:20": true,
+    "rsi:14": true
+  },
+  indicatorSeries: {
+    "ema:20": [{ timestamp: candleA.timestamp, value: 110 }],
+    [scopedIndicatorSeriesKey("10m", "ema:20")]: readyExpansion.candles.map((candle, index) => ({
+      timestamp: candle.timestamp,
+      value: 90 + index
+    })),
+    [scopedIndicatorSeriesKey("10m", "rsi:14")]: readyExpansion.candles.map((candle, index) => ({
+      timestamp: candle.timestamp,
+      value: 40 + (index % 20)
+    }))
+  }
+}), 720, 360, { expansions: [readyExpansion] });
+const expandedIndicatorChild = expandedIndicatorScene.semantic.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
+assert.ok(expandedIndicatorChild?.kind === "candle");
+if (expandedIndicatorChild?.kind === "candle") {
+  const expandedRsiLookup = createIndicatorPointLookup(expandedIndicatorScene.chart.indicatorSeries, "rsi:14", expandedIndicatorScene.chart.interval);
+  assert.equal(expandedRsiLookup(expandedIndicatorChild)?.value, 40);
+  assert.ok(expandedIndicatorScene.scales.minPrice <= 90);
+}
 
 const semanticFutureCandles = Array.from(
   { length: 80 },
@@ -1780,11 +1849,11 @@ assert.match(appSource, /requestAgentAnalysis/);
 assert.match(appSource, /resolveAgentLayoutCommand/);
 assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionMessage/);
-assert.match(appSource, /hasChartCommandTarget/);
+assert.doesNotMatch(appSource, /hasChartCommandTarget/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /openSymbolPage/);
 assert.match(appSource, /syncPageSymbolFromChart/);
-assert.match(appSource, /chartCommandTargetContentId/);
+assert.doesNotMatch(appSource, /chartCommandTargetContentId/);
 assert.match(appSource, /chartPanelHandlesRef/);
 assert.doesNotMatch(appSource, /showChartInCurrentPanel/);
 assert.match(appSource, /normalizedShortcutSymbols/);
@@ -1797,14 +1866,15 @@ assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
-assert.match(appSource, /if \(!hasChartCommandTarget\)[\s\S]*resolveAgentLayoutCommand/);
+assert.match(appSource, /resolveAgentLayoutCommand\(analysisPayload\)/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
-assert.match(bottomCommandBarSource, /선택한 차트에 명령하기/);
+assert.match(bottomCommandBarSource, /선택한 자료/);
+assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
@@ -1849,11 +1919,19 @@ assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
+assert.match(chartPanelSource, /chart\.comparison\.add/);
+assert.match(chartPanelSource, /chart\.comparison\.remove/);
+assert.match(chartPanelSource, /maxComparisonCount = 4/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
+assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
+assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-select"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
+assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
+assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(panelContentRendererSource, /chart-panel-drag-strip/);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
@@ -1940,6 +2018,8 @@ assert.deepEqual(agentAnalysisRequest, {
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  references: [],
+  uiContext: {},
   routerMode: "hybrid",
   analysisMode: "auto",
   agentIds: []
@@ -2661,6 +2741,37 @@ const comparisonResult = executeChartCommand(
 assert.equal(comparisonResult.ok, true);
 if (comparisonResult.ok) {
   assert.equal(comparisonResult.document.comparisons.length, 1);
+  const frontendComparisonChart = chartStateFromDocument(
+    comparisonResult.document,
+    [candleA, candleB],
+    { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+    "idle"
+  );
+  assert.equal(frontendComparisonChart.comparisons.length, 1);
+  const frontendSpyComparison = frontendComparisonChart.comparisons[0];
+  assert.ok(frontendSpyComparison);
+  assert.equal(frontendSpyComparison.symbol, "SPY");
+  const highPriceComparisonCandles = [
+    { ...candleA, open: 900, high: 930, low: 880, close: 900 },
+    { ...candleB, open: 900, high: 950, low: 890, close: 990 }
+  ];
+  const frontendComparisonScene = buildFrontendChartScene({
+    ...frontendComparisonChart,
+    visibleCount: 2,
+    rightOffset: 0,
+    comparisons: [{
+      ...frontendSpyComparison,
+      candles: highPriceComparisonCandles,
+      scopes: [{
+        key: "SPY|root|1m|test",
+        interval: "1m",
+        candles: highPriceComparisonCandles,
+        status: "ready"
+      }],
+      status: "ready"
+    }]
+  }, 640, 320);
+  assert.ok(frontendComparisonScene.scales.maxPrice < 20);
 }
 
 const nvdaComparisonResult = executeChartCommand(

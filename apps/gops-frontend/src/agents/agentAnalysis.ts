@@ -172,6 +172,8 @@ export type AgentAnalysisRequestInput = {
   intent: string;
   chartContext: unknown;
   layoutContext?: unknown;
+  references?: unknown[];
+  uiContext?: unknown;
   routerMode?: "hybrid" | "rules" | "strict-llm";
   analysisMode?: AgentAnalysisMode;
   agentIds?: string[];
@@ -189,6 +191,8 @@ export function buildAgentAnalysisRequest({
   intent,
   chartContext,
   layoutContext,
+  references,
+  uiContext,
   routerMode = "hybrid",
   analysisMode = "auto",
   agentIds = []
@@ -198,6 +202,8 @@ export function buildAgentAnalysisRequest({
     symbol,
     intent,
     chartContext,
+    references: references ?? [],
+    uiContext: uiContext ?? {},
     routerMode,
     analysisMode,
     agentIds
