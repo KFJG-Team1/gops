@@ -2861,6 +2861,8 @@ h2 {
   gap: 5px;
   max-width: min(820px, calc(100vw - 28px));
   padding: 5px 7px;
+  background: transparent;
+  box-shadow: none;
   transform: translateX(50%);
   overflow-x: auto;
 }
@@ -2875,6 +2877,8 @@ h2 {
   justify-content: center;
   gap: 16px;
   max-width: calc(100vw - 28px);
+  background: transparent;
+  box-shadow: none;
   transform: translateX(-50%);
   pointer-events: none;
 }

@@ -1430,7 +1430,7 @@ export function ChartDrawingDock({
   };
 
   return (
-    <div className="chart-drawing-dock surface-floating" role="toolbar" aria-label="Chart drawing tools" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart drawing tools" onPointerDown={(event) => event.stopPropagation()}>
       <button type="button" className="icon-button chart-drawing-dock-close" aria-label="그리기 도구 닫기" title="그리기 도구 닫기" onClick={closeDock}>
         <X size={15} />
       </button>
@@ -1538,7 +1538,7 @@ export function ChartAddDock({
   }, [onChartRuntimeAction, target]);
 
   return (
-    <div className="chart-add-dock chart-drawing-dock surface-floating" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="chart-add-dock chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
       <button type="button" className="icon-button chart-drawing-dock-close" aria-label="차트 추가 도구 닫기" title="차트 추가 도구 닫기" onClick={onClose}>
         <X size={15} />
       </button>
