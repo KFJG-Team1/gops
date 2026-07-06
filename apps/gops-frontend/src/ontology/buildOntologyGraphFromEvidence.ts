@@ -20,6 +20,17 @@ function readSymbolArray(value: unknown): string[] {
     .map((item) => item.trim().toUpperCase());
 }
 
+function isRelationshipNote(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim().toLowerCase();
+  return Boolean(normalized) && (
+    normalized.includes("following subsidiar") ||
+    normalized.includes("partially own") ||
+    normalized.includes("collectively own") ||
+    normalized.includes(" owns ") ||
+    normalized === "legal entity name"
+  );
+}
+
 export function buildOntologyGraphFromEvidence(
   evidence: readonly AgentEvidenceItem[],
   primarySymbol: string
@@ -65,7 +76,7 @@ export function buildOntologyGraphFromEvidence(
     if (relationType === "control" || relationType === "theme-control") {
       const ticker = readNonEmptyString(raw.ticker)?.toUpperCase() ?? symbol;
       const controlled = readNonEmptyString(raw.controlledName);
-      if (controlled) {
+      if (controlled && !isRelationshipNote(controlled)) {
         addEdge(ensureSymbolNode(ticker), ensureCompanyNode(controlled), "control");
         matched = true;
       }

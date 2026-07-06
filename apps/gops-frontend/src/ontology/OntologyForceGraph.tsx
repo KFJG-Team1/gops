@@ -21,6 +21,9 @@ const PAPER = "#efefe8";
 const UP_COLOR = "#1b6a29";
 const DOWN_COLOR = "#b31a0f";
 const NEUTRAL_FILL = "#d9d9d0";
+const SUBSIDIARY_FILL = "#f1dfc8";
+const SUBSIDIARY_STROKE = "#9b6b3d";
+const SUBSIDIARY_TEXT = "#64411f";
 
 export type OntologyQuote = {
   changePercent?: number;
@@ -60,6 +63,46 @@ type GraphController = {
   destroy: () => void;
 };
 
+function wrapSubsidiaryName(label: string, maxChars: number): string[] {
+  const words = label.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines: string[] = [];
+  for (const word of words) {
+    const current = lines.at(-1);
+    if (!current || current.length + word.length + 1 > maxChars) {
+      lines.push(word);
+    } else {
+      lines[lines.length - 1] = `${current} ${word}`;
+    }
+  }
+  return lines.length ? lines : [label];
+}
+
+function isSubsidiaryRelationshipNote(label: string): boolean {
+  const normalized = label.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized.includes("following subsidiar") ||
+    normalized.includes("partially own") ||
+    normalized.includes("collectively own") ||
+    normalized.includes(" owns ") ||
+    normalized === "legal entity name"
+  );
+}
+
+function subsidiaryDisplayLines(label: string): string[] {
+  return wrapSubsidiaryName(label, 23);
+}
+
+function subsidiaryDetailLabel(label: string): string {
+  return label;
+}
+
+function subsidiaryTitle(label: string): string {
+  return `자회사 · ${label} (비상장/관계 자회사)`;
+}
+
 function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): OntologyModel | null {
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const stockSet = new Set<string>();
@@ -92,7 +135,7 @@ function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): O
         themeMembers.get(themeNode.label)?.add(symbolNode.label);
       }
     } else if (edge.kind === "control") {
-      if (source.kind === "symbol" && target.kind === "company") {
+      if (source.kind === "symbol" && target.kind === "company" && !isSubsidiaryRelationshipNote(target.label)) {
         companies.set(target.label, source.label);
       }
     } else if (edge.kind === "cross-control") {
@@ -194,7 +237,6 @@ function createGraphController(
   const visibleCompanies = new Set<string>();
   let selectedId: string | null = null;
   const nodeCache = new Map<string, SimNode>();
-  themesOf(model.focal).forEach((theme) => chips.set(theme, model.focal));
 
   // ---------- SVG ----------
   const svg = d3.select(svgElement);
@@ -222,7 +264,7 @@ function createGraphController(
     .velocityDecay(0.6)
     .alphaDecay(0.055)
     .force("charge", d3.forceManyBody<SimNode>().strength(-110))
-    .force("collide", d3.forceCollide<SimNode>().radius((d) => d.r + 14).strength(0.9))
+    .force("collide", d3.forceCollide<SimNode>().radius((d) => (d.kind === "company" ? 82 : d.r + 14)).strength(0.9))
     .force("x", d3.forceX<SimNode>(LOGICAL_WIDTH / 2).strength(0.03))
     .force("y", d3.forceY<SimNode>(LOGICAL_HEIGHT / 2).strength(0.03))
     .force("cluster", clusterForce)
@@ -237,7 +279,7 @@ function createGraphController(
     }
     const cx = d3.mean(members, (m) => m.x ?? 0) ?? 0;
     const cy = d3.mean(members, (m) => m.y ?? 0) ?? 0;
-    const r = Math.max(48, (d3.max(members, (m) => Math.hypot((m.x ?? 0) - cx, (m.y ?? 0) - cy) + m.r) ?? 0) + 24);
+    const r = Math.max(36, (d3.max(members, (m) => Math.hypot((m.x ?? 0) - cx, (m.y ?? 0) - cy) + m.r) ?? 0) + 14);
     return { cx, cy, r, members };
   }
 
@@ -344,6 +386,36 @@ function createGraphController(
     }
     return Object.assign(nodeCache.get(id) as SimNode, init);
   }
+
+  function revealInitialTheme(theme: string, themeIndex: number, themeCount: number): void {
+    expandedThemes.add(theme);
+    const members = Array.from(model.themes.get(theme) ?? []).sort(
+      (a, b) => ((getQuote(b)?.marketCap ?? 0) - (getQuote(a)?.marketCap ?? 0)) || a.localeCompare(b)
+    );
+    const otherMembers = members.filter((ticker) => ticker !== model.focal);
+    const focalNode = getNode("s:" + model.focal, {});
+    if (themeCount === 1 && otherMembers.length > 0 && !focalNode.__moved && !focalNode.__wasPinned) {
+      focalNode.x = LOGICAL_WIDTH / 2;
+      focalNode.y = LOGICAL_HEIGHT / 2 + 74;
+    }
+
+    const clusterAngle = themeCount <= 1 ? -Math.PI / 2 : (themeIndex / themeCount) * Math.PI * 2 - Math.PI / 2;
+    const originX = LOGICAL_WIDTH / 2 + (themeCount <= 1 ? 0 : Math.cos(clusterAngle) * 92);
+    const originY = LOGICAL_HEIGHT / 2 + (themeCount <= 1 ? -58 : Math.sin(clusterAngle) * 70);
+    otherMembers.forEach((ticker, index) => {
+      visibleStocks.add(ticker);
+      const node = getNode("s:" + ticker, {});
+      if (!node.__moved && !node.__wasPinned) {
+        const angle = (index / Math.max(1, otherMembers.length)) * Math.PI * 2 - Math.PI / 2;
+        const radius = otherMembers.length <= 2 ? 46 : 72;
+        node.x = originX + Math.cos(angle) * radius;
+        node.y = originY + Math.sin(angle) * Math.max(42, radius * 0.76);
+      }
+    });
+  }
+
+  const initialThemes = themesOf(model.focal);
+  initialThemes.forEach((theme, index) => revealInitialTheme(theme, index, initialThemes.length));
 
   function buildGraph(): { nodes: SimNode[]; links: SimLink[] } {
     const nodes: SimNode[] = [];
@@ -500,7 +572,7 @@ function createGraphController(
       d3
         .forceLink<SimNode, d3.SimulationLinkDatum<SimNode>>(links as d3.SimulationLinkDatum<SimNode>[])
         .id((d) => (d as SimNode).id)
-        .distance((link) => ((link as unknown as SimLink).kind === "chip" ? 95 : 70))
+        .distance((link) => ((link as unknown as SimLink).kind === "chip" ? 95 : (link as unknown as SimLink).kind === "control" ? 118 : 70))
         .strength(0.5)
     );
     simulation.alpha(alpha).restart();
@@ -527,12 +599,13 @@ function createGraphController(
       .data(nodes, (d) => d.id)
       .join((enter) => {
         const group = enter.append("g").attr("class", (d) => "ofg-node ofg-node-" + d.kind);
-        group.append("circle").attr("class", "ofg-body");
-        group.append("circle").attr("class", "ofg-selected-ring").attr("display", "none");
-        group.append("text").attr("class", "ofg-ticker");
-        group.append("text").attr("class", "ofg-pct");
-        group.append("text").attr("class", "ofg-count");
-        group.append("title");
+        const scaleGroup = group.append("g").attr("class", "ofg-node-scale");
+        scaleGroup.append("circle").attr("class", "ofg-body");
+        scaleGroup.append("circle").attr("class", "ofg-selected-ring").attr("display", "none");
+        scaleGroup.append("text").attr("class", "ofg-ticker");
+        scaleGroup.append("text").attr("class", "ofg-pct");
+        scaleGroup.append("text").attr("class", "ofg-count");
+        scaleGroup.append("title");
         group.on("click", (event: MouseEvent, d) => {
           event.stopPropagation();
           if (d.kind === "chip") {
@@ -575,19 +648,21 @@ function createGraphController(
     nodeGroups
       .select<SVGCircleElement>("circle.ofg-body")
       .attr("r", (d) => d.r)
-      .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : null))
-      .attr("stroke", (d) => (d.kind === "stock" ? "rgba(26,26,14,.4)" : null));
+      .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : d.kind === "company" ? SUBSIDIARY_FILL : null))
+      .attr("stroke", (d) => (d.kind === "stock" ? "rgba(26,26,14,.4)" : d.kind === "company" ? SUBSIDIARY_STROKE : null))
+      .attr("stroke-width", (d) => (d.kind === "company" ? 1.8 : null));
     nodeGroups
       .select<SVGCircleElement>("circle.ofg-selected-ring")
       .attr("r", (d) => d.r + 5)
       .attr("display", (d) => (d.id === selectedId ? null : "none"));
     nodeGroups
       .select<SVGTextElement>("text.ofg-ticker")
-      .attr("y", (d) => (d.kind === "chip" ? -2 : d.kind === "company" ? d.r + 12 : 0))
-      .attr("dy", (d) => (d.kind === "stock" ? "-0.15em" : 0))
-      .style("font-size", (d) => (d.kind === "stock" ? Math.max(10, d.r * 0.45) + "px" : null))
-      .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : null))
-      .text((d) => (d.label.length > 11 ? d.label.slice(0, 10) + "…" : d.label));
+      .attr("y", (d) => (d.kind === "chip" ? -2 : d.kind === "company" ? 0 : 0))
+      .attr("dy", (d) => (d.kind === "stock" ? "-0.15em" : d.kind === "company" ? "0.35em" : 0))
+      .style("font-size", (d) => (d.kind === "stock" ? Math.max(10, d.r * 0.45) + "px" : d.kind === "company" ? "8px" : null))
+      .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null))
+      .style("font-weight", (d) => (d.kind === "company" ? "800" : null))
+      .text((d) => (d.kind === "company" ? "자회사" : d.label.length > 11 ? d.label.slice(0, 10) + "…" : d.label));
     nodeGroups
       .select<SVGTextElement>("text.ofg-pct")
       .attr("y", 3)
@@ -596,7 +671,29 @@ function createGraphController(
         d.kind === "stock" ? (isDeepFill(d.label) ? "rgba(239,239,232,.9)" : "rgba(26,26,14,.72)") : "rgba(26,26,14,.6)"
       )
       .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
-    nodeGroups.select<SVGTextElement>("text.ofg-count").attr("y", 12).text((d) => (d.kind === "chip" ? `${d.count ?? 0}종목` : ""));
+    nodeGroups
+      .select<SVGTextElement>("text.ofg-count")
+      .attr("y", (d) => (d.kind === "company" ? d.r + 14 : 12))
+      .attr("text-anchor", "middle")
+      .style("font-size", (d) => (d.kind === "company" ? "8px" : null))
+      .style("font-weight", (d) => (d.kind === "company" ? "700" : null))
+      .style("fill", (d) => (d.kind === "company" ? SUBSIDIARY_TEXT : null))
+      .each(function renderCountOrCompanyName(d) {
+        const text = d3.select(this);
+        text.selectAll("tspan").remove();
+        if (d.kind === "chip") {
+          text.text(`${d.count ?? 0}종목`);
+          return;
+        }
+        if (d.kind === "company") {
+          text.text(null);
+          subsidiaryDisplayLines(d.label).forEach((line, index) => {
+            text.append("tspan").attr("x", 0).attr("dy", index === 0 ? 0 : "1.12em").text(line);
+          });
+          return;
+        }
+        text.text("");
+      });
     nodeGroups.select<SVGTitleElement>("title").text((d) => {
       if (d.kind === "stock") {
         const quote = getQuote(d.label);
@@ -606,7 +703,7 @@ function createGraphController(
       if (d.kind === "chip") {
         return `테마 "${d.label}" 펼치기 (${d.count ?? 0}종목)`;
       }
-      return `${d.label} (비상장 자회사)`;
+      return subsidiaryTitle(d.label);
     });
   }
 
@@ -704,10 +801,10 @@ function createGraphController(
       const nodeGroups = nodeLayer.selectAll<SVGGElement, SimNode>("g.ofg-node");
       nodeGroups
         .select<SVGCircleElement>("circle.ofg-body")
-        .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : null));
+        .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : d.kind === "company" ? SUBSIDIARY_FILL : null));
       nodeGroups
         .select<SVGTextElement>("text.ofg-ticker")
-        .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : null));
+        .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null));
       nodeGroups
         .select<SVGTextElement>("text.ofg-pct")
         .attr("fill", (d) =>
@@ -795,7 +892,11 @@ export function OntologyForceGraph({
           )}
           {typeof selectedQuote?.lastPrice === "number" && <span className="ofg-detail-price">{selectedQuote.lastPrice.toFixed(2)}</span>}
           {selectedThemes.length > 0 && <div className="ofg-detail-tags">{selectedThemes.map((theme) => <em key={theme}>{theme}</em>)}</div>}
-          {selectedChildren.length > 0 && <div className="ofg-detail-tags">{selectedChildren.map((company) => <em key={company}>{company}</em>)}</div>}
+          {selectedChildren.length > 0 && (
+            <div className="ofg-detail-tags">
+              {selectedChildren.map((company) => <em key={company}>{subsidiaryDetailLabel(company)}</em>)}
+            </div>
+          )}
           <button
             type="button"
             disabled={!onSelectSymbol}
