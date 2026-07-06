@@ -1,6 +1,6 @@
 import { Newspaper, X } from "lucide-react";
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
-import { useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
@@ -8,6 +8,7 @@ import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/pan
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
@@ -20,6 +21,8 @@ type PanelContentRendererProps = {
   content: PanelContentInstance;
   symbol: string;
   symbols: ChartSymbolDto[];
+  companyItem?: Sp500UniverseItem;
+  companyItems: Sp500UniverseItem[];
   marketItems: Sp500UniverseItem[];
   laneHeight: number;
   chartHeaderSnapshot?: ChartHeaderSnapshot;
@@ -53,6 +56,8 @@ export function PanelContentRenderer({
   content,
   symbol,
   symbols,
+  companyItem,
+  companyItems,
   marketItems,
   laneHeight,
   chartHeaderSnapshot,
@@ -81,10 +86,15 @@ export function PanelContentRenderer({
   onChartSwapPointerDown
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
+  const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
   const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
     chartPanelHandleRef.current = handle;
     onChartHandleChange(content.id, handle);
   }, [content.id, onChartHandleChange]);
+
+  if (content.kind === "company") {
+    return <CompanySummaryPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
 
   if (content.kind === "news") {
     return <NewsPanel symbol={symbol.toUpperCase()} initialPayload={content.props} />;
@@ -145,36 +155,60 @@ export function PanelContentRenderer({
         onPointerMove={() => onChartHoverChange(true)}
         onPointerDown={onChartSwapPointerDown}
       />
-      <div
-        className="chart-instance-symbol chart-instance-swap-handle"
-        onPointerEnter={() => onChartHoverChange(true)}
-        onPointerMove={() => onChartHoverChange(true)}
-        onPointerDown={onChartSwapPointerDown}
-      >
-        <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
-          <div className="chart-instance-symbol-search-wrap">
-            <SymbolSearch
-              symbols={symbols}
-              className="chart-instance-symbol-search"
-              compact
-              selectedSymbol={selectedSymbol}
-              selectedLabel={selectedSymbol}
-              placeholder={selectedSymbol}
-              formatSelectedLabel={(symbolOption) => symbolOption.symbol}
-              onSelectSymbol={(nextSymbol) => onChangePanelChartSymbol(content.id, nextSymbol)}
-              onPointerActivity={() => onChartHoverChange(true)}
-            />
+      <div className="chart-instance-topbar">
+        <div
+          className="chart-instance-symbol chart-instance-swap-handle"
+          onPointerEnter={() => onChartHoverChange(true)}
+          onPointerMove={() => onChartHoverChange(true)}
+          onPointerDown={onChartSwapPointerDown}
+        >
+          <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="chart-instance-symbol-search-wrap">
+              <SymbolSearch
+                symbols={symbols}
+                className="chart-instance-symbol-search"
+                compact
+                selectedSymbol={selectedSymbol}
+                selectedLabel={selectedSymbol}
+                placeholder={selectedSymbol}
+                formatSelectedLabel={(symbolOption) => symbolOption.symbol}
+                onSelectSymbol={(nextSymbol) => onChangePanelChartSymbol(content.id, nextSymbol)}
+                onPointerActivity={() => onChartHoverChange(true)}
+              />
+            </div>
+            <button
+              type="button"
+              className="chart-instance-sync-page"
+              aria-label={`${selectedSymbol}을 현재 페이지 종목으로 설정`}
+              title="현재 페이지 종목으로 설정"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={onSyncPageSymbolFromChart}
+            >
+              <Newspaper size={13} />
+            </button>
           </div>
+        </div>
+        <div className="chart-content-tabs" role="tablist" aria-label={`${selectedSymbol} chart tabs`}>
           <button
             type="button"
-            className="chart-instance-sync-page"
-            aria-label={`${selectedSymbol}을 현재 페이지 종목으로 설정`}
-            title="현재 페이지 종목으로 설정"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onSyncPageSymbolFromChart}
+            role="tab"
+            aria-selected={activeTab === "chart"}
+            className={activeTab === "chart" ? "active" : ""}
+            onClick={() => setActiveTab("chart")}
           >
-            <Newspaper size={13} />
+            차트
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "company"}
+            className={activeTab === "company" ? "active" : ""}
+            onClick={() => setActiveTab("company")}
+          >
+            기업정보
+          </button>
+        </div>
+        <div className="chart-instance-view-controls">
           <select
             className="chart-instance-select chart-instance-chart-type"
             value={chartType}
@@ -211,28 +245,34 @@ export function PanelContentRenderer({
           <X size={13} />
         </button>
       )}
-      <ChartPanel
-        ref={setChartPanelHandle}
-        panelId={slot.id}
-        document={chartDocument}
-        candles={chartCandles}
-        dataStatus={chartDataStatus}
-        streamStatus={chartStreamStatus}
-        streamMessage={chartStreamMessage}
-        symbols={symbols}
-        laneHeight={laneHeight}
-        chartCommandActive={chartCommandActive}
-        chartCommandEnabled={canUseChartCommand}
-        chartDrawingActive={chartDrawingActive}
-        chartAddActive={chartAddActive}
-        onChartRuntimeAction={onChartRuntimeAction}
-        onChartCommandToggle={onChartCommandToggle}
-        onChartDrawingToggle={onChartDrawingToggle}
-        onChartAddToggle={onChartAddToggle}
-        onSemanticSelectionChange={setSemanticSelection}
-        onChartHoverChange={onChartHoverChange}
-        onHeaderChange={onHeaderChange}
-      />
+      {activeTab === "chart" ? (
+        <ChartPanel
+          ref={setChartPanelHandle}
+          panelId={slot.id}
+          document={chartDocument}
+          candles={chartCandles}
+          dataStatus={chartDataStatus}
+          streamStatus={chartStreamStatus}
+          streamMessage={chartStreamMessage}
+          symbols={symbols}
+          laneHeight={laneHeight}
+          chartCommandActive={chartCommandActive}
+          chartCommandEnabled={canUseChartCommand}
+          chartDrawingActive={chartDrawingActive}
+          chartAddActive={chartAddActive}
+          onChartRuntimeAction={onChartRuntimeAction}
+          onChartCommandToggle={onChartCommandToggle}
+          onChartDrawingToggle={onChartDrawingToggle}
+          onChartAddToggle={onChartAddToggle}
+          onSemanticSelectionChange={setSemanticSelection}
+          onChartHoverChange={onChartHoverChange}
+          onHeaderChange={onHeaderChange}
+        />
+      ) : (
+        <div className="chart-tab-content is-company" role="tabpanel" aria-label={`${selectedSymbol} 기업정보`}>
+          <CompanySummaryPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
+        </div>
+      )}
     </div>
   );
 }

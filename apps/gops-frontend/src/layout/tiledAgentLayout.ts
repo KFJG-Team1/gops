@@ -19,6 +19,7 @@ import {
 
 const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
+  company: "companyProfile",
   indices: "marketIndices",
   popular: "popularStocks",
   news: "newsFeed",
@@ -29,6 +30,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
 
 const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelContentKind>> = {
   chart: "chart",
+  companyProfile: "company",
   marketIndices: "indices",
   popularStocks: "popular",
   newsFeed: "news",

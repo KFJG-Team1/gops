@@ -67,7 +67,7 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
     }
     setError(undefined);
     try {
-      const params = new URLSearchParams({ symbol, limit: "5", locale: "ko-KR" });
+      const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
       const response = await fetch(`/api/market/news/daily?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
       if (!response.ok) {

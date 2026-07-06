@@ -41,7 +41,6 @@ const drawingTypes = new Set<DrawingType>([
   "verticalMarker",
   "textLabel",
   "pointMarker",
-  "arrow",
   "rangeBox"
 ]);
 

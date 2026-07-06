@@ -250,16 +250,16 @@ const treeMapScale = createTreeMapOpacityScale([
   30
 ]);
 assert.equal(tileFillForChange(0.01, treeMapTestTheme), treeMapTestTheme.muted);
-assert.equal(tileOpacityForChange(0.01, treeMapScale), 0.3);
-assert.equal(tileOpacityForChange(undefined, treeMapScale), 0.3);
+assert.equal(tileOpacityForChange(0.01, treeMapScale), 0.48);
+assert.equal(tileOpacityForChange(undefined, treeMapScale), 0.48);
 assert.ok(Math.abs(tileOpacityForChange(4, treeMapScale) - 0.92) < 0.001);
 assert.equal(tileOpacityForChange(30, treeMapScale), 0.92);
 const quietTreeMapScale = createTreeMapOpacityScale([0.01, 0.04, 0.08, 0.12, 0.2]);
-assert.equal(tileOpacityForChange(0.04, quietTreeMapScale), 0.3);
+assert.equal(tileOpacityForChange(0.04, quietTreeMapScale), 0.48);
 assert.ok(tileOpacityForChange(0.12, quietTreeMapScale) > tileOpacityForChange(0.08, quietTreeMapScale));
 assert.equal(tileOpacityForChange(0.2, quietTreeMapScale), 0.92);
 const emptyTreeMapScale = createTreeMapOpacityScale([undefined, Number.NaN]);
-assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.3);
+assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.48);
 assert.equal(tileTextForOpacity(0.57, treeMapTestTheme), treeMapTestTheme.tileText);
 assert.equal(tileTextForOpacity(0.58, treeMapTestTheme), treeMapTestTheme.tileTextInverse);
 
@@ -1064,7 +1064,7 @@ assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.deepEqual(chartIntervals.slice(0, 3), ["1m", "footprint", "5m"]);
+assert.deepEqual(chartIntervals.slice(0, 3), ["footprint", "1m", "5m"]);
 assert.equal(nextDigTargetInterval("1m"), "footprint");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
 assert.equal(defaultVisibleBarsForInterval("footprint"), 120);
@@ -1821,6 +1821,7 @@ assert.doesNotMatch(agentAnalysisClientSource, /\/api\/llm\/chat/);
 
 const newsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(newsPanelSource, /\/api\/market\/news\/daily/);
+assert.match(newsPanelSource, /limit:\s*"30"/);
 assert.match(newsPanelSource, /dailySummaries/);
 assert.match(newsPanelSource, /sources/);
 assert.match(newsPanelSource, /priceChange/);
@@ -1849,8 +1850,10 @@ assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
+assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
+assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(panelContentRendererSource, /chart-panel-drag-strip/);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
@@ -2865,7 +2868,7 @@ assert.equal(loosePreview?.drawings.length, 1);
 assert.equal(loosePreview?.comparisons.length, 1);
 assert.equal(loosePreview?.drawings[0]?.style.color, undefined);
 assert.equal(loosePreview?.drawings[0]?.style.colorToken, "drawing");
-assert.equal(loosePreview?.drawings[0]?.style.lineWidth, 1.5);
+assert.equal(loosePreview?.drawings[0]?.style.lineWidth, 1.0);
 assert.equal(loosePreview?.comparisons[0]?.style.color, undefined);
 assert.equal(loosePreview?.comparisons[0]?.style.colorToken, "drawing");
 const loosePreviewScene = buildRenderScene({

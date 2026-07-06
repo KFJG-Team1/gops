@@ -32,6 +32,7 @@ export type IndicatorQuery = {
 
 export type VolumeProfileQuery = {
   symbol: string;
+  interval: ChartInterval;
   from: string;
   to: string;
   targetBins?: number;
@@ -90,6 +91,7 @@ export async function fetchIndicators(query: IndicatorQuery, signal?: AbortSigna
 export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: AbortSignal): Promise<VolumeProfileResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
+    interval: query.interval,
     from: query.from,
     to: query.to,
     priceBinSize: query.priceBinSize ?? "auto",
@@ -274,9 +276,14 @@ function normalizeVolumeProfileResponse(payload: unknown): VolumeProfileResponse
     .sort((left, right) => left.priceMin - right.priceMin);
   return {
     ...source,
+    interval: source.interval ?? "1m",
+    sourceInterval: source.sourceInterval ?? source.interval ?? "1m",
+    timeBucket: source.timeBucket ?? source.interval ?? "1m",
+    sideClassification: source.sideClassification ?? "estimated",
     targetBins: Number.isFinite(source.targetBins) ? source.targetBins : 10,
     bucketCount: Number.isFinite(source.bucketCount) ? source.bucketCount : bins.length,
     sourceBinCount: Number.isFinite(source.sourceBinCount) ? source.sourceBinCount : bins.length,
+    sourceCandleCount: Number.isFinite(source.sourceCandleCount) ? source.sourceCandleCount : source.sourceBinCount,
     totalVolume: Number.isFinite(source.totalVolume) ? source.totalVolume : bins.reduce((sum, bin) => sum + bin.volume, 0),
     totalTradeCount: Number.isFinite(source.totalTradeCount) ? source.totalTradeCount : bins.reduce((sum, bin) => sum + bin.tradeCount, 0),
     bins

@@ -6,9 +6,9 @@ const ink = "#1a1a0e";
 const mutedInk = "rgba(26, 26, 14, 0.66)";
 const borderInk = "rgba(26, 26, 14, 0.26)";
 const gridInk = "rgba(26, 26, 14, 0.08)";
-const ma5Ink = "rgba(26, 26, 14, 0.44)";
-const ma20Ink = "rgba(26, 26, 14, 0.32)";
-const ma60Ink = "rgba(26, 26, 14, 0.24)";
+const ma5Ink = "rgba(120, 58, 107, 0.22)";
+const ma20Ink = "rgba(120, 58, 107, 0.40)";
+const ma60Ink = "rgba(120, 58, 107, 0.68)";
 const volumeInk = "rgba(26, 26, 14, 0.12)";
 
 export const fallbackChartStyle: ChartDocumentStyle = {
@@ -29,7 +29,10 @@ export const fallbackChartStyle: ChartDocumentStyle = {
   ma60: ma60Ink,
   volume: volumeInk,
   drawing: ink,
-  preview: ink
+  preview: ink,
+  signal: "#1D4D8C",
+  caution: "#D99B00",
+  purple: "#783A6B"
 };
 
 // Compatibility drop-list only: these old defaults are normalized away, not used as the active palette.

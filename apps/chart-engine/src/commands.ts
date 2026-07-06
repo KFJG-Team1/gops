@@ -597,7 +597,6 @@ function isToolMode(value: unknown): value is ChartDocument["interactionState"][
     value === "draw-verticalMarker" ||
     value === "draw-textLabel" ||
     value === "draw-pointMarker" ||
-    value === "draw-arrow" ||
     value === "draw-rangeBox";
 }
 
@@ -655,7 +654,7 @@ function readStyle(value: unknown): DrawingStyle {
   return {
     color: color ?? undefined,
     colorToken: readString(source.colorToken) ?? (color ? undefined : "drawing"),
-    lineWidth: readNumber(source.lineWidth) ?? 1.5,
+    lineWidth: readNumber(source.lineWidth) ?? 1.0,
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
     fillColor: fillColor ?? undefined,
     fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),

@@ -11,7 +11,6 @@ import {
   chartDocumentIdForContent
 } from "../chart/chartDocumentAdapter";
 import type { CandleDto } from "../chart/types";
-import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import type { ChartDocument } from "@gops/chart-engine";
 import {
   type Dispatch,
@@ -44,6 +43,7 @@ import {
   type ViewportSize
 } from "../layout/panelLayout";
 import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import {
   boundaryAddMenuPosition,
@@ -59,6 +59,7 @@ type PanelWorkspaceProps = {
   viewportSize: ViewportSize;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
+  companyItems: Sp500UniverseItem[];
   marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
   chartCommandTargetContentId: string | null;
@@ -98,6 +99,7 @@ export function PanelWorkspace({
   viewportSize,
   activeSymbol,
   symbols,
+  companyItems,
   marketItems,
   chartRuntime,
   chartCommandTargetContentId,
@@ -116,10 +118,12 @@ export function PanelWorkspace({
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
-  const [chartAddPlacement, setChartAddPlacement] = useState<"overlay" | "below">("overlay");
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
+  const companyItemsBySymbol = useMemo(() => (
+    new Map(companyItems.map((item) => [item.symbol.toUpperCase(), item]))
+  ), [companyItems]);
 
   useEffect(() => {
     panelStateRef.current = panelState;
@@ -286,7 +290,7 @@ export function PanelWorkspace({
       addMenu.boundaryId,
       option.kind,
       viewportSizeRef.current,
-      { symbol: option.kind === "chart" ? activeSymbol : undefined }
+      { symbol: option.kind === "chart" || option.kind === "company" ? activeSymbol : undefined }
     ));
     setAddMenu(null);
     setActiveBoundaryId(null);
@@ -386,6 +390,7 @@ export function PanelWorkspace({
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
+        const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
         return (
           <WorkspacePanelFrame
             key={slot.id}
@@ -414,8 +419,10 @@ export function PanelWorkspace({
             <PanelContentRenderer
               slot={slot}
               content={content}
-              symbol={chartDocument?.symbol ?? activeSymbol}
+              symbol={contentSymbol}
               symbols={symbols}
+              companyItem={companyItemsBySymbol.get(contentSymbol)}
+              companyItems={companyItems}
               marketItems={marketItems}
               laneHeight={Math.max(120, isChart ? slot.rect.height : slot.rect.height - panelNavHeight)}
               chartHeaderSnapshot={chartHeaders[content.id]}
@@ -509,8 +516,6 @@ export function PanelWorkspace({
               document={chartAddTarget.document}
               panelId={chartAddTarget.slot.id}
               laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
-              placement={chartAddPlacement}
-              onPlacementChange={setChartAddPlacement}
               onChartRuntimeAction={onChartRuntimeAction}
               onClose={() => setChartAddTargetContentId(null)}
             />
@@ -557,4 +562,9 @@ function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHe
     a.liveQuote.percentText === b.liveQuote.percentText &&
     a.liveQuote.tone === b.liveQuote.tone
   );
+}
+
+function readContentSymbol(content: PanelContentInstance): string | null {
+  const value = content.props?.symbol;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

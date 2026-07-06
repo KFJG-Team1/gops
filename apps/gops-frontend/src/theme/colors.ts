@@ -25,7 +25,10 @@ export type ThemeColorToken =
   | "axis"
   | "crosshair"
   | "tileText"
-  | "tileTextInverse";
+  | "tileTextInverse"
+  | "signal"
+  | "caution"
+  | "purple";
 
 export type ThemeColors = Record<ThemeColorToken, string> & {
   palette: Set<string>;
@@ -56,14 +59,20 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   axis: "--color-axis",
   crosshair: "--color-crosshair",
   tileText: "--color-tile-text",
-  tileTextInverse: "--color-tile-text-inverse"
+  tileTextInverse: "--color-tile-text-inverse",
+  signal: "--color-signal",
+  caution: "--color-caution",
+  purple: "--color-purple"
 };
 
 const paletteVariables = [
   "--gops-background",
   "--gops-ink",
   "--gops-down",
-  "--gops-up"
+  "--gops-up",
+  "--gops-signal",
+  "--gops-caution",
+  "--gops-purple"
 ];
 
 export function readThemeColors(): ThemeColors {
@@ -96,7 +105,10 @@ export function chartDocumentStyleFromTheme(theme: ThemeColors): ChartDocumentSt
     ma60: theme.ma60,
     volume: theme.volume,
     drawing: theme.drawing,
-    preview: theme.preview
+    preview: theme.preview,
+    signal: theme.signal,
+    caution: theme.caution,
+    purple: theme.purple
   };
 }
 
