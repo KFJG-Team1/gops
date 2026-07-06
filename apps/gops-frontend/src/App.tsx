@@ -34,12 +34,13 @@ import {
   type AgentEntityResolveResponse,
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
+import { agentReferenceKey, buildChartAnalysisContext, chartCandleReference, type AgentReference } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
-import type { ChartSymbolDto } from "./chart/types";
+import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./chart/watchlistApi";
 import { gridGutter } from "./layout/grid";
 import {
@@ -77,7 +78,14 @@ type ActiveAgentRun = {
   cancelRequested: boolean;
 };
 
+type InteractiveAgentContext = {
+  chartContext: Record<string, unknown>;
+  references: AgentReference[];
+  uiContext: Record<string, unknown>;
+};
+
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
+const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
 
 let chatLogEntrySequence = 0;
@@ -111,11 +119,138 @@ function initialTreeMapHeight(): number {
   return treeMapMaxHeight(window.innerHeight);
 }
 
-function initialChartCommandTargetContentId(): string | null {
-  if (typeof window === "undefined") {
+function buildInteractiveAgentContext(
+  handles: Map<string, ChartPanelHandle>,
+  preferredContentId: string | null,
+  selection: SemanticSelectionSnapshot | null,
+  explicitReferences: AgentReference[]
+): InteractiveAgentContext {
+  const activeEntry = preferredContentId && handles.has(preferredContentId)
+    ? [preferredContentId, handles.get(preferredContentId)!] as const
+    : firstChartPanelHandle(handles);
+  const chart = activeEntry?.[1].getSnapshot();
+  const reference = selection ? chartCandleReference(selection, activeEntry?.[0]) : null;
+  const references = [
+    ...(reference ? [reference] : []),
+    ...explicitReferences
+  ];
+  return {
+    chartContext: chart ? buildChartAnalysisContext(chart, selection) : {},
+    references,
+    uiContext: {
+      activePanelId: activeEntry?.[0] ?? preferredContentId ?? null,
+      activePanelType: chart ? "chart" : null,
+      selectedReference: references[0] ?? null,
+      visibleRange: chart ? chartVisibleRange(chart) : null
+    }
+  };
+}
+
+function firstChartPanelHandle(handles: Map<string, ChartPanelHandle>): readonly [string, ChartPanelHandle] | null {
+  for (const entry of handles.entries()) {
+    return entry;
+  }
+  return null;
+}
+
+function chartVisibleRange(chart: ChartState): { from: string; to: string } | null {
+  if (!chart.candles.length) {
     return null;
   }
-  return resolveMainViewFromUrl(window.location.href).view.mode === "chart" ? "content-chart-1" : null;
+  const endIndex = Math.max(0, chart.candles.length - 1 - Math.max(0, chart.rightOffset));
+  const startIndex = Math.max(0, endIndex - Math.max(1, chart.visibleCount) + 1);
+  const from = chart.candles[startIndex]?.timestamp;
+  const to = chart.candles[endIndex]?.timestamp;
+  return from && to ? { from, to } : null;
+}
+
+function isLocalAgentDebugEnabled(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+  const paramValue = new URLSearchParams(window.location.search).get("agentDebug");
+  if (paramValue !== null) {
+    const normalized = paramValue.trim().toLowerCase();
+    const enabled = normalized === "" || ["1", "true", "yes", "on"].includes(normalized);
+    try {
+      window.localStorage.setItem(agentDebugStorageKey, enabled ? "1" : "0");
+    } catch {
+      // Local debug still works for this request even if storage is disabled.
+    }
+    return enabled;
+  }
+  try {
+    return window.localStorage.getItem(agentDebugStorageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function publishLocalAgentDebugSnapshot(
+  payload: Record<string, unknown>,
+  context: InteractiveAgentContext
+): void {
+  if (!isLocalAgentDebugEnabled() || typeof window === "undefined") {
+    return;
+  }
+  const snapshot = {
+    createdAt: new Date().toISOString(),
+    selectedReference: context.references[0] ?? null,
+    references: context.references,
+    chartContext: context.chartContext,
+    uiContext: context.uiContext,
+    payload
+  };
+  const debugWindow = window as Window & {
+    __GOPS_AGENT_LAST_REQUEST__?: unknown;
+    __GOPS_AGENT_LAST_DEBUG__?: unknown;
+  };
+  debugWindow.__GOPS_AGENT_LAST_REQUEST__ = payload;
+  debugWindow.__GOPS_AGENT_LAST_DEBUG__ = snapshot;
+  console.debug("[GOPS Agent Debug] /api/agents/analyze payload", payload);
+  console.debug("[GOPS Agent Debug] snapshot", snapshot);
+}
+
+function formatAgentDebugSnapshot(
+  payload: Record<string, unknown>,
+  context: InteractiveAgentContext
+): string {
+  const chartContext = readObject(payload.chartContext);
+  const candles = readArray(chartContext?.candles);
+  const visibleRange = readObject(context.uiContext.visibleRange);
+  const selectedReference = context.references[0] ?? null;
+  const selectedLine = selectedReference ? formatAgentDebugReference(selectedReference) : "없음";
+  const referenceTypes = context.references.map((reference) => reference.type).join(", ") || "없음";
+  return [
+    "Agent Debug (local only)",
+    `selectedReference: ${selectedLine}`,
+    `references: ${context.references.length} (${referenceTypes})`,
+    `chartContext.candles: ${candles.length}${formatAgentDebugCandleRange(candles)}`,
+    `visibleRange: ${readString(visibleRange?.from) ?? "-"} -> ${readString(visibleRange?.to) ?? "-"}`,
+    `symbol: ${readString(payload.symbol) ?? "-"} / intent: ${readString(payload.intent) ?? "-"}`,
+    "raw payload: browser console에서 window.__GOPS_AGENT_LAST_REQUEST__ 확인"
+  ].join("\n");
+}
+
+function formatAgentDebugReference(reference: AgentReference): string {
+  const data = readObject(reference.data);
+  const timestamp = readString(data?.timestamp) ?? readString(data?.from) ?? "-";
+  const ohlc = ["open", "high", "low", "close"]
+    .map((key) => `${key[0]?.toUpperCase() ?? key}: ${formatAgentDebugNumber(readNumber(data?.[key]))}`)
+    .join(", ");
+  return `${reference.type} ${reference.displayLabel ?? ""} ${timestamp}${ohlc ? ` (${ohlc})` : ""}`.trim();
+}
+
+function formatAgentDebugCandleRange(candles: unknown[]): string {
+  const first = readObject(candles[0]);
+  const last = readObject(candles[candles.length - 1]);
+  const from = readString(first?.timestamp);
+  const to = readString(last?.timestamp);
+  return from && to ? ` (${from} -> ${to})` : "";
+}
+
+function formatAgentDebugNumber(value: number | null): string {
+  return value === null ? "-" : Number.isInteger(value) ? String(value) : value.toFixed(4);
 }
 
 export function App() {
@@ -123,11 +258,11 @@ export function App() {
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
   const [treeMapHeight, setTreeMapHeight] = useState(() => initialTreeMapHeight());
-  const [, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
+  const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
+  const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
-  const [chartCommandTargetContentId, setChartCommandTargetContentId] = useState<string | null>(() => initialChartCommandTargetContentId());
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
@@ -147,7 +282,10 @@ export function App() {
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
-  const hasChartCommandTarget = Boolean(chartCommandTargetContentId);
+  const selectedAgentReferenceKeys = useMemo(() => (
+    agentReferences.map((reference) => agentReferenceKey(reference))
+  ), [agentReferences]);
+  const selectedAgentReferenceCount = agentReferences.length + (semanticSelection ? 1 : 0);
 
   const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
     setSemanticSelection(null);
@@ -156,7 +294,6 @@ export function App() {
       setActiveBottomMenu(null);
     }
     if (nextView.mode === "treemap") {
-      setChartCommandTargetContentId(null);
       chartPanelHandlesRef.current.clear();
     }
     persistMainView(nextView);
@@ -277,11 +414,6 @@ export function App() {
   const activeHeaderQuote = useMemo(() => (
     mainView.mode === "chart" ? headerQuoteForSymbol(treeMapItems, mainView.symbol) : unavailableHeaderQuote
   ), [mainView, treeMapItems]);
-  const chartCommandTargetSlotId = useMemo(() => (
-    chartCommandTargetContentId
-      ? panelState.slots.find((slot) => slot.contentId === chartCommandTargetContentId)?.id
-      : undefined
-  ), [chartCommandTargetContentId, panelState]);
   const chartDocumentSymbolsByPanelId = useMemo(() => (
     chartDocumentSymbolsForLayout(panelState, chartRuntime)
   ), [chartRuntime, panelState]);
@@ -464,7 +596,6 @@ export function App() {
     const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
-    setChartCommandTargetContentId("content-chart-1");
     setChartRuntime(createInitialChartRuntimeState());
     setPanelState(createInitialTiledPanelState(viewportSizeRef.current, { symbol: normalizedSymbol }));
     navigateMainView(nextView, { replace: options.replace });
@@ -503,23 +634,6 @@ export function App() {
       return next;
     });
   }, []);
-
-  useEffect(() => {
-    if (!authLoading && authEnabled && !user && chartCommandTargetContentId) {
-      setChartCommandTargetContentId(null);
-    }
-  }, [authEnabled, authLoading, chartCommandTargetContentId, user]);
-
-  useEffect(() => {
-    if (!chartCommandTargetContentId) {
-      return;
-    }
-    const target = panelState.contents[chartCommandTargetContentId];
-    if (!target || target.kind !== "chart") {
-      setChartCommandTargetContentId(null);
-      chartPanelHandlesRef.current.delete(chartCommandTargetContentId);
-    }
-  }, [chartCommandTargetContentId, panelState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -584,6 +698,21 @@ export function App() {
     });
   }, []);
 
+  const handleAgentReferenceSelect = useCallback((reference: AgentReference) => {
+    const key = agentReferenceKey(reference);
+    setAgentReferences((current) => {
+      if (current.some((item) => agentReferenceKey(item) === key)) {
+        return current.filter((item) => agentReferenceKey(item) !== key);
+      }
+      return [reference, ...current].slice(0, 5);
+    });
+  }, []);
+
+  const clearAgentReferences = useCallback(() => {
+    setAgentReferences([]);
+    setSemanticSelection(null);
+  }, []);
+
   const runAgentPrompt = useCallback(async (event: FormEvent<HTMLFormElement>): Promise<AgentSubmitResult> => {
     event.preventDefault();
     const prompt = agentInput.trim();
@@ -630,7 +759,6 @@ export function App() {
           setSemanticSelection(null);
           setTreeMapLaneHover(false);
           chartPanelHandlesRef.current.clear();
-          setChartCommandTargetContentId("content-chart-1");
           setChartRuntime(createInitialChartRuntimeState());
           setPanelState(nextPanelState);
           navigateMainView({ mode: "chart", symbol: primarySymbol });
@@ -663,7 +791,7 @@ export function App() {
             chartAction: "add",
             chartTargetSymbol: shortcut.symbol,
             chartPlacementIntent: shortcut.chartPlacementIntent,
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
+            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, undefined, chartDocumentSymbolsByPanelId)
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
             applyAgentLayoutProposal(layoutResolution.layoutProposal);
@@ -729,87 +857,100 @@ export function App() {
     }
 
     const runChartPrompt = async () => {
-      if (!hasChartCommandTarget) {
-        setAgentBusy(true);
-        try {
-          const analysisPayload = {
-            symbol: mainView.symbol,
-            intent: prompt,
-            routerMode: "hybrid",
-            messages: [{ role: "user", content: prompt }],
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
-          };
-          const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
-          if (layoutResolution?.status === "ui_layout") {
-            if (layoutResolution.layoutProposal) {
-              setPanelState((current) => applyTiledAgentLayoutProposal(current, layoutResolution.layoutProposal!, viewportSizeRef.current));
-            }
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
-            ]);
-            return;
+      setAgentBusy(true);
+      try {
+        const interactiveContext = buildInteractiveAgentContext(
+          chartPanelHandlesRef.current,
+          null,
+          semanticSelection,
+          agentReferences
+        );
+        const analysisPayload = {
+          symbol: mainView.symbol,
+          intent: prompt,
+          routerMode: "hybrid",
+          messages: [{ role: "user", content: prompt }],
+          chartContext: interactiveContext.chartContext,
+          references: interactiveContext.references,
+          uiContext: interactiveContext.uiContext,
+          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, undefined, chartDocumentSymbolsByPanelId)
+        };
+        const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
+        if (layoutResolution?.status === "ui_layout") {
+          if (layoutResolution.layoutProposal) {
+            setPanelState((current) => applyTiledAgentLayoutProposal(current, layoutResolution.layoutProposal!, viewportSizeRef.current));
           }
-          if (layoutResolution?.status === "ui_clarify") {
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
-            ]);
-            return;
-          }
-        } catch {
-          // Layout resolve is an optimization; analysis remains the fallback.
-        } finally {
-          setAgentBusy(false);
+          setChatLog((current) => [
+            ...current,
+            userEntry,
+            createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+          ]);
+          return;
         }
+        if (layoutResolution?.status === "ui_clarify") {
+          setChatLog((current) => [
+            ...current,
+            userEntry,
+            createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+          ]);
+          return;
+        }
+      } catch {
+        // Layout resolve is an optimization; analysis remains the fallback.
+      } finally {
+        setAgentBusy(false);
       }
 
-      const pendingEntry = createChatLogEntry(
-        "assistant",
-        hasChartCommandTarget ? "차트 조작 에이전트가 차트를 읽고 있습니다." : "Agent가 분석을 시작했습니다.",
-        true
-      );
+      const pendingEntry = createChatLogEntry("assistant", "Agent가 분석을 시작했습니다.", true);
       setAgentBusy(true);
-      setChatLog((current) => [...current, userEntry, pendingEntry]);
       try {
-        if (hasChartCommandTarget) {
-          const chartPanel = chartCommandTargetContentId ? chartPanelHandlesRef.current.get(chartCommandTargetContentId) : null;
-          if (!chartPanel) {
-            throw new Error("차트 조작 대상 차트를 선택해주세요.");
+        const interactiveContext = buildInteractiveAgentContext(
+          chartPanelHandlesRef.current,
+          null,
+          semanticSelection,
+          agentReferences
+        );
+        const controller = new AbortController();
+        const requestId = createAgentAnalysisRequestId();
+        const activeRun: ActiveAgentRun = {
+          requestId,
+          controller,
+          pendingEntryId: pendingEntry.id,
+          cancelRequested: false
+        };
+        activeAgentRunRef.current = activeRun;
+        const analysisRequestPayload = {
+          symbol: mainView.symbol,
+          intent: prompt,
+          routerMode: "hybrid",
+          messages: [{ role: "user", content: prompt }],
+          chartContext: interactiveContext.chartContext,
+          references: interactiveContext.references,
+          uiContext: interactiveContext.uiContext,
+          layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, undefined, chartDocumentSymbolsByPanelId)
+        };
+        publishLocalAgentDebugSnapshot(analysisRequestPayload, interactiveContext);
+        const debugEntry = isLocalAgentDebugEnabled()
+          ? createChatLogEntry("system", formatAgentDebugSnapshot(analysisRequestPayload, interactiveContext))
+          : null;
+        setChatLog((current) => [
+          ...current,
+          userEntry,
+          ...(debugEntry ? [debugEntry] : []),
+          pendingEntry
+        ]);
+        const report = await requestAgentAnalysisPayload(analysisRequestPayload, {
+          requestId,
+          signal: controller.signal,
+          onAccepted: (accepted) => {
+            activeRun.requestId = accepted.analysisId;
           }
-          const result = await chartPanel.runAgentPrompt(prompt);
-          replaceChatLogEntry(setChatLog, pendingEntry.id, result.message || "응답이 없습니다.");
-        } else {
-          const controller = new AbortController();
-          const requestId = createAgentAnalysisRequestId();
-          const activeRun: ActiveAgentRun = {
-            requestId,
-            controller,
-            pendingEntryId: pendingEntry.id,
-            cancelRequested: false
-          };
-          activeAgentRunRef.current = activeRun;
-          const report = await requestAgentAnalysisPayload({
-            symbol: mainView.symbol,
-            intent: prompt,
-            routerMode: "hybrid",
-            messages: [{ role: "user", content: prompt }],
-            layoutContext: buildTiledAgentLayoutContext(panelState, viewportSize, mainView.symbol, chartCommandTargetSlotId, chartDocumentSymbolsByPanelId)
-          }, {
-            requestId,
-            signal: controller.signal,
-            onAccepted: (accepted) => {
-              activeRun.requestId = accepted.analysisId;
-            }
-          });
-          if (report.layoutProposal) {
-            applyAgentLayoutProposal(report.layoutProposal);
-          }
-          replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
-          publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
+        });
+        if (report.layoutProposal) {
+          applyAgentLayoutProposal(report.layoutProposal);
         }
+        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
+        publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
         if (isAgentRequestAbortError(error) || activeRun?.cancelRequested) {
@@ -832,7 +973,7 @@ export function App() {
 
     void runChartPrompt();
     return "chat-log";
-  }, [agentBusy, agentInput, applyAgentLayoutProposal, authLoading, canUseAgent, chartDocumentSymbolsByPanelId, hasChartCommandTarget, chartCommandTargetContentId, chartCommandTargetSlotId, mainView, navigateMainView, openSymbolPage, panelState, viewportSize]);
+  }, [agentBusy, agentInput, agentReferences, applyAgentLayoutProposal, authLoading, canUseAgent, chartDocumentSymbolsByPanelId, mainView, navigateMainView, openSymbolPage, panelState, semanticSelection, viewportSize]);
 
   const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -914,11 +1055,10 @@ export function App() {
             companyItems={treeMapItems}
             marketItems={treeMapItems}
             chartRuntime={chartRuntime}
-            chartCommandTargetContentId={chartCommandTargetContentId}
-            canUseChartCommand={canUseAgent}
+            selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             setSemanticSelection={setSemanticSelection}
+            onAgentReferenceSelect={handleAgentReferenceSelect}
             onChartRuntimeAction={dispatchChartRuntimeAction}
-            onChartCommandTargetChange={setChartCommandTargetContentId}
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
@@ -934,7 +1074,7 @@ export function App() {
         authLoading={authLoading}
         authUser={user}
         canUseAgent={canUseAgent}
-        hasChartCommandTarget={hasChartCommandTarget}
+        selectedAgentReferenceCount={selectedAgentReferenceCount}
         symbols={universeSymbols}
         watchlistSymbols={visibleWatchlistSymbols}
         watchlistPersisted={watchlistPersisted}
@@ -945,6 +1085,7 @@ export function App() {
         isChartMode={mainView.mode === "chart"}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
+        onAgentReferencesClear={clearAgentReferences}
         onAgentSubmit={runAgentPrompt}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
@@ -1071,6 +1212,18 @@ function chartDocumentCommandsForPanelPropChanges(
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function initialMainView(): MainView {

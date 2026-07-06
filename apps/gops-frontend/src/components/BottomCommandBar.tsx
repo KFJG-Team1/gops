@@ -32,7 +32,7 @@ type BottomCommandBarProps = {
   authLoading: boolean;
   authUser: AuthUser | null;
   canUseAgent: boolean;
-  hasChartCommandTarget: boolean;
+  selectedAgentReferenceCount: number;
   symbols: ChartSymbolDto[];
   watchlistSymbols: ChartSymbolDto[];
   watchlistPersisted: boolean;
@@ -42,6 +42,7 @@ type BottomCommandBarProps = {
   activeSymbol: string;
   isChartMode: boolean;
   onAgentCancel: () => void;
+  onAgentReferencesClear: () => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
   onAddWatchlistSymbol: (symbol: string) => void;
@@ -67,7 +68,7 @@ export function BottomCommandBar({
   authLoading,
   authUser,
   canUseAgent,
-  hasChartCommandTarget,
+  selectedAgentReferenceCount,
   symbols,
   watchlistSymbols,
   watchlistPersisted,
@@ -77,6 +78,7 @@ export function BottomCommandBar({
   activeSymbol,
   isChartMode,
   onAgentCancel,
+  onAgentReferencesClear,
   onAgentInputChange,
   onAgentSubmit,
   onAddWatchlistSymbol,
@@ -325,10 +327,24 @@ export function BottomCommandBar({
             </div>
           </section>
           <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
+            {selectedAgentReferenceCount > 0 && (
+              <div className="agent-selected-sources" aria-label="선택한 자료">
+                <span>{selectedAgentReferenceCount} 선택한 자료</span>
+                <button
+                  type="button"
+                  className="agent-selected-sources-clear"
+                  aria-label="선택한 자료 해제"
+                  title="선택한 자료 해제"
+                  onClick={onAgentReferencesClear}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )}
             <input
               value={agentInput}
               onChange={(event) => onAgentInputChange(event.target.value)}
-              placeholder={agentPlaceholder(isChartMode, canUseAgent, hasChartCommandTarget)}
+              placeholder={agentPlaceholder(isChartMode, canUseAgent)}
               aria-label="Agent command"
               disabled={agentBusy || !canUseAgent}
             />
@@ -598,12 +614,9 @@ function BottomMenuPanel({
   );
 }
 
-function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean, hasChartCommandTarget: boolean): string {
+function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean): string {
   if (!canUseAgent) {
     return "로그인 후 Agent를 사용할 수 있습니다";
-  }
-  if (hasChartCommandTarget) {
-    return isChartMode ? "선택한 차트에 명령하기" : "종목 차트를 연 뒤 차트를 선택하세요";
   }
   return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
 }

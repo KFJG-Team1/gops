@@ -1258,7 +1258,6 @@ h2 {
   pointer-events: none;
 }
 
-.toolbar.has-active-chart-target .chart-command-target-button.is-active,
 .toolbar.has-active-chart-target .chart-drawing-target-button.is-active,
 .toolbar.has-active-chart-target .chart-add-target-button.is-active {
   opacity: 1;
@@ -1800,6 +1799,39 @@ h2 {
 .agent-box > * {
   position: relative;
   z-index: 1;
+}
+
+.agent-selected-sources {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-caution) 16%, var(--surface-raised-surface));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-shadow) 14%, transparent);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.agent-box button.agent-selected-sources-clear {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: var(--color-muted);
+}
+
+.agent-box button.agent-selected-sources-clear:hover,
+.agent-box button.agent-selected-sources-clear:focus-visible {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 .agent-box input {
@@ -2937,6 +2969,31 @@ h2 {
   padding: 10px;
   background: var(--color-surface);
   color: var(--color-text);
+}
+
+.market-news-row {
+  cursor: pointer;
+  outline: none;
+}
+
+.market-news-row:hover,
+.market-news-row:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.market-news-row.is-agent-reference-selected {
+  box-shadow: none;
+  background: var(--color-surface);
+}
+
+.market-news-row.is-agent-reference-selected .market-news-summary > span,
+.market-news-row.is-agent-reference-selected .market-news-main .market-news-text-highlight,
+.market-news-row.is-agent-reference-selected .market-news-main p > span {
+  border-radius: 3px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: color-mix(in srgb, var(--color-caution) 34%, transparent);
 }
 
 .market-indices-header-meta {
@@ -4413,7 +4470,6 @@ h2 {
   opacity: 0.9;
 }
 
-.chart-command-target-button,
 .chart-drawing-target-button,
 .chart-add-target-button {
   opacity: 0;
@@ -4421,9 +4477,6 @@ h2 {
   transition: opacity 120ms ease;
 }
 
-.chart-lane-frame.is-chart-hovered .chart-command-target-button,
-.chart-lane-frame:hover .chart-command-target-button,
-.chart-command-target-button.is-active,
 .chart-lane-frame.is-chart-hovered .chart-drawing-target-button,
 .chart-lane-frame:hover .chart-drawing-target-button,
 .chart-drawing-target-button.is-active,
@@ -4434,7 +4487,6 @@ h2 {
   pointer-events: auto;
 }
 
-.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-command-target-button:not(.is-active),
 .chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-drawing-target-button:not(.is-active),
 .chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-add-target-button:not(.is-active) {
   opacity: 0;

@@ -1,5 +1,6 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
+import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
@@ -13,6 +14,7 @@ type ChartCanvasProps = {
   chart: ChartState;
   expansions?: SemanticExpansion[];
   previewDrawings?: DrawingEntity[];
+  agentVisualOverlays?: AgentVisualOverlay[];
   hoveredNodeId?: string;
   selectedNodeId?: string;
   crosshair?: { x: number; y: number };
@@ -32,6 +34,7 @@ export function ChartCanvas({
   chart,
   expansions = [],
   previewDrawings = [],
+  agentVisualOverlays = [],
   hoveredNodeId,
   selectedNodeId,
   crosshair,
@@ -64,14 +67,14 @@ export function ChartCanvas({
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
       onScene?.(scene);
-      drawChart(context, scene, crosshair, previewDrawings);
+      drawChart(context, scene, crosshair, previewDrawings, agentVisualOverlays);
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     resize();
     return () => observer.disconnect();
-  }, [chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
+  }, [agentVisualOverlays, chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
 
   return (
     <canvas
@@ -93,7 +96,8 @@ function drawChart(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   crosshair?: { x: number; y: number },
-  previewDrawings: DrawingEntity[] = []
+  previewDrawings: DrawingEntity[] = [],
+  agentVisualOverlays: AgentVisualOverlay[] = []
 ) {
   colors = readThemeColors();
   context.clearRect(0, 0, scene.width, scene.height);
@@ -108,6 +112,7 @@ function drawChart(
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
+    () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
     () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
     () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
@@ -415,6 +420,85 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.restore();
 }
 
+function drawAgentVisualOverlays(context: CanvasRenderingContext2D, scene: ChartScene, overlays: AgentVisualOverlay[]) {
+  const active = overlays.filter((overlay) => !overlay.expiresAt || Date.parse(overlay.expiresAt) > Date.now());
+  if (!active.length) {
+    return;
+  }
+  context.save();
+  active.forEach((overlay) => {
+    const fill = overlayColor(overlay.styleToken);
+    if (overlay.kind === "candleHighlight") {
+      overlay.anchors.forEach((anchor) => {
+        const unit = candleUnits(scene).find((item) => (
+          item.symbol === anchor.symbol &&
+          item.interval === anchor.interval &&
+          item.timestamp === anchor.timestamp
+        ));
+        if (!unit) {
+          return;
+        }
+        const bounds = unitBoundsX(scene, unit);
+        drawOverlayBand(context, scene, bounds.left, bounds.right, fill, 0.16);
+      });
+      return;
+    }
+    overlay.anchors.forEach((anchor) => {
+      const units = candleUnits(scene).filter((unit) => (
+        unit.symbol === anchor.symbol &&
+        unit.interval === anchor.interval &&
+        rangesOverlap(unit.from, unit.to, anchor.from, anchor.to)
+      ));
+      if (!units.length) {
+        return;
+      }
+      const left = Math.min(...units.map((unit) => unitBoundsX(scene, unit).left));
+      const right = Math.max(...units.map((unit) => unitBoundsX(scene, unit).right));
+      drawOverlayBand(context, scene, left, right, fill, 0.12);
+    });
+  });
+  context.restore();
+}
+
+function drawOverlayBand(context: CanvasRenderingContext2D, scene: ChartScene, left: number, right: number, color: string, alpha: number) {
+  context.save();
+  context.globalAlpha = alpha;
+  context.fillStyle = color;
+  context.fillRect(
+    Math.max(scene.plot.left, left),
+    scene.plot.top,
+    Math.max(1, Math.min(scene.plot.right, right) - Math.max(scene.plot.left, left)),
+    Math.max(1, scene.plot.priceBottom - scene.plot.top)
+  );
+  context.globalAlpha = Math.min(1, alpha + 0.14);
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  line(context, Math.max(scene.plot.left, left), scene.plot.top, Math.max(scene.plot.left, left), scene.plot.priceBottom);
+  line(context, Math.min(scene.plot.right, right), scene.plot.top, Math.min(scene.plot.right, right), scene.plot.priceBottom);
+  context.restore();
+}
+
+function overlayColor(token: AgentVisualOverlay["styleToken"]): string {
+  if (token === "caution") {
+    return colors.caution;
+  }
+  if (token === "preview") {
+    return colors.preview;
+  }
+  return colors.signal;
+}
+
+function rangesOverlap(leftFrom: string, leftTo: string, rightFrom: string, rightTo: string): boolean {
+  const leftStart = Date.parse(leftFrom);
+  const leftEnd = Date.parse(leftTo);
+  const rightStart = Date.parse(rightFrom);
+  const rightEnd = Date.parse(rightTo);
+  if (![leftStart, leftEnd, rightStart, rightEnd].every(Number.isFinite)) {
+    return leftFrom <= rightTo && rightFrom <= leftTo;
+  }
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
 function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
   candleUnits(scene).forEach((unit) => {
     const candle = unit.candle;
@@ -425,12 +509,16 @@ function drawCandles(context: CanvasRenderingContext2D, scene: ChartScene) {
     const low = priceToY(scene, candle.low);
     const up = candle.close >= candle.open;
     const hovered = scene.hoveredNodeId === unit.id;
-    const candleColor = candleStrokeColor(up);
+    const selected = scene.selectedNodeId === unit.id;
+    const candleColor = selected ? colors.caution : candleStrokeColor(up);
     const candleWidth = candleBodyWidth(scene, unit, hovered);
+    if (selected) {
+      drawSelectedCandleHighlight(context, scene, unit);
+    }
     context.save();
     context.strokeStyle = candleColor;
     context.fillStyle = candleColor;
-    context.lineWidth = hovered ? 2.2 : 1.25;
+    context.lineWidth = selected ? 2.4 : hovered ? 2.2 : 1.25;
     const bodyTop = Math.min(open, close);
     const bodyHeight = Math.max(2, Math.abs(close - open));
     const bodyBottom = bodyTop + bodyHeight;
@@ -481,10 +569,14 @@ function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
     const low = priceToY(scene, candle.low);
     const up = candle.close >= candle.open;
     const hovered = scene.hoveredNodeId === unit.id;
+    const selected = scene.selectedNodeId === unit.id;
     const tickWidth = Math.max(3, Math.min(12, candleBodyWidth(scene, unit, hovered) * 0.72));
+    if (selected) {
+      drawSelectedCandleHighlight(context, scene, unit);
+    }
     context.save();
-    context.strokeStyle = candleStrokeColor(up);
-    context.lineWidth = hovered ? 2.2 : 1.35;
+    context.strokeStyle = selected ? colors.caution : candleStrokeColor(up);
+    context.lineWidth = selected ? 2.4 : hovered ? 2.2 : 1.35;
     line(context, center, high, center, low);
     line(context, center - tickWidth, open, center, open);
     line(context, center, close, center + tickWidth, close);
@@ -494,6 +586,18 @@ function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
 
 function candleStrokeColor(up: boolean): string {
   return up ? colors.upSoft : colors.downSoft;
+}
+
+function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
+  const bounds = unitBoundsX(scene, unit);
+  drawOverlayBand(
+    context,
+    scene,
+    Math.min(bounds.left, bounds.center - 4),
+    Math.max(bounds.right, bounds.center + 4),
+    colors.caution,
+    0.18
+  );
 }
 
 function drawFootprintBuckets(context: CanvasRenderingContext2D, scene: ChartScene) {

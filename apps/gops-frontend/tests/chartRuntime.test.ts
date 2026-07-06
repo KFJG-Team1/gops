@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
+import { compileDeterministicChartOperations } from "../src/agent/chartOperationCompiler";
 import {
   buildAgentAnalysisRequest,
   formatAgentAnalysisReport,
@@ -204,6 +205,38 @@ function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
     ...overrides
   };
 }
+
+const compiledChartOps = compileDeterministicChartOperations({
+  query: "7월 4일 종가 기준으로 수평선 그리고, 볼린저 밴드만 보여줘",
+  chart: frontendChartState({
+    candles: [
+      testCandle("2026-07-03T00:00:00Z", 101),
+      testCandle("2026-07-04T00:00:00Z", 104)
+    ],
+    layers: {
+      candles: true,
+      volume: true,
+      "sma:20": true,
+      "bollinger:20:2": false,
+      "rsi:14": true
+    }
+  })
+});
+assert.equal(compiledChartOps.handled, true);
+assert.equal(compiledChartOps.operationIR?.operations.length, 3);
+assert.ok(compiledChartOps.actions.some((action) => action.type === "setLayer" && action.layer === "bollinger:20:2" && action.enabled));
+assert.ok(compiledChartOps.actions.some((action) => action.type === "setLayer" && action.layer === "sma:20" && !action.enabled));
+const compiledHorizontalLine = compiledChartOps.actions.find((action) => action.type === "addDrawing");
+assert.equal(compiledHorizontalLine?.type, "addDrawing");
+if (compiledHorizontalLine?.type === "addDrawing") {
+  assert.equal(compiledHorizontalLine.drawing.anchors[0]?.price, 104);
+  assert.equal(compiledHorizontalLine.drawing.anchors[0]?.timestamp, "2026-07-04T00:00:00Z");
+}
+assert.ok(compiledChartOps.visualOverlays.some((overlay) => (
+  overlay.kind === "candleHighlight" &&
+  overlay.styleToken === "signal" &&
+  overlay.anchors.some((anchor) => anchor.timestamp === "2026-07-04T00:00:00Z")
+)));
 
 assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style.background, fallbackChartStyle.background);
 assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
@@ -1816,11 +1849,11 @@ assert.match(appSource, /requestAgentAnalysis/);
 assert.match(appSource, /resolveAgentLayoutCommand/);
 assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionMessage/);
-assert.match(appSource, /hasChartCommandTarget/);
+assert.doesNotMatch(appSource, /hasChartCommandTarget/);
 assert.match(appSource, /login\(\)/);
 assert.match(appSource, /openSymbolPage/);
 assert.match(appSource, /syncPageSymbolFromChart/);
-assert.match(appSource, /chartCommandTargetContentId/);
+assert.doesNotMatch(appSource, /chartCommandTargetContentId/);
 assert.match(appSource, /chartPanelHandlesRef/);
 assert.doesNotMatch(appSource, /showChartInCurrentPanel/);
 assert.match(appSource, /normalizedShortcutSymbols/);
@@ -1833,14 +1866,15 @@ assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.ok(appSource.indexOf("resolveAgentChartShortcut(prompt)") < appSource.indexOf("if (mainView.mode !== \"chart\")"));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
-assert.match(appSource, /if \(!hasChartCommandTarget\)[\s\S]*resolveAgentLayoutCommand/);
+assert.match(appSource, /resolveAgentLayoutCommand\(analysisPayload\)/);
 assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
-assert.match(bottomCommandBarSource, /선택한 차트에 명령하기/);
+assert.match(bottomCommandBarSource, /선택한 자료/);
+assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
@@ -1890,10 +1924,14 @@ assert.match(chartPanelSource, /chart\.comparison\.remove/);
 assert.match(chartPanelSource, /maxComparisonCount = 4/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
+assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
+assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-select"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
+assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(panelContentRendererSource, /chart-panel-drag-strip/);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
@@ -1980,6 +2018,8 @@ assert.deepEqual(agentAnalysisRequest, {
   symbol: "NVDA",
   intent: "NVDA 급등 원인 알려줘",
   chartContext: { chartDocument: { symbol: "NVDA", timeframe: "1m" } },
+  references: [],
+  uiContext: {},
   routerMode: "hybrid",
   analysisMode: "auto",
   agentIds: []
