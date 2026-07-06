@@ -428,6 +428,31 @@ button {
   stroke-width: 1.8;
 }
 
+.workspace-nav-icon-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
+.workspace-nav-badge {
+  position: absolute;
+  top: -10px;
+  right: -11px;
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid var(--color-background);
+  border-radius: 999px;
+  padding: 0 4px;
+  background: var(--color-danger);
+  color: var(--color-background);
+  font-family: var(--font-ui-serif);
+  font-size: 9px;
+  font-weight: 820;
+  line-height: 1;
+}
+
 .workspace-nav-button.is-active::after {
   opacity: 0.12;
 }
@@ -672,6 +697,309 @@ button {
 .bottom-watchlist-row span {
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.alert-menu {
+  gap: 14px;
+}
+
+.alert-form {
+  display: grid;
+  gap: 8px;
+}
+
+.alert-add-button,
+.alert-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.alert-form-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+}
+
+.alert-form-title strong {
+  font-size: 12px;
+}
+
+.alert-form-title span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.alert-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 0.45fr);
+  gap: 7px;
+}
+
+.alert-form-row-three {
+  grid-template-columns: minmax(82px, 0.8fr) minmax(0, 1fr) minmax(62px, 0.6fr);
+}
+
+.alert-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.alert-field span {
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.alert-input {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 9px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 12px;
+}
+
+.alert-input.symbol {
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.alert-symbol-field {
+  overflow: visible;
+}
+
+.alert-menu .alert-symbol-search {
+  width: 100%;
+  height: 32px;
+}
+
+.alert-menu .alert-symbol-search input {
+  height: 32px;
+}
+
+.alert-menu .alert-symbol-search > button {
+  width: 26px;
+  height: 24px;
+}
+
+.alert-menu .alert-symbol-search .symbol-search-menu {
+  top: 34px;
+  z-index: 12;
+}
+
+.alert-target-preview {
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 10px;
+  line-height: 1.35;
+  font-weight: 720;
+}
+
+.alert-field-note {
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.spin {
+  animation: gops-spin 900ms linear infinite;
+}
+
+@keyframes gops-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.alert-menu-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.alert-menu-group {
+  display: grid;
+  gap: 8px;
+}
+
+.alert-menu-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+}
+
+.alert-menu-group-title strong {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.alert-list {
+  display: grid;
+  gap: 7px;
+}
+
+.alert-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--color-surface);
+}
+
+.alert-row.disabled,
+.alert-row.fired {
+  opacity: 0.62;
+}
+
+.alert-row-main {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 12px;
+}
+
+.alert-row-main strong,
+.alert-row-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-row-main span {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.alert-icon-button,
+.alert-inline-button {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+
+.alert-icon-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.alert-icon-button.danger {
+  color: var(--color-danger);
+}
+
+.alert-icon-button.is-off {
+  color: var(--color-muted);
+}
+
+.alert-icon-button:disabled,
+.alert-inline-button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.alert-inline-button {
+  grid-auto-flow: column;
+  gap: 4px;
+  min-height: 24px;
+  border-radius: 7px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.notification-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.notification-row.read {
+  opacity: 0.58;
+}
+
+.notification-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-ui-serif);
+  text-align: left;
+}
+
+.notification-row-main:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.notification-delete-button {
+  justify-self: end;
+}
+
+.notification-row-copy {
+  min-width: 0;
+}
+
+.notification-row-time {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-family: var(--font-ui-serif);
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.notification-row strong {
+  color: var(--color-text);
 }
 
 .account-menu-card {
@@ -3812,6 +4140,16 @@ h2 {
 .chart-tab-content.is-company .company-summary-panel {
   height: 100%;
   padding: 6px 0 0;
+}
+
+.chart-panel-drag-strip {
+  position: absolute;
+  z-index: 28;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 42px;
+  pointer-events: auto;
 }
 
 .chart-instance-symbol {
