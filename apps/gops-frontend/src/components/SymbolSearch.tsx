@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChartSymbolDto } from "../chart/types";
 
 type SymbolSearchProps = {
@@ -27,9 +27,12 @@ export function SymbolSearch({
   onPointerActivity,
   formatSelectedLabel
 }: SymbolSearchProps) {
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState(selectedLabel ?? "");
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const fallbackLabel = selectedSymbol ?? "";
   const selectedDisplayLabel = selectedLabel ?? fallbackLabel;
 
@@ -43,6 +46,10 @@ export function SymbolSearch({
       setQuery(selectedDisplayLabel);
     }
   }, [open, selectedDisplayLabel]);
+
+  useEffect(() => {
+    setHighlightedIndex((current) => clampHighlightedIndex(current, filteredSymbols.length));
+  }, [filteredSymbols.length]);
 
   const selectSymbol = (symbol: ChartSymbolDto) => {
     setQuery(formatSymbolLabel(symbol, formatSelectedLabel));
@@ -61,7 +68,34 @@ export function SymbolSearch({
     }
   };
 
+  const selectHighlightedSymbol = () => {
+    const next = filteredSymbols[highlightedIndex] ?? filteredSymbols[0];
+    if (next) {
+      selectSymbol(next);
+      return;
+    }
+    submitFirstMatch();
+  };
+
+  const moveHighlight = (direction: 1 | -1) => {
+    setOpen(true);
+    setFocused(true);
+    setHighlightedIndex((current) => {
+      if (!filteredSymbols.length) {
+        return 0;
+      }
+      return (clampHighlightedIndex(current, filteredSymbols.length) + direction + filteredSymbols.length) % filteredSymbols.length;
+    });
+  };
+
+  const focusInput = () => {
+    inputRef.current?.focus();
+  };
+
   const active = open || focused;
+  const activeOptionId = open && filteredSymbols[highlightedIndex]
+    ? `${listboxId}-option-${filteredSymbols[highlightedIndex].symbol}`
+    : undefined;
 
   return (
     <div
@@ -85,29 +119,48 @@ export function SymbolSearch({
       }}
     >
       <input
+        ref={inputRef}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
           setOpen(true);
+          setHighlightedIndex(0);
         }}
         onFocus={() => {
           setFocused(true);
           setQuery("");
           setOpen(true);
+          setHighlightedIndex(0);
         }}
         onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveHighlight(1);
+            return;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveHighlight(-1);
+            return;
+          }
           if (event.key === "Enter") {
             event.preventDefault();
-            submitFirstMatch(event.currentTarget.value);
+            selectHighlightedSymbol();
+            return;
           }
           if (event.key === "Escape") {
             setOpen(false);
             setFocused(false);
             setQuery(selectedDisplayLabel);
+            setHighlightedIndex(0);
           }
         }}
         placeholder={placeholder}
         aria-label="Symbol search"
+        aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={activeOptionId}
+        aria-expanded={open}
+        aria-haspopup="listbox"
         autoComplete="off"
       />
       <button
@@ -124,19 +177,44 @@ export function SymbolSearch({
           setFocused(true);
           setQuery("");
           setOpen(true);
+          setHighlightedIndex(0);
+          focusInput();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveHighlight(1);
+            focusInput();
+            return;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveHighlight(-1);
+            focusInput();
+            return;
+          }
+          if (event.key === "Enter" && open) {
+            event.preventDefault();
+            selectHighlightedSymbol();
+          }
         }}
       >
         <Search size={compact ? 12 : 14} aria-hidden="true" />
       </button>
       {open && (
-        <div className="symbol-search-menu surface-flat surface-recessed" role="listbox" aria-label="Symbols">
-          {filteredSymbols.map((symbol) => (
+        <div id={listboxId} className="symbol-search-menu surface-flat surface-recessed" role="listbox" aria-label="Symbols">
+          {filteredSymbols.map((symbol, index) => (
             <button
               key={symbol.symbol}
+              id={`${listboxId}-option-${symbol.symbol}`}
               type="button"
-              className={symbol.symbol === selectedSymbol ? "active" : ""}
+              className={[
+                symbol.symbol === selectedSymbol ? "active" : "",
+                index === highlightedIndex ? "highlighted" : ""
+              ].filter(Boolean).join(" ")}
               role="option"
-              aria-selected={symbol.symbol === selectedSymbol}
+              aria-selected={index === highlightedIndex}
+              onPointerMove={() => setHighlightedIndex(index)}
               onPointerDown={(event) => {
                 event.preventDefault();
                 selectSymbol(symbol);
@@ -151,6 +229,13 @@ export function SymbolSearch({
       )}
     </div>
   );
+}
+
+function clampHighlightedIndex(index: number, optionCount: number): number {
+  if (optionCount <= 0) {
+    return 0;
+  }
+  return Math.min(Math.max(index, 0), optionCount - 1);
 }
 
 function formatSymbolLabel(

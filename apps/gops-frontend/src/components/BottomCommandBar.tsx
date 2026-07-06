@@ -1,8 +1,9 @@
-import { Bell, ChevronDown, ChevronUp, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards, X } from "lucide-react";
+import { type DragEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
+import { SymbolSearch } from "./SymbolSearch";
 
 export type BottomMenuKey = "I" | "II" | "III" | "IV" | "V" | "VI";
 export type ChatLogEntry = {
@@ -14,6 +15,11 @@ export type ChatLogEntry = {
 export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
 
 type BottomMenuSide = "left" | "right";
+type WatchlistDropPlacement = "before" | "after";
+type WatchlistDragTarget = {
+  symbol: string;
+  placement: WatchlistDropPlacement;
+};
 
 type BottomCommandBarProps = {
   activeMenu: BottomMenuKey | null;
@@ -26,15 +32,23 @@ type BottomCommandBarProps = {
   canUseAgent: boolean;
   chartCommandMode: boolean;
   symbols: ChartSymbolDto[];
+  watchlistSymbols: ChartSymbolDto[];
+  watchlistPersisted: boolean;
+  watchlistLoading: boolean;
+  watchlistSaving: boolean;
+  canEditWatchlist: boolean;
   activeSymbol: string;
   isChartMode: boolean;
   onAgentCancel: () => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
   onChartCommandModeChange: (enabled: boolean) => void;
+  onAddWatchlistSymbol: (symbol: string) => void;
   onCloseMenu: () => void;
   onLogin: () => void;
   onLogout: () => void;
+  onReorderWatchlistSymbol: (draggedSymbol: string, targetSymbol: string, placement: WatchlistDropPlacement) => void;
+  onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
@@ -54,20 +68,31 @@ export function BottomCommandBar({
   canUseAgent,
   chartCommandMode,
   symbols,
+  watchlistSymbols,
+  watchlistPersisted,
+  watchlistLoading,
+  watchlistSaving,
+  canEditWatchlist,
   activeSymbol,
   isChartMode,
   onAgentCancel,
   onAgentInputChange,
   onAgentSubmit,
   onChartCommandModeChange,
+  onAddWatchlistSymbol,
   onCloseMenu,
   onLogin,
   onLogout,
+  onReorderWatchlistSymbol,
+  onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
   onToggleMenu
 }: BottomCommandBarProps) {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  const [watchlistDragSource, setWatchlistDragSource] = useState<string | null>(null);
+  const [watchlistDragTarget, setWatchlistDragTarget] = useState<WatchlistDragTarget | null>(null);
+  const [watchlistPreviewSymbols, setWatchlistPreviewSymbols] = useState<ChartSymbolDto[] | null>(null);
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
 
   useEffect(() => {
@@ -99,6 +124,59 @@ export function BottomCommandBar({
       onCloseMenu();
     }
     setChatPanelOpen(false);
+  };
+
+  const resetWatchlistDrag = () => {
+    setWatchlistDragSource(null);
+    setWatchlistDragTarget(null);
+    setWatchlistPreviewSymbols(null);
+  };
+
+  const beginWatchlistDrag = (event: DragEvent<HTMLElement>, symbol: string) => {
+    if (!canEditWatchlist || watchlistSaving) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", symbol);
+    event.dataTransfer.setDragImage(event.currentTarget, event.currentTarget.clientWidth / 2, event.currentTarget.clientHeight / 2);
+    setWatchlistDragSource(symbol);
+    setWatchlistDragTarget(null);
+    setWatchlistPreviewSymbols(watchlistSymbols);
+  };
+
+  const updateWatchlistDropTarget = (event: DragEvent<HTMLElement>, targetSymbol: string) => {
+    const draggedSymbol = watchlistDragSource ?? event.dataTransfer.getData("text/plain");
+    if (!draggedSymbol || draggedSymbol === targetSymbol || !canEditWatchlist || watchlistSaving) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const targetRect = event.currentTarget.getBoundingClientRect();
+    const placement: WatchlistDropPlacement = event.clientY > targetRect.top + targetRect.height / 2 ? "after" : "before";
+    setWatchlistDragTarget({ symbol: targetSymbol, placement });
+    setWatchlistPreviewSymbols((current) => previewWatchlistReorder(current ?? watchlistSymbols, draggedSymbol, targetSymbol, placement));
+  };
+
+  const clearWatchlistDropTarget = (targetSymbol: string) => {
+    setWatchlistDragTarget((current) => current?.symbol === targetSymbol ? null : current);
+  };
+
+  const dropWatchlistSymbol = (event: DragEvent<HTMLElement>, targetSymbol: string) => {
+    if (!canEditWatchlist || watchlistSaving) {
+      resetWatchlistDrag();
+      return;
+    }
+    event.preventDefault();
+    const draggedSymbol = watchlistDragSource ?? event.dataTransfer.getData("text/plain");
+    const targetRect = event.currentTarget.getBoundingClientRect();
+    const fallbackPlacement: WatchlistDropPlacement = event.clientY > targetRect.top + targetRect.height / 2 ? "after" : "before";
+    const placement = watchlistDragTarget?.symbol === targetSymbol ? watchlistDragTarget.placement : fallbackPlacement;
+    resetWatchlistDrag();
+    if (!draggedSymbol || draggedSymbol === targetSymbol) {
+      return;
+    }
+    onReorderWatchlistSymbol(draggedSymbol, targetSymbol, placement);
   };
 
   const toggleChatPanel = () => {
@@ -150,9 +228,23 @@ export function BottomCommandBar({
           authLoading={authLoading}
           authUser={authUser}
           symbols={symbols}
+          watchlistSymbols={watchlistPreviewSymbols ?? watchlistSymbols}
+          watchlistPersisted={watchlistPersisted}
+          watchlistLoading={watchlistLoading}
+          watchlistSaving={watchlistSaving}
+          watchlistDragSource={watchlistDragSource}
+          watchlistDragTarget={watchlistDragTarget}
+          canEditWatchlist={canEditWatchlist}
           activeSymbol={activeSymbol}
+          onAddWatchlistSymbol={onAddWatchlistSymbol}
+          onBeginWatchlistDrag={beginWatchlistDrag}
+          onClearWatchlistDropTarget={clearWatchlistDropTarget}
+          onDropWatchlistSymbol={dropWatchlistSymbol}
+          onEndWatchlistDrag={resetWatchlistDrag}
+          onUpdateWatchlistDropTarget={updateWatchlistDropTarget}
           onLogin={onLogin}
           onLogout={onLogout}
+          onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
           onSelectSymbol={onSelectSymbol}
           onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
@@ -218,9 +310,23 @@ export function BottomCommandBar({
           authLoading={authLoading}
           authUser={authUser}
           symbols={symbols}
+          watchlistSymbols={watchlistPreviewSymbols ?? watchlistSymbols}
+          watchlistPersisted={watchlistPersisted}
+          watchlistLoading={watchlistLoading}
+          watchlistSaving={watchlistSaving}
+          watchlistDragSource={watchlistDragSource}
+          watchlistDragTarget={watchlistDragTarget}
+          canEditWatchlist={canEditWatchlist}
           activeSymbol={activeSymbol}
+          onAddWatchlistSymbol={onAddWatchlistSymbol}
+          onBeginWatchlistDrag={beginWatchlistDrag}
+          onClearWatchlistDropTarget={clearWatchlistDropTarget}
+          onDropWatchlistSymbol={dropWatchlistSymbol}
+          onEndWatchlistDrag={resetWatchlistDrag}
+          onUpdateWatchlistDropTarget={updateWatchlistDropTarget}
           onLogin={onLogin}
           onLogout={onLogout}
+          onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
           onSelectSymbol={onSelectSymbol}
           onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
@@ -239,9 +345,23 @@ function MenuActionGroup({
   authLoading,
   authUser,
   symbols,
+  watchlistSymbols,
+  watchlistPersisted,
+  watchlistLoading,
+  watchlistSaving,
+  watchlistDragSource,
+  watchlistDragTarget,
+  canEditWatchlist,
   activeSymbol,
+  onAddWatchlistSymbol,
+  onBeginWatchlistDrag,
+  onClearWatchlistDropTarget,
+  onDropWatchlistSymbol,
+  onEndWatchlistDrag,
+  onUpdateWatchlistDropTarget,
   onLogin,
   onLogout,
+  onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
   onCloseMenu,
@@ -254,9 +374,23 @@ function MenuActionGroup({
   authLoading: boolean;
   authUser: AuthUser | null;
   symbols: ChartSymbolDto[];
+  watchlistSymbols: ChartSymbolDto[];
+  watchlistPersisted: boolean;
+  watchlistLoading: boolean;
+  watchlistSaving: boolean;
+  watchlistDragSource: string | null;
+  watchlistDragTarget: WatchlistDragTarget | null;
+  canEditWatchlist: boolean;
   activeSymbol: string;
+  onAddWatchlistSymbol: (symbol: string) => void;
+  onBeginWatchlistDrag: (event: DragEvent<HTMLElement>, symbol: string) => void;
+  onClearWatchlistDropTarget: (targetSymbol: string) => void;
+  onDropWatchlistSymbol: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
+  onEndWatchlistDrag: () => void;
+  onUpdateWatchlistDropTarget: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
   onLogin: () => void;
   onLogout: () => void;
+  onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onCloseMenu: () => void;
@@ -276,9 +410,23 @@ function MenuActionGroup({
         authLoading={authLoading}
         authUser={authUser}
         symbols={symbols}
+        watchlistSymbols={watchlistSymbols}
+        watchlistPersisted={watchlistPersisted}
+        watchlistLoading={watchlistLoading}
+        watchlistSaving={watchlistSaving}
+        watchlistDragSource={watchlistDragSource}
+        watchlistDragTarget={watchlistDragTarget}
+        canEditWatchlist={canEditWatchlist}
         activeSymbol={activeSymbol}
+        onAddWatchlistSymbol={onAddWatchlistSymbol}
+        onBeginWatchlistDrag={onBeginWatchlistDrag}
+        onClearWatchlistDropTarget={onClearWatchlistDropTarget}
+        onDropWatchlistSymbol={onDropWatchlistSymbol}
+        onEndWatchlistDrag={onEndWatchlistDrag}
+        onUpdateWatchlistDropTarget={onUpdateWatchlistDropTarget}
         onLogin={onLogin}
         onLogout={onLogout}
+        onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
         onSelectSymbol={onSelectSymbol}
         onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
@@ -307,9 +455,23 @@ function BottomMenuPanel({
   authLoading,
   authUser,
   symbols,
+  watchlistSymbols,
+  watchlistPersisted,
+  watchlistLoading,
+  watchlistSaving,
+  watchlistDragSource,
+  watchlistDragTarget,
+  canEditWatchlist,
   activeSymbol,
+  onAddWatchlistSymbol,
+  onBeginWatchlistDrag,
+  onClearWatchlistDropTarget,
+  onDropWatchlistSymbol,
+  onEndWatchlistDrag,
+  onUpdateWatchlistDropTarget,
   onLogin,
   onLogout,
+  onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
   onClose
@@ -320,9 +482,23 @@ function BottomMenuPanel({
   authLoading: boolean;
   authUser: AuthUser | null;
   symbols: ChartSymbolDto[];
+  watchlistSymbols: ChartSymbolDto[];
+  watchlistPersisted: boolean;
+  watchlistLoading: boolean;
+  watchlistSaving: boolean;
+  watchlistDragSource: string | null;
+  watchlistDragTarget: WatchlistDragTarget | null;
+  canEditWatchlist: boolean;
   activeSymbol: string;
+  onAddWatchlistSymbol: (symbol: string) => void;
+  onBeginWatchlistDrag: (event: DragEvent<HTMLElement>, symbol: string) => void;
+  onClearWatchlistDropTarget: (targetSymbol: string) => void;
+  onDropWatchlistSymbol: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
+  onEndWatchlistDrag: () => void;
+  onUpdateWatchlistDropTarget: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
   onLogin: () => void;
   onLogout: () => void;
+  onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
@@ -336,9 +512,23 @@ function BottomMenuPanel({
       authLoading,
       authUser,
       symbols,
+      watchlistSymbols,
+      watchlistPersisted,
+      watchlistLoading,
+      watchlistSaving,
+      watchlistDragSource,
+      watchlistDragTarget,
+      canEditWatchlist,
       activeSymbol,
+      onAddWatchlistSymbol,
+      onBeginWatchlistDrag,
+      onClearWatchlistDropTarget,
+      onDropWatchlistSymbol,
+      onEndWatchlistDrag,
+      onUpdateWatchlistDropTarget,
       onLogin,
       onLogout,
+      onRemoveWatchlistSymbol,
       onSelectSymbol,
       onShowTreeMap,
       onClose
@@ -389,15 +579,52 @@ function bottomMenuLabel(key: BottomMenuKey): string {
   }[key];
 }
 
+function previewWatchlistReorder(
+  symbols: readonly ChartSymbolDto[],
+  draggedSymbol: string,
+  targetSymbol: string,
+  placement: WatchlistDropPlacement
+): ChartSymbolDto[] {
+  if (draggedSymbol === targetSymbol) {
+    return [...symbols];
+  }
+  const draggedItem = symbols.find((item) => item.symbol === draggedSymbol);
+  if (!draggedItem || !symbols.some((item) => item.symbol === targetSymbol)) {
+    return [...symbols];
+  }
+  const withoutDragged = symbols.filter((item) => item.symbol !== draggedSymbol);
+  const targetIndex = withoutDragged.findIndex((item) => item.symbol === targetSymbol);
+  if (targetIndex < 0) {
+    return [...symbols];
+  }
+  const nextSymbols = [...withoutDragged];
+  nextSymbols.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, draggedItem);
+  return nextSymbols.every((item, index) => item.symbol === symbols[index]?.symbol) ? [...symbols] : nextSymbols;
+}
+
 function bottomMenuContent({
   activeKey,
   authEnabled,
   authLoading,
   authUser,
   symbols,
+  watchlistSymbols,
+  watchlistPersisted,
+  watchlistLoading,
+  watchlistSaving,
+  watchlistDragSource,
+  watchlistDragTarget,
+  canEditWatchlist,
   activeSymbol,
+  onAddWatchlistSymbol,
+  onBeginWatchlistDrag,
+  onClearWatchlistDropTarget,
+  onDropWatchlistSymbol,
+  onEndWatchlistDrag,
+  onUpdateWatchlistDropTarget,
   onLogin,
   onLogout,
+  onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
   onClose
@@ -407,9 +634,23 @@ function bottomMenuContent({
   authLoading: boolean;
   authUser: AuthUser | null;
   symbols: ChartSymbolDto[];
+  watchlistSymbols: ChartSymbolDto[];
+  watchlistPersisted: boolean;
+  watchlistLoading: boolean;
+  watchlistSaving: boolean;
+  watchlistDragSource: string | null;
+  watchlistDragTarget: WatchlistDragTarget | null;
+  canEditWatchlist: boolean;
   activeSymbol: string;
+  onAddWatchlistSymbol: (symbol: string) => void;
+  onBeginWatchlistDrag: (event: DragEvent<HTMLElement>, symbol: string) => void;
+  onClearWatchlistDropTarget: (targetSymbol: string) => void;
+  onDropWatchlistSymbol: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
+  onEndWatchlistDrag: () => void;
+  onUpdateWatchlistDropTarget: (event: DragEvent<HTMLElement>, targetSymbol: string) => void;
   onLogin: () => void;
   onLogout: () => void;
+  onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
@@ -445,24 +686,98 @@ function bottomMenuContent({
         </div>
       );
     case "III":
+      const watchlistTitle = canEditWatchlist && watchlistPersisted ? "내 관심종목" : "관심종목";
+      const watchlistDetail = authLoading
+        ? "계정 확인 중"
+        : canEditWatchlist
+          ? watchlistPersisted ? "저장된 목록" : "기본 목록"
+          : "읽기 전용";
       return (
         <div className="bottom-menu-section bottom-menu-scroll">
-          <MenuTitle icon={<Star size={15} />} title="관심종목" detail="현재 기본 목록" />
+          <MenuTitle icon={<Star size={15} />} title={watchlistTitle} detail={watchlistDetail} />
+          {canEditWatchlist ? (
+            <div className="bottom-watchlist-toolbar">
+              <SymbolSearch
+                symbols={symbols}
+                compact
+                className="bottom-watchlist-search"
+                selectedLabel=""
+                placeholder="종목 검색 후 추가"
+                onSelectSymbol={onAddWatchlistSymbol}
+                formatSelectedLabel={(symbolOption) => symbolOption.symbol}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="bottom-menu-item surface-raised"
+              disabled={authLoading}
+              onClick={onLogin}
+            >
+              로그인 후 수정
+            </button>
+          )}
           <div className="bottom-watchlist">
-            {symbols.slice(0, 24).map((item) => (
-              <button
+            {watchlistSymbols.map((item) => (
+              <div
                 key={item.symbol}
-                type="button"
-                className={item.symbol === activeSymbol ? "bottom-watchlist-row active" : "bottom-watchlist-row"}
-                onClick={() => {
-                  onSelectSymbol(item.symbol);
-                  onClose();
-                }}
+                className={[
+                  "bottom-watchlist-row",
+                  item.symbol === activeSymbol ? "active" : "",
+                  canEditWatchlist ? "can-reorder" : "",
+                  watchlistDragSource === item.symbol ? "is-dragging" : "",
+                  watchlistDragTarget?.symbol === item.symbol ? "is-drag-over" : "",
+                  watchlistDragTarget?.symbol === item.symbol ? `drop-${watchlistDragTarget.placement}` : ""
+                ].filter(Boolean).join(" ")}
+                draggable={canEditWatchlist && !watchlistSaving}
+                aria-grabbed={watchlistDragSource === item.symbol}
+                onDragStart={(event) => onBeginWatchlistDrag(event, item.symbol)}
+                onDragOver={(event) => onUpdateWatchlistDropTarget(event, item.symbol)}
+                onDragLeave={() => onClearWatchlistDropTarget(item.symbol)}
+                onDrop={(event) => onDropWatchlistSymbol(event, item.symbol)}
+                onDragEnd={onEndWatchlistDrag}
               >
-                <strong>{item.symbol}</strong>
-                <span>{item.name}</span>
-              </button>
+                {canEditWatchlist && (
+                  <span
+                    className="bottom-watchlist-drag-handle"
+                    aria-hidden="true"
+                    title={`${item.symbol} 드래그해서 순서 변경`}
+                  >
+                    <GripVertical size={14} aria-hidden="true" />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="bottom-watchlist-select"
+                  onClick={() => {
+                    onSelectSymbol(item.symbol);
+                    onClose();
+                  }}
+                >
+                  <strong>{item.symbol}</strong>
+                  <span>{item.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="bottom-watchlist-row-action"
+                  aria-label={canEditWatchlist ? `${item.symbol} 관심종목 삭제` : "로그인 후 관심종목 삭제"}
+                  title={canEditWatchlist ? `${item.symbol} 관심종목 삭제` : "로그인 후 관심종목 삭제"}
+                  disabled={authLoading || watchlistSaving}
+                  onClick={() => {
+                    if (canEditWatchlist) {
+                      onRemoveWatchlistSymbol(item.symbol);
+                      return;
+                    }
+                    onLogin();
+                  }}
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
             ))}
+            {!watchlistLoading && watchlistSymbols.length === 0 && (
+              <p className="bottom-menu-empty">관심종목이 없습니다.</p>
+            )}
           </div>
         </div>
       );
