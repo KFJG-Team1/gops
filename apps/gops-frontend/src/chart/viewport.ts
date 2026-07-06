@@ -10,6 +10,10 @@ export type ChartViewport = {
   rightOffset: number;
 };
 
+export type ViewportClampOptions = {
+  extraFutureSlots?: number;
+};
+
 export function clampVisibleCount(visibleCount: number, candleCount: number, plotWidth?: number): number {
   const widthBound = typeof plotWidth === "number"
     ? Math.max(MIN_VISIBLE_CANDLES, Math.floor(Math.max(1, plotWidth) / MIN_READABLE_SLOT_WIDTH))
@@ -19,31 +23,49 @@ export function clampVisibleCount(visibleCount: number, candleCount: number, plo
   return Math.max(MIN_VISIBLE_CANDLES, Math.min(maxVisibleCount, Math.round(visibleCount)));
 }
 
-export function clampRightOffset(rightOffset: number, visibleCount: number, candleCount: number): number {
+export function clampRightOffset(
+  rightOffset: number,
+  visibleCount: number,
+  candleCount: number,
+  options: ViewportClampOptions = {}
+): number {
   const safeCandleCount = Math.max(0, Math.floor(candleCount));
   const safeVisibleCount = Math.max(1, Math.round(visibleCount));
   const maxRightOffset = Math.max(0, safeCandleCount - Math.min(safeVisibleCount, safeCandleCount));
-  const minRightOffset = -futureEmptySlotCount(safeVisibleCount);
+  const extraFutureSlots = Math.max(0, Math.ceil(options.extraFutureSlots ?? 0));
+  const minRightOffset = -(futureEmptySlotCount(safeVisibleCount) + extraFutureSlots);
   const rounded = Number.isFinite(rightOffset) ? Math.round(rightOffset) : 0;
   return Math.max(minRightOffset, Math.min(maxRightOffset, rounded));
 }
 
-export function normalizeViewport(viewport: ChartViewport, candleCount: number, plotWidth?: number): ChartViewport {
+export function normalizeViewport(
+  viewport: ChartViewport,
+  candleCount: number,
+  plotWidth?: number,
+  options: ViewportClampOptions = {}
+): ChartViewport {
   const visibleCount = clampVisibleCount(viewport.visibleCount, candleCount, plotWidth);
   return {
     visibleCount,
-    rightOffset: clampRightOffset(viewport.rightOffset, visibleCount, candleCount)
+    rightOffset: clampRightOffset(viewport.rightOffset, visibleCount, candleCount, options)
   };
 }
 
-export function zoomViewport(viewport: ChartViewport, visibleCountDelta: number, candleCount: number, plotWidth?: number): ChartViewport {
+export function zoomViewport(
+  viewport: ChartViewport,
+  visibleCountDelta: number,
+  candleCount: number,
+  plotWidth?: number,
+  options: ViewportClampOptions = {}
+): ChartViewport {
   return normalizeViewport(
     {
       visibleCount: viewport.visibleCount + visibleCountDelta,
       rightOffset: viewport.rightOffset
     },
     candleCount,
-    plotWidth
+    plotWidth,
+    options
   );
 }
 
@@ -52,9 +74,10 @@ export function zoomViewportAt(
   visibleCountDelta: number,
   candleCount: number,
   anchorRatio: number,
-  plotWidth?: number
+  plotWidth?: number,
+  options: ViewportClampOptions = {}
 ): ChartViewport {
-  const current = normalizeViewport(viewport, candleCount, plotWidth);
+  const current = normalizeViewport(viewport, candleCount, plotWidth, options);
   const nextVisibleCount = clampVisibleCount(current.visibleCount + visibleCountDelta, candleCount, plotWidth);
   const ratio = Math.max(0, Math.min(1, Number.isFinite(anchorRatio) ? anchorRatio : 0.5));
   const currentEndIndex = candleCount - current.rightOffset;
@@ -68,7 +91,8 @@ export function zoomViewportAt(
       rightOffset: nextRightOffset
     },
     candleCount,
-    plotWidth
+    plotWidth,
+    options
   );
 }
 
@@ -77,10 +101,11 @@ export function dragDeltaToRightOffset(
   dragPixels: number,
   slotWidth: number,
   visibleCount: number,
-  candleCount: number
+  candleCount: number,
+  options: ViewportClampOptions = {}
 ): number {
   const slotDelta = Math.round(dragPixels / Math.max(0.0001, slotWidth));
-  return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount);
+  return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount, options);
 }
 
 export function horizontalWheelDeltaToRightOffset(
@@ -90,11 +115,12 @@ export function horizontalWheelDeltaToRightOffset(
   visibleCount: number,
   candleCount: number,
   deltaMode = 0,
-  pageWidth = Math.max(1, slotWidth * visibleCount)
+  pageWidth = Math.max(1, slotWidth * visibleCount),
+  options: ViewportClampOptions = {}
 ): number {
   const pixelDelta = wheelDeltaToPixels(deltaX, deltaMode, pageWidth);
   const slotDelta = Math.round(-pixelDelta / Math.max(0.0001, slotWidth));
-  return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount);
+  return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount, options);
 }
 
 export function resolveHorizontalWheelDelta(deltaX: number, deltaY: number, shiftKey = false): number | null {

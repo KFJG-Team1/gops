@@ -9,6 +9,7 @@ export * from "./chartPanelSelection";
 export * from "./commands";
 export * from "./drawingGeometry";
 export * from "./intervals";
+export * from "./layers";
 export * from "./marketDataAdapter";
 export * from "./proposals";
 export * from "./registries";

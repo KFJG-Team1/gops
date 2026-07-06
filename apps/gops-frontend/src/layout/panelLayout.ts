@@ -17,7 +17,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "news" | "indices" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind = "chart" | "news" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -37,7 +37,6 @@ export type PanelSlot = {
   rect: PanelRect;
   minWidth: number;
   minHeight: number;
-  required?: boolean;
 };
 
 export type PanelContentInstance = {
@@ -45,8 +44,7 @@ export type PanelContentInstance = {
   kind: PanelContentKind;
   title: string;
   instanceIndex: number;
-  symbol?: string;
-  isDefaultChart?: boolean;
+  chartDocumentId?: string;
   layoutWeight?: number;
   props?: Record<string, unknown>;
 };
@@ -94,7 +92,7 @@ const defaultInsertHeight = 142;
 const boundarySnapTolerance = 10;
 const epsilon = 0.5;
 
-export const insertablePanelKinds: PanelContentKind[] = ["indices", "news", "ontology", "portfolio", "trade", "chart"];
+export const insertablePanelKinds: PanelContentKind[] = ["popular", "indices", "news", "ontology", "portfolio", "trade", "chart"];
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -111,7 +109,7 @@ export function workspaceBounds(
   };
 }
 
-export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanelState {
+export function createInitialTiledPanelState(viewport: ViewportSize, options: { symbol?: string } = {}): TiledPanelState {
   const workspace = workspaceBounds(viewport);
   const gutter = panelGutter(viewport);
   const supportTop = workspaceInnerTop(workspace, gutter);
@@ -125,7 +123,7 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
   const supportLeft = workspace.left + gutter;
   const supportWidth = (workspace.width - gutter * 3) / 2;
   const contents: Record<PanelContentId, PanelContentInstance> = {};
-  const chart = createPanelContent("chart", 1, { isDefaultChart: true, layoutWeight: 100 });
+  const chart = createPanelContent("chart", 1, { symbol: options.symbol?.trim().toUpperCase(), layoutWeight: 100 });
   const news = createPanelContent("news", 2, { layoutWeight: 50 });
   const ontology = createPanelContent("ontology", 3, { layoutWeight: 50 });
   [chart, news, ontology].forEach((content) => {
@@ -170,8 +168,7 @@ export function createInitialTiledPanelState(viewport: ViewportSize): TiledPanel
           height: chartHeight
         },
         minWidth: panelMinWidth,
-        minHeight: chartMinHeight,
-        required: true
+        minHeight: chartMinHeight
       }
     ]
   };
@@ -183,6 +180,7 @@ export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number
     chart: "",
     news: "뉴스",
     indices: "지수",
+    popular: "인기종목",
     ontology: "온톨로지",
     portfolio: "포트폴리오",
     trade: "주문"
@@ -346,7 +344,7 @@ export function addPanelSlotAtRect(
 
 export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
   const removed = state.slots.find((slot) => slot.id === slotId);
-  if (!removed || state.contents[removed.contentId]?.isDefaultChart) {
+  if (!removed || state.slots.length <= 1) {
     return state;
   }
   const nextContents = { ...state.contents };
@@ -376,50 +374,6 @@ export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, vie
       .map((slot) => slot.id === neighbor.slot.id ? { ...slot, rect: unionRect(slot.rect, removed.rect) } : slot)
   };
   return layoutHasGapsOrOverlaps(fallback, inferredViewport) ? state : fallback;
-}
-
-export function setPanelContentSymbol(
-  state: TiledPanelState,
-  contentId: PanelContentId,
-  symbol: string
-): TiledPanelState {
-  return setContentSymbol(state, contentId, symbol, false);
-}
-
-export function setDefaultChartPanelSymbol(state: TiledPanelState, symbol: string): TiledPanelState {
-  const content = Object.values(state.contents).find((item) => item.kind === "chart" && item.isDefaultChart);
-  return content ? setContentSymbol(state, content.id, symbol, true) : state;
-}
-
-export function defaultChartPanelSymbol(state: TiledPanelState): string | undefined {
-  const content = Object.values(state.contents).find((item) => item.kind === "chart" && item.isDefaultChart);
-  return content?.symbol?.toUpperCase();
-}
-
-function setContentSymbol(
-  state: TiledPanelState,
-  contentId: PanelContentId,
-  symbol: string,
-  allowDefaultChart: boolean
-): TiledPanelState {
-  const content = state.contents[contentId];
-  const normalizedSymbol = symbol.trim().toUpperCase();
-  if (!content || !normalizedSymbol || (content.kind === "chart" && content.isDefaultChart && !allowDefaultChart)) {
-    return state;
-  }
-  if (content.symbol?.toUpperCase() === normalizedSymbol) {
-    return state;
-  }
-  return {
-    ...state,
-    contents: {
-      ...state.contents,
-      [contentId]: {
-        ...content,
-        symbol: normalizedSymbol
-      }
-    }
-  };
 }
 
 export function setPanelContentProps(
@@ -470,28 +424,30 @@ export function setPanelContentLayoutWeight(
 export function swapPanelContents(
   state: TiledPanelState,
   sourceSlotId: PanelSlotId,
-  targetSlotId: PanelSlotId
+  targetSlotId: PanelSlotId,
+  viewport?: ViewportSize
 ): TiledPanelState {
   if (sourceSlotId === targetSlotId) {
     return state;
   }
   const source = state.slots.find((slot) => slot.id === sourceSlotId);
   const target = state.slots.find((slot) => slot.id === targetSlotId);
-  if (!source || !target || source.required || target.required) {
+  if (!source || !target) {
     return state;
   }
-  return {
+  const swapped = {
     ...state,
     slots: state.slots.map((slot) => {
       if (slot.id === source.id) {
-        return { ...slot, contentId: target.contentId };
+        return { ...slot, contentId: target.contentId, minHeight: minHeightForContentKind(state.contents[target.contentId]?.kind) };
       }
       if (slot.id === target.id) {
-        return { ...slot, contentId: source.contentId };
+        return { ...slot, contentId: source.contentId, minHeight: minHeightForContentKind(state.contents[source.contentId]?.kind) };
       }
       return slot;
     })
   };
+  return normalizeTiledPanelStateToWorkspace(swapped, viewport ?? viewportFromState(swapped));
 }
 
 export function scaleTiledPanelState(
@@ -649,14 +605,21 @@ export function panelGutter(viewport: ViewportSize): number {
 function createPanelContent(
   kind: PanelContentKind,
   instanceIndex: number,
-  options: Pick<PanelContentInstance, "symbol" | "isDefaultChart" | "layoutWeight" | "props"> = {}
+  options: { symbol?: string; layoutWeight?: number; props?: Record<string, unknown> } = {}
 ): PanelContentInstance {
+  const id = `content-${kind}-${instanceIndex}`;
+  const props = {
+    ...(options.props ?? {}),
+    ...(kind === "chart" && options.symbol ? { symbol: options.symbol, timeframe: "1D" } : {})
+  };
   return {
-    id: `content-${kind}-${instanceIndex}`,
+    id,
     kind,
     title: panelContentTitle(kind, instanceIndex),
     instanceIndex,
-    ...options
+    ...(kind === "chart" ? { chartDocumentId: `${id}-document` } : {}),
+    ...(options.layoutWeight !== undefined ? { layoutWeight: options.layoutWeight } : {}),
+    ...(Object.keys(props).length ? { props } : {})
   };
 }
 
@@ -684,8 +647,12 @@ function effectiveSlotMinWidth(_state: TiledPanelState, slot: PanelSlot): number
   return slot.minWidth;
 }
 
-function effectiveSlotMinHeight(_state: TiledPanelState, slot: PanelSlot): number {
-  return slot.minHeight;
+function effectiveSlotMinHeight(state: TiledPanelState, slot: PanelSlot): number {
+  return minHeightForContentKind(state.contents[slot.contentId]?.kind);
+}
+
+function minHeightForContentKind(kind: PanelContentKind | undefined): number {
+  return kind === "chart" ? chartMinHeight : panelMinHeight;
 }
 
 function workspaceInnerTop(workspace: WorkspaceBounds, gutter: number): number {

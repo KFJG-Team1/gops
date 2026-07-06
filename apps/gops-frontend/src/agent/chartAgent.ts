@@ -42,8 +42,7 @@ const drawingTypes = new Set<DrawingType>([
   "textLabel",
   "pointMarker",
   "arrow",
-  "rangeBox",
-  "measurement"
+  "rangeBox"
 ]);
 
 export async function requestChartAgentActions(request: ChartAgentRequest): Promise<ChartAgentResponse> {
@@ -155,8 +154,6 @@ function commandToAction(command: unknown): ChartAction | null {
     }
     case "chart.drawing.add":
       return drawingCommandToAction(payload, normalizeDrawingType(payload.drawingType));
-    case "chart.measurement.add":
-      return drawingCommandToAction(payload, "measurement");
     default:
       return null;
   }

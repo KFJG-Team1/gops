@@ -69,6 +69,9 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     lastPrice: asNumber(item.lastPrice),
     priceSource: asString(item.priceSource),
     priceUpdatedAt: asString(item.priceUpdatedAt),
+    volume: asNumber(item.volume),
+    sessionDollarVolume: asNumber(item.sessionDollarVolume),
+    currency: asString(item.currency),
     changePercent: asNumber(item.changePercent) ?? 0
   };
 }

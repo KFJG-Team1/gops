@@ -24,9 +24,10 @@ point:
 POST /api/agents/analyze
 ```
 
-During development, a chart-command dev toggle may keep using the legacy route
-to test chart action quality. Do not treat that toggle or this route as
-permanent architecture.
+During development, the chart toolbar robot button selects one active
+`chartDocumentId` for the legacy route. If no robot target is active, the bottom
+agent input should stay on the general `/api/agents/analyze` path. Do not treat
+the legacy route as permanent architecture.
 
 When `ChartCommandAgent` is integrated into `AgentOrchestrator`, remove the
 legacy `/api/llm/chat` client path, remove temporary routing branches, and

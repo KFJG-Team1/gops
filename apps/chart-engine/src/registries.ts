@@ -22,7 +22,6 @@ export const drawingRegistry: Record<DrawingType, DrawingDefinition> = {
   pointMarker: { type: "pointMarker", label: "Point", minAnchors: 1, maxAnchors: 1, commandType: "chart.drawing.add" },
   arrow: { type: "arrow", label: "Arrow", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   rangeBox: { type: "rangeBox", label: "Range", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
-  measurement: { type: "measurement", label: "Measure", minAnchors: 2, maxAnchors: 2, commandType: "chart.measurement.add" },
   ellipse: { type: "ellipse", label: "Ellipse", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   riskRewardBox: { type: "riskRewardBox", label: "Risk", minAnchors: 3, maxAnchors: 3, commandType: "chart.drawing.add" },
   fibonacciRetracement: { type: "fibonacciRetracement", label: "Fibo", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" }
@@ -37,14 +36,15 @@ export const chartToolRegistry: ChartToolDefinition[] = [
   { id: "draw-textLabel", label: "Text", drawingType: "textLabel" },
   { id: "draw-pointMarker", label: "Point", drawingType: "pointMarker" },
   { id: "draw-arrow", label: "Arrow", drawingType: "arrow" },
-  { id: "draw-rangeBox", label: "Range", drawingType: "rangeBox" },
-  { id: "draw-measurement", label: "Measure", drawingType: "measurement" }
+  { id: "draw-rangeBox", label: "Range", drawingType: "rangeBox" }
 ];
 
 export const commandRegistry = new Set<ChartCommandType>([
   "chart.symbol.set",
   "chart.timeframe.set",
+  "chart.type.set",
   "chart.viewport.set",
+  "chart.pane.ratio.set",
   "chart.layer.visibility.set",
   "chart.undo",
   "chart.redo",
@@ -59,8 +59,7 @@ export const commandRegistry = new Set<ChartCommandType>([
   "chart.preview.clear",
   "chart.comparison.add",
   "chart.comparison.remove",
-  "chart.comparison.update",
-  "chart.measurement.add"
+  "chart.comparison.update"
 ]);
 
 export const rendererRegistry = [

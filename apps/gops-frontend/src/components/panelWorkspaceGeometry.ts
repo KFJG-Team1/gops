@@ -54,7 +54,6 @@ export function hitTestSwappableSlot(
 ): PanelSlot | null {
   return state.slots.find((slot) => (
     slot.id !== sourceSlotId &&
-    !slot.required &&
     x >= slot.rect.left &&
     x <= slot.rect.left + slot.rect.width &&
     y >= slot.rect.top &&
