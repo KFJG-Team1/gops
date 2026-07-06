@@ -741,6 +741,7 @@ export function App() {
             viewportSize={viewportSize}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
+            companyItems={treeMapItems}
             chartRuntime={chartRuntime}
             chartCommandTargetContentId={chartCommandTargetContentId}
             canUseChartCommand={canUseAgent}

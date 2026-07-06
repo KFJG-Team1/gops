@@ -4,6 +4,10 @@ export type Sp500UniverseItem = {
   sector: string;
   industry: string;
   cik?: string | null;
+  exchange?: string | null;
+  market?: string | null;
+  country?: string | null;
+  listingDate?: string | null;
   marketCap: number;
   marketCapSource?: string | null;
   layoutPrice?: number | null;
@@ -17,6 +21,16 @@ export type Sp500UniverseItem = {
   fiscalPeriod?: string | null;
   periodEndDate?: string | null;
   filedAt?: string | null;
+  revenue?: number | null;
+  operatingIncome?: number | null;
+  netIncome?: number | null;
+  eps?: number | null;
+  totalAssets?: number | null;
+  totalLiabilities?: number | null;
+  totalEquity?: number | null;
+  operatingCashFlow?: number | null;
+  freeCashFlow?: number | null;
+  ebitda?: number | null;
   lastPrice?: number | null;
   priceSource?: string | null;
   priceUpdatedAt?: string | null;
