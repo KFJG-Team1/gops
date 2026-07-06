@@ -36,11 +36,12 @@ import {
   type ChartDataStatus,
   type ChartDocument,
   type ChartRuntimeAction,
-  type StreamStatus
+  type StreamStatus,
+  normalizeRealtimeLayerEvent
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
+import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -299,6 +300,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
+  const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -438,6 +440,34 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
+    const activeSymbol = chart.symbol.trim().toUpperCase();
+    if (!activeSymbol) {
+      return undefined;
+    }
+    let stopped = false;
+    let controller: AbortController | null = null;
+    const refresh = () => {
+      if (stopped) {
+        return;
+      }
+      controller?.abort();
+      controller = new AbortController();
+      refreshActiveChartSymbol({
+        symbol: activeSymbol,
+        sessionId: activeChartSessionIdRef.current,
+        ttlSeconds: 45
+      }, controller.signal).catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
+  }, [chart.symbol]);
+
+  useEffect(() => {
     const socketSymbol = chart.symbol.trim().toUpperCase();
     if (!socketSymbol || !isRealtimeStreamInterval(chart.interval)) {
       onChartRuntimeAction({
@@ -451,7 +481,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     return openChartSocket(
       socketSymbol,
       candleSourceInterval(chart.interval),
-      (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) }),
+      (event) => {
+        if (isRealtimeLayerEventDto(event)) {
+          onChartRuntimeAction({ kind: "chart.layer.live", event: normalizeRealtimeLayerEvent(event) });
+          return;
+        }
+        onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) });
+      },
       (nextStreamState) => onChartRuntimeAction({
         kind: "chart.stream.status",
         symbol: socketSymbol,
@@ -2262,7 +2298,10 @@ function candleSnapshotFromResponse(response: CandleQueryResponseDto, intervalOv
   };
 }
 
-function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
+type RealtimeLayerEventDto = Extract<CandleEventDto, { type: "LIVE_TRADE_UPDATE" | "LIVE_QUOTE_UPDATE" }>;
+type ChartCandleEventDto = Exclude<CandleEventDto, RealtimeLayerEventDto>;
+
+function candleEventFromDto(event: ChartCandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
   return {
     type: event.type,
     symbol: event.symbol.toUpperCase(),
@@ -2270,6 +2309,10 @@ function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInter
     sourceInterval: intervalOverride && intervalOverride !== event.interval ? event.interval : undefined,
     data: event.data
   };
+}
+
+function isRealtimeLayerEventDto(event: CandleEventDto): event is RealtimeLayerEventDto {
+  return event.type === "LIVE_TRADE_UPDATE" || event.type === "LIVE_QUOTE_UPDATE";
 }
 
 function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {

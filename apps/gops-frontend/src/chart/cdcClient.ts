@@ -49,6 +49,12 @@ export type FootprintQuery = {
   limit?: number;
 };
 
+export type ActiveChartHeartbeat = {
+  symbol: string;
+  sessionId: string;
+  ttlSeconds?: number;
+};
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
@@ -133,6 +139,18 @@ export async function fetchSymbols(signal?: AbortSignal): Promise<ChartSymbolsRe
     throw new Error(`Symbol API failed: ${response.status}`);
   }
   return normalizeSymbolsResponse(await response.json());
+}
+
+export async function refreshActiveChartSymbol(body: ActiveChartHeartbeat, signal?: AbortSignal): Promise<void> {
+  const response = await fetch("/api/charts/active-symbol", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) {
+    throw new Error(`Active chart heartbeat failed: ${response.status}`);
+  }
 }
 
 export function openChartSocket(
@@ -372,8 +390,14 @@ function normalizeCandleEvent(payload: unknown): CandleEventDto {
     throw new Error("Invalid candle event");
   }
   const source = payload as CandleEventDto;
-  if (!source.type || !source.symbol || !source.interval || !source.data) {
+  if (!source.type || !source.symbol || !source.data) {
     throw new Error("Candle event missing required fields");
+  }
+  if ((source.type === "LIVE_TRADE_UPDATE" || source.type === "LIVE_QUOTE_UPDATE")) {
+    return source;
+  }
+  if (!source.interval) {
+    throw new Error("Candle event missing interval");
   }
   return source;
 }

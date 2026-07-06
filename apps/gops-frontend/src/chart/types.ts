@@ -309,12 +309,19 @@ export type CandleQueryResponseDto = {
   };
 };
 
-export type CandleEventDto = {
-  type: "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
-  symbol: string;
-  interval: ChartInterval;
-  data: CandleDto;
-};
+export type CandleEventDto =
+  | {
+      type: "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
+      symbol: string;
+      interval: ChartInterval;
+      data: CandleDto;
+    }
+  | {
+      type: "LIVE_TRADE_UPDATE" | "LIVE_QUOTE_UPDATE";
+      symbol: string;
+      interval?: "trades" | "quotes";
+      data: Record<string, unknown>;
+    };
 
 export type ChartLayerKey =
   | "candles"
