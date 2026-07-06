@@ -449,13 +449,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.symbol]);
 
   useEffect(() => {
+    const socketSymbol = chart.symbol.trim().toUpperCase();
+    if (!socketSymbol) {
+      onChartRuntimeAction({
+        kind: "chart.stream.status",
+        symbol: chart.symbol,
+        interval: chart.interval,
+        status: "idle"
+      });
+      return undefined;
+    }
     return openChartSocket(
-      chart.symbol,
+      socketSymbol,
       candleSourceInterval(chart.interval),
       (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) }),
       (nextStreamState) => onChartRuntimeAction({
         kind: "chart.stream.status",
-        symbol: chart.symbol,
+        symbol: socketSymbol,
         interval: chart.interval,
         status: normalizeStreamStatus(nextStreamState)
       })

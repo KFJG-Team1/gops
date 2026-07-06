@@ -138,6 +138,11 @@ export function openChartSocket(
   onEvent: (event: CandleEventDto) => void,
   onState: (state: "connecting" | "live" | "idle" | "error") => void
 ): () => void {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  if (!normalizedSymbol) {
+    onState("idle");
+    return () => undefined;
+  }
   let closed = false;
   let socket: WebSocket | null = null;
   let reconnectTimer: number | undefined;
@@ -147,7 +152,7 @@ export function openChartSocket(
     if (closed) {
       return;
     }
-    const nextSocket = new WebSocket(chartSocketUrl(symbol, interval));
+    const nextSocket = new WebSocket(chartSocketUrl(normalizedSymbol, interval));
     socket = nextSocket;
     onState("connecting");
     nextSocket.onopen = () => {
