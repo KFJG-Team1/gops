@@ -1,5 +1,4 @@
 import {
-  Bot,
   ChartNoAxesCombined,
   CircleDot,
   Eraser,
@@ -9,6 +8,7 @@ import {
   Palette,
   PanelBottom,
   Paintbrush,
+  RotateCcw,
   Square,
   Trash2,
   Type,
@@ -38,7 +38,6 @@ import {
   type ChartRuntimeAction,
   type StreamStatus
 } from "@gops/chart-engine";
-import { requestChartAgentActions } from "../agent/chartAgent";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
 import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
@@ -117,6 +116,7 @@ type PaneResizeAnchor = {
 
 type PendingSemanticClick = {
   unit: SemanticRenderUnit;
+  action: "dig" | "agent-select";
   x: number;
   y: number;
 };
@@ -158,12 +158,9 @@ type ChartPanelProps = {
   streamMessage?: string;
   symbols: ChartSymbolDto[];
   laneHeight?: number;
-  chartCommandActive?: boolean;
-  chartCommandEnabled?: boolean;
   chartDrawingActive?: boolean;
   chartAddActive?: boolean;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onChartCommandToggle?: () => void;
   onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
@@ -172,14 +169,9 @@ type ChartPanelProps = {
 };
 
 export type ChartPanelHandle = {
-  runAgentPrompt: (prompt: string) => Promise<ChartAgentPromptResult>;
   getSnapshot: () => ChartState;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
-};
-
-export type ChartAgentPromptResult = {
-  message: string;
 };
 
 export type ChartHeaderSnapshot = {
@@ -220,12 +212,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   streamMessage,
   symbols,
   laneHeight,
-  chartCommandActive = false,
-  chartCommandEnabled = true,
   chartDrawingActive = false,
   chartAddActive = false,
   onChartRuntimeAction,
-  onChartCommandToggle,
   onChartDrawingToggle,
   onChartAddToggle,
   onSemanticSelectionChange,
@@ -234,6 +223,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
+  const [digEnabled, setDigEnabled] = useState(true);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
@@ -929,11 +919,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: enabled });
   }, [dispatchDocumentCommand, laneHeight]);
 
-  const applyAgentActions = useCallback((actions: ChartAction[]) => {
-    const commands = actionsToChartCommands(actions, chartRef.current, commandTarget, "llm");
-    dispatchDocumentCommandGroup(commands, "Chart agent actions");
-  }, [commandTarget, dispatchDocumentCommandGroup]);
-
   const applyViewport = useCallback((viewport: ChartViewport) => {
     const currentChart = chartRef.current;
     const currentScene = sceneRef.current;
@@ -984,8 +969,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     ));
   }, []);
 
-  const selectSemanticUnit = useCallback((unit: SemanticRenderUnit) => {
-    setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
+  const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
+    if (unit.kind !== "candle") {
+      return;
+    }
+    setSelectedSemanticNode((current) => (
+      current?.nodeId === unit.id ? null : snapshotFromSemanticUnit(unit)
+    ));
   }, []);
 
   const closeExpansion = useCallback((expansionId: string) => {
@@ -1077,7 +1067,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (chartRef.current.chartType === "line") {
       return;
     }
-    selectSemanticUnit(unit);
     if (unit.kind !== "candle") {
       return;
     }
@@ -1085,15 +1074,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeExpansionsRef.current = upsertExpansion(activeExpansionsRef.current, expansion);
     setActiveExpansions((current) => upsertExpansion(current, expansion));
     if (expansion.childInterval === "footprint") {
-      setSelectedSemanticNode({
-        ...snapshotFromSemanticUnit(unit),
-        status: "loading"
-      });
       void loadExpansionFootprint(expansion, unit.symbol);
       return;
     }
     void loadExpansionCandles(expansion, unit.symbol);
-  }, [loadExpansionCandles, loadExpansionFootprint, selectSemanticUnit]);
+  }, [loadExpansionCandles, loadExpansionFootprint]);
 
   const zoomBy = useCallback((delta: number) => {
     const current = chartRef.current;
@@ -1109,24 +1094,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     applyViewport(nextViewport);
   }, [applyViewport]);
 
-  const runAgentPrompt = useCallback(async (rawPrompt: string): Promise<ChartAgentPromptResult> => {
-    const prompt = rawPrompt.trim();
-    if (!prompt) {
-      return { message: "" };
-    }
-    const result = await requestChartAgentActions({ prompt, chart: chartRef.current });
-    if (result.actions.length) {
-      applyAgentActions(result.actions);
-    }
-    return { message: result.message };
-  }, [applyAgentActions]);
-
   useImperativeHandle(ref, () => ({
-    runAgentPrompt,
     getSnapshot: () => chartRef.current,
     setInterval,
     setChartType
-  }), [runAgentPrompt, setChartType, setInterval]);
+  }), [setChartType, setInterval]);
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -1225,14 +1197,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
-    const semanticDigEnabled = chart.chartType !== "line";
+    const semanticSelectionEnabled = chart.chartType !== "line";
+    const semanticDigEnabled = digEnabled && semanticSelectionEnabled;
 
     if (chart.toolMode === "select") {
       const hit = hitTestDrawing(scene, point.x, point.y);
       if (!hit) {
-        if (semanticHit && semanticDigEnabled) {
-          pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
-          selectSemanticUnit(semanticHit);
+        if (semanticHit && semanticSelectionEnabled) {
+          if (semanticDigEnabled) {
+            pendingSemanticClickRef.current = { unit: semanticHit, action: "dig", x: event.clientX, y: event.clientY };
+          } else {
+            toggleAgentSemanticUnitSelection(semanticHit);
+          }
           return;
         }
         dispatchDocumentCommand("chart.drawing.clearSelection", { mode: chart.toolMode });
@@ -1276,8 +1252,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
 
-    if (semanticHit && semanticDigEnabled) {
-      pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
+    if (semanticHit && semanticSelectionEnabled) {
+      pendingSemanticClickRef.current = {
+        unit: semanticHit,
+        action: semanticDigEnabled ? "dig" : "agent-select",
+        x: event.clientX,
+        y: event.clientY
+      };
     }
     const currentViewport = normalizeViewport(
       { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
@@ -1453,7 +1434,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (pendingSemanticClick) {
       const distance = Math.hypot(event.clientX - pendingSemanticClick.x, event.clientY - pendingSemanticClick.y);
       if (distance <= 5) {
-        void openSemanticExpansion(pendingSemanticClick.unit);
+        if (pendingSemanticClick.action === "dig") {
+          void openSemanticExpansion(pendingSemanticClick.unit);
+        } else {
+          toggleAgentSemanticUnitSelection(pendingSemanticClick.unit);
+        }
         return;
       }
     }
@@ -1520,11 +1505,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0;
+  const semanticDigAvailable = chart.chartType !== "line";
 
   const clearAllDigging = () => {
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
-    setSelectedSemanticNode(null);
+    pendingSemanticClickRef.current = null;
     setExpansionOverlays([]);
   };
 
@@ -1548,10 +1534,36 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </dl>
       )}
 
-      <div className={chartCommandActive || chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
+      <div className={chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
         <div className="toolbar-row">
-          <button className={segmentedClass()} disabled={!hasAnyCurrentSymbolExpansion} onClick={clearAllDigging} type="button" title="Clear all digging">
-            DIG OFF
+          <button
+            className={segmentedClass(semanticDigAvailable && digEnabled)}
+            disabled={!semanticDigAvailable}
+            onClick={() => {
+              setDigEnabled((current) => {
+                const next = !current;
+                if (next) {
+                  setSelectedSemanticNode(null);
+                  pendingSemanticClickRef.current = null;
+                }
+                return next;
+              });
+            }}
+            type="button"
+            aria-pressed={semanticDigAvailable && digEnabled}
+            title={semanticDigAvailable ? digEnabled ? "DIG 확장 끄기" : "DIG 확장 켜기" : "라인 차트에서는 DIG 확장을 사용할 수 없습니다"}
+          >
+            {semanticDigAvailable && digEnabled ? "DIG ON" : "DIG OFF"}
+          </button>
+          <button
+            className={iconButtonClass()}
+            disabled={!hasAnyCurrentSymbolExpansion}
+            onClick={clearAllDigging}
+            type="button"
+            aria-label="DIG 확장 되돌리기"
+            title="DIG 확장 되돌리기"
+          >
+            <RotateCcw size={15} aria-hidden="true" />
           </button>
           <span className="toolbar-separator" aria-hidden="true" />
           <button
@@ -1575,18 +1587,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             onClick={onChartDrawingToggle}
           >
             <Paintbrush size={16} />
-          </button>
-          <button
-            type="button"
-            className={`${iconButtonClass(chartCommandActive)} chart-command-target-button ${chartCommandActive ? "is-active" : ""}`}
-            aria-label={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
-            title={chartCommandActive ? "차트 조작 Agent 대상 해제" : "차트 조작 Agent 대상으로 선택"}
-            aria-pressed={chartCommandActive}
-            disabled={!chartCommandEnabled}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onChartCommandToggle}
-          >
-            <Bot size={16} />
           </button>
           {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
         </div>
@@ -2277,55 +2277,6 @@ function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus 
   return status === "connecting" || status === "idle" || status === "live" || status === "error" ? status : "idle";
 }
 
-function actionsToChartCommands(
-  actions: ChartAction[],
-  chart: ChartState,
-  target: ChartCommand["target"],
-  actor: ChartCommandActor
-): ChartCommand[] {
-  return actions.flatMap((action) => chartActionToCommands(action, chart, target, actor));
-}
-
-function chartActionToCommands(
-  action: ChartAction,
-  chart: ChartState,
-  target: ChartCommand["target"],
-  actor: ChartCommandActor
-): ChartCommand[] {
-  switch (action.type) {
-    case "setSymbol":
-      return [makeChartCommand("chart.symbol.set", actor, target, { symbol: action.symbol })];
-    case "setInterval":
-      return [makeChartCommand("chart.timeframe.set", actor, target, { timeframe: action.interval })];
-    case "setChartType":
-      return [makeChartCommand("chart.type.set", actor, target, { chartType: action.chartType })];
-    case "setTool":
-      return [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: action.toolMode })];
-    case "toggleLayer":
-      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: !chart.layers[action.layer] })];
-    case "setLayer":
-      return [makeChartCommand("chart.layer.visibility.set", actor, target, { layer: action.layer, visible: action.enabled })];
-    case "setViewport":
-      return [makeChartCommand("chart.viewport.set", actor, target, { visibleCount: action.visibleCount, rightOffset: action.rightOffset })];
-    case "addDrawing":
-      return [makeChartCommand("chart.drawing.add", actor, target, { drawing: action.drawing })];
-    case "updateDrawing":
-      return [makeChartCommand("chart.drawing.update", actor, target, { drawingId: action.drawingId, drawingPatch: action.patch })];
-    case "deleteDrawing":
-      return [makeChartCommand("chart.drawing.remove", actor, target, { drawingId: action.drawingId })];
-    case "selectDrawing":
-      return action.drawingId
-        ? [makeChartCommand("chart.drawing.select", actor, target, { drawingId: action.drawingId })]
-        : [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: chart.toolMode })];
-    case "clearDrawings":
-      return chart.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", actor, target, { drawingId: drawing.id }));
-    case "setVolumeRatio":
-      return [makeChartCommand("chart.pane.ratio.set", actor, target, { paneId: "volume", heightRatio: action.ratio })];
-    default:
-      return [];
-  }
-}
-
 function fillTraceMessage(fill?: CandleFillTraceDto): string | undefined {
   if (!fill || fill.status === "not_needed" || fill.status === "filled") {
     return undefined;
@@ -2468,13 +2419,6 @@ function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candl
     candles: [],
     openedAt: new Date().toISOString()
   };
-}
-
-function isDrawingAction(action: ChartAction): boolean {
-  return action.type === "addDrawing" ||
-    action.type === "updateDrawing" ||
-    action.type === "deleteDrawing" ||
-    action.type === "clearDrawings";
 }
 
 function changedPreviewDrawings(baseDrawings: DrawingEntity[], previewDrawings: DrawingEntity[]): DrawingEntity[] {

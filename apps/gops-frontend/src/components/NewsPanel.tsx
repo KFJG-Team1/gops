@@ -1,6 +1,12 @@
 import { ExternalLink, LoaderCircle, RefreshCcw } from "lucide-react";
-import type { SyntheticEvent } from "react";
+import type { KeyboardEvent, SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
+import {
+  agentReferenceKey,
+  newsArticleReference,
+  newsDailySummaryReference,
+  type AgentReference
+} from "../agent/agentReferences";
 
 type NewsItem = {
   symbol: string;
@@ -52,7 +58,15 @@ type NewsResponse = {
   dailySummaries: DailyNewsSummary[];
 };
 
-export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialPayload?: unknown }) {
+type NewsPanelProps = {
+  symbol: string;
+  initialPayload?: unknown;
+  sourcePanelId?: string;
+  selectedAgentReferenceKeys?: string[];
+  onAgentReferenceSelect?: (reference: AgentReference) => void;
+};
+
+export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], onAgentReferenceSelect }: NewsPanelProps) {
   const normalizedInitialPayload = normalizeNewsResponse(initialPayload, symbol);
   const [payload, setPayload] = useState<NewsResponse | null>(normalizedInitialPayload);
   const [loading, setLoading] = useState(!normalizedInitialPayload);
@@ -104,6 +118,16 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
   const dailySummaries = payload?.dailySummaries ?? [];
   const items = payload?.items ?? [];
   const dailyMode = payload?.displayMode === "dailySummary" || dailySummaries.length > 0;
+  const selectReference = useCallback((reference: AgentReference) => {
+    onAgentReferenceSelect?.(reference);
+  }, [onAgentReferenceSelect]);
+  const handleReferenceKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, reference: AgentReference) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    selectReference(reference);
+  }, [selectReference]);
   return (
     <section className="market-news-panel" aria-label={`${symbol} 뉴스 패널`}>
       <header className="panel-inline-header">
@@ -126,8 +150,19 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
       )}
       {!loading && !error && dailyMode && dailySummaries.length > 0 && (
         <div className="market-news-list market-news-daily-list">
-          {dailySummaries.map((item) => (
-            <article key={`${item.symbol ?? symbol}-${item.date}`} className="market-news-row market-news-daily-row">
+          {dailySummaries.map((item) => {
+            const reference = newsDailySummaryReference(item, symbol, sourcePanelId);
+            const selected = selectedAgentReferenceKeys.includes(agentReferenceKey(reference));
+            return (
+            <article
+              key={`${item.symbol ?? symbol}-${item.date}`}
+              className={`market-news-row market-news-daily-row ${selected ? "is-agent-reference-selected" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={selected}
+              onClick={() => selectReference(reference)}
+              onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
+            >
               <div className="market-news-date-row">
                 <div className="market-news-date">{formatNewsDate(item.date)}</div>
                 {item.priceChange && (
@@ -136,7 +171,7 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
                   </span>
                 )}
               </div>
-              <p className="market-news-summary">{item.summary}</p>
+              <p className="market-news-summary"><span>{item.summary}</span></p>
               {item.sources.length > 0 && (
                 <div className="market-news-source-row">
                   <span>출처</span>
@@ -150,6 +185,7 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
                         rel="noreferrer"
                         title={`${source.name ?? sourceHost(source.url)} · ${source.title}`}
                         aria-label={`출처: ${source.title}`}
+                        onClick={(event) => event.stopPropagation()}
                       >
                         <img src={sourceIconUrl(source.url)} alt="" loading="lazy" onError={hideBrokenImage} />
                         <ExternalLink size={11} aria-hidden="true" />
@@ -159,23 +195,35 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
                 </div>
               )}
             </article>
-          ))}
+          );
+          })}
         </div>
       )}
       {!loading && !error && !dailyMode && items.length > 0 && (
         <div className="market-news-list">
-          {items.map((item, index) => (
-            <article key={`${item.url ?? item.title}-${index}`} className="market-news-row">
+          {items.map((item, index) => {
+            const reference = newsArticleReference(item, sourcePanelId);
+            const selected = selectedAgentReferenceKeys.includes(agentReferenceKey(reference));
+            return (
+            <article
+              key={`${item.url ?? item.title}-${index}`}
+              className={`market-news-row ${selected ? "is-agent-reference-selected" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={selected}
+              onClick={() => selectReference(reference)}
+              onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
+            >
               <div className="market-news-main">
                 {item.url ? (
-                  <a href={item.url} target="_blank" rel="noreferrer">
-                    {item.title}
+                  <a href={item.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                    <span className="market-news-text-highlight">{item.title}</span>
                     <ExternalLink size={12} aria-hidden="true" />
                   </a>
                 ) : (
-                  <strong>{item.title}</strong>
+                  <strong><span className="market-news-text-highlight">{item.title}</span></strong>
                 )}
-                {item.summary && <p>{item.summary}</p>}
+                {item.summary && <p><span>{item.summary}</span></p>}
               </div>
               <div className="market-news-meta">
                 <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
@@ -183,7 +231,8 @@ export function NewsPanel({ symbol, initialPayload }: { symbol: string; initialP
                 {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
               </div>
             </article>
-          ))}
+          );
+          })}
         </div>
       )}
     </section>

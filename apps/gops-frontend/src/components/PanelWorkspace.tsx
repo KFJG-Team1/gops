@@ -23,6 +23,7 @@ import {
   useRef,
   useState
 } from "react";
+import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
@@ -62,11 +63,10 @@ type PanelWorkspaceProps = {
   companyItems: Sp500UniverseItem[];
   marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
-  chartCommandTargetContentId: string | null;
-  canUseChartCommand: boolean;
+  selectedAgentReferenceKeys: string[];
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
+  onAgentReferenceSelect: (reference: AgentReference) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onChartCommandTargetChange: (contentId: string | null) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSyncPageSymbolFromChart: (contentId: string) => void;
   onSelectSymbol: (symbol: string) => void;
@@ -102,11 +102,10 @@ export function PanelWorkspace({
   companyItems,
   marketItems,
   chartRuntime,
-  chartCommandTargetContentId,
-  canUseChartCommand,
+  selectedAgentReferenceKeys,
   setSemanticSelection,
+  onAgentReferenceSelect,
   onChartRuntimeAction,
-  onChartCommandTargetChange,
   onChartHandleChange,
   onSyncPageSymbolFromChart,
   onSelectSymbol
@@ -305,9 +304,6 @@ export function PanelWorkspace({
         delete next[closing.contentId];
         return next;
       });
-      if (closing.contentId === chartCommandTargetContentId) {
-        onChartCommandTargetChange(null);
-      }
       if (closing.contentId === drawingTargetContentId) {
         setDrawingTargetContentId(null);
       }
@@ -432,16 +428,15 @@ export function PanelWorkspace({
               chartStreamStatus={chartStreamStatus}
               chartStreamMessage={chartStreamMessage}
               canClose={!isLastPanel}
-              canUseChartCommand={canUseChartCommand}
-              chartCommandActive={chartCommandTargetContentId === content.id}
               chartDrawingActive={drawingTargetContentId === content.id}
               chartAddActive={chartAddTargetContentId === content.id}
+              selectedAgentReferenceKeys={selectedAgentReferenceKeys}
               setSemanticSelection={setSemanticSelection}
+              onAgentReferenceSelect={onAgentReferenceSelect}
               onChartRuntimeAction={onChartRuntimeAction}
               onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
               onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
               onChartHandleChange={onChartHandleChange}
-              onChartCommandToggle={() => onChartCommandTargetChange(chartCommandTargetContentId === content.id ? null : content.id)}
               onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
               onChartAddToggle={() => toggleChartAddTarget(content.id)}
               onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}

@@ -2,6 +2,7 @@ import { Newspaper, X } from "lucide-react";
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
+import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
@@ -32,16 +33,15 @@ type PanelContentRendererProps = {
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
   canClose: boolean;
-  canUseChartCommand: boolean;
-  chartCommandActive: boolean;
   chartDrawingActive: boolean;
   chartAddActive: boolean;
+  selectedAgentReferenceKeys: string[];
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
+  onAgentReferenceSelect: (reference: AgentReference) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHoverChange: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
-  onChartCommandToggle: () => void;
   onChartDrawingToggle: () => void;
   onChartAddToggle: () => void;
   onSyncPageSymbolFromChart: () => void;
@@ -67,16 +67,15 @@ export function PanelContentRenderer({
   chartStreamStatus,
   chartStreamMessage,
   canClose,
-  canUseChartCommand,
-  chartCommandActive,
   chartDrawingActive,
   chartAddActive,
+  selectedAgentReferenceKeys,
   setSemanticSelection,
+  onAgentReferenceSelect,
   onChartRuntimeAction,
   onChartHoverChange,
   onHeaderChange,
   onChartHandleChange,
-  onChartCommandToggle,
   onChartDrawingToggle,
   onChartAddToggle,
   onSyncPageSymbolFromChart,
@@ -97,7 +96,15 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "news") {
-    return <NewsPanel symbol={symbol.toUpperCase()} initialPayload={content.props} />;
+    return (
+      <NewsPanel
+        symbol={symbol.toUpperCase()}
+        initialPayload={content.props}
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+      />
+    );
   }
 
   if (content.kind === "indices") {
@@ -256,12 +263,9 @@ export function PanelContentRenderer({
           streamMessage={chartStreamMessage}
           symbols={symbols}
           laneHeight={laneHeight}
-          chartCommandActive={chartCommandActive}
-          chartCommandEnabled={canUseChartCommand}
           chartDrawingActive={chartDrawingActive}
           chartAddActive={chartAddActive}
           onChartRuntimeAction={onChartRuntimeAction}
-          onChartCommandToggle={onChartCommandToggle}
           onChartDrawingToggle={onChartDrawingToggle}
           onChartAddToggle={onChartAddToggle}
           onSemanticSelectionChange={setSemanticSelection}
