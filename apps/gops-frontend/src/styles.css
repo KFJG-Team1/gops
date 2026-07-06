@@ -806,7 +806,8 @@ h2 {
 }
 
 .toolbar.has-active-chart-target .chart-command-target-button.is-active,
-.toolbar.has-active-chart-target .chart-drawing-target-button.is-active {
+.toolbar.has-active-chart-target .chart-drawing-target-button.is-active,
+.toolbar.has-active-chart-target .chart-add-target-button.is-active {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2644,9 +2645,8 @@ h2 {
   pointer-events: auto;
 }
 
-.chart-instance-interval {
+.chart-instance-select {
   display: inline-block;
-  min-width: 54px;
   height: 26px;
   padding: 0 8px;
   border: 0;
@@ -2662,6 +2662,14 @@ h2 {
   white-space: nowrap;
   pointer-events: none;
   transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+
+.chart-instance-chart-type {
+  min-width: 74px;
+}
+
+.chart-instance-interval {
+  min-width: 54px;
 }
 
 .chart-instance-symbol-text {
@@ -2772,10 +2780,10 @@ h2 {
   background: var(--color-surface-strong);
 }
 
-.workspace-panel-frame.is-chart-hovered .chart-instance-interval,
-.chart-lane-frame:hover .chart-instance-interval,
-.chart-instance-symbol-controls:focus-within .chart-instance-interval,
-.chart-instance-interval:focus-visible {
+.workspace-panel-frame.is-chart-hovered .chart-instance-select,
+.chart-lane-frame:hover .chart-instance-select,
+.chart-instance-symbol-controls:focus-within .chart-instance-select,
+.chart-instance-select:focus-visible {
   padding: 0 22px 0 8px;
   appearance: auto;
   -webkit-appearance: auto;
@@ -2816,7 +2824,8 @@ h2 {
 }
 
 .chart-command-target-button,
-.chart-drawing-target-button {
+.chart-drawing-target-button,
+.chart-add-target-button {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -2827,13 +2836,17 @@ h2 {
 .chart-command-target-button.is-active,
 .chart-lane-frame.is-chart-hovered .chart-drawing-target-button,
 .chart-lane-frame:hover .chart-drawing-target-button,
-.chart-drawing-target-button.is-active {
+.chart-drawing-target-button.is-active,
+.chart-lane-frame.is-chart-hovered .chart-add-target-button,
+.chart-lane-frame:hover .chart-add-target-button,
+.chart-add-target-button.is-active {
   opacity: 1;
   pointer-events: auto;
 }
 
 .chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-command-target-button:not(.is-active),
-.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-drawing-target-button:not(.is-active) {
+.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-drawing-target-button:not(.is-active),
+.chart-lane-frame:not(:hover):not(.is-chart-hovered) .chart-add-target-button:not(.is-active) {
   opacity: 0;
   pointer-events: none;
 }
@@ -2852,6 +2865,33 @@ h2 {
   overflow-x: auto;
 }
 
+.chart-tool-dock-row {
+  position: fixed;
+  left: 50%;
+  bottom: 82px;
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  max-width: calc(100vw - 28px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.chart-tool-dock-row .chart-drawing-dock {
+  position: static;
+  right: auto;
+  bottom: auto;
+  max-width: min(820px, calc((100vw - 52px) / 2));
+  transform: none;
+  pointer-events: auto;
+}
+
+.chart-tool-dock-row .chart-drawing-dock:only-child {
+  max-width: min(820px, calc(100vw - 28px));
+}
+
 .chart-drawing-dock .icon-button,
 .chart-drawing-dock .segmented {
   flex: 0 0 auto;
@@ -2859,6 +2899,29 @@ h2 {
 
 .chart-drawing-dock-close {
   margin-right: 2px;
+}
+
+.chart-placement-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.chart-placement-toggle .icon-button {
+  border-radius: 0;
+}
+
+.chart-placement-toggle .icon-button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.chart-placement-toggle .icon-button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.chart-add-dock .chart-add-layer-button {
+  width: 28px;
 }
 
 @media (max-width: 980px) {

@@ -1,4 +1,4 @@
-import type { CandleDto, ChartState, DrawingAnchor } from "./types";
+import type { CandleDto, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
 import { normalizeViewport, type ChartViewport } from "./viewport";
 import {
   buildSemanticTimeline,
@@ -18,6 +18,13 @@ export type ChartPlot = {
   bottom: number;
   priceBottom: number;
   volumeTop: number;
+  belowPanes: ChartBelowPanePlot[];
+};
+
+export type ChartBelowPanePlot = {
+  id: string;
+  top: number;
+  bottom: number;
 };
 
 export type ChartScene = {
@@ -65,26 +72,32 @@ export type ChartSceneOptions = {
 export function buildChartScene(chart: ChartState, width: number, height: number, options: ChartSceneOptions = {}): ChartScene {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);
+  const belowPaneIds = activeBelowPaneIds(chart);
   const padding = {
     top: safeHeight < 240 ? 62 : 84,
     right: priceAxisWidth,
-    bottom: chart.layers.volume ? 36 : 30,
+    bottom: belowPaneIds.length ? 36 : 30,
     left: 0
   };
   const volumeRatio = Math.max(0.1, Math.min(0.45, chart.volumeRatio || 0.2));
   const availablePlotHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
-  const rawVolumeHeight = Math.max(42, Math.floor(safeHeight * volumeRatio));
-  const volumeHeight = chart.layers.volume && availablePlotHeight >= 92
-    ? Math.min(availablePlotHeight - 46, rawVolumeHeight)
+  const belowPaneMinHeight = 54;
+  const priceMinPlotHeight = 92;
+  const rawBelowStackHeight = Math.max(belowPaneIds.length * belowPaneMinHeight, Math.floor(safeHeight * volumeRatio));
+  const belowStackHeight = belowPaneIds.length && availablePlotHeight >= priceMinPlotHeight + belowPaneIds.length * belowPaneMinHeight
+    ? Math.min(availablePlotHeight - priceMinPlotHeight, rawBelowStackHeight)
     : 0;
-  const priceBottom = Math.max(padding.top + 26, safeHeight - padding.bottom - volumeHeight);
+  const priceBottom = Math.max(padding.top + 26, safeHeight - padding.bottom - belowStackHeight);
+  const belowPanes = buildBelowPanePlots(belowPaneIds, priceBottom, safeHeight - padding.bottom);
+  const volumePane = belowPanes.find((pane) => pane.id === "volume");
   const plot: ChartPlot = {
     left: padding.left,
     right: safeWidth - padding.right,
     top: padding.top,
     bottom: safeHeight - padding.bottom,
     priceBottom,
-    volumeTop: volumeHeight > 0 ? priceBottom + 10 : priceBottom
+    volumeTop: volumePane?.top ?? priceBottom,
+    belowPanes
   };
   const plotWidth = Math.max(1, plot.right - plot.left);
   const resolveViewportTimeline = (viewport: ChartViewport) => {
@@ -173,6 +186,43 @@ export function buildChartScene(chart: ChartState, width: number, height: number
 
 function futureSlotsConsumedBySemanticContent(timeline: SemanticTimeline): number {
   return Math.max(0, Math.ceil(timeline.expansionExtraSlots));
+}
+
+const belowLayerPaneIds: Record<string, string> = {
+  volume: "volume",
+  "rsi:14": "rsi:14",
+  "stochastic:14:3:3": "stochastic:14:3:3",
+  "macd:12:26:9": "macd:12:26:9"
+};
+
+export function activeBelowPaneIds(chart: ChartState): string[] {
+  const visiblePaneIds = Object.entries(belowLayerPaneIds)
+    .filter(([layer]) => Boolean(chart.layers[layer as ChartLayerKey]))
+    .map(([, paneId]) => paneId);
+  const visible = new Set(visiblePaneIds);
+  const ordered = (chart.panes ?? [])
+    .map((pane) => pane.id)
+    .filter((paneId) => paneId !== "price" && visible.has(paneId));
+  const missing = visiblePaneIds.filter((paneId) => !ordered.includes(paneId));
+  return [...ordered, ...missing];
+}
+
+function buildBelowPanePlots(paneIds: string[], priceBottom: number, plotBottom: number): ChartBelowPanePlot[] {
+  if (!paneIds.length || plotBottom <= priceBottom + 10) {
+    return [];
+  }
+  const gap = 6;
+  const top = priceBottom + 10;
+  const available = Math.max(1, plotBottom - top - gap * Math.max(0, paneIds.length - 1));
+  const paneHeight = available / paneIds.length;
+  return paneIds.map((id, index) => {
+    const paneTop = top + index * (paneHeight + gap);
+    return {
+      id,
+      top: paneTop,
+      bottom: paneTop + paneHeight
+    };
+  });
 }
 
 export function createCoordinateTransform(scene: ChartScene): CoordinateTransform {
@@ -351,13 +401,21 @@ export function hitTestSemanticNode(scene: ChartScene, x: number, y: number): Se
 }
 
 function priceDomain(candles: CandleDto[], chart: ChartState): { min: number; max: number; ticks: number[] } {
+  const visibleTimestamps = new Set(candles.map((candle) => candle.timestamp));
   const values = candles.flatMap((candle) => [
     candle.high,
     candle.low,
-    chart.layers.ma5 ? candle.ma5 : undefined,
-    chart.layers.ma20 ? candle.ma20 : undefined,
-    chart.layers.ma60 ? candle.ma60 : undefined
-  ]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    (chart.layers["sma:5"] ?? chart.layers.ma5) ? candle.ma5 : undefined,
+    (chart.layers["sma:20"] ?? chart.layers.ma20) ? candle.ma20 : undefined,
+    (chart.layers["sma:60"] ?? chart.layers.ma60) ? candle.ma60 : undefined
+  ])
+    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), visibleTimestamps))
+    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), visibleTimestamps))
+    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), visibleTimestamps))
+    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), visibleTimestamps))
+    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), visibleTimestamps))
+    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), visibleTimestamps))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }
@@ -366,6 +424,26 @@ function priceDomain(candles: CandleDto[], chart: ChartState): { min: number; ma
   const rawRange = Math.max(0.01, max - min);
   const pad = Math.max(0.5, rawRange * 0.08);
   return integerPriceDomain(min - pad, max + pad);
+}
+
+function indicatorDomainValues(chart: ChartState, layerId: string, enabled: boolean, visibleTimestamps: Set<string>): number[] {
+  if (!enabled) {
+    return [];
+  }
+  return (chart.indicatorSeries?.[layerId] ?? [])
+    .filter((point) => visibleTimestamps.has(point.timestamp))
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+}
+
+function bollingerDomainValues(chart: ChartState, layerId: string, enabled: boolean, visibleTimestamps: Set<string>): number[] {
+  if (!enabled) {
+    return [];
+  }
+  return (chart.indicatorSeries?.[layerId] ?? [])
+    .filter((point) => visibleTimestamps.has(point.timestamp))
+    .flatMap((point) => [point.upper, point.lower])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 function integerPriceDomain(min: number, max: number): { min: number; max: number; ticks: number[] } {

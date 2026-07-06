@@ -1,11 +1,18 @@
 import {
   ArrowUpRight,
+  Activity,
   Bot,
+  ChartColumn,
+  ChartLine,
+  ChartNoAxesCombined,
+  ChartSpline,
   CircleDot,
   Eraser,
   Hand,
+  Layers2,
   MousePointer2,
   Palette,
+  PanelBottom,
   Paintbrush,
   Square,
   Trash2,
@@ -39,7 +46,7 @@ import {
 import { requestChartAgentActions } from "../agent/chartAgent";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { fetchCandles, openChartSocket } from "../chart/cdcClient";
+import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -56,7 +63,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
-import { createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -74,7 +81,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, DrawingEntity } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
@@ -100,6 +107,12 @@ type DragAnchor = {
   y: number;
   rightOffset: number;
   visibleCount: number;
+};
+
+type PaneResizeAnchor = {
+  pointerId: number;
+  startRatio: number;
+  nextRatio: number;
 };
 
 type PendingSemanticClick = {
@@ -136,9 +149,11 @@ type ChartPanelProps = {
   chartCommandActive?: boolean;
   chartCommandEnabled?: boolean;
   chartDrawingActive?: boolean;
+  chartAddActive?: boolean;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartCommandToggle?: () => void;
   onChartDrawingToggle?: () => void;
+  onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
@@ -148,6 +163,7 @@ export type ChartPanelHandle = {
   runAgentPrompt: (prompt: string) => Promise<ChartAgentPromptResult>;
   getSnapshot: () => ChartState;
   setInterval: (interval: ChartInterval) => void;
+  setChartType: (chartType: ChartType) => void;
 };
 
 export type ChartAgentPromptResult = {
@@ -174,7 +190,8 @@ const unavailableQuote: LiveQuote = {
   tone: "unavailable"
 };
 
-const minLaneHeightForVolume = 245;
+const baseChartMinHeightForBelowPanes = 170;
+const belowPaneMinHeight = 70;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -193,9 +210,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   chartCommandActive = false,
   chartCommandEnabled = true,
   chartDrawingActive = false,
+  chartAddActive = false,
   onChartRuntimeAction,
   onChartCommandToggle,
   onChartDrawingToggle,
+  onChartAddToggle,
   onSemanticSelectionChange,
   onChartHoverChange,
   onHeaderChange
@@ -209,12 +228,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
-  const [maMenuOpen, setMaMenuOpen] = useState(false);
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
+  const [transientVolumeRatio, setTransientVolumeRatio] = useState<number | null>(null);
+  const [indicatorSeries, setIndicatorSeries] = useState<IndicatorSeries>({});
+  const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
+  const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
   const chart = useMemo(() => (
     chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
   ), [candles, dataStatus, document, streamMessage, streamStatus]);
+  const activeIndicatorLayers = useMemo(() => activeServerIndicatorLayers(chart), [
+    chart.layers.ma5,
+    chart.layers.ma20,
+    chart.layers.ma60,
+    chart.layers["sma:5"],
+    chart.layers["sma:20"],
+    chart.layers["sma:60"],
+    chart.layers["ema:20"],
+    chart.layers["wma:20"],
+    chart.layers["bollinger:20:2"],
+    chart.layers["rsi:14"],
+    chart.layers["stochastic:14:3:3"],
+    chart.layers["macd:12:26:9"]
+  ]);
+  const visibleProfileRange = useMemo(() => visibleCandleRangeForProfile(chart, transientViewport), [
+    chart.candles,
+    chart.rightOffset,
+    chart.visibleCount,
+    transientViewport
+  ]);
+  const activeBelowPaneOrder = useMemo(() => activeBelowPaneIds(chart), [
+    chart.layers.volume,
+    chart.layers["rsi:14"],
+    chart.layers["stochastic:14:3:3"],
+    chart.layers["macd:12:26:9"],
+    chart.panes
+  ]);
   const sceneRef = useRef<ChartScene | null>(null);
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
@@ -222,9 +271,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
+  const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
+  const transientVolumeRatioRef = useRef<number | null>(null);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -278,10 +329,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const controller = new AbortController();
     fetchCandles({
       symbol,
-      interval,
+      interval: candleSourceInterval(interval),
       before,
       limit,
-      ma: [5, 20, 60]
+      ma: []
     }, controller.signal)
       .then((response) => {
         const current = chartRef.current;
@@ -296,7 +347,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
           plotWidth
         );
-        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response) });
+        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, interval) });
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
       })
       .catch((error: unknown) => {
@@ -324,9 +375,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     });
     fetchCandles({
       symbol: chart.symbol,
-      interval: chart.interval,
+      interval: candleSourceInterval(chart.interval),
       limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: [5, 20, 60]
+      ma: []
     }, controller.signal)
       .then((response) => {
         const current = chartRef.current;
@@ -340,7 +391,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           },
           sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
         );
-        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response) });
+        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
         if (pendingViewportAnchorRef.current?.key === requestKey) {
           pendingViewportAnchorRef.current = null;
@@ -374,8 +425,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     return openChartSocket(
       chart.symbol,
-      chart.interval,
-      (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event) }),
+      candleSourceInterval(chart.interval),
+      (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) }),
       (nextStreamState) => onChartRuntimeAction({
         kind: "chart.stream.status",
         symbol: chart.symbol,
@@ -386,24 +437,170 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.interval, chart.symbol, onChartRuntimeAction]);
 
   useEffect(() => {
+    const firstTimestamp = chart.candles[0]?.timestamp;
+    const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
+    if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
+      setIndicatorSeries({});
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const loadIndicators = (attempt = 0) => {
+      fetchIndicators({
+        symbol: chart.symbol,
+        interval: candleSourceInterval(chart.interval),
+        from: firstTimestamp,
+        to: lastTimestamp,
+        limit: Math.max(chart.candles.length, defaultVisibleBarsForInterval(chart.interval)),
+        layers: activeIndicatorLayers
+      }, controller.signal)
+        .then((response) => {
+          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          if (shouldRetryDerived(response, attempt)) {
+            retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
+            return;
+          }
+          setIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setIndicatorSeries({});
+          }
+        });
+    };
+    loadIndicators();
+    return () => {
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    activeIndicatorLayers,
+    chart.candles,
+    chart.interval,
+    chart.symbol
+  ]);
+
+  useEffect(() => {
+    if (!chart.layers["volume-profile"] || !visibleProfileRange) {
+      setVolumeProfile(null);
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      const loadProfile = (attempt = 0) => {
+        fetchVolumeProfile({
+          symbol: chart.symbol,
+          from: visibleProfileRange.from,
+          to: visibleProfileRange.to,
+          targetBins: 10,
+          priceMin: visibleProfileRange.priceMin,
+          priceMax: visibleProfileRange.priceMax
+        }, controller.signal)
+          .then((response) => {
+            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+              return;
+            }
+            if (shouldRetryDerived(response, attempt)) {
+              retryTimer = window.setTimeout(() => loadProfile(attempt + 1), derivedRetryDelay(response));
+              return;
+            }
+            setVolumeProfile(response.derived?.state === "failed" ? null : response);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) {
+              setVolumeProfile(null);
+            }
+          });
+      };
+      loadProfile();
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    chart.interval,
+    chart.layers["volume-profile"],
+    chart.symbol,
+    visibleProfileRange
+  ]);
+
+  useEffect(() => {
+    if (chart.interval !== "footprint" || !visibleProfileRange) {
+      setFootprint(null);
+      return;
+    }
+    const controller = new AbortController();
+    let retryTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      const loadFootprint = (attempt = 0) => {
+        fetchFootprint({
+          symbol: chart.symbol,
+          from: visibleProfileRange.from,
+          to: visibleProfileRange.to,
+          limit: 20000
+        }, controller.signal)
+          .then((response) => {
+            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+              return;
+            }
+            if (shouldRetryDerived(response, attempt)) {
+              retryTimer = window.setTimeout(() => loadFootprint(attempt + 1), derivedRetryDelay(response));
+              return;
+            }
+            setFootprint(response.derived?.state === "failed" ? null : response);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) {
+              setFootprint(null);
+            }
+          });
+      };
+      loadFootprint();
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+      controller.abort();
+    };
+  }, [
+    chart.interval,
+    chart.symbol,
+    visibleProfileRange
+  ]);
+
+  useEffect(() => {
     onSemanticSelectionChange?.(selectedSemanticNode);
   }, [onSemanticSelectionChange, selectedSemanticNode]);
 
   useEffect(() => {
-    if (typeof laneHeight !== "number" || laneHeight >= minLaneHeightForVolume) {
+    if (typeof laneHeight !== "number") {
       return;
     }
-    if (chart.layers.volume) {
-      dispatchDocumentCommand("chart.layer.visibility.set", { layer: "volume", visible: false });
+    const capacity = maxBelowPaneCountForHeight(laneHeight);
+    if (activeBelowPaneOrder.length > capacity) {
+      const paneId = activeBelowPaneOrder[activeBelowPaneOrder.length - 1];
+      const layer = belowLayerForPaneId(paneId);
+      if (layer) {
+        dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: false });
+      }
     }
-  }, [chart.layers.volume, dispatchDocumentCommand, laneHeight]);
+  }, [activeBelowPaneOrder, dispatchDocumentCommand, laneHeight]);
 
   const renderChart = useMemo(() => ({
     ...chart,
+    indicatorSeries,
+    volumeProfile,
+    footprint,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
+    volumeRatio: transientVolumeRatio ?? chart.volumeRatio,
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, transientDrawings, transientViewport]);
+  }), [chart, footprint, indicatorSeries, transientDrawings, transientViewport, transientVolumeRatio, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
@@ -438,7 +635,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setHoverSnapshot(null);
     setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-    setMaMenuOpen(false);
   }, []);
 
   useEffect(() => {
@@ -447,8 +643,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
     setTransientDrawings(null);
+    setVolumeProfile(null);
+    setFootprint(null);
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
+
+  useEffect(() => {
+    if (chart.chartType !== "line") {
+      return;
+    }
+    activeExpansionsRef.current = [];
+    setActiveExpansions([]);
+    pendingSemanticClickRef.current = null;
+    setSelectedSemanticNode(null);
+    setExpansionOverlays([]);
+  }, [chart.chartType]);
 
   const setInterval = useCallback((interval: ChartInterval) => {
     const current = chartRef.current;
@@ -469,6 +678,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.timeframe.set", { timeframe: interval });
   }, [clearSemanticState, dispatchDocumentCommand]);
 
+  const setChartType = useCallback((chartType: ChartType) => {
+    if (chartRef.current.chartType === chartType) {
+      return;
+    }
+    if (chartType === "line") {
+      activeExpansionsRef.current = [];
+      setActiveExpansions([]);
+      pendingSemanticClickRef.current = null;
+      setSelectedSemanticNode(null);
+      setExpansionOverlays([]);
+    }
+    dispatchDocumentCommand("chart.type.set", { chartType });
+  }, [dispatchDocumentCommand]);
+
   const setToolMode = useCallback((toolMode: ChartToolMode) => {
     dispatchDocumentCommand("chart.drawing.clearSelection", { mode: toolMode });
   }, [dispatchDocumentCommand]);
@@ -481,7 +704,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setDrawingDraft(null);
     setTransientDrawings(null);
     const enabled = !chartRef.current.layers[layer];
-    if (layer === "volume" && enabled && typeof laneHeight === "number" && laneHeight < minLaneHeightForVolume) {
+    if (enabled && isBelowLayer(layer) && typeof laneHeight === "number" && activeBelowPaneIds(chartRef.current).length >= maxBelowPaneCountForHeight(laneHeight)) {
       return;
     }
     dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: enabled });
@@ -567,7 +790,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         from: queryRange.from,
         to: queryRange.to,
         limit: expansionLimitForInterval(expansion.childInterval),
-        ma: [5, 20, 60]
+        ma: []
       });
       setActiveExpansions((current) => current.map((item) => (
         item.id === expansion.id &&
@@ -594,7 +817,47 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
   }, []);
 
+  const loadExpansionFootprint = useCallback(async (expansion: SemanticExpansion, symbol: string) => {
+    if (expansion.childInterval !== "footprint") {
+      return;
+    }
+    try {
+      const response = await fetchFootprint({
+        symbol,
+        from: expansion.from,
+        to: expansion.to,
+        limit: 20000
+      });
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: response.buckets.length ? "ready" : "empty",
+              footprintBucket: response.buckets[0] ?? null,
+              message: response.buckets.length ? undefined : "No footprint data"
+            }
+          : item
+      )));
+    } catch (error: unknown) {
+      setActiveExpansions((current) => current.map((item) => (
+        item.id === expansion.id &&
+        chartRef.current.symbol === symbol
+          ? {
+              ...item,
+              status: "error",
+              footprintBucket: null,
+              message: error instanceof Error ? error.message : "Footprint request failed"
+            }
+          : item
+      )));
+    }
+  }, []);
+
   const openSemanticExpansion = useCallback((unit: SemanticRenderUnit) => {
+    if (chartRef.current.chartType === "line") {
+      return;
+    }
     selectSemanticUnit(unit);
     if (unit.kind !== "candle") {
       return;
@@ -605,12 +868,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (expansion.childInterval === "footprint") {
       setSelectedSemanticNode({
         ...snapshotFromSemanticUnit(unit),
-        status: "ready"
+        status: "loading"
       });
+      void loadExpansionFootprint(expansion, unit.symbol);
       return;
     }
     void loadExpansionCandles(expansion, unit.symbol);
-  }, [loadExpansionCandles, selectSemanticUnit]);
+  }, [loadExpansionCandles, loadExpansionFootprint, selectSemanticUnit]);
 
   const zoomBy = useCallback((delta: number) => {
     const current = chartRef.current;
@@ -641,15 +905,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useImperativeHandle(ref, () => ({
     runAgentPrompt,
     getSnapshot: () => chartRef.current,
-    setInterval
-  }), [runAgentPrompt, setInterval]);
-
-  const maLayerButtons = useMemo(() => ([
-    ["ma5", "MA5"],
-    ["ma20", "MA20"],
-    ["ma60", "MA60"]
-  ] as Array<[ChartLayerKey, string]>), []);
-  const anyMaEnabled = chart.layers.ma5 || chart.layers.ma20 || chart.layers.ma60;
+    setInterval,
+    setChartType
+  }), [runAgentPrompt, setChartType, setInterval]);
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -717,7 +975,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (event.button !== 0) {
       return;
     }
-    setMaMenuOpen(false);
     const scene = sceneRef.current;
     if (!scene) {
       return;
@@ -725,13 +982,22 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (isPaneBoundaryHit(scene, point)) {
+      const ratio = volumeRatioForPointerY(scene, point.y);
+      const resizeAnchor = { pointerId: event.pointerId, startRatio: chart.volumeRatio, nextRatio: ratio };
+      paneResizeRef.current = resizeAnchor;
+      transientVolumeRatioRef.current = ratio;
+      setTransientVolumeRatio(ratio);
+      return;
+    }
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
+    const semanticDigEnabled = chart.chartType !== "line";
 
     if (chart.toolMode === "select") {
       const hit = hitTestDrawing(scene, point.x, point.y);
       if (!hit) {
-        if (semanticHit) {
+        if (semanticHit && semanticDigEnabled) {
           pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
           selectSemanticUnit(semanticHit);
           return;
@@ -777,7 +1043,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
 
-    if (semanticHit) {
+    if (semanticHit && semanticDigEnabled) {
       pendingSemanticClickRef.current = { unit: semanticHit, x: event.clientX, y: event.clientY };
     }
     const currentViewport = normalizeViewport(
@@ -803,6 +1069,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setCrosshair(point);
     const scene = sceneRef.current;
     if (!scene) {
+      return;
+    }
+    const paneResize = paneResizeRef.current;
+    if (paneResize) {
+      const ratio = volumeRatioForPointerY(scene, point.y);
+      paneResize.nextRatio = ratio;
+      transientVolumeRatioRef.current = ratio;
+      setTransientVolumeRatio(ratio);
       return;
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
@@ -871,14 +1145,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drawingDrag = drawingDragRef.current;
     const dragAnchor = dragAnchorRef.current;
+    const paneResize = paneResizeRef.current;
     const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
+    const nextVolumeRatio = transientVolumeRatioRef.current;
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
+    paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
+    transientVolumeRatioRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
+    setTransientVolumeRatio(null);
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
@@ -898,6 +1177,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       return;
     }
+    if (paneResize && typeof nextVolumeRatio === "number") {
+      if (Math.abs(nextVolumeRatio - paneResize.startRatio) > 0.004) {
+        dispatchDocumentCommand("chart.pane.ratio.set", { paneId: "volume", heightRatio: nextVolumeRatio });
+      }
+      return;
+    }
     if (pendingSemanticClick) {
       const distance = Math.hypot(event.clientX - pendingSemanticClick.x, event.clientY - pendingSemanticClick.y);
       if (distance <= 5) {
@@ -913,10 +1198,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const cancelDrag = () => {
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
+    paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
     transientViewportRef.current = null;
+    transientVolumeRatioRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
+    setTransientVolumeRatio(null);
     setHoveredSemanticNodeId(undefined);
     setHoverSnapshot(null);
     setCrosshair(undefined);
@@ -924,7 +1212,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const clearChartHover = useCallback(() => {
-    if (dragAnchorRef.current || drawingDragRef.current) {
+    if (dragAnchorRef.current || drawingDragRef.current || paneResizeRef.current) {
       return;
     }
     setHoveredSemanticNodeId(undefined);
@@ -989,41 +1277,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </dl>
       )}
 
-      <div className={chartCommandActive || chartDrawingActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
+      <div className={chartCommandActive || chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
         <div className="toolbar-row">
-          <button className={segmentedClass(chart.layers.volume)} onClick={() => toggleLayer("volume")} type="button">
-            VOL
-          </button>
           <button className={segmentedClass()} disabled={!hasAnyCurrentSymbolExpansion} onClick={clearAllDigging} type="button" title="Clear all digging">
             DIG OFF
           </button>
-          <div className="ma-control">
-            <button
-              type="button"
-              className={segmentedClass(anyMaEnabled)}
-              aria-expanded={maMenuOpen}
-              onClick={() => {
-                setMaMenuOpen((current) => !current);
-              }}
-            >
-              MA
-            </button>
-            {maMenuOpen && (
-              <div className="ma-menu" role="menu" aria-label="Moving averages">
-                {maLayerButtons.map(([layer, label]) => (
-                  <button
-                    key={layer}
-                    type="button"
-                    className={segmentedClass(chart.layers[layer])}
-                    onClick={() => toggleLayer(layer)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <span className="toolbar-separator" aria-hidden="true" />
+          <button
+            type="button"
+            className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
+            aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+            title={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+            aria-pressed={chartAddActive}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onChartAddToggle}
+          >
+            <ChartNoAxesCombined size={16} />
+          </button>
           <button
             type="button"
             className={`${iconButtonClass(chartDrawingActive)} chart-drawing-target-button ${chartDrawingActive ? "is-active" : ""}`}
@@ -1066,13 +1336,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerLeave={() => {
             setHoveredSemanticNodeId(undefined);
             setHoverSnapshot(null);
-            if (!dragAnchorRef.current && !drawingDragRef.current) {
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               onChartHoverChange?.(false);
             }
-            if (!dragAnchorRef.current) {
+            if (!dragAnchorRef.current && !paneResizeRef.current) {
               setCrosshair(undefined);
             }
-            if (!dragAnchorRef.current && !drawingDragRef.current) {
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               setTransientDrawings(null);
             }
           }}
@@ -1208,6 +1478,131 @@ export function ChartDrawingDock({
   );
 }
 
+type ChartAddPlacement = "overlay" | "below";
+
+type ChartAddDockProps = {
+  document: ChartDocument;
+  panelId: string;
+  laneHeight: number;
+  placement: ChartAddPlacement;
+  onPlacementChange: (placement: ChartAddPlacement) => void;
+  onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onClose: () => void;
+};
+
+type ChartAddLayerConfig = {
+  layer: ChartLayerKey;
+  label: string;
+  placement: ChartAddPlacement;
+  title: string;
+  disabledReason?: string;
+};
+
+const chartAddLayers: ChartAddLayerConfig[] = [
+  { layer: "sma:5", label: "SMA 5", placement: "overlay", title: "SMA 5" },
+  { layer: "sma:20", label: "SMA 20", placement: "overlay", title: "SMA 20" },
+  { layer: "sma:60", label: "SMA 60", placement: "overlay", title: "SMA 60" },
+  { layer: "ema:20", label: "EMA 20", placement: "overlay", title: "EMA 20" },
+  { layer: "wma:20", label: "WMA 20", placement: "overlay", title: "WMA 20" },
+  { layer: "bollinger:20:2", label: "Bollinger Bands", placement: "overlay", title: "Bollinger Bands 20,2" },
+  { layer: "volume-profile", label: "Volume Profile", placement: "overlay", title: "Volume Profile" },
+  { layer: "volume", label: "VOL", placement: "below", title: "VOL" },
+  { layer: "rsi:14", label: "RSI 14", placement: "below", title: "RSI 14" },
+  { layer: "stochastic:14:3:3", label: "Stochastic", placement: "below", title: "Stochastic 14,3,3" },
+  { layer: "macd:12:26:9", label: "MACD", placement: "below", title: "MACD 12,26,9" }
+];
+
+export function ChartAddDock({
+  document,
+  panelId,
+  laneHeight,
+  placement,
+  onPlacementChange,
+  onChartRuntimeAction,
+  onClose
+}: ChartAddDockProps) {
+  const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
+  const activeBelowCount = documentBelowPaneOrder(document).length;
+  const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
+  useEffect(() => {
+    if (placement === "below" && !canAddBelow) {
+      onPlacementChange("overlay");
+    }
+  }, [canAddBelow, onPlacementChange, placement]);
+
+  const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
+    });
+  }, [onChartRuntimeAction, target]);
+
+  return (
+    <div className="chart-add-dock chart-drawing-dock surface-floating" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
+      <button type="button" className="icon-button chart-drawing-dock-close" aria-label="차트 추가 도구 닫기" title="차트 추가 도구 닫기" onClick={onClose}>
+        <X size={15} />
+      </button>
+      <div className="chart-placement-toggle" role="group" aria-label="Chart layer placement">
+        <button
+          type="button"
+          className={iconButtonClass(placement === "overlay")}
+          aria-label="Overlay"
+          title="Overlay"
+          onClick={() => onPlacementChange("overlay")}
+        >
+          <Layers2 size={15} />
+        </button>
+        <button
+          type="button"
+          className={iconButtonClass(placement === "below")}
+          aria-label="Below pane"
+          title={canAddBelow ? "Below pane" : "Below pane unavailable at this height"}
+          disabled={!canAddBelow}
+          onClick={() => onPlacementChange("below")}
+        >
+          <PanelBottom size={15} />
+        </button>
+      </div>
+      <span className="toolbar-separator" aria-hidden="true" />
+      {chartAddLayers.map((item) => {
+        const active = Boolean(document.layers[item.layer]);
+        const disabledByPlacement = item.placement !== placement;
+        const disabledByCapacity = item.placement === "below" && !active && !canAddBelow;
+        const disabled = !active && (disabledByPlacement || disabledByCapacity || Boolean(item.disabledReason));
+        return (
+          <button
+            key={item.layer}
+            type="button"
+            className={`${iconButtonClass(active)} chart-add-layer-button`}
+            aria-label={item.label}
+            title={item.disabledReason ?? item.title}
+            disabled={disabled}
+            onClick={() => dispatchLayer(item.layer, !active)}
+          >
+            <ChartAddLayerIcon layer={item.layer} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
+  if (layer === "bollinger:20:2" || layer === "stochastic:14:3:3") {
+    return <ChartSpline size={15} />;
+  }
+  if (layer === "volume" || layer === "volume-profile") {
+    return <ChartColumn size={15} />;
+  }
+  if (layer === "rsi:14") {
+    return <Activity size={15} />;
+  }
+  if (layer === "macd:12:26:9") {
+    return <ChartNoAxesCombined size={15} />;
+  }
+  return <ChartLine size={15} />;
+}
+
 function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
   const byTimestamp = new Map<string, CandleDto>();
   groups.forEach((candles) => {
@@ -1218,14 +1613,106 @@ function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
   return Array.from(byTimestamp.values()).sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
 }
 
-function candleSnapshotFromResponse(response: CandleQueryResponseDto): CandleSnapshot {
+function activeServerIndicatorLayers(chart: ChartState): string[] {
+  const layers: string[] = [];
+  if (chart.layers["sma:5"] ?? chart.layers.ma5) {
+    layers.push("sma:5");
+  }
+  if (chart.layers["sma:20"] ?? chart.layers.ma20) {
+    layers.push("sma:20");
+  }
+  if (chart.layers["sma:60"] ?? chart.layers.ma60) {
+    layers.push("sma:60");
+  }
+  ([
+    "ema:20",
+    "wma:20",
+    "bollinger:20:2",
+    "rsi:14",
+    "stochastic:14:3:3",
+    "macd:12:26:9"
+  ] as const).forEach((layer) => {
+    if (chart.layers[layer]) {
+      layers.push(layer);
+    }
+  });
+  return layers;
+}
+
+function visibleCandleRangeForProfile(chart: ChartState, transientViewport: ChartViewport | null): {
+  from: string;
+  to: string;
+  priceMin: number;
+  priceMax: number;
+} | null {
+  if (!chart.candles.length) {
+    return null;
+  }
+  const visibleCount = Math.max(1, Math.floor(transientViewport?.visibleCount ?? chart.visibleCount));
+  const rightOffset = Math.max(0, Math.floor(transientViewport?.rightOffset ?? chart.rightOffset));
+  const viewportEnd = Math.max(0, chart.candles.length - rightOffset);
+  const startIndex = Math.max(0, Math.min(chart.candles.length - 1, Math.floor(viewportEnd - visibleCount)));
+  const endIndex = Math.max(startIndex + 1, Math.min(chart.candles.length, Math.ceil(viewportEnd)));
+  const visibleCandles = chart.candles.slice(startIndex, endIndex);
+  if (!visibleCandles.length) {
+    return null;
+  }
+  const priceValues = visibleCandles
+    .flatMap((candle) => [candle.low, candle.high])
+    .filter((value): value is number => Number.isFinite(value));
+  if (!priceValues.length) {
+    return null;
+  }
+  return {
+    from: visibleCandles[0].timestamp,
+    to: visibleCandles[visibleCandles.length - 1].timestamp,
+    priceMin: Math.min(...priceValues),
+    priceMax: Math.max(...priceValues)
+  };
+}
+
+const belowLayerPaneMap: Partial<Record<ChartLayerKey, string>> = {
+  volume: "volume",
+  "rsi:14": "rsi:14",
+  "stochastic:14:3:3": "stochastic:14:3:3",
+  "macd:12:26:9": "macd:12:26:9"
+};
+
+function isBelowLayer(layer: ChartLayerKey): boolean {
+  return Boolean(belowLayerPaneMap[layer]);
+}
+
+function belowLayerForPaneId(paneId: string): ChartLayerKey | null {
+  const found = Object.entries(belowLayerPaneMap).find(([, id]) => id === paneId);
+  return found ? found[0] as ChartLayerKey : null;
+}
+
+function maxBelowPaneCountForHeight(height: number): number {
+  return Math.max(0, Math.floor((height - baseChartMinHeightForBelowPanes) / belowPaneMinHeight));
+}
+
+function documentBelowPaneOrder(document: ChartDocument): string[] {
+  const visiblePaneIds = Object.entries(belowLayerPaneMap)
+    .filter(([layer]) => Boolean(document.layers[layer as ChartLayerKey]))
+    .map(([, paneId]) => paneId)
+    .filter((paneId): paneId is string => Boolean(paneId));
+  const visible = new Set(visiblePaneIds);
+  const ordered = document.panes
+    .map((pane) => pane.id)
+    .filter((paneId) => paneId !== "price" && visible.has(paneId));
+  const missing = visiblePaneIds.filter((paneId) => !ordered.includes(paneId));
+  return [...ordered, ...missing];
+}
+
+function candleSnapshotFromResponse(response: CandleQueryResponseDto, intervalOverride?: ChartInterval): CandleSnapshot {
+  const interval = intervalOverride ?? response.interval;
   return {
     symbol: response.symbol.toUpperCase(),
-    interval: response.interval,
+    interval,
     source: "api",
     feed: "local",
     dataStatus: response.status === "pending" ? "partial" : response.status,
-    sourceInterval: response.sourceInterval,
+    sourceInterval: response.sourceInterval ?? (interval !== response.interval ? response.interval : undefined),
     message: response.error?.message ?? response.message ?? fillTraceMessage(response.fill) ?? (response.status === "empty" ? `No chart data for ${response.symbol}` : undefined),
     requestedLimit: response.requestedLimit ?? response.request.limit,
     returnedCount: response.returnedCount ?? response.candles.length,
@@ -1238,18 +1725,19 @@ function candleSnapshotFromResponse(response: CandleQueryResponseDto): CandleSna
     hasMoreAfter: response.hasMoreAfter,
     coverage: response.coverage as CandleSnapshot["coverage"],
     indicators: {
-      ma: [5, 20, 60],
-      volume: true
+      ma: response.indicators?.ma ?? [],
+      volume: response.indicators?.volume ?? true
     },
     candles: response.candles
   };
 }
 
-function candleEventFromDto(event: CandleEventDto): CandleEvent {
+function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
   return {
     type: event.type,
     symbol: event.symbol.toUpperCase(),
-    interval: event.interval,
+    interval: intervalOverride ?? event.interval,
+    sourceInterval: intervalOverride && intervalOverride !== event.interval ? event.interval : undefined,
     data: event.data
   };
 }
@@ -1278,6 +1766,8 @@ function chartActionToCommands(
       return [makeChartCommand("chart.symbol.set", actor, target, { symbol: action.symbol })];
     case "setInterval":
       return [makeChartCommand("chart.timeframe.set", actor, target, { timeframe: action.interval })];
+    case "setChartType":
+      return [makeChartCommand("chart.type.set", actor, target, { chartType: action.chartType })];
     case "setTool":
       return [makeChartCommand("chart.drawing.clearSelection", actor, target, { mode: action.toolMode })];
     case "toggleLayer":
@@ -1299,7 +1789,7 @@ function chartActionToCommands(
     case "clearDrawings":
       return chart.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", actor, target, { drawingId: drawing.id }));
     case "setVolumeRatio":
-      return [];
+      return [makeChartCommand("chart.pane.ratio.set", actor, target, { paneId: "volume", heightRatio: action.ratio })];
     default:
       return [];
   }
@@ -1340,6 +1830,34 @@ function expansionStatusForCandleResponse(response: CandleQueryResponseDto): Exp
 
 function chartMemoryKey(symbol: string, interval: ChartInterval): string {
   return `${symbol.toUpperCase()}:${interval}`;
+}
+
+function candleSourceInterval(interval: ChartInterval): ChartInterval {
+  return interval === "footprint" ? "1m" : interval;
+}
+
+function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
+  return response.derived?.state === "pending" && attempt < 2;
+}
+
+function derivedRetryDelay(response: { derived?: { retryAfterMs?: number } }): number {
+  const delay = response.derived?.retryAfterMs;
+  return typeof delay === "number" && Number.isFinite(delay) ? Math.max(250, Math.min(delay, 3000)) : 1000;
+}
+
+function isPaneBoundaryHit(scene: ChartScene, point: { x: number; y: number }): boolean {
+  if (!scene.chart.layers.volume || scene.plot.volumeTop >= scene.plot.bottom) {
+    return false;
+  }
+  if (point.x < scene.plot.left || point.x > scene.plot.right) {
+    return false;
+  }
+  return Math.abs(point.y - scene.plot.priceBottom) <= 7;
+}
+
+function volumeRatioForPointerY(scene: ChartScene, y: number): number {
+  const desiredVolumeHeight = scene.plot.bottom - Math.max(scene.plot.top + 34, Math.min(scene.plot.bottom - 34, y));
+  return Math.max(0.1, Math.min(0.45, desiredVolumeHeight / Math.max(1, scene.height)));
 }
 
 function expansionCloseLeft(scene: ChartScene, range: ChartScene["semantic"]["expansionRanges"][number]): number {
@@ -1411,7 +1929,7 @@ function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candl
     from: range.from,
     to: range.to,
     depth: unit.depth + 1,
-    status: childInterval === "footprint" ? "ready" : "loading",
+    status: "loading",
     candles: [],
     openedAt: new Date().toISOString()
   };

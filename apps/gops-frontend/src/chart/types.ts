@@ -1,4 +1,6 @@
-export type ChartInterval = "1m" | "5m" | "10m" | "1D" | "1W" | "1M";
+export type ChartInterval = "1m" | "footprint" | "5m" | "10m" | "1D" | "1W" | "1M";
+
+export type ChartType = "candle" | "line" | "ohlc";
 
 export type CandleDto = {
   timestamp: string;
@@ -11,6 +13,177 @@ export type CandleDto = {
   ma5?: number;
   ma20?: number;
   ma60?: number;
+};
+
+export type IndicatorPointDto = {
+  timestamp: string;
+  value?: number | null;
+  middle?: number | null;
+  upper?: number | null;
+  lower?: number | null;
+  k?: number | null;
+  d?: number | null;
+  macd?: number | null;
+  signal?: number | null;
+  histogram?: number | null;
+};
+
+export type DerivedResponseState = "ready" | "pending" | "failed";
+
+export type DerivedResponseSource = "redis" | "clickhouse" | "worker" | "queued";
+
+export type DerivedMetadataDto = {
+  state: DerivedResponseState;
+  source: DerivedResponseSource;
+  requestHash: string;
+  artifactStored?: boolean;
+  retryAfterMs?: number;
+  generatedAt?: string;
+  error?: string;
+};
+
+export type IndicatorLayerDto = {
+  id: string;
+  kind: string;
+  placement: "overlay" | "below";
+  parameters: Record<string, number>;
+  points: IndicatorPointDto[];
+};
+
+export type IndicatorSeriesResponseDto = {
+  symbol: string;
+  interval: ChartInterval;
+  calculationVersion: string;
+  dataStatus?: "ready" | "empty" | "pending" | "failed";
+  indicators: IndicatorLayerDto[];
+  series: Record<string, IndicatorPointDto[]>;
+  derived?: DerivedMetadataDto;
+  cache?: {
+    hit: boolean;
+    ttlSeconds: number;
+    keyVersion: string;
+  };
+};
+
+export type IndicatorSeries = Record<string, IndicatorPointDto[]>;
+
+export type VolumeProfileBucketDto = {
+  index: number;
+  priceBin: number;
+  priceBinSize: number;
+  priceMin: number;
+  priceMax: number;
+  priceMid: number;
+  volume: number;
+  tradeCount: number;
+  vwap?: number | null;
+  volumePercent: number;
+  isPoc: boolean;
+  inValueArea: boolean;
+};
+
+export type VolumeProfileSummaryDto = {
+  index: number;
+  priceMin: number;
+  priceMax: number;
+  priceMid: number;
+  volume: number;
+  tradeCount: number;
+};
+
+export type VolumeProfileValueAreaDto = {
+  low: number;
+  high: number;
+  volume: number;
+  volumePercent: number;
+  targetPercent: number;
+  bucketIndexes: number[];
+};
+
+export type VolumeProfileResponseDto = {
+  symbol: string;
+  from: string;
+  to: string;
+  timeBucket: "1m";
+  targetBins: number;
+  bucketCount: number;
+  priceBinSize: number;
+  sourcePriceBinSize?: number | null;
+  sourceBinCount: number;
+  source: string;
+  feed: string;
+  feedProfile?: string | null;
+  calculationVersion: string;
+  dataStatus: "ready" | "empty" | "pending" | "failed";
+  priceRange: {
+    min?: number | null;
+    max?: number | null;
+    requestedMin?: number | null;
+    requestedMax?: number | null;
+  };
+  totalVolume: number;
+  totalTradeCount: number;
+  bins: VolumeProfileBucketDto[];
+  poc?: VolumeProfileSummaryDto | null;
+  valueArea?: VolumeProfileValueAreaDto | null;
+  derived?: DerivedMetadataDto;
+  cache?: {
+    hit: boolean;
+    ttlSeconds: number;
+    keyVersion: string;
+  };
+};
+
+export type FootprintPriceLevelDto = {
+  price: number;
+  askVolume: number;
+  bidVolume: number;
+  unknownVolume: number;
+  totalVolume: number;
+  tradeCount: number;
+  delta: number;
+};
+
+export type FootprintBucketDto = {
+  timestamp: string;
+  from: string;
+  to: string;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  close?: number | null;
+  volume: number;
+  tradeCount: number;
+  askVolume: number;
+  bidVolume: number;
+  unknownVolume: number;
+  delta: number;
+  priceLevels: FootprintPriceLevelDto[];
+};
+
+export type FootprintResponseDto = {
+  symbol: string;
+  interval: "footprint";
+  sourceInterval: "1m";
+  from: string;
+  to: string;
+  timeBucket: "1m";
+  source: string;
+  feed: string;
+  dataStatus: "ready" | "empty" | "pending" | "failed";
+  sideClassification: "estimated";
+  classificationVersion: string;
+  calculationVersion: string;
+  tradeCount: number;
+  quoteCount: number;
+  requestedLimit?: number;
+  buckets: FootprintBucketDto[];
+  derived?: DerivedMetadataDto;
+  cache?: {
+    hit: boolean;
+    ttlSeconds: number;
+    keyVersion: string;
+  };
 };
 
 export type ChartSymbolDto = {
@@ -96,6 +269,10 @@ export type CandleQueryResponseDto = {
   };
   status: "ready" | "partial" | "empty" | "pending" | "error";
   candles: CandleDto[];
+  indicators?: {
+    ma?: number[];
+    volume?: boolean;
+  };
   dataStatus?: CandleQueryResponseDto["status"];
   message?: string;
   fill?: CandleFillTraceDto;
@@ -126,7 +303,27 @@ export type CandleEventDto = {
   data: CandleDto;
 };
 
-export type ChartLayerKey = "candles" | "volume" | "ma5" | "ma20" | "ma60";
+export type ChartLayerKey =
+  | "candles"
+  | "volume"
+  | "ma5"
+  | "ma20"
+  | "ma60"
+  | "sma:5"
+  | "sma:20"
+  | "sma:60"
+  | "ema:20"
+  | "wma:20"
+  | "bollinger:20:2"
+  | "rsi:14"
+  | "stochastic:14:3:3"
+  | "macd:12:26:9"
+  | "volume-profile";
+
+export type ChartPaneState = {
+  id: string;
+  heightRatio: number;
+};
 
 export type ChartToolMode =
   | "select"
@@ -190,6 +387,7 @@ export type DrawingEntity = {
 export type ChartAction =
   | { type: "setSymbol"; symbol: string }
   | { type: "setInterval"; interval: ChartInterval }
+  | { type: "setChartType"; chartType: ChartType }
   | { type: "setTool"; toolMode: ChartToolMode }
   | { type: "toggleLayer"; layer: ChartLayerKey }
   | { type: "setLayer"; layer: ChartLayerKey; enabled: boolean }
@@ -203,11 +401,16 @@ export type ChartAction =
 
 export type ChartState = {
   symbol: string;
+  chartType: ChartType;
   interval: ChartInterval;
   candles: CandleDto[];
   status: CandleQueryResponseDto["status"] | "loading";
   message?: string;
-  layers: Record<ChartLayerKey, boolean>;
+  layers: Partial<Record<ChartLayerKey, boolean>>;
+  indicatorSeries?: IndicatorSeries;
+  volumeProfile?: VolumeProfileResponseDto | null;
+  footprint?: FootprintResponseDto | null;
+  panes?: ChartPaneState[];
   volumeRatio: number;
   visibleCount: number;
   rightOffset: number;
@@ -218,10 +421,13 @@ export type ChartState = {
   streamState: "connecting" | "live" | "idle" | "error";
 };
 
-export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1D", "1W", "1M"];
+export const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
+
+export const chartIntervals: ChartInterval[] = ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"];
 
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
   "1m": 120,
+  "footprint": 120,
   "5m": 120,
   "10m": 120,
   "1D": 120,

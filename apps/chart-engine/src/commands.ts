@@ -1,5 +1,6 @@
 import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument } from "./chartDocuments";
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
+import { chartLayerMetadata, layerVisibilityAliases, normalizeChartLayerKey } from "./layers";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
 import { normalizeSupportedSymbol } from "./symbols";
 import { clampRightOffset } from "./viewport";
@@ -13,6 +14,7 @@ import type {
   ChartHistoryEntry,
   ChartLineExtension,
   ChartLayerKey,
+  ChartType,
   ChartProposal,
   ComparisonSeries,
   DrawingAnchor,
@@ -25,7 +27,7 @@ export type ChartCommandResult =
   | { ok: true; document: ChartDocument; message: string; historyEntry?: ChartHistoryEntry; noOp?: boolean }
   | { ok: false; document: ChartDocument; message: string };
 
-const layerKeys: ChartLayerKey[] = ["candles", "volume", "ma5", "ma20", "ma60"];
+const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
 
 export function makeChartCommand(
   type: ChartCommandType,
@@ -184,7 +186,9 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
   const allowed = new Set<ChartCommandType>([
     "chart.symbol.set",
     "chart.timeframe.set",
+    "chart.type.set",
     "chart.viewport.set",
+    "chart.pane.ratio.set",
     "chart.layer.visibility.set",
     "chart.drawing.add",
     "chart.drawing.update",
@@ -259,6 +263,14 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(timeframe) };
       return null;
     }
+    case "chart.type.set": {
+      const chartType = readChartType(command.payload.chartType);
+      if (!chartType) {
+        return "Invalid chart type.";
+      }
+      document.chartType = chartType;
+      return null;
+    }
     case "chart.viewport.set": {
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
@@ -272,13 +284,34 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       };
       return null;
     }
+    case "chart.pane.ratio.set": {
+      const paneId = readString(command.payload.paneId);
+      const heightRatio = readNumber(command.payload.heightRatio);
+      if (!paneId || heightRatio === null) {
+        return "Invalid pane ratio payload.";
+      }
+      const nextRatio = clamp(heightRatio, 0.08, 0.82);
+      if (!document.panes.some((pane) => pane.id === paneId)) {
+        document.panes = [...document.panes, { id: paneId, heightRatio: nextRatio }];
+        return null;
+      }
+      document.panes = document.panes.map((pane) => (
+        pane.id === paneId ? { ...pane, heightRatio: nextRatio } : pane
+      ));
+      return null;
+    }
     case "chart.layer.visibility.set": {
       const layer = readLayer(command.payload.layer);
       const visible = typeof command.payload.visible === "boolean" ? command.payload.visible : null;
       if (!layer || visible === null) {
         return "Invalid layer visibility payload.";
       }
-      document.layers = { ...document.layers, [layer]: visible };
+      const nextLayers = { ...document.layers };
+      layerVisibilityAliases(layer).forEach((layerKey) => {
+        nextLayers[layerKey] = visible;
+      });
+      document.layers = nextLayers;
+      syncLayerPane(document, layer, visible);
       return null;
     }
     case "chart.drawing.add": {
@@ -377,6 +410,20 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
   }
 }
 
+function syncLayerPane(document: ChartDocument, layer: ChartLayerKey, visible: boolean): void {
+  const metadata = chartLayerMetadata[layer];
+  if (!metadata || metadata.placement !== "below" || metadata.paneId === "price") {
+    return;
+  }
+  if (visible) {
+    if (!document.panes.some((pane) => pane.id === metadata.paneId)) {
+      document.panes = [...document.panes, { id: metadata.paneId, heightRatio: 0.22 }];
+    }
+    return;
+  }
+  document.panes = document.panes.filter((pane) => pane.id === "price" || pane.id !== metadata.paneId);
+}
+
 function undoChartDocument(document: ChartDocument): ChartCommandResult {
   const historyEntry = document.history[document.history.length - 1];
   if (!historyEntry) {
@@ -437,8 +484,14 @@ function restoreChartDocumentFields(
     next.timeframe = restored.timeframe;
     next.viewport = { ...restored.viewport };
   }
+  if (typeSet.has("chart.type.set")) {
+    next.chartType = restored.chartType;
+  }
   if (typeSet.has("chart.viewport.set")) {
     next.viewport = { ...restored.viewport };
+  }
+  if (typeSet.has("chart.pane.ratio.set")) {
+    next.panes = structuredClone(restored.panes) as ChartDocument["panes"];
   }
   if (typeSet.has("chart.layer.visibility.set")) {
     next.layers = { ...restored.layers };
@@ -468,8 +521,12 @@ function labelForCommand(command: ChartCommand): string {
       return `Symbol changed to ${String(command.payload.symbol).toUpperCase()}.`;
     case "chart.timeframe.set":
       return `Timeframe changed to ${String(command.payload.timeframe)}.`;
+    case "chart.type.set":
+      return `Chart type changed to ${String(command.payload.chartType)}.`;
     case "chart.viewport.set":
       return "Chart viewport changed.";
+    case "chart.pane.ratio.set":
+      return "Chart pane ratio changed.";
     case "chart.layer.visibility.set":
       return "Chart layer visibility changed.";
     case "chart.drawing.add":
@@ -496,6 +553,7 @@ function labelForCommand(command: ChartCommand): string {
 function snapshotsEqual(left: ReturnType<typeof snapshotChartDocument>, right: ReturnType<typeof snapshotChartDocument>): boolean {
   return left.id === right.id &&
     left.symbol === right.symbol &&
+    left.chartType === right.chartType &&
     left.timeframe === right.timeframe &&
     left.viewport.visibleCount === right.viewport.visibleCount &&
     left.viewport.rightOffset === right.viewport.rightOffset &&
@@ -524,7 +582,11 @@ function readTimeframe(value: unknown) {
 }
 
 function readLayer(value: unknown): ChartLayerKey | null {
-  return layerKeys.includes(value as ChartLayerKey) ? (value as ChartLayerKey) : null;
+  return normalizeChartLayerKey(value);
+}
+
+function readChartType(value: unknown): ChartType | null {
+  return chartTypes.includes(value as ChartType) ? value as ChartType : null;
 }
 
 function isToolMode(value: unknown): value is ChartDocument["interactionState"]["mode"] {

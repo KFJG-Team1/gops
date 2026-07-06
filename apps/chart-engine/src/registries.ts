@@ -42,7 +42,9 @@ export const chartToolRegistry: ChartToolDefinition[] = [
 export const commandRegistry = new Set<ChartCommandType>([
   "chart.symbol.set",
   "chart.timeframe.set",
+  "chart.type.set",
   "chart.viewport.set",
+  "chart.pane.ratio.set",
   "chart.layer.visibility.set",
   "chart.undo",
   "chart.redo",

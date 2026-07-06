@@ -3,7 +3,7 @@ import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus }
 import { useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
-import { chartIntervals, type CandleDto, type ChartInterval, type ChartSymbolDto } from "../chart/types";
+import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
@@ -29,6 +29,7 @@ type PanelContentRendererProps = {
   canUseChartCommand: boolean;
   chartCommandActive: boolean;
   chartDrawingActive: boolean;
+  chartAddActive: boolean;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHoverChange: (hovered: boolean) => void;
@@ -36,6 +37,7 @@ type PanelContentRendererProps = {
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onChartCommandToggle: () => void;
   onChartDrawingToggle: () => void;
+  onChartAddToggle: () => void;
   onSyncPageSymbolFromChart: () => void;
   onClosePanel: (slotId: PanelSlotId) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
@@ -59,6 +61,7 @@ export function PanelContentRenderer({
   canUseChartCommand,
   chartCommandActive,
   chartDrawingActive,
+  chartAddActive,
   setSemanticSelection,
   onChartRuntimeAction,
   onChartHoverChange,
@@ -66,6 +69,7 @@ export function PanelContentRenderer({
   onChartHandleChange,
   onChartCommandToggle,
   onChartDrawingToggle,
+  onChartAddToggle,
   onSyncPageSymbolFromChart,
   onClosePanel,
   onChangePanelChartSymbol,
@@ -122,6 +126,7 @@ export function PanelContentRenderer({
     return <div className="workspace-panel-placeholder" aria-label="Chart document loading" data-panel-slot-id={slot.id}>차트를 준비 중입니다</div>;
   }
   const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
+  const chartType = normalizeChartType(chartDocument.chartType);
 
   return (
     <div className="chart-instance is-editable-chart">
@@ -163,7 +168,18 @@ export function PanelContentRenderer({
             <Newspaper size={13} />
           </button>
           <select
-            className="chart-instance-interval"
+            className="chart-instance-select chart-instance-chart-type"
+            value={chartType}
+            aria-label="Chart type"
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => chartPanelHandleRef.current?.setChartType(event.target.value as ChartType)}
+          >
+            {chartTypes.map((nextChartType) => (
+              <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
+            ))}
+          </select>
+          <select
+            className="chart-instance-select chart-instance-interval"
             value={interval}
             aria-label="Interval"
             onPointerDown={(event) => event.stopPropagation()}
@@ -200,15 +216,31 @@ export function PanelContentRenderer({
         chartCommandActive={chartCommandActive}
         chartCommandEnabled={canUseChartCommand}
         chartDrawingActive={chartDrawingActive}
+        chartAddActive={chartAddActive}
         onChartRuntimeAction={onChartRuntimeAction}
         onChartCommandToggle={onChartCommandToggle}
         onChartDrawingToggle={onChartDrawingToggle}
+        onChartAddToggle={onChartAddToggle}
         onSemanticSelectionChange={setSemanticSelection}
         onChartHoverChange={onChartHoverChange}
         onHeaderChange={onHeaderChange}
       />
     </div>
   );
+}
+
+function normalizeChartType(value: string | undefined): ChartType {
+  return value === "line" || value === "ohlc" || value === "candle" ? value : "candle";
+}
+
+function chartTypeLabel(chartType: ChartType): string {
+  if (chartType === "line") {
+    return "Line";
+  }
+  if (chartType === "ohlc") {
+    return "OHLC";
+  }
+  return "Candle";
 }
 
 function symbolsToWatchlistSymbols(symbols: ChartSymbolDto[]): WatchlistSymbol[] {

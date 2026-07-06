@@ -212,11 +212,12 @@ function anchorLogicalIndex(anchor: DrawingAnchor, timestampIndex: Map<string, n
 }
 
 function isChartInterval(value: unknown): value is ChartInterval {
-  return value === "1m" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M";
+  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M";
 }
 
 function intervalGranularityRank(interval: ChartInterval): number {
   switch (interval) {
+    case "footprint":
     case "1m":
       return 1;
     case "5m":

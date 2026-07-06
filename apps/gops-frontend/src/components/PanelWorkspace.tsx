@@ -42,7 +42,7 @@ import {
   type TiledPanelState,
   type ViewportSize
 } from "../layout/panelLayout";
-import { ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import {
   boundaryAddMenuPosition,
@@ -112,6 +112,8 @@ export function PanelWorkspace({
   const [addMenu, setAddMenu] = useState<BoundaryAddMenu | null>(null);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
+  const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
+  const [chartAddPlacement, setChartAddPlacement] = useState<"overlay" | "below">("overlay");
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -302,6 +304,9 @@ export function PanelWorkspace({
       if (closing.contentId === drawingTargetContentId) {
         setDrawingTargetContentId(null);
       }
+      if (closing.contentId === chartAddTargetContentId) {
+        setChartAddTargetContentId(null);
+      }
       onChartHandleChange(closing.contentId, null);
     }
     setHoveredChartSlotId((current) => current === slotId ? null : current);
@@ -356,8 +361,15 @@ export function PanelWorkspace({
     });
   };
 
+  const toggleChartAddTarget = (contentId: string) => {
+    setChartAddTargetContentId((current) => current === contentId ? null : contentId);
+  };
+
   const drawingTarget = drawingTargetContentId
     ? targetChartForContentId(panelState, chartRuntime, drawingTargetContentId)
+    : null;
+  const chartAddTarget = chartAddTargetContentId
+    ? targetChartForContentId(panelState, chartRuntime, chartAddTargetContentId)
     : null;
 
   return (
@@ -383,7 +395,7 @@ export function PanelWorkspace({
               draggingSlotId === slot.id ? "is-panel-content-dragging" : ""
             ].filter(Boolean).join(" ")}
             isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
-            isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id)}
+            isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
             showNav={!isChart}
             canSwap
             canClose={!isChart && !isLastPanel}
@@ -412,6 +424,7 @@ export function PanelWorkspace({
               canUseChartCommand={canUseChartCommand}
               chartCommandActive={chartCommandTargetContentId === content.id}
               chartDrawingActive={drawingTargetContentId === content.id}
+              chartAddActive={chartAddTargetContentId === content.id}
               setSemanticSelection={setSemanticSelection}
               onChartRuntimeAction={onChartRuntimeAction}
               onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
@@ -419,6 +432,7 @@ export function PanelWorkspace({
               onChartHandleChange={onChartHandleChange}
               onChartCommandToggle={() => onChartCommandTargetChange(chartCommandTargetContentId === content.id ? null : content.id)}
               onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
+              onChartAddToggle={() => toggleChartAddTarget(content.id)}
               onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
               onClosePanel={closePanel}
               onChangePanelChartSymbol={changePanelChartSymbol}
@@ -484,13 +498,28 @@ export function PanelWorkspace({
           ))}
         </div>
       )}
-      {drawingTarget && (
-        <ChartDrawingDock
-          document={drawingTarget.document}
-          panelId={drawingTarget.slot.id}
-          onChartRuntimeAction={onChartRuntimeAction}
-          onClose={() => setDrawingTargetContentId(null)}
-        />
+      {(drawingTarget || chartAddTarget) && (
+        <div className="chart-tool-dock-row" aria-label="Chart tool docks">
+          {chartAddTarget && (
+            <ChartAddDock
+              document={chartAddTarget.document}
+              panelId={chartAddTarget.slot.id}
+              laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
+              placement={chartAddPlacement}
+              onPlacementChange={setChartAddPlacement}
+              onChartRuntimeAction={onChartRuntimeAction}
+              onClose={() => setChartAddTargetContentId(null)}
+            />
+          )}
+          {drawingTarget && (
+            <ChartDrawingDock
+              document={drawingTarget.document}
+              panelId={drawingTarget.slot.id}
+              onChartRuntimeAction={onChartRuntimeAction}
+              onClose={() => setDrawingTargetContentId(null)}
+            />
+          )}
+        </div>
       )}
     </>
   );

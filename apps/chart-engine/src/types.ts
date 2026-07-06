@@ -124,7 +124,37 @@ export type RealtimeLayerEvent =
 
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
-export type ChartLayerKey = "candles" | "volume" | "ma5" | "ma20" | "ma60";
+export type ChartType = "candle" | "line" | "ohlc";
+
+export type ChartLayerKey =
+  | "candles"
+  | "volume"
+  | "ma5"
+  | "ma20"
+  | "ma60"
+  | "sma:5"
+  | "sma:20"
+  | "sma:60"
+  | "ema:20"
+  | "wma:20"
+  | "bollinger:20:2"
+  | "rsi:14"
+  | "stochastic:14:3:3"
+  | "macd:12:26:9"
+  | "volume-profile";
+
+export type ChartLayerPlacement = "overlay" | "below";
+
+export type ChartLayerMetadata = {
+  id: ChartLayerKey;
+  kind: "base-price" | "price-overlay" | "indicator-pane" | "volume-pane" | "volume-profile";
+  label: string;
+  paneId: string;
+  source: "candle" | "derived" | "legacy";
+  params?: Record<string, string | number | boolean>;
+  placement: ChartLayerPlacement;
+  supportedPlacements: ChartLayerPlacement[];
+};
 
 export type ChartSizeVariant = "compact" | "standard" | "wide" | "large";
 
@@ -140,7 +170,9 @@ export type ChartCommandHistoryScope = "chartPanel" | "external";
 export type ChartCommandType =
   | "chart.symbol.set"
   | "chart.timeframe.set"
+  | "chart.type.set"
   | "chart.viewport.set"
+  | "chart.pane.ratio.set"
   | "chart.layer.visibility.set"
   | "chart.undo"
   | "chart.redo"
@@ -191,6 +223,7 @@ export type ChartCommandJournalEntry = {
 export type ChartDocumentSnapshot = {
   id: string;
   symbol: string;
+  chartType: ChartType;
   timeframe: string;
   viewport: ChartViewport;
   panes: ChartDocument["panes"];
@@ -218,13 +251,14 @@ export type ChartHistoryEntry = {
 export type ChartDocument = {
   id: string;
   symbol: string;
+  chartType: ChartType;
   timeframe: string;
   viewport: ChartViewport;
   panes: Array<{
-    id: "price" | "volume";
+    id: string;
     heightRatio: number;
   }>;
-  layers: Record<ChartLayerKey, boolean>;
+  layers: Partial<Record<ChartLayerKey, boolean>>;
   style: {
     background: string;
     surface: string;

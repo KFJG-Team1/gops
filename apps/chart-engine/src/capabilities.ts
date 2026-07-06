@@ -20,14 +20,28 @@ export const chartCapabilities: ChartCapability[] = [
     label: "Set timeframe",
     description: "Change the active candle interval.",
     commandTypes: ["chart.timeframe.set"],
-    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "5m", "10m", "1D", "1W", "1M"] } } },
+    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"] } } },
     requiredContext: ["chartDocumentId"],
     previewable: true,
     autoApplyEligible: true,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-symbol", "chart-viewport"],
-    validationRules: ["timeframe must be one of 1m, 5m, 10m, 1D, 1W, 1M"]
+    validationRules: ["timeframe must be one of 1m, footprint, 5m, 10m, 1D, 1W, 1M"]
+  },
+  {
+    id: "chart-type",
+    label: "Chart type",
+    description: "Switch the base price renderer without changing the candle source interval.",
+    commandTypes: ["chart.type.set"],
+    payloadSchema: { type: "object", required: ["chartType"], properties: { chartType: { enum: ["candle", "line", "ohlc"] } } },
+    requiredContext: ["chartDocumentId"],
+    previewable: true,
+    autoApplyEligible: true,
+    undoScope: "chart",
+    conflictsWith: [],
+    recommendedWith: ["chart-timeframe", "chart-layer-visibility"],
+    validationRules: ["chartType must be candle, line, or ohlc"]
   },
   {
     id: "chart-viewport",
@@ -50,6 +64,27 @@ export const chartCapabilities: ChartCapability[] = [
     validationRules: ["visibleCount and rightOffset are clamped to safe numeric bounds; rightOffset may be negative for future empty space"]
   },
   {
+    id: "chart-pane-ratio",
+    label: "Pane ratio",
+    description: "Resize chart panes while keeping their ratios in the chart document.",
+    commandTypes: ["chart.pane.ratio.set"],
+    payloadSchema: {
+      type: "object",
+      required: ["paneId", "heightRatio"],
+      properties: {
+        paneId: { type: "string" },
+        heightRatio: { type: "number", minimum: 0.08, maximum: 0.82 }
+      }
+    },
+    requiredContext: ["chartDocumentId"],
+    previewable: true,
+    autoApplyEligible: true,
+    undoScope: "chart",
+    conflictsWith: [],
+    recommendedWith: ["chart-layer-visibility"],
+    validationRules: ["heightRatio is clamped to safe pane bounds"]
+  },
+  {
     id: "chart-layer-visibility",
     label: "Layer visibility",
     description: "Show or hide chart layers such as MA lines or volume.",
@@ -58,7 +93,25 @@ export const chartCapabilities: ChartCapability[] = [
       type: "object",
       required: ["layer", "visible"],
       properties: {
-        layer: { enum: ["candles", "volume", "ma5", "ma20", "ma60"] },
+        layer: {
+          enum: [
+            "candles",
+            "volume",
+            "ma5",
+            "ma20",
+            "ma60",
+            "sma:5",
+            "sma:20",
+            "sma:60",
+            "ema:20",
+            "wma:20",
+            "bollinger:20:2",
+            "rsi:14",
+            "stochastic:14:3:3",
+            "macd:12:26:9",
+            "volume-profile"
+          ]
+        },
         visible: { type: "boolean" }
       }
     },

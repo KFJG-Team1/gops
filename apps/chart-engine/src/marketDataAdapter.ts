@@ -165,16 +165,16 @@ export function isRealtimeLayerPayload(payload: unknown): payload is Record<stri
 
 function normalizeIndicators(value: unknown): CandleSnapshot["indicators"] {
   if (!value || typeof value !== "object") {
-    return { ma: [5, 20, 60], volume: true };
+    return { ma: [], volume: true };
   }
 
   const source = value as Record<string, unknown>;
   const ma = Array.isArray(source.ma)
     ? source.ma.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
-    : [5, 20, 60];
+    : [];
 
   return {
-    ma: ma.length ? ma : [5, 20, 60],
+    ma,
     volume: typeof source.volume === "boolean" ? source.volume : true
   };
 }

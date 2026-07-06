@@ -1,4 +1,4 @@
-import type { CandleDto, ChartInterval } from "./types";
+import type { CandleDto, ChartInterval, FootprintBucketDto } from "./types";
 
 export type DigTargetInterval = ChartInterval | "footprint";
 
@@ -18,6 +18,7 @@ export type SemanticExpansion = {
   depth: number;
   status: ExpansionStatus;
   candles: CandleDto[];
+  footprintBucket?: FootprintBucketDto | null;
   message?: string;
   openedAt: string;
 };
@@ -51,6 +52,7 @@ export type SemanticPlaceholderUnit = {
   depth: number;
   status: ExpansionStatus;
   message: string;
+  footprintBucket?: FootprintBucketDto | null;
   slotStart: number;
   slotEnd: number;
   slotCenter: number;
@@ -125,6 +127,8 @@ const weeklyChildCandleSlotWidth = 0.6;
 
 export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterval {
   switch (interval) {
+    case "footprint":
+      return "footprint";
     case "1M":
       return "1W";
     case "1W":
@@ -233,6 +237,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       depth: expansion.depth,
       status: expansion.status,
       message,
+      footprintBucket: kind === "footprint" ? expansion.footprintBucket ?? null : undefined,
       slotStart,
       slotEnd,
       slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
@@ -481,6 +486,7 @@ function parseIso(value: string): Date {
 function addInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   switch (interval) {
+    case "footprint":
     case "1m":
       next.setUTCMinutes(next.getUTCMinutes() + 1);
       return next;
@@ -505,6 +511,7 @@ function floorInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   next.setUTCSeconds(0, 0);
   switch (interval) {
+    case "footprint":
     case "1m":
       return next;
     case "5m":

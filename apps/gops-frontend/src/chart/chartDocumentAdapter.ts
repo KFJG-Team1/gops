@@ -7,7 +7,7 @@ import {
   type StreamStatus
 } from "@gops/chart-engine";
 import type { PanelContentInstance, TiledPanelState } from "../layout/panelLayout";
-import type { CandleDto, ChartInterval, ChartState, DrawingEntity } from "./types";
+import type { CandleDto, ChartInterval, ChartState, ChartType, DrawingEntity } from "./types";
 
 const defaultFrontendChartInterval: ChartInterval = "1D";
 
@@ -75,11 +75,13 @@ export function chartStateFromDocument(
   const interval = normalizeFrontendInterval(document.timeframe);
   return {
     symbol: document.symbol.toUpperCase(),
+    chartType: normalizeFrontendChartType(document.chartType),
     interval,
     candles,
     status: dataStatus.state,
     message: streamMessage ?? dataStatus.message,
     layers: { ...document.layers },
+    panes: document.panes.map((pane) => ({ id: pane.id, heightRatio: pane.heightRatio })),
     volumeRatio: volumeRatioFromDocument(document),
     visibleCount: document.viewport.visibleCount,
     rightOffset: document.viewport.rightOffset,
@@ -97,9 +99,13 @@ function volumeRatioFromDocument(document: ChartDocument): number {
 }
 
 function normalizeFrontendInterval(value: string): ChartInterval {
-  return value === "1m" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M"
+  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M"
     ? value
     : defaultFrontendChartInterval;
+}
+
+function normalizeFrontendChartType(value: string | undefined): ChartType {
+  return value === "line" || value === "ohlc" || value === "candle" ? value : "candle";
 }
 
 function readString(value: unknown): string | null {

@@ -36,6 +36,7 @@ import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveRespons
 import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
+  nextDigTargetInterval,
   semanticExpansionId,
   semanticNodeId,
   type SemanticExpansion
@@ -48,7 +49,7 @@ import {
 } from "../src/chart/scene";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
-import type { CandleDto, ChartState, DrawingEntity } from "../src/chart/types";
+import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
 import {
   createInitialTiledPanelState,
   detectPanelBoundaries,
@@ -173,6 +174,7 @@ function testCandle(timestamp: string, close = 100): CandleDto {
 function frontendChartState(overrides: Partial<ChartState>): ChartState {
   return {
     symbol: "AAPL",
+    chartType: "candle",
     interval: "1D",
     candles: [],
     status: "ready",
@@ -204,6 +206,10 @@ function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
 
 assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style.background, fallbackChartStyle.background);
 assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
+const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "AAPL", "1m");
+assert.equal(chartTypeDefaultDocument.chartType, "candle");
+assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
+assert.equal(chartTypeDefaultDocument.layers.ma5, true);
 assert.equal(fallbackChartStyle.background, "#efefe8");
 assert.equal(fallbackChartStyle.text, "#1a1a0e");
 assert.equal(fallbackChartStyle.grid, "rgba(26, 26, 14, 0.08)");
@@ -336,6 +342,72 @@ assert.equal(documentBResult.ok, true);
 assert.equal(documentA.history.length, 0);
 if (documentBResult.ok) {
   assert.equal(documentBResult.document.history.length, 1);
+  assert.equal(documentBResult.document.layers.ma20, false);
+  assert.equal(documentBResult.document.layers["sma:20"], false);
+}
+
+const chartTypeResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.type.set", "user", target("panel-b", documentB.id), { chartType: "line" })
+);
+assert.equal(chartTypeResult.ok, true);
+if (chartTypeResult.ok) {
+  assert.equal(chartTypeResult.document.chartType, "line");
+  const undoChartType = executeChartCommand(
+    chartTypeResult.document,
+    makeChartCommand("chart.undo", "user", target("panel-b", documentB.id))
+  );
+  assert.equal(undoChartType.ok, true);
+  if (undoChartType.ok) {
+    assert.equal(undoChartType.document.chartType, "candle");
+  }
+}
+
+const paneRatioResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.pane.ratio.set", "user", target("panel-b", documentB.id), { paneId: "volume", heightRatio: 0.31 })
+);
+assert.equal(paneRatioResult.ok, true);
+if (paneRatioResult.ok) {
+  assert.equal(paneRatioResult.document.panes.find((pane) => pane.id === "volume")?.heightRatio, 0.31);
+}
+
+const smaAliasResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.layer.visibility.set", "user", target("panel-b", documentB.id), {
+    layer: "sma:60",
+    visible: false
+  })
+);
+assert.equal(smaAliasResult.ok, true);
+if (smaAliasResult.ok) {
+  assert.equal(smaAliasResult.document.layers["sma:60"], false);
+  assert.equal(smaAliasResult.document.layers.ma60, false);
+}
+
+const rsiPaneResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.layer.visibility.set", "user", target("panel-b", documentB.id), {
+    layer: "rsi:14",
+    visible: true
+  })
+);
+assert.equal(rsiPaneResult.ok, true);
+if (rsiPaneResult.ok) {
+  assert.equal(rsiPaneResult.document.layers["rsi:14"], true);
+  assert.equal(rsiPaneResult.document.panes.at(-1)?.id, "rsi:14");
+  const removeRsiPaneResult = executeChartCommand(
+    rsiPaneResult.document,
+    makeChartCommand("chart.layer.visibility.set", "user", target("panel-b", documentB.id), {
+      layer: "rsi:14",
+      visible: false
+    })
+  );
+  assert.equal(removeRsiPaneResult.ok, true);
+  if (removeRsiPaneResult.ok) {
+    assert.equal(removeRsiPaneResult.document.layers["rsi:14"], false);
+    assert.equal(removeRsiPaneResult.document.panes.some((pane) => pane.id === "rsi:14"), false);
+  }
 }
 
 const candleA: CandleData = {
@@ -502,6 +574,24 @@ assert.equal(
   Math.ceil(semanticFutureSceneAtBaseEmptySpace.semantic.expansionExtraSlots),
   semanticFutureExtraSlots
 );
+const multiBelowPaneScene = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 40,
+  layers: {
+    candles: true,
+    volume: true,
+    "rsi:14": true,
+    "macd:12:26:9": true
+  },
+  panes: [
+    { id: "price", heightRatio: 0.56 },
+    { id: "volume", heightRatio: 0.18 },
+    { id: "rsi:14", heightRatio: 0.13 },
+    { id: "macd:12:26:9", heightRatio: 0.13 }
+  ]
+}), 800, 460);
+assert.deepEqual(multiBelowPaneScene.plot.belowPanes.map((pane) => pane.id), ["volume", "rsi:14", "macd:12:26:9"]);
+assert.ok(multiBelowPaneScene.plot.belowPanes[0].top < multiBelowPaneScene.plot.belowPanes[1].top);
 assert.equal(
   frontendDragDeltaToRightOffset(
     -frontendFutureEmptySlotCount(80),
@@ -972,14 +1062,19 @@ assert.equal(normalizeSupportedSymbol("BAD!"), null);
 assert.equal(normalizeChartInterval("1d"), "1D");
 assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
+assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
+assert.deepEqual(chartIntervals.slice(0, 3), ["1m", "footprint", "5m"]);
+assert.equal(nextDigTargetInterval("1m"), "footprint");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
+assert.equal(defaultVisibleBarsForInterval("footprint"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
 assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 36);
 assert.equal(maxRequestBarsForInterval("1m"), 589680);
+assert.equal(maxRequestBarsForInterval("footprint"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
 assert.equal(maxRequestBarsForInterval("1D"), 1512);

@@ -178,7 +178,7 @@ export function BottomCommandBar({
               )}
             </div>
           </section>
-          <form className="agent-box surface-floating" onSubmit={submitAgentPrompt}>
+          <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
             <input
               value={agentInput}
               onChange={(event) => onAgentInputChange(event.target.value)}
