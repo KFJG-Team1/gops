@@ -18,25 +18,25 @@ patches:
 images:
   - name: YOUR_ECR_REPOSITORY/gops-market-ingestor
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-ingestor
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-market-processor
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-processor
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-market-storage
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-storage
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-api-server
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-api-server
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-frontend
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-frontend
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-order-worker
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-order-worker
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-kis-adapter
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-kis-adapter
-    newTag: latest
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-agent-orchestrator
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-agent-orchestrator
-    newTag: latest
+    newTag: 0c876e9

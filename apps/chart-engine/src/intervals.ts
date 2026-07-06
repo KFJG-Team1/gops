@@ -1,4 +1,4 @@
-export const chartIntervals = ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"] as const;
+export const chartIntervals = ["footprint", "1m", "5m", "10m", "1D", "1W", "1M"] as const;
 
 export type ChartInterval = typeof chartIntervals[number];
 

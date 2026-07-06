@@ -1,6 +1,6 @@
 import type { ThemeColors } from "../theme/colors";
 
-const minOpacity = 0.3;
+const minOpacity = 0.48;
 const maxOpacity = 0.92;
 const flatThreshold = 0.08;
 const inverseTextOpacityThreshold = 0.58;

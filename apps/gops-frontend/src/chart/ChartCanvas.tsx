@@ -106,23 +106,25 @@ function drawChart(
     () => drawExpansionRanges(context, scene, Boolean(crosshair)),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
+    () => drawTimePeriodDividers(context, scene),
     () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
-    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
     () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
-    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.preview)),
-    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.axis)),
+    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
+    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
     () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
-    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
+    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
     () => drawBelowIndicatorPanes(context, scene),
-    () => drawDrawings(context, scene, scene.chart.drawings, false),
-    () => drawDrawings(context, scene, previewDrawings, true),
     () => drawExpansionParentSummaries(context, scene),
     () => drawFootprintEstimatedLabel(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
-    () => drawCrosshair(context, scene, crosshair)
+    () => drawDrawingLabelsOnAxes(context, scene),
+    () => drawCrosshair(context, scene, crosshair),
+    () => drawDrawings(context, scene, scene.chart.drawings, false),
+    () => drawDrawings(context, scene, previewDrawings, true)
   ];
   layers.forEach((drawLayer) => drawLayer());
 }
@@ -508,9 +510,54 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
     return;
   }
   const points = indicatorPointMap(scene, layerId);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.upper, (value) => priceToY(scene, value), colors.axis, 0.85);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.middle, (value) => priceToY(scene, value), colors.preview, 1);
-  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.lower, (value) => priceToY(scene, value), colors.axis, 0.85);
+  const units = candleUnits(scene);
+
+  // 1. Draw transparent black area between upper and lower bands
+  context.save();
+  context.beginPath();
+  let started = false;
+
+  units.forEach((unit) => {
+    const pt = points.get(unit.candle.timestamp);
+    if (typeof pt?.upper === "number" && Number.isFinite(pt.upper)) {
+      const x = unitCenterX(scene, unit);
+      const y = priceToY(scene, pt.upper);
+      if (!started) {
+        context.moveTo(x, y);
+        started = true;
+      } else {
+        context.lineTo(x, y);
+      }
+    }
+  });
+
+  for (let i = units.length - 1; i >= 0; i--) {
+    const unit = units[i];
+    const pt = points.get(unit.candle.timestamp);
+    if (typeof pt?.lower === "number" && Number.isFinite(pt.lower)) {
+      const x = unitCenterX(scene, unit);
+      const y = priceToY(scene, pt.lower);
+      context.lineTo(x, y);
+    }
+  }
+
+  if (started) {
+    context.closePath();
+    context.fillStyle = colors.preview;
+    context.globalAlpha = 0.04;
+    context.fill();
+  }
+  context.restore();
+
+  // 2. Draw upper and lower lines (진한 검정)
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
+
+  // 3. Draw middle line (굵은 점선)
+  context.save();
+  context.setLineDash([6, 4]);
+  drawSeriesLine(context, scene, (unit) => points.get(unit.candle.timestamp)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
+  context.restore();
 }
 
 function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -522,45 +569,45 @@ function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene)
   if (!Number.isFinite(maxVolume) || maxVolume <= 0) {
     return;
   }
-  const maxWidth = Math.max(36, Math.min(168, (scene.plot.right - scene.plot.left) * 0.24));
-  const right = scene.plot.right - 4;
+  const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
+  const profileLeft = scene.plot.left + 8;
+  const profileWidth = Math.max(1, Math.min(920, Math.max(320, plotWidth * 0.82), plotWidth - 16));
+  const right = profileLeft + profileWidth;
   context.save();
-  if (profile.valueArea) {
-    const top = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.high)));
-    const bottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, profile.valueArea.low)));
-    context.globalAlpha = 0.12;
-    context.fillStyle = colors.volume;
-    context.fillRect(scene.plot.left, Math.min(top, bottom), scene.plot.right - scene.plot.left, Math.max(1, Math.abs(bottom - top)));
-  }
   profile.bins.forEach((bucket) => {
-    if (!Number.isFinite(bucket.volume) || bucket.volume <= 0) {
-      return;
-    }
     const yTop = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMax)));
     const yBottom = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, priceToY(scene, bucket.priceMin)));
     const top = Math.min(yTop, yBottom);
     const bottom = Math.max(yTop, yBottom);
-    const height = Math.max(1, bottom - top - 1);
-    const width = Math.max(2, maxWidth * (bucket.volume / maxVolume));
-    context.globalAlpha = bucket.isPoc ? 0.38 : bucket.inValueArea ? 0.24 : 0.14;
-    context.fillStyle = bucket.isPoc ? colors.preview : bucket.inValueArea ? colors.volume : colors.axis;
-    context.fillRect(right - width, top, width, height);
+    const height = Math.max(2, bottom - top - 1);
+    if (!Number.isFinite(bucket.volume) || bucket.volume <= 0) {
+      return;
+    }
+    const normalizedVolume = Math.max(0, Math.min(1, bucket.volume / maxVolume));
+    const width = Math.max(4, profileWidth * normalizedVolume);
+    context.globalAlpha = bucket.isPoc
+      ? 0.15
+      : bucket.inValueArea
+        ? 0.07 + normalizedVolume * 0.05
+        : 0.04 + normalizedVolume * 0.03;
+    context.fillStyle = colors.preview;
+    context.fillRect(profileLeft, top, width, height);
   });
   if (profile.poc) {
     const y = priceToY(scene, profile.poc.priceMid);
-    context.globalAlpha = 0.66;
+    context.globalAlpha = 0.18;
     context.strokeStyle = colors.preview;
     context.lineWidth = 1;
     context.setLineDash([4, 4]);
-    line(context, Math.max(scene.plot.left, right - maxWidth - 8), y, right, y);
+    line(context, profileLeft, y, right, y);
     context.setLineDash([]);
   }
   context.globalAlpha = 0.72;
   context.fillStyle = colors.muted;
   context.font = "10px Inter, system-ui, sans-serif";
-  context.textAlign = "right";
+  context.textAlign = "left";
   context.textBaseline = "top";
-  context.fillText("VP", right, scene.plot.top + 6);
+  context.fillText(profile.sideClassification === "estimated" ? "Estimated VP" : "VP", profileLeft, scene.plot.top + 6);
   context.restore();
 }
 
@@ -586,16 +633,16 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     const domain = { min: 0, max: 100 };
     drawPaneGuide(context, scene, pane, domain, 80);
     drawPaneGuide(context, scene, pane, domain, 20);
-    drawPaneSeries(context, scene, pane, pane.id, "k", domain, colors.preview);
-    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.axis);
+    drawPaneSeries(context, scene, pane, pane.id, "k", domain, colors.caution);
+    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.preview);
     return;
   }
   if (pane.id === "macd:12:26:9") {
     const domain = macdDomain(scene, pane.id);
     drawPaneGuide(context, scene, pane, domain, 0);
     drawMacdHistogram(context, scene, pane, pane.id, domain);
-    drawPaneSeries(context, scene, pane, pane.id, "macd", domain, colors.preview);
-    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.axis);
+    drawPaneSeries(context, scene, pane, pane.id, "macd", domain, colors.caution);
+    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.preview);
   }
 }
 
@@ -766,7 +813,7 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
     context.strokeStyle = strokeColor;
     context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
-    context.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
+    context.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1.0) : style.lineWidth ?? 1.0;
     context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
 
     if (drawing.type === "horizontalLine" && points[0]) {
@@ -775,14 +822,9 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     } else if (drawing.type === "verticalMarker" && points[0]) {
       line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
       drawDrawingLabel(context, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
-    } else if ((drawing.type === "trendLine" || drawing.type === "arrow") && points.length >= 2) {
-      const [start, end] = drawing.type === "trendLine"
-        ? projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension))
-        : [points[0], points[1]];
+    } else if (drawing.type === "trendLine" && points.length >= 2) {
+      const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
       line(context, start.x, start.y, end.x, end.y);
-      if (drawing.type === "arrow") {
-        drawArrowHead(context, start, end);
-      }
       drawDrawingLabel(context, drawing.label ?? lineMetricLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
@@ -855,9 +897,6 @@ function drawTimeWarpedLine(
     }
   });
   context.stroke();
-  if (drawing.type === "arrow") {
-    drawArrowHead(context, item.points[item.points.length - 2], item.points[item.points.length - 1]);
-  }
   const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
   if (midpoint) {
     drawDrawingLabel(context, item.label ?? lineMetricLabel(drawing), midpoint.x + 5, midpoint.y - 8, drawing);
@@ -944,7 +983,7 @@ function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | und
 }
 
 function lineMetricLabel(drawing: DrawingEntity): string | undefined {
-  if (drawing.type !== "trendLine" && drawing.type !== "arrow") {
+  if (drawing.type !== "trendLine") {
     return undefined;
   }
   const [start, end] = drawing.anchors;
@@ -964,6 +1003,7 @@ type TimeTick = {
   label: string;
   depth: number;
   parentExpansionId?: string;
+  isDivider: boolean;
 };
 
 function drawTimeGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -980,15 +1020,147 @@ function drawTimeGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.restore();
 }
 
+function getKstComponents(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return { year: 0, month: 0, day: 0, hour: 0, quarter: 1 };
+  }
+  const kstTime = date.getTime() + 9 * 60 * 60 * 1000;
+  const kstDate = new Date(kstTime);
+  const year = kstDate.getUTCFullYear();
+  const month = kstDate.getUTCMonth() + 1;
+  const day = kstDate.getUTCDate();
+  const hour = kstDate.getUTCHours();
+  const quarter = Math.floor((month - 1) / 3) + 1;
+  return { year, month, day, hour, quarter };
+}
+
+function drawTimePeriodDividers(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const candles = candleUnits(scene);
+  if (candles.length < 2) {
+    return;
+  }
+  const interval = scene.chart.interval;
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "footprint";
+  const isDaily = interval === "1D";
+  const isWeekly = interval === "1W";
+  const isMonthly = interval === "1M";
+
+  if (!isIntraday && !isDaily && !isWeekly && !isMonthly) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = colors.grid;
+  context.lineWidth = 2.0;
+
+  let prevComp = getKstComponents(candles[0].timestamp);
+
+  for (let i = 1; i < candles.length; i++) {
+    const unit = candles[i];
+    const currComp = getKstComponents(unit.timestamp);
+    let trigger = false;
+
+    if (isIntraday) {
+      if (currComp.day !== prevComp.day || currComp.month !== prevComp.month || currComp.year !== prevComp.year) {
+        trigger = true;
+      }
+    } else if (isDaily) {
+      if (currComp.month !== prevComp.month || currComp.year !== prevComp.year) {
+        trigger = true;
+      }
+    } else if (isWeekly) {
+      if (currComp.quarter !== prevComp.quarter || currComp.year !== prevComp.year) {
+        trigger = true;
+      }
+    } else if (isMonthly) {
+      if (currComp.year !== prevComp.year) {
+        trigger = true;
+      }
+    }
+
+    if (trigger) {
+      const x = unitCenterX(scene, unit);
+      if (x >= scene.plot.left && x <= scene.plot.right) {
+        line(context, x, scene.plot.top, x, scene.plot.bottom);
+      }
+    }
+
+    prevComp = currComp;
+  }
+
+  context.restore();
+}
+
+function drawDarkAxisPill(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  align: "center" | "left" | "right"
+) {
+  context.save();
+  context.font = "10px Inter, system-ui, sans-serif";
+  const metrics = context.measureText(text);
+  const width = metrics.width + 10;
+  const height = 17;
+  const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
+  const top = y - height / 2;
+  context.fillStyle = colors.drawing;
+  context.strokeStyle = colors.drawing;
+  context.lineWidth = 1;
+  roundedRect(context, left, top, width, height, 4);
+  context.fill();
+  context.stroke();
+  context.fillStyle = colors.background;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, left + width / 2, y + 0.5);
+  context.restore();
+}
+
+function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const transform = createCoordinateTransform(scene);
+  const drawings = scene.chart.drawings;
+
+  drawings.forEach((drawing) => {
+    if (drawing.visible === false) {
+      return;
+    }
+    // Only show labels for completed drawings (exclude drafts during drawing process)
+    if (drawing.createdAt === "draft" || drawing.id === "drawing-draft-preview" || drawing.id.includes("draft")) {
+      return;
+    }
+    const anchor = drawing.anchors[0];
+    if (!anchor) {
+      return;
+    }
+
+    if (drawing.type === "horizontalLine" && typeof anchor.price === "number") {
+      const pt = transform.anchorToPoint(anchor);
+      if (pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
+        const text = anchor.price.toFixed(2);
+        drawDarkAxisPill(context, text, scene.width - 8, pt.y, "right");
+      }
+    } else if (drawing.type === "verticalMarker") {
+      const pt = transform.anchorToPoint(anchor);
+      if (pt && pt.x >= scene.plot.left && pt.x <= scene.plot.right) {
+        const label = anchor.timestamp
+          ? formatSemanticTimestamp(anchor.timestamp, scene.chart.interval)
+          : "";
+        if (label) {
+          drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center");
+        }
+      }
+    }
+  });
+}
+
 function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
   const ticks = buildTimeTicks(scene);
   if (!ticks.length) {
     return;
   }
-  context.fillStyle = colors.muted;
-  context.font = "10px Inter, system-ui, sans-serif";
-  context.textBaseline = "middle";
-  context.textAlign = "center";
   const y = timeAxisY(scene);
   let lastLabelX = Number.NEGATIVE_INFINITY;
   ticks.forEach((tick) => {
@@ -998,57 +1170,136 @@ function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
       return;
     }
     lastLabelX = x;
-    context.fillStyle = tick.parentExpansionId ? colors.axis : colors.muted;
+
+    context.save();
+    context.textBaseline = "middle";
+    context.textAlign = "center";
+    if (tick.isDivider) {
+      context.fillStyle = colors.text;
+      context.font = "bold 10px Inter, system-ui, sans-serif";
+    } else {
+      context.fillStyle = tick.parentExpansionId ? colors.axis : colors.muted;
+      context.font = "10px Inter, system-ui, sans-serif";
+    }
     context.fillText(tick.label, x, y);
+    context.restore();
   });
 }
 
 function buildTimeTicks(scene: ChartScene): TimeTick[] {
-  const ticks: TimeTick[] = [];
-  const lastXByGroup = new Map<string, number>();
   const candles = candleUnits(scene);
+  if (!candles.length) {
+    return [];
+  }
+
+  const interval = scene.chart.interval;
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "footprint";
+  const isDaily = interval === "1D";
+  const isWeekly = interval === "1W";
+  const isMonthly = interval === "1M";
+
+  const isDivider = new Array(candles.length).fill(false);
+  const dividerLabels = new Array(candles.length).fill("");
+
+  if (candles.length >= 2 && (isIntraday || isDaily || isWeekly || isMonthly)) {
+    let prevComp = getKstComponents(candles[0].timestamp);
+    for (let i = 1; i < candles.length; i++) {
+      const unit = candles[i];
+      const currComp = getKstComponents(unit.timestamp);
+      let trigger = false;
+      let label = "";
+
+      if (isIntraday) {
+        if (currComp.day !== prevComp.day || currComp.month !== prevComp.month || currComp.year !== prevComp.year) {
+          trigger = true;
+          label = `${String(currComp.month).padStart(2, "0")}/${String(currComp.day).padStart(2, "0")}`;
+        }
+      } else if (isDaily) {
+        if (currComp.month !== prevComp.month || currComp.year !== prevComp.year) {
+          trigger = true;
+          label = `${currComp.year}.${String(currComp.month).padStart(2, "0")}`;
+        }
+      } else if (isWeekly) {
+        if (currComp.quarter !== prevComp.quarter || currComp.year !== prevComp.year) {
+          trigger = true;
+          label = `${currComp.year}.Q${currComp.quarter}`;
+        }
+      } else if (isMonthly) {
+        if (currComp.year !== prevComp.year) {
+          trigger = true;
+          label = `${currComp.year}`;
+        }
+      }
+
+      if (trigger) {
+        isDivider[i] = true;
+        dividerLabels[i] = label;
+      }
+      prevComp = currComp;
+    }
+  }
+
+  const potentialTicks: TimeTick[] = [];
   candles.forEach((unit, index) => {
     const x = unitCenterX(scene, unit);
     if (x < scene.plot.left - 1 || x > scene.plot.right + 1) {
       return;
     }
-    if (!shouldShowTimeTick(unit, scene.scales.slotWidth, index === 0 || index === candles.length - 1)) {
-      return;
+    const divider = isDivider[index];
+    const standard = shouldShowTimeTick(unit, scene.scales.slotWidth, index === 0 || index === candles.length - 1);
+    if (divider) {
+      potentialTicks.push({
+        x,
+        label: dividerLabels[index],
+        depth: unit.depth,
+        parentExpansionId: unit.parentExpansionId,
+        isDivider: true
+      });
+    } else if (standard) {
+      potentialTicks.push({
+        x,
+        label: formatAxisTimestamp(unit.timestamp, unit.interval),
+        depth: unit.depth,
+        parentExpansionId: unit.parentExpansionId,
+        isDivider: false
+      });
     }
-    const group = unit.parentExpansionId ?? "root";
-    const minGap = unit.parentExpansionId ? 42 : 68;
-    const lastX = lastXByGroup.get(group);
-    if (typeof lastX === "number" && x - lastX < minGap) {
-      return;
-    }
-    lastXByGroup.set(group, x);
-    ticks.push({
-      x,
-      label: formatAxisTimestamp(unit.timestamp, unit.interval),
-      depth: unit.depth,
-      parentExpansionId: unit.parentExpansionId
-    });
   });
 
-  if (!ticks.length && candles.length) {
+  if (!potentialTicks.length && candles.length) {
     const first = candles[0];
     const last = candles[candles.length - 1];
-    ticks.push({
+    potentialTicks.push({
       x: unitCenterX(scene, first),
       label: formatAxisTimestamp(first.timestamp, first.interval),
       depth: first.depth,
-      parentExpansionId: first.parentExpansionId
+      parentExpansionId: first.parentExpansionId,
+      isDivider: false
     });
     if (last !== first) {
-      ticks.push({
+      potentialTicks.push({
         x: unitCenterX(scene, last),
         label: formatAxisTimestamp(last.timestamp, last.interval),
         depth: last.depth,
-        parentExpansionId: last.parentExpansionId
+        parentExpansionId: last.parentExpansionId,
+        isDivider: false
       });
     }
   }
-  return ticks.sort((left, right) => left.x - right.x);
+
+  const dividerTicks = potentialTicks.filter(t => t.isDivider);
+  const selectedTicks: TimeTick[] = [...dividerTicks];
+  const standardTicks = potentialTicks.filter(t => !t.isDivider);
+
+  standardTicks.forEach((tick) => {
+    const minGap = tick.parentExpansionId ? 46 : 62;
+    const hasOverlap = selectedTicks.some(sel => Math.abs(sel.x - tick.x) < minGap);
+    if (!hasOverlap) {
+      selectedTicks.push(tick);
+    }
+  });
+
+  return selectedTicks.sort((left, right) => left.x - right.x);
 }
 
 function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: boolean): boolean {
@@ -1059,21 +1310,70 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
   if (Number.isNaN(date.getTime())) {
     return false;
   }
-  const minute = date.getUTCMinutes();
+
+  const kstTime = date.getTime() + 9 * 60 * 60 * 1000;
+  const kstDate = new Date(kstTime);
+  const minute = kstDate.getUTCMinutes();
+  const hour = kstDate.getUTCHours();
+  const dayOfWeek = kstDate.getUTCDay();
+  const dayOfMonth = kstDate.getUTCDate();
+  const month = kstDate.getUTCMonth() + 1;
+
+  const candlesPerTick = Math.ceil(62 / slotWidth);
+
   switch (unit.interval) {
     case "footprint":
-    case "1m":
-      return minute % (slotWidth > 10 ? 5 : 15) === 0;
-    case "5m":
-      return minute % (slotWidth > 11 ? 15 : 30) === 0;
-    case "10m":
-      return minute === 0 || (slotWidth > 12 && minute % 30 === 0);
-    case "1D":
-      return slotWidth > 18 || date.getUTCDay() === 1 || date.getUTCDate() <= 3;
-    case "1W":
-      return slotWidth > 20 || date.getUTCDate() <= 7;
-    case "1M":
-      return slotWidth > 24 || date.getUTCMonth() % 3 === 0;
+    case "1m": {
+      if (candlesPerTick <= 5) return minute % 5 === 0;
+      if (candlesPerTick <= 15) return minute % 15 === 0;
+      if (candlesPerTick <= 30) return minute % 30 === 0;
+      if (candlesPerTick <= 60) return minute === 0;
+      if (candlesPerTick <= 120) return hour % 2 === 0 && minute === 0;
+      return hour % 4 === 0 && minute === 0;
+    }
+    case "5m": {
+      const minsTotal = hour * 60 + minute;
+      if (candlesPerTick <= 3) return minsTotal % 15 === 0;
+      if (candlesPerTick <= 6) return minsTotal % 30 === 0;
+      if (candlesPerTick <= 12) return minute === 0;
+      return hour % 2 === 0 && minute === 0;
+    }
+    case "10m": {
+      const minsTotal = hour * 60 + minute;
+      if (candlesPerTick <= 3) return minsTotal % 30 === 0;
+      if (candlesPerTick <= 6) return minute === 0;
+      return hour % 2 === 0 && minute === 0;
+    }
+    case "1D": {
+      if (slotWidth > 18 || candlesPerTick <= 2) {
+        return true;
+      }
+      if (candlesPerTick <= 5) {
+        return dayOfWeek === 1;
+      }
+      if (candlesPerTick <= 10) {
+        const weekNum = Math.floor(kstTime / (7 * 24 * 60 * 60 * 1000));
+        return dayOfWeek === 1 && weekNum % 2 === 0;
+      }
+      return dayOfWeek === 1 && dayOfMonth <= 7;
+    }
+    case "1W": {
+      if (candlesPerTick <= 2) {
+        return true;
+      }
+      return dayOfMonth <= 7;
+    }
+    case "1M": {
+      if (candlesPerTick <= 1) {
+        return true;
+      }
+      if (candlesPerTick <= 3) {
+        return month % 3 === 1;
+      }
+      return month === 1;
+    }
+    default:
+      return false;
   }
 }
 
@@ -1487,17 +1787,6 @@ function candleBodyWidth(scene: ChartScene, unit: SemanticCandleUnit, hovered = 
 function circle(context: CanvasRenderingContext2D, x: number, y: number, radius: number) {
   context.beginPath();
   context.arc(x, y, radius, 0, Math.PI * 2);
-}
-
-function drawArrowHead(context: CanvasRenderingContext2D, from: { x: number; y: number }, to: { x: number; y: number }) {
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const length = 9;
-  context.beginPath();
-  context.moveTo(to.x, to.y);
-  context.lineTo(to.x - length * Math.cos(angle - Math.PI / 6), to.y - length * Math.sin(angle - Math.PI / 6));
-  context.moveTo(to.x, to.y);
-  context.lineTo(to.x - length * Math.cos(angle + Math.PI / 6), to.y - length * Math.sin(angle + Math.PI / 6));
-  context.stroke();
 }
 
 function roundedRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {

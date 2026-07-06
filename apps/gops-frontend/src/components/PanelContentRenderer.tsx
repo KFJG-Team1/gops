@@ -12,6 +12,7 @@ import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
+import { PopularStocksPanel } from "./PopularStocksPanel";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 
@@ -22,6 +23,7 @@ type PanelContentRendererProps = {
   symbols: ChartSymbolDto[];
   companyItem?: Sp500UniverseItem;
   companyItems: Sp500UniverseItem[];
+  marketItems: Sp500UniverseItem[];
   laneHeight: number;
   chartHeaderSnapshot?: ChartHeaderSnapshot;
   chartDocument?: ChartDocument;
@@ -56,6 +58,7 @@ export function PanelContentRenderer({
   symbols,
   companyItem,
   companyItems,
+  marketItems,
   laneHeight,
   chartHeaderSnapshot,
   chartDocument,
@@ -99,6 +102,10 @@ export function PanelContentRenderer({
 
   if (content.kind === "indices") {
     return <IndexPanel />;
+  }
+
+  if (content.kind === "popular") {
+    return <PopularStocksPanel items={marketItems} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (content.kind === "ontology") {

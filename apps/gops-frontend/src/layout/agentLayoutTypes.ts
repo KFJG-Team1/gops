@@ -8,6 +8,7 @@ export type AgentLayoutPanelType =
   | "chart"
   | "marketIndices"
   | "companyProfile"
+  | "popularStocks"
   | "newsFeed"
   | "ontologyGraph"
   | "portfolioHoldings"
