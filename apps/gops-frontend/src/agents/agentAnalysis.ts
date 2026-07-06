@@ -248,9 +248,12 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const newsOnly = isNewsOnlyReport(report);
-  const lines = report.agentAnswers.length
-    ? formatAgentAnswers(report.agentAnswers)
-    : report.finalAnswer ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly }) : [report.summary];
+  const lines = report.finalAnswer
+    ? formatFinalAnswer(report.finalAnswer, { compactNews: newsOnly })
+    : report.agentAnswers.length ? formatAgentAnswers(report.agentAnswers) : [report.summary];
+  if (report.finalAnswer && report.agentAnswers.length && !newsOnly) {
+    lines.push("", ...formatAgentAnswers(report.agentAnswers, "세부 근거"));
+  }
 
   const unusualEventFinding = report.findings.find((finding) =>
     finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
@@ -326,8 +329,8 @@ function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: bo
   return lines;
 }
 
-function formatAgentAnswers(agentAnswers: AgentAnswer[]): string[] {
-  const lines = ["멀티 에이전트 분석"];
+function formatAgentAnswers(agentAnswers: AgentAnswer[], title = "멀티 에이전트 분석"): string[] {
+  const lines = [title];
   for (const answer of agentAnswers) {
     lines.push("", answer.title || answer.role);
     lines.push(answer.content);

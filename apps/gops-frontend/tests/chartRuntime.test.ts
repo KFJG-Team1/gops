@@ -1874,6 +1874,9 @@ assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /선택한 자료/);
+assert.match(bottomCommandBarSource, /bottom-chat-message-text/);
+assert.match(bottomCommandBarSource, /bottom-chat-loading-mark/);
+assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
@@ -2173,9 +2176,34 @@ assert.doesNotMatch(agentAnalysisMessage, /Macro provider not configured\./);
 assert.match(agentAnalysisMessage, /검색 0\.2초 \/ 전체 1\.1초/);
 assert.doesNotMatch(agentAnalysisMessage, /캐시 사용/);
 
+const finalAnswerFirstReport = normalizeAgentAnalysisReport({
+  ...agentAnalysisReport,
+  analysisId: "analysis-final-answer-first",
+  agentAnswers: [
+    {
+      agentId: "news-agent",
+      role: "news-analysis",
+      title: "뉴스 독립 답변",
+      content: "뉴스 역할 답변입니다.",
+      citations: []
+    }
+  ]
+});
+const finalAnswerFirstMessage = formatAgentAnalysisReport(finalAnswerFirstReport);
+const finalAnswerIndex = finalAnswerFirstMessage.indexOf("NVDA 주가 변동 원인 분석");
+const detailEvidenceIndex = finalAnswerFirstMessage.indexOf("세부 근거");
+assert.ok(finalAnswerIndex >= 0 && detailEvidenceIndex > finalAnswerIndex);
+assert.match(finalAnswerFirstMessage, /세부 근거/);
+assert.match(finalAnswerFirstMessage, /뉴스 독립 답변/);
+
 const frontendStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
 assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);
 assert.match(frontendStylesSource, /\.bottom-chat-message \{[\s\S]*max-width: min\(720px, 88%\);/);
+assert.match(frontendStylesSource, /\.bottom-chat-message\.is-pending \.bottom-chat-message-text \{[\s\S]*color: var\(--color-muted-medium\);/);
+assert.match(frontendStylesSource, /\.bottom-chat-loading-mark \{[\s\S]*font-weight: 800;[\s\S]*animation: bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
+const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
+assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
 
 const zeroTimingReport = normalizeAgentAnalysisReport({
