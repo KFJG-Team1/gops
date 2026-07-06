@@ -17,6 +17,28 @@ type LoadState = "loading" | "ready";
 
 const QUOTE_REFRESH_MS = 60_000;
 
+function readRawString(item: AgentEvidenceItem, key: string): string {
+  const value = item.raw?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function isSubsidiaryRelationshipNote(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim().toLowerCase();
+  return Boolean(normalized) && (
+    normalized.includes("following subsidiar") ||
+    normalized.includes("partially own") ||
+    normalized.includes("collectively own") ||
+    normalized.includes(" owns ") ||
+    normalized === "legal entity name"
+  );
+}
+
+function isSuppressedControlEvidence(item: AgentEvidenceItem): boolean {
+  const relationType = readRawString(item, "relationType");
+  const controlledName = readRawString(item, "controlledName");
+  return (relationType === "control" || relationType === "theme-control") && isSubsidiaryRelationshipNote(controlledName);
+}
+
 export function OntologyPanel({ symbol, onSelectSymbol }: OntologyPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -88,7 +110,7 @@ export function OntologyPanel({ symbol, onSelectSymbol }: OntologyPanelProps) {
     [evidence, normalizedSymbol]
   );
   const ontologyEvidence = useMemo(
-    () => evidence.filter((item) => item.provider === "ontology" && item.status === "available"),
+    () => evidence.filter((item) => item.provider === "ontology" && item.status === "available" && !isSuppressedControlEvidence(item)),
     [evidence]
   );
   const getQuote = useMemo(() => {
