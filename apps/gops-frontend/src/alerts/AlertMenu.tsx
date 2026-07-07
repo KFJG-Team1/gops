@@ -19,6 +19,7 @@ import {
   type NotificationItem,
   type PriceAlert
 } from "./alertApi";
+import { alertSummary, notificationSummary, notificationSymbol } from "./alertPresentation";
 
 type AlertMenuProps = {
   activeSymbol: string;
@@ -26,6 +27,7 @@ type AlertMenuProps = {
   authEnabled: boolean;
   authLoading: boolean;
   authUser: AuthUser | null;
+  externallyReadNotification?: NotificationItem | null;
   onLogin: () => void;
   onUnreadCountChange?: (count: number) => void;
 };
@@ -33,12 +35,16 @@ type AlertMenuProps = {
 type AlertFormMode = AlertKind;
 type AlertRepeatOption = "1" | "unlimited" | "3" | "5" | "10";
 
-const directionLabels: Record<AlertDirection, string> = {
-  above: "상승",
-  below: "하락"
-};
-
-export function AlertMenu({ activeSymbol, symbols, authEnabled, authLoading, authUser, onLogin, onUnreadCountChange }: AlertMenuProps) {
+export function AlertMenu({
+  activeSymbol,
+  symbols,
+  authEnabled,
+  authLoading,
+  authUser,
+  externallyReadNotification,
+  onLogin,
+  onUnreadCountChange
+}: AlertMenuProps) {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -64,6 +70,19 @@ export function AlertMenu({ activeSymbol, symbols, authEnabled, authLoading, aut
   useEffect(() => {
     onUnreadCountChange?.(unreadCount);
   }, [onUnreadCountChange, unreadCount]);
+
+  useEffect(() => {
+    if (!externallyReadNotification?.readAt) {
+      return;
+    }
+    setNotifications((current) => {
+      const existing = current.find((item) => item.id === externallyReadNotification.id);
+      if (existing && !existing.readAt) {
+        setUnreadCount((count) => Math.max(0, count - 1));
+      }
+      return current.map((item) => item.id === externallyReadNotification.id ? externallyReadNotification : item);
+    });
+  }, [externallyReadNotification]);
 
   useEffect(() => {
     if (!canUseAlerts) {
@@ -442,52 +461,6 @@ export function AlertMenu({ activeSymbol, symbols, authEnabled, authLoading, aut
       )}
     </div>
   );
-}
-
-function alertSummary(alert: PriceAlert): string {
-  const repeatStatus = repeatStatusLabel(alert);
-  const suffix = repeatStatus ? ` · ${repeatStatus}` : "";
-  if (alert.type === "price_cross") {
-    return `${directionLabel(alert.direction)} ${formatNumber(alert.targetPrice)}${suffix}`;
-  }
-  return `${directionLabels[alert.direction ?? "above"]} ${formatNumber(alert.changePct)}% / ${alert.windowMin ?? "-"}m${suffix}`;
-}
-
-function notificationSymbol(notification: NotificationItem): string {
-  const symbol = notification.payload.symbol;
-  return typeof symbol === "string" && symbol ? symbol : "ALERT";
-}
-
-function notificationSummary(notification: NotificationItem): string {
-  const payload = notification.payload;
-  if (typeof payload.targetPrice === "number") {
-    return ` ${directionLabel(payload.direction)} ${formatNumber(payload.targetPrice)} 도달`;
-  }
-  if (typeof payload.changePct === "number") {
-    return ` ${formatNumber(payload.changePct)}% 변동`;
-  }
-  return " 알림";
-}
-
-function directionLabel(direction: unknown): string {
-  return direction === "below" ? "하향" : "상향";
-}
-
-function formatNumber(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "-";
-  }
-  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(value);
-}
-
-function repeatStatusLabel(alert: PriceAlert): string {
-  if (alert.repeatLimit === null) {
-    return "매번";
-  }
-  if (typeof alert.repeatLimit === "number" && alert.repeatLimit > 1) {
-    return `${alert.triggeredCount}/${alert.repeatLimit}회`;
-  }
-  return "";
 }
 
 function alertToggleLabel(alert: PriceAlert): string {

@@ -34,6 +34,7 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
@@ -204,6 +205,39 @@ function frontendChartState(overrides: Partial<ChartState>): ChartState {
     ...overrides
   };
 }
+
+const priceAlertNotification = {
+  id: 1,
+  eventId: "alert-price-toast",
+  type: "alert.price_cross",
+  payload: {
+    symbol: "NVDA",
+    direction: "above",
+    targetPrice: 110,
+    price: 111.2
+  }
+};
+const priceAlertToast = formatNotificationToastMessage(priceAlertNotification);
+assert.equal(priceAlertToast.message, "NVDA 목표가 110 상향 돌파 조건을 달성했습니다.");
+assert.equal(priceAlertToast.detail, "현재가는 111.2입니다.");
+assert.equal(notificationSummary(priceAlertNotification), " 목표가 110 상향 돌파 조건 달성");
+
+const spikeAlertNotification = {
+  id: 2,
+  eventId: "alert-spike-toast",
+  type: "alert.spike",
+  payload: {
+    symbol: "AAPL",
+    direction: "below",
+    thresholdPct: 3,
+    windowMin: 5,
+    changePct: -4.25
+  }
+};
+const spikeAlertToast = formatNotificationToastMessage(spikeAlertNotification);
+assert.equal(spikeAlertToast.message, "AAPL 5분 내 급락 3% 이상 조건을 달성했습니다.");
+assert.equal(spikeAlertToast.detail, "실제 변동률은 -4.25%입니다.");
+assert.equal(notificationSummary(spikeAlertNotification), " 5분 내 급락 3% 이상 조건 달성");
 
 function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
   return {

@@ -1,7 +1,9 @@
 import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards, X } from "lucide-react";
-import { type DragEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { AlertMenu } from "../alerts/AlertMenu";
-import { fetchNotifications, normalizeNotificationPayload, notificationSocketUrl } from "../alerts/alertApi";
+import { AlertToast } from "../alerts/AlertToast";
+import { fetchNotifications, markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
+import { notificationChartSymbol } from "../alerts/alertPresentation";
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
@@ -26,6 +28,10 @@ type WatchlistDropPlacement = "before" | "after";
 type WatchlistDragTarget = {
   symbol: string;
   placement: WatchlistDropPlacement;
+};
+type AlertToastQueueState = {
+  current: NotificationItem | null;
+  queue: NotificationItem[];
 };
 
 type BottomCommandBarProps = {
@@ -65,6 +71,7 @@ type BottomCommandBarProps = {
 
 const leftMenuKeys: BottomMenuKey[] = ["I", "II", "III"];
 const rightMenuKeys: BottomMenuKey[] = ["IV", "VI"];
+const alertToastAdvanceMs = 6000;
 
 export function BottomCommandBar({
   activeMenu,
@@ -105,8 +112,59 @@ export function BottomCommandBar({
   const [watchlistDragTarget, setWatchlistDragTarget] = useState<WatchlistDragTarget | null>(null);
   const [watchlistPreviewSymbols, setWatchlistPreviewSymbols] = useState<ChartSymbolDto[] | null>(null);
   const [alertUnreadCount, setAlertUnreadCount] = useState(0);
+  const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
+  const [externallyReadNotification, setExternallyReadNotification] = useState<NotificationItem | null>(null);
+  const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
+
+  const enqueueAlertToast = (notification: NotificationItem) => {
+    const key = alertToastKey(notification);
+    if (seenAlertToastKeysRef.current.has(key)) {
+      return;
+    }
+    seenAlertToastKeysRef.current.add(key);
+    setAlertToastState((current) => (
+      current.current
+        ? { current: current.current, queue: [...current.queue, notification] }
+        : { current: notification, queue: [] }
+    ));
+  };
+
+  const advanceAlertToast = () => {
+    setAlertToastState((current) => {
+      const [next, ...queue] = current.queue;
+      return { current: next ?? null, queue };
+    });
+  };
+
+  const openAlertToastChart = (notification: NotificationItem) => {
+    const symbol = notificationChartSymbol(notification);
+    if (symbol) {
+      onSelectSymbol(symbol);
+    }
+    if (activeMenu) {
+      onCloseMenu();
+    }
+    void markAlertToastRead(notification);
+    advanceAlertToast();
+  };
+
+  const markAlertToastRead = async (notification: NotificationItem) => {
+    if (notification.readAt) {
+      return;
+    }
+    try {
+      const updated = await markNotificationRead(notification.id);
+      if (!updated?.readAt) {
+        return;
+      }
+      setExternallyReadNotification(updated);
+      setAlertUnreadCount((current) => Math.max(0, current - 1));
+    } catch {
+      // Opening the chart should not be blocked by a transient read-state failure.
+    }
+  };
 
   useEffect(() => {
     if (!hasFloatingPanel) {
@@ -135,6 +193,9 @@ export function BottomCommandBar({
   useEffect(() => {
     if (!canUseAlerts) {
       setAlertUnreadCount(0);
+      setAlertToastState({ current: null, queue: [] });
+      setExternallyReadNotification(null);
+      seenAlertToastKeysRef.current.clear();
       return undefined;
     }
     let cancelled = false;
@@ -172,13 +233,24 @@ export function BottomCommandBar({
       }
       if (payload.type === "notification") {
         const notification = normalizeNotificationPayload(payload.notification);
-        if (!notification?.readAt) {
+        if (notification && !notification.readAt) {
           setAlertUnreadCount((current) => current + 1);
+          enqueueAlertToast(notification);
         }
       }
     };
     return () => socket.close();
   }, [canUseAlerts]);
+
+  useEffect(() => {
+    if (!alertToastState.current || alertToastState.queue.length === 0) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      advanceAlertToast();
+    }, alertToastAdvanceMs);
+    return () => window.clearTimeout(timer);
+  }, [alertToastState.current?.eventId, alertToastState.current?.id, alertToastState.queue.length]);
 
   const closeFloatingPanels = () => {
     if (activeMenu) {
@@ -280,6 +352,14 @@ export function BottomCommandBar({
           onClick={closeFloatingPanels}
         />
       )}
+      {alertToastState.current && (
+        <AlertToast
+          notification={alertToastState.current}
+          queuedCount={alertToastState.queue.length}
+          onClose={advanceAlertToast}
+          onOpenChart={openAlertToastChart}
+        />
+      )}
       <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <MenuActionGroup
           side="left"
@@ -311,6 +391,7 @@ export function BottomCommandBar({
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
+          externallyReadNotification={externallyReadNotification}
           onAlertUnreadCountChange={setAlertUnreadCount}
           layoutEditMode={layoutEditMode}
           layoutEditDisabled={!isChartMode}
@@ -411,6 +492,7 @@ export function BottomCommandBar({
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
+          externallyReadNotification={externallyReadNotification}
           onAlertUnreadCountChange={setAlertUnreadCount}
         />
       </nav>
@@ -520,6 +602,7 @@ function MenuActionGroup({
   onCloseMenu,
   onToggleMenu,
   alertUnreadCount,
+  externallyReadNotification,
   onAlertUnreadCountChange,
   layoutEditMode = false,
   layoutEditDisabled = true,
@@ -554,6 +637,7 @@ function MenuActionGroup({
   onCloseMenu: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
   alertUnreadCount: number;
+  externallyReadNotification: NotificationItem | null;
   onAlertUnreadCountChange: (count: number) => void;
   layoutEditMode?: boolean;
   layoutEditDisabled?: boolean;
@@ -593,6 +677,7 @@ function MenuActionGroup({
         onSelectSymbol={onSelectSymbol}
         onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
+        externallyReadNotification={externallyReadNotification}
         onAlertUnreadCountChange={onAlertUnreadCountChange}
       />
       {keys.map((label) => (
@@ -652,6 +737,7 @@ function BottomMenuPanel({
   onSelectSymbol,
   onShowTreeMap,
   onClose,
+  externallyReadNotification,
   onAlertUnreadCountChange
 }: {
   side: BottomMenuSide;
@@ -680,6 +766,7 @@ function BottomMenuPanel({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  externallyReadNotification: NotificationItem | null;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   const sideKeys = side === "left" ? leftMenuKeys : rightMenuKeys;
@@ -711,6 +798,7 @@ function BottomMenuPanel({
       onSelectSymbol,
       onShowTreeMap,
       onClose,
+      externallyReadNotification,
       onAlertUnreadCountChange
     })
     : <p className="bottom-menu-empty">Menu</p>;
@@ -743,6 +831,10 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function alertToastKey(notification: NotificationItem): string {
+  return `${notification.id}:${notification.eventId}`;
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -781,7 +873,7 @@ function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
     II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
-    V: "계정",
+    V: "로그인/프로필",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {
@@ -843,6 +935,7 @@ function bottomMenuContent({
   onSelectSymbol,
   onShowTreeMap,
   onClose,
+  externallyReadNotification,
   onAlertUnreadCountChange
 }: {
   activeKey: BottomMenuKey | null;
@@ -870,6 +963,7 @@ function bottomMenuContent({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  externallyReadNotification: NotificationItem | null;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
@@ -1010,6 +1104,7 @@ function bottomMenuContent({
           authEnabled={authEnabled}
           authLoading={authLoading}
           authUser={authUser}
+          externallyReadNotification={externallyReadNotification}
           onLogin={onLogin}
           onUnreadCountChange={onAlertUnreadCountChange}
         />
@@ -1070,7 +1165,7 @@ function SettingsMenu({
           aria-selected={activeTab === "account"}
           onClick={() => setActiveTab("account")}
         >
-          계정
+          로그인/프로필
         </button>
         <button
           type="button"
@@ -1084,7 +1179,7 @@ function SettingsMenu({
       </div>
       {activeTab === "account" ? (
         <div className="settings-tab-panel" role="tabpanel">
-          <MenuTitle icon={<UserCircle size={15} />} title="계정" detail={authEnabled ? "Google OAuth" : "Local dev"} />
+          <MenuTitle icon={<UserCircle size={15} />} title="로그인/프로필" detail={authEnabled ? "Google OAuth" : "Local dev"} />
           {authLoading && <p className="bottom-menu-empty">계정 상태를 확인하고 있습니다.</p>}
           {!authLoading && authUser && (
             <div className="account-menu-card">
