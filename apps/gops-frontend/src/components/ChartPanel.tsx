@@ -3,10 +3,8 @@ import {
   CircleDot,
   Eraser,
   Hand,
-  Layers2,
   MousePointer2,
   Palette,
-  PanelBottom,
   Paintbrush,
   RotateCcw,
   Square,
@@ -18,6 +16,7 @@ import {
   type CSSProperties,
   forwardRef,
   PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -60,7 +59,7 @@ import {
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -78,11 +77,12 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
   horizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset,
   normalizeViewport,
   resolveHorizontalWheelDelta,
   zoomViewport,
@@ -90,10 +90,6 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
-
-function segmentedClass(active = false): string {
-  return active ? "segmented active" : "segmented";
-}
 
 function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
@@ -179,6 +175,7 @@ type ChartPanelProps = {
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
+  toolbarLeading?: ReactNode;
 };
 
 export type ChartPanelHandle = {
@@ -232,11 +229,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartAddToggle,
   onSemanticSelectionChange,
   onChartHoverChange,
-  onHeaderChange
+  onHeaderChange,
+  toolbarLeading
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
-  const [digEnabled, setDigEnabled] = useState(true);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
@@ -1278,17 +1275,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
     const semanticSelectionEnabled = chart.chartType !== "line";
-    const semanticDigEnabled = digEnabled && semanticSelectionEnabled;
+
+    // Time-axis digging: a click on the bottom time axis opens (digs) the bar above the cursor.
+    if ((chart.toolMode === "select" || chart.toolMode === "pan") && semanticSelectionEnabled) {
+      const axisUnit = hitTestTimeAxisUnit(scene, point.x, point.y);
+      if (axisUnit && axisUnit.kind === "candle") {
+        pendingSemanticClickRef.current = { unit: axisUnit, action: "dig", x: event.clientX, y: event.clientY };
+        return;
+      }
+    }
 
     if (chart.toolMode === "select") {
       const hit = hitTestDrawing(scene, point.x, point.y);
       if (!hit) {
         if (semanticHit && semanticSelectionEnabled) {
-          if (semanticDigEnabled) {
-            pendingSemanticClickRef.current = { unit: semanticHit, action: "dig", x: event.clientX, y: event.clientY };
-          } else {
-            toggleAgentSemanticUnitSelection(semanticHit);
-          }
+          toggleAgentSemanticUnitSelection(semanticHit);
           return;
         }
         dispatchDocumentCommand("chart.drawing.clearSelection", { mode: chart.toolMode });
@@ -1335,7 +1336,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (semanticHit && semanticSelectionEnabled) {
       pendingSemanticClickRef.current = {
         unit: semanticHit,
-        action: semanticDigEnabled ? "dig" : "agent-select",
+        action: "agent-select",
         x: event.clientX,
         y: event.clientY
       };
@@ -1367,8 +1368,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const paneResize = paneResizeRef.current;
     const boundaryHit = findBoundaryHit(scene, point);
+    const axisDigUnit = !paneResize && !boundaryHit && chart.chartType !== "line"
+      ? hitTestTimeAxisUnit(scene, point.x, point.y)
+      : null;
     if (paneResize || boundaryHit) {
       event.currentTarget.style.cursor = "ns-resize";
+    } else if (axisDigUnit) {
+      // Hide the OS cursor over the time axis so the canvas-drawn dig marker isn't occluded.
+      event.currentTarget.style.cursor = "none";
     } else {
       event.currentTarget.style.cursor = "crosshair";
     }
@@ -1404,8 +1411,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
-    setHoveredSemanticNodeId(semanticHit?.id);
-    setHoverSnapshot(semanticHit ? snapshotFromSemanticUnit(semanticHit) : null);
+    const hoveredUnit = semanticHit ?? axisDigUnit;
+    setHoveredSemanticNodeId(hoveredUnit?.id);
+    setHoverSnapshot(hoveredUnit ? snapshotFromSemanticUnit(hoveredUnit) : null);
 
     const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
@@ -1584,14 +1592,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommandGroup(commands, "Clear drawings");
   };
 
-  const hasAnyCurrentSymbolExpansion = activeExpansions.length > 0;
-  const semanticDigAvailable = chart.chartType !== "line";
-
   const clearAllDigging = () => {
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
     pendingSemanticClickRef.current = null;
     setExpansionOverlays([]);
+  };
+
+  const resetChart = () => {
+    clearAllDigging();
+    setSelectedSemanticNode(null);
+    const interval = chartRef.current.interval;
+    const visibleCount = defaultVisibleBarsForInterval(interval);
+    applyViewport({ visibleCount, rightOffset: latestCandleRightOffset(visibleCount) });
   };
 
   const removeComparisonFromChart = useCallback((comparisonId: string) => {
@@ -1616,36 +1629,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
       <div className={chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
         <div className="toolbar-row">
-          <button
-            className={segmentedClass(semanticDigAvailable && digEnabled)}
-            disabled={!semanticDigAvailable}
-            onClick={() => {
-              setDigEnabled((current) => {
-                const next = !current;
-                if (next) {
-                  setSelectedSemanticNode(null);
-                  pendingSemanticClickRef.current = null;
-                }
-                return next;
-              });
-            }}
-            type="button"
-            aria-pressed={semanticDigAvailable && digEnabled}
-            title={semanticDigAvailable ? digEnabled ? "DIG 확장 끄기" : "DIG 확장 켜기" : "라인 차트에서는 DIG 확장을 사용할 수 없습니다"}
-          >
-            {semanticDigAvailable && digEnabled ? "DIG ON" : "DIG OFF"}
-          </button>
-          <button
-            className={iconButtonClass()}
-            disabled={!hasAnyCurrentSymbolExpansion}
-            onClick={clearAllDigging}
-            type="button"
-            aria-label="DIG 확장 되돌리기"
-            title="DIG 확장 되돌리기"
-          >
-            <RotateCcw size={15} aria-hidden="true" />
-          </button>
-          <span className="toolbar-separator" aria-hidden="true" />
+          {toolbarLeading}
           <button
             type="button"
             className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
@@ -1667,6 +1651,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             onClick={onChartDrawingToggle}
           >
             <Paintbrush size={16} />
+          </button>
+          <span className="toolbar-separator" aria-hidden="true" />
+          <button
+            className={iconButtonClass()}
+            onClick={resetChart}
+            type="button"
+            aria-label="차트 초기화"
+            title="차트 초기화 (디깅 해제 · 현재가 위치 복귀)"
+          >
+            <RotateCcw size={15} aria-hidden="true" />
           </button>
           {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
         </div>

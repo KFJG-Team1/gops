@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
@@ -168,7 +168,10 @@ function drawChart(
     () => drawPriceAxis(context, scene),
     () => drawDrawingLabelsOnAxes(context, scene),
     () => drawCurrentPriceMarker(context, scene),
+    () => drawOpenedDigMarkers(context, scene),
     () => drawCrosshair(context, scene, crosshair),
+    () => drawLineHoverDot(context, scene, crosshair),
+    () => drawTimeAxisDigHover(context, scene, crosshair),
     () => drawDrawings(context, scene, scene.chart.drawings, false),
     () => drawDrawings(context, scene, previewDrawings, true)
   ];
@@ -1935,6 +1938,144 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
     drawAxisPill(context, formatVolumeAxisValue(volumeAtY(scene, crosshair.y)), scene.width - 8, crosshair.y, "right");
   }
   context.restore();
+}
+
+function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, crosshair?: { x: number; y: number }) {
+  if (!crosshair || scene.chart.chartType !== "line") {
+    return;
+  }
+  if (crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
+    return;
+  }
+  let best: { x: number; close: number } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  scene.semantic.units.forEach((unit) => {
+    if (unit.kind !== "candle") {
+      return;
+    }
+    const centerX = unitCenterX(scene, unit);
+    const distance = Math.abs(centerX - crosshair.x);
+    if (distance < bestDistance) {
+      best = { x: centerX, close: unit.candle.close };
+      bestDistance = distance;
+    }
+  });
+  if (!best) {
+    return;
+  }
+  const marker = best as { x: number; close: number };
+  const y = priceToY(scene, marker.close);
+  context.save();
+  context.fillStyle = colors.upSoft;
+  context.strokeStyle = colors.surface;
+  context.lineWidth = 1.5;
+  circle(context, marker.x, y, 3.5);
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function drawDigDarkTag(context: CanvasRenderingContext2D, text: string, cx: number, cy: number) {
+  context.save();
+  context.font = "10px Inter, system-ui, sans-serif";
+  const metrics = context.measureText(text);
+  const width = metrics.width + 10;
+  const height = 17;
+  const left = cx - width / 2;
+  const top = cy - height / 2;
+  context.fillStyle = colors.text;
+  roundedRect(context, left, top, width, height, 4);
+  context.fill();
+  context.fillStyle = colors.surface;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, cx, cy + 0.5);
+  context.restore();
+}
+
+const DIG_MARKER_TRIANGLE_HEIGHT = 10;
+const DIG_MARKER_TRIANGLE_WIDTH = 9;
+
+// Right triangle with its vertical leg on the boundary line, flaring outward. The left
+// and right markers mirror each other so the dug span reads as a width rather than two
+// identical points.
+function drawDigTriangle(context: CanvasRenderingContext2D, boundaryX: number, plotBottom: number, side: "left" | "right", color: string) {
+  const baseY = plotBottom + DIG_MARKER_TRIANGLE_HEIGHT;
+  const outerX = side === "left" ? boundaryX - DIG_MARKER_TRIANGLE_WIDTH : boundaryX + DIG_MARKER_TRIANGLE_WIDTH;
+  context.save();
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(boundaryX, plotBottom); // apex at the top of the vertical leg
+  context.lineTo(boundaryX, baseY);      // vertical leg down the boundary
+  context.lineTo(outerX, baseY);         // horizontal leg flaring outward
+  context.closePath();                   // hypotenuse back up to the apex
+  context.fill();
+  context.restore();
+}
+
+function drawTimeAxisDigHover(context: CanvasRenderingContext2D, scene: ChartScene, crosshair?: { x: number; y: number }) {
+  if (!crosshair) {
+    return;
+  }
+  if (scene.chart.chartType === "line") {
+    return;
+  }
+  const unit = hitTestTimeAxisUnit(scene, crosshair.x, crosshair.y);
+  if (!unit || unit.kind !== "candle") {
+    return;
+  }
+  const cx = unitBoundsX(scene, unit).center;
+  const plotBottom = scene.plot.bottom;
+  const tagY = timeAxisY(scene);
+  // Black vertical guide from the marker apex up through the chart (the candle/volume
+  // emphasis itself is applied via the hovered node, matching crosshair hover).
+  context.save();
+  context.strokeStyle = colors.text;
+  context.lineWidth = 1;
+  context.setLineDash([]);
+  line(context, cx, scene.plot.top, cx, plotBottom);
+  context.restore();
+  // Up-pointing triangle whose apex meets the chart's bottom border.
+  const triBaseY = tagY - 8.5;
+  const triHalf = 5;
+  context.save();
+  context.fillStyle = colors.text;
+  context.beginPath();
+  context.moveTo(cx, plotBottom);
+  context.lineTo(cx - triHalf, triBaseY);
+  context.lineTo(cx + triHalf, triBaseY);
+  context.closePath();
+  context.fill();
+  context.restore();
+  // Time tag (black box, white text) on the axis.
+  drawDigDarkTag(context, formatSemanticTimestamp(unit.timestamp, unit.interval), cx, tagY);
+}
+
+function drawOpenedDigMarkers(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const ranges = scene.semantic.expansionRanges;
+  if (!ranges.length) {
+    return;
+  }
+  const plotBottom = scene.plot.bottom;
+  const baseY = plotBottom + DIG_MARKER_TRIANGLE_HEIGHT;
+  ranges.forEach((range) => {
+    const left = Math.max(scene.plot.left, range.left);
+    const right = Math.min(scene.plot.right, range.right);
+    if (right - left <= 4) {
+      return;
+    }
+    // Thin black guide lines from the chart top down to each triangle's base.
+    context.save();
+    context.strokeStyle = colors.text;
+    context.lineWidth = 0.5;
+    context.setLineDash([]);
+    line(context, left, scene.plot.top, left, baseY);
+    line(context, right, scene.plot.top, right, baseY);
+    context.restore();
+    // Mirrored right-triangle markers flaring outward from each boundary.
+    drawDigTriangle(context, left, plotBottom, "left", colors.text);
+    drawDigTriangle(context, right, plotBottom, "right", colors.text);
+  });
 }
 
 function drawAxisPill(

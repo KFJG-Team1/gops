@@ -16,6 +16,7 @@ import {
   type CSSProperties,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -27,15 +28,7 @@ import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
-  ArrowDown,
-  ArrowDownLeft,
-  ArrowDownRight,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  ArrowUpLeft,
-  ArrowUpRight,
-  Grip,
+  ChevronRight,
   Trash2,
   X
 } from "lucide-react";
@@ -50,6 +43,7 @@ import {
   panelGridSpec,
   panelPaletteEntries,
   panelPaletteEntryLabel,
+  panelPaletteEntryTitle,
   panelRectForGridRect,
   panelSlotStyle,
   removePanelSlot,
@@ -94,6 +88,7 @@ type PanelWorkspaceProps = {
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSyncPageSymbolFromChart: (contentId: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  presetDock?: ReactNode;
 };
 
 type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
@@ -133,6 +128,7 @@ type LayoutPreview = {
   mode: "move" | "resize" | "add" | "replace" | "swap";
   valid: boolean;
   label: string;
+  secondary?: { gridRect: PanelGridRect; label: string };
 };
 
 const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -154,7 +150,8 @@ export function PanelWorkspace({
   onChartRuntimeAction,
   onChartHandleChange,
   onSyncPageSymbolFromChart,
-  onSelectSymbol
+  onSelectSymbol,
+  presetDock
 }: PanelWorkspaceProps) {
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
@@ -279,7 +276,7 @@ export function PanelWorkspace({
           targetSlotId: target.id,
           mode: "replace",
           valid,
-          label: `${panelPaletteEntryLabel(drag.kind)}로 변경`
+          label: panelPaletteEntryTitle(drag.kind)
         };
       }
       const dropPlan = resolvePanelDropGridRect(state, drag.kind, cell);
@@ -288,7 +285,7 @@ export function PanelWorkspace({
         kind: drag.kind,
         mode: "add",
         valid: dropPlan.valid,
-        label: `${panelPaletteEntryLabel(drag.kind)} 추가`
+        label: panelPaletteEntryTitle(drag.kind)
       };
     }
     if (drag.mode === "edit-move") {
@@ -305,7 +302,11 @@ export function PanelWorkspace({
           targetSlotId: target.id,
           mode: "swap",
           valid: true,
-          label: `${state.contents[source.contentId]?.title ?? "패널"} 위치 교체`
+          label: state.contents[source.contentId]?.title ?? "패널",
+          secondary: {
+            gridRect: source.gridRect,
+            label: contentTitleForSlot(state, target.id)
+          }
         };
       }
       const dropPlan = sourceGridRectContainsCell(source.gridRect, cell)
@@ -319,7 +320,7 @@ export function PanelWorkspace({
         sourceSlotId: source.id,
         mode: "move",
         valid: dropPlan.valid,
-        label: "패널 이동"
+        label: state.contents[source.contentId]?.title ?? "패널"
       };
     }
     const source = state.slots.find((slot) => slot.id === drag.sourceSlotId);
@@ -415,16 +416,44 @@ export function PanelWorkspace({
     }
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const cell = panelGridCellFromPointSafe(viewportSizeRef.current, event.clientX, event.clientY, layoutMetricsRef.current);
     setDraggingSlotId(slotId);
-    const drag: LayoutDrag = {
-      mode: "edit-move",
-      sourceSlotId: slotId,
-      offsetCol: cell ? Math.max(0, cell.col - slot.gridRect.col) : 0,
-      offsetRow: cell ? Math.max(0, cell.row - slot.gridRect.row) : 0
-    };
+    const rect = event.currentTarget.getBoundingClientRect();
+    const resizeDirection = resizeDirectionForFramePoint(rect, event.clientX, event.clientY);
+    let drag: LayoutDrag;
+    if (resizeDirection) {
+      drag = {
+        mode: "edit-resize",
+        sourceSlotId: slotId,
+        direction: resizeDirection,
+        startGridRect: slot.gridRect
+      };
+    } else {
+      const cell = panelGridCellFromPointSafe(viewportSizeRef.current, event.clientX, event.clientY, layoutMetricsRef.current);
+      drag = {
+        mode: "edit-move",
+        sourceSlotId: slotId,
+        offsetCol: cell ? Math.max(0, cell.col - slot.gridRect.col) : 0,
+        offsetRow: cell ? Math.max(0, cell.row - slot.gridRect.row) : 0
+      };
+    }
     dragRef.current = drag;
     setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+  };
+
+  const updateFrameCursor = (_slotId: PanelSlotId) => (event: ReactPointerEvent<HTMLElement>) => {
+    if (!layoutEditMode || dragRef.current) {
+      return;
+    }
+    const target = event.currentTarget;
+    if (event.target instanceof Element && event.target.closest(".panel-edit-button")) {
+      target.style.cursor = "";
+      return;
+    }
+    const rect = target.getBoundingClientRect();
+    const direction = resizeDirectionForFramePoint(rect, event.clientX, event.clientY);
+    // Empty string lets the `.is-layout-editing { cursor: grab }` rule take over for the interior,
+    // so the cursor also resets correctly when edit mode ends.
+    target.style.cursor = direction ? resizeCursorForDirection(direction) : "";
   };
 
   const beginPanelResize = (slotId: PanelSlotId, direction: ResizeDirection) => (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -512,6 +541,8 @@ export function PanelWorkspace({
         { symbol }
       )
     });
+    // Keep the panel content in sync so the symbol label and company tab follow the chart.
+    updatePanelProps(contentId, { symbol });
   };
 
   const resetDrawingTargetTool = (contentId: string) => {
@@ -632,7 +663,7 @@ export function PanelWorkspace({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => closePanel(slotId)}
         >
-          <Trash2 size={15} aria-hidden="true" />
+          <Trash2 size={22} strokeWidth={2.4} aria-hidden="true" />
         </button>
       </div>
     );
@@ -680,6 +711,7 @@ export function PanelWorkspace({
             isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
             showNav={!isChart}
             onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
+            onFramePointerMove={layoutEditMode ? updateFrameCursor : undefined}
             onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
             onPointerLeave={() => {
               if (isChart && !dragRef.current) {
@@ -775,6 +807,15 @@ export function PanelWorkspace({
               {layoutPreview.label}
             </span>
           </div>
+          {layoutPreview.valid && layoutPreview.secondary && (
+            <div
+              className={`layout-edit-preview is-valid mode-${layoutPreview.mode}`}
+              style={panelRectForGridRect(layoutPreview.secondary.gridRect, viewportSize, layoutMetrics)}
+              aria-hidden="true"
+            >
+              <span>{layoutPreview.secondary.label}</span>
+            </div>
+          )}
         </>
       )}
       {layoutEditMode && (
@@ -789,7 +830,6 @@ export function PanelWorkspace({
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
             >
-              <Grip size={13} aria-hidden="true" />
               <span>{panelPaletteEntryLabel(entry.kind)}</span>
             </button>
           ))}
@@ -816,6 +856,7 @@ export function PanelWorkspace({
           )}
         </div>
       )}
+      {!layoutEditMode && !drawingTarget && !chartAddTarget && presetDock}
     </>
   );
 }
@@ -894,6 +935,53 @@ function workspaceGridCells(
   return cells;
 }
 
+const FRAME_RESIZE_EDGE = 16;
+const FRAME_RESIZE_CORNER = 24;
+
+function resizeDirectionForFramePoint(rect: { left: number; top: number; width: number; height: number }, clientX: number, clientY: number): ResizeDirection | null {
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const nearLeftCorner = x <= FRAME_RESIZE_CORNER;
+  const nearRightCorner = x >= rect.width - FRAME_RESIZE_CORNER;
+  const nearTopCorner = y <= FRAME_RESIZE_CORNER;
+  const nearBottomCorner = y >= rect.height - FRAME_RESIZE_CORNER;
+  if (nearTopCorner && nearLeftCorner) return "nw";
+  if (nearTopCorner && nearRightCorner) return "ne";
+  if (nearBottomCorner && nearLeftCorner) return "sw";
+  if (nearBottomCorner && nearRightCorner) return "se";
+  const nearLeft = x <= FRAME_RESIZE_EDGE;
+  const nearRight = x >= rect.width - FRAME_RESIZE_EDGE;
+  const nearTop = y <= FRAME_RESIZE_EDGE;
+  const nearBottom = y >= rect.height - FRAME_RESIZE_EDGE;
+  if (nearTop) return "n";
+  if (nearBottom) return "s";
+  if (nearLeft) return "w";
+  if (nearRight) return "e";
+  return null;
+}
+
+function resizeCursorForDirection(direction: ResizeDirection): string {
+  switch (direction) {
+    case "nw":
+    case "se":
+      return "nwse-resize";
+    case "ne":
+    case "sw":
+      return "nesw-resize";
+    case "n":
+    case "s":
+      return "ns-resize";
+    default:
+      return "ew-resize";
+  }
+}
+
+function contentTitleForSlot(state: TiledPanelState, slotId: PanelSlotId): string {
+  const slot = state.slots.find((item) => item.id === slotId);
+  const content = slot ? state.contents[slot.contentId] : undefined;
+  return content?.title ?? "패널";
+}
+
 function resizeDirectionLabel(direction: ResizeDirection): string {
   return {
     n: "위쪽",
@@ -908,17 +996,25 @@ function resizeDirectionLabel(direction: ResizeDirection): string {
 }
 
 function resizeDirectionIcon(direction: ResizeDirection) {
-  const size = 12;
-  return {
-    n: <ArrowUp size={size} aria-hidden="true" />,
-    ne: <ArrowUpRight size={size} aria-hidden="true" />,
-    e: <ArrowRight size={size} aria-hidden="true" />,
-    se: <ArrowDownRight size={size} aria-hidden="true" />,
-    s: <ArrowDown size={size} aria-hidden="true" />,
-    sw: <ArrowDownLeft size={size} aria-hidden="true" />,
-    w: <ArrowLeft size={size} aria-hidden="true" />,
-    nw: <ArrowUpLeft size={size} aria-hidden="true" />
-  }[direction];
+  const size = 22;
+  const rotation: Record<ResizeDirection, number> = {
+    e: 0,
+    se: 45,
+    s: 90,
+    sw: 135,
+    w: 180,
+    nw: 225,
+    n: 270,
+    ne: 315
+  };
+  return (
+    <ChevronRight
+      size={size}
+      strokeWidth={3}
+      aria-hidden="true"
+      style={{ transform: `rotate(${rotation[direction]}deg)` }}
+    />
+  );
 }
 
 function targetChartForContentId(

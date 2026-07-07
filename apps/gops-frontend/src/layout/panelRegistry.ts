@@ -15,7 +15,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "chart",
     title: "차트",
     agentPanelType: "chart",
-    minSpan: { colSpan: 2, rowSpan: 2 },
+    minSpan: { colSpan: 2, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 100
   },
@@ -113,5 +113,5 @@ export function panelKindForAgentType(panelType: AgentLayoutPanelType | string |
 }
 
 export function panelPaletteLabel(entry: PanelRegistryEntry): string {
-  return `${entry.title}(${entry.minSpan.rowSpan}x${entry.minSpan.colSpan})`;
+  return `${entry.title} (${entry.minSpan.rowSpan}x${entry.minSpan.colSpan})`;
 }

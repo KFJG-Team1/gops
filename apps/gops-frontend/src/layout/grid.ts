@@ -18,7 +18,7 @@ export const gridLockMaxWidth = 760;
 export const defaultChartGridSpan: PanelGridSpan = { start: 0, end: 4 };
 
 export function gridGutter(viewportWidth: number): number {
-  return Math.round(Math.min(18, Math.max(10, viewportWidth * 0.012)));
+  return Math.round(Math.min(10, Math.max(6, viewportWidth * 0.006)));
 }
 
 export function gridBoundaryX(line: GridLineIndex, viewportWidth: number): number {

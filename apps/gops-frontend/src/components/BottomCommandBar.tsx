@@ -20,7 +20,7 @@ import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
-export type BottomMenuKey = "I" | "II" | "III" | "IV" | "V" | "VI";
+export type BottomMenuKey = "II" | "III" | "IV" | "V" | "VI";
 export type ChatLogEntry = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -76,13 +76,12 @@ type BottomCommandBarProps = {
   onReorderWatchlistSymbol: (draggedSymbol: string, targetSymbol: string, placement: WatchlistDropPlacement) => void;
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onShowTreeMap: () => void;
   onToggleLayoutEditMode: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
 };
 
-const leftMenuKeys: BottomMenuKey[] = ["I", "II", "III"];
-const rightMenuKeys: BottomMenuKey[] = ["IV", "VI"];
+const leftMenuKeys: BottomMenuKey[] = ["II", "III"];
+const rightMenuKeys: BottomMenuKey[] = ["IV", "V", "VI"];
 const alertToastAdvanceMs = 6000;
 const marketOpenRetryMs = 60_000;
 const marketOpenScheduleRefreshMs = 60 * 60_000;
@@ -117,7 +116,6 @@ export function BottomCommandBar({
   onReorderWatchlistSymbol,
   onRemoveWatchlistSymbol,
   onSelectSymbol,
-  onShowTreeMap,
   onToggleLayoutEditMode,
   onToggleMenu
 }: BottomCommandBarProps) {
@@ -489,7 +487,6 @@ export function BottomCommandBar({
           onLogout={onLogout}
           onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
           onSelectSymbol={onSelectSymbol}
-          onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
@@ -592,7 +589,6 @@ export function BottomCommandBar({
           onLogout={onLogout}
           onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
           onSelectSymbol={onSelectSymbol}
-          onShowTreeMap={onShowTreeMap}
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
@@ -704,7 +700,6 @@ function MenuActionGroup({
   onLogout,
   onRemoveWatchlistSymbol,
   onSelectSymbol,
-  onShowTreeMap,
   onCloseMenu,
   onToggleMenu,
   alertUnreadCount,
@@ -741,7 +736,6 @@ function MenuActionGroup({
   onLogout: () => void;
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onShowTreeMap: () => void;
   onCloseMenu: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
   alertUnreadCount: number;
@@ -785,7 +779,6 @@ function MenuActionGroup({
         onLogout={onLogout}
         onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
         onSelectSymbol={onSelectSymbol}
-        onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
         externallyReadNotification={externallyReadNotification}
         marketOpenReminderEnabled={marketOpenReminderEnabled}
@@ -847,7 +840,6 @@ function BottomMenuPanel({
   onLogout,
   onRemoveWatchlistSymbol,
   onSelectSymbol,
-  onShowTreeMap,
   onClose,
   externallyReadNotification,
   marketOpenReminderEnabled,
@@ -878,7 +870,6 @@ function BottomMenuPanel({
   onLogout: () => void;
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onShowTreeMap: () => void;
   onClose: () => void;
   externallyReadNotification: NotificationItem | null;
   marketOpenReminderEnabled: boolean;
@@ -912,7 +903,6 @@ function BottomMenuPanel({
       onLogout,
       onRemoveWatchlistSymbol,
       onSelectSymbol,
-      onShowTreeMap,
       onClose,
       externallyReadNotification,
       marketOpenReminderEnabled,
@@ -984,7 +974,6 @@ function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
     );
   }
   return {
-    I: <LayoutPanelTop size={size} aria-hidden="true" />,
     II: <WalletCards size={size} aria-hidden="true" />,
     III: <Star size={size} aria-hidden="true" />,
     V: <UserCircle size={size} aria-hidden="true" />,
@@ -994,7 +983,6 @@ function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
 
 function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
   const label = {
-    I: "레이아웃/페이지",
     II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
@@ -1058,7 +1046,6 @@ function bottomMenuContent({
   onLogout,
   onRemoveWatchlistSymbol,
   onSelectSymbol,
-  onShowTreeMap,
   onClose,
   externallyReadNotification,
   marketOpenReminderEnabled,
@@ -1088,7 +1075,6 @@ function bottomMenuContent({
   onLogout: () => void;
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onShowTreeMap: () => void;
   onClose: () => void;
   externallyReadNotification: NotificationItem | null;
   marketOpenReminderEnabled: boolean;
@@ -1096,22 +1082,6 @@ function bottomMenuContent({
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
-    case "I":
-      return (
-        <div className="bottom-menu-section">
-          <MenuTitle icon={<LayoutPanelTop size={15} />} title="레이아웃" detail="페이지와 배치" />
-          <button
-            type="button"
-            className="bottom-menu-item surface-raised"
-            onClick={() => {
-              onShowTreeMap();
-              onClose();
-            }}
-          >
-            홈화면
-          </button>
-        </div>
-      );
     case "II":
       return (
         <div className="bottom-menu-section bottom-menu-scroll">

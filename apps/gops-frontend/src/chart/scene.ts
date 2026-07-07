@@ -74,8 +74,12 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);
   const belowPaneIds = activeBelowPaneIds(chart);
+  // Keep the plot snug under the panel's top control bar; only reserve extra headroom
+  // for digging metadata when an expansion is actually present, shrinking the price
+  // area downward to make that room.
+  const hasDigExpansions = (options.expansions?.length ?? 0) > 0;
   const padding = {
-    top: safeHeight < 240 ? 62 : 84,
+    top: hasDigExpansions ? 68 : 42,
     right: priceAxisWidth,
     bottom: belowPaneIds.length ? 36 : 30,
     left: 0
@@ -90,7 +94,11 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   let heights = new Array(allActivePaneIds.length).fill(0);
   const totalMinHeight = minHeights.reduce((sum, h) => sum + h, 0);
   if (netHeight <= totalMinHeight) {
-    heights = minHeights;
+    // Panel is shorter than the combined minimum pane heights (e.g. a 1-row chart).
+    // Scale the panes down proportionally so they fit the available height; otherwise
+    // the price pane keeps its 92px minimum and priceBottom overflows past the time axis.
+    const scale = netHeight / totalMinHeight;
+    heights = minHeights.map((h) => h * scale);
   } else {
     let remainingHeight = netHeight;
     let remainingRatiosSum = activeRatios.reduce((sum, r) => sum + r, 0);
@@ -429,6 +437,25 @@ export function hitTestSemanticNode(scene: ChartScene, x: number, y: number): Se
       return;
     }
     const distance = Math.abs(x - bounds.center);
+    if (distance < bestDistance) {
+      best = unit;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
+export function hitTestTimeAxisUnit(scene: ChartScene, x: number, y: number): SemanticRenderUnit | null {
+  if (y <= scene.plot.bottom || y > scene.height || x < scene.plot.left || x > scene.plot.right) {
+    return null;
+  }
+  let best: SemanticRenderUnit | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  scene.semantic.units.forEach((unit) => {
+    if (unit.kind !== "candle") {
+      return;
+    }
+    const distance = Math.abs(x - unitBoundsX(scene, unit).center);
     if (distance < bestDistance) {
       best = unit;
       bestDistance = distance;

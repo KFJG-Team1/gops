@@ -1356,7 +1356,7 @@ const defaultChartContent = defaultChartSlot ? tiledState.contents[defaultChartS
 const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 3 }, tiledViewport);
 const expectedInitialNewsRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedInitialOntologyRect = panelRectForGridRect({ col: 5, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
-const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 2 }, tiledViewport);
+const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 1 }, tiledViewport);
 const expectedDefaultPanelMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 1, rowSpan: 1 }, tiledViewport);
 const testFreeformSlot = (
   id: string,
@@ -1662,7 +1662,7 @@ const tooSmallDropState = {
 const tooSmallChartDropPlan = resolvePanelDropGridRect(tooSmallDropState, "chart", { col: 1, row: 1 });
 assert.equal(tooSmallChartDropPlan.valid, false);
 assert.equal(tooSmallChartDropPlan.reason, "minimum-span");
-assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
+assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 1 });
 const ontologyWestYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 4, row: 1, colSpan: 5, rowSpan: 2 });
 assert.equal(ontologyWestYieldPlan.valid, true);
 assert.deepEqual(ontologyWestYieldPlan.yieldedSlots, [{
@@ -1750,7 +1750,7 @@ const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot
 assert.equal(tiledChartContext?.layoutPinned, false);
 assert.equal(tiledChartContext?.layoutWeight, 100);
 assert.equal(tiledChartContext?.symbol, "NVDA");
-assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 1 });
 assert.equal(typeof defaultChartContent?.chartDocumentId, "string");
 const documentBackedChartContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "AAPL", undefined, {
   "slot-chart": "MSFT"
@@ -2393,7 +2393,9 @@ assert.match(chartPanelSource, /comparisons: renderComparisons/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
-assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-select"/);
+assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
+assert.match(chartPanelSource, /action: "dig"/);
+assert.match(chartPanelSource, /action: "agent-select"/);
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
@@ -2726,7 +2728,8 @@ assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*b
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #fff;/);
-assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*width: min\(920px, calc\(100vw - 28px\)\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*width: calc\(100vw - 28px\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*max-width: calc\(100vw - 28px\);/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: safe center;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*box-sizing: border-box;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
