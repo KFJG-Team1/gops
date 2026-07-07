@@ -45,6 +45,7 @@ type BottomCommandBarProps = {
   canEditWatchlist: boolean;
   activeSymbol: string;
   isChartMode: boolean;
+  layoutEditMode: boolean;
   onAgentCancel: () => void;
   onAgentReferencesClear: () => void;
   onAgentInputChange: (value: string) => void;
@@ -57,6 +58,7 @@ type BottomCommandBarProps = {
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
+  onToggleLayoutEditMode: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
 };
 
@@ -81,6 +83,7 @@ export function BottomCommandBar({
   canEditWatchlist,
   activeSymbol,
   isChartMode,
+  layoutEditMode,
   onAgentCancel,
   onAgentReferencesClear,
   onAgentInputChange,
@@ -93,6 +96,7 @@ export function BottomCommandBar({
   onRemoveWatchlistSymbol,
   onSelectSymbol,
   onShowTreeMap,
+  onToggleLayoutEditMode,
   onToggleMenu
 }: BottomCommandBarProps) {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
@@ -307,6 +311,9 @@ export function BottomCommandBar({
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
           onAlertUnreadCountChange={setAlertUnreadCount}
+          layoutEditMode={layoutEditMode}
+          layoutEditDisabled={!isChartMode}
+          onToggleLayoutEditMode={onToggleLayoutEditMode}
         />
         <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
           <button
@@ -512,7 +519,10 @@ function MenuActionGroup({
   onCloseMenu,
   onToggleMenu,
   alertUnreadCount,
-  onAlertUnreadCountChange
+  onAlertUnreadCountChange,
+  layoutEditMode = false,
+  layoutEditDisabled = true,
+  onToggleLayoutEditMode
 }: {
   side: BottomMenuSide;
   keys: BottomMenuKey[];
@@ -544,6 +554,9 @@ function MenuActionGroup({
   onToggleMenu: (key: BottomMenuKey) => void;
   alertUnreadCount: number;
   onAlertUnreadCountChange: (count: number) => void;
+  layoutEditMode?: boolean;
+  layoutEditDisabled?: boolean;
+  onToggleLayoutEditMode?: () => void;
 }) {
   const isMenuOpen = activeMenu !== null && keys.includes(activeMenu);
 
@@ -594,6 +607,19 @@ function MenuActionGroup({
           {bottomMenuIcon(label, label === "IV" ? alertUnreadCount : 0)}
         </button>
       ))}
+      {side === "left" && (
+        <button
+          type="button"
+          className={`workspace-nav-button layout-edit-toggle surface-raised ${layoutEditMode ? "is-active" : ""}`}
+          aria-label={layoutEditMode ? "레이아웃 수정모드 종료" : "레이아웃 수정모드 시작"}
+          title={layoutEditMode ? "레이아웃 수정모드 종료" : "레이아웃 수정모드 시작"}
+          aria-pressed={layoutEditMode}
+          disabled={layoutEditDisabled}
+          onClick={onToggleLayoutEditMode}
+        >
+          <LayoutPanelTop size={17} aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }

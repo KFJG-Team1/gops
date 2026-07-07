@@ -131,19 +131,6 @@ type ExpansionOverlay = {
   status: string;
 };
 
-type CurrentPriceMarker = {
-  priceText: string;
-  timestamp: string;
-  interval: ChartInterval;
-  streamState: ChartState["streamState"];
-  isClosed: boolean;
-  lineLeft: number;
-  lineRight: number;
-  labelLeft: number;
-  labelTop: number;
-  y: number;
-};
-
 type ComparisonScopeRequest = {
   key: string;
   symbol: string;
@@ -156,6 +143,18 @@ type ComparisonScopeRequest = {
 
 type ComparisonScopeData = ChartComparisonCandleScope;
 
+type CurrentPriceMarker = {
+  priceText: string;
+  timestamp: string;
+  interval: ChartInterval;
+  streamState: ChartState["streamState"];
+  isClosed: boolean;
+  lineLeft: number;
+  lineRight: number;
+  labelLeft: number;
+  labelTop: number;
+  y: number;
+};
 export type LiveQuote = {
   priceText: string;
   changeText: string;
@@ -640,7 +639,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeIndicatorLayers,
     chart.candles,
     chart.interval,
-    chart.symbol
+    chart.symbol,
   ]);
 
   useEffect(() => {
@@ -712,7 +711,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeExpansions,
     activeIndicatorLayers,
     chart.interval,
-    chart.symbol
+    chart.symbol,
   ]);
 
   useEffect(() => {
@@ -760,7 +759,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.interval,
     chart.layers["volume-profile"],
     chart.symbol,
-    visibleProfileRange
+    visibleProfileRange,
   ]);
 
   useEffect(() => {
@@ -804,7 +803,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [
     chart.interval,
     chart.symbol,
-    visibleProfileRange
+    visibleProfileRange,
   ]);
 
   useEffect(() => {
@@ -1686,25 +1685,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
-        {currentPriceMarker && (
-          <div
-            className="chart-current-price-overlay"
-            style={{
-              "--current-price-y": `${currentPriceMarker.y}px`,
-              "--current-price-line-left": `${currentPriceMarker.lineLeft}px`,
-              "--current-price-line-right": `${currentPriceMarker.lineRight}px`,
-              "--current-price-label-left": `${currentPriceMarker.labelLeft}px`,
-              "--current-price-label-top": `${currentPriceMarker.labelTop}px`
-            } as CSSProperties}
-            aria-hidden="true"
-          >
-            <span className="chart-current-price-line" />
-            <span className="chart-current-price-pill">
-              <span>{currentPriceMarker.priceText}</span>
-              {currentPriceTimeText && <span>{currentPriceTimeText}</span>}
-            </span>
-          </div>
-        )}
         {renderComparisons.length > 0 && (
           <div className="chart-comparison-legend" aria-label="Comparison overlays">
             {renderComparisons.map((comparison, index) => (
@@ -1722,6 +1702,25 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
                 <X size={12} aria-hidden="true" />
               </button>
             ))}
+          </div>
+        )}
+        {currentPriceMarker && (
+          <div
+            className="chart-current-price-overlay"
+            style={{
+              "--current-price-y": `${currentPriceMarker.y}px`,
+              "--current-price-line-left": `${currentPriceMarker.lineLeft}px`,
+              "--current-price-line-right": `${currentPriceMarker.lineRight}px`,
+              "--current-price-label-left": `${currentPriceMarker.labelLeft}px`,
+              "--current-price-label-top": `${currentPriceMarker.labelTop}px`
+            } as CSSProperties}
+            aria-hidden="true"
+          >
+            <span className="chart-current-price-line" />
+            <span className="chart-current-price-pill">
+              <span>{currentPriceMarker.priceText}</span>
+              {currentPriceTimeText && <span>{currentPriceTimeText}</span>}
+            </span>
           </div>
         )}
         {expansionOverlays.map((overlay) => (
@@ -1860,6 +1859,7 @@ type ChartAddDockProps = {
   laneHeight: number;
   symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onOpenComparisonPanel: (symbol: string) => void;
   onClose: () => void;
 };
 
@@ -1891,16 +1891,15 @@ export function ChartAddDock({
   laneHeight,
   symbols,
   onChartRuntimeAction,
+  onOpenComparisonPanel,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
-  const comparisonSymbols = new Set(document.comparisons.map((comparison) => comparison.symbol.toUpperCase()));
-  const canAddComparison = document.comparisons.length < maxComparisonCount;
   const comparisonSearchSymbols = symbols.filter((symbol) => {
     const normalized = symbol.symbol.toUpperCase();
-    return normalized !== document.symbol.toUpperCase() && !comparisonSymbols.has(normalized);
+    return normalized !== document.symbol.toUpperCase();
   });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
@@ -1910,36 +1909,13 @@ export function ChartAddDock({
     });
   }, [onChartRuntimeAction, target]);
 
-  const addComparison = useCallback((symbol: string) => {
+  const openComparisonPanel = useCallback((symbol: string) => {
     const normalized = symbol.toUpperCase();
-    if (!canAddComparison || normalized === document.symbol.toUpperCase() || comparisonSymbols.has(normalized)) {
+    if (normalized === document.symbol.toUpperCase()) {
       return;
     }
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand("chart.comparison.add", "user", target, {
-        comparison: {
-          symbol: normalized,
-          label: normalized,
-          scaleMode: "percent",
-          base: { mode: "visibleRangeStart" },
-          style: {
-            colorToken: comparisonDefaultColorToken(document.comparisons.length),
-            textToken: comparisonDefaultColorToken(document.comparisons.length),
-            lineWidth: 1.45,
-            opacity: 0.9
-          }
-        }
-      })
-    });
-  }, [canAddComparison, comparisonSymbols, document.comparisons.length, document.symbol, onChartRuntimeAction, target]);
-
-  const removeComparison = useCallback((comparisonId: string) => {
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand("chart.comparison.remove", "user", target, { comparisonId })
-    });
-  }, [onChartRuntimeAction, target]);
+    onOpenComparisonPanel(normalized);
+  }, [document.symbol, onOpenComparisonPanel]);
 
   const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
@@ -1968,37 +1944,15 @@ export function ChartAddDock({
       })}
       <span className="toolbar-separator" aria-hidden="true" />
       <div className="chart-comparison-picker" aria-label="Comparison symbols">
-        {canAddComparison ? (
-          <SymbolSearch
-            symbols={comparisonSearchSymbols}
-            selectedLabel=""
-            placeholder="비교 종목"
-            compact
-            menuPlacement="top"
-            onSelectSymbol={addComparison}
-          />
-        ) : (
-          <span className="chart-comparison-limit">MAX 4</span>
-        )}
+        <SymbolSearch
+          symbols={comparisonSearchSymbols}
+          selectedLabel=""
+          placeholder="비교 패널"
+          compact
+          menuPlacement="top"
+          onSelectSymbol={openComparisonPanel}
+        />
       </div>
-      {document.comparisons.map((comparison, index) => (
-        <button
-          key={comparison.id}
-          type="button"
-          className="chart-comparison-chip"
-          aria-label={`${comparison.symbol} 비교 삭제`}
-          title={`${comparison.symbol} 비교 삭제`}
-          onClick={() => removeComparison(comparison.id)}
-        >
-          <span
-            className="chart-comparison-chip-swatch"
-            style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
-            aria-hidden="true"
-          />
-          <span>{comparison.symbol}</span>
-          <X size={12} aria-hidden="true" />
-        </button>
-      ))}
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);

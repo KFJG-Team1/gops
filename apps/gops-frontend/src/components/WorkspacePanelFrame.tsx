@@ -1,4 +1,3 @@
-import { X } from "lucide-react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 
@@ -10,12 +9,10 @@ type WorkspacePanelFrameProps = {
   isBoundaryActive?: boolean;
   isChartHovered?: boolean;
   showNav?: boolean;
-  canSwap?: boolean;
-  canClose?: boolean;
-  onClose?: (slotId: string) => void;
-  onSwapPointerDown?: (slotId: string) => (event: ReactPointerEvent<HTMLElement>) => void;
+  onFramePointerDown?: (slotId: string) => (event: ReactPointerEvent<HTMLElement>) => void;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
+  editControls?: ReactNode;
   children: ReactNode;
 };
 
@@ -27,12 +24,10 @@ export function WorkspacePanelFrame({
   isBoundaryActive = false,
   isChartHovered = false,
   showNav = true,
-  canSwap = false,
-  canClose = false,
-  onClose,
-  onSwapPointerDown,
+  onFramePointerDown,
   onPointerEnter,
   onPointerLeave,
+  editControls,
   children
 }: WorkspacePanelFrameProps) {
   return (
@@ -51,33 +46,20 @@ export function WorkspacePanelFrame({
       data-panel-kind={content.kind}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      onPointerDown={onFramePointerDown?.(slot.id)}
     >
       {showNav && (
         <header
-          className={canSwap ? "workspace-panel-nav is-swappable" : "workspace-panel-nav"}
+          className="workspace-panel-nav"
           aria-label={`${content.title} panel navigation`}
-          onPointerDown={canSwap ? onSwapPointerDown?.(slot.id) : undefined}
         >
           <span className="workspace-panel-title">{content.title}</span>
-          {canClose ? (
-            <button
-              type="button"
-              className="workspace-panel-close"
-              aria-label={`${content.title} 패널 닫기`}
-              title="패널 닫기"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => onClose?.(slot.id)}
-            >
-              <X size={13} />
-            </button>
-          ) : (
-            <span className="workspace-panel-close-placeholder" aria-hidden="true" />
-          )}
         </header>
       )}
       <div className={content.kind === "chart" ? "workspace-panel-body chart-panel-body" : "workspace-panel-body"}>
         {children}
       </div>
+      {editControls}
     </section>
   );
 }

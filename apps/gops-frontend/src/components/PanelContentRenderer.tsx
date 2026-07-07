@@ -1,14 +1,15 @@
-import { Newspaper, X } from "lucide-react";
+import { Newspaper } from "lucide-react";
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
-import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
-import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
+import { chartIntervals, chartTypes, type CandleDto, type ChartCompareRange, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
+import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
@@ -16,6 +17,7 @@ import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
+import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -32,7 +34,6 @@ type PanelContentRendererProps = {
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
-  canClose: boolean;
   chartDrawingActive: boolean;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
@@ -45,10 +46,9 @@ type PanelContentRendererProps = {
   onChartDrawingToggle: () => void;
   onChartAddToggle: () => void;
   onSyncPageSymbolFromChart: () => void;
-  onClosePanel: (slotId: PanelSlotId) => void;
+  onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onChartSwapPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
 export function PanelContentRenderer({
@@ -66,7 +66,6 @@ export function PanelContentRenderer({
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
-  canClose,
   chartDrawingActive,
   chartAddActive,
   selectedAgentReferenceKeys,
@@ -79,10 +78,9 @@ export function PanelContentRenderer({
   onChartDrawingToggle,
   onChartAddToggle,
   onSyncPageSymbolFromChart,
-  onClosePanel,
+  onUpdatePanelProps,
   onChangePanelChartSymbol,
-  onSelectSymbol,
-  onChartSwapPointerDown
+  onSelectSymbol
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
@@ -95,11 +93,42 @@ export function PanelContentRenderer({
     return <CompanySummaryPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
   }
 
+  if (content.kind === "compare") {
+    const baseSymbol = readCompareBaseSymbol(content, symbol);
+    const comparisonSymbols = readCompareSymbols(content, baseSymbol);
+    const range = readCompareRange(content);
+    return (
+      <ChartComparisonPanel
+        symbol={baseSymbol}
+        comparisonSymbols={comparisonSymbols}
+        symbols={symbols}
+        range={range}
+        onRangeChange={(nextRange) => onUpdatePanelProps(content.id, { range: nextRange })}
+        onAddSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
+          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols, nextSymbol])
+        })}
+        onRemoveSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
+          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols.filter((item) => item.toUpperCase() !== nextSymbol.toUpperCase())])
+        })}
+      />
+    );
+  }
+
   if (content.kind === "news") {
     return (
       <NewsPanel
         symbol={symbol.toUpperCase()}
         initialPayload={content.props}
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+      />
+    );
+  }
+
+  if (content.kind === "watchlistNews") {
+    return (
+      <WatchlistNewsPanel
         sourcePanelId={content.id}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
@@ -155,19 +184,11 @@ export function PanelContentRenderer({
 
   return (
     <div className="chart-instance is-editable-chart">
-      <div
-        className="chart-panel-drag-strip chart-instance-swap-handle"
-        aria-label="차트 패널 이동"
-        onPointerEnter={() => onChartHoverChange(true)}
-        onPointerMove={() => onChartHoverChange(true)}
-        onPointerDown={onChartSwapPointerDown}
-      />
       <div className="chart-instance-topbar">
         <div
-          className="chart-instance-symbol chart-instance-swap-handle"
+          className="chart-instance-symbol"
           onPointerEnter={() => onChartHoverChange(true)}
           onPointerMove={() => onChartHoverChange(true)}
-          onPointerDown={onChartSwapPointerDown}
         >
           <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
             <div className="chart-instance-symbol-search-wrap">
@@ -240,18 +261,6 @@ export function PanelContentRenderer({
           </select>
         </div>
       </div>
-      {canClose && (
-        <button
-          type="button"
-          className="chart-instance-close"
-          aria-label="차트 패널 닫기"
-          title="차트 패널 닫기"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => onClosePanel(slot.id)}
-        >
-          <X size={13} />
-        </button>
-      )}
       {activeTab === "chart" ? (
         <ChartPanel
           ref={setChartPanelHandle}
@@ -301,4 +310,31 @@ function symbolsToWatchlistSymbols(symbols: ChartSymbolDto[]): WatchlistSymbol[]
     name: item.name || item.symbol.toUpperCase(),
     market: "US"
   }));
+}
+
+function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.baseSymbol ?? content.props?.symbol ?? fallbackSymbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readCompareSymbols(content: PanelContentInstance, baseSymbol: string): string[] {
+  const raw = content.props?.symbols;
+  const values = Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  return normalizeCompareSymbols(values).filter((value) => value !== baseSymbol.toUpperCase());
+}
+
+function readCompareRange(content: PanelContentInstance): ChartCompareRange {
+  const raw = typeof content.props?.range === "string" ? content.props.range.toUpperCase() : "";
+  return raw === "1D" || raw === "1M" || raw === "6M" || raw === "1Y" || raw === "5Y" ? raw : "1D";
+}
+
+function normalizeCompareSymbols(values: string[]): string[] {
+  const normalized: string[] = [];
+  values.forEach((value) => {
+    const symbol = value.trim().toUpperCase();
+    if (symbol && !normalized.includes(symbol)) {
+      normalized.push(symbol);
+    }
+  });
+  return normalized.slice(0, 6);
 }

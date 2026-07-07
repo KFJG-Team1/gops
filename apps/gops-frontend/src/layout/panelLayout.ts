@@ -1,15 +1,7 @@
 import type { CSSProperties } from "react";
-import { gridBoundaryX, gridGutter, type GridLineIndex, type PanelGridSpan } from "./grid";
-import {
-  almostEqual,
-  clamp,
-  rangesOverlap,
-  rectBottom,
-  rectRight,
-  rectsOverlap,
-  sortedUnique,
-  uniqueStrings
-} from "./panelGeometry";
+import { gridGutter } from "./grid";
+import { almostEqual, clamp, rangesOverlap, rectBottom, rectRight, rectsOverlap, uniqueStrings } from "./panelGeometry";
+import { panelPaletteLabel, panelRegistry, panelRegistryEntry, type PanelRegistryEntry } from "./panelRegistry";
 import { workspaceBottomInset, workspaceTopInset } from "./workspaceMetrics";
 
 export type ViewportSize = {
@@ -17,7 +9,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "company" | "news" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind = "chart" | "compare" | "company" | "news" | "watchlistNews" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -31,9 +23,40 @@ export type PanelRect = {
 
 export type WorkspaceBounds = PanelRect;
 
+export type PanelGridRect = {
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+};
+
+export type PanelGridCell = {
+  col: number;
+  row: number;
+};
+
+export type PanelGridMetrics = {
+  left: number;
+  top: number;
+  gutter: number;
+  cellWidth: number;
+  cellHeight: number;
+  stepX: number;
+  stepY: number;
+  cols: number;
+  rows: number;
+  workspace: WorkspaceBounds;
+};
+
+export type WorkspaceLayoutMetrics = {
+  topInset?: number;
+  bottomInset?: number;
+};
+
 export type PanelSlot = {
   id: PanelSlotId;
   contentId: PanelContentId;
+  gridRect: PanelGridRect;
   rect: PanelRect;
   minWidth: number;
   minHeight: number;
@@ -56,25 +79,15 @@ export type TiledPanelState = {
 };
 
 export type PanelBoundaryOrientation = "vertical" | "horizontal";
-export type PanelBoundaryKind = "shared" | "outer";
-export type PanelBoundaryInteraction = "resize" | "insert-only";
 
 export type PanelBoundary = {
   id: string;
-  kind: PanelBoundaryKind;
-  interaction: PanelBoundaryInteraction;
   orientation: PanelBoundaryOrientation;
   position: number;
   rangeStart: number;
   rangeEnd: number;
   negativeSlotIds: PanelSlotId[];
   positiveSlotIds: PanelSlotId[];
-  pageEdge?: "left" | "right";
-};
-
-export type BoundaryInsertOption = {
-  kind: PanelContentKind;
-  title: string;
 };
 
 export type InsertPanelOptions = {
@@ -82,23 +95,47 @@ export type InsertPanelOptions = {
   slotId?: PanelSlotId;
   layoutWeight?: number;
   props?: Record<string, unknown>;
+  allowOverlap?: boolean;
 };
 
-const panelMinWidth = 180;
-const panelMinHeight = 104;
-const chartMinHeight = 190;
-const defaultInsertWidth = 240;
-const defaultInsertHeight = 142;
-const boundarySnapTolerance = 10;
-const epsilon = 0.5;
+export type PanelResizeYieldSlot = {
+  slotId: PanelSlotId;
+  previousGridRect: PanelGridRect;
+  gridRect: PanelGridRect;
+};
 
-export const insertablePanelKinds: PanelContentKind[] = ["popular", "indices", "company", "news", "ontology", "portfolio", "trade", "chart"];
+export type PanelResizeYieldPlan = {
+  valid: boolean;
+  sourceSlotId: PanelSlotId;
+  sourceGridRect: PanelGridRect;
+  yieldedSlots: PanelResizeYieldSlot[];
+  reason?: string;
+};
+
+export type PanelDropGridRectPlan = {
+  valid: boolean;
+  gridRect: PanelGridRect;
+  reason?: string;
+};
+
+export const panelGridSpec = {
+  cols: 8,
+  rows: 5
+} as const;
+
+export const panelLayoutStorageKey = "gops:workspace-grid-layout:v1";
+
+const epsilon = 0.5;
+const defaultViewport: ViewportSize = { width: 1280, height: 720 };
+
+export const insertablePanelKinds: PanelContentKind[] = panelRegistry.map((entry) => entry.kind);
 
 export function workspaceBounds(
   viewport: ViewportSize,
-  topInset = workspaceTopInset,
-  bottomInset = workspaceBottomInset
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): WorkspaceBounds {
+  const topInset = readLayoutMetric(layoutMetrics.topInset, workspaceTopInset);
+  const bottomInset = readLayoutMetric(layoutMetrics.bottomInset, workspaceBottomInset);
   const top = Math.max(0, Math.round(topInset));
   const bottom = Math.max(top + 1, Math.round(viewport.height - bottomInset));
   return {
@@ -109,19 +146,10 @@ export function workspaceBounds(
   };
 }
 
-export function createInitialTiledPanelState(viewport: ViewportSize, options: { symbol?: string } = {}): TiledPanelState {
-  const workspace = workspaceBounds(viewport);
-  const gutter = panelGutter(viewport);
-  const supportTop = workspaceInnerTop(workspace, gutter);
-  const innerBottom = workspaceInnerBottom(workspace, gutter);
-  const previousSupportHeight = Math.max(panelMinHeight, Math.round(workspace.height * 0.24));
-  const previousChartTop = workspace.top + previousSupportHeight + gutter * 2;
-  const previousChartHeight = Math.max(chartMinHeight, innerBottom - previousChartTop);
-  const chartHeight = Math.max(chartMinHeight, Math.round(previousChartHeight * 0.5));
-  const chartTop = innerBottom - chartHeight;
-  const supportHeight = Math.max(panelMinHeight, chartTop - gutter - supportTop);
-  const supportLeft = workspace.left + gutter;
-  const supportWidth = (workspace.width - gutter * 3) / 2;
+export function createInitialTiledPanelState(
+  viewport: ViewportSize,
+  options: { symbol?: string; layoutMetrics?: WorkspaceLayoutMetrics } = {}
+): TiledPanelState {
   const contents: Record<PanelContentId, PanelContentInstance> = {};
   const chart = createPanelContent("chart", 1, { symbol: options.symbol?.trim().toUpperCase(), layoutWeight: 100 });
   const news = createPanelContent("news", 2, { layoutWeight: 50 });
@@ -134,247 +162,83 @@ export function createInitialTiledPanelState(viewport: ViewportSize, options: { 
     contents,
     nextInstance: 4,
     slots: [
-      {
-        id: "slot-news",
-        contentId: news.id,
-        rect: {
-          left: supportLeft,
-          top: supportTop,
-          width: supportWidth,
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-ontology",
-        contentId: ontology.id,
-        rect: {
-          left: supportLeft + supportWidth + gutter,
-          top: supportTop,
-          width: workspace.width - gutter - (supportLeft + supportWidth + gutter),
-          height: supportHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: panelMinHeight
-      },
-      {
-        id: "slot-chart",
-        contentId: chart.id,
-        rect: {
-          left: workspace.left,
-          top: chartTop,
-          width: workspace.width,
-          height: chartHeight
-        },
-        minWidth: panelMinWidth,
-        minHeight: chartMinHeight
-      }
+      createPanelSlot("slot-news", news, { col: 1, row: 1, colSpan: 4, rowSpan: 2 }, viewport, options.layoutMetrics),
+      createPanelSlot("slot-ontology", ontology, { col: 5, row: 1, colSpan: 4, rowSpan: 2 }, viewport, options.layoutMetrics),
+      createPanelSlot("slot-chart", chart, { col: 1, row: 3, colSpan: 8, rowSpan: 3 }, viewport, options.layoutMetrics)
     ]
   };
 }
 
 export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number): string {
   void instanceIndex;
-  return {
-    chart: "",
-    company: "기업정보",
-    news: "뉴스",
-    indices: "지수",
-    popular: "인기종목",
-    ontology: "온톨로지",
-    portfolio: "포트폴리오",
-    trade: "주문"
-  }[kind];
+  return panelRegistryEntry(kind).title;
 }
 
-export function detectPanelBoundaries(state: TiledPanelState, viewport?: ViewportSize): PanelBoundary[] {
+export function detectResizablePanelBoundaries(
+  state: TiledPanelState,
+  viewport?: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelBoundary[] {
+  void layoutMetrics;
   const inferredViewport = viewport ?? viewportFromState(state);
-  const workspace = workspaceBounds(inferredViewport);
   const gutter = panelGutter(inferredViewport);
   const raw: PanelBoundary[] = [];
   for (let leftIndex = 0; leftIndex < state.slots.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < state.slots.length; rightIndex += 1) {
-      const a = state.slots[leftIndex];
-      const b = state.slots[rightIndex];
-      const vertical = sharedVerticalGuide(a, b, gutter);
+      const a = state.slots[leftIndex]!;
+      const b = state.slots[rightIndex]!;
+      const vertical = sharedVerticalBoundary(a, b, gutter);
       if (vertical) {
         raw.push(vertical);
       }
-      const horizontal = sharedHorizontalGuide(a, b, gutter);
+      const horizontal = sharedHorizontalBoundary(a, b, gutter);
       if (horizontal) {
         raw.push(horizontal);
       }
     }
   }
-  state.slots.forEach((slot) => {
-    raw.push(...insertionGuidesForSlot(slot, state, workspace, gutter));
-  });
-  raw.push(...chartPageEdgeGuides(state, workspace, gutter));
-  return removeCoveredPageEdgeGuides(mergeBoundarySegments(raw));
+  return mergeBoundarySegments(raw);
 }
 
-export function resizePanelBoundary(
+export function resizeFreeformBoundary(
   state: TiledPanelState,
   boundaryId: string,
   delta: number,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const boundary = detectPanelBoundaries(state, viewport).find((item) => item.id === boundaryId);
-  if (!boundary || boundary.interaction !== "resize") {
+  const boundary = detectResizablePanelBoundaries(state, viewport, layoutMetrics).find((item) => item.id === boundaryId);
+  if (!boundary) {
     return state;
   }
-  const workspace = workspaceBounds(viewport);
-  const desiredPosition = snapBoundaryPosition(
-    boundary.position + delta,
-    boundary,
-    state,
-    viewport,
-    workspace
-  );
-  const resolvedDelta = clampBoundaryDelta(state, boundary, desiredPosition - boundary.position, viewport);
+  const resolvedDelta = clampBoundaryDelta(state, boundary, delta, viewport, layoutMetrics);
   if (Math.abs(resolvedDelta) < epsilon) {
     return state;
   }
-
   const next = {
     ...state,
-    slots: state.slots.map((slot) => resizeSlotAtBoundary(slot, boundary, resolvedDelta))
+    slots: state.slots.map((slot) => resizeSlotRectAtBoundary(slot, boundary, resolvedDelta))
   };
-  return layoutHasGapsOrOverlaps(next, viewport) ? state : next;
+  return slotRectsOverlap(next.slots) ? state : next;
 }
 
-export function canInsertPanelAtBoundary(
+export function removePanelSlot(
   state: TiledPanelState,
-  boundaryId: string,
+  slotId: PanelSlotId,
   viewport?: ViewportSize,
-  kind?: PanelContentKind
-): boolean {
-  const inferredViewport = viewport ?? viewportFromState(state);
-  const boundary = detectPanelBoundaries(state, inferredViewport).find((item) => item.id === boundaryId);
-  if (!boundary) {
-    return false;
-  }
-  const insertSize = minimumInsertSize(boundary.orientation, kind ?? "news");
-  const rangeSize = boundary.rangeEnd - boundary.rangeStart;
-  const crossMin = minimumCrossSize(boundary.orientation, kind ?? "news");
-  const gutter = panelGutter(inferredViewport);
-  return rangeSize >= crossMin &&
-    boundaryInsertCapacity(state, boundary, kind ?? "news", gutter, workspaceBounds(inferredViewport)) >= insertSize + gutter;
-}
-
-export function insertPanelAtBoundary(
-  state: TiledPanelState,
-  boundaryId: string,
-  kind: PanelContentKind,
-  viewport?: ViewportSize,
-  options: InsertPanelOptions = {}
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const inferredViewport = viewport ?? viewportFromState(state);
-  const boundary = detectPanelBoundaries(state, inferredViewport).find((item) => item.id === boundaryId);
-  if (!boundary || !canInsertPanelAtBoundary(state, boundaryId, inferredViewport, kind)) {
-    return state;
-  }
-  const workspace = workspaceBounds(inferredViewport);
-  const gutter = panelGutter(inferredViewport);
-  const minSize = minimumInsertSize(boundary.orientation, kind);
-  const defaultSize = defaultInsertSize(boundary.orientation, kind);
-  const insertSize = Math.max(minSize, Math.min(defaultSize, boundaryInsertCapacity(state, boundary, kind, gutter, workspace) - gutter));
-  const shrinkTotal = insertSize + gutter;
-  const { negative, positive } = distributeShrink(
-    shrinkTotal,
-    sideShrinkCapacity(state, boundary, "negative"),
-    sideShrinkCapacity(state, boundary, "positive")
-  );
-  const content = createPanelContent(kind, state.nextInstance, {
-    symbol: options.symbol,
-    layoutWeight: options.layoutWeight,
-    props: options.props
-  });
-  const slot: PanelSlot = {
-    id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
-    contentId: content.id,
-    rect: insertedPanelRect(state, boundary, negative, insertSize, gutter, kind, workspace),
-    minWidth: panelMinWidth,
-    minHeight: kind === "chart" ? chartMinHeight : panelMinHeight
-  };
-  const next = {
-    ...state,
-    contents: {
-      ...state.contents,
-      [content.id]: content
-    },
-    nextInstance: state.nextInstance + 1,
-    slots: [
-      ...state.slots.map((item) => shrinkSlotForInsert(state, item, boundary, negative, positive, gutter, kind, workspace)),
-      slot
-    ]
-  };
-  return layoutHasGapsOrOverlaps(next, inferredViewport) ? state : next;
-}
-
-export function addPanelSlotAtRect(
-  state: TiledPanelState,
-  kind: PanelContentKind,
-  rect: PanelRect,
-  options: InsertPanelOptions = {},
-  viewport?: ViewportSize
-): TiledPanelState {
-  const content = createPanelContent(kind, state.nextInstance, {
-    symbol: options.symbol,
-    layoutWeight: options.layoutWeight,
-    props: options.props
-  });
-  const slot: PanelSlot = {
-    id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
-    contentId: content.id,
-    rect,
-    minWidth: panelMinWidth,
-    minHeight: kind === "chart" ? chartMinHeight : panelMinHeight
-  };
-  return normalizeTiledPanelStateToWorkspace({
-    ...state,
-    contents: {
-      ...state.contents,
-      [content.id]: content
-    },
-    nextInstance: state.nextInstance + 1,
-    slots: [...state.slots, slot]
-  }, viewport ?? viewportFromState(state));
-}
-
-export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
   const removed = state.slots.find((slot) => slot.id === slotId);
-  if (!removed || state.slots.length <= 1) {
+  if (!removed) {
     return state;
   }
   const nextContents = { ...state.contents };
   delete nextContents[removed.contentId];
-  const inferredViewport = viewport ?? viewportFromState(state);
-  const expanded = expandAdjacentSlotsAfterRemoval(
-    {
-      ...state,
-      contents: nextContents,
-      slots: state.slots.filter((slot) => slot.id !== removed.id)
-    },
-    removed,
-    inferredViewport
-  );
-  if (expanded && !layoutHasGapsOrOverlaps(expanded, inferredViewport)) {
-    return expanded;
-  }
-  const neighbor = removableNeighbor(state, removed, panelGutter(inferredViewport));
-  if (!neighbor) {
-    return state;
-  }
-  const fallback = {
+  return normalizeTiledPanelStateToWorkspace({
     ...state,
     contents: nextContents,
-    slots: state.slots
-      .filter((slot) => slot.id !== removed.id)
-      .map((slot) => slot.id === neighbor.slot.id ? { ...slot, rect: unionRect(slot.rect, removed.rect) } : slot)
-  };
-  return layoutHasGapsOrOverlaps(fallback, inferredViewport) ? state : fallback;
+    slots: state.slots.filter((slot) => slot.id !== removed.id)
+  }, viewport ?? viewportFromState(state), layoutMetrics);
 }
 
 export function setPanelContentProps(
@@ -426,7 +290,8 @@ export function swapPanelContents(
   state: TiledPanelState,
   sourceSlotId: PanelSlotId,
   targetSlotId: PanelSlotId,
-  viewport?: ViewportSize
+  viewport?: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
   if (sourceSlotId === targetSlotId) {
     return state;
@@ -440,79 +305,136 @@ export function swapPanelContents(
     ...state,
     slots: state.slots.map((slot) => {
       if (slot.id === source.id) {
-        return { ...slot, contentId: target.contentId, minHeight: minHeightForContentKind(state.contents[target.contentId]?.kind) };
+        return {
+          ...slot,
+          contentId: target.contentId,
+          ...minPanelPixelSizeForKind(state.contents[target.contentId]?.kind ?? "news", viewport ?? viewportFromState(state), layoutMetrics)
+        };
       }
       if (slot.id === target.id) {
-        return { ...slot, contentId: source.contentId, minHeight: minHeightForContentKind(state.contents[source.contentId]?.kind) };
+        return {
+          ...slot,
+          contentId: source.contentId,
+          ...minPanelPixelSizeForKind(state.contents[source.contentId]?.kind ?? "news", viewport ?? viewportFromState(state), layoutMetrics)
+        };
       }
       return slot;
     })
   };
-  return normalizeTiledPanelStateToWorkspace(swapped, viewport ?? viewportFromState(swapped));
+  return normalizeTiledPanelStateToWorkspace(swapped, viewport ?? viewportFromState(swapped), layoutMetrics);
 }
 
 export function scaleTiledPanelState(
   state: TiledPanelState,
   previousViewport: ViewportSize,
-  nextViewport: ViewportSize
+  nextViewport: ViewportSize,
+  previousLayoutMetrics: WorkspaceLayoutMetrics = {},
+  nextLayoutMetrics: WorkspaceLayoutMetrics = previousLayoutMetrics
 ): TiledPanelState {
-  const previous = workspaceBounds(previousViewport);
-  const next = workspaceBounds(nextViewport);
-  const scaleX = next.width / Math.max(1, previous.width);
-  const scaleY = next.height / Math.max(1, previous.height);
+  void previousViewport;
+  void previousLayoutMetrics;
   return normalizeTiledPanelStateToWorkspace({
     ...state,
-    slots: state.slots.map((slot) => ({
-      ...slot,
-      rect: {
-        left: next.left + (slot.rect.left - previous.left) * scaleX,
-        top: next.top + (slot.rect.top - previous.top) * scaleY,
-        width: slot.rect.width * scaleX,
-        height: slot.rect.height * scaleY
-      }
-    }))
-  }, nextViewport);
+    slots: state.slots.map((slot) => ({ ...slot }))
+  }, nextViewport, nextLayoutMetrics);
 }
 
 export function normalizeTiledPanelStateToWorkspace(
   state: TiledPanelState,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const workspace = workspaceBounds(viewport);
-  const gutter = panelGutter(viewport);
   let changed = false;
   const slots = state.slots.map((slot) => {
-    const rect = normalizePanelRectForEdgePolicy(state, slot, workspace, gutter);
-    if (!rectEquals(rect, slot.rect)) {
+    const content = state.contents[slot.contentId];
+    const kind = content?.kind ?? "news";
+    const gridRect = normalizePanelGridRect(slot.gridRect, minGridSpanForKind(kind));
+    const rect = panelRectForGridRect(gridRect, viewport, layoutMetrics);
+    const minSize = minPanelPixelSizeForKind(kind, viewport, layoutMetrics);
+    if (!gridRectEquals(gridRect, slot.gridRect) || !rectEquals(rect, slot.rect) || slot.minWidth !== minSize.minWidth || slot.minHeight !== minSize.minHeight) {
       changed = true;
-      return { ...slot, rect };
+      return {
+        ...slot,
+        gridRect,
+        rect,
+        ...minSize
+      };
     }
     return slot;
   });
   return changed ? { ...state, slots } : state;
 }
 
+export function normalizeFreeformRectsToGridLayout(
+  state: TiledPanelState,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const chosenBySlotId = new Map<PanelSlotId, PanelGridRect>();
+  const ordered = state.slots
+    .map((slot, index) => {
+      const content = state.contents[slot.contentId];
+      const kind = content?.kind ?? "news";
+      return {
+        slot,
+        index,
+        kind,
+        weight: content?.layoutWeight ?? panelRegistryEntry(kind).defaultLayoutWeight
+      };
+    })
+    .sort((a, b) => b.weight - a.weight || a.index - b.index);
+
+  for (const item of ordered) {
+    const preferred = preferredGridRectFromPanelRect(item.slot.rect, item.kind, viewport, layoutMetrics);
+    const minSpan = minGridSpanForKind(item.kind);
+    const spans = candidateSpans(preferred, minSpan);
+    let chosen: PanelGridRect | null = null;
+    for (const span of spans) {
+      const candidates = candidateGridRectsForSpan(preferred, span);
+      chosen = candidates.find((candidate) => !gridRectOverlapsPlaced(candidate, chosenBySlotId)) ?? null;
+      if (chosen) {
+        break;
+      }
+    }
+    const current = normalizePanelGridRect(item.slot.gridRect, minSpan);
+    if (!chosen && !gridRectOverlapsPlaced(current, chosenBySlotId)) {
+      chosen = current;
+    }
+    if (!chosen) {
+      chosen = firstNonOverlappingGridRect(item.kind, chosenBySlotId) ?? current;
+    }
+    chosenBySlotId.set(item.slot.id, chosen);
+  }
+
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    slots: state.slots.map((slot) => ({
+      ...slot,
+      gridRect: chosenBySlotId.get(slot.id) ?? slot.gridRect
+    }))
+  }, viewport, layoutMetrics);
+}
+
 export function layoutHasGapsOrOverlaps(
   state: TiledPanelState,
   viewport: ViewportSize,
-  tolerance = 1
+  tolerance = 1,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): boolean {
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   for (const slot of state.slots) {
+    const content = state.contents[slot.contentId];
+    if (!content || !gridRectMeetsMinSpan(slot.gridRect, content.kind)) {
+      return true;
+    }
     const slotRight = rectRight(slot.rect);
     const slotBottom = rectBottom(slot.rect);
-    const leftLimit = slotLeftLimit(state, slot, workspace, gutter);
-    const rightLimit = slotRightLimit(state, slot, workspace, gutter);
-    const topLimit = workspaceInnerTop(workspace, gutter);
-    const bottomLimit = workspaceInnerBottom(workspace, gutter);
     if (
-      slot.rect.left < leftLimit - tolerance ||
-      slot.rect.top < topLimit - tolerance ||
-      slotRight > rightLimit + tolerance ||
-      slotBottom > bottomLimit + tolerance ||
-      slot.rect.width < effectiveSlotMinWidth(state, slot) - tolerance ||
-      slot.rect.height < effectiveSlotMinHeight(state, slot) - tolerance
+      slot.rect.left < workspace.left + gutter - tolerance ||
+      slot.rect.top < workspace.top + gutter - tolerance ||
+      slotRight > rectRight(workspace) - gutter + tolerance ||
+      slotBottom > rectBottom(workspace) - gutter + tolerance
     ) {
       return true;
     }
@@ -520,44 +442,8 @@ export function layoutHasGapsOrOverlaps(
 
   for (let leftIndex = 0; leftIndex < state.slots.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < state.slots.length; rightIndex += 1) {
-      const leftSlot = state.slots[leftIndex];
-      const rightSlot = state.slots[rightIndex];
-      const a = leftSlot.rect;
-      const b = rightSlot.rect;
-      if (rectsOverlap(a, b, tolerance)) {
+      if (rectsOverlap(state.slots[leftIndex]!.rect, state.slots[rightIndex]!.rect, tolerance)) {
         return true;
-      }
-      if (rangesOverlap(a.top, rectBottom(a), b.top, rectBottom(b), tolerance)) {
-        const first = a.left < b.left ? leftSlot : rightSlot;
-        const second = a.left < b.left ? rightSlot : leftSlot;
-        const gap = second.rect.left - rectRight(first.rect);
-        const overlap = {
-          start: Math.max(first.rect.top, second.rect.top),
-          end: Math.min(rectBottom(first.rect), rectBottom(second.rect))
-        };
-        if (
-          gap > tolerance &&
-          !hasHorizontalSlotBetween(state, first, second, overlap, tolerance) &&
-          Math.abs(gap - gutter) > tolerance
-        ) {
-          return true;
-        }
-      }
-      if (rangesOverlap(a.left, rectRight(a), b.left, rectRight(b), tolerance)) {
-        const first = a.top < b.top ? leftSlot : rightSlot;
-        const second = a.top < b.top ? rightSlot : leftSlot;
-        const gap = second.rect.top - rectBottom(first.rect);
-        const overlap = {
-          start: Math.max(first.rect.left, second.rect.left),
-          end: Math.min(rectRight(first.rect), rectRight(second.rect))
-        };
-        if (
-          gap > tolerance &&
-          !hasVerticalSlotBetween(state, first, second, overlap, tolerance) &&
-          Math.abs(gap - gutter) > tolerance
-        ) {
-          return true;
-        }
       }
     }
   }
@@ -573,34 +459,534 @@ export function panelSlotStyle(slot: PanelSlot): CSSProperties {
   };
 }
 
-export function insertOptionsForBoundary(state: TiledPanelState, boundaryId: string, viewport?: ViewportSize): BoundaryInsertOption[] {
-  return insertablePanelKinds.filter((kind) => canInsertPanelAtBoundary(state, boundaryId, viewport, kind)).map((kind) => ({
-    kind,
-    title: boundaryInsertTitle(kind)
-  }));
-}
-
-export function chartGridSafePositions(viewport: ViewportSize): number[] {
-  const gutter = gridGutter(viewport.width);
-  return ([0, 1, 2, 3, 4] as GridLineIndex[]).map((line) => {
-    if (line === 0) {
-      return 0;
-    }
-    if (line === 4) {
-      return viewport.width;
-    }
-    return gridBoundaryX(line, viewport.width) + gutter;
-  });
-}
-
-export function chartGridSpanFromRect(rect: PanelRect, viewport: ViewportSize): PanelGridSpan {
-  const start = nearestGridLine(rect.left, viewport);
-  const end = nearestGridLine(rectRight(rect), viewport);
-  return start < end ? { start, end } : { start, end: Math.min(4, start + 1) as GridLineIndex };
-}
-
 export function panelGutter(viewport: ViewportSize): number {
   return gridGutter(viewport.width);
+}
+
+export function panelGridMetrics(
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelGridMetrics {
+  const workspace = workspaceBounds(viewport, layoutMetrics);
+  const gutter = panelGutter(viewport);
+  const cols = panelGridSpec.cols;
+  const rows = panelGridSpec.rows;
+  const cellWidth = Math.max(1, (workspace.width - gutter * (cols + 1)) / cols);
+  const cellHeight = Math.max(1, (workspace.height - gutter * (rows + 1)) / rows);
+  return {
+    left: workspace.left + gutter,
+    top: workspace.top + gutter,
+    gutter,
+    cellWidth,
+    cellHeight,
+    stepX: cellWidth + gutter,
+    stepY: cellHeight + gutter,
+    cols,
+    rows,
+    workspace
+  };
+}
+
+export function panelRectForGridRect(
+  gridRect: PanelGridRect,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelRect {
+  const metrics = panelGridMetrics(viewport, layoutMetrics);
+  const normalized = normalizePanelGridRect(gridRect);
+  return {
+    left: metrics.left + (normalized.col - 1) * metrics.stepX,
+    top: metrics.top + (normalized.row - 1) * metrics.stepY,
+    width: normalized.colSpan * metrics.cellWidth + Math.max(0, normalized.colSpan - 1) * metrics.gutter,
+    height: normalized.rowSpan * metrics.cellHeight + Math.max(0, normalized.rowSpan - 1) * metrics.gutter
+  };
+}
+
+export function gridRectFromPanelRect(
+  rect: PanelRect,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelGridRect {
+  return preferredGridRectFromPanelRect(rect, "news", viewport, layoutMetrics);
+}
+
+export function normalizePanelGridRect(
+  gridRect: PanelGridRect,
+  minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan"> = { colSpan: 1, rowSpan: 1 }
+): PanelGridRect {
+  const colSpan = clampInt(gridRect.colSpan, minSpan.colSpan, panelGridSpec.cols);
+  const rowSpan = clampInt(gridRect.rowSpan, minSpan.rowSpan, panelGridSpec.rows);
+  const col = clampInt(gridRect.col, 1, panelGridSpec.cols - colSpan + 1);
+  const row = clampInt(gridRect.row, 1, panelGridSpec.rows - rowSpan + 1);
+  return { col, row, colSpan, rowSpan };
+}
+
+export function minGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return panelRegistryEntry(kind).minSpan;
+}
+
+export function maxGridSpan(): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return { colSpan: panelGridSpec.cols, rowSpan: panelGridSpec.rows };
+}
+
+export function defaultGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return panelRegistryEntry(kind).defaultSpan;
+}
+
+export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
+  return panelRegistry;
+}
+
+export function panelPaletteEntryLabel(kind: PanelContentKind): string {
+  return panelPaletteLabel(panelRegistryEntry(kind));
+}
+
+export function panelGridCellFromPoint(
+  viewport: ViewportSize,
+  x: number,
+  y: number,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelGridCell | null {
+  const metrics = panelGridMetrics(viewport, layoutMetrics);
+  const right = metrics.left + metrics.cols * metrics.stepX - metrics.gutter;
+  const bottom = metrics.top + metrics.rows * metrics.stepY - metrics.gutter;
+  if (x < metrics.left || x > right || y < metrics.top || y > bottom) {
+    return null;
+  }
+  return {
+    col: clampInt(Math.floor((x - metrics.left) / metrics.stepX) + 1, 1, metrics.cols),
+    row: clampInt(Math.floor((y - metrics.top) / metrics.stepY) + 1, 1, metrics.rows)
+  };
+}
+
+export function gridRectFromPoint(
+  viewport: ViewportSize,
+  x: number,
+  y: number,
+  span: Pick<PanelGridRect, "colSpan" | "rowSpan">,
+  layoutMetrics: WorkspaceLayoutMetrics = {},
+  offset: Partial<Pick<PanelGridRect, "col" | "row">> = {}
+): PanelGridRect | null {
+  const cell = panelGridCellFromPoint(viewport, x, y, layoutMetrics);
+  if (!cell) {
+    return null;
+  }
+  return normalizePanelGridRect({
+    col: cell.col - (offset.col ?? 0),
+    row: cell.row - (offset.row ?? 0),
+    colSpan: span.colSpan,
+    rowSpan: span.rowSpan
+  }, span);
+}
+
+export function slotAtGridCell(state: TiledPanelState, cell: PanelGridCell, exceptSlotId?: PanelSlotId): PanelSlot | null {
+  return state.slots.find((slot) => (
+    slot.id !== exceptSlotId &&
+    gridRectContainsCell(slot.gridRect, cell)
+  )) ?? null;
+}
+
+export function resolvePanelDropGridRect(
+  state: TiledPanelState,
+  kind: PanelContentKind,
+  cell: PanelGridCell,
+  options: {
+    exceptSlotId?: PanelSlotId;
+    preferredSpan?: Pick<PanelGridRect, "colSpan" | "rowSpan">;
+  } = {}
+): PanelDropGridRectPlan {
+  const minSpan = minGridSpanForKind(kind);
+  const fallback = normalizePanelGridRect({
+    col: cell.col,
+    row: cell.row,
+    colSpan: minSpan.colSpan,
+    rowSpan: minSpan.rowSpan
+  }, minSpan);
+  if (!gridCellInsideGrid(cell)) {
+    return { valid: false, gridRect: fallback, reason: "outside-grid" };
+  }
+  const occupiedCells = occupiedGridCellKeys(state, options.exceptSlotId);
+  if (occupiedCells.has(gridCellKey(cell))) {
+    return { valid: false, gridRect: fallback, reason: "occupied-cell" };
+  }
+  const component = emptyGridComponentFromCell(cell, occupiedCells);
+  const candidates = dropGridRectCandidates(component, minSpan);
+  if (!candidates.length) {
+    return { valid: false, gridRect: fallback, reason: "minimum-span" };
+  }
+  const preferredSpan = options.preferredSpan ?? defaultGridSpanForKind(kind);
+  const [gridRect] = candidates.sort((left, right) => compareDropGridRectCandidates(left, right, cell, preferredSpan));
+  return { valid: true, gridRect: gridRect ?? fallback };
+}
+
+export function gridRectsOverlap(left: PanelGridRect, right: PanelGridRect): boolean {
+  return left.col < right.col + right.colSpan &&
+    left.col + left.colSpan > right.col &&
+    left.row < right.row + right.rowSpan &&
+    left.row + left.rowSpan > right.row;
+}
+
+export function canPlaceGridRect(
+  state: TiledPanelState,
+  gridRect: PanelGridRect,
+  options: { exceptSlotId?: PanelSlotId; kind?: PanelContentKind } = {}
+): boolean {
+  const normalized = normalizePanelGridRect(gridRect, options.kind ? minGridSpanForKind(options.kind) : undefined);
+  if (!gridRectEquals(normalized, gridRect)) {
+    return false;
+  }
+  if (options.kind && !gridRectMeetsMinSpan(normalized, options.kind)) {
+    return false;
+  }
+  return !state.slots.some((slot) => (
+    slot.id !== options.exceptSlotId &&
+    gridRectsOverlap(slot.gridRect, normalized)
+  ));
+}
+
+export function addPanelSlotAtGridRect(
+  state: TiledPanelState,
+  kind: PanelContentKind,
+  gridRect: PanelGridRect,
+  options: InsertPanelOptions = {},
+  viewport: ViewportSize = viewportFromState(state),
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  if (!options.allowOverlap && !canPlaceGridRect(state, normalized, { kind })) {
+    return state;
+  }
+  const content = createPanelContent(kind, state.nextInstance, {
+    symbol: options.symbol,
+    layoutWeight: options.layoutWeight ?? panelRegistryEntry(kind).defaultLayoutWeight,
+    props: options.props
+  });
+  const slot = createPanelSlot(
+    uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
+    content,
+    normalized,
+    viewport,
+    layoutMetrics
+  );
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    contents: {
+      ...state.contents,
+      [content.id]: content
+    },
+    nextInstance: state.nextInstance + 1,
+    slots: [...state.slots, slot]
+  }, viewport, layoutMetrics);
+}
+
+export function movePanelSlotToGridRect(
+  state: TiledPanelState,
+  slotId: PanelSlotId,
+  gridRect: PanelGridRect,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const slot = state.slots.find((item) => item.id === slotId);
+  const kind = slot ? state.contents[slot.contentId]?.kind : null;
+  if (!slot || !kind) {
+    return state;
+  }
+  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  if (!canPlaceGridRect(state, normalized, { exceptSlotId: slot.id, kind })) {
+    return state;
+  }
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    slots: state.slots.map((item) => item.id === slot.id ? { ...item, gridRect: normalized } : item)
+  }, viewport, layoutMetrics);
+}
+
+export function resizePanelSlotToGridRect(
+  state: TiledPanelState,
+  slotId: PanelSlotId,
+  gridRect: PanelGridRect,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  return movePanelSlotToGridRect(state, slotId, gridRect, viewport, layoutMetrics);
+}
+
+export function resolvePanelResizeWithYield(
+  state: TiledPanelState,
+  slotId: PanelSlotId,
+  desiredGridRect: PanelGridRect
+): PanelResizeYieldPlan {
+  const source = state.slots.find((item) => item.id === slotId);
+  const kind = source ? state.contents[source.contentId]?.kind : null;
+  const fallbackGridRect = normalizePanelGridRect(desiredGridRect);
+  if (!source || !kind) {
+    return {
+      valid: false,
+      sourceSlotId: slotId,
+      sourceGridRect: fallbackGridRect,
+      yieldedSlots: [],
+      reason: "source-not-found"
+    };
+  }
+  const sourceGridRect = normalizePanelGridRect(desiredGridRect, minGridSpanForKind(kind));
+  if (!gridRectEquals(sourceGridRect, desiredGridRect)) {
+    return {
+      valid: false,
+      sourceSlotId: source.id,
+      sourceGridRect,
+      yieldedSlots: [],
+      reason: "invalid-source-grid-rect"
+    };
+  }
+
+  const sourceColEnd = gridRectColEnd(source.gridRect);
+  const sourceRowEnd = gridRectRowEnd(source.gridRect);
+  const desiredColEnd = gridRectColEnd(sourceGridRect);
+  const desiredRowEnd = gridRectRowEnd(sourceGridRect);
+  const expansion = {
+    west: sourceGridRect.col < source.gridRect.col,
+    east: desiredColEnd > sourceColEnd,
+    north: sourceGridRect.row < source.gridRect.row,
+    south: desiredRowEnd > sourceRowEnd
+  };
+
+  const yieldedSlots: PanelResizeYieldSlot[] = [];
+  const yieldedBySlotId = new Map<PanelSlotId, PanelGridRect>();
+  for (const slot of state.slots) {
+    if (slot.id === source.id || !gridRectsOverlap(slot.gridRect, sourceGridRect)) {
+      continue;
+    }
+    const content = state.contents[slot.contentId];
+    if (!content) {
+      return invalidResizeYieldPlan(source.id, sourceGridRect, yieldedSlots, "content-not-found");
+    }
+    const previousGridRect = yieldedBySlotId.get(slot.id) ?? slot.gridRect;
+    const nextGridRect = yieldGridRectForResizeOverlap(
+      previousGridRect,
+      source.gridRect,
+      sourceGridRect,
+      expansion
+    );
+    if (!nextGridRect || gridRectEquals(nextGridRect, previousGridRect)) {
+      return invalidResizeYieldPlan(source.id, sourceGridRect, yieldedSlots, "non-yieldable-overlap");
+    }
+    if (!gridRectMeetsMinSpan(nextGridRect, content.kind)) {
+      return invalidResizeYieldPlan(source.id, sourceGridRect, yieldedSlots, "minimum-span");
+    }
+    yieldedBySlotId.set(slot.id, nextGridRect);
+    yieldedSlots.push({
+      slotId: slot.id,
+      previousGridRect: slot.gridRect,
+      gridRect: nextGridRect
+    });
+  }
+
+  const finalSlots = state.slots.map((slot) => {
+    if (slot.id === source.id) {
+      return { ...slot, gridRect: sourceGridRect };
+    }
+    const yielded = yieldedBySlotId.get(slot.id);
+    return yielded ? { ...slot, gridRect: yielded } : slot;
+  });
+  if (layoutGridRectsOverlap(finalSlots)) {
+    return invalidResizeYieldPlan(source.id, sourceGridRect, yieldedSlots, "collision");
+  }
+  return {
+    valid: true,
+    sourceSlotId: source.id,
+    sourceGridRect,
+    yieldedSlots
+  };
+}
+
+export function applyPanelResizeWithYield(
+  state: TiledPanelState,
+  plan: PanelResizeYieldPlan,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  if (!plan.valid) {
+    return state;
+  }
+  const yieldedBySlotId = new Map(plan.yieldedSlots.map((slot) => [slot.slotId, slot.gridRect]));
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    slots: state.slots.map((slot) => {
+      if (slot.id === plan.sourceSlotId) {
+        return { ...slot, gridRect: plan.sourceGridRect };
+      }
+      const yielded = yieldedBySlotId.get(slot.id);
+      return yielded ? { ...slot, gridRect: yielded } : slot;
+    })
+  }, viewport, layoutMetrics);
+}
+
+export function replacePanelSlotKind(
+  state: TiledPanelState,
+  slotId: PanelSlotId,
+  kind: PanelContentKind,
+  viewport: ViewportSize,
+  options: InsertPanelOptions = {},
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const slot = state.slots.find((item) => item.id === slotId);
+  if (!slot) {
+    return state;
+  }
+  const gridRect = expandGridRectForKind(state, slot.gridRect, kind, slot.id);
+  if (!gridRect) {
+    return state;
+  }
+  const content = createPanelContent(kind, state.nextInstance, {
+    symbol: options.symbol,
+    layoutWeight: options.layoutWeight ?? panelRegistryEntry(kind).defaultLayoutWeight,
+    props: options.props
+  });
+  const contents = { ...state.contents };
+  delete contents[slot.contentId];
+  contents[content.id] = content;
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    contents,
+    nextInstance: state.nextInstance + 1,
+    slots: state.slots.map((item) => item.id === slot.id ? {
+      ...item,
+      contentId: content.id,
+      gridRect
+    } : item)
+  }, viewport, layoutMetrics);
+}
+
+export function expandGridRectForKind(
+  state: TiledPanelState,
+  start: PanelGridRect,
+  kind: PanelContentKind,
+  exceptSlotId?: PanelSlotId
+): PanelGridRect | null {
+  const minSpan = minGridSpanForKind(kind);
+  const base = normalizePanelGridRect({
+    col: start.col,
+    row: start.row,
+    colSpan: Math.max(start.colSpan, minSpan.colSpan),
+    rowSpan: Math.max(start.rowSpan, minSpan.rowSpan)
+  }, minSpan);
+  const candidates = [
+    base,
+    normalizePanelGridRect({ ...base, col: Math.max(1, start.col + start.colSpan - base.colSpan) }, minSpan),
+    normalizePanelGridRect({ ...base, row: Math.max(1, start.row + start.rowSpan - base.rowSpan) }, minSpan),
+    normalizePanelGridRect({
+      ...base,
+      col: Math.max(1, start.col + start.colSpan - base.colSpan),
+      row: Math.max(1, start.row + start.rowSpan - base.rowSpan)
+    }, minSpan)
+  ];
+  return candidates.find((candidate) => canPlaceGridRect(state, candidate, { exceptSlotId, kind })) ?? null;
+}
+
+export function firstAvailablePanelGridRect(state: TiledPanelState, kind: PanelContentKind): PanelGridRect | null {
+  return firstAvailableGridRect(state, kind);
+}
+
+export function setPrimaryChartSymbol(
+  state: TiledPanelState,
+  symbol: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const chartSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart");
+  if (chartSlot) {
+    return setPanelContentProps(state, chartSlot.contentId, {
+      ...(state.contents[chartSlot.contentId]?.props ?? {}),
+      symbol: normalizedSymbol,
+      timeframe: "1D"
+    });
+  }
+  const defaultChartRect = { col: 1, row: 3, colSpan: 8, rowSpan: 3 };
+  const gridRect = canPlaceGridRect(state, defaultChartRect, { kind: "chart" })
+    ? defaultChartRect
+    : firstAvailableGridRect(state, "chart");
+  return gridRect
+    ? addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics)
+    : state;
+}
+
+export type StoredTiledPanelState = {
+  version: 1;
+  nextInstance: number;
+  contents: Record<PanelContentId, PanelContentInstance>;
+  slots: Array<{
+    id: PanelSlotId;
+    contentId: PanelContentId;
+    gridRect: PanelGridRect;
+  }>;
+};
+
+export function serializeTiledPanelState(state: TiledPanelState): StoredTiledPanelState {
+  return {
+    version: 1,
+    nextInstance: state.nextInstance,
+    contents: state.contents,
+    slots: state.slots.map((slot) => ({
+      id: slot.id,
+      contentId: slot.contentId,
+      gridRect: slot.gridRect
+    }))
+  };
+}
+
+export function restoreTiledPanelStateSnapshot(
+  value: unknown,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState | null {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.slots) || !isRecord(value.contents)) {
+    return null;
+  }
+  const contents: Record<PanelContentId, PanelContentInstance> = {};
+  for (const [contentId, rawContent] of Object.entries(value.contents)) {
+    if (!isRecord(rawContent)) {
+      return null;
+    }
+    const kind = readPanelContentKind(rawContent.kind);
+    const instanceIndex = typeof rawContent.instanceIndex === "number" && Number.isFinite(rawContent.instanceIndex)
+      ? rawContent.instanceIndex
+      : 0;
+    if (!kind) {
+      return null;
+    }
+    contents[contentId] = {
+      id: contentId,
+      kind,
+      title: readString(rawContent.title) ?? panelContentTitle(kind),
+      instanceIndex,
+      ...(kind === "chart" ? { chartDocumentId: readString(rawContent.chartDocumentId) ?? `${contentId}-document` } : {}),
+      ...(typeof rawContent.layoutWeight === "number" ? { layoutWeight: rawContent.layoutWeight } : {}),
+      ...(isRecord(rawContent.props) ? { props: rawContent.props } : {})
+    };
+  }
+
+  const slots: PanelSlot[] = [];
+  for (const rawSlot of value.slots) {
+    if (!isRecord(rawSlot)) {
+      return null;
+    }
+    const id = readString(rawSlot.id);
+    const contentId = readString(rawSlot.contentId);
+    const content = contentId ? contents[contentId] : null;
+    const gridRect = readGridRect(rawSlot.gridRect);
+    if (!id || !content || !gridRect || !gridRectMeetsMinSpan(gridRect, content.kind)) {
+      return null;
+    }
+    if (!canPlaceGridRect({ slots, contents, nextInstance: 1 }, gridRect, { kind: content.kind })) {
+      return null;
+    }
+    slots.push(createPanelSlot(id, content, gridRect, viewport, layoutMetrics));
+  }
+  const nextInstance = typeof value.nextInstance === "number" && Number.isFinite(value.nextInstance)
+    ? Math.max(value.nextInstance, slots.length + 1)
+    : slots.length + 1;
+  return { contents, slots, nextInstance };
 }
 
 function createPanelContent(
@@ -612,7 +998,8 @@ function createPanelContent(
   const props = {
     ...(options.props ?? {}),
     ...(kind === "chart" && options.symbol ? { symbol: options.symbol, timeframe: "1D" } : {}),
-    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {})
+    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {}),
+    ...(kind === "compare" && options.symbol ? { baseSymbol: options.symbol, symbols: [options.symbol], range: "1D" } : {})
   };
   return {
     id,
@@ -623,6 +1010,122 @@ function createPanelContent(
     ...(options.layoutWeight !== undefined ? { layoutWeight: options.layoutWeight } : {}),
     ...(Object.keys(props).length ? { props } : {})
   };
+}
+
+function createPanelSlot(
+  id: PanelSlotId,
+  content: PanelContentInstance,
+  gridRect: PanelGridRect,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): PanelSlot {
+  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(content.kind));
+  return {
+    id,
+    contentId: content.id,
+    gridRect: normalized,
+    rect: panelRectForGridRect(normalized, viewport, layoutMetrics),
+    ...minPanelPixelSizeForKind(content.kind, viewport, layoutMetrics)
+  };
+}
+
+function minPanelPixelSizeForKind(
+  kind: PanelContentKind,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): Pick<PanelSlot, "minWidth" | "minHeight"> {
+  const minSpan = minGridSpanForKind(kind);
+  const rect = panelRectForGridRect({ col: 1, row: 1, colSpan: minSpan.colSpan, rowSpan: minSpan.rowSpan }, viewport, layoutMetrics);
+  return {
+    minWidth: rect.width,
+    minHeight: rect.height
+  };
+}
+
+function preferredGridRectFromPanelRect(
+  rect: PanelRect,
+  kind: PanelContentKind,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): PanelGridRect {
+  const metrics = panelGridMetrics(viewport, layoutMetrics);
+  const minSpan = minGridSpanForKind(kind);
+  const colSpan = clampInt(Math.round((rect.width + metrics.gutter) / metrics.stepX), minSpan.colSpan, panelGridSpec.cols);
+  const rowSpan = clampInt(Math.round((rect.height + metrics.gutter) / metrics.stepY), minSpan.rowSpan, panelGridSpec.rows);
+  const spanWidth = colSpan * metrics.cellWidth + Math.max(0, colSpan - 1) * metrics.gutter;
+  const spanHeight = rowSpan * metrics.cellHeight + Math.max(0, rowSpan - 1) * metrics.gutter;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const col = Math.round((centerX - spanWidth / 2 - metrics.left) / metrics.stepX) + 1;
+  const row = Math.round((centerY - spanHeight / 2 - metrics.top) / metrics.stepY) + 1;
+  return normalizePanelGridRect({ col, row, colSpan, rowSpan }, minSpan);
+}
+
+function candidateSpans(
+  preferred: PanelGridRect,
+  minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): Array<Pick<PanelGridRect, "colSpan" | "rowSpan">> {
+  const spans: Array<Pick<PanelGridRect, "colSpan" | "rowSpan">> = [];
+  for (let colSpan = preferred.colSpan; colSpan >= minSpan.colSpan; colSpan -= 1) {
+    for (let rowSpan = preferred.rowSpan; rowSpan >= minSpan.rowSpan; rowSpan -= 1) {
+      spans.push({ colSpan, rowSpan });
+    }
+  }
+  return spans.sort((a, b) => (
+    Math.abs(a.colSpan * a.rowSpan - preferred.colSpan * preferred.rowSpan) -
+    Math.abs(b.colSpan * b.rowSpan - preferred.colSpan * preferred.rowSpan) ||
+    b.colSpan - a.colSpan ||
+    b.rowSpan - a.rowSpan
+  ));
+}
+
+function candidateGridRectsForSpan(
+  preferred: PanelGridRect,
+  span: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): PanelGridRect[] {
+  const candidates: PanelGridRect[] = [];
+  for (let row = 1; row <= panelGridSpec.rows - span.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - span.colSpan + 1; col += 1) {
+      candidates.push({ col, row, colSpan: span.colSpan, rowSpan: span.rowSpan });
+    }
+  }
+  return candidates.sort((a, b) => (
+    candidateDistance(a, preferred) - candidateDistance(b, preferred) ||
+    a.row - b.row ||
+    a.col - b.col ||
+    a.rowSpan - b.rowSpan ||
+    a.colSpan - b.colSpan
+  ));
+}
+
+function candidateDistance(candidate: PanelGridRect, preferred: PanelGridRect): number {
+  const candidateCenterCol = candidate.col + candidate.colSpan / 2;
+  const candidateCenterRow = candidate.row + candidate.rowSpan / 2;
+  const preferredCenterCol = preferred.col + preferred.colSpan / 2;
+  const preferredCenterRow = preferred.row + preferred.rowSpan / 2;
+  return Math.abs(candidateCenterCol - preferredCenterCol) + Math.abs(candidateCenterRow - preferredCenterRow);
+}
+
+function gridRectOverlapsPlaced(candidate: PanelGridRect, placedBySlotId: Map<PanelSlotId, PanelGridRect>): boolean {
+  for (const placed of placedBySlotId.values()) {
+    if (gridRectsOverlap(candidate, placed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function firstNonOverlappingGridRect(kind: PanelContentKind, placedBySlotId: Map<PanelSlotId, PanelGridRect>): PanelGridRect | null {
+  const span = minGridSpanForKind(kind);
+  for (let row = 1; row <= panelGridSpec.rows - span.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - span.colSpan + 1; col += 1) {
+      const candidate = { col, row, colSpan: span.colSpan, rowSpan: span.rowSpan };
+      if (!gridRectOverlapsPlaced(candidate, placedBySlotId)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
 }
 
 function uniquePanelSlotId(state: TiledPanelState, preferredId: string): PanelSlotId {
@@ -637,287 +1140,335 @@ function uniquePanelSlotId(state: TiledPanelState, preferredId: string): PanelSl
   return `${base}-${suffix}`;
 }
 
-function boundaryInsertTitle(kind: PanelContentKind): string {
-  return kind === "chart" ? "차트" : panelContentTitle(kind);
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function isChartSlot(state: TiledPanelState, slot: PanelSlot): boolean {
-  return state.contents[slot.contentId]?.kind === "chart";
+function readPanelContentKind(value: unknown): PanelContentKind | null {
+  return typeof value === "string" && insertablePanelKinds.includes(value as PanelContentKind)
+    ? value as PanelContentKind
+    : null;
 }
 
-function effectiveSlotMinWidth(_state: TiledPanelState, slot: PanelSlot): number {
-  return slot.minWidth;
-}
-
-function effectiveSlotMinHeight(state: TiledPanelState, slot: PanelSlot): number {
-  return minHeightForContentKind(state.contents[slot.contentId]?.kind);
-}
-
-function minHeightForContentKind(kind: PanelContentKind | undefined): number {
-  return kind === "chart" ? chartMinHeight : panelMinHeight;
-}
-
-function workspaceInnerTop(workspace: WorkspaceBounds, gutter: number): number {
-  return workspace.top + gutter;
-}
-
-function workspaceInnerBottom(workspace: WorkspaceBounds, gutter: number): number {
-  return rectBottom(workspace) - gutter;
-}
-
-function slotLeftLimit(state: TiledPanelState, slot: PanelSlot, workspace: WorkspaceBounds, gutter: number): number {
-  return isChartSlot(state, slot) && almostEqual(slot.rect.left, workspace.left)
-    ? workspace.left
-    : workspace.left + gutter;
-}
-
-function slotRightLimit(state: TiledPanelState, slot: PanelSlot, workspace: WorkspaceBounds, gutter: number): number {
-  return isChartSlot(state, slot) && almostEqual(rectRight(slot.rect), rectRight(workspace))
-    ? rectRight(workspace)
-    : rectRight(workspace) - gutter;
-}
-
-function normalizePanelRectForEdgePolicy(
-  state: TiledPanelState,
-  slot: PanelSlot,
-  workspace: WorkspaceBounds,
-  gutter: number
-): PanelRect {
-  const workspaceRight = rectRight(workspace);
-  const innerLeft = workspace.left + gutter;
-  const innerRight = workspaceRight - gutter;
-  const innerTop = workspaceInnerTop(workspace, gutter);
-  const innerBottom = workspaceInnerBottom(workspace, gutter);
-  const isChart = isChartSlot(state, slot);
-  const minWidth = effectiveSlotMinWidth(state, slot);
-  const minHeight = effectiveSlotMinHeight(state, slot);
-  let left = slot.rect.left;
-  let right = rectRight(slot.rect);
-  let top = slot.rect.top;
-  let bottom = rectBottom(slot.rect);
-
-  if (isChart) {
-    left = left <= innerLeft + epsilon ? workspace.left : Math.max(left, innerLeft);
-    right = right >= innerRight - epsilon ? workspaceRight : Math.min(right, innerRight);
-  } else {
-    left = Math.max(left, innerLeft);
-    right = Math.min(right, innerRight);
+function readGridRect(value: unknown): PanelGridRect | null {
+  if (!isRecord(value)) {
+    return null;
   }
-
-  top = Math.max(top, innerTop);
-  bottom = Math.min(bottom, innerBottom);
-
-  if (right - left < minWidth) {
-    if (left + minWidth <= (isChart ? workspaceRight : innerRight)) {
-      right = left + minWidth;
-    } else {
-      right = isChart && right >= innerRight - epsilon ? workspaceRight : innerRight;
-      left = Math.max(isChart && left <= innerLeft + epsilon ? workspace.left : innerLeft, right - minWidth);
-    }
+  const col = readFiniteNumber(value.col);
+  const row = readFiniteNumber(value.row);
+  const colSpan = readFiniteNumber(value.colSpan);
+  const rowSpan = readFiniteNumber(value.rowSpan);
+  if (col === null || row === null || colSpan === null || rowSpan === null) {
+    return null;
   }
-  if (bottom - top < minHeight) {
-    if (top + minHeight <= innerBottom) {
-      bottom = top + minHeight;
-    } else {
-      bottom = innerBottom;
-      top = Math.max(innerTop, bottom - minHeight);
-    }
-  }
+  const rect = normalizePanelGridRect({ col, row, colSpan, rowSpan });
+  return rect.col === Math.round(col) &&
+    rect.row === Math.round(row) &&
+    rect.colSpan === Math.round(colSpan) &&
+    rect.rowSpan === Math.round(rowSpan)
+    ? rect
+    : null;
+}
 
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readLayoutMetric(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function invalidResizeYieldPlan(
+  sourceSlotId: PanelSlotId,
+  sourceGridRect: PanelGridRect,
+  yieldedSlots: PanelResizeYieldSlot[],
+  reason: string
+): PanelResizeYieldPlan {
   return {
-    left,
-    top,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top)
+    valid: false,
+    sourceSlotId,
+    sourceGridRect,
+    yieldedSlots,
+    reason
   };
 }
 
-function rectEquals(a: PanelRect, b: PanelRect): boolean {
-  return almostEqual(a.left, b.left) &&
-    almostEqual(a.top, b.top) &&
-    almostEqual(a.width, b.width) &&
-    almostEqual(a.height, b.height);
-}
+function yieldGridRectForResizeOverlap(
+  gridRect: PanelGridRect,
+  sourceGridRect: PanelGridRect,
+  desiredGridRect: PanelGridRect,
+  expansion: { west: boolean; east: boolean; north: boolean; south: boolean }
+): PanelGridRect | null {
+  let next = { ...gridRect };
+  let changed = false;
+  const sourceColEnd = gridRectColEnd(sourceGridRect);
+  const sourceRowEnd = gridRectRowEnd(sourceGridRect);
+  const desiredColEnd = gridRectColEnd(desiredGridRect);
+  const desiredRowEnd = gridRectRowEnd(desiredGridRect);
 
-function minimumInsertSize(orientation: PanelBoundaryOrientation, kind: PanelContentKind): number {
-  if (kind === "chart" && orientation === "horizontal") {
-    return chartMinHeight;
+  if (
+    expansion.west &&
+    rangesOverlap(next.row, gridRectRowEnd(next), sourceGridRect.row, sourceRowEnd) &&
+    rangesOverlap(next.col, gridRectColEnd(next), desiredGridRect.col, sourceGridRect.col)
+  ) {
+    next = {
+      ...next,
+      colSpan: desiredGridRect.col - next.col
+    };
+    changed = true;
   }
-  return orientation === "vertical" ? panelMinWidth : panelMinHeight;
-}
 
-function defaultInsertSize(orientation: PanelBoundaryOrientation, kind: PanelContentKind): number {
-  if (kind === "chart" && orientation === "horizontal") {
-    return Math.max(chartMinHeight, defaultInsertHeight);
+  if (
+    expansion.east &&
+    rangesOverlap(next.row, gridRectRowEnd(next), sourceGridRect.row, sourceRowEnd) &&
+    rangesOverlap(next.col, gridRectColEnd(next), sourceColEnd, desiredColEnd)
+  ) {
+    const previousColEnd = gridRectColEnd(next);
+    next = {
+      ...next,
+      col: desiredColEnd,
+      colSpan: previousColEnd - desiredColEnd
+    };
+    changed = true;
   }
-  return orientation === "vertical" ? defaultInsertWidth : defaultInsertHeight;
-}
 
-function minimumCrossSize(orientation: PanelBoundaryOrientation, kind: PanelContentKind): number {
-  if (orientation === "vertical") {
-    return kind === "chart" ? chartMinHeight : panelMinHeight;
+  if (
+    expansion.north &&
+    rangesOverlap(next.col, gridRectColEnd(next), sourceGridRect.col, sourceColEnd) &&
+    rangesOverlap(next.row, gridRectRowEnd(next), desiredGridRect.row, sourceGridRect.row)
+  ) {
+    next = {
+      ...next,
+      rowSpan: desiredGridRect.row - next.row
+    };
+    changed = true;
   }
-  return panelMinWidth;
+
+  if (
+    expansion.south &&
+    rangesOverlap(next.col, gridRectColEnd(next), sourceGridRect.col, sourceColEnd) &&
+    rangesOverlap(next.row, gridRectRowEnd(next), sourceRowEnd, desiredRowEnd)
+  ) {
+    const previousRowEnd = gridRectRowEnd(next);
+    next = {
+      ...next,
+      row: desiredRowEnd,
+      rowSpan: previousRowEnd - desiredRowEnd
+    };
+    changed = true;
+  }
+
+  return changed ? next : null;
 }
 
-function sharedVerticalGuide(a: PanelSlot, b: PanelSlot, gutter: number): PanelBoundary | null {
+function gridCellInsideGrid(cell: PanelGridCell): boolean {
+  return cell.col >= 1 &&
+    cell.col <= panelGridSpec.cols &&
+    cell.row >= 1 &&
+    cell.row <= panelGridSpec.rows;
+}
+
+function gridCellKey(cell: PanelGridCell): string {
+  return `${cell.col}:${cell.row}`;
+}
+
+function occupiedGridCellKeys(state: TiledPanelState, exceptSlotId?: PanelSlotId): Set<string> {
+  const occupied = new Set<string>();
+  for (const slot of state.slots) {
+    if (slot.id === exceptSlotId) {
+      continue;
+    }
+    for (let row = slot.gridRect.row; row < gridRectRowEnd(slot.gridRect); row += 1) {
+      for (let col = slot.gridRect.col; col < gridRectColEnd(slot.gridRect); col += 1) {
+        occupied.add(gridCellKey({ col, row }));
+      }
+    }
+  }
+  return occupied;
+}
+
+function emptyGridComponentFromCell(start: PanelGridCell, occupied: Set<string>): Set<string> {
+  const component = new Set<string>();
+  const stack: PanelGridCell[] = [start];
+  while (stack.length) {
+    const cell = stack.pop()!;
+    if (!gridCellInsideGrid(cell)) {
+      continue;
+    }
+    const key = gridCellKey(cell);
+    if (occupied.has(key) || component.has(key)) {
+      continue;
+    }
+    component.add(key);
+    stack.push(
+      { col: cell.col + 1, row: cell.row },
+      { col: cell.col - 1, row: cell.row },
+      { col: cell.col, row: cell.row + 1 },
+      { col: cell.col, row: cell.row - 1 }
+    );
+  }
+  return component;
+}
+
+function dropGridRectCandidates(
+  component: Set<string>,
+  minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): PanelGridRect[] {
+  const candidates: PanelGridRect[] = [];
+  for (let row = 1; row <= panelGridSpec.rows; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols; col += 1) {
+      for (let rowSpan = minSpan.rowSpan; rowSpan <= panelGridSpec.rows - row + 1; rowSpan += 1) {
+        for (let colSpan = minSpan.colSpan; colSpan <= panelGridSpec.cols - col + 1; colSpan += 1) {
+          const candidate = { col, row, colSpan, rowSpan };
+          if (gridRectCellsInComponent(candidate, component)) {
+            candidates.push(candidate);
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function gridRectCellsInComponent(rect: PanelGridRect, component: Set<string>): boolean {
+  for (let row = rect.row; row < gridRectRowEnd(rect); row += 1) {
+    for (let col = rect.col; col < gridRectColEnd(rect); col += 1) {
+      if (!component.has(gridCellKey({ col, row }))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function compareDropGridRectCandidates(
+  left: PanelGridRect,
+  right: PanelGridRect,
+  targetCell: PanelGridCell,
+  preferredSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): number {
+  const leftContainsTarget = gridRectContainsCell(left, targetCell) ? 1 : 0;
+  const rightContainsTarget = gridRectContainsCell(right, targetCell) ? 1 : 0;
+  return rightContainsTarget - leftContainsTarget ||
+    gridRectArea(right) - gridRectArea(left) ||
+    dropGridRectDistance(left, targetCell) - dropGridRectDistance(right, targetCell) ||
+    gridRectAspectDistance(left, preferredSpan) - gridRectAspectDistance(right, preferredSpan) ||
+    left.row - right.row ||
+    left.col - right.col ||
+    right.colSpan - left.colSpan ||
+    right.rowSpan - left.rowSpan;
+}
+
+function gridRectArea(rect: PanelGridRect): number {
+  return rect.colSpan * rect.rowSpan;
+}
+
+function dropGridRectDistance(rect: PanelGridRect, targetCell: PanelGridCell): number {
+  const centerCol = rect.col + (rect.colSpan - 1) / 2;
+  const centerRow = rect.row + (rect.rowSpan - 1) / 2;
+  return Math.abs(centerCol - targetCell.col) + Math.abs(centerRow - targetCell.row);
+}
+
+function gridRectAspectDistance(
+  rect: Pick<PanelGridRect, "colSpan" | "rowSpan">,
+  preferredSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): number {
+  return Math.abs((rect.colSpan / rect.rowSpan) - (preferredSpan.colSpan / preferredSpan.rowSpan));
+}
+
+function gridRectContainsCell(rect: PanelGridRect, cell: PanelGridCell): boolean {
+  return cell.col >= rect.col &&
+    cell.col < rect.col + rect.colSpan &&
+    cell.row >= rect.row &&
+    cell.row < rect.row + rect.rowSpan;
+}
+
+function gridRectColEnd(rect: PanelGridRect): number {
+  return rect.col + rect.colSpan;
+}
+
+function gridRectRowEnd(rect: PanelGridRect): number {
+  return rect.row + rect.rowSpan;
+}
+
+function gridRectEquals(left: PanelGridRect, right: PanelGridRect): boolean {
+  return left.col === right.col &&
+    left.row === right.row &&
+    left.colSpan === right.colSpan &&
+    left.rowSpan === right.rowSpan;
+}
+
+function gridRectMeetsMinSpan(rect: PanelGridRect, kind: PanelContentKind): boolean {
+  const minSpan = minGridSpanForKind(kind);
+  return rect.colSpan >= minSpan.colSpan && rect.rowSpan >= minSpan.rowSpan;
+}
+
+function layoutGridRectsOverlap(slots: PanelSlot[]): boolean {
+  for (let leftIndex = 0; leftIndex < slots.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < slots.length; rightIndex += 1) {
+      if (gridRectsOverlap(slots[leftIndex]!.gridRect, slots[rightIndex]!.gridRect)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function firstAvailableGridRect(state: TiledPanelState, kind: PanelContentKind): PanelGridRect | null {
+  const span = defaultGridSpanForKind(kind);
+  for (let row = 1; row <= panelGridSpec.rows - span.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - span.colSpan + 1; col += 1) {
+      const candidate = { col, row, colSpan: span.colSpan, rowSpan: span.rowSpan };
+      if (canPlaceGridRect(state, candidate, { kind })) {
+        return candidate;
+      }
+    }
+  }
+  const minSpan = minGridSpanForKind(kind);
+  for (let row = 1; row <= panelGridSpec.rows - minSpan.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - minSpan.colSpan + 1; col += 1) {
+      const candidate = { col, row, colSpan: minSpan.colSpan, rowSpan: minSpan.rowSpan };
+      if (canPlaceGridRect(state, candidate, { kind })) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+function sharedVerticalBoundary(a: PanelSlot, b: PanelSlot, gutter: number): PanelBoundary | null {
   const aRight = rectRight(a.rect);
   const bRight = rectRight(b.rect);
   if (almostEqual(b.rect.left - aRight, gutter)) {
-    return boundaryFromOverlap("shared", "vertical", aRight + gutter / 2, a, b, verticalOverlap(a, b));
+    return boundaryFromOverlap("vertical", aRight + gutter / 2, a, b, verticalOverlap(a, b));
   }
   if (almostEqual(a.rect.left - bRight, gutter)) {
-    return boundaryFromOverlap("shared", "vertical", bRight + gutter / 2, b, a, verticalOverlap(a, b));
+    return boundaryFromOverlap("vertical", bRight + gutter / 2, b, a, verticalOverlap(a, b));
   }
   return null;
 }
 
-function sharedHorizontalGuide(a: PanelSlot, b: PanelSlot, gutter: number): PanelBoundary | null {
+function sharedHorizontalBoundary(a: PanelSlot, b: PanelSlot, gutter: number): PanelBoundary | null {
   const aBottom = rectBottom(a.rect);
   const bBottom = rectBottom(b.rect);
   if (almostEqual(b.rect.top - aBottom, gutter)) {
-    return boundaryFromOverlap("shared", "horizontal", aBottom + gutter / 2, a, b, horizontalOverlap(a, b));
+    return boundaryFromOverlap("horizontal", aBottom + gutter / 2, a, b, horizontalOverlap(a, b));
   }
   if (almostEqual(a.rect.top - bBottom, gutter)) {
-    return boundaryFromOverlap("shared", "horizontal", bBottom + gutter / 2, b, a, horizontalOverlap(a, b));
+    return boundaryFromOverlap("horizontal", bBottom + gutter / 2, b, a, horizontalOverlap(a, b));
   }
   return null;
 }
 
-function insertionGuidesForSlot(slot: PanelSlot, state: TiledPanelState, workspace: WorkspaceBounds, gutter: number): PanelBoundary[] {
-  const guides: PanelBoundary[] = [];
-  const slotRight = rectRight(slot.rect);
-  const slotBottom = rectBottom(slot.rect);
-  if (!hasSharedGuideOnSide(slot, state, "left", gutter) && slot.rect.left > workspace.left + epsilon) {
-    guides.push(withBoundaryId({
-      id: "",
-      kind: "outer",
-      interaction: "insert-only",
-      orientation: "vertical",
-      position: slot.rect.left - gutter / 2,
-      rangeStart: slot.rect.top,
-      rangeEnd: slotBottom,
-      negativeSlotIds: [],
-      positiveSlotIds: [slot.id]
-    }));
-  }
-  if (!hasSharedGuideOnSide(slot, state, "right", gutter) && slotRight < rectRight(workspace) - epsilon) {
-    guides.push(withBoundaryId({
-      id: "",
-      kind: "outer",
-      interaction: "insert-only",
-      orientation: "vertical",
-      position: slotRight + gutter / 2,
-      rangeStart: slot.rect.top,
-      rangeEnd: slotBottom,
-      negativeSlotIds: [slot.id],
-      positiveSlotIds: []
-    }));
-  }
-  if (!hasSharedGuideOnSide(slot, state, "top", gutter) && slot.rect.top > workspace.top + epsilon) {
-    guides.push(withBoundaryId({
-      id: "",
-      kind: "outer",
-      interaction: "insert-only",
-      orientation: "horizontal",
-      position: slot.rect.top - gutter / 2,
-      rangeStart: slot.rect.left,
-      rangeEnd: slotRight,
-      negativeSlotIds: [],
-      positiveSlotIds: [slot.id]
-    }));
-  }
-  if (!hasSharedGuideOnSide(slot, state, "bottom", gutter) && slotBottom < rectBottom(workspace) - epsilon) {
-    guides.push(withBoundaryId({
-      id: "",
-      kind: "outer",
-      interaction: "insert-only",
-      orientation: "horizontal",
-      position: slotBottom + gutter / 2,
-      rangeStart: slot.rect.left,
-      rangeEnd: slotRight,
-      negativeSlotIds: [slot.id],
-      positiveSlotIds: []
-    }));
-  }
-  return guides;
-}
-
-function chartPageEdgeGuides(state: TiledPanelState, workspace: WorkspaceBounds, gutter: number): PanelBoundary[] {
-  const guides: PanelBoundary[] = [];
-  const workspaceRight = rectRight(workspace);
-  const innerTop = workspaceInnerTop(workspace, gutter);
-  const innerBottom = workspaceInnerBottom(workspace, gutter);
-  const chartSlots = state.slots.filter((slot) => isChartSlot(state, slot));
-  chartSlots.forEach((slot) => {
-    if (almostEqual(slot.rect.left, workspace.left)) {
-      guides.push(withBoundaryId({
-        id: "",
-        kind: "outer",
-        interaction: "insert-only",
-        orientation: "vertical",
-        position: workspace.left + gutter / 2,
-        rangeStart: innerTop,
-        rangeEnd: innerBottom,
-        negativeSlotIds: [],
-        positiveSlotIds: fullHeightPageSideSlotIds(state, workspace, gutter, "left"),
-        pageEdge: "left"
-      }));
-    }
-    if (almostEqual(rectRight(slot.rect), workspaceRight)) {
-      guides.push(withBoundaryId({
-        id: "",
-        kind: "outer",
-        interaction: "insert-only",
-        orientation: "vertical",
-        position: workspaceRight - gutter / 2,
-        rangeStart: innerTop,
-        rangeEnd: innerBottom,
-        negativeSlotIds: fullHeightPageSideSlotIds(state, workspace, gutter, "right"),
-        positiveSlotIds: [],
-        pageEdge: "right"
-      }));
-    }
-  });
-  return guides.filter((guide) => guide.negativeSlotIds.length + guide.positiveSlotIds.length > 0);
-}
-
-function fullHeightPageSideSlotIds(
-  state: TiledPanelState,
-  workspace: WorkspaceBounds,
-  gutter: number,
-  side: "left" | "right"
-): PanelSlotId[] {
-  const workspaceRight = rectRight(workspace);
-  return state.slots
-    .filter((slot) => (
-      side === "left"
-        ? slot.rect.left <= workspace.left + gutter + epsilon
-        : rectRight(slot.rect) >= workspaceRight - gutter - epsilon
-    ))
-    .map((slot) => slot.id);
-}
-
-function hasSharedGuideOnSide(slot: PanelSlot, state: TiledPanelState, side: "left" | "right" | "top" | "bottom", gutter: number): boolean {
-  return state.slots.some((other) => {
-    if (other.id === slot.id) {
-      return false;
-    }
-    if (side === "left") {
-      return almostEqual(slot.rect.left - rectRight(other.rect), gutter) && verticalOverlapSlots(slot, other) > epsilon;
-    }
-    if (side === "right") {
-      return almostEqual(other.rect.left - rectRight(slot.rect), gutter) && verticalOverlapSlots(slot, other) > epsilon;
-    }
-    if (side === "top") {
-      return almostEqual(slot.rect.top - rectBottom(other.rect), gutter) && horizontalOverlapSlots(slot, other) > epsilon;
-    }
-    return almostEqual(other.rect.top - rectBottom(slot.rect), gutter) && horizontalOverlapSlots(slot, other) > epsilon;
-  });
-}
-
 function boundaryFromOverlap(
-  kind: PanelBoundaryKind,
   orientation: PanelBoundaryOrientation,
   position: number,
   negative: PanelSlot,
@@ -929,8 +1480,6 @@ function boundaryFromOverlap(
   }
   return withBoundaryId({
     id: "",
-    kind,
-    interaction: "resize",
     orientation,
     position,
     rangeStart: overlap.start,
@@ -949,40 +1498,65 @@ function mergeBoundarySegments(boundaries: PanelBoundary[]): PanelBoundary[] {
   ));
   const merged: PanelBoundary[] = [];
   for (const boundary of sorted) {
-    const last = merged[merged.length - 1];
-    if (
-      last &&
-      last.kind === boundary.kind &&
-      last.interaction === boundary.interaction &&
-      last.pageEdge === boundary.pageEdge &&
-      last.orientation === boundary.orientation &&
-      almostEqual(last.position, boundary.position) &&
-      sameSideSignature(last) === sameSideSignature(boundary)
-    ) {
-      last.rangeStart = Math.min(last.rangeStart, boundary.rangeStart);
-      last.rangeEnd = Math.max(last.rangeEnd, boundary.rangeEnd);
-      last.negativeSlotIds = uniqueStrings([...last.negativeSlotIds, ...boundary.negativeSlotIds]);
-      last.positiveSlotIds = uniqueStrings([...last.positiveSlotIds, ...boundary.positiveSlotIds]);
-      merged[merged.length - 1] = withBoundaryId(last);
+    const mergeIndex = merged.findIndex((item) => shouldMergeBoundarySegments(item, boundary));
+    if (mergeIndex >= 0) {
+      merged[mergeIndex] = mergeBoundarySegment(merged[mergeIndex]!, boundary);
     } else {
       merged.push(withBoundaryId({ ...boundary }));
     }
   }
-  return merged;
+  return coalesceBoundarySegments(merged);
 }
 
-function removeCoveredPageEdgeGuides(boundaries: PanelBoundary[]): PanelBoundary[] {
-  return boundaries.filter((boundary) => {
-    if (boundary.pageEdge) {
-      return true;
+function coalesceBoundarySegments(boundaries: PanelBoundary[]): PanelBoundary[] {
+  const merged = [...boundaries];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let leftIndex = 0; leftIndex < merged.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < merged.length; rightIndex += 1) {
+        if (shouldMergeBoundarySegments(merged[leftIndex]!, merged[rightIndex]!)) {
+          merged[leftIndex] = mergeBoundarySegment(merged[leftIndex]!, merged[rightIndex]!);
+          merged.splice(rightIndex, 1);
+          changed = true;
+          break;
+        }
+      }
+      if (changed) {
+        break;
+      }
     }
-    return !boundaries.some((edgeBoundary) => (
-      Boolean(edgeBoundary.pageEdge) &&
-      edgeBoundary.orientation === boundary.orientation &&
-      almostEqual(edgeBoundary.position, boundary.position) &&
-      edgeBoundary.rangeStart <= boundary.rangeStart + epsilon &&
-      edgeBoundary.rangeEnd >= boundary.rangeEnd - epsilon
-    ));
+  }
+  return merged.sort((a, b) => (
+    a.orientation.localeCompare(b.orientation) ||
+    a.position - b.position ||
+    a.rangeStart - b.rangeStart ||
+    a.rangeEnd - b.rangeEnd
+  ));
+}
+
+function shouldMergeBoundarySegments(left: PanelBoundary, right: PanelBoundary): boolean {
+  return left.orientation === right.orientation &&
+    almostEqual(left.position, right.position) &&
+    (boundaryRangesTouchOrOverlap(left, right) || boundarySegmentsShareSameSideSlot(left, right));
+}
+
+function boundaryRangesTouchOrOverlap(left: PanelBoundary, right: PanelBoundary): boolean {
+  return left.rangeEnd + epsilon >= right.rangeStart && right.rangeEnd + epsilon >= left.rangeStart;
+}
+
+function boundarySegmentsShareSameSideSlot(left: PanelBoundary, right: PanelBoundary): boolean {
+  return arraysIntersect(left.negativeSlotIds, right.negativeSlotIds) ||
+    arraysIntersect(left.positiveSlotIds, right.positiveSlotIds);
+}
+
+function mergeBoundarySegment(left: PanelBoundary, right: PanelBoundary): PanelBoundary {
+  return withBoundaryId({
+    ...left,
+    rangeStart: Math.min(left.rangeStart, right.rangeStart),
+    rangeEnd: Math.max(left.rangeEnd, right.rangeEnd),
+    negativeSlotIds: uniqueStrings([...left.negativeSlotIds, ...right.negativeSlotIds]),
+    positiveSlotIds: uniqueStrings([...left.positiveSlotIds, ...right.positiveSlotIds])
   });
 }
 
@@ -990,57 +1564,51 @@ function withBoundaryId(boundary: PanelBoundary): PanelBoundary {
   return {
     ...boundary,
     id: [
-      boundary.kind,
-      boundary.interaction,
+      "shared",
       boundary.orientation,
       Math.round(boundary.position),
       Math.round(boundary.rangeStart),
       Math.round(boundary.rangeEnd),
       boundary.negativeSlotIds.join("."),
-      boundary.positiveSlotIds.join("."),
-      boundary.pageEdge ?? ""
+      boundary.positiveSlotIds.join(".")
     ].join(":")
   };
 }
 
-function sameSideSignature(boundary: PanelBoundary): string {
-  return `${boundary.negativeSlotIds.length > 0 ? "n" : ""}/${boundary.positiveSlotIds.length > 0 ? "p" : ""}`;
-}
-
-function clampBoundaryDelta(state: TiledPanelState, boundary: PanelBoundary, delta: number, viewport: ViewportSize): number {
+function clampBoundaryDelta(
+  state: TiledPanelState,
+  boundary: PanelBoundary,
+  delta: number,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): number {
   let minDelta = Number.NEGATIVE_INFINITY;
   let maxDelta = Number.POSITIVE_INFINITY;
-  const workspace = workspaceBounds(viewport);
-  const gutter = panelGutter(viewport);
   const negativeSlots = boundary.negativeSlotIds.map((id) => requiredSlot(state, id));
   const positiveSlots = boundary.positiveSlotIds.map((id) => requiredSlot(state, id));
   if (boundary.orientation === "vertical") {
     negativeSlots.forEach((slot) => {
-      minDelta = Math.max(minDelta, effectiveSlotMinWidth(state, slot) - slot.rect.width);
-      const rightLimit = isChartSlot(state, slot) ? rectRight(workspace) : rectRight(workspace) - gutter;
-      maxDelta = Math.min(maxDelta, rightLimit - rectRight(slot.rect));
+      const minWidth = minPixelSizeForSlot(state, slot, viewport, layoutMetrics).minWidth;
+      minDelta = Math.max(minDelta, minWidth - slot.rect.width);
     });
     positiveSlots.forEach((slot) => {
-      const leftLimit = isChartSlot(state, slot) ? workspace.left : workspace.left + gutter;
-      minDelta = Math.max(minDelta, leftLimit - slot.rect.left);
-      maxDelta = Math.min(maxDelta, slot.rect.width - effectiveSlotMinWidth(state, slot));
+      const minWidth = minPixelSizeForSlot(state, slot, viewport, layoutMetrics).minWidth;
+      maxDelta = Math.min(maxDelta, slot.rect.width - minWidth);
     });
   } else {
     negativeSlots.forEach((slot) => {
-      minDelta = Math.max(minDelta, effectiveSlotMinHeight(state, slot) - slot.rect.height);
-      const bottomLimit = rectBottom(workspace) - gutter;
-      maxDelta = Math.min(maxDelta, bottomLimit - rectBottom(slot.rect));
+      const minHeight = minPixelSizeForSlot(state, slot, viewport, layoutMetrics).minHeight;
+      minDelta = Math.max(minDelta, minHeight - slot.rect.height);
     });
     positiveSlots.forEach((slot) => {
-      const topLimit = workspace.top + gutter;
-      minDelta = Math.max(minDelta, topLimit - slot.rect.top);
-      maxDelta = Math.min(maxDelta, slot.rect.height - effectiveSlotMinHeight(state, slot));
+      const minHeight = minPixelSizeForSlot(state, slot, viewport, layoutMetrics).minHeight;
+      maxDelta = Math.min(maxDelta, slot.rect.height - minHeight);
     });
   }
   return clamp(delta, minDelta, maxDelta);
 }
 
-function resizeSlotAtBoundary(slot: PanelSlot, boundary: PanelBoundary, delta: number): PanelSlot {
+function resizeSlotRectAtBoundary(slot: PanelSlot, boundary: PanelBoundary, delta: number): PanelSlot {
   if (boundary.negativeSlotIds.includes(slot.id)) {
     return boundary.orientation === "vertical"
       ? { ...slot, rect: { ...slot.rect, width: slot.rect.width + delta } }
@@ -1054,376 +1622,28 @@ function resizeSlotAtBoundary(slot: PanelSlot, boundary: PanelBoundary, delta: n
   return slot;
 }
 
-function snapBoundaryPosition(
-  desiredPosition: number,
-  boundary: PanelBoundary,
+function slotRectsOverlap(slots: PanelSlot[]): boolean {
+  for (let leftIndex = 0; leftIndex < slots.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < slots.length; rightIndex += 1) {
+      if (rectsOverlap(slots[leftIndex]!.rect, slots[rightIndex]!.rect, epsilon)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function arraysIntersect(left: string[], right: string[]): boolean {
+  return left.some((item) => right.includes(item));
+}
+
+function minPixelSizeForSlot(
   state: TiledPanelState,
+  slot: PanelSlot,
   viewport: ViewportSize,
-  workspace: WorkspaceBounds
-): number {
-  const affected = new Set([...boundary.negativeSlotIds, ...boundary.positiveSlotIds]);
-  const gutter = panelGutter(viewport);
-  const axisPositions = boundary.orientation === "vertical"
-    ? state.slots.flatMap((slot) => [slot.rect.left - gutter / 2, rectRight(slot.rect) + gutter / 2])
-    : state.slots.flatMap((slot) => [slot.rect.top - gutter / 2, rectBottom(slot.rect) + gutter / 2]);
-  const chartAffected = state.slots.some((slot) => affected.has(slot.id) && isChartSlot(state, slot));
-  const candidates = [
-    boundary.orientation === "vertical" ? workspace.left + gutter / 2 : workspace.top + gutter / 2,
-    boundary.orientation === "vertical" ? rectRight(workspace) - gutter / 2 : rectBottom(workspace) - gutter / 2,
-    ...axisPositions,
-    ...(boundary.orientation === "vertical" && chartAffected ? chartGridSafePositions(viewport) : [])
-  ];
-  const distinct = sortedUnique(candidates);
-  const found = distinct.find((candidate) => (
-    Math.abs(candidate - boundary.position) > epsilon &&
-    Math.abs(candidate - desiredPosition) <= boundarySnapTolerance
-  ));
-  return found ?? desiredPosition;
-}
-
-function boundaryShrinkCapacity(state: TiledPanelState, boundary: PanelBoundary): number {
-  return sideShrinkCapacity(state, boundary, "negative") + sideShrinkCapacity(state, boundary, "positive");
-}
-
-function boundaryInsertCapacity(
-  state: TiledPanelState,
-  boundary: PanelBoundary,
-  insertedKind: PanelContentKind,
-  gutter: number,
-  workspace: WorkspaceBounds
-): number {
-  return sideInsertCapacity(state, boundary, "negative", insertedKind, gutter, workspace) +
-    sideInsertCapacity(state, boundary, "positive", insertedKind, gutter, workspace);
-}
-
-function sideShrinkCapacity(
-  state: TiledPanelState,
-  boundary: PanelBoundary,
-  side: "negative" | "positive"
-): number {
-  const ids = side === "negative" ? boundary.negativeSlotIds : boundary.positiveSlotIds;
-  const capacities = ids.map((id) => {
-    const slot = requiredSlot(state, id);
-    return boundary.orientation === "vertical"
-      ? Math.max(0, slot.rect.width - effectiveSlotMinWidth(state, slot))
-      : Math.max(0, slot.rect.height - effectiveSlotMinHeight(state, slot));
-  });
-  return capacities.length ? Math.min(...capacities) : 0;
-}
-
-function sideInsertCapacity(
-  state: TiledPanelState,
-  boundary: PanelBoundary,
-  side: "negative" | "positive",
-  insertedKind: PanelContentKind,
-  gutter: number,
-  workspace: WorkspaceBounds
-): number {
-  const ids = side === "negative" ? boundary.negativeSlotIds : boundary.positiveSlotIds;
-  const capacities = ids.map((id) => {
-    const slot = requiredSlot(state, id);
-    const capacity = boundary.orientation === "vertical"
-      ? Math.max(0, slot.rect.width - effectiveSlotMinWidth(state, slot))
-      : Math.max(0, slot.rect.height - effectiveSlotMinHeight(state, slot));
-    return Math.max(0, capacity - pageEdgeExtraShrinkForInsertSlot(state, slot, boundary, insertedKind, gutter, workspace));
-  });
-  return capacities.length ? Math.min(...capacities) : 0;
-}
-
-function distributeShrink(total: number, negativeCapacity: number, positiveCapacity: number): { negative: number; positive: number } {
-  if (negativeCapacity <= 0) {
-    return { negative: 0, positive: Math.min(total, positiveCapacity) };
-  }
-  if (positiveCapacity <= 0) {
-    return { negative: Math.min(total, negativeCapacity), positive: 0 };
-  }
-  let negative = Math.min(total / 2, negativeCapacity);
-  let positive = total - negative;
-  if (positive > positiveCapacity) {
-    positive = positiveCapacity;
-    negative = total - positive;
-  }
-  return { negative, positive };
-}
-
-function shrinkSlotForInsert(
-  state: TiledPanelState,
-  slot: PanelSlot,
-  boundary: PanelBoundary,
-  negativeShrink: number,
-  positiveShrink: number,
-  gutter: number,
-  insertedKind: PanelContentKind,
-  workspace: WorkspaceBounds
-): PanelSlot {
-  if (boundary.negativeSlotIds.includes(slot.id)) {
-    const shrink = boundary.pageEdge === "right"
-      ? pageEdgeShrinkForSlot(state, slot, insertedKind, negativeShrink, gutter, "right", workspace)
-      : negativeShrink;
-    return boundary.orientation === "vertical"
-      ? { ...slot, rect: { ...slot.rect, width: slot.rect.width - shrink } }
-      : { ...slot, rect: { ...slot.rect, height: slot.rect.height - shrink } };
-  }
-  if (boundary.positiveSlotIds.includes(slot.id)) {
-    const shrink = boundary.pageEdge === "left"
-      ? pageEdgeShrinkForSlot(state, slot, insertedKind, positiveShrink, gutter, "left", workspace)
-      : positiveShrink;
-    return boundary.orientation === "vertical"
-      ? { ...slot, rect: { ...slot.rect, left: slot.rect.left + shrink, width: slot.rect.width - shrink } }
-      : { ...slot, rect: { ...slot.rect, top: slot.rect.top + shrink, height: slot.rect.height - shrink } };
-  }
-  return slot;
-}
-
-function pageEdgeShrinkForSlot(
-  state: TiledPanelState,
-  slot: PanelSlot,
-  insertedKind: PanelContentKind,
-  shrink: number,
-  gutter: number,
-  side: NonNullable<PanelBoundary["pageEdge"]>,
-  workspace: WorkspaceBounds
-): number {
-  const isFlushSlot = slotFlushesPageEdge(slot, side, workspace);
-  if (insertedKind !== "chart" && isChartSlot(state, slot) && isFlushSlot) {
-    return shrink + gutter;
-  }
-  if (insertedKind === "chart" && !isFlushSlot) {
-    return Math.max(0, shrink - gutter);
-  }
-  return shrink;
-}
-
-function pageEdgeExtraShrinkForInsertSlot(
-  state: TiledPanelState,
-  slot: PanelSlot,
-  boundary: PanelBoundary,
-  insertedKind: PanelContentKind,
-  gutter: number,
-  workspace: WorkspaceBounds
-): number {
-  if (
-    insertedKind === "chart" ||
-    !boundary.pageEdge ||
-    !isChartSlot(state, slot) ||
-    !slotFlushesPageEdge(slot, boundary.pageEdge, workspace)
-  ) {
-    return 0;
-  }
-  return gutter;
-}
-
-function slotFlushesPageEdge(slot: PanelSlot, side: NonNullable<PanelBoundary["pageEdge"]>, workspace: WorkspaceBounds): boolean {
-  if (side === "left") {
-    return almostEqual(slot.rect.left, workspace.left);
-  }
-  return almostEqual(rectRight(slot.rect), rectRight(workspace));
-}
-
-function insertedPanelRect(
-  state: TiledPanelState,
-  boundary: PanelBoundary,
-  negativeShrink: number,
-  insertSize: number,
-  gutter: number,
-  kind: PanelContentKind,
-  workspace: WorkspaceBounds
-): PanelRect {
-  if (boundary.orientation === "vertical") {
-    const left = kind === "chart" && boundary.pageEdge === "left"
-      ? boundary.position - gutter / 2
-      : kind === "chart" && boundary.pageEdge === "right"
-        ? boundary.position + gutter / 2 - insertSize
-        : boundary.negativeSlotIds.length ? boundary.position + gutter / 2 - negativeShrink : boundary.position + gutter / 2;
-    return {
-      left,
-      top: boundary.rangeStart,
-      width: insertSize,
-      height: boundary.rangeEnd - boundary.rangeStart
-    };
-  }
-  const top = boundary.negativeSlotIds.length ? boundary.position + gutter / 2 - negativeShrink : boundary.position + gutter / 2;
-  const inheritedChartBounds = kind === "chart" ? horizontalChartInsertBounds(state, boundary) : null;
-  if (inheritedChartBounds) {
-    return {
-      left: inheritedChartBounds.left,
-      top,
-      width: inheritedChartBounds.right - inheritedChartBounds.left,
-      height: insertSize
-    };
-  }
-  const workspaceRight = rectRight(workspace);
-  const insetLeft = kind !== "chart" && boundary.rangeStart <= workspace.left + epsilon ? gutter : 0;
-  const insetRight = kind !== "chart" && boundary.rangeEnd >= workspaceRight - epsilon ? gutter : 0;
-  return {
-    left: boundary.rangeStart + insetLeft,
-    top,
-    width: boundary.rangeEnd - boundary.rangeStart - insetLeft - insetRight,
-    height: insertSize
-  };
-}
-
-function horizontalChartInsertBounds(
-  state: TiledPanelState,
-  boundary: PanelBoundary
-): { left: number; right: number } | null {
-  if (boundary.orientation !== "horizontal") {
-    return null;
-  }
-  const chartSlot = chartSlotFromIds(state, boundary.positiveSlotIds) ?? chartSlotFromIds(state, boundary.negativeSlotIds);
-  return chartSlot ? { left: chartSlot.rect.left, right: rectRight(chartSlot.rect) } : null;
-}
-
-function chartSlotFromIds(state: TiledPanelState, slotIds: PanelSlotId[]): PanelSlot | null {
-  for (const slotId of slotIds) {
-    const slot = state.slots.find((item) => item.id === slotId);
-    if (slot && isChartSlot(state, slot)) {
-      return slot;
-    }
-  }
-  return null;
-}
-
-function expandAdjacentSlotsAfterRemoval(
-  stateWithoutRemoved: TiledPanelState,
-  removed: PanelSlot,
-  viewport: ViewportSize
-): TiledPanelState | null {
-  const gutter = panelGutter(viewport);
-  const workspace = workspaceBounds(viewport);
-  const candidates: TiledPanelState[] = [];
-  (["right", "left", "bottom", "top"] as const).forEach((side) => {
-    const adjusted = expandAdjacentSlotsOnSide(stateWithoutRemoved, removed, side, workspace, gutter);
-    if (adjusted) {
-      candidates.push(adjusted);
-    }
-  });
-  return candidates.find((candidate) => !layoutHasGapsOrOverlaps(candidate, viewport)) ?? null;
-}
-
-function expandAdjacentSlotsOnSide(
-  state: TiledPanelState,
-  removed: PanelSlot,
-  side: "right" | "left" | "bottom" | "top",
-  workspace: WorkspaceBounds,
-  gutter: number
-): TiledPanelState | null {
-  const affected = state.slots.filter((slot) => adjacentToRemoved(slot, removed, side, gutter));
-  if (!affected.length) {
-    return null;
-  }
-  const removedTouchesLeft = removed.rect.left <= workspace.left + gutter + epsilon;
-  const removedTouchesRight = rectRight(removed.rect) >= rectRight(workspace) - gutter - epsilon;
-  const removedTouchesTop = removed.rect.top <= workspace.top + gutter + epsilon;
-  const removedTouchesBottom = rectBottom(removed.rect) >= rectBottom(workspace) - gutter - epsilon;
-  const workspaceRight = rectRight(workspace);
-  const workspaceBottom = rectBottom(workspace);
-  return {
-    ...state,
-    slots: state.slots.map((slot) => {
-      if (!affected.some((item) => item.id === slot.id)) {
-        return slot;
-      }
-      if (side === "right") {
-        const desiredLeft = isChartSlot(state, slot) ? workspace.left : workspace.left + gutter;
-        const grow = removedTouchesLeft ? Math.max(0, slot.rect.left - desiredLeft) : removed.rect.width + gutter;
-        return {
-          ...slot,
-          rect: {
-            ...slot.rect,
-            left: slot.rect.left - grow,
-            width: slot.rect.width + grow
-          }
-        };
-      }
-      if (side === "left") {
-        const desiredRight = isChartSlot(state, slot) ? workspaceRight : workspaceRight - gutter;
-        const grow = removedTouchesRight ? Math.max(0, desiredRight - rectRight(slot.rect)) : removed.rect.width + gutter;
-        return {
-          ...slot,
-          rect: {
-            ...slot.rect,
-            width: slot.rect.width + grow
-          }
-        };
-      }
-      if (side === "bottom") {
-        const desiredTop = workspace.top + gutter;
-        const grow = removedTouchesTop ? Math.max(0, slot.rect.top - desiredTop) : removed.rect.height + gutter;
-        return {
-          ...slot,
-          rect: {
-            ...slot.rect,
-            top: slot.rect.top - grow,
-            height: slot.rect.height + grow
-          }
-        };
-      }
-      const desiredBottom = workspaceBottom - gutter;
-      const grow = removedTouchesBottom ? Math.max(0, desiredBottom - rectBottom(slot.rect)) : removed.rect.height + gutter;
-      return {
-        ...slot,
-        rect: {
-          ...slot.rect,
-          height: slot.rect.height + grow
-        }
-      };
-    })
-  };
-}
-
-function adjacentToRemoved(
-  slot: PanelSlot,
-  removed: PanelSlot,
-  side: "right" | "left" | "bottom" | "top",
-  gutter: number
-): boolean {
-  if (side === "right") {
-    return almostEqual(slot.rect.left - rectRight(removed.rect), gutter) &&
-      verticalOverlapSlots(slot, removed) > epsilon;
-  }
-  if (side === "left") {
-    return almostEqual(removed.rect.left - rectRight(slot.rect), gutter) &&
-      verticalOverlapSlots(slot, removed) > epsilon;
-  }
-  if (side === "bottom") {
-    return almostEqual(slot.rect.top - rectBottom(removed.rect), gutter) &&
-      horizontalOverlapSlots(slot, removed) > epsilon;
-  }
-  return almostEqual(removed.rect.top - rectBottom(slot.rect), gutter) &&
-    horizontalOverlapSlots(slot, removed) > epsilon;
-}
-
-function removableNeighbor(state: TiledPanelState, removed: PanelSlot, gutter: number): { slot: PanelSlot; sharedLength: number } | null {
-  const candidates = state.slots
-    .filter((slot) => slot.id !== removed.id)
-    .map((slot) => ({ slot, sharedLength: removableSharedLength(slot.rect, removed.rect, gutter) }))
-    .filter((item) => item.sharedLength > epsilon)
-    .sort((a, b) => b.sharedLength - a.sharedLength);
-  return candidates[0] ?? null;
-}
-
-function removableSharedLength(candidate: PanelRect, removed: PanelRect, gutter: number): number {
-  if (almostEqual(rectRight(candidate) + gutter, removed.left) || almostEqual(rectRight(removed) + gutter, candidate.left)) {
-    return Math.max(0, Math.min(rectBottom(candidate), rectBottom(removed)) - Math.max(candidate.top, removed.top));
-  }
-  if (almostEqual(rectBottom(candidate) + gutter, removed.top) || almostEqual(rectBottom(removed) + gutter, candidate.top)) {
-    return Math.max(0, Math.min(rectRight(candidate), rectRight(removed)) - Math.max(candidate.left, removed.left));
-  }
-  return 0;
-}
-
-function unionRect(a: PanelRect, b: PanelRect): PanelRect {
-  const left = Math.min(a.left, b.left);
-  const top = Math.min(a.top, b.top);
-  const right = Math.max(rectRight(a), rectRight(b));
-  const bottom = Math.max(rectBottom(a), rectBottom(b));
-  return {
-    left,
-    top,
-    width: right - left,
-    height: bottom - top
-  };
+  layoutMetrics: WorkspaceLayoutMetrics
+): Pick<PanelSlot, "minWidth" | "minHeight"> {
+  return minPanelPixelSizeForKind(state.contents[slot.contentId]?.kind ?? "news", viewport, layoutMetrics);
 }
 
 function requiredSlot(state: TiledPanelState, slotId: PanelSlotId): PanelSlot {
@@ -1448,67 +1668,18 @@ function horizontalOverlap(a: PanelSlot, b: PanelSlot): { start: number; end: nu
   };
 }
 
-function verticalOverlapSlots(a: PanelSlot, b: PanelSlot): number {
-  const overlap = verticalOverlap(a, b);
-  return overlap.end - overlap.start;
-}
-
-function horizontalOverlapSlots(a: PanelSlot, b: PanelSlot): number {
-  const overlap = horizontalOverlap(a, b);
-  return overlap.end - overlap.start;
-}
-
-function hasHorizontalSlotBetween(
-  state: TiledPanelState,
-  leftSlot: PanelSlot,
-  rightSlot: PanelSlot,
-  overlap: { start: number; end: number },
-  tolerance: number
-): boolean {
-  const leftRight = rectRight(leftSlot.rect);
-  const rightLeft = rightSlot.rect.left;
-  return state.slots.some((slot) => (
-    slot.id !== leftSlot.id &&
-    slot.id !== rightSlot.id &&
-    slot.rect.left >= leftRight - tolerance &&
-    rectRight(slot.rect) <= rightLeft + tolerance &&
-    rangesOverlap(slot.rect.top, rectBottom(slot.rect), overlap.start, overlap.end, tolerance)
-  ));
-}
-
-function hasVerticalSlotBetween(
-  state: TiledPanelState,
-  topSlot: PanelSlot,
-  bottomSlot: PanelSlot,
-  overlap: { start: number; end: number },
-  tolerance: number
-): boolean {
-  const topBottom = rectBottom(topSlot.rect);
-  const bottomTop = bottomSlot.rect.top;
-  return state.slots.some((slot) => (
-    slot.id !== topSlot.id &&
-    slot.id !== bottomSlot.id &&
-    slot.rect.top >= topBottom - tolerance &&
-    rectBottom(slot.rect) <= bottomTop + tolerance &&
-    rangesOverlap(slot.rect.left, rectRight(slot.rect), overlap.start, overlap.end, tolerance)
-  ));
+function rectEquals(a: PanelRect, b: PanelRect): boolean {
+  return almostEqual(a.left, b.left) &&
+    almostEqual(a.top, b.top) &&
+    almostEqual(a.width, b.width) &&
+    almostEqual(a.height, b.height);
 }
 
 function viewportFromState(state: TiledPanelState): ViewportSize {
-  const width = Math.max(...state.slots.map((slot) => rectRight(slot.rect)), 1280);
-  const height = Math.max(...state.slots.map((slot) => rectBottom(slot.rect) + workspaceBottomInset), 720);
+  if (!state.slots.length) {
+    return defaultViewport;
+  }
+  const width = Math.max(...state.slots.map((slot) => rectRight(slot.rect)), defaultViewport.width);
+  const height = Math.max(...state.slots.map((slot) => rectBottom(slot.rect) + workspaceBottomInset), defaultViewport.height);
   return { width, height };
-}
-
-function nearestGridLine(x: number, viewport: ViewportSize): GridLineIndex {
-  let best: GridLineIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  ([0, 1, 2, 3, 4] as GridLineIndex[]).forEach((line) => {
-    const distance = Math.abs(gridBoundaryX(line, viewport.width) - x);
-    if (distance < bestDistance) {
-      best = line;
-      bestDistance = distance;
-    }
-  });
-  return best;
 }
