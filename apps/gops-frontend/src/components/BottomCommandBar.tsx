@@ -5,6 +5,7 @@ import { fetchNotifications, normalizeNotificationPayload, notificationSocketUrl
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
+import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 
@@ -1032,6 +1033,9 @@ function bottomMenuContent({
             <button className="bottom-menu-item surface-raised danger" type="button" onClick={onLogout}>
               로그아웃
             </button>
+          )}
+          {(!authEnabled || authUser) && (
+            <InvestmentProfileForm disabled={authLoading || (authEnabled && !authUser)} />
           )}
         </div>
       );

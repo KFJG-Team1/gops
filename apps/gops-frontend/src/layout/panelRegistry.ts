@@ -68,6 +68,14 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "recommendations",
+    title: "추천",
+    agentPanelType: "stockRecommendations",
+    minSpan: { colSpan: 1, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 45
+  },
+  {
     kind: "company",
     title: "기업정보",
     agentPanelType: "companyProfile",

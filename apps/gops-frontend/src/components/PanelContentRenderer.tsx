@@ -8,6 +8,7 @@ import { chartIntervals, chartTypes, type CandleDto, type ChartCompareRange, typ
 import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
+import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
@@ -142,6 +143,10 @@ export function PanelContentRenderer({
 
   if (content.kind === "popular") {
     return <PopularStocksPanel items={marketItems} onSelectSymbol={onSelectSymbol} />;
+  }
+
+  if (content.kind === "recommendations") {
+    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (content.kind === "ontology") {

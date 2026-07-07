@@ -9,7 +9,18 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "compare" | "company" | "news" | "watchlistNews" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind =
+  | "chart"
+  | "compare"
+  | "company"
+  | "news"
+  | "watchlistNews"
+  | "indices"
+  | "popular"
+  | "recommendations"
+  | "ontology"
+  | "portfolio"
+  | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;

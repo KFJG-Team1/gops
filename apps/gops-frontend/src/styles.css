@@ -1184,6 +1184,173 @@ button {
   font-size: 11px;
 }
 
+.investment-profile-form {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+}
+
+.investment-profile-head,
+.stock-rec-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.investment-profile-head strong,
+.stock-rec-toolbar strong {
+  font-size: 13px;
+}
+
+.investment-profile-field {
+  display: grid;
+  gap: 4px;
+}
+
+.investment-profile-field span {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.investment-profile-field input,
+.investment-profile-field select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.investment-profile-selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.investment-profile-chip,
+.investment-profile-option-button,
+.investment-profile-sector-option {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.investment-profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.investment-profile-chip span {
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.investment-profile-symbol-search {
+  margin-top: 2px;
+}
+
+.investment-profile-option-list {
+  display: grid;
+  gap: 4px;
+  max-height: 168px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.investment-profile-option-list.compact {
+  max-height: 106px;
+}
+
+.investment-profile-option-button {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 4px 7px;
+  text-align: left;
+}
+
+.investment-profile-sector-option {
+  min-height: 28px;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 11px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.investment-profile-sector-option:hover,
+.investment-profile-sector-option:focus-visible {
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 10%, var(--color-surface));
+}
+
+.investment-profile-option-button strong,
+.investment-profile-option-button span,
+.investment-profile-option-button em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.investment-profile-option-button strong {
+  font-size: 11px;
+}
+
+.investment-profile-option-button span,
+.investment-profile-option-button em {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.investment-profile-empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.investment-profile-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+.investment-profile-message,
+.investment-profile-error {
+  margin: 0;
+  font-size: 11px;
+}
+
+.investment-profile-message {
+  color: var(--color-up);
+}
+
+.investment-profile-error {
+  color: var(--color-danger);
+}
+
 .chart-lane-frame {
   position: absolute;
   z-index: 1;
@@ -2542,6 +2709,7 @@ h2 {
 .company-summary-panel,
 .popular-stocks-panel,
 .portfolio-holdings-panel,
+.stock-recommendations-panel,
 .order-ticket {
   display: flex;
   width: 100%;
@@ -3562,6 +3730,7 @@ h2 {
 .market-news-list,
 .market-index-list,
 .portfolio-position-list,
+.stock-rec-list,
 .order-event-list {
   display: grid;
   gap: 8px;
@@ -3571,6 +3740,7 @@ h2 {
 .market-news-row,
 .market-index-row,
 .portfolio-position-row,
+.stock-rec-row,
 .order-status-box,
 .order-summary-box {
   border: 0;
@@ -3588,6 +3758,97 @@ h2 {
 .market-news-row:hover,
 .market-news-row:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.stock-rec-toolbar span {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.stock-rec-toolbar button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.stock-rec-state,
+.stock-rec-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.stock-rec-error {
+  color: var(--color-danger);
+}
+
+.stock-rec-row {
+  display: grid;
+  grid-template-columns: 24px minmax(72px, 0.8fr) minmax(46px, 0.4fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stock-rec-row:hover,
+.stock-rec-row:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.stock-rec-rank {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-signal) 18%, transparent);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.stock-rec-main,
+.stock-rec-score,
+.stock-rec-reasons {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stock-rec-main strong,
+.stock-rec-score strong {
+  overflow: hidden;
+  font-family: var(--font-data-sans);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-rec-main em,
+.stock-rec-score em,
+.stock-rec-reasons em {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-rec-reasons .risk {
+  color: var(--gops-caution);
 }
 
 .market-news-row.is-agent-reference-selected {
