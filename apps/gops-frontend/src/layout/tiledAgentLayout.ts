@@ -29,6 +29,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   company: "companyProfile",
   indices: "marketIndices",
   popular: "popularStocks",
+  recommendations: "stockRecommendations",
   news: "newsFeed",
   watchlistNews: "newsFeed",
   ontology: "ontologyGraph",
