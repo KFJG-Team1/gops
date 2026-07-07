@@ -64,7 +64,7 @@ type BottomCommandBarProps = {
 };
 
 const leftMenuKeys: BottomMenuKey[] = ["I", "II", "III"];
-const rightMenuKeys: BottomMenuKey[] = ["IV", "V", "VI"];
+const rightMenuKeys: BottomMenuKey[] = ["IV", "VI"];
 
 export function BottomCommandBar({
   activeMenu,
@@ -781,7 +781,7 @@ function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
     II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
-    V: "로그인/프로필",
+    V: "계정",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {
@@ -1016,7 +1016,74 @@ function bottomMenuContent({
       );
     case "V":
       return (
-        <div className="bottom-menu-section account-menu-section">
+        <SettingsMenu
+          authEnabled={authEnabled}
+          authLoading={authLoading}
+          authUser={authUser}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          initialTab="account"
+        />
+      );
+    case "VI":
+      return (
+        <SettingsMenu
+          authEnabled={authEnabled}
+          authLoading={authLoading}
+          authUser={authUser}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          initialTab="account"
+        />
+      );
+    default:
+      return <p className="bottom-menu-empty">Menu</p>;
+  }
+}
+
+function SettingsMenu({
+  authEnabled,
+  authLoading,
+  authUser,
+  onLogin,
+  onLogout,
+  initialTab
+}: {
+  authEnabled: boolean;
+  authLoading: boolean;
+  authUser: AuthUser | null;
+  onLogin: () => void;
+  onLogout: () => void;
+  initialTab: "account" | "recommendations";
+}) {
+  const [activeTab, setActiveTab] = useState<"account" | "recommendations">(initialTab);
+  const recommendationDisabled = authLoading || (authEnabled && !authUser);
+
+  return (
+    <div className="bottom-menu-section bottom-menu-scroll settings-menu-section">
+      <MenuTitle icon={<Settings size={15} />} title="설정" detail="계정과 추천" />
+      <div className="settings-tab-list" role="tablist" aria-label="설정 탭">
+        <button
+          type="button"
+          role="tab"
+          className={`settings-tab ${activeTab === "account" ? "active" : ""}`}
+          aria-selected={activeTab === "account"}
+          onClick={() => setActiveTab("account")}
+        >
+          계정
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`settings-tab ${activeTab === "recommendations" ? "active" : ""}`}
+          aria-selected={activeTab === "recommendations"}
+          onClick={() => setActiveTab("recommendations")}
+        >
+          추천 설정
+        </button>
+      </div>
+      {activeTab === "account" ? (
+        <div className="settings-tab-panel" role="tabpanel">
           <MenuTitle icon={<UserCircle size={15} />} title="계정" detail={authEnabled ? "Google OAuth" : "Local dev"} />
           {authLoading && <p className="bottom-menu-empty">계정 상태를 확인하고 있습니다.</p>}
           {!authLoading && authUser && (
@@ -1039,21 +1106,20 @@ function bottomMenuContent({
               로그아웃
             </button>
           )}
-          {(!authEnabled || authUser) && (
-            <InvestmentProfileForm disabled={authLoading || (authEnabled && !authUser)} />
+        </div>
+      ) : (
+        <div className="settings-tab-panel" role="tabpanel">
+          {recommendationDisabled ? (
+            <button className="bottom-menu-item surface-raised" type="button" disabled={authLoading} onClick={onLogin}>
+              로그인 후 추천 설정
+            </button>
+          ) : (
+            <InvestmentProfileForm disabled={recommendationDisabled} />
           )}
         </div>
-      );
-    case "VI":
-      return (
-        <div className="bottom-menu-section">
-          <MenuTitle icon={<Settings size={15} />} title="설정" detail="작업 환경" />
-          <p className="bottom-menu-empty">테마, Agent, 패널 설정을 이 영역에서 확장합니다.</p>
-        </div>
-      );
-    default:
-      return <p className="bottom-menu-empty">Menu</p>;
-  }
+      )}
+    </div>
+  );
 }
 
 function confidenceTone(confidence: number): "high" | "medium" | "low" {

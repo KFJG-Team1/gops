@@ -1267,11 +1267,40 @@ button {
   font-size: 11px;
 }
 
+.settings-menu-section {
+  gap: 10px;
+}
+
+.settings-tab-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.settings-tab {
+  min-height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+.settings-tab.active {
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 12%, var(--color-surface));
+  color: var(--color-text);
+}
+
+.settings-tab-panel {
+  display: grid;
+  gap: 8px;
+}
+
 .investment-profile-form {
   display: grid;
   gap: 8px;
-  border-top: 1px solid var(--color-border);
-  padding-top: 10px;
 }
 
 .investment-profile-head,

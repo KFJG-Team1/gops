@@ -173,6 +173,9 @@ async function apiJson(path: string, init: RequestInit = {}): Promise<unknown> {
 
 function readApiErrorMessage(response: Response, payload: unknown): string {
   const detail = asRecord(payload).detail;
+  if (response.status === 503 && detail === "recommendation database migration required") {
+    return "추천 설정 DB 준비가 필요합니다.";
+  }
   if (typeof detail === "string" && detail.trim()) {
     return detail.trim();
   }

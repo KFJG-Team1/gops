@@ -76,7 +76,7 @@ export function StockRecommendationsPanel({
       {!loading && !error && payload?.status === "profile_required" && (
         <div className="stock-rec-state">
           <AlertTriangle size={15} />
-          <span>로그인/프로필에서 장중 추천 설정을 저장해야 합니다</span>
+          <span>설정의 추천 설정 탭에서 장중 추천 설정을 저장해야 합니다</span>
         </div>
       )}
 
