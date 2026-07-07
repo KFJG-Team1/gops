@@ -37,6 +37,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
     symbol: item.symbol,
     companyName: item.companyName,
     sector: item.sector,
+    sectorLabelKo: item.sectorLabelKo,
     industry: item.industry,
     value: sp500WeightValue(item),
     marketCap: item.layoutMarketCap ?? item.marketCap,
@@ -135,7 +136,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
           <strong>{hoveredTile.symbol}</strong>
           <span>{hoveredTile.companyName}</span>
           <em>{formatChange(hoveredTile.changePercent)}</em>
-          <small>{hoveredTile.sector} / {hoveredTile.industry}</small>
+          <small>{hoveredTile.sectorLabelKo || hoveredTile.sector} / {hoveredTile.industry}</small>
         </div>
       )}
     </section>

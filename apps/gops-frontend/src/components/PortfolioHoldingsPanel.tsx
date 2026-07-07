@@ -111,7 +111,7 @@ export function PortfolioHoldingsPanel({
               <StockLogo symbol={position.symbol} companyName={position.name || position.symbol} size="sm" className="portfolio-position-logo" />
               <span className="portfolio-position-name">
                 <strong>{position.name || position.symbol}</strong>
-                <em>{formatQuantity(position.quantity)}주</em>
+                <em>{formatQuantity(position.quantity)}주 · {position.sectorLabelKo || "미분류"}</em>
               </span>
               <span className="portfolio-position-value">
                 <strong>{formatPositionValue(position)}</strong>

@@ -1,10 +1,20 @@
 import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards, X } from "lucide-react";
-import { type DragEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { AlertMenu } from "../alerts/AlertMenu";
-import { fetchNotifications, normalizeNotificationPayload, notificationSocketUrl } from "../alerts/alertApi";
+import { AlertToast } from "../alerts/AlertToast";
+import { fetchNotifications, markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
+import {
+  createMarketOpenNotification,
+  isMarketOpenNotification,
+  readMarketOpenReminderEnabled,
+  shouldShowMarketOpenReminder,
+  writeMarketOpenReminderEnabled
+} from "../alerts/marketOpenReminder";
+import { notificationChartSymbol } from "../alerts/alertPresentation";
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
+import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
@@ -26,6 +36,14 @@ type WatchlistDropPlacement = "before" | "after";
 type WatchlistDragTarget = {
   symbol: string;
   placement: WatchlistDropPlacement;
+};
+type AlertToastQueueState = {
+  current: AlertToastQueueItem | null;
+  queue: AlertToastQueueItem[];
+};
+type AlertToastQueueItem = {
+  notification: NotificationItem;
+  autoDismissMs?: number;
 };
 
 type BottomCommandBarProps = {
@@ -65,6 +83,9 @@ type BottomCommandBarProps = {
 
 const leftMenuKeys: BottomMenuKey[] = ["I", "II", "III"];
 const rightMenuKeys: BottomMenuKey[] = ["IV", "VI"];
+const alertToastAdvanceMs = 6000;
+const marketOpenRetryMs = 60_000;
+const marketOpenScheduleRefreshMs = 60 * 60_000;
 
 export function BottomCommandBar({
   activeMenu,
@@ -105,8 +126,66 @@ export function BottomCommandBar({
   const [watchlistDragTarget, setWatchlistDragTarget] = useState<WatchlistDragTarget | null>(null);
   const [watchlistPreviewSymbols, setWatchlistPreviewSymbols] = useState<ChartSymbolDto[] | null>(null);
   const [alertUnreadCount, setAlertUnreadCount] = useState(0);
+  const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
+  const [externallyReadNotification, setExternallyReadNotification] = useState<NotificationItem | null>(null);
+  const [marketOpenReminderEnabled, setMarketOpenReminderEnabled] = useState(() => readMarketOpenReminderEnabled());
+  const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
+
+  const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
+    const key = alertToastKey(notification);
+    if (seenAlertToastKeysRef.current.has(key)) {
+      return;
+    }
+    seenAlertToastKeysRef.current.add(key);
+    const item = { notification, autoDismissMs: options.autoDismissMs };
+    setAlertToastState((current) => (
+      current.current
+        ? { current: current.current, queue: [...current.queue, item] }
+        : { current: item, queue: [] }
+    ));
+  };
+
+  const advanceAlertToast = () => {
+    setAlertToastState((current) => {
+      const [next, ...queue] = current.queue;
+      return { current: next ?? null, queue };
+    });
+  };
+
+  const toggleMarketOpenReminder = (enabled: boolean) => {
+    setMarketOpenReminderEnabled(enabled);
+    writeMarketOpenReminderEnabled(enabled);
+  };
+
+  const openAlertToastChart = (notification: NotificationItem) => {
+    const symbol = notificationChartSymbol(notification);
+    if (symbol) {
+      onSelectSymbol(symbol);
+    }
+    if (activeMenu) {
+      onCloseMenu();
+    }
+    void markAlertToastRead(notification);
+    advanceAlertToast();
+  };
+
+  const markAlertToastRead = async (notification: NotificationItem) => {
+    if (notification.readAt) {
+      return;
+    }
+    try {
+      const updated = await markNotificationRead(notification.id);
+      if (!updated?.readAt) {
+        return;
+      }
+      setExternallyReadNotification(updated);
+      setAlertUnreadCount((current) => Math.max(0, current - 1));
+    } catch {
+      // Opening the chart should not be blocked by a transient read-state failure.
+    }
+  };
 
   useEffect(() => {
     if (!hasFloatingPanel) {
@@ -135,6 +214,7 @@ export function BottomCommandBar({
   useEffect(() => {
     if (!canUseAlerts) {
       setAlertUnreadCount(0);
+      setExternallyReadNotification(null);
       return undefined;
     }
     let cancelled = false;
@@ -172,13 +252,107 @@ export function BottomCommandBar({
       }
       if (payload.type === "notification") {
         const notification = normalizeNotificationPayload(payload.notification);
-        if (!notification?.readAt) {
+        if (notification && !notification.readAt) {
           setAlertUnreadCount((current) => current + 1);
+          enqueueAlertToast(notification);
         }
       }
     };
     return () => socket.close();
   }, [canUseAlerts]);
+
+  useEffect(() => {
+    if (!alertToastState.current) {
+      return undefined;
+    }
+    if (isMarketOpenNotification(alertToastState.current.notification) && alertToastState.queue.length === 0) {
+      return undefined;
+    }
+    const timeoutMs = alertToastState.queue.length > 0
+      ? alertToastAdvanceMs
+      : alertToastState.current.autoDismissMs;
+    if (!timeoutMs) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      advanceAlertToast();
+    }, timeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [
+    alertToastState.current?.notification.eventId,
+    alertToastState.current?.notification.id,
+    alertToastState.current?.autoDismissMs,
+    alertToastState.queue.length
+  ]);
+
+  useEffect(() => {
+    if (!marketOpenReminderEnabled) {
+      return undefined;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    let controller: AbortController | null = null;
+
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    const schedule = (delayMs: number, callback: () => void) => {
+      clearTimer();
+      timer = window.setTimeout(callback, clampReminderDelay(delayMs));
+    };
+
+    const scheduleNextOpenCheck = (nextOpenAt: string) => {
+      const openMs = new Date(nextOpenAt).getTime();
+      if (!Number.isFinite(openMs)) {
+        schedule(marketOpenRetryMs, refreshSchedule);
+        return;
+      }
+
+      const delayMs = openMs - Date.now();
+      if (delayMs > marketOpenScheduleRefreshMs) {
+        schedule(marketOpenScheduleRefreshMs, refreshSchedule);
+        return;
+      }
+
+      schedule(delayMs, () => {
+        if (cancelled) {
+          return;
+        }
+        if (shouldShowMarketOpenReminder(nextOpenAt)) {
+          enqueueAlertToast(createMarketOpenNotification(nextOpenAt));
+        }
+        schedule(marketOpenRetryMs, refreshSchedule);
+      });
+    };
+
+    const refreshSchedule = () => {
+      controller?.abort();
+      controller = new AbortController();
+      void fetchNextMarketOpen(controller.signal)
+        .then((nextOpen) => {
+          if (cancelled) {
+            return;
+          }
+          scheduleNextOpenCheck(nextOpen.nextOpenAt);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            schedule(marketOpenRetryMs, refreshSchedule);
+          }
+        });
+    };
+
+    refreshSchedule();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      clearTimer();
+    };
+  }, [marketOpenReminderEnabled]);
 
   const closeFloatingPanels = () => {
     if (activeMenu) {
@@ -280,6 +454,14 @@ export function BottomCommandBar({
           onClick={closeFloatingPanels}
         />
       )}
+      {alertToastState.current && (
+        <AlertToast
+          notification={alertToastState.current.notification}
+          queuedCount={alertToastState.queue.length}
+          onClose={advanceAlertToast}
+          onOpenChart={openAlertToastChart}
+        />
+      )}
       <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <MenuActionGroup
           side="left"
@@ -311,6 +493,9 @@ export function BottomCommandBar({
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
+          externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={toggleMarketOpenReminder}
           onAlertUnreadCountChange={setAlertUnreadCount}
           layoutEditMode={layoutEditMode}
           layoutEditDisabled={!isChartMode}
@@ -411,6 +596,9 @@ export function BottomCommandBar({
           onCloseMenu={onCloseMenu}
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
+          externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={toggleMarketOpenReminder}
           onAlertUnreadCountChange={setAlertUnreadCount}
         />
       </nav>
@@ -520,6 +708,9 @@ function MenuActionGroup({
   onCloseMenu,
   onToggleMenu,
   alertUnreadCount,
+  externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange,
   layoutEditMode = false,
   layoutEditDisabled = true,
@@ -554,6 +745,9 @@ function MenuActionGroup({
   onCloseMenu: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
   alertUnreadCount: number;
+  externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
   layoutEditMode?: boolean;
   layoutEditDisabled?: boolean;
@@ -593,6 +787,9 @@ function MenuActionGroup({
         onSelectSymbol={onSelectSymbol}
         onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
+        externallyReadNotification={externallyReadNotification}
+        marketOpenReminderEnabled={marketOpenReminderEnabled}
+        onMarketOpenReminderChange={onMarketOpenReminderChange}
         onAlertUnreadCountChange={onAlertUnreadCountChange}
       />
       {keys.map((label) => (
@@ -652,6 +849,9 @@ function BottomMenuPanel({
   onSelectSymbol,
   onShowTreeMap,
   onClose,
+  externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange
 }: {
   side: BottomMenuSide;
@@ -680,6 +880,9 @@ function BottomMenuPanel({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   const sideKeys = side === "left" ? leftMenuKeys : rightMenuKeys;
@@ -711,6 +914,9 @@ function BottomMenuPanel({
       onSelectSymbol,
       onShowTreeMap,
       onClose,
+      externallyReadNotification,
+      marketOpenReminderEnabled,
+      onMarketOpenReminderChange,
       onAlertUnreadCountChange
     })
     : <p className="bottom-menu-empty">Menu</p>;
@@ -743,6 +949,17 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function alertToastKey(notification: NotificationItem): string {
+  return `${notification.id}:${notification.eventId}`;
+}
+
+function clampReminderDelay(delayMs: number): number {
+  if (!Number.isFinite(delayMs)) {
+    return 60_000;
+  }
+  return Math.max(0, Math.min(delayMs, 60 * 60_000));
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -843,6 +1060,9 @@ function bottomMenuContent({
   onSelectSymbol,
   onShowTreeMap,
   onClose,
+  externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange
 }: {
   activeKey: BottomMenuKey | null;
@@ -870,6 +1090,9 @@ function bottomMenuContent({
   onSelectSymbol: (symbol: string) => void;
   onShowTreeMap: () => void;
   onClose: () => void;
+  externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
@@ -1010,6 +1233,9 @@ function bottomMenuContent({
           authEnabled={authEnabled}
           authLoading={authLoading}
           authUser={authUser}
+          externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={onMarketOpenReminderChange}
           onLogin={onLogin}
           onUnreadCountChange={onAlertUnreadCountChange}
         />
@@ -1070,7 +1296,7 @@ function SettingsMenu({
           aria-selected={activeTab === "account"}
           onClick={() => setActiveTab("account")}
         >
-          계정
+          로그인/프로필
         </button>
         <button
           type="button"
@@ -1084,7 +1310,7 @@ function SettingsMenu({
       </div>
       {activeTab === "account" ? (
         <div className="settings-tab-panel" role="tabpanel">
-          <MenuTitle icon={<UserCircle size={15} />} title="계정" detail={authEnabled ? "Google OAuth" : "Local dev"} />
+          <MenuTitle icon={<UserCircle size={15} />} title="로그인/프로필" detail={authEnabled ? "Google OAuth" : "Local dev"} />
           {authLoading && <p className="bottom-menu-empty">계정 상태를 확인하고 있습니다.</p>}
           {!authLoading && authUser && (
             <div className="account-menu-card">

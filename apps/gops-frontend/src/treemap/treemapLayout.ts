@@ -13,6 +13,7 @@ type LayoutNode<T> = WeightedNode<T> & {
 type Group<T> = {
   id: string;
   label: string;
+  displayLabel: string;
   value: number;
   changePercent: number;
   items: T[];
@@ -27,7 +28,11 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
   }
 
   const tiles: TreeMapTile[] = [];
-  const sectors = groupItems(items, (item) => item.sector);
+  const sectors = groupItems(
+    items,
+    (item) => item.sector,
+    (groupItemsForKey, label) => groupItemsForKey.find((item) => item.sectorLabelKo)?.sectorLabelKo || label
+  );
   const sectorNodes = squarify(sectors, safeBounds, (sector) => sector.value);
 
   sectorNodes.forEach(({ item: sector, rect }) => {
@@ -36,11 +41,12 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
       ...rect,
       id: sectorId,
       kind: "sector",
-      label: sector.label,
+      label: sector.displayLabel,
       value: sector.value,
       changePercent: sector.changePercent,
       depth: 0,
-      sector: sector.label
+      sector: sector.label,
+      sectorLabelKo: sector.displayLabel
     });
 
     const sectorInner = contentRect(rect, headerHeight(rect, 22), 2);
@@ -59,6 +65,7 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
         depth: 1,
         parentId: sectorId,
         sector: sector.label,
+        sectorLabelKo: sector.displayLabel,
         industry: industry.label
       });
 
@@ -74,6 +81,7 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
           depth: 2,
           parentId: industryId,
           sector: item.sector,
+          sectorLabelKo: item.sectorLabelKo || sector.displayLabel,
           industry: item.industry,
           symbol: item.symbol,
           companyName: item.companyName,
@@ -106,7 +114,8 @@ export function hitTestTreeMapTile(tiles: TreeMapTile[], x: number, y: number): 
 
 function groupItems<T extends { changePercent: number }>(
   items: T[],
-  getKey: (item: T) => string
+  getKey: (item: T) => string,
+  getDisplayLabel: (items: T[], label: string) => string = (_items, label) => label
 ): Group<T>[] {
   const groups = new Map<string, T[]>();
   items.forEach((item) => {
@@ -125,6 +134,7 @@ function groupItems<T extends { changePercent: number }>(
       return {
         id: label,
         label,
+        displayLabel: getDisplayLabel(groupItemsForKey, label),
         value,
         changePercent: weightedAverageChange(groupItemsForKey),
         items: groupItemsForKey

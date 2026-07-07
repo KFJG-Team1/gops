@@ -34,6 +34,9 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
+import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
+import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
 import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
@@ -209,6 +212,54 @@ function frontendChartState(overrides: Partial<ChartState>): ChartState {
     ...overrides
   };
 }
+
+const priceAlertNotification = {
+  id: 1,
+  eventId: "alert-price-toast",
+  type: "alert.price_cross",
+  payload: {
+    symbol: "NVDA",
+    direction: "above",
+    targetPrice: 110,
+    price: 111.2
+  }
+};
+const priceAlertToast = formatNotificationToastMessage(priceAlertNotification);
+assert.equal(priceAlertToast.message, "NVDA 목표가 110 상향 돌파 조건을 달성했습니다.");
+assert.equal(priceAlertToast.detail, "현재가는 111.2입니다.");
+assert.equal(notificationSummary(priceAlertNotification), " 목표가 110 상향 돌파 조건 달성");
+
+const spikeAlertNotification = {
+  id: 2,
+  eventId: "alert-spike-toast",
+  type: "alert.spike",
+  payload: {
+    symbol: "AAPL",
+    direction: "below",
+    thresholdPct: 3,
+    windowMin: 5,
+    changePct: -4.25
+  }
+};
+const spikeAlertToast = formatNotificationToastMessage(spikeAlertNotification);
+assert.equal(spikeAlertToast.message, "AAPL 5분 내 급락 3% 이상 조건을 달성했습니다.");
+assert.equal(spikeAlertToast.detail, "실제 변동률은 -4.25%입니다.");
+assert.equal(notificationSummary(spikeAlertNotification), " 5분 내 급락 3% 이상 조건 달성");
+
+const marketOpenNotification = createMarketOpenNotification("2026-07-07T13:30:00.000Z");
+const marketOpenToast = formatNotificationToastMessage(marketOpenNotification);
+assert.equal(marketOpenToast.title, "본장 시작");
+assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.");
+assert.equal(marketOpenToast.chartSymbol, "");
+assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
+assert.equal(readMarketOpenReminderEnabled(undefined), true);
+assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:30:06.000Z")), true);
+assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:41:00.000Z")), false);
+assert.equal(normalizeNextMarketOpen({
+  nextOpenAt: "2026-07-07T13:30:00.000Z",
+  marketDate: "2026-07-07",
+  source: "alpaca-clock"
+}).source, "alpaca-clock");
 
 function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
   return {
@@ -2283,7 +2334,14 @@ assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
+assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
+assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
+assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
+assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
+assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
 assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.symbol-search-menu/);
+const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
+assert.match(alertMenuSource, /본장 시작 알림/);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
