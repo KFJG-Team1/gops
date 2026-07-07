@@ -21,6 +21,8 @@ export type PortfolioPosition = {
   market?: string;
   exchange?: string;
   currency?: string;
+  sector?: string | null;
+  industry?: string | null;
   quantity?: number | null;
   availableQuantity?: number | null;
   averagePrice?: number | null;
@@ -30,8 +32,14 @@ export type PortfolioPosition = {
   unrealizedPnlKrw?: number | null;
   unrealizedPnlForeign?: number | null;
   unrealizedPnlRate?: number | null;
-  sector?: string;
   sectorLabelKo?: string;
+  dayPnlForeign?: number | null;
+  dayPnlRate?: number | null;
+  dividendYield?: number | null;
+  dividendPerShare?: number | null;
+  annualDividend?: number | null;
+  nextDividendDate?: string | null;
+  dividendSource?: string | null;
 };
 
 export type PortfolioHoldingsResponse = {

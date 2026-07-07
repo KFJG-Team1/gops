@@ -923,7 +923,7 @@ function BottomMenuPanel({
 
   return (
     <section
-      className={`bottom-menu-panel surface-floating ${side} ${isOpen ? "is-open" : ""}`}
+      className={`bottom-menu-panel surface-floating ${side} ${activeKey ? `menu-${activeKey}` : ""} ${isOpen ? "is-open" : ""}`}
       aria-label={`${side === "left" ? "Left" : "Right"} menu panel`}
       aria-hidden={!isOpen}
     >
