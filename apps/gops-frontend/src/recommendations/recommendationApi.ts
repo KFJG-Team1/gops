@@ -26,6 +26,7 @@ export type StockRecommendationItem = {
   rank: number;
   score: number;
   confidence: number;
+  changePercent?: number;
   sector?: string;
   sectorLabelKo?: string;
   reasons: RecommendationReason[];
@@ -120,19 +121,21 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
     return null;
   }
   const sector = normalizeSector(asString(source.sector));
+  const metricsSnapshot = asRecord(source.metricsSnapshot);
   return {
     symbol,
     action: "buy",
     rank: asNumber(source.rank) ?? 0,
     score: asNumber(source.score) ?? 0,
     confidence: asNumber(source.confidence) ?? 0,
+    changePercent: asNumber(source.changePercent) ?? asNumber(metricsSnapshot.changePercent),
     sector,
     sectorLabelKo: asString(source.sectorLabelKo) || sectorLabelKo(sector),
     reasons: Array.isArray(source.reasons)
       ? source.reasons.map(normalizeReason).filter((item): item is RecommendationReason => Boolean(item))
       : [],
     riskWarnings: Array.isArray(source.riskWarnings) ? source.riskWarnings.map((item) => String(item)).filter(Boolean) : [],
-    metricsSnapshot: asRecord(source.metricsSnapshot)
+    metricsSnapshot
   };
 }
 
