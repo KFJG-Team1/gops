@@ -33,7 +33,7 @@ const allowedActionTypes = new Set<ChartAction["type"]>([
   "clearDrawings"
 ]);
 
-const chartIntervals = new Set<ChartInterval>(["1m", "5m", "10m", "1D", "1W", "1M"]);
+const chartIntervals = new Set<ChartInterval>(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
 const chartLayers = new Set<ChartLayerKey>(["candles", "volume", "ma5", "ma20", "ma60"]);
 const drawingTypes = new Set<DrawingType>([
   "horizontalLine",
@@ -214,7 +214,7 @@ function normalizeInterval(value: unknown): ChartInterval | null {
   if (typeof value !== "string") {
     return null;
   }
-  const normalized = value === "1d" ? "1D" : value === "1w" ? "1W" : value === "1mo" || value === "1MO" || value === "1month" ? "1M" : value;
+  const normalized = value === "1d" ? "1D" : value === "1w" ? "1W" : value === "1mo" || value === "1MO" || value === "1month" ? "1M" : value === "1H" ? "1h" : value === "4H" ? "4h" : value;
   return chartIntervals.has(normalized as ChartInterval) ? normalized as ChartInterval : null;
 }
 

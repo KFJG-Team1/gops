@@ -279,6 +279,10 @@ function intervalRank(interval: ChartInterval | string): number {
       return 5;
     case "10m":
       return 10;
+    case "1h":
+      return 60;
+    case "4h":
+      return 240;
     case "1D":
       return 1_440;
     case "1W":
