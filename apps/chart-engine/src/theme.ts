@@ -6,9 +6,9 @@ const ink = "#1a1a0e";
 const mutedInk = "rgba(26, 26, 14, 0.66)";
 const borderInk = "rgba(26, 26, 14, 0.26)";
 const gridInk = "rgba(26, 26, 14, 0.08)";
-const ma5Ink = "rgba(120, 58, 107, 0.22)";
-const ma20Ink = "rgba(120, 58, 107, 0.40)";
-const ma60Ink = "rgba(120, 58, 107, 0.68)";
+const ma5Ink = "#B66A00";
+const ma20Ink = "#007C89";
+const ma60Ink = "#9B2D65";
 const volumeInk = "rgba(26, 26, 14, 0.12)";
 
 export const fallbackChartStyle: ChartDocumentStyle = {

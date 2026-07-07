@@ -30,6 +30,28 @@ type ChartCanvasProps = {
 
 let colors: ThemeColors;
 
+const bollingerFillAlpha = 0.1;
+const volumeProfileAlpha = {
+  poc: 0.28,
+  valueAreaBase: 0.12,
+  valueAreaScale: 0.1,
+  tailBase: 0.08,
+  tailScale: 0.06,
+  pocLine: 0.34,
+  label: 0.84
+} as const;
+const footprintBucketMinWidth = 14;
+const footprintBucketMaxWidth = 56;
+const footprintBucketScale = 3.2;
+const footprintBucketRowMinHeight = 4;
+const footprintBucketRowMaxHeight = 14;
+const footprintBucketRowScale = 0.24;
+const footprintLevelAlpha = 0.58;
+const footprintUnknownLevelAlpha = 0.24;
+const footprintCandleMinWidth = 5;
+const footprintCandleMaxWidth = 16;
+const footprintCandleWidthScale = 0.26;
+
 export function ChartCanvas({
   chart,
   expansions = [],
@@ -646,12 +668,15 @@ function drawFootprintBucket(
   maxLevelVolume: number
 ) {
   const center = unitCenterX(scene, unit);
-  const baseWidth = Math.max(10, Math.min(42, candleBodyWidth(scene, unit, scene.hoveredNodeId === unit.id) * 2.6));
+  const baseWidth = Math.max(
+    footprintBucketMinWidth,
+    Math.min(footprintBucketMaxWidth, candleBodyWidth(scene, unit, scene.hoveredNodeId === unit.id) * footprintBucketScale)
+  );
   const halfWidth = baseWidth / 2;
-  const rowHeight = Math.max(3, Math.min(12, baseWidth * 0.22));
+  const rowHeight = Math.max(footprintBucketRowMinHeight, Math.min(footprintBucketRowMaxHeight, baseWidth * footprintBucketRowScale));
   context.save();
   context.strokeStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
-  context.globalAlpha = 0.32;
+  context.globalAlpha = 0.38;
   line(context, center, priceToY(scene, bucket.high ?? unit.candle.high), center, priceToY(scene, bucket.low ?? unit.candle.low));
   context.globalAlpha = 1;
   bucket.priceLevels.forEach((level) => {
@@ -662,13 +687,13 @@ function drawFootprintBucket(
     const bidWidth = Math.max(0, (halfWidth - 1) * (level.bidVolume / maxLevelVolume));
     const askWidth = Math.max(0, (halfWidth - 1) * (level.askVolume / maxLevelVolume));
     const unknownWidth = Math.max(0, (baseWidth - 2) * (level.unknownVolume / maxLevelVolume));
-    context.globalAlpha = 0.44;
+    context.globalAlpha = footprintLevelAlpha;
     context.fillStyle = colors.downSoft;
     context.fillRect(center - bidWidth, y - rowHeight / 2, bidWidth, rowHeight);
     context.fillStyle = colors.upSoft;
     context.fillRect(center, y - rowHeight / 2, askWidth, rowHeight);
     if (unknownWidth > 0.5) {
-      context.globalAlpha = 0.18;
+      context.globalAlpha = footprintUnknownLevelAlpha;
       context.fillStyle = colors.axis;
       context.fillRect(center - unknownWidth / 2, y - rowHeight / 2, unknownWidth, rowHeight);
     }
@@ -681,6 +706,7 @@ function drawFootprintBucket(
       context.fillText(String(Math.round(level.delta)), center, y, baseWidth);
     }
   });
+  drawCenteredFootprintCandle(context, scene, unit, bucket, center, baseWidth);
   if (baseWidth > 18) {
     context.globalAlpha = 0.78;
     context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
@@ -692,9 +718,68 @@ function drawFootprintBucket(
   context.restore();
 }
 
+function drawCenteredFootprintCandle(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  unit: SemanticCandleUnit,
+  bucket: FootprintBucketDto,
+  center: number,
+  baseWidth: number
+) {
+  const candleWidth = Math.max(footprintCandleMinWidth, Math.min(footprintCandleMaxWidth, baseWidth * footprintCandleWidthScale));
+  drawFootprintCandleShape(
+    context,
+    scene,
+    center,
+    candleWidth,
+    bucket.open ?? unit.candle.open,
+    bucket.high ?? unit.candle.high,
+    bucket.low ?? unit.candle.low,
+    bucket.close ?? unit.candle.close
+  );
+}
+
+function drawFootprintCandleShape(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  center: number,
+  candleWidth: number,
+  openPrice: number | null | undefined,
+  highPrice: number | null | undefined,
+  lowPrice: number | null | undefined,
+  closePrice: number | null | undefined
+) {
+  if (
+    typeof openPrice !== "number" ||
+    typeof highPrice !== "number" ||
+    typeof lowPrice !== "number" ||
+    typeof closePrice !== "number" ||
+    ![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)
+  ) {
+    return;
+  }
+  const open = priceToY(scene, openPrice);
+  const close = priceToY(scene, closePrice);
+  const high = priceToY(scene, highPrice);
+  const low = priceToY(scene, lowPrice);
+  const bodyTop = Math.min(open, close);
+  const bodyHeight = Math.max(2, Math.abs(close - open));
+  const bodyBottom = bodyTop + bodyHeight;
+  const candleColor = candleStrokeColor(closePrice >= openPrice);
+  context.save();
+  context.globalAlpha = 0.96;
+  context.strokeStyle = candleColor;
+  context.fillStyle = candleColor;
+  context.lineWidth = 1.35;
+  line(context, center, high, center, bodyTop);
+  line(context, center, bodyBottom, center, low);
+  context.fillRect(center - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+  context.restore();
+}
+
 function drawFootprintGhostCandle(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
   context.save();
-  context.globalAlpha = 0.18;
+  context.globalAlpha = 0.28;
   const center = unitCenterX(scene, unit);
   line(context, center, priceToY(scene, unit.candle.high), center, priceToY(scene, unit.candle.low));
   context.restore();
@@ -754,9 +839,7 @@ function drawMovingAverage(
     const serverValue = serverValueForUnit(unit);
     const value = typeof serverValue === "number"
       ? serverValue
-      : unit.interval === scene.chart.interval
-        ? candle[key]
-        : undefined;
+      : candle[key];
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number") {
       if (started) {
@@ -812,7 +895,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const units = candleUnits(scene);
 
-  // 1. Draw transparent black area between upper and lower bands
+  // 1. Draw transparent area between upper and lower bands.
   context.save();
   context.beginPath();
   let started = false;
@@ -843,20 +926,44 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
 
   if (started) {
     context.closePath();
-    context.fillStyle = colors.preview;
-    context.globalAlpha = 0.04;
+    context.fillStyle = colors.purple;
+    context.globalAlpha = bollingerFillAlpha;
     context.fill();
   }
   context.restore();
 
-  // 2. Draw upper and lower lines (진한 검정)
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
+  // 2. Draw upper and lower lines.
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.upper,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.25,
+    { connectAcrossMissing: true }
+  );
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.lower,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.25,
+    { connectAcrossMissing: true }
+  );
 
   // 3. Draw middle line (굵은 점선)
   context.save();
   context.setLineDash([6, 4]);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.middle,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.8,
+    { connectAcrossMissing: true }
+  );
   context.restore();
 }
 
@@ -886,23 +993,23 @@ function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene)
     const normalizedVolume = Math.max(0, Math.min(1, bucket.volume / maxVolume));
     const width = Math.max(4, profileWidth * normalizedVolume);
     context.globalAlpha = bucket.isPoc
-      ? 0.15
+      ? volumeProfileAlpha.poc
       : bucket.inValueArea
-        ? 0.07 + normalizedVolume * 0.05
-        : 0.04 + normalizedVolume * 0.03;
-    context.fillStyle = colors.preview;
+        ? volumeProfileAlpha.valueAreaBase + normalizedVolume * volumeProfileAlpha.valueAreaScale
+        : volumeProfileAlpha.tailBase + normalizedVolume * volumeProfileAlpha.tailScale;
+    context.fillStyle = colors.purple;
     context.fillRect(profileLeft, top, width, height);
   });
   if (profile.poc) {
     const y = priceToY(scene, profile.poc.priceMid);
-    context.globalAlpha = 0.18;
-    context.strokeStyle = colors.preview;
+    context.globalAlpha = volumeProfileAlpha.pocLine;
+    context.strokeStyle = colors.purple;
     context.lineWidth = 1;
     context.setLineDash([4, 4]);
     line(context, profileLeft, y, right, y);
     context.setLineDash([]);
   }
-  context.globalAlpha = 0.72;
+  context.globalAlpha = volumeProfileAlpha.label;
   context.fillStyle = colors.muted;
   context.font = "10px Inter, system-ui, sans-serif";
   context.textAlign = "left";
@@ -926,7 +1033,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     const domain = { min: 0, max: 100 };
     drawPaneGuide(context, scene, pane, domain, 70);
     drawPaneGuide(context, scene, pane, domain, 30);
-    drawPaneSeries(context, scene, pane, pane.id, "value", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "value", domain, colors.signal);
     return;
   }
   if (pane.id === "stochastic:14:3:3") {
@@ -934,7 +1041,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     drawPaneGuide(context, scene, pane, domain, 80);
     drawPaneGuide(context, scene, pane, domain, 20);
     drawPaneSeries(context, scene, pane, pane.id, "k", domain, colors.caution);
-    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.purple);
     return;
   }
   if (pane.id === "macd:12:26:9") {
@@ -942,7 +1049,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     drawPaneGuide(context, scene, pane, domain, 0);
     drawMacdHistogram(context, scene, pane, pane.id, domain);
     drawPaneSeries(context, scene, pane, pane.id, "macd", domain, colors.caution);
-    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.signal);
   }
 }
 
@@ -969,13 +1076,18 @@ function drawPaneSeries(
   );
 }
 
+type DrawSeriesLineOptions = {
+  connectAcrossMissing?: boolean;
+};
+
 function drawSeriesLine(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   valueForUnit: (unit: SemanticCandleUnit) => number | null | undefined,
   yForValue: (value: number) => number,
   stroke: string,
-  width: number
+  width: number,
+  options: DrawSeriesLineOptions = {}
 ) {
   context.save();
   context.strokeStyle = stroke;
@@ -987,7 +1099,7 @@ function drawSeriesLine(
     const value = valueForUnit(unit);
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      if (started) {
+      if (!options.connectAcrossMissing && started) {
         context.stroke();
         context.beginPath();
         started = false;
@@ -2046,12 +2158,12 @@ function drawSemanticFootprint(
     return;
   }
   const center = (left + right) / 2;
-  const width = Math.max(18, Math.min(76, right - left - 8));
+  const width = Math.max(24, Math.min(96, right - left - 8));
   const halfWidth = width / 2;
   const maxLevelVolume = Math.max(1, ...bucket.priceLevels.map((level) => level.totalVolume));
   context.save();
   context.fillStyle = colors.footprint;
-  context.globalAlpha = 0.08;
+  context.globalAlpha = 0.12;
   context.fillRect(left + 3, scene.plot.top + 12, Math.max(1, right - left - 6), Math.max(1, scene.plot.priceBottom - scene.plot.top - 24));
   bucket.priceLevels.forEach((level) => {
     const y = priceToY(scene, level.price);
@@ -2060,12 +2172,13 @@ function drawSemanticFootprint(
     }
     const bidWidth = (halfWidth - 1) * (level.bidVolume / maxLevelVolume);
     const askWidth = (halfWidth - 1) * (level.askVolume / maxLevelVolume);
-    context.globalAlpha = 0.5;
+    context.globalAlpha = 0.62;
     context.fillStyle = colors.downSoft;
     context.fillRect(center - bidWidth, y - 2, bidWidth, 4);
     context.fillStyle = colors.upSoft;
     context.fillRect(center, y - 2, askWidth, 4);
   });
+  drawFootprintCandleShape(context, scene, center, Math.max(5, Math.min(18, width * 0.24)), bucket.open, bucket.high, bucket.low, bucket.close);
   context.globalAlpha = 0.78;
   context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
   context.font = "700 9px var(--font-data-sans)";

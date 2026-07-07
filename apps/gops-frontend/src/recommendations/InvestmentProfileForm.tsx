@@ -1,5 +1,6 @@
 import { LoaderCircle, Save, X } from "lucide-react";
 import { useEffect, useState, type FocusEvent, type FormEvent } from "react";
+import { canonicalSectorOptions, normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import {
   fetchInvestmentProfile,
@@ -23,19 +24,17 @@ type SymbolOption = {
   sector: string;
 };
 
-const sectorOptions = Array.from(new Set(sp500UniverseSeed.map((item) => item.sector).filter(Boolean))).sort((left, right) =>
-  left.localeCompare(right)
-);
+const sectorOptions = [...canonicalSectorOptions];
 
 const symbolOptions: SymbolOption[] = sp500UniverseSeed
   .map((item) => ({
     symbol: item.symbol.toUpperCase(),
     companyName: item.companyName,
-    sector: item.sector
+    sector: normalizeSector(item.sector)
   }))
   .sort((left, right) => left.symbol.localeCompare(right.symbol));
 
-const sectorSet = new Set(sectorOptions);
+const sectorSet = new Set<string>(sectorOptions);
 const symbolSet = new Set(symbolOptions.map((item) => item.symbol));
 
 export function InvestmentProfileForm({
@@ -202,7 +201,7 @@ function SectorMultiPicker({
     if (selected.has(option)) {
       return false;
     }
-    return !normalizedQuery || option.toLowerCase().includes(normalizedQuery);
+    return !normalizedQuery || `${option} ${sectorLabelKo(option)}`.toLowerCase().includes(normalizedQuery);
   });
 
   const closeWhenFocusLeaves = (event: FocusEvent<HTMLDivElement>) => {
@@ -223,9 +222,9 @@ function SectorMultiPicker({
               className="investment-profile-chip"
               disabled={disabled}
               onClick={() => onRemove(sector)}
-              title={`${sector} 제거`}
+              title={`${sectorLabelKo(sector)} 제거`}
             >
-              <span>{sector}</span>
+              <span>{sectorLabelKo(sector)}</span>
               <X size={12} />
             </button>
           ))}
@@ -250,7 +249,7 @@ function SectorMultiPicker({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onAdd(sector)}
               >
-                {sector}
+                {sectorLabelKo(sector)}
               </button>
             ))
           ) : (
@@ -293,7 +292,7 @@ function SymbolMultiPicker({
       if (!normalizedQuery) {
         return true;
       }
-      return `${option.symbol} ${option.companyName} ${option.sector}`.toLowerCase().includes(normalizedQuery);
+      return `${option.symbol} ${option.companyName} ${option.sector} ${sectorLabelKo(option.sector)}`.toLowerCase().includes(normalizedQuery);
     })
     .slice(0, 24);
 
@@ -345,7 +344,7 @@ function SymbolMultiPicker({
               >
                 <strong>{option.symbol}</strong>
                 <span>{option.companyName}</span>
-                <em>{option.sector}</em>
+                <em>{sectorLabelKo(option.sector)}</em>
               </button>
             ))
           ) : (
@@ -358,8 +357,8 @@ function SymbolMultiPicker({
 }
 
 function normalizeProfileForUniverse(profile: InvestmentProfile): InvestmentProfile {
-  const preferredSectors = uniqueValues(profile.preferredSectors).filter((item) => sectorSet.has(item));
-  const excludedSectors = uniqueValues(profile.excludedSectors)
+  const preferredSectors = normalizeSectorList(uniqueValues(profile.preferredSectors)).filter((item) => sectorSet.has(item));
+  const excludedSectors = normalizeSectorList(uniqueValues(profile.excludedSectors))
     .filter((item) => sectorSet.has(item))
     .filter((item) => !preferredSectors.includes(item));
 

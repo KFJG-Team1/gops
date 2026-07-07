@@ -58,6 +58,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
+import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
@@ -89,7 +90,6 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
-import { SymbolSearch } from "./SymbolSearch";
 
 function segmentedClass(active = false): string {
   return active ? "segmented active" : "segmented";
@@ -271,6 +271,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["stochastic:14:3:3"],
     chart.layers["macd:12:26:9"]
   ]);
+  const activeIndicatorLayerKey = activeIndicatorLayers.join(",");
+  const baseIndicatorRange = useMemo(() => indicatorRequestRangeFromCandles(chart.candles), [chart.candles]);
+  const baseIndicatorRequest = useMemo(() => {
+    if (!activeIndicatorLayers.length || !baseIndicatorRange) {
+      return null;
+    }
+    return {
+      key: [
+        chart.symbol,
+        chart.interval,
+        baseIndicatorRange.firstTimestamp,
+        baseIndicatorRange.lastTimestamp,
+        baseIndicatorRange.candleCount,
+        activeIndicatorLayerKey
+      ].join("|"),
+      symbol: chart.symbol,
+      interval: candleSourceInterval(chart.interval),
+      from: baseIndicatorRange.firstTimestamp,
+      to: baseIndicatorRange.lastTimestamp,
+      limit: Math.max(baseIndicatorRange.candleCount, defaultVisibleBarsForInterval(chart.interval)),
+      layers: activeIndicatorLayers
+    };
+  }, [activeIndicatorLayerKey, activeIndicatorLayers, baseIndicatorRange, chart.interval, chart.symbol]);
   const visibleProfileRange = useMemo(() => visibleCandleRangeForProfile(chart, transientViewport), [
     chart.candles,
     chart.rightOffset,
@@ -382,7 +405,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       interval: candleSourceInterval(interval),
       before,
       limit,
-      ma: []
+      ma: candleMovingAverageWindows
     }, controller.signal)
       .then((response) => {
         const current = chartRef.current;
@@ -428,7 +451,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       symbol: chart.symbol,
       interval: candleSourceInterval(chart.interval),
       limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: [],
+      ma: candleMovingAverageWindows,
       includePreviousClose: true
     }, controller.signal)
       .then((response) => {
@@ -554,7 +577,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         from: request.from,
         to: request.to,
         limit: request.limit,
-        ma: []
+        ma: candleMovingAverageWindows
       }, controller.signal)
         .then((response) => {
           if (controller.signal.aborted) {
@@ -597,9 +620,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [comparisonScopeRequestKey]);
 
   useEffect(() => {
-    const firstTimestamp = chart.candles[0]?.timestamp;
-    const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
-    if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
+    if (!baseIndicatorRequest) {
       setBaseIndicatorSeries({});
       return;
     }
@@ -607,15 +628,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     let retryTimer: number | undefined;
     const loadIndicators = (attempt = 0) => {
       fetchIndicators({
-        symbol: chart.symbol,
-        interval: candleSourceInterval(chart.interval),
-        from: firstTimestamp,
-        to: lastTimestamp,
-        limit: Math.max(chart.candles.length, defaultVisibleBarsForInterval(chart.interval)),
-        layers: activeIndicatorLayers
+        symbol: baseIndicatorRequest.symbol,
+        interval: baseIndicatorRequest.interval,
+        from: baseIndicatorRequest.from,
+        to: baseIndicatorRequest.to,
+        limit: baseIndicatorRequest.limit,
+        layers: baseIndicatorRequest.layers
       }, controller.signal)
         .then((response) => {
-          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+          if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
             return;
           }
           if (shouldRetryDerived(response, attempt)) {
@@ -635,12 +656,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       window.clearTimeout(retryTimer);
       controller.abort();
     };
-  }, [
-    activeIndicatorLayers,
-    chart.candles,
-    chart.interval,
-    chart.symbol,
-  ]);
+  }, [baseIndicatorRequest?.key]);
 
   useEffect(() => {
     if (!activeIndicatorLayers.length) {
@@ -1063,7 +1079,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         from: queryRange.from,
         to: queryRange.to,
         limit: expansionLimitForInterval(expansion.childInterval),
-        ma: []
+        ma: candleMovingAverageWindows
       });
       setActiveExpansions((current) => current.map((item) => (
         item.id === expansion.id &&
@@ -1857,9 +1873,7 @@ type ChartAddDockProps = {
   document: ChartDocument;
   panelId: string;
   laneHeight: number;
-  symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onOpenComparisonPanel: (symbol: string) => void;
   onClose: () => void;
 };
 
@@ -1869,6 +1883,10 @@ type ChartAddLayerConfig = {
   placement: ChartAddPlacement;
   title: string;
   disabledReason?: string;
+};
+
+type ChartLayerButtonStyle = CSSProperties & {
+  "--chart-layer-accent"?: string;
 };
 
 const chartAddLayers: ChartAddLayerConfig[] = [
@@ -1885,22 +1903,38 @@ const chartAddLayers: ChartAddLayerConfig[] = [
   { layer: "macd:12:26:9", label: "MACD", placement: "below", title: "MACD 12,26,9" }
 ];
 
+const chartLayerAccentByLayer: Partial<Record<ChartLayerKey, string>> = {
+  ma5: "var(--color-ma5)",
+  ma20: "var(--color-ma20)",
+  ma60: "var(--color-ma60)",
+  "sma:5": "var(--color-ma5)",
+  "sma:20": "var(--color-ma20)",
+  "sma:60": "var(--color-ma60)",
+  "ema:20": "var(--color-signal)",
+  "wma:20": "var(--color-caution)",
+  "bollinger:20:2": "var(--color-purple)",
+  "volume-profile": "var(--color-purple)",
+  volume: "var(--color-muted)",
+  "rsi:14": "var(--color-signal)",
+  "stochastic:14:3:3": "var(--color-caution)",
+  "macd:12:26:9": "var(--color-caution)"
+};
+
+function chartAddLayerButtonStyle(layer: ChartLayerKey): ChartLayerButtonStyle | undefined {
+  const accent = chartLayerAccentByLayer[layer];
+  return accent ? { "--chart-layer-accent": accent } : undefined;
+}
+
 export function ChartAddDock({
   document,
   panelId,
   laneHeight,
-  symbols,
   onChartRuntimeAction,
-  onOpenComparisonPanel,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
-  const comparisonSearchSymbols = symbols.filter((symbol) => {
-    const normalized = symbol.symbol.toUpperCase();
-    return normalized !== document.symbol.toUpperCase();
-  });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
     onChartRuntimeAction({
@@ -1908,14 +1942,6 @@ export function ChartAddDock({
       command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
     });
   }, [onChartRuntimeAction, target]);
-
-  const openComparisonPanel = useCallback((symbol: string) => {
-    const normalized = symbol.toUpperCase();
-    if (normalized === document.symbol.toUpperCase()) {
-      return;
-    }
-    onOpenComparisonPanel(normalized);
-  }, [document.symbol, onOpenComparisonPanel]);
 
   const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
@@ -1936,23 +1962,13 @@ export function ChartAddDock({
             aria-label={item.label}
             title={item.disabledReason ?? item.title}
             disabled={disabled}
+            style={chartAddLayerButtonStyle(item.layer)}
             onClick={() => dispatchLayer(item.layer, !active)}
           >
             <ChartAddLayerIcon layer={item.layer} />
           </button>
         );
       })}
-      <span className="toolbar-separator" aria-hidden="true" />
-      <div className="chart-comparison-picker" aria-label="Comparison symbols">
-        <SymbolSearch
-          symbols={comparisonSearchSymbols}
-          selectedLabel=""
-          placeholder="비교 패널"
-          compact
-          menuPlacement="top"
-          onSelectSymbol={openComparisonPanel}
-        />
-      </div>
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);
@@ -1965,6 +1981,7 @@ export function ChartAddDock({
             aria-label={item.label}
             title={item.disabledReason ?? (canAddBelow ? item.title : "Below pane unavailable at this height")}
             disabled={disabled}
+            style={chartAddLayerButtonStyle(item.layer)}
             onClick={() => dispatchLayer(item.layer, !active)}
           >
             <ChartAddLayerIcon layer={item.layer} />
@@ -2065,30 +2082,8 @@ function mergeCandlesByTimestamp(...groups: CandleDto[][]): CandleDto[] {
   return Array.from(byTimestamp.values()).sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
 }
 
-function activeServerIndicatorLayers(chart: ChartState): string[] {
-  const layers: string[] = [];
-  if (chart.layers["sma:5"] ?? chart.layers.ma5) {
-    layers.push("sma:5");
-  }
-  if (chart.layers["sma:20"] ?? chart.layers.ma20) {
-    layers.push("sma:20");
-  }
-  if (chart.layers["sma:60"] ?? chart.layers.ma60) {
-    layers.push("sma:60");
-  }
-  ([
-    "ema:20",
-    "wma:20",
-    "bollinger:20:2",
-    "rsi:14",
-    "stochastic:14:3:3",
-    "macd:12:26:9"
-  ] as const).forEach((layer) => {
-    if (chart.layers[layer]) {
-      layers.push(layer);
-    }
-  });
-  return layers;
+function activeServerIndicatorLayers(chart: ChartState): ChartLayerKey[] {
+  return serverIndicatorLayersForLayers(chart.layers);
 }
 
 function visibleCandleRangeForProfile(chart: ChartState, transientViewport: ChartViewport | null): {

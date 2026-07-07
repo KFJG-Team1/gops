@@ -51,7 +51,12 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
-import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import { createIndicatorPointLookup, createIndicatorValueLookup, mergeIndicatorSeries, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import {
+  candleMovingAverageWindows,
+  indicatorRequestRangeFromCandles,
+  serverIndicatorLayersForLayers
+} from "../src/chart/indicatorLayerPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -328,6 +333,24 @@ assert.equal(themedDocument.style.ma5, "#abcdef");
 setDefaultChartStyle(fallbackChartStyle);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
+
+assert.deepEqual(candleMovingAverageWindows, [5, 20, 60]);
+assert.deepEqual(serverIndicatorLayersForLayers({
+  ma5: true,
+  "sma:20": true,
+  "sma:60": true,
+  "ema:20": true,
+  "rsi:14": true
+}), ["ema:20", "rsi:14"]);
+assert.deepEqual(indicatorRequestRangeFromCandles([
+  { timestamp: "2026-06-25T13:30:00Z", open: 1, high: 2, low: 1, close: 2, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:31:00Z", open: 2, high: 3, low: 2, close: 3, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:32:00Z", open: 3, high: 4, low: 3, close: 4, volume: 10, isClosed: false }
+]), {
+  firstTimestamp: "2026-06-25T13:30:00Z",
+  lastTimestamp: "2026-06-25T13:31:00Z",
+  candleCount: 2
+});
 
 const treeMapTestTheme = {
   ...fallbackChartStyle,
@@ -620,12 +643,64 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+const footprintExpansion: SemanticExpansion = {
+  ...emptyExpansion,
+  childInterval: "footprint",
+  status: "ready",
+  candles: [],
+  footprintBucket: {
+    timestamp: candleA.timestamp,
+    from: candleA.timestamp,
+    to: "2026-06-25T13:31:00Z",
+    open: candleA.open,
+    high: candleA.high,
+    low: candleA.low,
+    close: candleA.close,
+    volume: 1200,
+    tradeCount: 18,
+    askVolume: 720,
+    bidVolume: 430,
+    unknownVolume: 50,
+    delta: 290,
+    priceLevels: [
+      { price: 10.7, askVolume: 300, bidVolume: 120, unknownVolume: 0, totalVolume: 420, tradeCount: 6, delta: 180 },
+      { price: 10.5, askVolume: 180, bidVolume: 260, unknownVolume: 20, totalVolume: 460, tradeCount: 8, delta: -80 }
+    ]
+  },
+  message: undefined
+};
+const footprintExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [footprintExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 40
+});
+const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
+assert.ok(footprintExpansionUnit);
+assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
 }, "rsi:14", "1D");
 assert.equal(scopedRsiLookup({ interval: "1D", candle: { timestamp: candleA.timestamp } })?.value, 55);
 assert.equal(scopedRsiLookup({ interval: "10m", candle: { timestamp: candleA.timestamp } })?.value, 77);
+const canonicalIndicatorLookup = createIndicatorValueLookup({
+  "ema:20": [
+    { timestamp: "2026-06-25T13:30:00Z", value: 101 },
+    { timestamp: "2026-06-25T13:31:00.000Z", value: 102 }
+  ]
+}, "ema:20", "1m");
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:30:00.000Z" } }), 101);
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:31:00Z" } }), 102);
+const mergedCanonicalIndicators = mergeIndicatorSeries(
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00Z", value: 101 }] },
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }] }
+);
+assert.deepEqual(mergedCanonicalIndicators["ema:20"], [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }]);
 const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [candleA as CandleDto],
@@ -2264,6 +2339,7 @@ assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
 assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
+assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.symbol-search-menu/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
 
@@ -2312,10 +2388,8 @@ assert.match(chartPanelSource, /chart\.timeframe\.set/);
 assert.doesNotMatch(chartPanelSource, /chart\.comparison\.add/);
 assert.match(chartPanelSource, /chart\.comparison\.remove/);
 assert.match(chartPanelSource, /maxComparisonCount/);
-assert.match(chartPanelSource, /onOpenComparisonPanel/);
-assert.match(chartPanelSource, /placeholder="비교 패널"/);
+assert.doesNotMatch(chartPanelSource, /onOpenComparisonPanel|placeholder="비교 패널"|chart-comparison-picker/);
 assert.match(chartPanelSource, /comparisons: renderComparisons/);
-assert.match(chartPanelSource, /menuPlacement="top"/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
@@ -2323,9 +2397,22 @@ assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-sel
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
+assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
+assert.match(chartCanvasSource, /const footprintBucketMinWidth = 14;/);
+assert.match(chartCanvasSource, /const footprintBucketMaxWidth = 56;/);
+assert.match(chartCanvasSource, /function drawCenteredFootprintCandle/);
+assert.match(chartCanvasSource, /context\.fillRect\(center - candleWidth \/ 2, bodyTop, candleWidth, bodyHeight\);/);
+assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
+assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.lower[\s\S]*connectAcrossMissing: true/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.middle[\s\S]*connectAcrossMissing: true/);
+assert.match(semanticTimelineSource, /const footprintSlotWidth = 18;/);
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
@@ -2637,6 +2724,11 @@ assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #d69e2e;/);
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #d64545;/);
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #fff;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*width: min\(920px, calc\(100vw - 28px\)\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: safe center;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*box-sizing: border-box;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
