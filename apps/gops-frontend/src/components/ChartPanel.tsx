@@ -36,11 +36,12 @@ import {
   type ChartDataStatus,
   type ChartDocument,
   type ChartRuntimeAction,
-  type StreamStatus
+  type StreamStatus,
+  normalizeRealtimeLayerEvent
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket } from "../chart/cdcClient";
+import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -299,6 +300,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
+  const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -399,11 +401,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       interval: chart.interval,
       status: { state: "loading", message: "Loading CDC candles..." }
     });
+    setPreviousClose(null);
     fetchCandles({
       symbol: chart.symbol,
       interval: candleSourceInterval(chart.interval),
       limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: []
+      ma: [],
+      includePreviousClose: true
     }, controller.signal)
       .then((response) => {
         const current = chartRef.current;
@@ -418,6 +422,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
         );
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
+        setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
         if (pendingViewportAnchorRef.current?.key === requestKey) {
           pendingViewportAnchorRef.current = null;
@@ -435,27 +440,57 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setPreviousClose(null);
-    fetchCandles({ symbol: chart.symbol, interval: "1D", limit: 5, ma: [] }, controller.signal)
-      .then((response) => {
-        const closed = [...response.candles].reverse().find((candle) => candle.isClosed && Number.isFinite(candle.close));
-        setPreviousClose(closed?.close ?? null);
-      })
-      .catch(() => {
-        setPreviousClose(null);
-      });
-    return () => controller.abort();
+    const activeSymbol = chart.symbol.trim().toUpperCase();
+    if (!activeSymbol) {
+      return undefined;
+    }
+    let stopped = false;
+    let controller: AbortController | null = null;
+    const refresh = () => {
+      if (stopped) {
+        return;
+      }
+      controller?.abort();
+      controller = new AbortController();
+      refreshActiveChartSymbol({
+        symbol: activeSymbol,
+        sessionId: activeChartSessionIdRef.current,
+        ttlSeconds: 45
+      }, controller.signal).catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
   }, [chart.symbol]);
 
   useEffect(() => {
-    return openChartSocket(
-      chart.symbol,
-      candleSourceInterval(chart.interval),
-      (event) => onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) }),
-      (nextStreamState) => onChartRuntimeAction({
+    const socketSymbol = chart.symbol.trim().toUpperCase();
+    if (!socketSymbol || !isRealtimeStreamInterval(chart.interval)) {
+      onChartRuntimeAction({
         kind: "chart.stream.status",
         symbol: chart.symbol,
+        interval: chart.interval,
+        status: "idle"
+      });
+      return undefined;
+    }
+    return openChartSocket(
+      socketSymbol,
+      candleSourceInterval(chart.interval),
+      (event) => {
+        if (isRealtimeLayerEventDto(event)) {
+          onChartRuntimeAction({ kind: "chart.layer.live", event: normalizeRealtimeLayerEvent(event) });
+          return;
+        }
+        onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) });
+      },
+      (nextStreamState) => onChartRuntimeAction({
+        kind: "chart.stream.status",
+        symbol: socketSymbol,
         interval: chart.interval,
         status: normalizeStreamStatus(nextStreamState)
       })
@@ -2264,7 +2299,10 @@ function candleSnapshotFromResponse(response: CandleQueryResponseDto, intervalOv
   };
 }
 
-function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
+type RealtimeLayerEventDto = Extract<CandleEventDto, { type: "LIVE_TRADE_UPDATE" | "LIVE_QUOTE_UPDATE" }>;
+type ChartCandleEventDto = Exclude<CandleEventDto, RealtimeLayerEventDto>;
+
+function candleEventFromDto(event: ChartCandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
   return {
     type: event.type,
     symbol: event.symbol.toUpperCase(),
@@ -2272,6 +2310,10 @@ function candleEventFromDto(event: CandleEventDto, intervalOverride?: ChartInter
     sourceInterval: intervalOverride && intervalOverride !== event.interval ? event.interval : undefined,
     data: event.data
   };
+}
+
+function isRealtimeLayerEventDto(event: CandleEventDto): event is RealtimeLayerEventDto {
+  return event.type === "LIVE_TRADE_UPDATE" || event.type === "LIVE_QUOTE_UPDATE";
 }
 
 function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {
@@ -2317,6 +2359,10 @@ function chartMemoryKey(symbol: string, interval: ChartInterval): string {
 
 function candleSourceInterval(interval: ChartInterval): ChartInterval {
   return interval === "footprint" ? "1m" : interval;
+}
+
+function isRealtimeStreamInterval(interval: ChartInterval): boolean {
+  return interval === "1m" || interval === "5m" || interval === "10m";
 }
 
 function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
@@ -2523,28 +2569,4 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
     default:
       return <MousePointer2 size={16} />;
   }
-}
-
-function applyCandleEvent(chart: ChartState, event: CandleEventDto): ChartState {
-  if (event.symbol !== chart.symbol || event.interval !== chart.interval) {
-    return chart;
-  }
-  const timestamp = event.data.timestamp;
-  const nextCandle = { ...event.data };
-  const candles = [...chart.candles].sort(compareCandles);
-  const index = candles.findIndex((candle) => candle.timestamp === timestamp);
-  if (index >= 0) {
-    candles[index] = nextCandle;
-    return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
-  }
-  const latest = candles.at(-1);
-  if (latest && Date.parse(timestamp) < Date.parse(latest.timestamp)) {
-    return chart;
-  }
-  candles.push(nextCandle);
-  return { ...chart, candles: candles.sort(compareCandles), status: "ready" };
-}
-
-function compareCandles(left: CandleDto, right: CandleDto): number {
-  return Date.parse(left.timestamp) - Date.parse(right.timestamp);
 }

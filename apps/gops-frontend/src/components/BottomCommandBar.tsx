@@ -319,7 +319,10 @@ export function BottomCommandBar({
               {chatLog.length ? chatLog.map((entry) => (
                 <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
                   <span className="bottom-chat-message-role">{entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}</span>
-                  <p>{entry.text}</p>
+                  <p>
+                    <span className="bottom-chat-message-text">{entry.text}</span>
+                    {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
+                  </p>
                 </article>
               )) : (
                 <p className="bottom-chat-empty">질문을 입력하면 이곳에 대화가 남습니다.</p>

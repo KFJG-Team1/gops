@@ -19,6 +19,7 @@ export type CandleQuery = {
   from?: string;
   to?: string;
   ma?: number[];
+  includePreviousClose?: boolean;
 };
 
 export type IndicatorQuery = {
@@ -48,14 +49,22 @@ export type FootprintQuery = {
   limit?: number;
 };
 
+export type ActiveChartHeartbeat = {
+  symbol: string;
+  sessionId: string;
+  ttlSeconds?: number;
+};
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
     interval: query.interval,
     limit: String(query.limit),
-    session: "regular",
     ma: (query.ma ?? []).join(",")
   });
+  if (query.includePreviousClose) {
+    params.set("includePreviousClose", "true");
+  }
   if (query.before) {
     params.set("before", query.before);
   }
@@ -132,12 +141,29 @@ export async function fetchSymbols(signal?: AbortSignal): Promise<ChartSymbolsRe
   return normalizeSymbolsResponse(await response.json());
 }
 
+export async function refreshActiveChartSymbol(body: ActiveChartHeartbeat, signal?: AbortSignal): Promise<void> {
+  const response = await fetch("/api/charts/active-symbol", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) {
+    throw new Error(`Active chart heartbeat failed: ${response.status}`);
+  }
+}
+
 export function openChartSocket(
   symbol: string,
   interval: ChartInterval,
   onEvent: (event: CandleEventDto) => void,
   onState: (state: "connecting" | "live" | "idle" | "error") => void
 ): () => void {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  if (!normalizedSymbol) {
+    onState("idle");
+    return () => undefined;
+  }
   let closed = false;
   let socket: WebSocket | null = null;
   let reconnectTimer: number | undefined;
@@ -147,7 +173,7 @@ export function openChartSocket(
     if (closed) {
       return;
     }
-    const nextSocket = new WebSocket(chartSocketUrl(symbol, interval));
+    const nextSocket = new WebSocket(chartSocketUrl(normalizedSymbol, interval));
     socket = nextSocket;
     onState("connecting");
     nextSocket.onopen = () => {
@@ -212,8 +238,7 @@ function normalizeCandleResponse(payload: unknown): CandleQueryResponseDto {
   }
   const status = source.status ?? source.dataStatus ?? (source.candles.length ? "ready" : "empty");
   const request = source.request ?? {
-    limit: source.requestedLimit ?? source.candles.length,
-    session: "regular" as const
+    limit: source.requestedLimit ?? source.candles.length
   };
   return {
     ...source,
@@ -365,8 +390,14 @@ function normalizeCandleEvent(payload: unknown): CandleEventDto {
     throw new Error("Invalid candle event");
   }
   const source = payload as CandleEventDto;
-  if (!source.type || !source.symbol || !source.interval || !source.data) {
+  if (!source.type || !source.symbol || !source.data) {
     throw new Error("Candle event missing required fields");
+  }
+  if ((source.type === "LIVE_TRADE_UPDATE" || source.type === "LIVE_QUOTE_UPDATE")) {
+    return source;
+  }
+  if (!source.interval) {
+    throw new Error("Candle event missing interval");
   }
   return source;
 }

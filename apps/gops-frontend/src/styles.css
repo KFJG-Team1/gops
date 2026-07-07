@@ -524,7 +524,7 @@ button {
 }
 
 .bottom-chat-message.is-pending {
-  opacity: 0.64;
+  color: var(--color-muted-medium);
 }
 
 .bottom-chat-message-role {
@@ -542,6 +542,26 @@ button {
 .bottom-chat-message p {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.bottom-chat-message.is-pending .bottom-chat-message-text {
+  color: var(--color-muted-medium);
+  font-weight: 400;
+}
+
+.bottom-chat-loading-mark {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--color-text);
+  font-weight: 800;
+  transform-origin: 50% 52%;
+  animation: bottom-chat-loading-spin 0.9s steps(4, end) infinite;
+}
+
+@keyframes bottom-chat-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .bottom-chat-empty {
