@@ -1137,7 +1137,7 @@ assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
 assert.deepEqual(chartIntervals.slice(0, 6), ["footprint", "1m", "5m", "10m", "1h", "4h"]);
 assert.equal(nextDigTargetInterval("1m"), "footprint");
-assert.equal(nextDigTargetInterval("1D"), "4h");
+assert.equal(nextDigTargetInterval("1D"), "1h");
 assert.equal(nextDigTargetInterval("4h"), "1h");
 assert.equal(nextDigTargetInterval("1h"), "10m");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);

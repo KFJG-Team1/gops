@@ -134,7 +134,7 @@ export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterva
     case "1W":
       return "1D";
     case "1D":
-      return "4h";
+      return "1h";
     case "4h":
       return "1h";
     case "1h":
@@ -434,6 +434,9 @@ function estimatedLoadingExpansionSlotWidth(expansion: SemanticExpansion): numbe
   }
   if (expansion.parentInterval === "1D" && expansion.childInterval === "4h") {
     return normalizeSlot(Math.max(1, 6 * childCandleSlotWidthForExpansion(expansion)));
+  }
+  if (expansion.parentInterval === "1D" && expansion.childInterval === "1h") {
+    return normalizeSlot(Math.max(1, 24 * childCandleSlotWidthForExpansion(expansion)));
   }
   if (expansion.parentInterval === "4h" && expansion.childInterval === "1h") {
     return normalizeSlot(Math.max(1, 4 * childCandleSlotWidthForExpansion(expansion)));
