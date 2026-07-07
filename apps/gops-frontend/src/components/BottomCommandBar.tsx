@@ -5,6 +5,7 @@ import { AlertToast } from "../alerts/AlertToast";
 import { fetchNotifications, markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
 import {
   createMarketOpenNotification,
+  isMarketOpenNotification,
   readMarketOpenReminderEnabled,
   shouldShowMarketOpenReminder,
   writeMarketOpenReminderEnabled
@@ -264,6 +265,9 @@ export function BottomCommandBar({
     if (!alertToastState.current) {
       return undefined;
     }
+    if (isMarketOpenNotification(alertToastState.current.notification) && alertToastState.queue.length === 0) {
+      return undefined;
+    }
     const timeoutMs = alertToastState.queue.length > 0
       ? alertToastAdvanceMs
       : alertToastState.current.autoDismissMs;
@@ -319,7 +323,7 @@ export function BottomCommandBar({
           return;
         }
         if (shouldShowMarketOpenReminder(nextOpenAt)) {
-          enqueueAlertToast(createMarketOpenNotification(nextOpenAt), { autoDismissMs: alertToastAdvanceMs });
+          enqueueAlertToast(createMarketOpenNotification(nextOpenAt));
         }
         schedule(marketOpenRetryMs, refreshSchedule);
       });

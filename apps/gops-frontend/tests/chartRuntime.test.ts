@@ -2260,7 +2260,9 @@ assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스�
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
 assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
-assert.match(bottomCommandBarSource, /autoDismissMs: alertToastAdvanceMs/);
+assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
+assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
+assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
