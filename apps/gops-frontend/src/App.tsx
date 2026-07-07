@@ -952,7 +952,7 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence);
+        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence, report);
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
@@ -1298,11 +1298,12 @@ function replaceChatLogEntry(
   setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
   entryId: string,
   text: string,
-  confidence?: number
+  confidence?: number,
+  analysisReport?: ChatLogEntry["analysisReport"]
 ) {
   setChatLog((current) => current.map((entry) => (
     entry.id === entryId
-      ? { ...entry, text, pending: false, confidence }
+      ? { ...entry, text, pending: false, confidence, analysisReport }
       : entry
   )));
 }

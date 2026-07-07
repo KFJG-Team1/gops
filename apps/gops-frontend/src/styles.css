@@ -576,6 +576,72 @@ button {
   white-space: pre-wrap;
 }
 
+.agent-analysis-message {
+  display: grid;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.agent-analysis-title,
+.agent-analysis-summary,
+.agent-analysis-timing {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.agent-analysis-title {
+  font-weight: 700;
+}
+
+.agent-analysis-section {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-analysis-section h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.agent-analysis-section ul,
+.agent-analysis-details ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.agent-analysis-section li,
+.agent-analysis-details li {
+  margin: 3px 0;
+}
+
+.agent-analysis-details {
+  border-top: 1px solid rgba(17, 24, 39, 0.1);
+  padding-top: 8px;
+}
+
+.agent-analysis-details summary {
+  cursor: pointer;
+  color: var(--color-text);
+  font-weight: 700;
+  list-style-position: outside;
+}
+
+.agent-analysis-details[open] summary {
+  margin-bottom: 5px;
+}
+
+.agent-analysis-details a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-analysis-timing {
+  color: var(--color-muted-medium);
+  font-size: 12px;
+}
+
 .bottom-chat-message.is-pending .bottom-chat-message-text {
   color: var(--color-muted-medium);
   font-weight: 400;
