@@ -184,8 +184,6 @@ function RecommendationRow({
   item: StockRecommendationItem;
   onSelectSymbol: (symbol: string) => void;
 }) {
-  const tone = recommendationTone(item);
-  const title = recommendationToneTitle(item);
   const sector = item.sector || "Unclassified";
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
@@ -202,7 +200,9 @@ function RecommendationRow({
       <span className="stock-rec-main">
         <span className="stock-rec-symbol-line">
           <strong>{item.symbol}</strong>
-          <span className={`stock-rec-signal-dot ${tone}`} title={title} aria-label={title} />
+          <span className={`stock-rec-change ${changeTone(item.changePercent)}`} title="오늘의 등락률">
+            {formatChangePercent(item.changePercent)}
+          </span>
         </span>
       </span>
       <span className="stock-rec-reasons">
@@ -218,23 +218,18 @@ function RecommendationRow({
   );
 }
 
-function recommendationTone(item: StockRecommendationItem): "high" | "medium" | "low" {
-  if (item.score >= 80 && item.confidence >= 0.75) {
-    return "high";
+function changeTone(value?: number): "up" | "down" | "flat" {
+  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
+    return "flat";
   }
-  if (item.score >= 70 && item.confidence >= 0.5) {
-    return "medium";
-  }
-  return "low";
+  return value > 0 ? "up" : "down";
 }
 
-function recommendationToneTitle(item: StockRecommendationItem): string {
-  const label = {
-    high: "높음",
-    medium: "보통",
-    low: "낮음"
-  }[recommendationTone(item)];
-  return `추천도 ${label}, 점수 ${Math.round(item.score)}`;
+function formatChangePercent(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 function recommendationVisibleReasons(item: StockRecommendationItem) {
