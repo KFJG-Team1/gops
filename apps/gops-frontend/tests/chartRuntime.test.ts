@@ -2602,6 +2602,11 @@ assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #d69e2e;/);
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #d64545;/);
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #fff;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*width: min\(920px, calc\(100vw - 28px\)\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: safe center;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*box-sizing: border-box;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
