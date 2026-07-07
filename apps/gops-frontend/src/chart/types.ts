@@ -1,4 +1,4 @@
-export type ChartInterval = "footprint" | "1m" | "5m" | "10m" | "1D" | "1W" | "1M";
+export type ChartInterval = "footprint" | "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
 
 export type ChartType = "candle" | "line" | "ohlc";
 
@@ -474,13 +474,15 @@ export type ChartState = {
 
 export const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
 
-export const chartIntervals: ChartInterval[] = ["footprint", "1m", "5m", "10m", "1D", "1W", "1M"];
+export const chartIntervals: ChartInterval[] = ["footprint", "1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
 
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
   "1m": 120,
   "footprint": 120,
   "5m": 120,
   "10m": 120,
+  "1h": 120,
+  "4h": 120,
   "1D": 120,
   "1W": 104,
   "1M": 36

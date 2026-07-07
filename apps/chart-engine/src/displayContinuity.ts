@@ -1,16 +1,20 @@
 import { canonicalTimestamp } from "./time";
 import type { CandleData } from "./types";
 
-const intradayIntervals = new Set(["1m", "5m", "10m"]);
+const intradayIntervals = new Set(["1m", "5m", "10m", "1h", "4h"]);
 const intervalMsByKey: Record<string, number> = {
   "1m": 60_000,
   "5m": 5 * 60_000,
-  "10m": 10 * 60_000
+  "10m": 10 * 60_000,
+  "1h": 60 * 60_000,
+  "4h": 4 * 60 * 60_000
 };
 const maxDisplayFillByKey: Record<string, number> = {
   "1m": 720,
   "5m": 144,
-  "10m": 72
+  "10m": 72,
+  "1h": 24,
+  "4h": 6
 };
 
 type MarketSession = "pre" | "regular" | "after" | "overnight" | "unknown";
