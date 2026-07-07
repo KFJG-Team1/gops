@@ -48,7 +48,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
-import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import { createIndicatorPointLookup, createIndicatorValueLookup, mergeIndicatorSeries, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
 import {
   candleMovingAverageWindows,
   indicatorRequestRangeFromCandles,
@@ -592,12 +592,64 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+const footprintExpansion: SemanticExpansion = {
+  ...emptyExpansion,
+  childInterval: "footprint",
+  status: "ready",
+  candles: [],
+  footprintBucket: {
+    timestamp: candleA.timestamp,
+    from: candleA.timestamp,
+    to: "2026-06-25T13:31:00Z",
+    open: candleA.open,
+    high: candleA.high,
+    low: candleA.low,
+    close: candleA.close,
+    volume: 1200,
+    tradeCount: 18,
+    askVolume: 720,
+    bidVolume: 430,
+    unknownVolume: 50,
+    delta: 290,
+    priceLevels: [
+      { price: 10.7, askVolume: 300, bidVolume: 120, unknownVolume: 0, totalVolume: 420, tradeCount: 6, delta: 180 },
+      { price: 10.5, askVolume: 180, bidVolume: 260, unknownVolume: 20, totalVolume: 460, tradeCount: 8, delta: -80 }
+    ]
+  },
+  message: undefined
+};
+const footprintExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [footprintExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 40
+});
+const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
+assert.ok(footprintExpansionUnit);
+assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
 }, "rsi:14", "1D");
 assert.equal(scopedRsiLookup({ interval: "1D", candle: { timestamp: candleA.timestamp } })?.value, 55);
 assert.equal(scopedRsiLookup({ interval: "10m", candle: { timestamp: candleA.timestamp } })?.value, 77);
+const canonicalIndicatorLookup = createIndicatorValueLookup({
+  "ema:20": [
+    { timestamp: "2026-06-25T13:30:00Z", value: 101 },
+    { timestamp: "2026-06-25T13:31:00.000Z", value: 102 }
+  ]
+}, "ema:20", "1m");
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:30:00.000Z" } }), 101);
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:31:00Z" } }), 102);
+const mergedCanonicalIndicators = mergeIndicatorSeries(
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00Z", value: 101 }] },
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }] }
+);
+assert.deepEqual(mergedCanonicalIndicators["ema:20"], [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }]);
 const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [candleA as CandleDto],
@@ -2288,9 +2340,17 @@ assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-sel
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
+assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
+assert.match(chartCanvasSource, /const footprintBucketMinWidth = 14;/);
+assert.match(chartCanvasSource, /const footprintBucketMaxWidth = 56;/);
+assert.match(chartCanvasSource, /function drawCenteredFootprintCandle/);
+assert.match(chartCanvasSource, /context\.fillRect\(center - candleWidth \/ 2, bodyTop, candleWidth, bodyHeight\);/);
+assert.match(semanticTimelineSource, /const footprintSlotWidth = 18;/);
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);

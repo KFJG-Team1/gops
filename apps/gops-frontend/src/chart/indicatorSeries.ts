@@ -26,7 +26,8 @@ export function mergeIndicatorSeries(...groups: IndicatorSeries[]): IndicatorSer
     Object.entries(series).forEach(([key, points]) => {
       const byTimestamp = merged.get(key) ?? new Map<string, IndicatorPointDto>();
       points.forEach((point) => {
-        byTimestamp.set(point.timestamp, point);
+        const timestamp = canonicalIndicatorTimestamp(point.timestamp);
+        byTimestamp.set(timestamp, { ...point, timestamp });
       });
       merged.set(key, byTimestamp);
     });
@@ -50,7 +51,10 @@ export function createIndicatorPointLookup(
     if (cached) {
       return cached;
     }
-    const next = new Map((series?.[key] ?? []).map((point) => [point.timestamp, point]));
+    const next = new Map((series?.[key] ?? []).map((point) => [
+      canonicalIndicatorTimestamp(point.timestamp),
+      { ...point, timestamp: canonicalIndicatorTimestamp(point.timestamp) }
+    ]));
     maps.set(key, next);
     return next;
   };
@@ -58,7 +62,7 @@ export function createIndicatorPointLookup(
     const key = unit.interval === baseInterval
       ? layerId
       : scopedIndicatorSeriesKey(unit.interval, layerId);
-    return mapForKey(key).get(unit.candle.timestamp);
+    return mapForKey(key).get(canonicalIndicatorTimestamp(unit.candle.timestamp));
   };
 }
 
@@ -69,4 +73,9 @@ export function createIndicatorValueLookup(
 ): (unit: IndicatorScopedUnit) => number | null | undefined {
   const pointForUnit = createIndicatorPointLookup(series, layerId, baseInterval);
   return (unit) => pointForUnit(unit)?.value;
+}
+
+function canonicalIndicatorTimestamp(timestamp: string): string {
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : timestamp;
 }
