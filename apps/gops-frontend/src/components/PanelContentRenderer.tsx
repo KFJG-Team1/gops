@@ -1,11 +1,11 @@
-import { Newspaper, X } from "lucide-react";
+import { Newspaper } from "lucide-react";
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
-import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
+import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
@@ -33,7 +33,6 @@ type PanelContentRendererProps = {
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
-  canClose: boolean;
   chartDrawingActive: boolean;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
@@ -46,10 +45,8 @@ type PanelContentRendererProps = {
   onChartDrawingToggle: () => void;
   onChartAddToggle: () => void;
   onSyncPageSymbolFromChart: () => void;
-  onClosePanel: (slotId: PanelSlotId) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
-  onChartSwapPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
 export function PanelContentRenderer({
@@ -67,7 +64,6 @@ export function PanelContentRenderer({
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
-  canClose,
   chartDrawingActive,
   chartAddActive,
   selectedAgentReferenceKeys,
@@ -80,10 +76,8 @@ export function PanelContentRenderer({
   onChartDrawingToggle,
   onChartAddToggle,
   onSyncPageSymbolFromChart,
-  onClosePanel,
   onChangePanelChartSymbol,
-  onSelectSymbol,
-  onChartSwapPointerDown
+  onSelectSymbol
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
@@ -166,19 +160,11 @@ export function PanelContentRenderer({
 
   return (
     <div className="chart-instance is-editable-chart">
-      <div
-        className="chart-panel-drag-strip chart-instance-swap-handle"
-        aria-label="차트 패널 이동"
-        onPointerEnter={() => onChartHoverChange(true)}
-        onPointerMove={() => onChartHoverChange(true)}
-        onPointerDown={onChartSwapPointerDown}
-      />
       <div className="chart-instance-topbar">
         <div
-          className="chart-instance-symbol chart-instance-swap-handle"
+          className="chart-instance-symbol"
           onPointerEnter={() => onChartHoverChange(true)}
           onPointerMove={() => onChartHoverChange(true)}
-          onPointerDown={onChartSwapPointerDown}
         >
           <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
             <div className="chart-instance-symbol-search-wrap">
@@ -251,18 +237,6 @@ export function PanelContentRenderer({
           </select>
         </div>
       </div>
-      {canClose && (
-        <button
-          type="button"
-          className="chart-instance-close"
-          aria-label="차트 패널 닫기"
-          title="차트 패널 닫기"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => onClosePanel(slot.id)}
-        >
-          <X size={13} />
-        </button>
-      )}
       {activeTab === "chart" ? (
         <ChartPanel
           ref={setChartPanelHandle}

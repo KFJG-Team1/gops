@@ -1,22 +1,27 @@
 import type { AgentLayoutPanelType, AgentLayoutProposal } from "./agentLayoutTypes";
 import {
-  addPanelSlotAtRect,
-  detectPanelBoundaries,
-  insertOptionsForBoundary,
-  insertPanelAtBoundary,
+  addPanelSlotAtGridRect,
+  firstAvailablePanelGridRect,
+  gridRectsOverlap,
+  maxGridSpan,
+  minGridSpanForKind,
+  movePanelSlotToGridRect,
+  normalizeFreeformRectsToGridLayout,
+  normalizePanelGridRect,
   normalizeTiledPanelStateToWorkspace,
-  panelGutter,
   panelContentTitle,
+  panelGridSpec,
   removePanelSlot,
+  replacePanelSlotKind,
   setPanelContentLayoutWeight,
   setPanelContentProps,
   type PanelContentKind,
-  type PanelRect,
+  type PanelGridRect,
   type TiledPanelState,
   type ViewportSize,
-  type WorkspaceLayoutMetrics,
-  workspaceBounds
+  type WorkspaceLayoutMetrics
 } from "./panelLayout";
+import { panelKindForAgentType, panelRegistryEntry } from "./panelRegistry";
 
 const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
@@ -30,17 +35,6 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   trade: "orderTicket"
 };
 
-const panelTypeToKind: Partial<Record<AgentLayoutPanelType | string, PanelContentKind>> = {
-  chart: "chart",
-  companyProfile: "company",
-  marketIndices: "indices",
-  popularStocks: "popular",
-  newsFeed: "news",
-  ontologyGraph: "ontology",
-  portfolioHoldings: "portfolio",
-  orderTicket: "trade"
-};
-
 export function buildTiledAgentLayoutContext(
   state: TiledPanelState,
   viewport: ViewportSize,
@@ -49,11 +43,12 @@ export function buildTiledAgentLayoutContext(
   chartDocumentSymbols: Record<string, string | undefined> = {},
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ) {
+  const gridState = normalizeFreeformRectsToGridLayout(state, viewport, layoutMetrics);
   return {
     version: 1,
     ...(selectedPanelId ? { selectedPanelId } : {}),
-    panels: state.slots.map((slot) => {
-      const content = state.contents[slot.contentId];
+    panels: gridState.slots.map((slot) => {
+      const content = gridState.contents[slot.contentId];
       const kind = content?.kind ?? "chart";
       const documentSymbol = chartDocumentSymbols[slot.id] ?? (content ? chartDocumentSymbols[content.id] : undefined);
       const symbol = kind === "chart" ? (readString(documentSymbol) || readString(content?.props?.symbol) || activeSymbol || "").toUpperCase() : undefined;
@@ -61,7 +56,7 @@ export function buildTiledAgentLayoutContext(
         id: slot.id,
         type: kindToPanelType[kind],
         title: content?.title || panelContentTitle(kind, content?.instanceIndex),
-        placement: tiledPlacement(slot.rect, viewport, layoutMetrics),
+        placement: tiledPlacement(slot.gridRect),
         layoutPinned: false,
         layoutWeight: content?.layoutWeight ?? defaultLayoutWeightForKind(kind),
         minSpan: minSpanForKind(kind),
@@ -100,6 +95,17 @@ export function applyTiledAgentLayoutProposal(
       next = addPanelForCommand(next, kind, command, proposal, viewport, layoutMetrics);
       continue;
     }
+    if (command.type === "layout.panel.replace") {
+      const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
+      next = panelId
+        ? replacePanelSlotKind(next, panelId, kind, viewport, {
+          symbol: readPanelSymbol(command.payload) ?? undefined,
+          layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
+          props: readPanelProps(command.payload)
+        }, layoutMetrics)
+        : next;
+      continue;
+    }
     if (command.type === "layout.panel.props.update") {
       next = applyPanelPropsUpdate(next, command);
       continue;
@@ -124,15 +130,14 @@ export function applyTiledAgentLayoutProposal(
   return normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics);
 }
 
-function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics) {
-  const grid = tiledGrid(viewport, layoutMetrics);
-  const col = clampInt(Math.floor((rect.left - grid.left) / grid.stepX) + 1, 1, 4);
-  const row = clampInt(Math.floor((rect.top - grid.top) / grid.stepY) + 1, 1, 5);
-  const colSpan = clampInt(Math.round((rect.width + grid.gutter) / grid.stepX), 1, 4 - col + 1);
-  const rowSpan = clampInt(Math.round((rect.height + grid.gutter) / grid.stepY), 1, 5 - row + 1);
+function tiledPlacement(gridRect: PanelGridRect) {
+  const col = clampInt(gridRect.col, 1, panelGridSpec.cols);
+  const row = clampInt(gridRect.row, 1, panelGridSpec.rows);
+  const colSpan = clampInt(gridRect.colSpan, 1, panelGridSpec.cols - col + 1);
+  const rowSpan = clampInt(gridRect.rowSpan, 1, panelGridSpec.rows - row + 1);
   return {
     group: "workspace",
-    zone: col === 4 && colSpan === 1 ? "context" : col + colSpan - 1 <= 3 ? "main" : "mainContext",
+    zone: col >= 7 ? "context" : col + colSpan - 1 <= 6 ? "main" : "mainContext",
     col,
     row,
     colSpan,
@@ -146,8 +151,9 @@ function targetKindForCommand(
   proposal: AgentLayoutProposal
 ): PanelContentKind | null {
   const payloadPanelType = readString(command.payload.panelType);
-  if (payloadPanelType && panelTypeToKind[payloadPanelType]) {
-    return panelTypeToKind[payloadPanelType] ?? null;
+  const payloadKind = panelKindForAgentType(payloadPanelType ?? undefined);
+  if (payloadKind) {
+    return payloadKind;
   }
 
   const panelId = readString(command.target?.panelId) ?? readString(command.payload.panelId);
@@ -162,10 +168,10 @@ function targetKindForCommand(
     if (panelId && item.panelId === panelId) {
       return true;
     }
-    return item.panelType && panelTypeToKind[item.panelType];
+    return Boolean(item.panelType && panelKindForAgentType(item.panelType));
   });
   if (priority?.panelType) {
-    return panelTypeToKind[priority.panelType] ?? null;
+    return panelKindForAgentType(priority.panelType) ?? null;
   }
   return null;
 }
@@ -178,30 +184,28 @@ function addPanelForCommand(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics
 ): TiledPanelState {
-  if (kind === "chart") {
-    const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
-    if (panelId && contentForPanelId(state, panelId)) {
-      return state;
-    }
-    const symbol = readPanelSymbol(command.payload);
-    if (symbol && hasChartSymbol(state, symbol)) {
-      return state;
-    }
-    const placement = readPlacement(command.payload.placement) ?? defaultPlacementForKind(kind);
-    const priority = layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? defaultLayoutWeightForKind(kind);
-    return addPanelSlotAtRect(state, kind, rectForPlacement(placement, viewport, layoutMetrics), {
-      slotId: panelId ?? undefined,
-      symbol: symbol ?? undefined,
-      layoutWeight: priority
-    }, viewport, layoutMetrics);
-  }
   const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
-  return ensurePanelKind(state, kind, viewport, layoutMetrics, {
+  if (panelId && contentForPanelId(state, panelId)) {
+    return ensurePanelKind(state, kind, viewport, layoutMetrics, {
+      slotId: panelId,
+      symbol: readPanelSymbol(command.payload) ?? undefined,
+      layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
+      props: readPanelProps(command.payload)
+    });
+  }
+  const symbol = readPanelSymbol(command.payload);
+  if (kind === "chart" && symbol && hasChartSymbol(state, symbol)) {
+    return state;
+  }
+  const placement = readPlacement(command.payload.placement);
+  const gridRect = placement ?? firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind);
+  return addPanelSlotAtGridRect(state, kind, gridRect, {
     slotId: panelId ?? undefined,
-    symbol: readPanelSymbol(command.payload) ?? undefined,
+    symbol: symbol ?? undefined,
     layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
-    props: readPanelProps(command.payload)
-  });
+    props: readPanelProps(command.payload),
+    allowOverlap: proposal.commands.some((item) => item.type === "layout.panels.arrange")
+  }, viewport, layoutMetrics);
 }
 
 function ensurePanelKind(
@@ -229,43 +233,17 @@ function ensurePanelKind(
     }
     return next;
   }
-  for (const boundary of detectPanelBoundaries(state, viewport, layoutMetrics)) {
-    if (!insertOptionsForBoundary(state, boundary.id, viewport, layoutMetrics).some((option) => option.kind === kind)) {
-      continue;
-    }
-    return insertPanelAtBoundary(state, boundary.id, kind, viewport, options, layoutMetrics);
-  }
-  return state;
+  const gridRect = firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind);
+  return addPanelSlotAtGridRect(state, kind, gridRect, options, viewport, layoutMetrics);
 }
 
 function focusPanelKind(state: TiledPanelState, kind: PanelContentKind, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): TiledPanelState {
+  void viewport;
+  void layoutMetrics;
   if (kind === "chart") {
     return state;
   }
-  const targetSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === kind);
-  const firstSupportSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind !== "chart");
-  if (!targetSlot || !firstSupportSlot) {
-    return state;
-  }
-  const emphasized = emphasizeSupportPanel(state, targetSlot.id, viewport, layoutMetrics);
-  if (emphasized !== state) {
-    return emphasized;
-  }
-  if (targetSlot.id === firstSupportSlot.id) {
-    return state;
-  }
-  return {
-    ...state,
-    slots: state.slots.map((slot) => {
-      if (slot.id === targetSlot.id) {
-        return { ...slot, rect: { ...firstSupportSlot.rect } };
-      }
-      if (slot.id === firstSupportSlot.id) {
-        return { ...slot, rect: { ...targetSlot.rect } };
-      }
-      return slot;
-    })
-  };
+  return state;
 }
 
 type AgentPanelPlacement = {
@@ -281,16 +259,38 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
   if (!Array.isArray(placements)) {
     return state;
   }
-  return placements.reduce((next, item) => {
+  const gridRectsBySlotId = new Map<string, PanelGridRect>();
+  let next = state;
+  for (const item of placements) {
     if (!isRecord(item)) {
-      return next;
+      continue;
     }
     const panelId = readString(item.panelId);
     const placement = readPlacement(item.placement);
-    const arranged = panelId && placement ? applyPanelPlacement(next, panelId, placement, viewport, layoutMetrics) : next;
+    const slot = panelId ? slotForPanelId(next, panelId) : null;
+    const content = slot ? next.contents[slot.contentId] : null;
+    if (slot && content && placement?.group === "workspace") {
+      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, minGridSpanForKind(content.kind)));
+    }
     const layoutWeight = readNumber(item.layoutWeight);
-    return panelId && layoutWeight !== null ? setPanelLayoutWeight(arranged, panelId, layoutWeight) : arranged;
-  }, state);
+    if (panelId && layoutWeight !== null) {
+      next = setPanelLayoutWeight(next, panelId, layoutWeight);
+    }
+  }
+  if (!gridRectsBySlotId.size) {
+    return next;
+  }
+  const nextSlots = next.slots.map((slot) => (
+    gridRectsBySlotId.has(slot.id) ? { ...slot, gridRect: gridRectsBySlotId.get(slot.id)! } : slot
+  ));
+  for (let leftIndex = 0; leftIndex < nextSlots.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < nextSlots.length; rightIndex += 1) {
+      if (gridRectsOverlap(nextSlots[leftIndex]!.gridRect, nextSlots[rightIndex]!.gridRect)) {
+        return next;
+      }
+    }
+  }
+  return normalizeTiledPanelStateToWorkspace({ ...next, slots: nextSlots }, viewport, layoutMetrics);
 }
 
 function applyPanelPlacement(
@@ -304,25 +304,7 @@ function applyPanelPlacement(
   if (!slot || placement.group !== "workspace") {
     return state;
   }
-  const rect = rectForPlacement(placement, viewport, layoutMetrics);
-  return normalizeTiledPanelStateToWorkspace({
-    ...state,
-    slots: state.slots.map((item) => item.id === slot.id ? { ...item, rect } : item)
-  }, viewport, layoutMetrics);
-}
-
-function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): PanelRect {
-  const grid = tiledGrid(viewport, layoutMetrics);
-  const col = clampInt(placement.col, 1, 4);
-  const row = clampInt(placement.row, 1, 5);
-  const colSpan = clampInt(placement.colSpan, 1, 4 - col + 1);
-  const rowSpan = clampInt(placement.rowSpan, 1, 5 - row + 1);
-  return {
-    left: grid.left + (col - 1) * grid.stepX,
-    top: grid.top + (row - 1) * grid.stepY,
-    width: colSpan * grid.cellWidth + Math.max(0, colSpan - 1) * grid.gutter,
-    height: rowSpan * grid.cellHeight + Math.max(0, rowSpan - 1) * grid.gutter
-  };
+  return movePanelSlotToGridRect(state, slot.id, placement, viewport, layoutMetrics);
 }
 
 function applyPanelPropsUpdate(
@@ -363,94 +345,12 @@ function setPanelLayoutWeight(state: TiledPanelState, panelId: string, layoutWei
   return slot ? setPanelContentLayoutWeight(state, slot.contentId, layoutWeight) : state;
 }
 
-function emphasizeSupportPanel(
-  state: TiledPanelState,
-  targetSlotId: string,
-  viewport: ViewportSize,
-  layoutMetrics: WorkspaceLayoutMetrics
-): TiledPanelState {
-  const targetSlot = state.slots.find((slot) => slot.id === targetSlotId);
-  const supportSlots = state.slots
-    .filter((slot) => state.contents[slot.contentId]?.kind !== "chart")
-    .sort((left, right) => left.rect.top - right.rect.top || left.rect.left - right.rect.left);
-  if (!targetSlot || supportSlots.length < 2 || !supportSlots.some((slot) => slot.id === targetSlot.id)) {
-    return state;
-  }
-
-  const workspace = workspaceBounds(viewport, layoutMetrics);
-  const gutter = panelGutter(viewport);
-  const supportTop = Math.min(...supportSlots.map((slot) => slot.rect.top));
-  const supportBottom = Math.max(...supportSlots.map((slot) => slot.rect.top + slot.rect.height));
-  const supportLeft = workspace.left + gutter;
-  const supportRight = workspace.left + workspace.width - gutter;
-  const supportWidth = Math.max(1, supportRight - supportLeft);
-  const supportHeight = Math.max(targetSlot.minHeight, supportBottom - supportTop);
-  const others = supportSlots.filter((slot) => slot.id !== targetSlot.id);
-  const targetWidth = Math.min(
-    supportWidth - gutter - others.length * targetSlot.minWidth,
-    Math.max(targetSlot.minWidth, Math.round(supportWidth * 0.52))
-  );
-  const remainingWidth = supportWidth - targetWidth - gutter;
-  const otherWidth = others.length > 0
-    ? (remainingWidth - gutter * Math.max(0, others.length - 1)) / others.length
-    : 0;
-  if (targetWidth < targetSlot.minWidth || others.some((slot) => otherWidth < slot.minWidth)) {
-    return state;
-  }
-
-  const rectBySlotId = new Map<string, PanelRect>();
-  rectBySlotId.set(targetSlot.id, {
-    left: supportLeft,
-    top: supportTop,
-    width: targetWidth,
-    height: supportHeight
-  });
-  others.forEach((slot, index) => {
-    rectBySlotId.set(slot.id, {
-      left: supportLeft + targetWidth + gutter + index * (otherWidth + gutter),
-      top: supportTop,
-      width: otherWidth,
-      height: supportHeight
-    });
-  });
-
-  return {
-    ...state,
-    slots: state.slots.map((slot) => {
-      const rect = rectBySlotId.get(slot.id);
-      return rect ? { ...slot, rect } : slot;
-    })
-  };
-}
-
-function tiledGrid(viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics) {
-  const workspace = workspaceBounds(viewport, layoutMetrics);
-  const gutter = panelGutter(viewport);
-  const cellWidth = Math.max(1, (workspace.width - gutter * 5) / 4);
-  const cellHeight = Math.max(1, (workspace.height - gutter * 6) / 5);
-  return {
-    left: workspace.left + gutter,
-    top: workspace.top + gutter,
-    gutter,
-    cellWidth,
-    cellHeight,
-    stepX: cellWidth + gutter,
-    stepY: cellHeight + gutter
-  };
-}
-
 function minSpanForKind(kind: PanelContentKind) {
-  if (kind === "chart") {
-    return { colSpan: 2, rowSpan: 2 };
-  }
-  if (kind === "portfolio" || kind === "trade") {
-    return { colSpan: 1, rowSpan: 2 };
-  }
-  return { colSpan: 1, rowSpan: 1 };
+  return minGridSpanForKind(kind);
 }
 
 function maxSpanForKind(_kind: PanelContentKind) {
-  return { colSpan: 4, rowSpan: 5 };
+  return maxGridSpan();
 }
 
 function hasPanelKind(state: TiledPanelState, kind: PanelContentKind): boolean {
@@ -492,20 +392,12 @@ function layoutWeightForPanelId(proposal: AgentLayoutProposal, panelId: string |
 }
 
 function defaultLayoutWeightForKind(kind: PanelContentKind): number {
-  if (kind === "chart") {
-    return 100;
-  }
-  if (kind === "portfolio" || kind === "trade") {
-    return 35;
-  }
-  return 50;
+  return panelRegistryEntry(kind).defaultLayoutWeight;
 }
 
 function defaultPlacementForKind(kind: PanelContentKind): AgentPanelPlacement {
-  if (kind === "chart") {
-    return { group: "workspace", col: 1, row: 4, colSpan: 4, rowSpan: 2 };
-  }
-  return { group: "workspace", col: 4, row: 1, colSpan: 1, rowSpan: 1 };
+  const span = panelRegistryEntry(kind).defaultSpan;
+  return { group: "workspace", col: 1, row: 1, colSpan: span.colSpan, rowSpan: span.rowSpan };
 }
 
 function readString(value: unknown): string | null {

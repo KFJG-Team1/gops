@@ -13,8 +13,8 @@ import {
 import type { CandleDto } from "../chart/types";
 import type { ChartDocument } from "@gops/chart-engine";
 import {
+  type CSSProperties,
   type Dispatch,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
   useCallback,
@@ -27,18 +27,42 @@ import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
-  canInsertPanelAtBoundary,
-  detectPanelBoundaries,
-  insertOptionsForBoundary,
-  insertPanelAtBoundary,
-  panelGutter,
+  ArrowDown,
+  ArrowDownLeft,
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpLeft,
+  ArrowUpRight,
+  Grip,
+  Trash2,
+  X
+} from "lucide-react";
+import {
+  applyPanelResizeWithYield,
+  addPanelSlotAtGridRect,
+  detectResizablePanelBoundaries,
+  expandGridRectForKind,
+  movePanelSlotToGridRect,
+  panelGridMetrics,
+  panelGridSpec,
+  panelPaletteEntries,
+  panelPaletteEntryLabel,
+  panelRectForGridRect,
   panelSlotStyle,
   removePanelSlot,
-  resizePanelBoundary,
+  replacePanelSlotKind,
+  resolvePanelDropGridRect,
+  resolvePanelResizeWithYield,
+  resizeFreeformBoundary,
+  slotAtGridCell,
   swapPanelContents,
-  type BoundaryInsertOption,
   type PanelBoundary,
   type PanelContentInstance,
+  type PanelContentKind,
+  type PanelGridRect,
+  type PanelResizeYieldSlot,
   type PanelSlotId,
   type TiledPanelState,
   type ViewportSize,
@@ -47,12 +71,7 @@ import {
 import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
-import {
-  boundaryAddMenuPosition,
-  boundaryStyle,
-  hitTestSwappableSlot,
-  panelNavHeight
-} from "./panelWorkspaceGeometry";
+import { boundaryStyle, panelNavHeight } from "./panelWorkspaceGeometry";
 import { WorkspacePanelFrame } from "./WorkspacePanelFrame";
 
 type PanelWorkspaceProps = {
@@ -60,6 +79,7 @@ type PanelWorkspaceProps = {
   setPanelState: Dispatch<SetStateAction<TiledPanelState>>;
   viewportSize: ViewportSize;
   layoutMetrics: WorkspaceLayoutMetrics;
+  layoutEditMode: boolean;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
   companyItems: Sp500UniverseItem[];
@@ -74,6 +94,8 @@ type PanelWorkspaceProps = {
   onSelectSymbol: (symbol: string) => void;
 };
 
+type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
 type LayoutDrag =
   | {
     mode: "boundary";
@@ -84,22 +106,41 @@ type LayoutDrag =
     startState: TiledPanelState;
   }
   | {
-    mode: "swap";
+    mode: "edit-move";
     sourceSlotId: PanelSlotId;
+    offsetCol: number;
+    offsetRow: number;
+  }
+  | {
+    mode: "edit-resize";
+    sourceSlotId: PanelSlotId;
+    direction: ResizeDirection;
+    startGridRect: PanelGridRect;
+  }
+  | {
+    mode: "palette";
+    kind: PanelContentKind;
   };
 
-type BoundaryAddMenu = {
-  boundaryId: string;
-  left: number;
-  top: number;
-  options: BoundaryInsertOption[];
+type LayoutPreview = {
+  gridRect: PanelGridRect;
+  kind?: PanelContentKind;
+  sourceSlotId?: PanelSlotId;
+  targetSlotId?: PanelSlotId;
+  yieldedSlots?: PanelResizeYieldSlot[];
+  mode: "move" | "resize" | "add" | "replace" | "swap";
+  valid: boolean;
+  label: string;
 };
+
+const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 export function PanelWorkspace({
   panelState,
   setPanelState,
   viewportSize,
   layoutMetrics,
+  layoutEditMode,
   activeSymbol,
   symbols,
   companyItems,
@@ -117,7 +158,7 @@ export function PanelWorkspace({
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
   const [draggingSlotId, setDraggingSlotId] = useState<PanelSlotId | null>(null);
   const [isLayoutResizing, setIsLayoutResizing] = useState(false);
-  const [addMenu, setAddMenu] = useState<BoundaryAddMenu | null>(null);
+  const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
@@ -141,15 +182,13 @@ export function PanelWorkspace({
     layoutMetricsRef.current = layoutMetrics;
   }, [layoutMetrics]);
 
-  const panelBoundaries = useMemo(() => detectPanelBoundaries(panelState, viewportSize, layoutMetrics), [layoutMetrics, panelState, viewportSize]);
+  const panelBoundaries = useMemo(() => detectResizablePanelBoundaries(panelState, viewportSize, layoutMetrics), [layoutMetrics, panelState, viewportSize]);
   const activeBoundary = useMemo(() => (
     activeBoundaryId ? panelBoundaries.find((boundary) => boundary.id === activeBoundaryId) ?? null : null
   ), [activeBoundaryId, panelBoundaries]);
   const activeBoundarySlotIds = useMemo(() => (
     new Set([...(activeBoundary?.negativeSlotIds ?? []), ...(activeBoundary?.positiveSlotIds ?? [])])
   ), [activeBoundary]);
-  const layoutGutter = panelGutter(viewportSize);
-
   const setChartSlotHover = useCallback((slotId: PanelSlotId, hovered: boolean) => {
     setHoveredChartSlotId((current) => {
       if (hovered) {
@@ -167,28 +206,164 @@ export function PanelWorkspace({
     ));
   }, []);
 
+  const commitLayoutPreview = useCallback((preview: LayoutPreview) => {
+    if (!preview.valid) {
+      return;
+    }
+    if (preview.mode === "move" && preview.sourceSlotId) {
+      setPanelState((current) => movePanelSlotToGridRect(
+        current,
+        preview.sourceSlotId!,
+        preview.gridRect,
+        viewportSizeRef.current,
+        layoutMetricsRef.current
+      ));
+      return;
+    }
+    if (preview.mode === "resize" && preview.sourceSlotId) {
+      setPanelState((current) => applyPanelResizeWithYield(
+        current,
+        resolvePanelResizeWithYield(current, preview.sourceSlotId!, preview.gridRect),
+        viewportSizeRef.current,
+        layoutMetricsRef.current
+      ));
+      return;
+    }
+    if (preview.mode === "swap" && preview.sourceSlotId && preview.targetSlotId) {
+      setPanelState((current) => swapPanelContents(
+        current,
+        preview.sourceSlotId!,
+        preview.targetSlotId!,
+        viewportSizeRef.current,
+        layoutMetricsRef.current
+      ));
+      return;
+    }
+    if (preview.mode === "add" && preview.kind) {
+      setPanelState((current) => addPanelAtPreview(current, preview, activeSymbol, viewportSizeRef.current, layoutMetricsRef.current));
+      return;
+    }
+    if (preview.mode === "replace" && preview.kind && preview.targetSlotId) {
+      setPanelState((current) => replacePanelSlotKind(
+        current,
+        preview.targetSlotId!,
+        preview.kind!,
+        viewportSizeRef.current,
+        { symbol: preview.kind === "chart" || preview.kind === "company" ? activeSymbol : undefined },
+        layoutMetricsRef.current
+      ));
+    }
+  }, [activeSymbol, setPanelState]);
+
+  const resolveEditDragPreview = useCallback((drag: LayoutDrag, clientX: number, clientY: number): LayoutPreview | null => {
+    if (drag.mode === "boundary") {
+      return null;
+    }
+    const viewport = viewportSizeRef.current;
+    const metrics = layoutMetricsRef.current;
+    const cell = panelGridCellFromPointSafe(viewport, clientX, clientY, metrics);
+    if (!cell) {
+      return null;
+    }
+    const state = panelStateRef.current;
+    if (drag.mode === "palette") {
+      const target = slotAtGridCell(state, cell);
+      if (target) {
+        const gridRect = expandGridRectForKind(state, target.gridRect, drag.kind, target.id) ?? target.gridRect;
+        const valid = Boolean(expandGridRectForKind(state, target.gridRect, drag.kind, target.id));
+        return {
+          gridRect,
+          kind: drag.kind,
+          targetSlotId: target.id,
+          mode: "replace",
+          valid,
+          label: `${panelPaletteEntryLabel(drag.kind)}로 변경`
+        };
+      }
+      const dropPlan = resolvePanelDropGridRect(state, drag.kind, cell);
+      return {
+        gridRect: dropPlan.gridRect,
+        kind: drag.kind,
+        mode: "add",
+        valid: dropPlan.valid,
+        label: `${panelPaletteEntryLabel(drag.kind)} 추가`
+      };
+    }
+    if (drag.mode === "edit-move") {
+      const source = state.slots.find((slot) => slot.id === drag.sourceSlotId);
+      const kind = source ? state.contents[source.contentId]?.kind : null;
+      if (!source || !kind) {
+        return null;
+      }
+      const target = slotAtGridCell(state, cell, source.id);
+      if (target) {
+        return {
+          gridRect: target.gridRect,
+          sourceSlotId: source.id,
+          targetSlotId: target.id,
+          mode: "swap",
+          valid: true,
+          label: `${state.contents[source.contentId]?.title ?? "패널"} 위치 교체`
+        };
+      }
+      const dropPlan = sourceGridRectContainsCell(source.gridRect, cell)
+        ? { valid: true, gridRect: source.gridRect }
+        : resolvePanelDropGridRect(state, kind, cell, {
+          exceptSlotId: source.id,
+          preferredSpan: { colSpan: source.gridRect.colSpan, rowSpan: source.gridRect.rowSpan }
+        });
+      return {
+        gridRect: dropPlan.gridRect,
+        sourceSlotId: source.id,
+        mode: "move",
+        valid: dropPlan.valid,
+        label: "패널 이동"
+      };
+    }
+    const source = state.slots.find((slot) => slot.id === drag.sourceSlotId);
+    const kind = source ? state.contents[source.contentId]?.kind : null;
+    if (!source || !kind) {
+      return null;
+    }
+    const gridRect = resizeGridRectFromCell(drag.startGridRect, drag.direction, cell);
+    const resizePlan = resolvePanelResizeWithYield(state, source.id, gridRect);
+    return {
+      gridRect: resizePlan.sourceGridRect,
+      sourceSlotId: source.id,
+      yieldedSlots: resizePlan.yieldedSlots,
+      mode: "resize",
+      valid: resizePlan.valid,
+      label: resizePlan.valid && resizePlan.yieldedSlots.length ? "크기 변경 / 자리 양보" : "크기 변경"
+    };
+  }, []);
+
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     const drag = dragRef.current;
-    if (drag?.mode === "swap" && event) {
-      const target = hitTestSwappableSlot(panelStateRef.current, event.clientX, event.clientY, drag.sourceSlotId);
-      if (target) {
-        setPanelState((current) => swapPanelContents(current, drag.sourceSlotId, target.id, viewportSizeRef.current, layoutMetricsRef.current));
+    if (drag && drag.mode !== "boundary" && event) {
+      const preview = layoutPreview ?? resolveEditDragPreview(drag, event.clientX, event.clientY);
+      if (preview) {
+        commitLayoutPreview(preview);
       }
     }
     dragRef.current = null;
-    setActiveBoundaryId(addMenu?.boundaryId ?? null);
+    setActiveBoundaryId(null);
     setDraggingSlotId(null);
     setIsLayoutResizing(false);
-  }, [addMenu?.boundaryId, setPanelState]);
+    setLayoutPreview(null);
+  }, [commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
 
   const applyLayoutDrag = useCallback((clientX: number, clientY: number, viewport: ViewportSize) => {
     const drag = dragRef.current;
-    if (!drag || drag.mode === "swap") {
+    if (!drag) {
+      return;
+    }
+    if (drag.mode !== "boundary") {
+      setLayoutPreview(resolveEditDragPreview(drag, clientX, clientY));
       return;
     }
     const delta = drag.orientation === "vertical" ? clientX - drag.startX : clientY - drag.startY;
-    setPanelState(resizePanelBoundary(drag.startState, drag.boundaryId, delta, viewport, layoutMetricsRef.current));
-  }, [setPanelState]);
+    setPanelState(resizeFreeformBoundary(drag.startState, drag.boundaryId, delta, viewport, layoutMetricsRef.current));
+  }, [resolveEditDragPreview, setPanelState]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -210,35 +385,9 @@ export function PanelWorkspace({
     };
   }, [applyLayoutDrag, finishLayoutDrag]);
 
-  useEffect(() => {
-    if (!addMenu) {
-      return;
-    }
-
-    const closeAddMenuOnOutsidePointer = (event: PointerEvent) => {
-      if (
-        event.target instanceof Element &&
-        (event.target.closest(".panel-add-menu") || event.target.closest(".panel-boundary-add"))
-      ) {
-        return;
-      }
-      setAddMenu(null);
-      setActiveBoundaryId(null);
-    };
-
-    window.addEventListener("pointerdown", closeAddMenuOnOutsidePointer, true);
-    return () => {
-      window.removeEventListener("pointerdown", closeAddMenuOnOutsidePointer, true);
-    };
-  }, [addMenu]);
-
   const beginBoundaryResize = (boundary: PanelBoundary) => (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
-    setAddMenu(null);
     setActiveBoundaryId(boundary.id);
-    if (boundary.interaction !== "resize") {
-      return;
-    }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setIsLayoutResizing(true);
     dragRef.current = {
@@ -251,15 +400,65 @@ export function PanelWorkspace({
     };
   };
 
-  const beginPanelSwap = (slotId: PanelSlotId) => (event: ReactPointerEvent<HTMLElement>) => {
+  const beginPanelEditMove = (slotId: PanelSlotId) => (event: ReactPointerEvent<HTMLElement>) => {
+    if (!layoutEditMode || event.button !== 0) {
+      return;
+    }
+    if (event.target instanceof Element && event.target.closest(".panel-edit-button")) {
+      return;
+    }
+    const slot = panelStateRef.current.slots.find((item) => item.id === slotId);
+    if (!slot) {
+      return;
+    }
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    setAddMenu(null);
+    const cell = panelGridCellFromPointSafe(viewportSizeRef.current, event.clientX, event.clientY, layoutMetricsRef.current);
     setDraggingSlotId(slotId);
-    dragRef.current = {
-      mode: "swap",
-      sourceSlotId: slotId
+    const drag: LayoutDrag = {
+      mode: "edit-move",
+      sourceSlotId: slotId,
+      offsetCol: cell ? Math.max(0, cell.col - slot.gridRect.col) : 0,
+      offsetRow: cell ? Math.max(0, cell.row - slot.gridRect.row) : 0
     };
+    dragRef.current = drag;
+    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+  };
+
+  const beginPanelResize = (slotId: PanelSlotId, direction: ResizeDirection) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!layoutEditMode || event.button !== 0) {
+      return;
+    }
+    const slot = panelStateRef.current.slots.find((item) => item.id === slotId);
+    if (!slot) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDraggingSlotId(slotId);
+    const drag: LayoutDrag = {
+      mode: "edit-resize",
+      sourceSlotId: slotId,
+      direction,
+      startGridRect: slot.gridRect
+    };
+    dragRef.current = drag;
+    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+  };
+
+  const beginPaletteDrag = (kind: PanelContentKind) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!layoutEditMode || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const drag: LayoutDrag = {
+      mode: "palette",
+      kind
+    };
+    dragRef.current = drag;
+    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
   };
 
   const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -273,38 +472,6 @@ export function PanelWorkspace({
     } catch {
       // Pointer capture can be released by the browser when a drag leaves the element.
     }
-  };
-
-  const openBoundaryAddMenu = (boundary: PanelBoundary, event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    const options = insertOptionsForBoundary(panelState, boundary.id, viewportSize, layoutMetrics);
-    if (!options.length) {
-      return;
-    }
-    const position = boundaryAddMenuPosition(boundary, options.length, viewportSize, layoutGutter);
-    setAddMenu({
-      boundaryId: boundary.id,
-      left: position.left,
-      top: position.top,
-      options
-    });
-    setActiveBoundaryId(boundary.id);
-  };
-
-  const insertPanel = (option: BoundaryInsertOption) => {
-    if (!addMenu) {
-      return;
-    }
-    setPanelState((current) => insertPanelAtBoundary(
-      current,
-      addMenu.boundaryId,
-      option.kind,
-      viewportSizeRef.current,
-      { symbol: option.kind === "chart" || option.kind === "company" ? activeSymbol : undefined },
-      layoutMetricsRef.current
-    ));
-    setAddMenu(null);
-    setActiveBoundaryId(null);
   };
 
   const closePanel = (slotId: PanelSlotId) => {
@@ -325,7 +492,6 @@ export function PanelWorkspace({
       onChartHandleChange(closing.contentId, null);
     }
     setHoveredChartSlotId((current) => current === slotId ? null : current);
-    setAddMenu(null);
     setActiveBoundaryId(null);
   };
 
@@ -380,6 +546,42 @@ export function PanelWorkspace({
     setChartAddTargetContentId((current) => current === contentId ? null : contentId);
   };
 
+  const renderPanelEditControls = (slotId: PanelSlotId, content: PanelContentInstance) => {
+    if (!layoutEditMode) {
+      return null;
+    }
+    return (
+      <div className="panel-edit-overlay" aria-label={`${content.title || "차트"} 편집 컨트롤`}>
+        <div className="panel-edit-snapshot-shield" aria-hidden="true" />
+        {resizeDirections.map((direction) => (
+          <button
+            key={direction}
+            type="button"
+            className={`panel-edit-button panel-resize-handle ${direction}`}
+            aria-label={`${content.title || "차트"} ${resizeDirectionLabel(direction)} 크기 조절`}
+            title="크기 조절"
+            onPointerDown={beginPanelResize(slotId, direction)}
+            onPointerMove={updateDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {resizeDirectionIcon(direction)}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="panel-edit-button panel-delete-button"
+          aria-label={`${content.title || "차트"} 패널 삭제`}
+          title="패널 삭제"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => closePanel(slotId)}
+        >
+          <Trash2 size={15} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  };
+
   const drawingTarget = drawingTargetContentId
     ? targetChartForContentId(panelState, chartRuntime, drawingTargetContentId)
     : null;
@@ -389,10 +591,16 @@ export function PanelWorkspace({
 
   return (
     <>
+      {layoutEditMode && (
+        <div className="workspace-edit-grid" aria-hidden="true">
+          {workspaceGridCells(viewportSize, layoutMetrics).map((cell) => (
+            <span key={`${cell.col}-${cell.row}`} className="workspace-edit-grid-cell" style={cell.style} />
+          ))}
+        </div>
+      )}
       {panelState.slots.map((slot) => {
         const content = panelState.contents[slot.contentId];
         const isChart = content.kind === "chart";
-        const isLastPanel = panelState.slots.length <= 1;
         const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
         const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
@@ -409,21 +617,20 @@ export function PanelWorkspace({
               isChart && slot.rect.left > 1 ? "has-left-boundary" : "",
               isChart && slot.rect.left + slot.rect.width < viewportSize.width - 1 ? "has-right-boundary" : "",
               draggingSlotId === slot.id ? "is-panel-content-dragging" : "",
-              isLayoutResizing ? "is-layout-resizing" : ""
+              isLayoutResizing ? "is-layout-resizing" : "",
+              layoutEditMode ? "is-layout-editing" : ""
             ].filter(Boolean).join(" ")}
             isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
             isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
             showNav={!isChart}
-            canSwap
-            canClose={!isChart && !isLastPanel}
-            onClose={closePanel}
-            onSwapPointerDown={beginPanelSwap}
+            onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
             onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
             onPointerLeave={() => {
               if (isChart && !dragRef.current) {
                 setChartSlotHover(slot.id, false);
               }
             }}
+            editControls={renderPanelEditControls(slot.id, content)}
           >
             <PanelContentRenderer
               slot={slot}
@@ -440,7 +647,6 @@ export function PanelWorkspace({
               chartDataStatus={chartDataStatus}
               chartStreamStatus={chartStreamStatus}
               chartStreamMessage={chartStreamMessage}
-              canClose={!isLastPanel}
               chartDrawingActive={drawingTargetContentId === content.id}
               chartAddActive={chartAddTargetContentId === content.id}
               selectedAgentReferenceKeys={selectedAgentReferenceKeys}
@@ -453,71 +659,86 @@ export function PanelWorkspace({
               onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
               onChartAddToggle={() => toggleChartAddTarget(content.id)}
               onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
-              onClosePanel={closePanel}
               onChangePanelChartSymbol={changePanelChartSymbol}
               onSelectSymbol={onSelectSymbol}
-              onChartSwapPointerDown={beginPanelSwap(slot.id)}
             />
           </WorkspacePanelFrame>
         );
       })}
-      {panelBoundaries.map((boundary) => {
-        const canAdd = canInsertPanelAtBoundary(panelState, boundary.id, viewportSize, undefined, layoutMetrics);
-        return (
+      {!layoutEditMode && panelBoundaries.map((boundary) => (
+        <div
+          key={boundary.id}
+          className={[
+            "panel-boundary",
+            boundary.orientation,
+            "can-resize",
+            activeBoundaryId === boundary.id ? "is-active" : ""
+          ].join(" ")}
+          style={boundaryStyle(boundary)}
+          role="separator"
+          aria-orientation={boundary.orientation === "vertical" ? "vertical" : "horizontal"}
+          onPointerEnter={() => setActiveBoundaryId(boundary.id)}
+          onPointerLeave={() => {
+            if (!dragRef.current) {
+              setActiveBoundaryId(null);
+            }
+          }}
+          onPointerDown={beginBoundaryResize(boundary)}
+          onPointerMove={(event) => {
+            setActiveBoundaryId(boundary.id);
+            updateDrag(event);
+          }}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        />
+      ))}
+      {layoutPreview && (
+        <>
+          {layoutPreview.valid && layoutPreview.yieldedSlots?.map((yielded) => (
+            <div
+              key={`yield-${yielded.slotId}`}
+              className="layout-edit-preview is-yielded"
+              style={panelRectForGridRect(yielded.gridRect, viewportSize, layoutMetrics)}
+              aria-hidden="true"
+            >
+              <span>자리 양보</span>
+            </div>
+          ))}
           <div
-            key={boundary.id}
             className={[
-              "panel-boundary",
-              boundary.orientation,
-              boundary.interaction === "resize" ? "can-resize" : "is-insert-only",
-              canAdd ? "has-add" : "",
-              boundary.pageEdge ? "is-page-edge" : "",
-              activeBoundaryId === boundary.id ? "is-active" : ""
+              "layout-edit-preview",
+              layoutPreview.valid ? "is-valid" : "is-invalid",
+              `mode-${layoutPreview.mode}`
             ].join(" ")}
-            style={boundaryStyle(boundary)}
-            role="separator"
-            aria-orientation={boundary.orientation === "vertical" ? "vertical" : "horizontal"}
-            onPointerEnter={() => setActiveBoundaryId(boundary.id)}
-            onPointerLeave={() => {
-              if (!dragRef.current && addMenu?.boundaryId !== boundary.id) {
-                setActiveBoundaryId(null);
-              }
-            }}
-            onPointerDown={beginBoundaryResize(boundary)}
-            onPointerMove={(event) => {
-              setActiveBoundaryId(boundary.id);
-              updateDrag(event);
-            }}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            style={panelRectForGridRect(layoutPreview.gridRect, viewportSize, layoutMetrics)}
+            aria-hidden="true"
           >
-            {canAdd && (
-              <button
-                type="button"
-                className="panel-boundary-add"
-                aria-label="패널 추가"
-                title="패널 추가"
-                onPointerDown={(event) => event.stopPropagation()}
-                onPointerEnter={() => setActiveBoundaryId(boundary.id)}
-                onPointerMove={() => setActiveBoundaryId(boundary.id)}
-                onClick={(event) => openBoundaryAddMenu(boundary, event)}
-              >
-                <span className="panel-boundary-add-glyph" aria-hidden="true" />
-              </button>
-            )}
+            <span>
+              {!layoutPreview.valid && <X size={12} aria-hidden="true" />}
+              {layoutPreview.label}
+            </span>
           </div>
-        );
-      })}
-      {addMenu && (
-        <div className="panel-add-menu surface-floating" style={{ left: addMenu.left, top: addMenu.top }} onPointerDown={(event) => event.stopPropagation()}>
-          {addMenu.options.map((option) => (
-            <button key={option.kind} type="button" onClick={() => insertPanel(option)}>
-              {option.title}
+        </>
+      )}
+      {layoutEditMode && (
+        <div className="layout-palette-dock" aria-label="패널 추가 Dock">
+          {panelPaletteEntries().map((entry) => (
+            <button
+              key={entry.kind}
+              type="button"
+              className="layout-palette-button surface-raised"
+              onPointerDown={beginPaletteDrag(entry.kind)}
+              onPointerMove={updateDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
+              <Grip size={13} aria-hidden="true" />
+              <span>{panelPaletteEntryLabel(entry.kind)}</span>
             </button>
           ))}
         </div>
       )}
-      {(drawingTarget || chartAddTarget) && (
+      {!layoutEditMode && (drawingTarget || chartAddTarget) && (
         <div className="chart-tool-dock-row" aria-label="Chart tool docks">
           {chartAddTarget && (
             <ChartAddDock
@@ -541,6 +762,107 @@ export function PanelWorkspace({
       )}
     </>
   );
+}
+
+function panelGridCellFromPointSafe(
+  viewport: ViewportSize,
+  clientX: number,
+  clientY: number,
+  layoutMetrics: WorkspaceLayoutMetrics
+) {
+  const metrics = panelGridMetrics(viewport, layoutMetrics);
+  const right = metrics.left + metrics.cols * metrics.stepX - metrics.gutter;
+  const bottom = metrics.top + metrics.rows * metrics.stepY - metrics.gutter;
+  if (clientX < metrics.left || clientX > right || clientY < metrics.top || clientY > bottom) {
+    return null;
+  }
+  return {
+    col: Math.max(1, Math.min(metrics.cols, Math.floor((clientX - metrics.left) / metrics.stepX) + 1)),
+    row: Math.max(1, Math.min(metrics.rows, Math.floor((clientY - metrics.top) / metrics.stepY) + 1))
+  };
+}
+
+function resizeGridRectFromCell(
+  start: PanelGridRect,
+  direction: ResizeDirection,
+  cell: { col: number; row: number }
+): PanelGridRect {
+  const left = direction.includes("w") ? Math.min(cell.col, start.col + start.colSpan - 1) : start.col;
+  const right = direction.includes("e") ? Math.max(cell.col, start.col) : start.col + start.colSpan - 1;
+  const top = direction.includes("n") ? Math.min(cell.row, start.row + start.rowSpan - 1) : start.row;
+  const bottom = direction.includes("s") ? Math.max(cell.row, start.row) : start.row + start.rowSpan - 1;
+  return {
+    col: left,
+    row: top,
+    colSpan: right - left + 1,
+    rowSpan: bottom - top + 1
+  };
+}
+
+function sourceGridRectContainsCell(rect: PanelGridRect, cell: { col: number; row: number }): boolean {
+  return cell.col >= rect.col &&
+    cell.col < rect.col + rect.colSpan &&
+    cell.row >= rect.row &&
+    cell.row < rect.row + rect.rowSpan;
+}
+
+function addPanelAtPreview(
+  state: TiledPanelState,
+  preview: LayoutPreview,
+  activeSymbol: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): TiledPanelState {
+  if (!preview.kind) {
+    return state;
+  }
+  return addPanelSlotAtGridRect(state, preview.kind, preview.gridRect, {
+    symbol: preview.kind === "chart" || preview.kind === "company" ? activeSymbol : undefined
+  }, viewport, layoutMetrics);
+}
+
+function workspaceGridCells(
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): Array<{ col: number; row: number; style: CSSProperties }> {
+  const cells: Array<{ col: number; row: number; style: CSSProperties }> = [];
+  for (let row = 1; row <= panelGridSpec.rows; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols; col += 1) {
+      cells.push({
+        col,
+        row,
+        style: panelRectForGridRect({ col, row, colSpan: 1, rowSpan: 1 }, viewport, layoutMetrics)
+      });
+    }
+  }
+  return cells;
+}
+
+function resizeDirectionLabel(direction: ResizeDirection): string {
+  return {
+    n: "위쪽",
+    ne: "오른쪽 위",
+    e: "오른쪽",
+    se: "오른쪽 아래",
+    s: "아래쪽",
+    sw: "왼쪽 아래",
+    w: "왼쪽",
+    nw: "왼쪽 위"
+  }[direction];
+}
+
+function resizeDirectionIcon(direction: ResizeDirection) {
+  const size = 12;
+  return {
+    n: <ArrowUp size={size} aria-hidden="true" />,
+    ne: <ArrowUpRight size={size} aria-hidden="true" />,
+    e: <ArrowRight size={size} aria-hidden="true" />,
+    se: <ArrowDownRight size={size} aria-hidden="true" />,
+    s: <ArrowDown size={size} aria-hidden="true" />,
+    sw: <ArrowDownLeft size={size} aria-hidden="true" />,
+    w: <ArrowLeft size={size} aria-hidden="true" />,
+    nw: <ArrowUpLeft size={size} aria-hidden="true" />
+  }[direction];
 }
 
 function targetChartForContentId(

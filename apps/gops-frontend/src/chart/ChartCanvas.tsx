@@ -145,6 +145,7 @@ function drawChart(
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
     () => drawDrawingLabelsOnAxes(context, scene),
+    () => drawCurrentPriceMarker(context, scene),
     () => drawCrosshair(context, scene, crosshair),
     () => drawDrawings(context, scene, scene.chart.drawings, false),
     () => drawDrawings(context, scene, previewDrawings, true)
@@ -1457,6 +1458,28 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
   });
 }
 
+function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const latest = scene.chart.candles.at(-1);
+  if (!latest || !Number.isFinite(latest.close)) {
+    return;
+  }
+  const y = priceToY(scene, latest.close);
+  if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = colors.signal;
+  context.globalAlpha = 0.82;
+  context.lineWidth = 1;
+  context.setLineDash([2, 4]);
+  line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
+  context.globalAlpha = 1;
+  context.setLineDash([]);
+  drawAxisPill(context, latest.close.toFixed(2), scene.width - 8, y, "right", "currentPrice");
+  context.restore();
+}
+
 function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
   const ticks = buildTimeTicks(scene);
   if (!ticks.length) {
@@ -1807,7 +1830,8 @@ function drawAxisPill(
   text: string,
   x: number,
   y: number,
-  align: "center" | "left" | "right"
+  align: "center" | "left" | "right",
+  variant: "default" | "currentPrice" = "default"
 ) {
   context.font = "10px Inter, system-ui, sans-serif";
   const metrics = context.measureText(text);
@@ -1815,13 +1839,13 @@ function drawAxisPill(
   const height = 17;
   const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
   const top = y - height / 2;
-  context.fillStyle = colors.surfaceStrong;
-  context.strokeStyle = colors.border;
+  context.fillStyle = variant === "currentPrice" ? colors.signal : colors.surfaceStrong;
+  context.strokeStyle = variant === "currentPrice" ? colors.signal : colors.border;
   context.lineWidth = 1;
   roundedRect(context, left, top, width, height, 5);
   context.fill();
   context.stroke();
-  context.fillStyle = colors.text;
+  context.fillStyle = variant === "currentPrice" ? colors.surface : colors.text;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, left + width / 2, y + 0.5);

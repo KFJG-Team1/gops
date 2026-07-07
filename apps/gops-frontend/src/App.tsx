@@ -45,7 +45,12 @@ import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./ch
 import { gridGutter } from "./layout/grid";
 import {
   createInitialTiledPanelState,
+  normalizeFreeformRectsToGridLayout,
+  panelLayoutStorageKey,
+  restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
+  serializeTiledPanelState,
+  setPrimaryChartSymbol,
   type TiledPanelState,
   type ViewportSize,
   type WorkspaceLayoutMetrics
@@ -116,8 +121,22 @@ function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
     return createInitialTiledPanelState({ width: 1280, height: 720 });
   }
+  const viewport = currentViewportSize();
   const initialView = resolveMainViewFromUrl(window.location.href).view;
-  return createInitialTiledPanelState(currentViewportSize(), {
+  try {
+    const stored = window.localStorage.getItem(panelLayoutStorageKey);
+    if (stored) {
+      const restored = restoreTiledPanelStateSnapshot(JSON.parse(stored), viewport);
+      if (restored) {
+        return initialView.mode === "chart"
+          ? setPrimaryChartSymbol(restored, initialView.symbol, viewport)
+          : restored;
+      }
+    }
+  } catch {
+    // Invalid local layout state falls back to the default 8x5 workspace.
+  }
+  return createInitialTiledPanelState(viewport, {
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
   });
 }
@@ -277,6 +296,7 @@ export function App() {
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
+  const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistPersisted, setWatchlistPersisted] = useState(false);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
@@ -306,6 +326,7 @@ export function App() {
     }
     if (nextView.mode === "treemap") {
       chartPanelHandlesRef.current.clear();
+      setLayoutEditMode(false);
     }
     persistMainView(nextView);
     setMainView(nextView);
@@ -456,6 +477,22 @@ export function App() {
       panelLayoutMetrics
     ));
   }, [panelLayoutMetrics]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const normalized = normalizeFreeformRectsToGridLayout(
+        panelState,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      );
+      window.localStorage.setItem(panelLayoutStorageKey, JSON.stringify(serializeTiledPanelState(normalized)));
+    } catch {
+      // Layout edits remain in memory if browser storage is unavailable.
+    }
+  }, [panelState]);
 
   useEffect(() => {
     if (authLoading) {
@@ -633,11 +670,12 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    panelLayoutMetricsRef.current = chartPanelLayoutMetrics(false);
-    setPanelState(createInitialTiledPanelState(viewportSizeRef.current, {
-      symbol: normalizedSymbol,
-      layoutMetrics: panelLayoutMetricsRef.current
-    }));
+    setPanelState((current) => setPrimaryChartSymbol(
+      current,
+      normalizedSymbol,
+      viewportSizeRef.current,
+      panelLayoutMetricsRef.current
+    ));
     navigateMainView(nextView, { replace: options.replace });
   }, [navigateMainView]);
 
@@ -721,6 +759,21 @@ export function App() {
       return;
     }
     setActiveBottomMenu((current) => (current === key ? null : key));
+  };
+
+  const toggleLayoutEditMode = () => {
+    if (mainView.mode !== "chart") {
+      return;
+    }
+    setActiveBottomMenu(null);
+    if (!layoutEditMode) {
+      setPanelState((current) => normalizeFreeformRectsToGridLayout(
+        current,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      ));
+    }
+    setLayoutEditMode((current) => !current);
   };
 
   const cancelActiveAgentRun = useCallback(() => {
@@ -1135,6 +1188,7 @@ export function App() {
             setPanelState={setPanelState}
             viewportSize={viewportSize}
             layoutMetrics={panelLayoutMetrics}
+            layoutEditMode={layoutEditMode}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
             companyItems={treeMapItems}
@@ -1168,6 +1222,7 @@ export function App() {
         canEditWatchlist={canEditWatchlist}
         activeSymbol={activePageSymbol}
         isChartMode={mainView.mode === "chart"}
+        layoutEditMode={layoutEditMode}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentReferencesClear={clearAgentReferences}
@@ -1180,6 +1235,7 @@ export function App() {
         onRemoveWatchlistSymbol={removeWatchlistSymbol}
         onSelectSymbol={openSymbolPage}
         onShowTreeMap={showTreeMap}
+        onToggleLayoutEditMode={toggleLayoutEditMode}
         onToggleMenu={toggleBottomMenu}
       />
     </main>
