@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChartSymbolDto } from "../chart/types";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 type SymbolSearchProps = {
   symbols: ChartSymbolDto[];
@@ -271,11 +272,13 @@ export function SymbolSearch({
                 selectSymbol(symbol);
               }}
             >
+              <StockLogo symbol={symbol.symbol} companyName={symbol.name} size="xs" />
               <strong>{symbol.symbol}</strong>
               <span>{symbol.name}</span>
             </button>
           ))}
           {!filteredSymbols.length && <p>검색 결과 없음</p>}
+          <LogoDevAttribution className="symbol-search-attribution" />
         </div>,
         document.body
       )}

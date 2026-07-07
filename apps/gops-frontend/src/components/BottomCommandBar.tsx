@@ -8,6 +8,7 @@ import type { ChartSymbolDto } from "../chart/types";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 export type BottomMenuKey = "I" | "II" | "III" | "IV" | "V" | "VI";
 export type ChatLogEntry = {
@@ -970,8 +971,11 @@ function bottomMenuContent({
                     onClose();
                   }}
                 >
-                  <strong>{item.symbol}</strong>
-                  <span>{item.name}</span>
+                  <StockLogo symbol={item.symbol} companyName={item.name} size="xs" />
+                  <span className="bottom-watchlist-copy">
+                    <strong>{item.symbol}</strong>
+                    <span>{item.name}</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -994,6 +998,7 @@ function bottomMenuContent({
             {!watchlistLoading && watchlistSymbols.length === 0 && (
               <p className="bottom-menu-empty">관심종목이 없습니다.</p>
             )}
+            <LogoDevAttribution className="bottom-watchlist-attribution" />
           </div>
         </div>
       );

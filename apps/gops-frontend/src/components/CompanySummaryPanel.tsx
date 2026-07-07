@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 type CompanySummaryPanelProps = {
   symbol: string;
@@ -113,7 +114,10 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
       <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
         <header className="company-info-heading">
           <span>기업정보</span>
-          <strong>{companyName}</strong>
+          <strong>
+            <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
+            <span>{companyName}</span>
+          </strong>
           <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
         </header>
         <dl className="company-info-grid">
@@ -152,6 +156,7 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
           ? "시가총액은 현재가와 발행주식수로 계산합니다."
           : "재무 데이터가 없으면 기준 유니버스 값을 임시로 표시합니다."}
       </p>
+      <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
 }
