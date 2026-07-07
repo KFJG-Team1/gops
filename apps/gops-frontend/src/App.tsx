@@ -417,6 +417,9 @@ export function App() {
   const chartDocumentSymbolsByPanelId = useMemo(() => (
     chartDocumentSymbolsForLayout(panelState, chartRuntime)
   ), [chartRuntime, panelState]);
+  const hasMultipleChartPanels = useMemo(() => (
+    panelState.slots.filter((slot) => panelState.contents[slot.contentId]?.kind === "chart").length >= 2
+  ), [panelState]);
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
   const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
   const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
@@ -949,7 +952,7 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence);
+        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence, report);
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
@@ -1006,7 +1009,7 @@ export function App() {
   return (
     <main className="app-shell">
       {mainView.mode === "chart" && (
-        <header className="workspace-top-nav chart" aria-label="Workspace header">
+        <header className={`workspace-top-nav chart ${hasMultipleChartPanels ? "is-hidden" : ""}`} aria-label="Workspace header">
           <div className={`header-quote-stack ${activeHeaderQuote?.tone ?? "unavailable"}`} aria-label="Live quote">
             <span className="quote-percent">{activeHeaderQuote?.percentText ?? "-"}</span>
             <span className="quote-price-line">
@@ -1295,11 +1298,12 @@ function replaceChatLogEntry(
   setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
   entryId: string,
   text: string,
-  confidence?: number
+  confidence?: number,
+  analysisReport?: ChatLogEntry["analysisReport"]
 ) {
   setChatLog((current) => current.map((entry) => (
     entry.id === entryId
-      ? { ...entry, text, pending: false, confidence }
+      ? { ...entry, text, pending: false, confidence, analysisReport }
       : entry
   )));
 }
