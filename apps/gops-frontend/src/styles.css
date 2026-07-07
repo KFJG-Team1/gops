@@ -1679,6 +1679,211 @@ h2 {
   font-weight: 800;
 }
 
+.chart-compare-panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-background) 94%, var(--color-surface));
+  color: var(--color-text);
+}
+
+.chart-compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.chart-compare-header > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chart-compare-header strong {
+  font-family: var(--font-ui-serif);
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.chart-compare-header span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.chart-compare-range-tabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+}
+
+.chart-compare-range-tabs button {
+  min-width: 38px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-ui-sans);
+  font-size: 12px;
+  font-weight: 780;
+  letter-spacing: 0;
+}
+
+.chart-compare-range-tabs button.active {
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.chart-compare-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 250px;
+}
+
+.chart-compare-grid {
+  stroke: color-mix(in srgb, var(--color-grid) 82%, transparent);
+  stroke-width: 1;
+}
+
+.chart-compare-grid.subtle {
+  opacity: 0.62;
+}
+
+.chart-compare-zero {
+  stroke: color-mix(in srgb, var(--color-axis) 82%, transparent);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 6;
+}
+
+.chart-compare-axis-label {
+  fill: var(--color-muted);
+  font-family: var(--font-ui-sans);
+  font-size: 13px;
+  font-weight: 660;
+}
+
+.chart-compare-line {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-compare-line-label {
+  font-family: var(--font-ui-sans);
+  font-size: 12px;
+  font-weight: 820;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--color-background) 78%, transparent);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.chart-compare-empty {
+  fill: var(--color-muted);
+  font-family: var(--font-ui-sans);
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.chart-compare-list {
+  display: grid;
+  max-height: 180px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.chart-compare-list-row {
+  display: grid;
+  grid-template-columns: 6px minmax(120px, 1fr) minmax(82px, auto) minmax(88px, auto) minmax(72px, auto) 38px;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 7px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
+  font-family: var(--font-ui-sans);
+  font-size: 13px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-compare-list-row.error {
+  color: var(--color-muted);
+}
+
+.chart-compare-row-swatch {
+  width: 5px;
+  height: 38px;
+  border-radius: 999px;
+}
+
+.chart-compare-row-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chart-compare-row-name strong,
+.chart-compare-row-name span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-compare-row-name strong {
+  font-size: 15px;
+  color: var(--color-text);
+}
+
+.chart-compare-row-name span,
+.chart-compare-row-anchor {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chart-compare-list-row .up {
+  color: var(--color-change-up);
+}
+
+.chart-compare-list-row .down {
+  color: var(--color-change-down);
+}
+
+.chart-compare-list-row .flat {
+  color: var(--color-muted);
+}
+
+.chart-compare-list-row button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.chart-compare-list-row button:hover {
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+
 .semantic-expansion-close {
   position: absolute;
   z-index: 5;
@@ -2294,6 +2499,16 @@ h2 {
 
 .company-fundamental-section {
   gap: 11px;
+  --company-positive-strong: #2f7137;
+  --company-positive: #6f9a70;
+  --company-positive-soft: #9fb89c;
+  --company-negative-strong: #bd342b;
+  --company-negative: #d8796d;
+  --company-negative-soft: #dea196;
+  --company-neutral: #aaa99d;
+  --company-neutral-soft: #d8d5c7;
+  --company-brass: #b8862f;
+  --company-clay: #c99886;
 }
 
 .company-fundamental-section h2 {
@@ -2353,100 +2568,128 @@ h2 {
 }
 
 .company-valuation-gauge {
-  position: relative;
   display: grid;
-  place-items: center;
-  min-height: 146px;
+  align-content: space-between;
+  min-height: 118px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgb(var(--gops-ink-rgb) / 0.11);
   border-radius: 8px;
-  background:
-    radial-gradient(circle at 50% 44%, rgb(var(--gops-ink-rgb) / 0.055), transparent 48%),
-    rgb(var(--gops-ink-rgb) / 0.012);
-  padding: 12px 8px 10px;
+  background: rgb(var(--gops-ink-rgb) / 0.012);
+  box-shadow: inset 0 0 0 999px rgb(var(--gops-ink-rgb) / 0.006);
+  padding: 12px 13px 11px;
 }
 
-.company-valuation-gauge svg {
-  width: 86px;
-  height: 86px;
-  transform: rotate(-90deg);
+.company-valuation-card {
+  border-left: 3px solid rgb(var(--gops-ink-rgb) / 0.34);
 }
 
-.company-gauge-track,
-.company-gauge-value {
-  fill: none;
-  stroke-linecap: round;
-  stroke-width: 8;
+.company-valuation-card.good {
+  border-left-color: var(--company-positive);
 }
 
-.company-gauge-track {
-  stroke: rgb(var(--gops-ink-rgb) / 0.13);
+.company-valuation-card.watch {
+  border-left-color: var(--company-brass);
 }
 
-.company-gauge-value {
-  stroke: rgb(var(--gops-ink-rgb) / 0.88);
-  transition: stroke-dashoffset 220ms ease;
+.company-valuation-card.risk {
+  border-left-color: var(--company-negative);
 }
 
-.company-gauge-center {
-  position: absolute;
-  top: 38px;
-  left: 8px;
-  right: 8px;
-  display: grid;
-  place-items: center;
-  gap: 2px;
-  text-align: center;
+.company-valuation-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 
-.company-gauge-center strong {
-  max-width: 88px;
+.company-valuation-card-top span {
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.1;
+}
+
+.company-valuation-card-top em {
+  flex: 0 0 auto;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.14);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 720;
+  line-height: 1;
+}
+
+.company-valuation-card.good .company-valuation-card-top em {
+  border-color: color-mix(in srgb, var(--company-positive) 42%, transparent);
+  color: var(--company-positive-strong);
+}
+
+.company-valuation-card.watch .company-valuation-card-top em {
+  border-color: color-mix(in srgb, var(--company-brass) 46%, transparent);
+  color: #7b5a21;
+}
+
+.company-valuation-card.risk .company-valuation-card-top em {
+  border-color: color-mix(in srgb, var(--company-negative) 42%, transparent);
+  color: var(--company-negative-strong);
+}
+
+.company-valuation-card > strong {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-data-sans);
-  font-size: 13px;
-  font-weight: 760;
-  line-height: 1.05;
+  font-size: clamp(19px, 2.1vw, 26px);
+  font-weight: 820;
+  line-height: 1.02;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.company-gauge-center span,
 .company-valuation-gauge p {
   color: var(--color-muted);
   font-family: var(--font-data-sans);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 680;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .company-valuation-gauge p {
-  margin: 4px 0 0;
-  text-align: center;
+  margin: 8px 0 0;
+  text-align: left;
 }
 
-.company-profitability-card {
+.company-financial-chart-card {
   display: grid;
+  grid-template-rows: 42px minmax(178px, auto) 22px minmax(150px, auto);
   gap: 8px;
   min-width: 0;
   overflow: hidden;
 }
 
-.company-profitability-copy {
+.company-financial-chart-copy {
   display: grid;
   gap: 4px;
   min-width: 0;
-  min-height: 36px;
+  min-height: 42px;
+  align-content: start;
 }
 
-.company-profitability-copy strong {
+.company-financial-chart-copy strong {
   color: var(--color-text);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 760;
+  line-height: 1.1;
 }
 
-.company-profitability-copy span {
+.company-financial-chart-copy span {
   overflow: hidden;
   color: var(--color-muted);
   font-family: var(--font-data-sans);
@@ -2496,18 +2739,18 @@ h2 {
 }
 
 .company-profitability-bar.revenue {
-  fill: #2f67d8;
+  fill: var(--company-positive-strong);
   opacity: 0.92;
 }
 
 .company-profitability-bar.net-income {
-  fill: #6aa2f0;
+  fill: var(--company-positive-soft);
   opacity: 0.42;
 }
 
 .company-profitability-margin-line {
   fill: none;
-  stroke: #f3be38;
+  stroke: var(--company-brass);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -2516,7 +2759,7 @@ h2 {
 
 .company-profitability-margin-dot {
   fill: var(--color-surface);
-  stroke: #f3be38;
+  stroke: var(--company-brass);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
@@ -2547,63 +2790,31 @@ h2 {
 }
 
 .company-profitability-legend i.revenue {
-  background: #2f67d8;
+  background: var(--company-positive-strong);
 }
 
 .company-profitability-legend i.net-income {
-  background: #6aa2f0;
+  background: var(--company-positive-soft);
 }
 
 .company-profitability-legend i.margin {
-  border: 2px solid #f3be38;
+  border: 2px solid var(--company-brass);
   background: transparent;
 }
 
-.company-stability-card {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.company-stability-copy {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  min-height: 36px;
-}
-
-.company-stability-copy strong {
-  color: var(--color-text);
-  font-size: 15px;
-  font-weight: 760;
-}
-
-.company-stability-copy span {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-family: var(--font-data-sans);
-  font-size: 11px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .company-stability-bar.equity {
-  fill: #15989b;
+  fill: var(--company-positive);
   opacity: 0.92;
 }
 
 .company-stability-bar.liabilities {
-  fill: #8ad3cf;
+  fill: var(--company-negative-soft);
   opacity: 0.42;
 }
 
 .company-stability-ratio-line {
   fill: none;
-  stroke: #e87319;
+  stroke: var(--company-negative-strong);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -2612,21 +2823,21 @@ h2 {
 
 .company-stability-ratio-dot {
   fill: var(--color-surface);
-  stroke: #e87319;
+  stroke: var(--company-negative-strong);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
 .company-stability-legend i.equity {
-  background: #15989b;
+  background: var(--company-positive);
 }
 
 .company-stability-legend i.liabilities {
-  background: #8ad3cf;
+  background: var(--company-negative-soft);
 }
 
 .company-stability-legend i.debt-ratio {
-  border: 2px solid #e87319;
+  border: 2px solid var(--company-negative-strong);
   background: transparent;
 }
 
@@ -2696,25 +2907,25 @@ h2 {
 
 .company-financial-table tbody th i.revenue,
 .company-financial-table tbody th i.net-income {
-  background: #2f67d8;
+  background: var(--company-positive-strong);
 }
 
 .company-financial-table tbody th i.margin,
 .company-financial-table tbody th i.growth {
-  border: 2px solid #f3be38;
+  border: 2px solid var(--company-brass);
   background: transparent;
 }
 
 .company-financial-table tbody th i.equity {
-  background: #15989b;
+  background: var(--company-positive);
 }
 
 .company-financial-table tbody th i.liabilities {
-  background: #8ad3cf;
+  background: var(--company-negative-soft);
 }
 
 .company-financial-table tbody th i.debt-ratio {
-  border: 2px solid #e87319;
+  border: 2px solid var(--company-negative-strong);
   background: transparent;
 }
 

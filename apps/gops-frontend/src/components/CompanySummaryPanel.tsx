@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
 
@@ -14,7 +14,8 @@ type ValuationMetric = {
   label: string;
   detail: string;
   valueLabel: string;
-  score: number | null;
+  statusLabel: string;
+  tone: "good" | "watch" | "risk" | "neutral";
 };
 
 type FinancialTableRow = {
@@ -230,19 +231,21 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const tablePoints = points.slice(-9);
   if (!points.length) {
     return (
-      <div className="company-profitability-card">
-        <div className="company-profitability-copy">
-          <strong>수익성</strong>
-          <span>재무 시계열 확인 중</span>
-        </div>
+      <FinancialChartShell
+        className="company-profitability-card"
+        title="수익성"
+        subtitle="재무 시계열 확인 중"
+        legend={(
+          <div className="company-profitability-legend" aria-label="수익성 범례">
+            <span><i className="revenue" />매출</span>
+            <span><i className="net-income" />순이익</span>
+            <span><i className="margin" />순이익률</span>
+          </div>
+        )}
+        table={<FinancialSeriesTable points={[]} rows={[]} emptyLabel="수익성 재무 데이터 확인 중" />}
+      >
         <div className="company-profitability-empty-card">재무 시계열 확인 중</div>
-        <div className="company-profitability-legend" aria-label="수익성 범례">
-          <span><i className="revenue" />매출</span>
-          <span><i className="net-income" />순이익</span>
-          <span><i className="margin" />순이익률</span>
-        </div>
-        <FinancialSeriesTable points={[]} rows={[]} emptyLabel="수익성 재무 데이터 확인 중" />
-      </div>
+      </FinancialChartShell>
     );
   }
   const moneyValues = points.flatMap((point) => [point.revenue, point.netIncome]).filter((value): value is number => Number.isFinite(value ?? NaN));
@@ -277,11 +280,19 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const headline = buildProfitabilityHeadline(points);
 
   return (
-    <div className="company-profitability-card">
-      <div className="company-profitability-copy">
-        <strong>수익성</strong>
-        <span>{headline}</span>
-      </div>
+    <FinancialChartShell
+      className="company-profitability-card"
+      title="수익성"
+      subtitle={headline}
+      legend={(
+        <div className="company-profitability-legend" aria-label="수익성 범례">
+          <span><i className="revenue" />매출</span>
+          <span><i className="net-income" />순이익</span>
+          <span><i className="margin" />순이익률</span>
+        </div>
+      )}
+      table={<FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />}
+    >
       <svg className="company-profitability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 수익성 시계열">
         {makeTicks(moneyMin, moneyMax, 5).map((tick) => {
           const y = moneyY(tick);
@@ -333,13 +344,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
             : null;
         })}
       </svg>
-      <div className="company-profitability-legend" aria-label="수익성 범례">
-        <span><i className="revenue" />매출</span>
-        <span><i className="net-income" />순이익</span>
-        <span><i className="margin" />순이익률</span>
-      </div>
-      <FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />
-    </div>
+    </FinancialChartShell>
   );
 }
 
@@ -350,19 +355,21 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const tablePoints = points.slice(-9);
   if (!points.length) {
     return (
-      <div className="company-stability-card">
-        <div className="company-stability-copy">
-          <strong>안정성</strong>
-          <span>부채 · 유동 · 이자보상비율</span>
-        </div>
+      <FinancialChartShell
+        className="company-stability-card"
+        title="안정성"
+        subtitle="부채 · 유동 · 이자보상비율"
+        legend={(
+          <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
+            <span><i className="equity" />총자본</span>
+            <span><i className="liabilities" />총부채</span>
+            <span><i className="debt-ratio" />부채비율</span>
+          </div>
+        )}
+        table={<FinancialSeriesTable points={[]} rows={[]} emptyLabel="안정성 재무 데이터 확인 중" />}
+      >
         <div className="company-profitability-empty-card">안정성 시계열 확인 중</div>
-        <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
-          <span><i className="equity" />총자본</span>
-          <span><i className="liabilities" />총부채</span>
-          <span><i className="debt-ratio" />부채비율</span>
-        </div>
-        <FinancialSeriesTable points={[]} rows={[]} emptyLabel="안정성 재무 데이터 확인 중" />
-      </div>
+      </FinancialChartShell>
     );
   }
   const moneyValues = points.flatMap((point) => [point.totalEquity, point.totalLiabilities]).filter((value): value is number => Number.isFinite(value ?? NaN));
@@ -396,11 +403,19 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
     .join(" ");
 
   return (
-    <div className="company-stability-card">
-      <div className="company-stability-copy">
-        <strong>안정성</strong>
-        <span>부채 · 유동 · 이자보상비율</span>
-      </div>
+    <FinancialChartShell
+      className="company-stability-card"
+      title="안정성"
+      subtitle="부채 · 유동 · 이자보상비율"
+      legend={(
+        <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
+          <span><i className="equity" />총자본</span>
+          <span><i className="liabilities" />총부채</span>
+          <span><i className="debt-ratio" />부채비율</span>
+        </div>
+      )}
+      table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
+    >
       <svg className="company-profitability-plot company-stability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 안정성 시계열">
         {makeTicks(moneyMin, moneyMax, 5).map((tick) => {
           const y = moneyY(tick);
@@ -452,12 +467,34 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
             : null;
         })}
       </svg>
-      <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
-        <span><i className="equity" />총자본</span>
-        <span><i className="liabilities" />총부채</span>
-        <span><i className="debt-ratio" />부채비율</span>
+    </FinancialChartShell>
+  );
+}
+
+function FinancialChartShell({
+  className,
+  title,
+  subtitle,
+  children,
+  legend,
+  table
+}: {
+  className: string;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  legend: ReactNode;
+  table: ReactNode;
+}) {
+  return (
+    <div className={`company-financial-chart-card ${className}`}>
+      <div className="company-financial-chart-copy">
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
       </div>
-      <FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />
+      {children}
+      {legend}
+      {table}
     </div>
   );
 }
@@ -507,35 +544,21 @@ function ValuationGaugePanel({ metrics }: { metrics: ValuationMetric[] }) {
       <h3>가치평가</h3>
       <div className="company-valuation-gauge-grid">
         {metrics.map((metric) => (
-          <ValuationGauge key={metric.label} metric={metric} />
+          <ValuationCard key={metric.label} metric={metric} />
         ))}
       </div>
     </section>
   );
 }
 
-function ValuationGauge({ metric }: { metric: ValuationMetric }) {
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  const score = Number.isFinite(metric.score ?? NaN) ? Math.max(0.08, Math.min(1, metric.score as number)) : 0;
-  const dashOffset = circumference * (1 - score);
+function ValuationCard({ metric }: { metric: ValuationMetric }) {
   return (
-    <article className="company-valuation-gauge" aria-label={`${metric.label} ${metric.valueLabel}`}>
-      <svg viewBox="0 0 96 96" aria-hidden="true">
-        <circle className="company-gauge-track" cx="48" cy="48" r={radius} />
-        <circle
-          className="company-gauge-value"
-          cx="48"
-          cy="48"
-          r={radius}
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-        />
-      </svg>
-      <div className="company-gauge-center">
-        <strong>{metric.valueLabel}</strong>
+    <article className={`company-valuation-gauge company-valuation-card ${metric.tone}`} aria-label={`${metric.label} ${metric.valueLabel}`}>
+      <div className="company-valuation-card-top">
         <span>{metric.label}</span>
+        <em>{metric.statusLabel}</em>
       </div>
+      <strong>{metric.valueLabel}</strong>
       <p>{metric.detail}</p>
     </article>
   );
@@ -581,11 +604,37 @@ function buildValuationMetrics(price: number | null | undefined, marketCap: numb
   const psr = safeDivide(marketCap, item?.revenue);
   const fcfYield = safeDivide(item?.freeCashFlow, marketCap);
   return [
-    { label: "PER", detail: "현재가 / EPS", valueLabel: formatMultiple(per), score: scoreMultiple(per, 50) },
-    { label: "PBR", detail: "시가총액 / 총자본", valueLabel: formatMultiple(pbr), score: scoreMultiple(pbr, 20) },
-    { label: "PSR", detail: "시가총액 / 매출", valueLabel: formatMultiple(psr), score: scoreMultiple(psr, 30) },
-    { label: "FCF Yield", detail: "잉여현금흐름 / 시가총액", valueLabel: formatRatioPercent(fcfYield), score: scoreYield(fcfYield) }
+    { label: "PER", detail: "현재가 / EPS", valueLabel: formatMultiple(per), ...valuationStatus(per, { good: 20, watch: 35, higherIsBetter: false }) },
+    { label: "PBR", detail: "시가총액 / 총자본", valueLabel: formatMultiple(pbr), ...valuationStatus(pbr, { good: 5, watch: 12, higherIsBetter: false }) },
+    { label: "PSR", detail: "시가총액 / 매출", valueLabel: formatMultiple(psr), ...valuationStatus(psr, { good: 8, watch: 18, higherIsBetter: false }) },
+    { label: "FCF Yield", detail: "잉여현금흐름 / 시가총액", valueLabel: formatRatioPercent(fcfYield), ...valuationStatus(fcfYield, { good: 0.04, watch: 0, higherIsBetter: true }) }
   ];
+}
+
+function valuationStatus(
+  value: number | null | undefined,
+  rule: { good: number; watch: number; higherIsBetter: boolean }
+): Pick<ValuationMetric, "statusLabel" | "tone"> {
+  if (!Number.isFinite(value ?? NaN)) {
+    return { statusLabel: "확인 중", tone: "neutral" };
+  }
+  const current = value as number;
+  if (rule.higherIsBetter) {
+    if (current >= rule.good) {
+      return { statusLabel: "양호", tone: "good" };
+    }
+    if (current >= rule.watch) {
+      return { statusLabel: "주의", tone: "watch" };
+    }
+    return { statusLabel: "위험", tone: "risk" };
+  }
+  if (current <= rule.good) {
+    return { statusLabel: "양호", tone: "good" };
+  }
+  if (current <= rule.watch) {
+    return { statusLabel: "주의", tone: "watch" };
+  }
+  return { statusLabel: "위험", tone: "risk" };
 }
 
 function buildProfitabilityTableRows(points: FinancialChartPoint[]): FinancialTableRow[] {
@@ -744,20 +793,6 @@ function normalizeRevenueForChart(value: number | null | undefined): number | nu
     return null;
   }
   return (value as number) / 100_000_000;
-}
-
-function scoreMultiple(value: number | null | undefined, highWatermark: number): number | null {
-  if (!Number.isFinite(value ?? NaN)) {
-    return null;
-  }
-  return Math.max(0.08, Math.min(1, Math.abs(value as number) / highWatermark));
-}
-
-function scoreYield(value: number | null | undefined): number | null {
-  if (!Number.isFinite(value ?? NaN)) {
-    return null;
-  }
-  return Math.max(0.08, Math.min(1, Math.abs(value as number) / 0.12));
 }
 
 function makeTicks(minValue: number, maxValue: number, count: number): number[] {

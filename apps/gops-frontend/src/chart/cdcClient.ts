@@ -1,5 +1,7 @@
 import type {
   CandleEventDto,
+  ChartCompareRange,
+  ChartCompareResponseDto,
   CandleQueryResponseDto,
   ChartInterval,
   ChartSymbolsResponseDto,
@@ -55,6 +57,11 @@ export type ActiveChartHeartbeat = {
   ttlSeconds?: number;
 };
 
+export type ChartCompareQuery = {
+  symbols: string[];
+  range: ChartCompareRange;
+};
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
@@ -77,6 +84,21 @@ export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Pr
     throw new Error(`Candle API failed: ${response.status}`);
   }
   return normalizeCandleResponse(await response.json());
+}
+
+export async function fetchChartCompare(query: ChartCompareQuery, signal?: AbortSignal): Promise<ChartCompareResponseDto> {
+  const params = new URLSearchParams({
+    symbols: query.symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean).join(","),
+    range: query.range,
+    baseMode: "first_close",
+    adjustment: "split",
+    session: "regular"
+  });
+  const response = await fetch(`/api/charts/compare?${params.toString()}`, { signal });
+  if (!response.ok) {
+    throw new Error(`Compare API failed: ${response.status}`);
+  }
+  return normalizeCompareResponse(await response.json());
 }
 
 export async function fetchIndicators(query: IndicatorQuery, signal?: AbortSignal): Promise<IndicatorSeriesResponseDto> {
@@ -226,6 +248,35 @@ function chartSocketUrl(symbol: string, interval: ChartInterval): string {
 
 function reconnectDelayMs(attempts: number): number {
   return Math.min(3_000, 250 * 2 ** Math.min(4, Math.max(0, attempts - 1)));
+}
+
+function normalizeCompareResponse(payload: unknown): ChartCompareResponseDto {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid compare response");
+  }
+  const source = payload as ChartCompareResponseDto;
+  if (!source.range || !Array.isArray(source.items)) {
+    throw new Error("Compare response missing required fields");
+  }
+  return {
+    ...source,
+    items: source.items
+      .filter((item) => item && typeof item.symbol === "string")
+      .map((item) => ({
+        ...item,
+        symbol: item.symbol.trim().toUpperCase(),
+        points: Array.isArray(item.points)
+          ? item.points
+            .filter((point) =>
+              point &&
+              typeof point.time === "string" &&
+              Number.isFinite(point.price) &&
+              Number.isFinite(point.returnPercent)
+            )
+            .sort((left, right) => Date.parse(left.time) - Date.parse(right.time))
+          : []
+      }))
+  };
 }
 
 function normalizeCandleResponse(payload: unknown): CandleQueryResponseDto {

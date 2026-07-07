@@ -1943,7 +1943,7 @@ assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
 assert.match(chartPanelSource, /chart\.comparison\.add/);
 assert.match(chartPanelSource, /chart\.comparison\.remove/);
-assert.match(chartPanelSource, /maxComparisonCount = 4/);
+assert.match(chartPanelSource, /maxComparisonCount = 5/);
 assert.match(chartPanelSource, /menuPlacement="top"/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
