@@ -139,10 +139,21 @@ export function WatchlistNewsPanel({
 
   return (
     <section className="market-news-panel watchlist-news-panel" aria-label="관심종목 뉴스 패널">
-      <header className="panel-inline-header">
-        <div>
-          <span>{symbols.length > 0 ? `${symbols.length}종목` : "관심종목"}</span>
-          <strong>관심종목 뉴스</strong>
+      <div className="watchlist-news-topbar">
+        <div className="watchlist-news-mode-tabs" role="group" aria-label="뉴스 기준">
+          {watchlistNewsModes.map((item) => (
+            <button
+              key={item.mode}
+              type="button"
+              title={item.title}
+              className={item.mode === mode ? "active" : undefined}
+              aria-pressed={item.mode === mode}
+              onClick={() => setMode(item.mode)}
+              disabled={authLoading || loginRequired}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
         <button
           className="panel-icon-button"
@@ -153,22 +164,6 @@ export function WatchlistNewsPanel({
         >
           {refreshing || authLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
         </button>
-      </header>
-
-      <div className="watchlist-news-mode-tabs" role="group" aria-label="뉴스 기준">
-        {watchlistNewsModes.map((item) => (
-          <button
-            key={item.mode}
-            type="button"
-            title={item.title}
-            className={item.mode === mode ? "active" : undefined}
-            aria-pressed={item.mode === mode}
-            onClick={() => setMode(item.mode)}
-            disabled={authLoading || loginRequired}
-          >
-            {item.label}
-          </button>
-        ))}
       </div>
 
       {loginRequired && (

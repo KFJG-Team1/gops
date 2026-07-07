@@ -4146,6 +4146,14 @@ h2 {
   font-size: 10px;
 }
 
+.watchlist-news-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .watchlist-news-mode-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
