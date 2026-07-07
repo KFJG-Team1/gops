@@ -20,14 +20,14 @@ export const chartCapabilities: ChartCapability[] = [
     label: "Set timeframe",
     description: "Change the active candle interval.",
     commandTypes: ["chart.timeframe.set"],
-    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "footprint", "5m", "10m", "1D", "1W", "1M"] } } },
+    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "footprint", "5m", "10m", "1h", "4h", "1D", "1W", "1M"] } } },
     requiredContext: ["chartDocumentId"],
     previewable: true,
     autoApplyEligible: true,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-symbol", "chart-viewport"],
-    validationRules: ["timeframe must be one of 1m, footprint, 5m, 10m, 1D, 1W, 1M"]
+    validationRules: ["timeframe must be one of 1m, footprint, 5m, 10m, 1h, 4h, 1D, 1W, 1M"]
   },
   {
     id: "chart-type",

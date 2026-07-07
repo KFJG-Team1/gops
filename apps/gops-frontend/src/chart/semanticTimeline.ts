@@ -134,6 +134,10 @@ export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterva
     case "1W":
       return "1D";
     case "1D":
+      return "4h";
+    case "4h":
+      return "1h";
+    case "1h":
       return "10m";
     case "10m":
       return "1m";
@@ -166,6 +170,12 @@ export function expansionLimitForInterval(interval: DigTargetInterval): number {
   }
   if (interval === "10m") {
     return 80;
+  }
+  if (interval === "1h") {
+    return 24;
+  }
+  if (interval === "4h") {
+    return 12;
   }
   if (interval === "1m") {
     return 420;
@@ -422,6 +432,15 @@ function estimatedLoadingExpansionSlotWidth(expansion: SemanticExpansion): numbe
   if (expansion.parentInterval === "1W" && expansion.childInterval === "1D") {
     return normalizeSlot(Math.max(1, 5 * childCandleSlotWidthForExpansion(expansion)));
   }
+  if (expansion.parentInterval === "1D" && expansion.childInterval === "4h") {
+    return normalizeSlot(Math.max(1, 6 * childCandleSlotWidthForExpansion(expansion)));
+  }
+  if (expansion.parentInterval === "4h" && expansion.childInterval === "1h") {
+    return normalizeSlot(Math.max(1, 4 * childCandleSlotWidthForExpansion(expansion)));
+  }
+  if (expansion.parentInterval === "1h" && expansion.childInterval === "10m") {
+    return normalizeSlot(Math.max(1, 6 * childCandleSlotWidthForExpansion(expansion)));
+  }
   if (expansion.parentInterval === "1D" && expansion.childInterval === "10m") {
     return normalizeSlot(Math.max(1, 39 * childCandleSlotWidthForExpansion(expansion)));
   }
@@ -496,6 +515,12 @@ function addInterval(date: Date, interval: ChartInterval): Date {
     case "10m":
       next.setUTCMinutes(next.getUTCMinutes() + 10);
       return next;
+    case "1h":
+      next.setUTCHours(next.getUTCHours() + 1);
+      return next;
+    case "4h":
+      next.setUTCHours(next.getUTCHours() + 4);
+      return next;
     case "1D":
       next.setUTCDate(next.getUTCDate() + 1);
       return next;
@@ -519,6 +544,12 @@ function floorInterval(date: Date, interval: ChartInterval): Date {
       return next;
     case "10m":
       next.setUTCMinutes(Math.floor(next.getUTCMinutes() / 10) * 10);
+      return next;
+    case "1h":
+      next.setUTCMinutes(0);
+      return next;
+    case "4h":
+      next.setUTCHours(Math.floor(next.getUTCHours() / 4) * 4, 0, 0, 0);
       return next;
     case "1D":
       next.setUTCHours(0, 0, 0, 0);

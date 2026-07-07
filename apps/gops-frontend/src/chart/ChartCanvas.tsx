@@ -1326,7 +1326,7 @@ function drawTimePeriodDividers(context: CanvasRenderingContext2D, scene: ChartS
     return;
   }
   const interval = scene.chart.interval;
-  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "footprint";
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "footprint";
   const isDaily = interval === "1D";
   const isWeekly = interval === "1W";
   const isMonthly = interval === "1M";
@@ -1478,7 +1478,7 @@ function buildTimeTicks(scene: ChartScene): TimeTick[] {
   }
 
   const interval = scene.chart.interval;
-  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "footprint";
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "footprint";
   const isDaily = interval === "1D";
   const isWeekly = interval === "1W";
   const isMonthly = interval === "1M";
@@ -1629,6 +1629,15 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
       if (candlesPerTick <= 6) return minute === 0;
       return hour % 2 === 0 && minute === 0;
     }
+    case "1h": {
+      if (candlesPerTick <= 2) return true;
+      if (candlesPerTick <= 4) return hour % 2 === 0 && minute === 0;
+      return hour % 4 === 0 && minute === 0;
+    }
+    case "4h": {
+      if (candlesPerTick <= 2) return true;
+      return hour === 0 && minute === 0;
+    }
     case "1D": {
       if (slotWidth > 18 || candlesPerTick <= 2) {
         return true;
@@ -1667,7 +1676,7 @@ function formatAxisTimestamp(value: string, interval: SemanticCandleUnit["interv
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  if (interval === "1m" || interval === "5m" || interval === "10m") {
+  if (interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h") {
     return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
   }
   if (interval === "1M") {

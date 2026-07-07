@@ -109,7 +109,7 @@ function volumeRatioFromDocument(document: ChartDocument): number {
 }
 
 function normalizeFrontendInterval(value: string): ChartInterval {
-  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1D" || value === "1W" || value === "1M"
+  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1h" || value === "4h" || value === "1D" || value === "1W" || value === "1M"
     ? value
     : defaultFrontendChartInterval;
 }

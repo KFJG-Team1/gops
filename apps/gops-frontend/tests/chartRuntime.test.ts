@@ -1131,14 +1131,21 @@ assert.equal(normalizeSupportedSymbol("BAD!"), null);
 assert.equal(normalizeChartInterval("1d"), "1D");
 assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
+assert.equal(normalizeChartInterval("1H"), "1h");
+assert.equal(normalizeChartInterval("4H"), "4h");
 assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.deepEqual(chartIntervals.slice(0, 3), ["footprint", "1m", "5m"]);
+assert.deepEqual(chartIntervals.slice(0, 6), ["footprint", "1m", "5m", "10m", "1h", "4h"]);
 assert.equal(nextDigTargetInterval("1m"), "footprint");
+assert.equal(nextDigTargetInterval("1D"), "4h");
+assert.equal(nextDigTargetInterval("4h"), "1h");
+assert.equal(nextDigTargetInterval("1h"), "10m");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
 assert.equal(defaultVisibleBarsForInterval("footprint"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
 assert.equal(defaultVisibleBarsForInterval("10m"), 120);
+assert.equal(defaultVisibleBarsForInterval("1h"), 120);
+assert.equal(defaultVisibleBarsForInterval("4h"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 36);
@@ -1146,10 +1153,12 @@ assert.equal(maxRequestBarsForInterval("1m"), 589680);
 assert.equal(maxRequestBarsForInterval("footprint"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
+assert.equal(maxRequestBarsForInterval("1h"), 9828);
+assert.equal(maxRequestBarsForInterval("4h"), 2457);
 assert.equal(maxRequestBarsForInterval("1D"), 1512);
 assert.equal(maxRequestBarsForInterval("1W"), 312);
 assert.equal(maxRequestBarsForInterval("1M"), 72);
-for (const timeframe of ["1D", "1W", "1M"]) {
+for (const timeframe of ["1h", "4h", "1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
     timeframeDocument,
@@ -1641,6 +1650,13 @@ assert.equal(
     { timestamp: "2026-06-25T13:50:00Z", interval: "10m", price: 102 }
   ], "1D"),
   "10m"
+);
+assert.equal(
+  sourceIntervalForDrawingAnchors([
+    { timestamp: "2026-06-25T13:00:00Z", interval: "4h", price: 101 },
+    { timestamp: "2026-06-25T14:00:00Z", interval: "1h", price: 102 }
+  ], "1D"),
+  "1h"
 );
 assert.equal(
   sourceIntervalForDrawingAnchors([
