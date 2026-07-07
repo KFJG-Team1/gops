@@ -360,14 +360,6 @@ button {
   justify-content: flex-end;
 }
 
-.bottom-nav-actions.is-menu-open .workspace-nav-button:not(.is-active) {
-  box-shadow: none;
-}
-
-.bottom-nav-actions.is-menu-open .workspace-nav-button:not(.is-active)::after {
-  opacity: 0;
-}
-
 .bottom-menu-panel {
   position: fixed;
   bottom: 0;
