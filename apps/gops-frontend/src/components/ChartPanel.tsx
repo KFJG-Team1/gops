@@ -1890,6 +1890,7 @@ export function ChartAddDock({
             selectedLabel=""
             placeholder="비교 종목"
             compact
+            menuPlacement="top"
             onSelectSymbol={addComparison}
           />
         ) : (

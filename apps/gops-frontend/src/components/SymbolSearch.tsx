@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ChartSymbolDto } from "../chart/types";
 
 type SymbolSearchProps = {
@@ -8,6 +9,7 @@ type SymbolSearchProps = {
   selectedLabel?: string;
   placeholder?: string;
   compact?: boolean;
+  menuPlacement?: "bottom" | "top";
   className?: string;
   style?: CSSProperties;
   onSelectSymbol: (symbol: string) => void;
@@ -21,6 +23,7 @@ export function SymbolSearch({
   selectedLabel,
   placeholder = "종목 검색",
   compact = false,
+  menuPlacement = "bottom",
   className,
   style,
   onSelectSymbol,
@@ -28,11 +31,13 @@ export function SymbolSearch({
   formatSelectedLabel
 }: SymbolSearchProps) {
   const listboxId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState(selectedLabel ?? "");
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const fallbackLabel = selectedSymbol ?? "";
   const selectedDisplayLabel = selectedLabel ?? fallbackLabel;
 
@@ -50,6 +55,43 @@ export function SymbolSearch({
   useEffect(() => {
     setHighlightedIndex((current) => clampHighlightedIndex(current, filteredSymbols.length));
   }, [filteredSymbols.length]);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return;
+    }
+    const updateMenuStyle = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const targetWidth = Math.max(rect.width, compact ? 220 : rect.width);
+      const viewportWidth = window.innerWidth || targetWidth;
+      const left = Math.max(8, Math.min(rect.left, viewportWidth - targetWidth - 8));
+      const verticalGap = 6;
+      setMenuStyle(menuPlacement === "top"
+        ? {
+            position: "fixed",
+            left,
+            bottom: Math.max(8, window.innerHeight - rect.top + verticalGap),
+            width: targetWidth
+          }
+        : {
+            position: "fixed",
+            left,
+            top: rect.bottom + verticalGap,
+            width: targetWidth
+          });
+    };
+    updateMenuStyle();
+    window.addEventListener("resize", updateMenuStyle);
+    window.addEventListener("scroll", updateMenuStyle, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuStyle);
+      window.removeEventListener("scroll", updateMenuStyle, true);
+    };
+  }, [compact, menuPlacement, open]);
 
   const selectSymbol = (symbol: ChartSymbolDto) => {
     setQuery(formatSymbolLabel(symbol, formatSelectedLabel));
@@ -99,6 +141,7 @@ export function SymbolSearch({
 
   return (
     <div
+      ref={rootRef}
       className={[
         "symbol-search",
         compact ? "symbol-search-compact" : "",
@@ -201,8 +244,16 @@ export function SymbolSearch({
       >
         <Search size={compact ? 12 : 14} aria-hidden="true" />
       </button>
-      {open && (
-        <div id={listboxId} className="symbol-search-menu surface-flat surface-recessed" role="listbox" aria-label="Symbols">
+      {open && menuStyle && createPortal(
+        <div
+          id={listboxId}
+          className="symbol-search-menu surface-flat surface-recessed"
+          style={menuStyle}
+          role="listbox"
+          aria-label="Symbols"
+          onPointerEnter={onPointerActivity}
+          onPointerMove={onPointerActivity}
+        >
           {filteredSymbols.map((symbol, index) => (
             <button
               key={symbol.symbol}
@@ -225,7 +276,8 @@ export function SymbolSearch({
             </button>
           ))}
           {!filteredSymbols.length && <p>검색 결과 없음</p>}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
