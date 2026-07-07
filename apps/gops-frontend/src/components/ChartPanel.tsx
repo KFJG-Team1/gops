@@ -59,7 +59,7 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -129,6 +129,19 @@ type ExpansionOverlay = {
   right: number;
   top: number;
   status: string;
+};
+
+type CurrentPriceMarker = {
+  priceText: string;
+  timestamp: string;
+  interval: ChartInterval;
+  streamState: ChartState["streamState"];
+  isClosed: boolean;
+  lineLeft: number;
+  lineRight: number;
+  labelLeft: number;
+  labelTop: number;
+  y: number;
 };
 
 type ComparisonScopeRequest = {
@@ -229,6 +242,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
+  const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
+  const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
@@ -308,6 +323,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     chartRef.current = chart;
   }, [chart]);
+
+  useEffect(() => {
+    if (!currentPriceMarker || currentPriceMarker.isClosed || currentPriceMarker.streamState !== "live") {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setCurrentPriceClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [currentPriceMarker]);
 
   useEffect(() => {
     activeExpansionsRef.current = activeExpansions;
@@ -845,6 +868,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
+  const currentPriceTimeText = useMemo(() => (
+    currentPriceMarker ? currentPriceMarkerTimeText(currentPriceMarker, currentPriceClock) : null
+  ), [currentPriceClock, currentPriceMarker]);
   const currentSymbol = symbols.find((symbol) => symbol.symbol === chart.symbol) ?? {
     symbol: chart.symbol,
     name: chart.symbol,
@@ -979,6 +1005,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const nextPriceMarker = currentPriceMarkerFromScene(scene);
+    setCurrentPriceMarker((current) => (
+      currentPriceMarkerEquals(current, nextPriceMarker) ? current : nextPriceMarker
+    ));
     const overlays = scene.semantic.expansionRanges.map((range): ExpansionOverlay => ({
       id: range.id,
       label: `${range.childInterval}`,
@@ -1656,6 +1686,25 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {currentPriceMarker && (
+          <div
+            className="chart-current-price-overlay"
+            style={{
+              "--current-price-y": `${currentPriceMarker.y}px`,
+              "--current-price-line-left": `${currentPriceMarker.lineLeft}px`,
+              "--current-price-line-right": `${currentPriceMarker.lineRight}px`,
+              "--current-price-label-left": `${currentPriceMarker.labelLeft}px`,
+              "--current-price-label-top": `${currentPriceMarker.labelTop}px`
+            } as CSSProperties}
+            aria-hidden="true"
+          >
+            <span className="chart-current-price-line" />
+            <span className="chart-current-price-pill">
+              <span>{currentPriceMarker.priceText}</span>
+              {currentPriceTimeText && <span>{currentPriceTimeText}</span>}
+            </span>
+          </div>
+        )}
         {renderComparisons.length > 0 && (
           <div className="chart-comparison-legend" aria-label="Comparison overlays">
             {renderComparisons.map((comparison, index) => (
@@ -2429,6 +2478,100 @@ function removeExpansionTree(expansions: SemanticExpansion[], expansionId: strin
     });
   }
   return expansions.filter((expansion) => !removed.has(expansion.id));
+}
+
+function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | null {
+  const latest = scene.chart.candles.at(-1);
+  if (!latest || !Number.isFinite(latest.close)) {
+    return null;
+  }
+  const y = priceToY(scene, latest.close);
+  if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
+    return null;
+  }
+  const priceText = priceFormatter.format(latest.close);
+  const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, latest, scene.chart.streamState);
+  const labelWidth = currentPriceMarkerLabelWidth(priceText, showClock);
+  const labelHeight = showClock ? 45 : 31;
+  const labelLeft = clampNumber(scene.plot.right - 1, scene.plot.left + 8, scene.width - labelWidth - 4);
+  const labelTop = clampNumber(y - labelHeight / 2, scene.plot.top, Math.max(scene.plot.top, scene.plot.priceBottom - labelHeight));
+  return {
+    priceText,
+    timestamp: latest.timestamp,
+    interval: scene.chart.interval,
+    streamState: scene.chart.streamState,
+    isClosed: latest.isClosed,
+    lineLeft: scene.plot.left,
+    lineRight: Math.max(scene.plot.left, labelLeft - 7),
+    labelLeft,
+    labelTop,
+    y
+  };
+}
+
+function currentPriceMarkerEquals(left: CurrentPriceMarker | null, right: CurrentPriceMarker | null): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.priceText === right.priceText &&
+    left.timestamp === right.timestamp &&
+    left.interval === right.interval &&
+    left.streamState === right.streamState &&
+    left.isClosed === right.isClosed &&
+    Math.abs(left.y - right.y) < 0.5 &&
+    Math.abs(left.lineLeft - right.lineLeft) < 0.5 &&
+    Math.abs(left.lineRight - right.lineRight) < 0.5 &&
+    Math.abs(left.labelLeft - right.labelLeft) < 0.5 &&
+    Math.abs(left.labelTop - right.labelTop) < 0.5
+  );
+}
+
+function currentPriceMarkerTimeText(marker: CurrentPriceMarker, nowMs: number): string | null {
+  if (marker.isClosed || marker.streamState !== "live" || !currentPriceIntervalCanShowClock(marker.interval)) {
+    return null;
+  }
+  const candleEnd = Date.parse(candleRange({
+    timestamp: marker.timestamp,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    volume: 0,
+    isClosed: false
+  }, marker.interval).to);
+  if (!Number.isFinite(candleEnd)) {
+    return null;
+  }
+  const remainingSeconds = Math.max(0, Math.ceil((candleEnd - nowMs) / 1000));
+  const hours = Math.floor(remainingSeconds / 3600);
+  const minutes = Math.floor((remainingSeconds % 3600) / 60);
+  const seconds = remainingSeconds % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${String(hours).padStart(2, "0")}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function currentPriceMarkerCanShowClock(
+  interval: ChartInterval,
+  latest: CandleDto,
+  streamState: ChartState["streamState"]
+): boolean {
+  return streamState === "live" && !latest.isClosed && currentPriceIntervalCanShowClock(interval);
+}
+
+function currentPriceIntervalCanShowClock(interval: ChartInterval): boolean {
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h";
+}
+
+function currentPriceMarkerLabelWidth(priceText: string, showClock: boolean): number {
+  return Math.max(82, Math.min(138, priceText.length * 8 + (showClock ? 38 : 24)));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  const safeMin = Math.min(min, max);
+  const safeMax = Math.max(min, max);
+  return Math.max(safeMin, Math.min(safeMax, value));
 }
 
 function visibleRightAnchorTimestamp(scene: ChartScene | null, chart: ChartState): string | undefined {

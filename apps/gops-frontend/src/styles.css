@@ -1563,6 +1563,62 @@ h2 {
   touch-action: none;
 }
 
+.chart-current-price-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  color: var(--color-surface);
+  font-family: var(--font-data-sans);
+  pointer-events: none;
+}
+
+.chart-current-price-line {
+  position: absolute;
+  top: var(--current-price-y);
+  left: var(--current-price-line-left);
+  right: calc(100% - var(--current-price-line-right));
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-signal) 0 2px,
+    transparent 2px 6px
+  );
+  opacity: 0.82;
+}
+
+.chart-current-price-pill {
+  position: absolute;
+  top: var(--current-price-label-top);
+  left: var(--current-price-label-left);
+  display: inline-grid;
+  align-content: center;
+  gap: 1px;
+  min-width: 82px;
+  max-width: min(138px, calc(100% - 8px));
+  min-height: 31px;
+  padding: 5px 9px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-signal) 91%, var(--color-background));
+  color: var(--color-surface);
+  box-shadow: 0 8px 18px rgb(var(--gops-ink-rgb) / 0.14);
+  font-size: 14px;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.chart-current-price-pill span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart-current-price-pill span + span {
+  font-size: 12px;
+  font-weight: 680;
+  opacity: 0.86;
+}
+
 .chart-comparison-legend {
   position: absolute;
   top: 48px;
