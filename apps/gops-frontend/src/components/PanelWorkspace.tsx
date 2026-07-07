@@ -41,7 +41,8 @@ import {
   type PanelContentInstance,
   type PanelSlotId,
   type TiledPanelState,
-  type ViewportSize
+  type ViewportSize,
+  type WorkspaceLayoutMetrics
 } from "../layout/panelLayout";
 import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -58,6 +59,7 @@ type PanelWorkspaceProps = {
   panelState: TiledPanelState;
   setPanelState: Dispatch<SetStateAction<TiledPanelState>>;
   viewportSize: ViewportSize;
+  layoutMetrics: WorkspaceLayoutMetrics;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
   companyItems: Sp500UniverseItem[];
@@ -97,6 +99,7 @@ export function PanelWorkspace({
   panelState,
   setPanelState,
   viewportSize,
+  layoutMetrics,
   activeSymbol,
   symbols,
   companyItems,
@@ -113,6 +116,7 @@ export function PanelWorkspace({
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
   const [draggingSlotId, setDraggingSlotId] = useState<PanelSlotId | null>(null);
+  const [isLayoutResizing, setIsLayoutResizing] = useState(false);
   const [addMenu, setAddMenu] = useState<BoundaryAddMenu | null>(null);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
@@ -120,6 +124,7 @@ export function PanelWorkspace({
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
+  const layoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetrics);
   const companyItemsBySymbol = useMemo(() => (
     new Map(companyItems.map((item) => [item.symbol.toUpperCase(), item]))
   ), [companyItems]);
@@ -132,7 +137,11 @@ export function PanelWorkspace({
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
 
-  const panelBoundaries = useMemo(() => detectPanelBoundaries(panelState, viewportSize), [panelState, viewportSize]);
+  useEffect(() => {
+    layoutMetricsRef.current = layoutMetrics;
+  }, [layoutMetrics]);
+
+  const panelBoundaries = useMemo(() => detectPanelBoundaries(panelState, viewportSize, layoutMetrics), [layoutMetrics, panelState, viewportSize]);
   const activeBoundary = useMemo(() => (
     activeBoundaryId ? panelBoundaries.find((boundary) => boundary.id === activeBoundaryId) ?? null : null
   ), [activeBoundaryId, panelBoundaries]);
@@ -163,12 +172,13 @@ export function PanelWorkspace({
     if (drag?.mode === "swap" && event) {
       const target = hitTestSwappableSlot(panelStateRef.current, event.clientX, event.clientY, drag.sourceSlotId);
       if (target) {
-        setPanelState((current) => swapPanelContents(current, drag.sourceSlotId, target.id, viewportSizeRef.current));
+        setPanelState((current) => swapPanelContents(current, drag.sourceSlotId, target.id, viewportSizeRef.current, layoutMetricsRef.current));
       }
     }
     dragRef.current = null;
     setActiveBoundaryId(addMenu?.boundaryId ?? null);
     setDraggingSlotId(null);
+    setIsLayoutResizing(false);
   }, [addMenu?.boundaryId, setPanelState]);
 
   const applyLayoutDrag = useCallback((clientX: number, clientY: number, viewport: ViewportSize) => {
@@ -177,7 +187,7 @@ export function PanelWorkspace({
       return;
     }
     const delta = drag.orientation === "vertical" ? clientX - drag.startX : clientY - drag.startY;
-    setPanelState(resizePanelBoundary(drag.startState, drag.boundaryId, delta, viewport));
+    setPanelState(resizePanelBoundary(drag.startState, drag.boundaryId, delta, viewport, layoutMetricsRef.current));
   }, [setPanelState]);
 
   useEffect(() => {
@@ -230,6 +240,7 @@ export function PanelWorkspace({
       return;
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    setIsLayoutResizing(true);
     dragRef.current = {
       mode: "boundary",
       boundaryId: boundary.id,
@@ -266,7 +277,7 @@ export function PanelWorkspace({
 
   const openBoundaryAddMenu = (boundary: PanelBoundary, event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    const options = insertOptionsForBoundary(panelState, boundary.id, viewportSize);
+    const options = insertOptionsForBoundary(panelState, boundary.id, viewportSize, layoutMetrics);
     if (!options.length) {
       return;
     }
@@ -289,7 +300,8 @@ export function PanelWorkspace({
       addMenu.boundaryId,
       option.kind,
       viewportSizeRef.current,
-      { symbol: option.kind === "chart" || option.kind === "company" ? activeSymbol : undefined }
+      { symbol: option.kind === "chart" || option.kind === "company" ? activeSymbol : undefined },
+      layoutMetricsRef.current
     ));
     setAddMenu(null);
     setActiveBoundaryId(null);
@@ -297,7 +309,7 @@ export function PanelWorkspace({
 
   const closePanel = (slotId: PanelSlotId) => {
     const closing = panelStateRef.current.slots.find((slot) => slot.id === slotId);
-    setPanelState((current) => removePanelSlot(current, slotId, viewportSizeRef.current));
+    setPanelState((current) => removePanelSlot(current, slotId, viewportSizeRef.current, layoutMetricsRef.current));
     if (closing) {
       setChartHeaders((current) => {
         const next = { ...current };
@@ -396,7 +408,8 @@ export function PanelWorkspace({
             className={[
               isChart && slot.rect.left > 1 ? "has-left-boundary" : "",
               isChart && slot.rect.left + slot.rect.width < viewportSize.width - 1 ? "has-right-boundary" : "",
-              draggingSlotId === slot.id ? "is-panel-content-dragging" : ""
+              draggingSlotId === slot.id ? "is-panel-content-dragging" : "",
+              isLayoutResizing ? "is-layout-resizing" : ""
             ].filter(Boolean).join(" ")}
             isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
             isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
@@ -449,7 +462,7 @@ export function PanelWorkspace({
         );
       })}
       {panelBoundaries.map((boundary) => {
-        const canAdd = canInsertPanelAtBoundary(panelState, boundary.id, viewportSize);
+        const canAdd = canInsertPanelAtBoundary(panelState, boundary.id, viewportSize, undefined, layoutMetrics);
         return (
           <div
             key={boundary.id}

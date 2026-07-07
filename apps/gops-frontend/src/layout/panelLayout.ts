@@ -31,6 +31,11 @@ export type PanelRect = {
 
 export type WorkspaceBounds = PanelRect;
 
+export type WorkspaceLayoutMetrics = {
+  topInset?: number;
+  bottomInset?: number;
+};
+
 export type PanelSlot = {
   id: PanelSlotId;
   contentId: PanelContentId;
@@ -96,9 +101,10 @@ export const insertablePanelKinds: PanelContentKind[] = ["popular", "indices", "
 
 export function workspaceBounds(
   viewport: ViewportSize,
-  topInset = workspaceTopInset,
-  bottomInset = workspaceBottomInset
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): WorkspaceBounds {
+  const topInset = readLayoutMetric(layoutMetrics.topInset, workspaceTopInset);
+  const bottomInset = readLayoutMetric(layoutMetrics.bottomInset, workspaceBottomInset);
   const top = Math.max(0, Math.round(topInset));
   const bottom = Math.max(top + 1, Math.round(viewport.height - bottomInset));
   return {
@@ -109,8 +115,8 @@ export function workspaceBounds(
   };
 }
 
-export function createInitialTiledPanelState(viewport: ViewportSize, options: { symbol?: string } = {}): TiledPanelState {
-  const workspace = workspaceBounds(viewport);
+export function createInitialTiledPanelState(viewport: ViewportSize, options: { symbol?: string; layoutMetrics?: WorkspaceLayoutMetrics } = {}): TiledPanelState {
+  const workspace = workspaceBounds(viewport, options.layoutMetrics);
   const gutter = panelGutter(viewport);
   const supportTop = workspaceInnerTop(workspace, gutter);
   const innerBottom = workspaceInnerBottom(workspace, gutter);
@@ -188,9 +194,9 @@ export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number
   }[kind];
 }
 
-export function detectPanelBoundaries(state: TiledPanelState, viewport?: ViewportSize): PanelBoundary[] {
+export function detectPanelBoundaries(state: TiledPanelState, viewport?: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics = {}): PanelBoundary[] {
   const inferredViewport = viewport ?? viewportFromState(state);
-  const workspace = workspaceBounds(inferredViewport);
+  const workspace = workspaceBounds(inferredViewport, layoutMetrics);
   const gutter = panelGutter(inferredViewport);
   const raw: PanelBoundary[] = [];
   for (let leftIndex = 0; leftIndex < state.slots.length; leftIndex += 1) {
@@ -218,13 +224,14 @@ export function resizePanelBoundary(
   state: TiledPanelState,
   boundaryId: string,
   delta: number,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const boundary = detectPanelBoundaries(state, viewport).find((item) => item.id === boundaryId);
+  const boundary = detectPanelBoundaries(state, viewport, layoutMetrics).find((item) => item.id === boundaryId);
   if (!boundary || boundary.interaction !== "resize") {
     return state;
   }
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const desiredPosition = snapBoundaryPosition(
     boundary.position + delta,
     boundary,
@@ -232,7 +239,7 @@ export function resizePanelBoundary(
     viewport,
     workspace
   );
-  const resolvedDelta = clampBoundaryDelta(state, boundary, desiredPosition - boundary.position, viewport);
+  const resolvedDelta = clampBoundaryDelta(state, boundary, desiredPosition - boundary.position, viewport, layoutMetrics);
   if (Math.abs(resolvedDelta) < epsilon) {
     return state;
   }
@@ -241,17 +248,18 @@ export function resizePanelBoundary(
     ...state,
     slots: state.slots.map((slot) => resizeSlotAtBoundary(slot, boundary, resolvedDelta))
   };
-  return layoutHasGapsOrOverlaps(next, viewport) ? state : next;
+  return layoutHasGapsOrOverlaps(next, viewport, 1, layoutMetrics) ? state : next;
 }
 
 export function canInsertPanelAtBoundary(
   state: TiledPanelState,
   boundaryId: string,
   viewport?: ViewportSize,
-  kind?: PanelContentKind
+  kind?: PanelContentKind,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): boolean {
   const inferredViewport = viewport ?? viewportFromState(state);
-  const boundary = detectPanelBoundaries(state, inferredViewport).find((item) => item.id === boundaryId);
+  const boundary = detectPanelBoundaries(state, inferredViewport, layoutMetrics).find((item) => item.id === boundaryId);
   if (!boundary) {
     return false;
   }
@@ -260,7 +268,7 @@ export function canInsertPanelAtBoundary(
   const crossMin = minimumCrossSize(boundary.orientation, kind ?? "news");
   const gutter = panelGutter(inferredViewport);
   return rangeSize >= crossMin &&
-    boundaryInsertCapacity(state, boundary, kind ?? "news", gutter, workspaceBounds(inferredViewport)) >= insertSize + gutter;
+    boundaryInsertCapacity(state, boundary, kind ?? "news", gutter, workspaceBounds(inferredViewport, layoutMetrics)) >= insertSize + gutter;
 }
 
 export function insertPanelAtBoundary(
@@ -268,14 +276,15 @@ export function insertPanelAtBoundary(
   boundaryId: string,
   kind: PanelContentKind,
   viewport?: ViewportSize,
-  options: InsertPanelOptions = {}
+  options: InsertPanelOptions = {},
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
   const inferredViewport = viewport ?? viewportFromState(state);
-  const boundary = detectPanelBoundaries(state, inferredViewport).find((item) => item.id === boundaryId);
-  if (!boundary || !canInsertPanelAtBoundary(state, boundaryId, inferredViewport, kind)) {
+  const boundary = detectPanelBoundaries(state, inferredViewport, layoutMetrics).find((item) => item.id === boundaryId);
+  if (!boundary || !canInsertPanelAtBoundary(state, boundaryId, inferredViewport, kind, layoutMetrics)) {
     return state;
   }
-  const workspace = workspaceBounds(inferredViewport);
+  const workspace = workspaceBounds(inferredViewport, layoutMetrics);
   const gutter = panelGutter(inferredViewport);
   const minSize = minimumInsertSize(boundary.orientation, kind);
   const defaultSize = defaultInsertSize(boundary.orientation, kind);
@@ -310,7 +319,7 @@ export function insertPanelAtBoundary(
       slot
     ]
   };
-  return layoutHasGapsOrOverlaps(next, inferredViewport) ? state : next;
+  return layoutHasGapsOrOverlaps(next, inferredViewport, 1, layoutMetrics) ? state : next;
 }
 
 export function addPanelSlotAtRect(
@@ -318,7 +327,8 @@ export function addPanelSlotAtRect(
   kind: PanelContentKind,
   rect: PanelRect,
   options: InsertPanelOptions = {},
-  viewport?: ViewportSize
+  viewport?: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
   const content = createPanelContent(kind, state.nextInstance, {
     symbol: options.symbol,
@@ -340,10 +350,10 @@ export function addPanelSlotAtRect(
     },
     nextInstance: state.nextInstance + 1,
     slots: [...state.slots, slot]
-  }, viewport ?? viewportFromState(state));
+  }, viewport ?? viewportFromState(state), layoutMetrics);
 }
 
-export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
+export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics = {}): TiledPanelState {
   const removed = state.slots.find((slot) => slot.id === slotId);
   if (!removed || state.slots.length <= 1) {
     return state;
@@ -358,9 +368,10 @@ export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, vie
       slots: state.slots.filter((slot) => slot.id !== removed.id)
     },
     removed,
-    inferredViewport
+    inferredViewport,
+    layoutMetrics
   );
-  if (expanded && !layoutHasGapsOrOverlaps(expanded, inferredViewport)) {
+  if (expanded && !layoutHasGapsOrOverlaps(expanded, inferredViewport, 1, layoutMetrics)) {
     return expanded;
   }
   const neighbor = removableNeighbor(state, removed, panelGutter(inferredViewport));
@@ -374,7 +385,7 @@ export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, vie
       .filter((slot) => slot.id !== removed.id)
       .map((slot) => slot.id === neighbor.slot.id ? { ...slot, rect: unionRect(slot.rect, removed.rect) } : slot)
   };
-  return layoutHasGapsOrOverlaps(fallback, inferredViewport) ? state : fallback;
+  return layoutHasGapsOrOverlaps(fallback, inferredViewport, 1, layoutMetrics) ? state : fallback;
 }
 
 export function setPanelContentProps(
@@ -426,7 +437,8 @@ export function swapPanelContents(
   state: TiledPanelState,
   sourceSlotId: PanelSlotId,
   targetSlotId: PanelSlotId,
-  viewport?: ViewportSize
+  viewport?: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
   if (sourceSlotId === targetSlotId) {
     return state;
@@ -448,16 +460,18 @@ export function swapPanelContents(
       return slot;
     })
   };
-  return normalizeTiledPanelStateToWorkspace(swapped, viewport ?? viewportFromState(swapped));
+  return normalizeTiledPanelStateToWorkspace(swapped, viewport ?? viewportFromState(swapped), layoutMetrics);
 }
 
 export function scaleTiledPanelState(
   state: TiledPanelState,
   previousViewport: ViewportSize,
-  nextViewport: ViewportSize
+  nextViewport: ViewportSize,
+  previousLayoutMetrics: WorkspaceLayoutMetrics = {},
+  nextLayoutMetrics: WorkspaceLayoutMetrics = previousLayoutMetrics
 ): TiledPanelState {
-  const previous = workspaceBounds(previousViewport);
-  const next = workspaceBounds(nextViewport);
+  const previous = workspaceBounds(previousViewport, previousLayoutMetrics);
+  const next = workspaceBounds(nextViewport, nextLayoutMetrics);
   const scaleX = next.width / Math.max(1, previous.width);
   const scaleY = next.height / Math.max(1, previous.height);
   return normalizeTiledPanelStateToWorkspace({
@@ -471,14 +485,15 @@ export function scaleTiledPanelState(
         height: slot.rect.height * scaleY
       }
     }))
-  }, nextViewport);
+  }, nextViewport, nextLayoutMetrics);
 }
 
 export function normalizeTiledPanelStateToWorkspace(
   state: TiledPanelState,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   let changed = false;
   const slots = state.slots.map((slot) => {
@@ -495,9 +510,10 @@ export function normalizeTiledPanelStateToWorkspace(
 export function layoutHasGapsOrOverlaps(
   state: TiledPanelState,
   viewport: ViewportSize,
-  tolerance = 1
+  tolerance = 1,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): boolean {
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   for (const slot of state.slots) {
     const slotRight = rectRight(slot.rect);
@@ -573,8 +589,8 @@ export function panelSlotStyle(slot: PanelSlot): CSSProperties {
   };
 }
 
-export function insertOptionsForBoundary(state: TiledPanelState, boundaryId: string, viewport?: ViewportSize): BoundaryInsertOption[] {
-  return insertablePanelKinds.filter((kind) => canInsertPanelAtBoundary(state, boundaryId, viewport, kind)).map((kind) => ({
+export function insertOptionsForBoundary(state: TiledPanelState, boundaryId: string, viewport?: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics = {}): BoundaryInsertOption[] {
+  return insertablePanelKinds.filter((kind) => canInsertPanelAtBoundary(state, boundaryId, viewport, kind, layoutMetrics)).map((kind) => ({
     kind,
     title: boundaryInsertTitle(kind)
   }));
@@ -1007,10 +1023,10 @@ function sameSideSignature(boundary: PanelBoundary): string {
   return `${boundary.negativeSlotIds.length > 0 ? "n" : ""}/${boundary.positiveSlotIds.length > 0 ? "p" : ""}`;
 }
 
-function clampBoundaryDelta(state: TiledPanelState, boundary: PanelBoundary, delta: number, viewport: ViewportSize): number {
+function clampBoundaryDelta(state: TiledPanelState, boundary: PanelBoundary, delta: number, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): number {
   let minDelta = Number.NEGATIVE_INFINITY;
   let maxDelta = Number.POSITIVE_INFINITY;
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   const negativeSlots = boundary.negativeSlotIds.map((id) => requiredSlot(state, id));
   const positiveSlots = boundary.positiveSlotIds.map((id) => requiredSlot(state, id));
@@ -1287,10 +1303,11 @@ function chartSlotFromIds(state: TiledPanelState, slotIds: PanelSlotId[]): Panel
 function expandAdjacentSlotsAfterRemoval(
   stateWithoutRemoved: TiledPanelState,
   removed: PanelSlot,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
 ): TiledPanelState | null {
   const gutter = panelGutter(viewport);
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const candidates: TiledPanelState[] = [];
   (["right", "left", "bottom", "top"] as const).forEach((side) => {
     const adjusted = expandAdjacentSlotsOnSide(stateWithoutRemoved, removed, side, workspace, gutter);
@@ -1298,7 +1315,11 @@ function expandAdjacentSlotsAfterRemoval(
       candidates.push(adjusted);
     }
   });
-  return candidates.find((candidate) => !layoutHasGapsOrOverlaps(candidate, viewport)) ?? null;
+  return candidates.find((candidate) => !layoutHasGapsOrOverlaps(candidate, viewport, 1, layoutMetrics)) ?? null;
+}
+
+function readLayoutMetric(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function expandAdjacentSlotsOnSide(

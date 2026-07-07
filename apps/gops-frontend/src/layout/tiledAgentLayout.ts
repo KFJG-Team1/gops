@@ -14,6 +14,7 @@ import {
   type PanelRect,
   type TiledPanelState,
   type ViewportSize,
+  type WorkspaceLayoutMetrics,
   workspaceBounds
 } from "./panelLayout";
 
@@ -44,7 +45,8 @@ export function buildTiledAgentLayoutContext(
   viewport: ViewportSize,
   activeSymbol = "",
   selectedPanelId?: string,
-  chartDocumentSymbols: Record<string, string | undefined> = {}
+  chartDocumentSymbols: Record<string, string | undefined> = {},
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ) {
   return {
     version: 1,
@@ -58,7 +60,7 @@ export function buildTiledAgentLayoutContext(
         id: slot.id,
         type: kindToPanelType[kind],
         title: content?.title || panelContentTitle(kind, content?.instanceIndex),
-        placement: tiledPlacement(slot.rect, viewport),
+        placement: tiledPlacement(slot.rect, viewport, layoutMetrics),
         layoutPinned: false,
         layoutWeight: content?.layoutWeight ?? defaultLayoutWeightForKind(kind),
         minSpan: minSpanForKind(kind),
@@ -72,7 +74,8 @@ export function buildTiledAgentLayoutContext(
 export function applyTiledAgentLayoutProposal(
   state: TiledPanelState,
   proposal: AgentLayoutProposal,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
   if (proposal.autoApply === false || proposal.commands.length === 0) {
     return state;
@@ -85,7 +88,7 @@ export function applyTiledAgentLayoutProposal(
   for (const command of proposal.commands) {
     if (command.type === "layout.panel.remove") {
       const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
-      next = panelId ? removePanelSlot(next, panelId, viewport) : next;
+      next = panelId ? removePanelSlot(next, panelId, viewport, layoutMetrics) : next;
       continue;
     }
     const kind = targetKindForCommand(next, command, proposal);
@@ -93,7 +96,7 @@ export function applyTiledAgentLayoutProposal(
       continue;
     }
     if (command.type === "layout.panel.add") {
-      next = addPanelForCommand(next, kind, command, proposal, viewport);
+      next = addPanelForCommand(next, kind, command, proposal, viewport, layoutMetrics);
       continue;
     }
     if (command.type === "layout.panel.props.update") {
@@ -101,27 +104,27 @@ export function applyTiledAgentLayoutProposal(
       continue;
     }
     if (command.type === "layout.panels.arrange") {
-      next = applyArrangement(next, command.payload.placements, viewport);
+      next = applyArrangement(next, command.payload.placements, viewport, layoutMetrics);
       continue;
     }
     if (command.type === "layout.panel.move") {
       const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
       const placement = readPlacement(command.payload.placement);
-      next = panelId && placement ? applyPanelPlacement(next, panelId, placement, viewport) : next;
+      next = panelId && placement ? applyPanelPlacement(next, panelId, placement, viewport, layoutMetrics) : next;
       continue;
     }
     if (command.type === "layout.panel.priority.set") {
       next = applyPrioritySet(next, command);
       if (!hasPlacementCommand) {
-        next = focusPanelKind(next, kind, viewport);
+        next = focusPanelKind(next, kind, viewport, layoutMetrics);
       }
     }
   }
-  return normalizeTiledPanelStateToWorkspace(next, viewport);
+  return normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics);
 }
 
-function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize) {
-  const grid = tiledGrid(viewport);
+function tiledPlacement(rect: TiledPanelState["slots"][number]["rect"], viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics) {
+  const grid = tiledGrid(viewport, layoutMetrics);
   const col = clampInt(Math.floor((rect.left - grid.left) / grid.stepX) + 1, 1, 4);
   const row = clampInt(Math.floor((rect.top - grid.top) / grid.stepY) + 1, 1, 5);
   const colSpan = clampInt(Math.round((rect.width + grid.gutter) / grid.stepX), 1, 4 - col + 1);
@@ -171,7 +174,8 @@ function addPanelForCommand(
   kind: PanelContentKind,
   command: AgentLayoutProposal["commands"][number],
   proposal: AgentLayoutProposal,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
 ): TiledPanelState {
   if (kind === "chart") {
     const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
@@ -184,14 +188,14 @@ function addPanelForCommand(
     }
     const placement = readPlacement(command.payload.placement) ?? defaultPlacementForKind(kind);
     const priority = layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? defaultLayoutWeightForKind(kind);
-    return addPanelSlotAtRect(state, kind, rectForPlacement(placement, viewport), {
+    return addPanelSlotAtRect(state, kind, rectForPlacement(placement, viewport, layoutMetrics), {
       slotId: panelId ?? undefined,
       symbol: symbol ?? undefined,
       layoutWeight: priority
-    }, viewport);
+    }, viewport, layoutMetrics);
   }
   const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
-  return ensurePanelKind(state, kind, viewport, {
+  return ensurePanelKind(state, kind, viewport, layoutMetrics, {
     slotId: panelId ?? undefined,
     symbol: readPanelSymbol(command.payload) ?? undefined,
     layoutWeight: layoutWeightForPanelId(proposal, panelId) ?? readNumber(command.payload.layoutWeight) ?? undefined,
@@ -203,10 +207,11 @@ function ensurePanelKind(
   state: TiledPanelState,
   kind: PanelContentKind,
   viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics,
   options: { slotId?: string; symbol?: string; layoutWeight?: number; props?: Record<string, unknown> } = {}
 ): TiledPanelState {
   if (hasPanelKind(state, kind)) {
-    const focused = focusPanelKind(state, kind, viewport);
+    const focused = focusPanelKind(state, kind, viewport, layoutMetrics);
     const slot = focused.slots.find((item) => focused.contents[item.contentId]?.kind === kind);
     if (!slot) {
       return focused;
@@ -223,16 +228,16 @@ function ensurePanelKind(
     }
     return next;
   }
-  for (const boundary of detectPanelBoundaries(state, viewport)) {
-    if (!insertOptionsForBoundary(state, boundary.id, viewport).some((option) => option.kind === kind)) {
+  for (const boundary of detectPanelBoundaries(state, viewport, layoutMetrics)) {
+    if (!insertOptionsForBoundary(state, boundary.id, viewport, layoutMetrics).some((option) => option.kind === kind)) {
       continue;
     }
-    return insertPanelAtBoundary(state, boundary.id, kind, viewport, options);
+    return insertPanelAtBoundary(state, boundary.id, kind, viewport, options, layoutMetrics);
   }
   return state;
 }
 
-function focusPanelKind(state: TiledPanelState, kind: PanelContentKind, viewport: ViewportSize): TiledPanelState {
+function focusPanelKind(state: TiledPanelState, kind: PanelContentKind, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): TiledPanelState {
   if (kind === "chart") {
     return state;
   }
@@ -241,7 +246,7 @@ function focusPanelKind(state: TiledPanelState, kind: PanelContentKind, viewport
   if (!targetSlot || !firstSupportSlot) {
     return state;
   }
-  const emphasized = emphasizeSupportPanel(state, targetSlot.id, viewport);
+  const emphasized = emphasizeSupportPanel(state, targetSlot.id, viewport, layoutMetrics);
   if (emphasized !== state) {
     return emphasized;
   }
@@ -271,7 +276,7 @@ type AgentPanelPlacement = {
   rowSpan: number;
 };
 
-function applyArrangement(state: TiledPanelState, placements: unknown, viewport: ViewportSize): TiledPanelState {
+function applyArrangement(state: TiledPanelState, placements: unknown, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): TiledPanelState {
   if (!Array.isArray(placements)) {
     return state;
   }
@@ -281,7 +286,7 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     }
     const panelId = readString(item.panelId);
     const placement = readPlacement(item.placement);
-    const arranged = panelId && placement ? applyPanelPlacement(next, panelId, placement, viewport) : next;
+    const arranged = panelId && placement ? applyPanelPlacement(next, panelId, placement, viewport, layoutMetrics) : next;
     const layoutWeight = readNumber(item.layoutWeight);
     return panelId && layoutWeight !== null ? setPanelLayoutWeight(arranged, panelId, layoutWeight) : arranged;
   }, state);
@@ -291,21 +296,22 @@ function applyPanelPlacement(
   state: TiledPanelState,
   panelId: string,
   placement: AgentPanelPlacement,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
 ): TiledPanelState {
   const slot = state.slots.find((item) => item.id === panelId || item.contentId === panelId);
   if (!slot || placement.group !== "workspace") {
     return state;
   }
-  const rect = rectForPlacement(placement, viewport);
+  const rect = rectForPlacement(placement, viewport, layoutMetrics);
   return normalizeTiledPanelStateToWorkspace({
     ...state,
     slots: state.slots.map((item) => item.id === slot.id ? { ...item, rect } : item)
-  }, viewport);
+  }, viewport, layoutMetrics);
 }
 
-function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize): PanelRect {
-  const grid = tiledGrid(viewport);
+function rectForPlacement(placement: AgentPanelPlacement, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): PanelRect {
+  const grid = tiledGrid(viewport, layoutMetrics);
   const col = clampInt(placement.col, 1, 4);
   const row = clampInt(placement.row, 1, 5);
   const colSpan = clampInt(placement.colSpan, 1, 4 - col + 1);
@@ -359,7 +365,8 @@ function setPanelLayoutWeight(state: TiledPanelState, panelId: string, layoutWei
 function emphasizeSupportPanel(
   state: TiledPanelState,
   targetSlotId: string,
-  viewport: ViewportSize
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
 ): TiledPanelState {
   const targetSlot = state.slots.find((slot) => slot.id === targetSlotId);
   const supportSlots = state.slots
@@ -369,7 +376,7 @@ function emphasizeSupportPanel(
     return state;
   }
 
-  const workspace = workspaceBounds(viewport);
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   const supportTop = Math.min(...supportSlots.map((slot) => slot.rect.top));
   const supportBottom = Math.max(...supportSlots.map((slot) => slot.rect.top + slot.rect.height));
@@ -415,8 +422,8 @@ function emphasizeSupportPanel(
   };
 }
 
-function tiledGrid(viewport: ViewportSize) {
-  const workspace = workspaceBounds(viewport);
+function tiledGrid(viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics) {
+  const workspace = workspaceBounds(viewport, layoutMetrics);
   const gutter = panelGutter(viewport);
   const cellWidth = Math.max(1, (workspace.width - gutter * 5) / 4);
   const cellHeight = Math.max(1, (workspace.height - gutter * 6) / 5);

@@ -2085,6 +2085,11 @@ h2 {
   min-height: 0;
   overflow: hidden;
   pointer-events: auto;
+  transition: top 180ms ease, height 180ms ease, left 180ms ease, width 180ms ease;
+}
+
+.workspace-panel-frame.is-layout-resizing {
+  transition: none;
 }
 
 .workspace-panel-frame.has-panel-nav {

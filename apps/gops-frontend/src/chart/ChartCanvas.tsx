@@ -54,8 +54,9 @@ export function ChartCanvas({
     if (!canvas) {
       return;
     }
+    let animationFrame: number | null = null;
 
-    const resize = () => {
+    const draw = () => {
       const rect = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.floor(rect.width * ratio));
@@ -70,10 +71,25 @@ export function ChartCanvas({
       drawChart(context, scene, crosshair, previewDrawings, agentVisualOverlays);
     };
 
-    const observer = new ResizeObserver(resize);
+    const scheduleDraw = () => {
+      if (animationFrame !== null) {
+        return;
+      }
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = null;
+        draw();
+      });
+    };
+
+    const observer = new ResizeObserver(scheduleDraw);
     observer.observe(canvas);
-    resize();
-    return () => observer.disconnect();
+    scheduleDraw();
+    return () => {
+      observer.disconnect();
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
   }, [agentVisualOverlays, chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
 
   return (
