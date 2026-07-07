@@ -1,6 +1,7 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 type SortMode = "custom" | "value" | "return";
 
@@ -107,7 +108,7 @@ export function PortfolioHoldingsPanel({
         <div className="portfolio-position-list">
           {positions.map((position) => (
             <button key={position.symbol} className="portfolio-position-row" type="button" onClick={() => onSelectSymbol(position.symbol)}>
-              <span className="portfolio-position-badge">{positionBadge(position)}</span>
+              <StockLogo symbol={position.symbol} companyName={position.name || position.symbol} size="sm" className="portfolio-position-logo" />
               <span className="portfolio-position-name">
                 <strong>{position.name || position.symbol}</strong>
                 <em>{formatQuantity(position.quantity)}주</em>
@@ -122,6 +123,7 @@ export function PortfolioHoldingsPanel({
           ))}
         </div>
       )}
+      <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
 }
@@ -196,12 +198,4 @@ function formatAsOf(value: string) {
     return "";
   }
   return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(date);
-}
-
-function positionBadge(position: PortfolioPosition) {
-  const words = (position.name || position.symbol).split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0][0] ?? ""}${words[1][0] ?? ""}`.toUpperCase();
-  }
-  return position.symbol.slice(0, 3).toUpperCase();
 }

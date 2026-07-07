@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { fetchMarketIndices } from "../market/indicesApi";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 const popularStockLimit = 10;
 const krwPerWonUnit = 100_000_000;
@@ -114,8 +115,11 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
                   onKeyDown={(event) => handleRowKeyDown(event, item.symbol)}
                 >
                   <td className="popular-stock-company">
-                    <strong>{item.symbol}</strong>
-                    <span>{item.companyName}</span>
+                    <StockLogo symbol={item.symbol} companyName={item.companyName} size="xs" />
+                    <span className="popular-stock-company-text">
+                      <strong>{item.symbol}</strong>
+                      <span>{item.companyName}</span>
+                    </span>
                   </td>
                   <td className="popular-stock-money">{formatKrwAmount(item.sessionDollarVolume, krwRate)}</td>
                   <td className="popular-stock-money">{formatKrwAmount(item.marketCap, krwRate)}</td>
@@ -126,6 +130,7 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
           </table>
         </div>
       )}
+      <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
 }
