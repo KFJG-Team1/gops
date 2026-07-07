@@ -6,6 +6,7 @@ export type CommandActor = "user" | "llm" | "system";
 
 export type AgentLayoutPanelType =
   | "chart"
+  | "compareChart"
   | "marketIndices"
   | "companyProfile"
   | "popularStocks"

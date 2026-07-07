@@ -2231,6 +2231,8 @@ const panelContentRendererSource = readFileSync(fileURLToPath(new URL("../src/co
 assert.match(panelContentRendererSource, /NewsPanel/);
 assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
+assert.match(panelContentRendererSource, /ChartComparisonPanel/);
+assert.match(panelContentRendererSource, /content\.kind === "compare"/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 assert.match(panelContentRendererSource, /chart-instance-interval/);
 assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
@@ -2240,22 +2242,21 @@ assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-in
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
-const removedCurrentPriceOverlayPattern = new RegExp([
-  ["chart-current", "price"].join("-"),
-  ["currentPrice", "Marker"].join("")
-].join("|"));
 assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /Paintbrush/);
-assert.doesNotMatch(chartPanelSource, removedCurrentPriceOverlayPattern);
+assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
 assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
-assert.match(chartPanelSource, /chart\.comparison\.add/);
+assert.doesNotMatch(chartPanelSource, /chart\.comparison\.add/);
 assert.match(chartPanelSource, /chart\.comparison\.remove/);
-assert.match(chartPanelSource, /maxComparisonCount = 4/);
+assert.match(chartPanelSource, /maxComparisonCount/);
+assert.match(chartPanelSource, /onOpenComparisonPanel/);
+assert.match(chartPanelSource, /placeholder="비교 패널"/);
+assert.match(chartPanelSource, /comparisons: renderComparisons/);
 assert.match(chartPanelSource, /menuPlacement="top"/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
@@ -2289,6 +2290,7 @@ assert.doesNotMatch(panelWorkspaceSource, /panel-boundary-add|panel-add-menu|ins
 const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/components/WorkspacePanelFrame.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(workspacePanelFrameSource, /workspace-panel-close|canClose|onClose/);
 const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/panelRegistry.ts", import.meta.url)), "utf-8");
+assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
@@ -2522,22 +2524,22 @@ assert.equal(agentAnalysisReport.finalResponse?.confidence, 0.78);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
-assert.match(agentAnalysisMessage, /■ 확인된 근거/);
+assert.match(agentAnalysisMessage, /확인된 근거/);
 assert.match(agentAnalysisMessage, /Headline: News summary/);
 assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
 assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
-assert.match(agentAnalysisMessage, /데이터 한계:/);
-assert.match(agentAnalysisMessage, /뉴스 데이터 미확인: News 데이터 is not configured\./);
-assert.match(agentAnalysisMessage, /거시 데이터 미확인: Macro 데이터 is not configured\./);
-assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
-assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
+assert.doesNotMatch(agentAnalysisMessage, /데이터 한계:/);
+assert.doesNotMatch(agentAnalysisMessage, /뉴스 데이터 미확인/);
+assert.doesNotMatch(agentAnalysisMessage, /거시 데이터 미확인/);
+assert.doesNotMatch(agentAnalysisMessage, /확인되지 않은 내용:/);
+assert.doesNotMatch(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
 assert.doesNotMatch(agentAnalysisMessage, /Provider status|GraphDB|ClickHouse|Redis|providerEvidence/);
 assert.doesNotMatch(agentAnalysisMessage, /알림 판단:/);
 assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /URL 없는 온톨로지 근거/);
 assert.doesNotMatch(agentAnalysisMessage, /verification-guardrail:/);
-assert.doesNotMatch(agentAnalysisMessage, /■ 제한 사항/);
+assert.doesNotMatch(agentAnalysisMessage, /제한 사항/);
 assert.doesNotMatch(agentAnalysisMessage, /Macro provider not configured\./);
 assert.match(agentAnalysisMessage, /검색 0\.2초 \/ 전체 1\.1초/);
 assert.doesNotMatch(agentAnalysisMessage, /캐시 사용/);
@@ -2563,8 +2565,14 @@ assert.match(finalAnswerFirstMessage, /세부 근거/);
 assert.match(finalAnswerFirstMessage, /뉴스 독립 답변/);
 
 const frontendStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
+const bottomCommandBarSourceForAgentAnalysis = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);
 assert.match(frontendStylesSource, /\.bottom-chat-message \{[\s\S]*max-width: min\(720px, 88%\);/);
+assert.match(frontendStylesSource, /\.agent-analysis-details summary \{[\s\S]*cursor: pointer;/);
+assert.match(bottomCommandBarSourceForAgentAnalysis, /analysisReport\?: AgentAnalysisReport \| null;/);
+assert.match(bottomCommandBarSourceForAgentAnalysis, /<AgentAnalysisChatMessage report=\{entry\.analysisReport\}/);
+assert.match(bottomCommandBarSourceForAgentAnalysis, /<details className="agent-analysis-details">/);
+assert.match(bottomCommandBarSourceForAgentAnalysis, /"판단 근거", "분석한 지표", "반대로 볼 점"/);
 assert.match(frontendStylesSource, /\.bottom-chat-message\.is-pending \.bottom-chat-message-text \{[\s\S]*color: var\(--color-muted-medium\);/);
 assert.match(frontendStylesSource, /\.bottom-chat-loading-mark \{[\s\S]*font-weight: 800;[\s\S]*animation: bottom-chat-loading-spin/);
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*background: #1f9d55;/);

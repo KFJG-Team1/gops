@@ -44,6 +44,7 @@ import {
   addPanelSlotAtGridRect,
   detectResizablePanelBoundaries,
   expandGridRectForKind,
+  firstAvailablePanelGridRect,
   movePanelSlotToGridRect,
   panelGridMetrics,
   panelGridSpec,
@@ -56,6 +57,7 @@ import {
   resolvePanelDropGridRect,
   resolvePanelResizeWithYield,
   resizeFreeformBoundary,
+  setPanelContentProps,
   slotAtGridCell,
   swapPanelContents,
   type PanelBoundary,
@@ -546,6 +548,60 @@ export function PanelWorkspace({
     setChartAddTargetContentId((current) => current === contentId ? null : contentId);
   };
 
+  const updatePanelProps = useCallback((contentId: string, props: Record<string, unknown>) => {
+    setPanelState((current) => setPanelContentProps(current, contentId, props));
+  }, [setPanelState]);
+
+  const openComparePanelFromChart = useCallback((contentId: string, comparisonSymbol: string) => {
+    const normalizedComparison = comparisonSymbol.trim().toUpperCase();
+    if (!normalizedComparison) {
+      return;
+    }
+    const sourceSlot = panelStateRef.current.slots.find((slot) => slot.contentId === contentId);
+    const sourceContent = sourceSlot ? panelStateRef.current.contents[sourceSlot.contentId] : null;
+    if (!sourceSlot || !sourceContent || sourceContent.kind !== "chart") {
+      return;
+    }
+    const chartDocument = chartRuntime.documents[chartDocumentIdForContent(sourceContent)];
+    const baseSymbol = (chartDocument?.symbol ?? readContentSymbol(sourceContent) ?? activeSymbol).toUpperCase();
+    const requestedSymbols = normalizeComparePanelSymbols([baseSymbol, normalizedComparison]);
+    setPanelState((current) => {
+      const existing = Object.values(current.contents).find((content) => (
+        content.kind === "compare" &&
+        readCompareBaseSymbolFromContent(content, baseSymbol) === baseSymbol
+      ));
+      if (existing) {
+        return setPanelContentProps(current, existing.id, {
+          baseSymbol,
+          symbols: normalizeComparePanelSymbols([
+            ...readCompareSymbolsFromContent(existing, baseSymbol),
+            ...requestedSymbols
+          ])
+        });
+      }
+      const gridRect = firstAvailablePanelGridRect(current, "compare");
+      if (!gridRect) {
+        return current;
+      }
+      return addPanelSlotAtGridRect(
+        current,
+        "compare",
+        gridRect,
+        {
+          symbol: baseSymbol,
+          props: {
+            baseSymbol,
+            symbols: requestedSymbols,
+            range: "1D"
+          }
+        },
+        viewportSizeRef.current,
+        layoutMetricsRef.current
+      );
+    });
+    setChartAddTargetContentId(null);
+  }, [activeSymbol, chartRuntime.documents, setPanelState]);
+
   const renderPanelEditControls = (slotId: PanelSlotId, content: PanelContentInstance) => {
     if (!layoutEditMode) {
       return null;
@@ -659,6 +715,7 @@ export function PanelWorkspace({
               onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
               onChartAddToggle={() => toggleChartAddTarget(content.id)}
               onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
+              onUpdatePanelProps={updatePanelProps}
               onChangePanelChartSymbol={changePanelChartSymbol}
               onSelectSymbol={onSelectSymbol}
             />
@@ -747,6 +804,7 @@ export function PanelWorkspace({
               laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
               symbols={symbols}
               onChartRuntimeAction={onChartRuntimeAction}
+              onOpenComparisonPanel={(comparisonSymbol) => openComparePanelFromChart(chartAddTarget.content.id, comparisonSymbol)}
               onClose={() => setChartAddTargetContentId(null)}
             />
           )}
@@ -898,4 +956,26 @@ function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHe
 function readContentSymbol(content: PanelContentInstance): string | null {
   const value = content.props?.symbol;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readCompareBaseSymbolFromContent(content: PanelContentInstance, fallback: string): string {
+  const raw = content.props?.baseSymbol ?? content.props?.symbol ?? fallback;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallback.toUpperCase();
+}
+
+function readCompareSymbolsFromContent(content: PanelContentInstance, baseSymbol: string): string[] {
+  const raw = content.props?.symbols;
+  const values = Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  return normalizeComparePanelSymbols([baseSymbol, ...values]);
+}
+
+function normalizeComparePanelSymbols(values: string[]): string[] {
+  const normalized: string[] = [];
+  values.forEach((value) => {
+    const symbol = value.trim().toUpperCase();
+    if (symbol && !normalized.includes(symbol)) {
+      normalized.push(symbol);
+    }
+  });
+  return normalized.slice(0, 6);
 }

@@ -20,6 +20,14 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 100
   },
   {
+    kind: "compare",
+    title: "비교",
+    agentPanelType: "compareChart",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
+    defaultLayoutWeight: 80
+  },
+  {
     kind: "news",
     title: "뉴스",
     agentPanelType: "newsFeed",

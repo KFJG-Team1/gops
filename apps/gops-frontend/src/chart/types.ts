@@ -203,6 +203,44 @@ export type ChartSymbolsResponseDto = {
   symbols: ChartSymbolDto[];
 };
 
+export type ChartCompareRange = "1D" | "1M" | "6M" | "1Y" | "5Y";
+
+export type ChartComparePointDto = {
+  time: string;
+  price: number;
+  returnPercent: number;
+};
+
+export type ChartCompareItemDto = {
+  symbol: string;
+  companyName?: string;
+  exchange?: string | null;
+  color?: string;
+  basePrice?: number | null;
+  lastPrice?: number | null;
+  change?: number | null;
+  changePercent?: number | null;
+  points: ChartComparePointDto[];
+  error?: string;
+  message?: string;
+};
+
+export type ChartCompareResponseDto = {
+  range: ChartCompareRange;
+  timeframe: string;
+  baseMode: "first_close";
+  session: "regular";
+  adjustment: "split";
+  asOf: string;
+  items: ChartCompareItemDto[];
+  warnings?: Array<{ symbol?: string; code?: string; message?: string }>;
+  cache?: {
+    hit: boolean;
+    ttlSeconds: number;
+    key?: string;
+  };
+};
+
 export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 
 export type FillStatus = "not_needed" | "filled" | "partial" | "timeout" | "failed" | "empty";

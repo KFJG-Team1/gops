@@ -9,7 +9,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "company" | "news" | "watchlistNews" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind = "chart" | "compare" | "company" | "news" | "watchlistNews" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -998,7 +998,8 @@ function createPanelContent(
   const props = {
     ...(options.props ?? {}),
     ...(kind === "chart" && options.symbol ? { symbol: options.symbol, timeframe: "1D" } : {}),
-    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {})
+    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {}),
+    ...(kind === "compare" && options.symbol ? { baseSymbol: options.symbol, symbols: [options.symbol], range: "1D" } : {})
   };
   return {
     id,

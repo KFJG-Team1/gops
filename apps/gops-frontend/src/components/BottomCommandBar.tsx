@@ -2,6 +2,7 @@ import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizon
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { AlertMenu } from "../alerts/AlertMenu";
 import { fetchNotifications, normalizeNotificationPayload, notificationSocketUrl } from "../alerts/alertApi";
+import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
@@ -14,6 +15,7 @@ export type ChatLogEntry = {
   text: string;
   pending?: boolean;
   confidence?: number;
+  analysisReport?: AgentAnalysisReport | null;
 };
 export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
 
@@ -336,10 +338,7 @@ export function BottomCommandBar({
                       />
                     )}
                   </span>
-                  <p>
-                    <span className="bottom-chat-message-text">{entry.text}</span>
-                    {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
-                  </p>
+                  <ChatMessageBody entry={entry} />
                 </article>
               )) : (
                 <p className="bottom-chat-empty">질문을 입력하면 이곳에 대화가 남습니다.</p>
@@ -415,6 +414,78 @@ export function BottomCommandBar({
       </nav>
     </>
   );
+}
+
+function ChatMessageBody({ entry }: { entry: ChatLogEntry }) {
+  if (entry.role === "assistant" && !entry.pending && entry.analysisReport?.finalAnswer) {
+    return <AgentAnalysisChatMessage report={entry.analysisReport} fallbackText={entry.text} />;
+  }
+  return (
+    <p>
+      <span className="bottom-chat-message-text">{entry.text}</span>
+      {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
+    </p>
+  );
+}
+
+function AgentAnalysisChatMessage({ report, fallbackText }: { report: AgentAnalysisReport; fallbackText: string }) {
+  const finalAnswer = report.finalAnswer;
+  if (!finalAnswer) {
+    return <p><span className="bottom-chat-message-text">{fallbackText}</span></p>;
+  }
+  const sections = finalAnswer.sections.filter((section) => section.title && section.bullets.length);
+  const visibleSections = sections.filter((section) => !isCollapsibleAnalysisSection(section.title)).slice(0, 2);
+  const collapsedSections = sections.filter((section) => isCollapsibleAnalysisSection(section.title));
+  const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url)).slice(0, 5);
+  const timingSummary = formatAgentTimingSummary(report.timing);
+
+  return (
+    <div className="agent-analysis-message">
+      <p className="agent-analysis-title">{finalAnswer.title}</p>
+      <p className="agent-analysis-summary">{finalAnswer.summary}</p>
+      {visibleSections.map((section) => <AgentAnalysisSection key={section.title} section={section} />)}
+      {collapsedSections.map((section) => <AgentAnalysisDetails key={section.title} section={section} />)}
+      {linkedCitations.length > 0 && (
+        <details className="agent-analysis-details">
+          <summary>근거 링크</summary>
+          <ul>
+            {linkedCitations.map((citation) => (
+              <li key={`${citation.title}-${citation.url}`}>
+                {citation.url ? <a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a> : citation.title}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {timingSummary && <p className="agent-analysis-timing">{timingSummary}</p>}
+    </div>
+  );
+}
+
+function AgentAnalysisSection({ section }: { section: FinalAnswerSection }) {
+  return (
+    <section className="agent-analysis-section">
+      <h4>{section.title}</h4>
+      <ul>
+        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+      </ul>
+    </section>
+  );
+}
+
+function AgentAnalysisDetails({ section }: { section: FinalAnswerSection }) {
+  return (
+    <details className="agent-analysis-details">
+      <summary>{section.title}</summary>
+      <ul>
+        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+      </ul>
+    </details>
+  );
+}
+
+function isCollapsibleAnalysisSection(title: string): boolean {
+  return ["판단 근거", "분석한 지표", "반대로 볼 점"].includes(title.trim());
 }
 
 function MenuActionGroup({
