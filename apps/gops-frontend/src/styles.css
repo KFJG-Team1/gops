@@ -58,8 +58,10 @@
   --color-purple-soft: rgb(var(--gops-purple-rgb) / 0.48);
   --layout-gutter: 24px;
   --top-nav-height: 68px;
-  --bottom-nav-height: 76px;
-  --bottom-control-size: 44px;
+  --bottom-nav-height: 60px;
+  --bottom-control-size: 36px;
+  /* Floating tool/palette docks sit just above the bottom command bar, tracking its height. */
+  --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px);
   --surface-radius: 8px;
   --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
   --surface-raised-highlight-shadow: -1px -1px 4px var(--color-border);
@@ -271,7 +273,9 @@ button {
   grid-template-columns: minmax(96px, 1fr) minmax(300px, 520px) minmax(96px, 1fr);
   column-gap: 16px;
   height: var(--bottom-nav-height);
-  padding: 10px var(--layout-gutter) 18px;
+  /* Left/right inset is intentionally decoupled from the grid gutter so the edge
+     buttons sit the same distance from the page sides as they do from the bottom. */
+  padding: 8px 14px 12px;
 }
 
 .bottom-nav-actions {
@@ -433,8 +437,8 @@ button {
 }
 
 .workspace-nav-button svg {
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   stroke-width: 1.8;
 }
 
@@ -1542,7 +1546,7 @@ h2 {
 .toolbar {
   position: absolute;
   top: 9px;
-  right: 44px;
+  right: 10px;
   left: auto;
   z-index: 36;
   display: grid;
@@ -1601,7 +1605,6 @@ h2 {
   pointer-events: auto;
 }
 
-.segmented,
 .icon-button {
   height: 26px;
   border: 0;
@@ -1610,28 +1613,13 @@ h2 {
   color: var(--color-text);
   font-size: 10px;
   font-weight: 700;
-}
-
-.segmented {
-  min-width: 38px;
-  padding: 0 7px;
-}
-
-.segmented.active {
-  background: var(--color-preview);
-  color: var(--color-tile-text-inverse);
-  box-shadow: inset 2px 2px 4px var(--color-shadow), inset -2px -2px 4px var(--color-border);
-}
-
-.icon-button {
   display: inline-grid;
   place-items: center;
   width: 26px;
   padding: 0;
 }
 
-.icon-button:disabled,
-.segmented:disabled {
+.icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
@@ -2372,13 +2360,13 @@ h2 {
 
 .agent-box input {
   min-width: 0;
-  height: 34px;
-  padding: 0 12px;
+  height: 28px;
+  padding: 0 11px;
   border: 0;
   border-radius: 999px;
   background: none;
   color: var(--color-text);
-  font-size: 12px;
+  font-size: 11px;
   outline: none;
 }
 
@@ -2386,8 +2374,8 @@ h2 {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 34px;
+  width: 26px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -2556,7 +2544,8 @@ h2 {
 
 .workspace-panel-frame.is-layout-editing .workspace-panel-body {
   pointer-events: none;
-  filter: saturate(0.82);
+  filter: saturate(0.55) blur(2px);
+  opacity: 0.55;
 }
 
 .panel-edit-overlay {
@@ -2569,7 +2558,8 @@ h2 {
 .panel-edit-snapshot-shield {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--color-background) 8%, transparent);
+  background: color-mix(in srgb, var(--color-background) 40%, transparent);
+  backdrop-filter: blur(1px);
   pointer-events: auto;
 }
 
@@ -2578,15 +2568,16 @@ h2 {
   z-index: 2;
   display: inline-grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-surface) 92%, white 8%);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--color-text);
   pointer-events: auto;
   touch-action: none;
+  filter: drop-shadow(0 1px 4px color-mix(in srgb, var(--color-background) 85%, transparent));
 }
 
 .panel-resize-handle.nw {
@@ -2644,8 +2635,8 @@ h2 {
 .panel-delete-button {
   left: 50%;
   top: 50%;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   color: var(--color-danger);
   transform: translate(-50%, -50%);
 }
@@ -2679,12 +2670,12 @@ h2 {
   align-items: center;
   gap: 5px;
   max-width: calc(100% - 16px);
-  padding: 5px 8px;
+  padding: 7px 14px;
   border-radius: 999px;
   background: var(--color-surface);
   font-family: var(--font-ui-serif);
-  font-size: 11px;
-  font-weight: 780;
+  font-size: 18px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4886,46 +4877,45 @@ h2 {
   left: 9px;
 }
 
-.chart-content-tabs {
-  display: inline-flex;
-  flex: 0 0 auto;
-  max-width: 140px;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  padding: 2px;
-  border-radius: 8px;
-  background: rgb(var(--gops-ink-rgb) / 0.04);
-  pointer-events: auto;
-}
-
-.chart-content-tabs button {
+.chart-content-toggle {
   display: inline-grid;
+  flex: 0 0 auto;
   place-items: center;
-  min-width: 52px;
+  min-width: 56px;
   height: 26px;
-  padding: 0 10px;
-  overflow: hidden;
+  padding: 0 12px;
   border: 0;
   border-radius: 6px;
-  background: transparent;
-  color: var(--color-muted);
+  background: var(--color-text);
+  color: var(--color-surface);
   font-family: var(--font-data-sans);
   font-size: 11px;
   font-weight: 760;
   line-height: 1;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chart-content-tabs button:hover,
-.chart-content-tabs button:focus-visible {
-  color: var(--color-text);
+.chart-company-toolbar {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  z-index: 36;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 130ms ease;
 }
 
-.chart-content-tabs button.active {
-  background: var(--color-text);
-  color: var(--color-surface);
+.workspace-panel-frame.is-chart-hovered .chart-company-toolbar,
+.chart-lane-frame:hover .chart-company-toolbar,
+.chart-lane-frame:focus-within .chart-company-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chart-company-toolbar .chart-content-toggle {
+  pointer-events: auto;
 }
 
 .chart-tab-content {
@@ -5140,20 +5130,11 @@ h2 {
   .chart-instance-symbol {
     flex-basis: 132px;
     min-width: 78px;
+    max-width: 150px;
   }
 
   .chart-instance-sync-page {
     width: 22px;
-  }
-
-  .chart-content-tabs {
-    max-width: 118px;
-    gap: 2px;
-  }
-
-  .chart-content-tabs button {
-    min-width: 44px;
-    padding: 0 7px;
   }
 
   .chart-instance-chart-type {
@@ -5165,13 +5146,44 @@ h2 {
   }
 }
 
+/* As the panel narrows, drop controls in order of least importance and pull the
+   remaining ones together, reclaiming that width for the symbol search. */
+@container (max-width: 500px) {
+  /* 1) Hide the chart/company toggle first — but only in chart mode. The company
+     view keeps its toggle (.chart-company-toolbar) so there is always a way back. */
+  .chart-panel .chart-content-toggle {
+    display: none;
+  }
+
+  .chart-instance-symbol {
+    flex-basis: 116px;
+    min-width: 70px;
+    max-width: 128px;
+  }
+}
+
 @container (max-width: 430px) {
+  /* 2) Then hide the candle/bar/line chart-type selector. */
   .chart-instance-chart-type {
     display: none;
   }
 
-  .chart-content-tabs {
-    max-width: 112px;
+  .chart-instance-symbol {
+    flex-basis: 98px;
+    min-width: 62px;
+    max-width: 108px;
+  }
+}
+
+@container (max-width: 360px) {
+  .chart-instance-symbol {
+    flex-basis: 82px;
+    min-width: 54px;
+    max-width: 92px;
+  }
+
+  .chart-instance-interval {
+    width: 52px;
   }
 }
 
@@ -5201,7 +5213,7 @@ h2 {
 .chart-drawing-dock {
   position: fixed;
   right: 50%;
-  bottom: 82px;
+  bottom: var(--tool-dock-bottom);
   z-index: 42;
   display: inline-flex;
   align-items: center;
@@ -5217,7 +5229,7 @@ h2 {
 .chart-tool-dock-row {
   position: fixed;
   left: 50%;
-  bottom: 82px;
+  bottom: var(--tool-dock-bottom);
   z-index: 42;
   display: flex;
   align-items: center;
@@ -5233,15 +5245,16 @@ h2 {
 .layout-palette-dock {
   position: fixed;
   left: 50%;
-  bottom: 82px;
+  bottom: var(--tool-dock-bottom);
   z-index: 44;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  max-width: min(920px, calc(100vw - 28px));
-  padding: 6px;
-  overflow-x: auto;
+  gap: 6px;
+  width: calc(100vw - 28px);
+  max-width: calc(100vw - 28px);
+  padding: 5px;
   transform: translateX(-50%);
   pointer-events: auto;
 }
@@ -5252,14 +5265,14 @@ h2 {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  height: 32px;
+  height: 28px;
   padding: 0 10px;
   border: 0;
   border-radius: 999px;
   color: var(--color-text);
-  font-family: var(--font-ui-serif);
+  font-family: var(--font-data-sans);
   font-size: 11px;
-  font-weight: 780;
+  font-weight: 700;
   touch-action: none;
 }
 
@@ -5268,6 +5281,75 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.layout-preset-dock {
+  position: fixed;
+  left: 50%;
+  bottom: var(--tool-dock-bottom);
+  z-index: 43;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100vw - 28px);
+  padding: 5px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.layout-preset-button,
+.layout-preset-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-raised-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 12px;
+  font-weight: 300;
+  white-space: nowrap;
+}
+
+.layout-preset-button.is-active {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.layout-preset-add {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-raised-surface);
+  color: var(--color-text);
+}
+
+.layout-preset-input {
+  flex: 0 0 auto;
+  width: 100px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--color-preview);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 12px;
+  outline: none;
+}
+
+.layout-preset-action.danger {
+  color: var(--color-danger);
 }
 
 .chart-tool-dock-row .chart-drawing-dock {
@@ -5283,8 +5365,7 @@ h2 {
   max-width: min(820px, calc(100vw - 28px));
 }
 
-.chart-drawing-dock .icon-button,
-.chart-drawing-dock .segmented {
+.chart-drawing-dock .icon-button {
   flex: 0 0 auto;
 }
 
@@ -5429,12 +5510,6 @@ h2 {
   .company-earnings-panel {
     grid-column: auto;
     padding: 0;
-  }
-
-  .chart-content-tabs {
-    top: 38px;
-    left: 12px;
-    max-width: calc(100% - 24px);
   }
 
   .chart-tab-content.is-company {

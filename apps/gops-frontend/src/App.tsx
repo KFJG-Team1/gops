@@ -11,6 +11,9 @@ import {
   useState
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
+import { PresetDock } from "./components/PresetDock";
+import { buildPresetLayout, type LayoutPreset } from "./layout/layoutPresets";
+import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
   createInitialChartRuntimeState,
@@ -313,6 +316,28 @@ export function App() {
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetricsForPanelState(panelState));
   const isTreeMapMode = mainView.mode === "treemap";
   const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
+
+  const serializeCurrentLayout = useCallback(() => (
+    serializeTiledPanelState(
+      normalizeFreeformRectsToGridLayout(panelState, viewportSizeRef.current, panelLayoutMetricsRef.current)
+    )
+  ), [panelState]);
+  const applyPresetLayout = useCallback((state: TiledPanelState) => {
+    setPanelState(state);
+  }, []);
+  const buildPresetLayoutForCurrent = useCallback((preset: LayoutPreset) => (
+    buildPresetLayout(preset, viewportSizeRef.current, {
+      symbol: mainView.mode === "chart" ? mainView.symbol : undefined,
+      layoutMetrics: panelLayoutMetricsRef.current
+    })
+  ), [mainView]);
+  const presetControls = useLayoutPresets({
+    authUser: user,
+    authLoading,
+    serializeCurrentLayout,
+    applyLayout: applyPresetLayout,
+    buildLayout: buildPresetLayoutForCurrent
+  });
   const selectedAgentReferenceKeys = useMemo(() => (
     agentReferences.map((reference) => agentReferenceKey(reference))
   ), [agentReferences]);
@@ -1141,7 +1166,7 @@ export function App() {
   };
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={workspaceStyle}>
       {mainView.mode === "chart" && (
         <header className={`workspace-top-nav chart ${hasMultipleChartPanels ? "is-hidden" : ""}`} aria-label="Workspace header">
           <div className={`header-quote-stack ${activeHeaderQuote?.tone ?? "unavailable"}`} aria-label="Live quote">
@@ -1201,6 +1226,7 @@ export function App() {
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
+            presetDock={<PresetDock controls={presetControls} onShowHome={showTreeMap} />}
           />
         )}
       </section>
@@ -1234,7 +1260,6 @@ export function App() {
         onReorderWatchlistSymbol={reorderWatchlistSymbol}
         onRemoveWatchlistSymbol={removeWatchlistSymbol}
         onSelectSymbol={openSymbolPage}
-        onShowTreeMap={showTreeMap}
         onToggleLayoutEditMode={toggleLayoutEditMode}
         onToggleMenu={toggleBottomMenu}
       />

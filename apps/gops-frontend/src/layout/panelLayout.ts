@@ -180,6 +180,38 @@ export function createInitialTiledPanelState(
   };
 }
 
+export type PanelLayoutSpecItem = {
+  kind: PanelContentKind;
+  gridRect: PanelGridRect;
+  symbol?: string;
+  props?: Record<string, unknown>;
+  layoutWeight?: number;
+};
+
+/** Build a fresh TiledPanelState from a declarative panel spec (used by layout presets). */
+export function createTiledPanelStateFromSpec(
+  spec: readonly PanelLayoutSpecItem[],
+  viewport: ViewportSize,
+  options: { symbol?: string; layoutMetrics?: WorkspaceLayoutMetrics } = {}
+): TiledPanelState {
+  const contents: Record<PanelContentId, PanelContentInstance> = {};
+  const slots: PanelSlot[] = [];
+  let instance = 1;
+  spec.forEach((item) => {
+    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare";
+    const symbol = item.symbol ?? (inheritsSymbol ? options.symbol : undefined);
+    const content = createPanelContent(item.kind, instance, {
+      symbol: symbol?.trim().toUpperCase(),
+      layoutWeight: item.layoutWeight ?? panelRegistryEntry(item.kind).defaultLayoutWeight,
+      props: item.props
+    });
+    contents[content.id] = content;
+    slots.push(createPanelSlot(`slot-${item.kind}-${instance}`, content, item.gridRect, viewport, options.layoutMetrics));
+    instance += 1;
+  });
+  return { contents, nextInstance: instance, slots };
+}
+
 export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number): string {
   void instanceIndex;
   return panelRegistryEntry(kind).title;
@@ -550,6 +582,10 @@ export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
 
 export function panelPaletteEntryLabel(kind: PanelContentKind): string {
   return panelPaletteLabel(panelRegistryEntry(kind));
+}
+
+export function panelPaletteEntryTitle(kind: PanelContentKind): string {
+  return panelRegistryEntry(kind).title;
 }
 
 export function panelGridCellFromPoint(

@@ -186,6 +186,18 @@ export function PanelContentRenderer({
   }
   const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
   const chartType = normalizeChartType(chartDocument.chartType);
+  const companyToggleButton = (
+    <button
+      type="button"
+      className="chart-content-toggle"
+      aria-label={activeTab === "chart" ? `${selectedSymbol} 기업정보 보기` : `${selectedSymbol} 차트 보기`}
+      title={activeTab === "chart" ? "기업정보 보기" : "차트 보기"}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => setActiveTab((current) => current === "chart" ? "company" : "chart")}
+    >
+      {activeTab === "chart" ? "기업정보" : "차트"}
+    </button>
+  );
 
   return (
     <div className="chart-instance is-editable-chart">
@@ -220,26 +232,6 @@ export function PanelContentRenderer({
               <Newspaper size={13} />
             </button>
           </div>
-        </div>
-        <div className="chart-content-tabs" role="tablist" aria-label={`${selectedSymbol} chart tabs`}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "chart"}
-            className={activeTab === "chart" ? "active" : ""}
-            onClick={() => setActiveTab("chart")}
-          >
-            차트
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "company"}
-            className={activeTab === "company" ? "active" : ""}
-            onClick={() => setActiveTab("company")}
-          >
-            기업정보
-          </button>
         </div>
         <div className="chart-instance-view-controls">
           <select
@@ -285,9 +277,13 @@ export function PanelContentRenderer({
           onSemanticSelectionChange={setSemanticSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
+          toolbarLeading={companyToggleButton}
         />
       ) : (
-        <div className="chart-tab-content is-company" role="tabpanel" aria-label={`${selectedSymbol} 기업정보`}>
+        <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>
+          <div className="chart-company-toolbar" aria-label="기업정보 컨트롤">
+            {companyToggleButton}
+          </div>
           <CompanySummaryPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
         </div>
       )}

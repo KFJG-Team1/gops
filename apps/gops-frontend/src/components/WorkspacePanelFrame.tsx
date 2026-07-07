@@ -10,6 +10,7 @@ type WorkspacePanelFrameProps = {
   isChartHovered?: boolean;
   showNav?: boolean;
   onFramePointerDown?: (slotId: string) => (event: ReactPointerEvent<HTMLElement>) => void;
+  onFramePointerMove?: (slotId: string) => (event: ReactPointerEvent<HTMLElement>) => void;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
   editControls?: ReactNode;
@@ -25,6 +26,7 @@ export function WorkspacePanelFrame({
   isChartHovered = false,
   showNav = true,
   onFramePointerDown,
+  onFramePointerMove,
   onPointerEnter,
   onPointerLeave,
   editControls,
@@ -47,6 +49,7 @@ export function WorkspacePanelFrame({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onFramePointerDown?.(slot.id)}
+      onPointerMove={onFramePointerMove?.(slot.id)}
     >
       {showNav && (
         <header
