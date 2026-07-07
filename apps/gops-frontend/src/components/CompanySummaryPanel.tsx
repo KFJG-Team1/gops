@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
 
@@ -203,7 +203,7 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
           const estimate = Number.isFinite(point.estimate ?? NaN) ? point.estimate as number : null;
           const tone = earningsTone(actual, estimate);
           return (
-            <g key={`${point.period}-${index}`}>
+            <g key={`${point.period}-${index}`} className="company-earnings-point" style={{ "--earnings-index": index } as CSSProperties}>
               {estimate != null && (
                 <circle className="company-earnings-dot estimate" cx={x} cy={yFor(estimate)} r={9} />
               )}

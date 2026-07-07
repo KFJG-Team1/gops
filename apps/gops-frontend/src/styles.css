@@ -2609,16 +2609,18 @@ h2 {
 .company-fundamental-grid {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr) minmax(300px, 1.08fr);
+  align-items: start;
   gap: 0;
   min-height: 0;
 }
 
 .company-chart-column {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
-  padding: 0 18px;
+  min-height: 0;
+  padding: 0 20px;
 }
 
 .company-chart-column {
@@ -2645,39 +2647,54 @@ h2 {
   min-width: 0;
 }
 
+.company-valuation-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.company-earnings-panel {
+  align-self: stretch;
+  align-content: start;
+}
+
 .company-valuation-gauge-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 9px;
 }
 
 .company-valuation-gauge {
+  position: relative;
   display: grid;
   align-content: space-between;
-  min-height: 118px;
+  min-height: 104px;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgb(var(--gops-ink-rgb) / 0.11);
-  border-radius: 8px;
-  background: rgb(var(--gops-ink-rgb) / 0.012);
-  box-shadow: inset 0 0 0 999px rgb(var(--gops-ink-rgb) / 0.006);
-  padding: 12px 13px 11px;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.1);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgb(var(--gops-ink-rgb) / 0.03), transparent 58%),
+    color-mix(in srgb, var(--color-surface) 90%, rgb(255 255 255));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 10px 22px rgb(var(--gops-ink-rgb) / 0.035);
+  padding: 13px 14px 12px;
 }
 
 .company-valuation-card {
-  border-left: 3px solid rgb(var(--gops-ink-rgb) / 0.34);
+  border-top: 3px solid rgb(var(--gops-ink-rgb) / 0.24);
 }
 
 .company-valuation-card.good {
-  border-left-color: var(--company-positive);
+  border-top-color: var(--company-positive);
 }
 
 .company-valuation-card.watch {
-  border-left-color: var(--company-brass);
+  border-top-color: var(--company-brass);
 }
 
 .company-valuation-card.risk {
-  border-left-color: var(--company-negative);
+  border-top-color: var(--company-negative);
 }
 
 .company-valuation-card-top {
@@ -2691,19 +2708,21 @@ h2 {
 .company-valuation-card-top span {
   color: var(--color-text);
   font-family: var(--font-data-sans);
-  font-size: 12px;
-  font-weight: 760;
+  font-size: 11px;
+  font-weight: 820;
   line-height: 1.1;
+  text-transform: uppercase;
 }
 
 .company-valuation-card-top em {
   flex: 0 0 auto;
-  border: 1px solid rgb(var(--gops-ink-rgb) / 0.14);
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
   border-radius: 999px;
-  padding: 3px 7px;
+  background: color-mix(in srgb, var(--color-surface) 88%, rgb(255 255 255));
+  padding: 3px 6px;
   color: var(--color-muted);
   font-family: var(--font-data-sans);
-  font-size: 10px;
+  font-size: 9px;
   font-style: normal;
   font-weight: 720;
   line-height: 1;
@@ -2730,7 +2749,7 @@ h2 {
   overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-data-sans);
-  font-size: clamp(19px, 2.1vw, 26px);
+  font-size: clamp(21px, 2vw, 27px);
   font-weight: 820;
   line-height: 1.02;
   text-overflow: ellipsis;
@@ -2740,7 +2759,7 @@ h2 {
 .company-valuation-gauge p {
   color: var(--color-muted);
   font-family: var(--font-data-sans);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 680;
   line-height: 1.25;
 }
@@ -2752,7 +2771,7 @@ h2 {
 
 .company-financial-chart-card {
   display: grid;
-  grid-template-rows: 42px minmax(178px, auto) 22px minmax(150px, auto);
+  grid-template-rows: 42px 208px 24px auto;
   gap: 8px;
   min-width: 0;
   overflow: hidden;
@@ -2786,7 +2805,8 @@ h2 {
 .company-profitability-plot {
   display: block;
   width: 100%;
-  min-height: 170px;
+  height: 208px;
+  min-height: 208px;
   overflow: visible;
 }
 
@@ -3183,12 +3203,19 @@ h2 {
 .company-earnings-plot line {
   stroke: rgb(var(--gops-ink-rgb) / 0.08);
   stroke-width: 1;
+  animation: company-earnings-grid-in 520ms ease both;
 }
 
 .company-earnings-plot text {
   fill: var(--color-muted);
   font-family: var(--font-data-sans);
   font-size: 14px;
+}
+
+.company-earnings-point {
+  opacity: 0;
+  animation: company-earnings-point-in 560ms cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation-delay: calc(var(--earnings-index, 0) * 55ms + 120ms);
 }
 
 .company-earnings-period {
@@ -3200,6 +3227,8 @@ h2 {
 }
 
 .company-earnings-dot {
+  transform-box: fill-box;
+  transform-origin: center;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3207,11 +3236,15 @@ h2 {
   fill: var(--color-surface);
   stroke: rgb(var(--gops-ink-rgb) / 0.48);
   stroke-width: 3;
+  animation: company-earnings-estimate-pulse 920ms ease both;
+  animation-delay: calc(var(--earnings-index, 0) * 55ms + 240ms);
 }
 
 .company-earnings-dot.actual {
   stroke: rgb(var(--gops-ink-rgb) / 0.08);
   stroke-width: 1;
+  animation: company-earnings-dot-pop 640ms cubic-bezier(0.18, 0.88, 0.28, 1.2) both;
+  animation-delay: calc(var(--earnings-index, 0) * 55ms + 180ms);
 }
 
 .company-earnings-dot.beat {
@@ -3225,6 +3258,69 @@ h2 {
 .company-earnings-dot.match,
 .company-earnings-dot.actual-only {
   fill: rgb(var(--gops-ink-rgb) / 0.48);
+}
+
+@keyframes company-earnings-grid-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes company-earnings-point-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes company-earnings-dot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.52);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes company-earnings-estimate-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.76);
+  }
+  70% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .company-earnings-plot line,
+  .company-earnings-point,
+  .company-earnings-dot.estimate,
+  .company-earnings-dot.actual {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .company-peer-list {
