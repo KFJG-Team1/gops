@@ -42,7 +42,6 @@ import {
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
 import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
-import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -78,7 +77,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartCompareRange, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartAction, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import { defaultVisibleBarsForInterval } from "../chart/types";
 import {
   dragDeltaToRightOffset,
@@ -199,7 +198,6 @@ const unavailableQuote: LiveQuote = {
 
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
-const maxComparisonCount = 5;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -243,11 +241,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
   const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
-  const [comparisonRange, setComparisonRange] = useState<ChartCompareRange>("1D");
   const chart = useMemo(() => (
     chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
   ), [candles, dataStatus, document, streamMessage, streamStatus]);
-  const comparisonModeActive = chart.comparisons.length > 0;
   const activeIndicatorLayers = useMemo(() => activeServerIndicatorLayers(chart), [
     chart.layers.ma5,
     chart.layers.ma20,
@@ -387,9 +383,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
-    if (comparisonModeActive) {
-      return undefined;
-    }
     const controller = new AbortController();
     const requestKey = chartMemoryKey(chart.symbol, chart.interval);
     const pendingLoad = pendingViewportAnchorRef.current?.key === requestKey ? pendingViewportAnchorRef.current : null;
@@ -435,12 +428,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         });
       });
     return () => controller.abort();
-  }, [chart.interval, chart.symbol, comparisonModeActive, dispatchDocumentCommand, onChartRuntimeAction]);
+  }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
-    if (comparisonModeActive) {
-      return undefined;
-    }
     const activeSymbol = chart.symbol.trim().toUpperCase();
     if (!activeSymbol) {
       return undefined;
@@ -466,11 +456,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       controller?.abort();
       window.clearInterval(timer);
     };
-  }, [chart.symbol, comparisonModeActive]);
+  }, [chart.symbol]);
 
   useEffect(() => {
     const socketSymbol = chart.symbol.trim().toUpperCase();
-    if (comparisonModeActive || !socketSymbol || !isRealtimeStreamInterval(chart.interval)) {
+    if (!socketSymbol || !isRealtimeStreamInterval(chart.interval)) {
       onChartRuntimeAction({
         kind: "chart.stream.status",
         symbol: chart.symbol,
@@ -496,24 +486,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         status: normalizeStreamStatus(nextStreamState)
       })
     );
-  }, [chart.interval, chart.symbol, comparisonModeActive, onChartRuntimeAction]);
-
-  useEffect(() => {
-    if (!comparisonModeActive) {
-      return undefined;
-    }
-    setPreviousClose(null);
-    setBaseIndicatorSeries({});
-    setExpansionIndicatorSeries({});
-    setVolumeProfile(null);
-    setFootprint(null);
-    return undefined;
-  }, [comparisonModeActive]);
+  }, [chart.interval, chart.symbol, onChartRuntimeAction]);
 
   useEffect(() => {
     const firstTimestamp = chart.candles[0]?.timestamp;
     const lastTimestamp = chart.candles[chart.candles.length - 1]?.timestamp;
-    if (comparisonModeActive || !activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
+    if (!activeIndicatorLayers.length || !firstTimestamp || !lastTimestamp) {
       setBaseIndicatorSeries({});
       return;
     }
@@ -554,11 +532,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.candles,
     chart.interval,
     chart.symbol,
-    comparisonModeActive
   ]);
 
   useEffect(() => {
-    if (comparisonModeActive || !activeIndicatorLayers.length) {
+    if (!activeIndicatorLayers.length) {
       setExpansionIndicatorSeries({});
       return;
     }
@@ -627,11 +604,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeIndicatorLayers,
     chart.interval,
     chart.symbol,
-    comparisonModeActive
   ]);
 
   useEffect(() => {
-    if (comparisonModeActive || !chart.layers["volume-profile"] || !visibleProfileRange) {
+    if (!chart.layers["volume-profile"] || !visibleProfileRange) {
       setVolumeProfile(null);
       return;
     }
@@ -676,11 +652,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["volume-profile"],
     chart.symbol,
     visibleProfileRange,
-    comparisonModeActive
   ]);
 
   useEffect(() => {
-    if (comparisonModeActive || chart.interval !== "footprint" || !visibleProfileRange) {
+    if (chart.interval !== "footprint" || !visibleProfileRange) {
       setFootprint(null);
       return;
     }
@@ -721,7 +696,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.interval,
     chart.symbol,
     visibleProfileRange,
-    comparisonModeActive
   ]);
 
   useEffect(() => {
@@ -1470,10 +1444,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setExpansionOverlays([]);
   };
 
-  const removeComparisonFromChart = useCallback((comparisonId: string) => {
-    dispatchDocumentCommand("chart.comparison.remove", { comparisonId });
-  }, [dispatchDocumentCommand]);
-
   return (
     <section className="chart-panel">
       {hoverSnapshot?.kind === "candle" && (
@@ -1549,46 +1519,35 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       </div>
 
       <div className="chart-wrap">
-        {comparisonModeActive ? (
-          <ChartComparisonPanel
-            symbol={chart.symbol}
-            comparisons={chart.comparisons}
-            symbols={symbols}
-            range={comparisonRange}
-            onRangeChange={setComparisonRange}
-            onRemoveComparison={removeComparisonFromChart}
-          />
-        ) : (
-          <ChartCanvas
-            chart={renderChart}
-            expansions={renderExpansions}
-            previewDrawings={previewDrawings}
-            hoveredNodeId={hoveredSemanticNodeId}
-            selectedNodeId={selectedSemanticNode?.nodeId}
-            crosshair={crosshair}
-            onScene={handleScene}
-            onWheel={handleWheel}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerLeave={() => {
-              setHoveredSemanticNodeId(undefined);
-              setHoverSnapshot(null);
-              if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
-                onChartHoverChange?.(false);
-              }
-              if (!dragAnchorRef.current && !paneResizeRef.current) {
-                setCrosshair(undefined);
-              }
-              if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
-                setTransientDrawings(null);
-              }
-            }}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={cancelDrag}
-            onLostPointerCapture={cancelDrag}
-          />
-        )}
-        {!comparisonModeActive && currentPriceMarker && (
+        <ChartCanvas
+          chart={renderChart}
+          expansions={renderExpansions}
+          previewDrawings={previewDrawings}
+          hoveredNodeId={hoveredSemanticNodeId}
+          selectedNodeId={selectedSemanticNode?.nodeId}
+          crosshair={crosshair}
+          onScene={handleScene}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={() => {
+            setHoveredSemanticNodeId(undefined);
+            setHoverSnapshot(null);
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
+              onChartHoverChange?.(false);
+            }
+            if (!dragAnchorRef.current && !paneResizeRef.current) {
+              setCrosshair(undefined);
+            }
+            if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
+              setTransientDrawings(null);
+            }
+          }}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={cancelDrag}
+          onLostPointerCapture={cancelDrag}
+        />
+        {currentPriceMarker && (
           <div
             className="chart-current-price-overlay"
             style={{
@@ -1743,6 +1702,7 @@ type ChartAddDockProps = {
   laneHeight: number;
   symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
+  onOpenComparisonPanel: (symbol: string) => void;
   onClose: () => void;
 };
 
@@ -1774,16 +1734,15 @@ export function ChartAddDock({
   laneHeight,
   symbols,
   onChartRuntimeAction,
+  onOpenComparisonPanel,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
-  const comparisonSymbols = new Set(document.comparisons.map((comparison) => comparison.symbol.toUpperCase()));
-  const canAddComparison = document.comparisons.length < maxComparisonCount;
   const comparisonSearchSymbols = symbols.filter((symbol) => {
     const normalized = symbol.symbol.toUpperCase();
-    return normalized !== document.symbol.toUpperCase() && !comparisonSymbols.has(normalized);
+    return normalized !== document.symbol.toUpperCase();
   });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
@@ -1793,36 +1752,13 @@ export function ChartAddDock({
     });
   }, [onChartRuntimeAction, target]);
 
-  const addComparison = useCallback((symbol: string) => {
+  const openComparisonPanel = useCallback((symbol: string) => {
     const normalized = symbol.toUpperCase();
-    if (!canAddComparison || normalized === document.symbol.toUpperCase() || comparisonSymbols.has(normalized)) {
+    if (normalized === document.symbol.toUpperCase()) {
       return;
     }
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand("chart.comparison.add", "user", target, {
-        comparison: {
-          symbol: normalized,
-          label: normalized,
-          scaleMode: "percent",
-          base: { mode: "visibleRangeStart" },
-          style: {
-            colorToken: comparisonDefaultColorToken(document.comparisons.length),
-            textToken: comparisonDefaultColorToken(document.comparisons.length),
-            lineWidth: 1.45,
-            opacity: 0.9
-          }
-        }
-      })
-    });
-  }, [canAddComparison, comparisonSymbols, document.comparisons.length, document.symbol, onChartRuntimeAction, target]);
-
-  const removeComparison = useCallback((comparisonId: string) => {
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand("chart.comparison.remove", "user", target, { comparisonId })
-    });
-  }, [onChartRuntimeAction, target]);
+    onOpenComparisonPanel(normalized);
+  }, [document.symbol, onOpenComparisonPanel]);
 
   const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
@@ -1851,37 +1787,15 @@ export function ChartAddDock({
       })}
       <span className="toolbar-separator" aria-hidden="true" />
       <div className="chart-comparison-picker" aria-label="Comparison symbols">
-        {canAddComparison ? (
-          <SymbolSearch
-            symbols={comparisonSearchSymbols}
-            selectedLabel=""
-            placeholder="비교 종목"
-            compact
-            menuPlacement="top"
-            onSelectSymbol={addComparison}
-          />
-        ) : (
-          <span className="chart-comparison-limit">MAX 5</span>
-        )}
+        <SymbolSearch
+          symbols={comparisonSearchSymbols}
+          selectedLabel=""
+          placeholder="비교 패널"
+          compact
+          menuPlacement="top"
+          onSelectSymbol={openComparisonPanel}
+        />
       </div>
-      {document.comparisons.map((comparison, index) => (
-        <button
-          key={comparison.id}
-          type="button"
-          className="chart-comparison-chip"
-          aria-label={`${comparison.symbol} 비교 삭제`}
-          title={`${comparison.symbol} 비교 삭제`}
-          onClick={() => removeComparison(comparison.id)}
-        >
-          <span
-            className="chart-comparison-chip-swatch"
-            style={{ "--comparison-color": comparisonLegendColor(comparison.style, index) } as CSSProperties}
-            aria-hidden="true"
-          />
-          <span>{comparison.symbol}</span>
-          <X size={12} aria-hidden="true" />
-        </button>
-      ))}
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);
@@ -1930,41 +1844,6 @@ function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
       return <>MACD</>;
     default:
       return <>{layer}</>;
-  }
-}
-
-function comparisonDefaultColorToken(index: number): string {
-  if (index === 0) {
-    return "signal";
-  }
-  if (index === 1) {
-    return "caution";
-  }
-  if (index === 2) {
-    return "purple";
-  }
-  return "drawing";
-}
-
-function comparisonLegendColor(style: { color?: string; colorToken?: string }, index: number): string {
-  if (style.color) {
-    return style.color;
-  }
-  switch (style.colorToken ?? comparisonDefaultColorToken(index)) {
-    case "signal":
-      return "var(--color-signal)";
-    case "caution":
-      return "var(--color-caution)";
-    case "purple":
-      return "var(--color-purple)";
-    case "drawing":
-      return "var(--color-drawing)";
-    case "down":
-      return "var(--color-down)";
-    case "up":
-      return "var(--color-up)";
-    default:
-      return "var(--color-preview)";
   }
 }
 

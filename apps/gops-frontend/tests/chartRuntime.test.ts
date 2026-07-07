@@ -1925,6 +1925,8 @@ const panelContentRendererSource = readFileSync(fileURLToPath(new URL("../src/co
 assert.match(panelContentRendererSource, /NewsPanel/);
 assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
+assert.match(panelContentRendererSource, /ChartComparisonPanel/);
+assert.match(panelContentRendererSource, /content\.kind === "compare"/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 assert.match(panelContentRendererSource, /chart-instance-interval/);
 assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
@@ -1941,9 +1943,12 @@ assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
-assert.match(chartPanelSource, /chart\.comparison\.add/);
-assert.match(chartPanelSource, /chart\.comparison\.remove/);
-assert.match(chartPanelSource, /maxComparisonCount = 5/);
+assert.doesNotMatch(chartPanelSource, /chart\.comparison\.add/);
+assert.doesNotMatch(chartPanelSource, /chart\.comparison\.remove/);
+assert.doesNotMatch(chartPanelSource, /maxComparisonCount/);
+assert.match(chartPanelSource, /onOpenComparisonPanel/);
+assert.match(chartPanelSource, /placeholder="비교 패널"/);
+assert.match(chartPanelSource, /comparisons: \[\]/);
 assert.match(chartPanelSource, /menuPlacement="top"/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
@@ -1963,6 +1968,8 @@ assert.match(chartDocumentAdapterSource, /volume: false/);
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelLayoutSource, /id: "slot-trade"/);
 assert.match(panelLayoutSource, /trade: "주문"/);
+assert.match(panelLayoutSource, /compare: "비교"/);
+assert.match(panelLayoutSource, /insertPanelAdjacentToSlot/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",

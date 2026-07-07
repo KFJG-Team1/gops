@@ -17,7 +17,7 @@ export type ViewportSize = {
   height: number;
 };
 
-export type PanelContentKind = "chart" | "company" | "news" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
+export type PanelContentKind = "chart" | "compare" | "company" | "news" | "indices" | "popular" | "ontology" | "portfolio" | "trade";
 
 export type PanelSlotId = string;
 export type PanelContentId = string;
@@ -92,7 +92,7 @@ const defaultInsertHeight = 142;
 const boundarySnapTolerance = 10;
 const epsilon = 0.5;
 
-export const insertablePanelKinds: PanelContentKind[] = ["popular", "indices", "company", "news", "ontology", "portfolio", "trade", "chart"];
+export const insertablePanelKinds: PanelContentKind[] = ["popular", "indices", "company", "news", "ontology", "portfolio", "trade", "compare", "chart"];
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -178,6 +178,7 @@ export function panelContentTitle(kind: PanelContentKind, instanceIndex?: number
   void instanceIndex;
   return {
     chart: "",
+    compare: "비교",
     company: "기업정보",
     news: "뉴스",
     indices: "지수",
@@ -341,6 +342,104 @@ export function addPanelSlotAtRect(
     nextInstance: state.nextInstance + 1,
     slots: [...state.slots, slot]
   }, viewport ?? viewportFromState(state));
+}
+
+export function insertPanelAdjacentToSlot(
+  state: TiledPanelState,
+  sourceSlotId: PanelSlotId,
+  kind: PanelContentKind,
+  viewport?: ViewportSize,
+  options: InsertPanelOptions = {}
+): TiledPanelState {
+  const source = state.slots.find((slot) => slot.id === sourceSlotId);
+  if (!source) {
+    return state;
+  }
+  const inferredViewport = viewport ?? viewportFromState(state);
+  const workspace = workspaceBounds(inferredViewport);
+  const gutter = panelGutter(inferredViewport);
+  const minInsertHeight = minimumInsertSize("horizontal", kind);
+  const minInsertWidth = minimumInsertSize("vertical", kind);
+  let resizedSource: PanelSlot | null = null;
+  let rect: PanelRect | null = null;
+
+  if (source.rect.height >= minHeightForContentKind(state.contents[source.contentId]?.kind) + minInsertHeight + gutter) {
+    const insertHeight = Math.max(minInsertHeight, Math.round(Math.min(defaultInsertHeight * 1.65, source.rect.height * 0.42)));
+    const sourceHeight = Math.max(minHeightForContentKind(state.contents[source.contentId]?.kind), source.rect.height - insertHeight - gutter);
+    const resolvedInsertHeight = source.rect.height - sourceHeight - gutter;
+    resizedSource = {
+      ...source,
+      rect: {
+        ...source.rect,
+        height: sourceHeight
+      }
+    };
+    rect = {
+      left: source.rect.left,
+      top: source.rect.top + sourceHeight + gutter,
+      width: source.rect.width,
+      height: resolvedInsertHeight
+    };
+  } else if (source.rect.width >= panelMinWidth + minInsertWidth + gutter) {
+    const insertWidth = Math.max(minInsertWidth, Math.round(Math.min(defaultInsertWidth * 1.6, source.rect.width * 0.42)));
+    const sourceWidth = Math.max(panelMinWidth, source.rect.width - insertWidth - gutter);
+    const resolvedInsertWidth = source.rect.width - sourceWidth - gutter;
+    resizedSource = {
+      ...source,
+      rect: {
+        ...source.rect,
+        width: sourceWidth
+      }
+    };
+    rect = {
+      left: source.rect.left + sourceWidth + gutter,
+      top: source.rect.top,
+      width: resolvedInsertWidth,
+      height: source.rect.height
+    };
+  }
+
+  if (!resizedSource || !rect) {
+    return state;
+  }
+
+  const normalizedRect = normalizePanelRectForEdgePolicy(
+    state,
+    {
+      id: "__preview__",
+      contentId: "__preview__",
+      rect,
+      minWidth: panelMinWidth,
+      minHeight: minHeightForContentKind(kind)
+    },
+    workspace,
+    gutter
+  );
+  const content = createPanelContent(kind, state.nextInstance, {
+    symbol: options.symbol,
+    layoutWeight: options.layoutWeight,
+    props: options.props
+  });
+  const slot: PanelSlot = {
+    id: uniquePanelSlotId(state, options.slotId || `slot-${kind}-${state.nextInstance}`),
+    contentId: content.id,
+    rect: normalizedRect,
+    minWidth: panelMinWidth,
+    minHeight: minHeightForContentKind(kind)
+  };
+  const next = {
+    ...state,
+    contents: {
+      ...state.contents,
+      [content.id]: content
+    },
+    nextInstance: state.nextInstance + 1,
+    slots: [
+      ...state.slots.map((item) => item.id === source.id ? resizedSource : item),
+      slot
+    ]
+  };
+  return layoutHasGapsOrOverlaps(next, inferredViewport) ? state : next;
 }
 
 export function removePanelSlot(state: TiledPanelState, slotId: PanelSlotId, viewport?: ViewportSize): TiledPanelState {
@@ -612,7 +711,8 @@ function createPanelContent(
   const props = {
     ...(options.props ?? {}),
     ...(kind === "chart" && options.symbol ? { symbol: options.symbol, timeframe: "1D" } : {}),
-    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {})
+    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {}),
+    ...(kind === "compare" && options.symbol ? { baseSymbol: options.symbol, symbols: [options.symbol], range: "1D" } : {})
   };
   return {
     id,

@@ -4,11 +4,12 @@ import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent }
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
-import { chartIntervals, chartTypes, type CandleDto, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
+import { chartIntervals, chartTypes, type CandleDto, type ChartCompareRange, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
 import type { PanelContentInstance, PanelSlot, PanelSlotId } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
@@ -46,6 +47,7 @@ type PanelContentRendererProps = {
   onChartAddToggle: () => void;
   onSyncPageSymbolFromChart: () => void;
   onClosePanel: (slotId: PanelSlotId) => void;
+  onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   onChartSwapPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -80,6 +82,7 @@ export function PanelContentRenderer({
   onChartAddToggle,
   onSyncPageSymbolFromChart,
   onClosePanel,
+  onUpdatePanelProps,
   onChangePanelChartSymbol,
   onSelectSymbol,
   onChartSwapPointerDown
@@ -93,6 +96,27 @@ export function PanelContentRenderer({
 
   if (content.kind === "company") {
     return <CompanySummaryPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "compare") {
+    const baseSymbol = readCompareBaseSymbol(content, symbol);
+    const comparisonSymbols = readCompareSymbols(content, baseSymbol);
+    const range = readCompareRange(content);
+    return (
+      <ChartComparisonPanel
+        symbol={baseSymbol}
+        comparisonSymbols={comparisonSymbols}
+        symbols={symbols}
+        range={range}
+        onRangeChange={(nextRange) => onUpdatePanelProps(content.id, { range: nextRange })}
+        onAddSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
+          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols, nextSymbol])
+        })}
+        onRemoveSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
+          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols.filter((item) => item.toUpperCase() !== nextSymbol.toUpperCase())])
+        })}
+      />
+    );
   }
 
   if (content.kind === "news") {
@@ -301,4 +325,31 @@ function symbolsToWatchlistSymbols(symbols: ChartSymbolDto[]): WatchlistSymbol[]
     name: item.name || item.symbol.toUpperCase(),
     market: "US"
   }));
+}
+
+function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.baseSymbol ?? content.props?.symbol ?? fallbackSymbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readCompareSymbols(content: PanelContentInstance, baseSymbol: string): string[] {
+  const raw = content.props?.symbols;
+  const values = Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  return normalizeCompareSymbols(values).filter((value) => value !== baseSymbol.toUpperCase());
+}
+
+function readCompareRange(content: PanelContentInstance): ChartCompareRange {
+  const raw = typeof content.props?.range === "string" ? content.props.range.toUpperCase() : "";
+  return raw === "1D" || raw === "1M" || raw === "6M" || raw === "1Y" || raw === "5Y" ? raw : "1D";
+}
+
+function normalizeCompareSymbols(values: string[]): string[] {
+  const normalized: string[] = [];
+  values.forEach((value) => {
+    const symbol = value.trim().toUpperCase();
+    if (symbol && !normalized.includes(symbol)) {
+      normalized.push(symbol);
+    }
+  });
+  return normalized.slice(0, 6);
 }

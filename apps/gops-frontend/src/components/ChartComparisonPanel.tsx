@@ -2,19 +2,16 @@ import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetchChartCompare } from "../chart/cdcClient";
 import type { ChartCompareItemDto, ChartCompareRange, ChartCompareResponseDto, ChartSymbolDto } from "../chart/types";
+import { SymbolSearch } from "./SymbolSearch";
 
 type ChartComparisonPanelProps = {
   symbol: string;
-  comparisons: Array<{
-    id: string;
-    symbol: string;
-    label?: string;
-    style?: { color?: string; colorToken?: string };
-  }>;
+  comparisonSymbols: string[];
   symbols: ChartSymbolDto[];
   range: ChartCompareRange;
   onRangeChange: (range: ChartCompareRange) => void;
-  onRemoveComparison: (comparisonId: string) => void;
+  onAddSymbol: (symbol: string) => void;
+  onRemoveSymbol: (symbol: string) => void;
 };
 
 const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
@@ -22,20 +19,26 @@ const chartWidth = 960;
 const chartHeight = 360;
 const plot = { left: 54, right: 910, top: 34, bottom: 284 };
 const fallbackColors = ["#2a8c99", "#b2553d", "#b99b2e", "#ca8a4a", "#8f6bb5", "#c85363"];
+const maxCompareSymbols = 6;
 
 export function ChartComparisonPanel({
   symbol,
-  comparisons,
+  comparisonSymbols,
   symbols,
   range,
   onRangeChange,
-  onRemoveComparison
+  onAddSymbol,
+  onRemoveSymbol
 }: ChartComparisonPanelProps) {
   const requestSymbols = useMemo(() => {
-    const values = [symbol, ...comparisons.map((comparison) => comparison.symbol)];
+    const values = [symbol, ...comparisonSymbols];
     return Array.from(new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean)));
-  }, [comparisons, symbol]);
+  }, [comparisonSymbols, symbol]);
   const requestKey = requestSymbols.join(",");
+  const availableSymbols = useMemo(() => {
+    const active = new Set(requestSymbols);
+    return symbols.filter((item) => !active.has(item.symbol.toUpperCase()));
+  }, [requestSymbols, symbols]);
   const [response, setResponse] = useState<ChartCompareResponseDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -96,6 +99,17 @@ export function ChartComparisonPanel({
           <strong>비교</strong>
           <span>{response?.timeframe ?? timeframeLabel(range)} · {cacheLabel}</span>
         </div>
+        {requestSymbols.length < maxCompareSymbols && (
+          <SymbolSearch
+            symbols={availableSymbols}
+            className="chart-compare-symbol-search"
+            selectedLabel=""
+            placeholder="종목 추가"
+            compact
+            menuPlacement="bottom"
+            onSelectSymbol={onAddSymbol}
+          />
+        )}
         <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
           {compareRanges.map((item) => (
             <button
@@ -165,7 +179,6 @@ export function ChartComparisonPanel({
       <div className="chart-compare-list" aria-label="비교 종목 목록">
         {displayItems.map((item, index) => {
           const removable = item.symbol !== symbol.toUpperCase();
-          const comparison = comparisons.find((candidate) => candidate.symbol.toUpperCase() === item.symbol);
           return (
             <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""}`}>
               <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
@@ -176,8 +189,8 @@ export function ChartComparisonPanel({
               <span>{formatPrice(item.lastPrice)}</span>
               <span className={toneClass(item.changePercent)}>{formatChange(item.change)}</span>
               <span className={toneClass(item.changePercent)}>{formatSignedPercent(item.changePercent)}</span>
-              {removable && comparison ? (
-                <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveComparison(comparison.id)}>
+              {removable ? (
+                <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
                   <X size={15} />
                 </button>
               ) : (
