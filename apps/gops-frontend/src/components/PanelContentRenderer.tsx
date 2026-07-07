@@ -16,6 +16,7 @@ import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
+import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -100,6 +101,16 @@ export function PanelContentRenderer({
       <NewsPanel
         symbol={symbol.toUpperCase()}
         initialPayload={content.props}
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+      />
+    );
+  }
+
+  if (content.kind === "watchlistNews") {
+    return (
+      <WatchlistNewsPanel
         sourcePanelId={content.id}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
