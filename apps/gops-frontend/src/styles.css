@@ -930,6 +930,10 @@ button {
   pointer-events: auto;
 }
 
+.alert-toast.no-actions {
+  grid-template-areas: "icon copy close";
+}
+
 .alert-toast::before {
   position: absolute;
   right: 33px;
@@ -1031,6 +1035,39 @@ button {
 
 .alert-menu {
   gap: 14px;
+}
+
+.alert-menu > .bottom-menu-title {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.alert-market-open-toggle {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.alert-market-open-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--color-text);
+}
+
+.alert-menu > .bottom-menu-title .alert-market-open-toggle span {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .alert-form {

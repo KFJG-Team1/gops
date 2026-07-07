@@ -28,6 +28,8 @@ type AlertMenuProps = {
   authLoading: boolean;
   authUser: AuthUser | null;
   externallyReadNotification?: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onLogin: () => void;
   onUnreadCountChange?: (count: number) => void;
 };
@@ -42,6 +44,8 @@ export function AlertMenu({
   authLoading,
   authUser,
   externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onLogin,
   onUnreadCountChange
 }: AlertMenuProps) {
@@ -253,6 +257,14 @@ export function AlertMenu({
         <Bell size={15} />
         <span>알림</span>
         <small>{unreadCount > 0 ? `${unreadCount} unread` : "live"}</small>
+        <label className="alert-market-open-toggle">
+          <input
+            type="checkbox"
+            checked={marketOpenReminderEnabled}
+            onChange={(event) => onMarketOpenReminderChange(event.target.checked)}
+          />
+          <span>본장 시작 알림</span>
+        </label>
       </header>
       {!canUseAlerts ? (
         <button className="bottom-menu-item surface-raised" type="button" disabled={authLoading} onClick={onLogin}>

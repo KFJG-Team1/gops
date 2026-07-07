@@ -1,4 +1,5 @@
 import type { AlertDirection, NotificationItem, PriceAlert } from "./alertApi";
+import { isMarketOpenNotification } from "./marketOpenReminder";
 
 export type AlertToastPresentation = {
   symbol: string;
@@ -23,6 +24,9 @@ export function alertSummary(alert: PriceAlert): string {
 }
 
 export function notificationSymbol(notification: NotificationItem): string {
+  if (isMarketOpenNotification(notification)) {
+    return "MARKET";
+  }
   return notificationChartSymbol(notification) || "ALERT";
 }
 
@@ -32,6 +36,9 @@ export function notificationChartSymbol(notification: NotificationItem): string 
 }
 
 export function notificationSummary(notification: NotificationItem): string {
+  if (isMarketOpenNotification(notification)) {
+    return " 미국 본장 시작";
+  }
   const payload = notification.payload;
   const targetPrice = asNumber(payload.targetPrice);
   if (targetPrice !== undefined) {
@@ -47,6 +54,15 @@ export function notificationSummary(notification: NotificationItem): string {
 }
 
 export function formatNotificationToastMessage(notification: NotificationItem): AlertToastPresentation {
+  if (isMarketOpenNotification(notification)) {
+    return {
+      symbol: "MARKET",
+      chartSymbol: "",
+      title: "본장 시작",
+      message: "미국 본장이 시작되었습니다.",
+      detail: ""
+    };
+  }
   const symbol = notificationSymbol(notification);
   const chartSymbol = notificationChartSymbol(notification);
   const payload = notification.payload;

@@ -14,7 +14,7 @@ export function AlertToast({ notification, queuedCount, onClose, onOpenChart }: 
   const canOpenChart = Boolean(presentation.chartSymbol);
 
   return (
-    <aside className="alert-toast surface-floating" role="status" aria-live="polite" aria-label="새 알림">
+    <aside className={`alert-toast surface-floating ${canOpenChart ? "" : "no-actions"}`} role="status" aria-live="polite" aria-label="새 알림">
       <div className="alert-toast-icon" aria-hidden="true">
         <Bell size={15} />
       </div>
@@ -33,17 +33,18 @@ export function AlertToast({ notification, queuedCount, onClose, onOpenChart }: 
       >
         <X size={13} aria-hidden="true" />
       </button>
-      <button
-        type="button"
-        className="alert-toast-chart-button"
-        disabled={!canOpenChart}
-        aria-label={canOpenChart ? `${presentation.chartSymbol} 차트 열기` : "차트를 열 수 없는 알림"}
-        title={canOpenChart ? `${presentation.chartSymbol} 차트 열기` : "차트를 열 수 없는 알림"}
-        onClick={() => onOpenChart(notification)}
-      >
-        <ExternalLink size={13} aria-hidden="true" />
-        <span>차트 열기</span>
-      </button>
+      {canOpenChart && (
+        <button
+          type="button"
+          className="alert-toast-chart-button"
+          aria-label={`${presentation.chartSymbol} 차트 열기`}
+          title={`${presentation.chartSymbol} 차트 열기`}
+          onClick={() => onOpenChart(notification)}
+        >
+          <ExternalLink size={13} aria-hidden="true" />
+          <span>차트 열기</span>
+        </button>
+      )}
     </aside>
   );
 }

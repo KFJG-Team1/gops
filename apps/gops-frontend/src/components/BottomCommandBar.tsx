@@ -3,10 +3,17 @@ import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useS
 import { AlertMenu } from "../alerts/AlertMenu";
 import { AlertToast } from "../alerts/AlertToast";
 import { fetchNotifications, markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
+import {
+  createMarketOpenNotification,
+  readMarketOpenReminderEnabled,
+  shouldShowMarketOpenReminder,
+  writeMarketOpenReminderEnabled
+} from "../alerts/marketOpenReminder";
 import { notificationChartSymbol } from "../alerts/alertPresentation";
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
+import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
@@ -30,8 +37,12 @@ type WatchlistDragTarget = {
   placement: WatchlistDropPlacement;
 };
 type AlertToastQueueState = {
-  current: NotificationItem | null;
-  queue: NotificationItem[];
+  current: AlertToastQueueItem | null;
+  queue: AlertToastQueueItem[];
+};
+type AlertToastQueueItem = {
+  notification: NotificationItem;
+  autoDismissMs?: number;
 };
 
 type BottomCommandBarProps = {
@@ -72,6 +83,8 @@ type BottomCommandBarProps = {
 const leftMenuKeys: BottomMenuKey[] = ["I", "II", "III"];
 const rightMenuKeys: BottomMenuKey[] = ["IV", "VI"];
 const alertToastAdvanceMs = 6000;
+const marketOpenRetryMs = 60_000;
+const marketOpenScheduleRefreshMs = 60 * 60_000;
 
 export function BottomCommandBar({
   activeMenu,
@@ -114,20 +127,22 @@ export function BottomCommandBar({
   const [alertUnreadCount, setAlertUnreadCount] = useState(0);
   const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
   const [externallyReadNotification, setExternallyReadNotification] = useState<NotificationItem | null>(null);
+  const [marketOpenReminderEnabled, setMarketOpenReminderEnabled] = useState(() => readMarketOpenReminderEnabled());
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
 
-  const enqueueAlertToast = (notification: NotificationItem) => {
+  const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
     const key = alertToastKey(notification);
     if (seenAlertToastKeysRef.current.has(key)) {
       return;
     }
     seenAlertToastKeysRef.current.add(key);
+    const item = { notification, autoDismissMs: options.autoDismissMs };
     setAlertToastState((current) => (
       current.current
-        ? { current: current.current, queue: [...current.queue, notification] }
-        : { current: notification, queue: [] }
+        ? { current: current.current, queue: [...current.queue, item] }
+        : { current: item, queue: [] }
     ));
   };
 
@@ -136,6 +151,11 @@ export function BottomCommandBar({
       const [next, ...queue] = current.queue;
       return { current: next ?? null, queue };
     });
+  };
+
+  const toggleMarketOpenReminder = (enabled: boolean) => {
+    setMarketOpenReminderEnabled(enabled);
+    writeMarketOpenReminderEnabled(enabled);
   };
 
   const openAlertToastChart = (notification: NotificationItem) => {
@@ -193,9 +213,7 @@ export function BottomCommandBar({
   useEffect(() => {
     if (!canUseAlerts) {
       setAlertUnreadCount(0);
-      setAlertToastState({ current: null, queue: [] });
       setExternallyReadNotification(null);
-      seenAlertToastKeysRef.current.clear();
       return undefined;
     }
     let cancelled = false;
@@ -243,14 +261,94 @@ export function BottomCommandBar({
   }, [canUseAlerts]);
 
   useEffect(() => {
-    if (!alertToastState.current || alertToastState.queue.length === 0) {
+    if (!alertToastState.current) {
+      return undefined;
+    }
+    const timeoutMs = alertToastState.queue.length > 0
+      ? alertToastAdvanceMs
+      : alertToastState.current.autoDismissMs;
+    if (!timeoutMs) {
       return undefined;
     }
     const timer = window.setTimeout(() => {
       advanceAlertToast();
-    }, alertToastAdvanceMs);
+    }, timeoutMs);
     return () => window.clearTimeout(timer);
-  }, [alertToastState.current?.eventId, alertToastState.current?.id, alertToastState.queue.length]);
+  }, [
+    alertToastState.current?.notification.eventId,
+    alertToastState.current?.notification.id,
+    alertToastState.current?.autoDismissMs,
+    alertToastState.queue.length
+  ]);
+
+  useEffect(() => {
+    if (!marketOpenReminderEnabled) {
+      return undefined;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    let controller: AbortController | null = null;
+
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    const schedule = (delayMs: number, callback: () => void) => {
+      clearTimer();
+      timer = window.setTimeout(callback, clampReminderDelay(delayMs));
+    };
+
+    const scheduleNextOpenCheck = (nextOpenAt: string) => {
+      const openMs = new Date(nextOpenAt).getTime();
+      if (!Number.isFinite(openMs)) {
+        schedule(marketOpenRetryMs, refreshSchedule);
+        return;
+      }
+
+      const delayMs = openMs - Date.now();
+      if (delayMs > marketOpenScheduleRefreshMs) {
+        schedule(marketOpenScheduleRefreshMs, refreshSchedule);
+        return;
+      }
+
+      schedule(delayMs, () => {
+        if (cancelled) {
+          return;
+        }
+        if (shouldShowMarketOpenReminder(nextOpenAt)) {
+          enqueueAlertToast(createMarketOpenNotification(nextOpenAt), { autoDismissMs: alertToastAdvanceMs });
+        }
+        schedule(marketOpenRetryMs, refreshSchedule);
+      });
+    };
+
+    const refreshSchedule = () => {
+      controller?.abort();
+      controller = new AbortController();
+      void fetchNextMarketOpen(controller.signal)
+        .then((nextOpen) => {
+          if (cancelled) {
+            return;
+          }
+          scheduleNextOpenCheck(nextOpen.nextOpenAt);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            schedule(marketOpenRetryMs, refreshSchedule);
+          }
+        });
+    };
+
+    refreshSchedule();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      clearTimer();
+    };
+  }, [marketOpenReminderEnabled]);
 
   const closeFloatingPanels = () => {
     if (activeMenu) {
@@ -354,7 +452,7 @@ export function BottomCommandBar({
       )}
       {alertToastState.current && (
         <AlertToast
-          notification={alertToastState.current}
+          notification={alertToastState.current.notification}
           queuedCount={alertToastState.queue.length}
           onClose={advanceAlertToast}
           onOpenChart={openAlertToastChart}
@@ -392,6 +490,8 @@ export function BottomCommandBar({
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
           externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={toggleMarketOpenReminder}
           onAlertUnreadCountChange={setAlertUnreadCount}
           layoutEditMode={layoutEditMode}
           layoutEditDisabled={!isChartMode}
@@ -493,6 +593,8 @@ export function BottomCommandBar({
           onToggleMenu={toggleBottomMenu}
           alertUnreadCount={alertUnreadCount}
           externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={toggleMarketOpenReminder}
           onAlertUnreadCountChange={setAlertUnreadCount}
         />
       </nav>
@@ -603,6 +705,8 @@ function MenuActionGroup({
   onToggleMenu,
   alertUnreadCount,
   externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange,
   layoutEditMode = false,
   layoutEditDisabled = true,
@@ -638,6 +742,8 @@ function MenuActionGroup({
   onToggleMenu: (key: BottomMenuKey) => void;
   alertUnreadCount: number;
   externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
   layoutEditMode?: boolean;
   layoutEditDisabled?: boolean;
@@ -678,6 +784,8 @@ function MenuActionGroup({
         onShowTreeMap={onShowTreeMap}
         onClose={onCloseMenu}
         externallyReadNotification={externallyReadNotification}
+        marketOpenReminderEnabled={marketOpenReminderEnabled}
+        onMarketOpenReminderChange={onMarketOpenReminderChange}
         onAlertUnreadCountChange={onAlertUnreadCountChange}
       />
       {keys.map((label) => (
@@ -738,6 +846,8 @@ function BottomMenuPanel({
   onShowTreeMap,
   onClose,
   externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange
 }: {
   side: BottomMenuSide;
@@ -767,6 +877,8 @@ function BottomMenuPanel({
   onShowTreeMap: () => void;
   onClose: () => void;
   externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   const sideKeys = side === "left" ? leftMenuKeys : rightMenuKeys;
@@ -799,6 +911,8 @@ function BottomMenuPanel({
       onShowTreeMap,
       onClose,
       externallyReadNotification,
+      marketOpenReminderEnabled,
+      onMarketOpenReminderChange,
       onAlertUnreadCountChange
     })
     : <p className="bottom-menu-empty">Menu</p>;
@@ -835,6 +949,13 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
 
 function alertToastKey(notification: NotificationItem): string {
   return `${notification.id}:${notification.eventId}`;
+}
+
+function clampReminderDelay(delayMs: number): number {
+  if (!Number.isFinite(delayMs)) {
+    return 60_000;
+  }
+  return Math.max(0, Math.min(delayMs, 60 * 60_000));
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -936,6 +1057,8 @@ function bottomMenuContent({
   onShowTreeMap,
   onClose,
   externallyReadNotification,
+  marketOpenReminderEnabled,
+  onMarketOpenReminderChange,
   onAlertUnreadCountChange
 }: {
   activeKey: BottomMenuKey | null;
@@ -964,6 +1087,8 @@ function bottomMenuContent({
   onShowTreeMap: () => void;
   onClose: () => void;
   externallyReadNotification: NotificationItem | null;
+  marketOpenReminderEnabled: boolean;
+  onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
@@ -1105,6 +1230,8 @@ function bottomMenuContent({
           authLoading={authLoading}
           authUser={authUser}
           externallyReadNotification={externallyReadNotification}
+          marketOpenReminderEnabled={marketOpenReminderEnabled}
+          onMarketOpenReminderChange={onMarketOpenReminderChange}
           onLogin={onLogin}
           onUnreadCountChange={onAlertUnreadCountChange}
         />
