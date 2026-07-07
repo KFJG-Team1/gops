@@ -237,6 +237,16 @@ button {
 }
 
 .workspace-top-nav {
+  transition: transform 180ms ease, opacity 140ms ease;
+  will-change: transform, opacity;
+}
+
+.workspace-top-nav.is-hidden {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--top-nav-height)));
+}
+
+.workspace-top-nav {
   top: 0;
   grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
   column-gap: 18px;

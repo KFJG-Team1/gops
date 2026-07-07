@@ -417,6 +417,9 @@ export function App() {
   const chartDocumentSymbolsByPanelId = useMemo(() => (
     chartDocumentSymbolsForLayout(panelState, chartRuntime)
   ), [chartRuntime, panelState]);
+  const hasMultipleChartPanels = useMemo(() => (
+    panelState.slots.filter((slot) => panelState.contents[slot.contentId]?.kind === "chart").length >= 2
+  ), [panelState]);
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
   const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
   const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
@@ -1006,7 +1009,7 @@ export function App() {
   return (
     <main className="app-shell">
       {mainView.mode === "chart" && (
-        <header className="workspace-top-nav chart" aria-label="Workspace header">
+        <header className={`workspace-top-nav chart ${hasMultipleChartPanels ? "is-hidden" : ""}`} aria-label="Workspace header">
           <div className={`header-quote-stack ${activeHeaderQuote?.tone ?? "unavailable"}`} aria-label="Live quote">
             <span className="quote-percent">{activeHeaderQuote?.percentText ?? "-"}</span>
             <span className="quote-price-line">
