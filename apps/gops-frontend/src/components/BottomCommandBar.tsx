@@ -117,7 +117,7 @@ export function BottomCommandBar({
       if (!(event.target instanceof Element)) {
         return;
       }
-      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock")) {
+      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock, .symbol-search-menu")) {
         return;
       }
       if (activeMenu) {

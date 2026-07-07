@@ -90,7 +90,6 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
-import { SymbolSearch } from "./SymbolSearch";
 
 function segmentedClass(active = false): string {
   return active ? "segmented active" : "segmented";
@@ -1874,9 +1873,7 @@ type ChartAddDockProps = {
   document: ChartDocument;
   panelId: string;
   laneHeight: number;
-  symbols: ChartSymbolDto[];
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onOpenComparisonPanel: (symbol: string) => void;
   onClose: () => void;
 };
 
@@ -1932,18 +1929,12 @@ export function ChartAddDock({
   document,
   panelId,
   laneHeight,
-  symbols,
   onChartRuntimeAction,
-  onOpenComparisonPanel,
   onClose
 }: ChartAddDockProps) {
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
-  const comparisonSearchSymbols = symbols.filter((symbol) => {
-    const normalized = symbol.symbol.toUpperCase();
-    return normalized !== document.symbol.toUpperCase();
-  });
 
   const dispatchLayer = useCallback((layer: ChartLayerKey, visible: boolean) => {
     onChartRuntimeAction({
@@ -1951,14 +1942,6 @@ export function ChartAddDock({
       command: makeChartCommand("chart.layer.visibility.set", "user", target, { layer, visible })
     });
   }, [onChartRuntimeAction, target]);
-
-  const openComparisonPanel = useCallback((symbol: string) => {
-    const normalized = symbol.toUpperCase();
-    if (normalized === document.symbol.toUpperCase()) {
-      return;
-    }
-    onOpenComparisonPanel(normalized);
-  }, [document.symbol, onOpenComparisonPanel]);
 
   const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
@@ -1986,17 +1969,6 @@ export function ChartAddDock({
           </button>
         );
       })}
-      <span className="toolbar-separator" aria-hidden="true" />
-      <div className="chart-comparison-picker" aria-label="Comparison symbols">
-        <SymbolSearch
-          symbols={comparisonSearchSymbols}
-          selectedLabel=""
-          placeholder="비교 패널"
-          compact
-          menuPlacement="top"
-          onSelectSymbol={openComparisonPanel}
-        />
-      </div>
       <span className="toolbar-separator" aria-hidden="true" />
       {belowLayers.map((item) => {
         const active = Boolean(document.layers[item.layer]);

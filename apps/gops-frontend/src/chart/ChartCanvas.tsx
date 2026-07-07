@@ -933,13 +933,37 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   context.restore();
 
   // 2. Draw upper and lower lines.
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.purple, 1.25);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.purple, 1.25);
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.upper,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.25,
+    { connectAcrossMissing: true }
+  );
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.lower,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.25,
+    { connectAcrossMissing: true }
+  );
 
   // 3. Draw middle line (굵은 점선)
   context.save();
   context.setLineDash([6, 4]);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.purple, 1.8);
+  drawSeriesLine(
+    context,
+    scene,
+    (unit) => pointForUnit(unit)?.middle,
+    (value) => priceToY(scene, value),
+    colors.purple,
+    1.8,
+    { connectAcrossMissing: true }
+  );
   context.restore();
 }
 
@@ -1052,13 +1076,18 @@ function drawPaneSeries(
   );
 }
 
+type DrawSeriesLineOptions = {
+  connectAcrossMissing?: boolean;
+};
+
 function drawSeriesLine(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   valueForUnit: (unit: SemanticCandleUnit) => number | null | undefined,
   yForValue: (value: number) => number,
   stroke: string,
-  width: number
+  width: number,
+  options: DrawSeriesLineOptions = {}
 ) {
   context.save();
   context.strokeStyle = stroke;
@@ -1070,7 +1099,7 @@ function drawSeriesLine(
     const value = valueForUnit(unit);
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      if (started) {
+      if (!options.connectAcrossMissing && started) {
         context.stroke();
         context.beginPath();
         started = false;
