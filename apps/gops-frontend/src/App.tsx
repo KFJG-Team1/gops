@@ -949,7 +949,7 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report));
+        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence);
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
@@ -1294,11 +1294,12 @@ function isLikelyChartOpenCommand(prompt: string): boolean {
 function replaceChatLogEntry(
   setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
   entryId: string,
-  text: string
+  text: string,
+  confidence?: number
 ) {
   setChatLog((current) => current.map((entry) => (
     entry.id === entryId
-      ? { ...entry, text, pending: false }
+      ? { ...entry, text, pending: false, confidence }
       : entry
   )));
 }

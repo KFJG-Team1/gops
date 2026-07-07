@@ -64,6 +64,7 @@ export type FinalAnswer = {
 export type FinalResponse = {
   risk_warnings: string[];
   data_freshness_warnings: string[];
+  confidence?: number;
 };
 
 export type AgentAnswer = {
@@ -269,11 +270,11 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
   const providerNoData = noDataEvidence.filter((item) => !isOntologyRelationshipNoData(item));
   if (ontologyNoData.length && !newsOnly) {
     lines.push("", "확인되지 않은 내용:");
-    lines.push(...ontologyNoData.map((item) => `- ${item.summary ?? "온톨로지 관계 근거가 확인되지 않았습니다."}`));
+    lines.push(...ontologyNoData.map((item) => `- ${formatNoDataSummary(item.summary ?? "기업 관계 근거가 확인되지 않았습니다.")}`));
   }
   if (providerNoData.length && !newsOnly) {
-    lines.push("", "Provider status:");
-    lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${item.summary ?? "데이터가 아직 연결되지 않았습니다."}`));
+    lines.push("", "데이터 한계:");
+    lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${formatNoDataSummary(item.summary)}`));
   }
 
   const decision = report.notificationDecision;
@@ -507,7 +508,8 @@ function normalizeFinalResponse(value: unknown): FinalResponse | null {
   }
   return {
     risk_warnings: readArray(source.risk_warnings).map(readString).filter((item): item is string => Boolean(item)),
-    data_freshness_warnings: readArray(source.data_freshness_warnings).map(readString).filter((item): item is string => Boolean(item))
+    data_freshness_warnings: readArray(source.data_freshness_warnings).map(readString).filter((item): item is string => Boolean(item)),
+    confidence: readNumber(source.confidence) ?? undefined
   };
 }
 
@@ -654,9 +656,16 @@ function labelForProvider(provider: string): string {
 function providerNoDataLabel(item: AgentEvidenceItem): string {
   const relationType = typeof item.raw?.relationType === "string" ? item.raw.relationType : "";
   if (item.provider === "ontology" && relationType === "graphdb-unavailable") {
-    return "GraphDB 연결 실패";
+    return "기업 관계 데이터 일시 미확인";
   }
-  return `${labelForProvider(item.provider)} provider 미연결`;
+  return `${labelForProvider(item.provider)} 데이터 미확인`;
+}
+
+function formatNoDataSummary(summary?: string): string {
+  const text = summary?.trim() || "데이터가 아직 연결되지 않았습니다.";
+  return text
+    .replace(/\bprovider\b/gi, "데이터")
+    .replace(/GraphDB|ClickHouse|Redis/g, "내부 데이터");
 }
 
 function isOntologyRelationshipNoData(item: AgentEvidenceItem): boolean {

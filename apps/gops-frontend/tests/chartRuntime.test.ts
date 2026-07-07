@@ -1892,6 +1892,8 @@ assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /선택한 자료/);
 assert.match(bottomCommandBarSource, /bottom-chat-message-text/);
 assert.match(bottomCommandBarSource, /bottom-chat-loading-mark/);
+assert.match(bottomCommandBarSource, /bottom-chat-confidence-dot/);
+assert.match(bottomCommandBarSource, /신뢰도 \$\{percent\}%/);
 assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /로그인\/프로필/);
@@ -2171,10 +2173,16 @@ const agentAnalysisReport = normalizeAgentAnalysisReport({
     newsFetchMs: 180,
     roleAnalysisMs: 820,
     finalAnswerMs: 120
+  },
+  finalResponse: {
+    confidence: 0.78,
+    risk_warnings: [],
+    data_freshness_warnings: []
   }
 });
 assert.equal(agentAnalysisReport.notificationDecision, null);
 assert.equal(agentAnalysisReport.layoutProposal, null);
+assert.equal(agentAnalysisReport.finalResponse?.confidence, 0.78);
 const agentAnalysisMessage = formatAgentAnalysisReport(agentAnalysisReport);
 assert.match(agentAnalysisMessage, /NVDA 주가 변동 원인 분석/);
 assert.match(agentAnalysisMessage, /차트, 뉴스, 기업 관계 근거를 종합/);
@@ -2182,10 +2190,12 @@ assert.match(agentAnalysisMessage, /■ 확인된 근거/);
 assert.match(agentAnalysisMessage, /Headline: News summary/);
 assert.doesNotMatch(agentAnalysisMessage, /Agent findings:/);
 assert.doesNotMatch(agentAnalysisMessage, /Chart Agent: Chart shows a visible breakout\./);
-assert.match(agentAnalysisMessage, /뉴스 provider 미연결: News provider is not configured\./);
-assert.match(agentAnalysisMessage, /거시 provider 미연결: Macro provider is not configured\./);
+assert.match(agentAnalysisMessage, /데이터 한계:/);
+assert.match(agentAnalysisMessage, /뉴스 데이터 미확인: News 데이터 is not configured\./);
+assert.match(agentAnalysisMessage, /거시 데이터 미확인: Macro 데이터 is not configured\./);
 assert.match(agentAnalysisMessage, /확인되지 않은 내용:/);
 assert.match(agentAnalysisMessage, /직접 지배\/자회사 관계 근거는 확인되지 않았습니다/);
+assert.doesNotMatch(agentAnalysisMessage, /Provider status|GraphDB|ClickHouse|Redis|providerEvidence/);
 assert.doesNotMatch(agentAnalysisMessage, /알림 판단:/);
 assert.doesNotMatch(agentAnalysisMessage, /검증 결과: No trading-action guardrail violation detected\./);
 assert.doesNotMatch(agentAnalysisMessage, /검증 경고: No trading-action guardrail violation detected\./);
@@ -2221,6 +2231,9 @@ assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space
 assert.match(frontendStylesSource, /\.bottom-chat-message \{[\s\S]*max-width: min\(720px, 88%\);/);
 assert.match(frontendStylesSource, /\.bottom-chat-message\.is-pending \.bottom-chat-message-text \{[\s\S]*color: var\(--color-muted-medium\);/);
 assert.match(frontendStylesSource, /\.bottom-chat-loading-mark \{[\s\S]*font-weight: 800;[\s\S]*animation: bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*background: #1f9d55;/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #d69e2e;/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #d64545;/);
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
