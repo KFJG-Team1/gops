@@ -3908,6 +3908,62 @@ h2 {
   color: var(--color-text);
 }
 
+.stock-rec-session-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 30px;
+}
+
+.stock-rec-session-button {
+  position: relative;
+  min-width: 0;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
+  border-radius: 6px;
+  padding: 7px 8px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.stock-rec-session-button.active {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-background);
+}
+
+.stock-rec-session-button.is-live {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, rgb(var(--gops-ink-rgb) / 0.12));
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.stock-rec-session-button.is-live::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-background);
+}
+
+.stock-rec-session-button.active.is-live {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-background);
+}
+
+.stock-rec-session-button:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
 .stock-rec-state,
 .stock-rec-error {
   display: flex;
@@ -3926,7 +3982,7 @@ h2 {
 
 .stock-rec-row {
   display: grid;
-  grid-template-columns: 24px minmax(72px, 0.8fr) minmax(46px, 0.4fr) minmax(0, 2fr);
+  grid-template-columns: 24px minmax(64px, 0.65fr) minmax(0, 2fr) minmax(76px, 0.55fr);
   align-items: start;
   gap: 8px;
   text-align: left;
@@ -3938,28 +3994,47 @@ h2 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
 }
 
-.stock-rec-rank {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-signal) 18%, transparent);
-  color: var(--color-text);
-  font-size: 11px;
-  font-weight: 760;
+.stock-rec-logo {
+  justify-self: start;
 }
 
 .stock-rec-main,
-.stock-rec-score,
-.stock-rec-reasons {
+.stock-rec-reasons,
+.stock-rec-sector {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
+.stock-rec-symbol-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.stock-rec-signal-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.18);
+}
+
+.stock-rec-signal-dot.high {
+  background: #1f9d55;
+}
+
+.stock-rec-signal-dot.medium {
+  background: #d69e2e;
+}
+
+.stock-rec-signal-dot.low {
+  background: #d64545;
+}
+
 .stock-rec-main strong,
-.stock-rec-score strong {
+.stock-rec-sector {
   overflow: hidden;
   font-family: var(--font-data-sans);
   font-size: 13px;
@@ -3967,8 +4042,14 @@ h2 {
   white-space: nowrap;
 }
 
-.stock-rec-main em,
-.stock-rec-score em,
+.stock-rec-sector {
+  justify-self: end;
+  max-width: 100%;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
 .stock-rec-reasons em {
   overflow: hidden;
   color: var(--color-muted);
