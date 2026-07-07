@@ -34,6 +34,9 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
+import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
+import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
 import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
@@ -48,7 +51,12 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
-import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import { createIndicatorPointLookup, createIndicatorValueLookup, mergeIndicatorSeries, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import {
+  candleMovingAverageWindows,
+  indicatorRequestRangeFromCandles,
+  serverIndicatorLayersForLayers
+} from "../src/chart/indicatorLayerPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -205,6 +213,54 @@ function frontendChartState(overrides: Partial<ChartState>): ChartState {
   };
 }
 
+const priceAlertNotification = {
+  id: 1,
+  eventId: "alert-price-toast",
+  type: "alert.price_cross",
+  payload: {
+    symbol: "NVDA",
+    direction: "above",
+    targetPrice: 110,
+    price: 111.2
+  }
+};
+const priceAlertToast = formatNotificationToastMessage(priceAlertNotification);
+assert.equal(priceAlertToast.message, "NVDA 목표가 110 상향 돌파 조건을 달성했습니다.");
+assert.equal(priceAlertToast.detail, "현재가는 111.2입니다.");
+assert.equal(notificationSummary(priceAlertNotification), " 목표가 110 상향 돌파 조건 달성");
+
+const spikeAlertNotification = {
+  id: 2,
+  eventId: "alert-spike-toast",
+  type: "alert.spike",
+  payload: {
+    symbol: "AAPL",
+    direction: "below",
+    thresholdPct: 3,
+    windowMin: 5,
+    changePct: -4.25
+  }
+};
+const spikeAlertToast = formatNotificationToastMessage(spikeAlertNotification);
+assert.equal(spikeAlertToast.message, "AAPL 5분 내 급락 3% 이상 조건을 달성했습니다.");
+assert.equal(spikeAlertToast.detail, "실제 변동률은 -4.25%입니다.");
+assert.equal(notificationSummary(spikeAlertNotification), " 5분 내 급락 3% 이상 조건 달성");
+
+const marketOpenNotification = createMarketOpenNotification("2026-07-07T13:30:00.000Z");
+const marketOpenToast = formatNotificationToastMessage(marketOpenNotification);
+assert.equal(marketOpenToast.title, "본장 시작");
+assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.");
+assert.equal(marketOpenToast.chartSymbol, "");
+assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
+assert.equal(readMarketOpenReminderEnabled(undefined), true);
+assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:30:06.000Z")), true);
+assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:41:00.000Z")), false);
+assert.equal(normalizeNextMarketOpen({
+  nextOpenAt: "2026-07-07T13:30:00.000Z",
+  marketDate: "2026-07-07",
+  source: "alpaca-clock"
+}).source, "alpaca-clock");
+
 function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
   return {
     id: "drawing-test",
@@ -277,6 +333,24 @@ assert.equal(themedDocument.style.ma5, "#abcdef");
 setDefaultChartStyle(fallbackChartStyle);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
+
+assert.deepEqual(candleMovingAverageWindows, [5, 20, 60]);
+assert.deepEqual(serverIndicatorLayersForLayers({
+  ma5: true,
+  "sma:20": true,
+  "sma:60": true,
+  "ema:20": true,
+  "rsi:14": true
+}), ["ema:20", "rsi:14"]);
+assert.deepEqual(indicatorRequestRangeFromCandles([
+  { timestamp: "2026-06-25T13:30:00Z", open: 1, high: 2, low: 1, close: 2, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:31:00Z", open: 2, high: 3, low: 2, close: 3, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:32:00Z", open: 3, high: 4, low: 3, close: 4, volume: 10, isClosed: false }
+]), {
+  firstTimestamp: "2026-06-25T13:30:00Z",
+  lastTimestamp: "2026-06-25T13:31:00Z",
+  candleCount: 2
+});
 
 const treeMapTestTheme = {
   ...fallbackChartStyle,
@@ -569,12 +643,64 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
+const footprintExpansion: SemanticExpansion = {
+  ...emptyExpansion,
+  childInterval: "footprint",
+  status: "ready",
+  candles: [],
+  footprintBucket: {
+    timestamp: candleA.timestamp,
+    from: candleA.timestamp,
+    to: "2026-06-25T13:31:00Z",
+    open: candleA.open,
+    high: candleA.high,
+    low: candleA.low,
+    close: candleA.close,
+    volume: 1200,
+    tradeCount: 18,
+    askVolume: 720,
+    bidVolume: 430,
+    unknownVolume: 50,
+    delta: 290,
+    priceLevels: [
+      { price: 10.7, askVolume: 300, bidVolume: 120, unknownVolume: 0, totalVolume: 420, tradeCount: 6, delta: 180 },
+      { price: 10.5, askVolume: 180, bidVolume: 260, unknownVolume: 20, totalVolume: 460, tradeCount: 8, delta: -80 }
+    ]
+  },
+  message: undefined
+};
+const footprintExpansionTimeline = buildSemanticTimeline({
+  symbol: "AAPL",
+  interval: "1D",
+  candles: [candleA as CandleDto],
+  expansions: [footprintExpansion],
+  visibleStartIndex: 0,
+  visibleEndIndex: 1,
+  viewportStartIndex: 0,
+  visibleSlotCount: 40
+});
+const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
+assert.ok(footprintExpansionUnit);
+assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
 }, "rsi:14", "1D");
 assert.equal(scopedRsiLookup({ interval: "1D", candle: { timestamp: candleA.timestamp } })?.value, 55);
 assert.equal(scopedRsiLookup({ interval: "10m", candle: { timestamp: candleA.timestamp } })?.value, 77);
+const canonicalIndicatorLookup = createIndicatorValueLookup({
+  "ema:20": [
+    { timestamp: "2026-06-25T13:30:00Z", value: 101 },
+    { timestamp: "2026-06-25T13:31:00.000Z", value: 102 }
+  ]
+}, "ema:20", "1m");
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:30:00.000Z" } }), 101);
+assert.equal(canonicalIndicatorLookup({ interval: "1m", candle: { timestamp: "2026-06-25T13:31:00Z" } }), 102);
+const mergedCanonicalIndicators = mergeIndicatorSeries(
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00Z", value: 101 }] },
+  { "ema:20": [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }] }
+);
+assert.deepEqual(mergedCanonicalIndicators["ema:20"], [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }]);
 const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [candleA as CandleDto],
@@ -1230,7 +1356,7 @@ const defaultChartContent = defaultChartSlot ? tiledState.contents[defaultChartS
 const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 3 }, tiledViewport);
 const expectedInitialNewsRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedInitialOntologyRect = panelRectForGridRect({ col: 5, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
-const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 2 }, tiledViewport);
+const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 1 }, tiledViewport);
 const expectedDefaultPanelMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 1, rowSpan: 1 }, tiledViewport);
 const testFreeformSlot = (
   id: string,
@@ -1536,7 +1662,7 @@ const tooSmallDropState = {
 const tooSmallChartDropPlan = resolvePanelDropGridRect(tooSmallDropState, "chart", { col: 1, row: 1 });
 assert.equal(tooSmallChartDropPlan.valid, false);
 assert.equal(tooSmallChartDropPlan.reason, "minimum-span");
-assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
+assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 1 });
 const ontologyWestYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 4, row: 1, colSpan: 5, rowSpan: 2 });
 assert.equal(ontologyWestYieldPlan.valid, true);
 assert.deepEqual(ontologyWestYieldPlan.yieldedSlots, [{
@@ -1624,7 +1750,7 @@ const tiledChartContext = tiledContext.panels.find((panel) => panel.id === "slot
 assert.equal(tiledChartContext?.layoutPinned, false);
 assert.equal(tiledChartContext?.layoutWeight, 100);
 assert.equal(tiledChartContext?.symbol, "NVDA");
-assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(tiledChartContext?.minSpan, { colSpan: 2, rowSpan: 1 });
 assert.equal(typeof defaultChartContent?.chartDocumentId, "string");
 const documentBackedChartContext = buildTiledAgentLayoutContext(tiledState, tiledViewport, "AAPL", undefined, {
   "slot-chart": "MSFT"
@@ -2208,6 +2334,14 @@ assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
+assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
+assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
+assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
+assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
+assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
+assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.symbol-search-menu/);
+const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
+assert.match(alertMenuSource, /본장 시작 알림/);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
@@ -2254,20 +2388,33 @@ assert.match(chartPanelSource, /chart\.timeframe\.set/);
 assert.doesNotMatch(chartPanelSource, /chart\.comparison\.add/);
 assert.match(chartPanelSource, /chart\.comparison\.remove/);
 assert.match(chartPanelSource, /maxComparisonCount/);
-assert.match(chartPanelSource, /onOpenComparisonPanel/);
-assert.match(chartPanelSource, /placeholder="비교 패널"/);
+assert.doesNotMatch(chartPanelSource, /onOpenComparisonPanel|placeholder="비교 패널"|chart-comparison-picker/);
 assert.match(chartPanelSource, /comparisons: renderComparisons/);
-assert.match(chartPanelSource, /menuPlacement="top"/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
-assert.match(chartPanelSource, /action: semanticDigEnabled \? "dig" : "agent-select"/);
+assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
+assert.match(chartPanelSource, /action: "dig"/);
+assert.match(chartPanelSource, /action: "agent-select"/);
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
+assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
+assert.match(chartCanvasSource, /const footprintBucketMinWidth = 14;/);
+assert.match(chartCanvasSource, /const footprintBucketMaxWidth = 56;/);
+assert.match(chartCanvasSource, /function drawCenteredFootprintCandle/);
+assert.match(chartCanvasSource, /context\.fillRect\(center - candleWidth \/ 2, bodyTop, candleWidth, bodyHeight\);/);
+assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
+assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.lower[\s\S]*connectAcrossMissing: true/);
+assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.middle[\s\S]*connectAcrossMissing: true/);
+assert.match(semanticTimelineSource, /const footprintSlotWidth = 18;/);
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
@@ -2579,6 +2726,12 @@ assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #d69e2e;/);
 assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #d64545;/);
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #fff;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*width: calc\(100vw - 28px\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*max-width: calc\(100vw - 28px\);/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: safe center;/);
+assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*box-sizing: border-box;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);

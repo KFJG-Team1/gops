@@ -1,4 +1,7 @@
+import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
+
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
+export type RecommendationSessionMode = "pre" | "regular";
 export type RecommendationStatus = "profile_required" | "market_closed" | "loading" | "empty" | "ready" | "stale" | "error" | "completed";
 
 export type InvestmentProfile = {
@@ -24,6 +27,7 @@ export type StockRecommendationItem = {
   score: number;
   confidence: number;
   sector?: string;
+  sectorLabelKo?: string;
   reasons: RecommendationReason[];
   riskWarnings: string[];
   metricsSnapshot: Record<string, unknown>;
@@ -71,15 +75,20 @@ export async function saveInvestmentProfile(profile: InvestmentProfile): Promise
   return normalized;
 }
 
-export async function fetchStockRecommendations(signal?: AbortSignal): Promise<StockRecommendationPayload> {
-  return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/latest", { signal }));
+export async function fetchStockRecommendations(sessionMode: RecommendationSessionMode = "regular", signal?: AbortSignal): Promise<StockRecommendationPayload> {
+  const params = new URLSearchParams({ sessionMode });
+  return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest?${params.toString()}`, { signal }));
 }
 
-export async function refreshStockRecommendations(activeSymbol?: string, signal?: AbortSignal): Promise<StockRecommendationPayload> {
+export async function refreshStockRecommendations(
+  activeSymbol?: string,
+  sessionMode: RecommendationSessionMode = "regular",
+  signal?: AbortSignal
+): Promise<StockRecommendationPayload> {
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeSymbol }),
+    body: JSON.stringify({ activeSymbol, sessionMode }),
     signal
   }));
 }
@@ -110,13 +119,15 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
   if (!symbol) {
     return null;
   }
+  const sector = normalizeSector(asString(source.sector));
   return {
     symbol,
     action: "buy",
     rank: asNumber(source.rank) ?? 0,
     score: asNumber(source.score) ?? 0,
     confidence: asNumber(source.confidence) ?? 0,
-    sector: asString(source.sector),
+    sector,
+    sectorLabelKo: asString(source.sectorLabelKo) || sectorLabelKo(sector),
     reasons: Array.isArray(source.reasons)
       ? source.reasons.map(normalizeReason).filter((item): item is RecommendationReason => Boolean(item))
       : [],
@@ -149,8 +160,8 @@ function normalizeProfile(value: unknown): InvestmentProfile | null {
     riskLevel,
     horizon: "intraday",
     maxDrawdownPct,
-    preferredSectors: stringArray(source.preferredSectors ?? source.preferred_sectors),
-    excludedSectors: stringArray(source.excludedSectors ?? source.excluded_sectors),
+    preferredSectors: normalizeSectorList(stringArray(source.preferredSectors ?? source.preferred_sectors)),
+    excludedSectors: normalizeSectorList(stringArray(source.excludedSectors ?? source.excluded_sectors)),
     excludedSymbols: stringArray(source.excludedSymbols ?? source.excluded_symbols).map((item) => item.toUpperCase()),
     updatedAt: asString(source.updatedAt ?? source.updated_at)
   };
@@ -173,6 +184,9 @@ async function apiJson(path: string, init: RequestInit = {}): Promise<unknown> {
 
 function readApiErrorMessage(response: Response, payload: unknown): string {
   const detail = asRecord(payload).detail;
+  if (response.status === 503 && detail === "recommendation database migration required") {
+    return "추천 설정 DB 준비가 필요합니다.";
+  }
   if (typeof detail === "string" && detail.trim()) {
     return detail.trim();
   }

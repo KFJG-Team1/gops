@@ -1,41 +1,12 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { fetchMarketIndices } from "../market/indicesApi";
+import { sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 const popularStockLimit = 10;
 const krwPerWonUnit = 100_000_000;
 const krwPerTrillionWonUnit = 1_000_000_000_000;
-const industryLabelsKo: Record<string, string> = {
-  "Application Software": "응용 소프트웨어",
-  "Broadline Retail": "종합 소매",
-  "Communications Equipment": "통신 장비",
-  "Consumer Electronics": "소비자 전자제품",
-  "Data Processing & Outsourced Services": "데이터 처리/아웃소싱",
-  "Electronic Components": "전자 부품",
-  "Electronic Equipment & Instruments": "전자 장비/계측기",
-  "Electronic Manufacturing Services": "전자 제조 서비스",
-  "Interactive Media & Services": "인터랙티브 미디어/서비스",
-  "Internet Services & Infrastructure": "인터넷 서비스/인프라",
-  "IT Consulting & Other Services": "IT 컨설팅/서비스",
-  "Semiconductor Materials & Equipment": "반도체 장비/소재",
-  "Semiconductors": "반도체",
-  "Systems Software": "시스템 소프트웨어",
-  "Technology Distributors": "기술 유통",
-  "Technology Hardware, Storage & Peripherals": "하드웨어/저장장치"
-};
-const sectorLabelsKo: Record<string, string> = {
-  "Basic Materials": "소재/원자재",
-  "Communication Services": "커뮤니케이션 서비스",
-  "Consumer Cyclical": "경기소비재",
-  "Consumer Defensive": "필수소비재",
-  "Energy": "에너지",
-  "Financial Services": "금융",
-  "Healthcare": "헬스케어",
-  "Industrials": "산업재",
-  "Real Estate": "부동산",
-  "Technology": "기술",
-  "Utilities": "유틸리티"
-};
 
 type PopularStocksPanelProps = {
   items: readonly Sp500UniverseItem[];
@@ -99,7 +70,7 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
                 <th scope="col">회사명</th>
                 <th scope="col">거래대금</th>
                 <th scope="col">시가총액</th>
-                <th scope="col">산업</th>
+                <th scope="col">섹터</th>
               </tr>
             </thead>
             <tbody>
@@ -114,18 +85,22 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
                   onKeyDown={(event) => handleRowKeyDown(event, item.symbol)}
                 >
                   <td className="popular-stock-company">
-                    <strong>{item.symbol}</strong>
-                    <span>{item.companyName}</span>
+                    <StockLogo symbol={item.symbol} companyName={item.companyName} size="xs" />
+                    <span className="popular-stock-company-text">
+                      <strong>{item.symbol}</strong>
+                      <span>{item.companyName}</span>
+                    </span>
                   </td>
                   <td className="popular-stock-money">{formatKrwAmount(item.sessionDollarVolume, krwRate)}</td>
                   <td className="popular-stock-money">{formatKrwAmount(item.marketCap, krwRate)}</td>
-                  <td className="popular-stock-industry">{formatIndustryLabel(item.industry, item.sector)}</td>
+                  <td className="popular-stock-industry">{formatSectorLabel(item)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
 }
@@ -168,14 +143,8 @@ function formatKrwAmount(usdValue: number | null | undefined, krwRate: number | 
   return "1억원 미만";
 }
 
-function formatIndustryLabel(industry: string | null | undefined, sector: string | null | undefined): string {
-  if (industry) {
-    return industryLabelsKo[industry] ?? sectorLabelsKo[sector ?? ""] ?? industry;
-  }
-  if (sector) {
-    return sectorLabelsKo[sector] ?? sector;
-  }
-  return "-";
+function formatSectorLabel(item: Sp500UniverseItem): string {
+  return item.sectorLabelKo || sectorLabelKo(item.sector);
 }
 
 function formatNumber(value: number, minimumFractionDigits: number, maximumFractionDigits: number): string {

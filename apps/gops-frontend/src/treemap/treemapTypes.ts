@@ -9,6 +9,7 @@ export type TreeMapInputItem = {
   symbol: string;
   companyName: string;
   sector: string;
+  sectorLabelKo?: string | null;
   industry: string;
   value: number;
   marketCap: number;
@@ -26,6 +27,7 @@ export type TreeMapTile = TreeMapRect & {
   depth: number;
   parentId?: string;
   sector?: string;
+  sectorLabelKo?: string;
   industry?: string;
   symbol?: string;
   companyName?: string;

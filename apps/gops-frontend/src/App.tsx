@@ -75,6 +75,7 @@ import {
 import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
+import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
@@ -296,7 +297,7 @@ export function App() {
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
-  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => sp500UniverseSeed);
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
@@ -752,7 +753,7 @@ export function App() {
         if (!cancelled && payload.items.length > 0) {
           const previousLayoutAsOf = treeMapLayoutAsOfRef.current;
           const shouldUpdateLayout = !previousLayoutAsOf || payload.layoutAsOf !== previousLayoutAsOf;
-          setTreeMapItems((current) => mergeTreeMapItems(current, payload.items, shouldUpdateLayout));
+          setTreeMapItems((current) => mergeTreeMapItems(current, normalizeMarketItems(payload.items), shouldUpdateLayout));
           treeMapLayoutAsOfRef.current = payload.layoutAsOf || previousLayoutAsOf;
         }
       } catch {
@@ -1300,6 +1301,17 @@ function mergeTreeMapItems(
       layoutPriceSource: previous.layoutPriceSource ?? item.layoutPriceSource,
       layoutPriceUpdatedAt: previous.layoutPriceUpdatedAt ?? item.layoutPriceUpdatedAt,
       indexWeight: previous.indexWeight
+    };
+  });
+}
+
+function normalizeMarketItems(items: readonly Sp500UniverseItem[]): Sp500UniverseItem[] {
+  return items.map((item) => {
+    const sector = normalizeSector(item.sector);
+    return {
+      ...item,
+      sector,
+      sectorLabelKo: item.sectorLabelKo || sectorLabelKo(sector)
     };
   });
 }

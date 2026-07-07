@@ -10,9 +10,18 @@ import { useAuth } from "../auth/AuthProvider";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
+type WatchlistNewsMode = "watchlist" | "hot" | "recommended";
+
+const watchlistNewsModes: Array<{ mode: WatchlistNewsMode; label: string; title: string }> = [
+  { mode: "watchlist", label: "관심 기업순", title: "관심 기업 기준 뉴스" },
+  { mode: "hot", label: "인기순", title: "급등, 급락, 거래대금 상위 종목 기준 뉴스" },
+  { mode: "recommended", label: "추천 기업순", title: "추천 기업 기준 뉴스" }
+];
+
 type WatchlistNewsMatch = {
   symbol: string;
   companyName?: string;
+  reason?: string;
 };
 
 type WatchlistNewsItem = {
@@ -52,7 +61,9 @@ export function WatchlistNewsPanel({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [mode, setMode] = useState<WatchlistNewsMode>("watchlist");
   const loginRequired = authEnabled && !authLoading && !user;
+  const activeModeLabel = watchlistNewsModes.find((item) => item.mode === mode)?.label ?? "관심 기업순";
 
   const loadNews = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
     if (loginRequired) {
@@ -67,18 +78,18 @@ export function WatchlistNewsPanel({
     }
     setError(undefined);
     try {
-      const params = new URLSearchParams({ limit: "30", locale: "ko-KR" });
+      const params = new URLSearchParams({ limit: "30", locale: "ko-KR", mode });
       const response = await fetch(`/api/market/news/watchlist?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(response.status === 401 ? "로그인이 필요합니다." : `관심종목 뉴스 API 응답 오류 ${response.status}`);
+        throw new Error(response.status === 401 ? "로그인이 필요합니다." : `뉴스 API 응답 오류 ${response.status}`);
       }
       setPayload(normalizeWatchlistNewsResponse(parsedPayload) ?? emptyWatchlistNewsResponse());
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") {
         return;
       }
-      setError(caught instanceof Error ? caught.message : "관심종목 뉴스를 불러오지 못했습니다.");
+      setError(caught instanceof Error ? caught.message : "뉴스를 불러오지 못했습니다.");
       setPayload(null);
     } finally {
       if (!signal?.aborted) {
@@ -86,7 +97,7 @@ export function WatchlistNewsPanel({
         setRefreshing(false);
       }
     }
-  }, [loginRequired]);
+  }, [loginRequired, mode]);
 
   useEffect(() => {
     if (authLoading) {
@@ -122,27 +133,38 @@ export function WatchlistNewsPanel({
 
   const items = payload?.items ?? [];
   const symbols = payload?.symbols ?? [];
-  const emptyMessage = symbols.length === 0
+  const emptyMessage = payload?.message || (mode === "watchlist" && symbols.length === 0
     ? "하단 관심종목 메뉴에서 종목을 추가하세요."
-    : payload?.message || "관심종목 관련 저장 뉴스가 없습니다.";
+    : "표시할 뉴스가 없습니다.");
 
   return (
     <section className="market-news-panel watchlist-news-panel" aria-label="관심종목 뉴스 패널">
-      <header className="panel-inline-header">
-        <div>
-          <span>{symbols.length > 0 ? `${symbols.length}종목` : "관심종목"}</span>
-          <strong>관심종목 뉴스</strong>
+      <div className="watchlist-news-topbar">
+        <div className="watchlist-news-mode-tabs" role="group" aria-label="뉴스 기준">
+          {watchlistNewsModes.map((item) => (
+            <button
+              key={item.mode}
+              type="button"
+              title={item.title}
+              className={item.mode === mode ? "active" : undefined}
+              aria-pressed={item.mode === mode}
+              onClick={() => setMode(item.mode)}
+              disabled={authLoading || loginRequired}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
         <button
           className="panel-icon-button"
           type="button"
-          title="관심종목 뉴스 새로고침"
+          title={`${activeModeLabel} 새로고침`}
           onClick={() => void loadNews(undefined, true)}
           disabled={authLoading || loginRequired}
         >
           {refreshing || authLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
         </button>
-      </header>
+      </div>
 
       {loginRequired && (
         <div className="panel-state-row">
@@ -188,10 +210,10 @@ export function WatchlistNewsPanel({
                   {item.summary && <p><span>{item.summary}</span></p>}
                 </div>
                 {item.matches.length > 0 && (
-                  <div className="watchlist-news-badges" aria-label="관련 관심종목">
+                  <div className="watchlist-news-badges" aria-label="관련 종목">
                     {item.matches.map((match) => (
                       <span key={match.symbol} className="watchlist-news-badge" title={match.companyName ?? match.symbol}>
-                        {match.symbol}
+                        {watchlistNewsBadgeText(match)}
                       </span>
                     ))}
                   </div>
@@ -253,7 +275,8 @@ function normalizeWatchlistNewsMatch(value: unknown): WatchlistNewsMatch | null 
   }
   return {
     symbol,
-    companyName: readString(source.companyName) ?? undefined
+    companyName: readString(source.companyName) ?? undefined,
+    reason: readString(source.reason) ?? undefined
   };
 }
 
@@ -263,6 +286,10 @@ function emptyWatchlistNewsResponse(): WatchlistNewsResponse {
     symbols: [],
     items: []
   };
+}
+
+function watchlistNewsBadgeText(match: WatchlistNewsMatch): string {
+  return match.reason ? `${match.symbol} · ${match.reason}` : match.symbol;
 }
 
 function impactDirectionText(value: string | null | undefined) {

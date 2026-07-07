@@ -1,3 +1,5 @@
+import { normalizeSector, sectorLabelKo } from "../market/sectors";
+
 export type PortfolioAccount = {
   alias?: string;
   market?: string;
@@ -19,6 +21,8 @@ export type PortfolioPosition = {
   market?: string;
   exchange?: string;
   currency?: string;
+  sector?: string | null;
+  industry?: string | null;
   quantity?: number | null;
   availableQuantity?: number | null;
   averagePrice?: number | null;
@@ -28,6 +32,14 @@ export type PortfolioPosition = {
   unrealizedPnlKrw?: number | null;
   unrealizedPnlForeign?: number | null;
   unrealizedPnlRate?: number | null;
+  sectorLabelKo?: string;
+  dayPnlForeign?: number | null;
+  dayPnlRate?: number | null;
+  dividendYield?: number | null;
+  dividendPerShare?: number | null;
+  annualDividend?: number | null;
+  nextDividendDate?: string | null;
+  dividendSource?: string | null;
 };
 
 export type PortfolioHoldingsResponse = {
@@ -62,7 +74,21 @@ export async function parsePortfolioHoldingsApiResponse(response: ResponseLike):
     throw new Error(bodyText.trim() ? "보유종목 API 응답 형식이 올바르지 않습니다." : "보유종목 API 응답이 비어 있습니다.");
   }
 
-  return payload;
+  return normalizePortfolioHoldingsResponse(payload);
+}
+
+function normalizePortfolioHoldingsResponse(payload: PortfolioHoldingsResponse): PortfolioHoldingsResponse {
+  return {
+    ...payload,
+    positions: payload.positions.map((position) => {
+      const sector = normalizeSector(position.sector);
+      return {
+        ...position,
+        sector,
+        sectorLabelKo: position.sectorLabelKo || sectorLabelKo(sector)
+      };
+    })
+  };
 }
 
 function parseJsonBody(bodyText: string, contentType: string): unknown {

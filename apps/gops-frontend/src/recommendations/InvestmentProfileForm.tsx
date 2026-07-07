@@ -1,5 +1,6 @@
 import { LoaderCircle, Save, X } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FocusEvent, type FormEvent } from "react";
+import { canonicalSectorOptions, normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import {
   fetchInvestmentProfile,
@@ -23,19 +24,17 @@ type SymbolOption = {
   sector: string;
 };
 
-const sectorOptions = Array.from(new Set(sp500UniverseSeed.map((item) => item.sector).filter(Boolean))).sort((left, right) =>
-  left.localeCompare(right)
-);
+const sectorOptions = [...canonicalSectorOptions];
 
 const symbolOptions: SymbolOption[] = sp500UniverseSeed
   .map((item) => ({
     symbol: item.symbol.toUpperCase(),
     companyName: item.companyName,
-    sector: item.sector
+    sector: normalizeSector(item.sector)
   }))
   .sort((left, right) => left.symbol.localeCompare(right.symbol));
 
-const sectorSet = new Set(sectorOptions);
+const sectorSet = new Set<string>(sectorOptions);
 const symbolSet = new Set(symbolOptions.map((item) => item.symbol));
 
 export function InvestmentProfileForm({
@@ -104,18 +103,6 @@ export function InvestmentProfileForm({
           <option value="balanced">균형형</option>
           <option value="aggressive">공격형</option>
         </select>
-      </label>
-      <label className="investment-profile-field">
-        <span>최대 손실 허용</span>
-        <input
-          type="number"
-          min="1"
-          max="50"
-          step="0.5"
-          value={profile.maxDrawdownPct}
-          disabled={disabled || loading || saving}
-          onChange={(event) => setProfile((current) => ({ ...current, maxDrawdownPct: Number(event.target.value) }))}
-        />
       </label>
       <SectorMultiPicker
         label="선호 섹터"
@@ -207,17 +194,24 @@ function SectorMultiPicker({
   onAdd: (value: string) => void;
   onRemove: (value: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const selected = new Set(values);
   const normalizedQuery = query.trim().toLowerCase();
   const visibleOptions = options.filter((option) => {
     if (selected.has(option)) {
       return false;
     }
-    return !normalizedQuery || option.toLowerCase().includes(normalizedQuery);
+    return !normalizedQuery || `${option} ${sectorLabelKo(option)}`.toLowerCase().includes(normalizedQuery);
   });
 
+  const closeWhenFocusLeaves = (event: FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setOpen(false);
+    }
+  };
+
   return (
-    <div className="investment-profile-field">
+    <div className="investment-profile-field" onBlur={closeWhenFocusLeaves}>
       <span>{label}</span>
       {values.length > 0 && (
         <div className="investment-profile-selected-list" aria-label={`선택된 ${label}`}>
@@ -228,9 +222,9 @@ function SectorMultiPicker({
               className="investment-profile-chip"
               disabled={disabled}
               onClick={() => onRemove(sector)}
-              title={`${sector} 제거`}
+              title={`${sectorLabelKo(sector)} 제거`}
             >
-              <span>{sector}</span>
+              <span>{sectorLabelKo(sector)}</span>
               <X size={12} />
             </button>
           ))}
@@ -240,25 +234,29 @@ function SectorMultiPicker({
         value={query}
         disabled={disabled}
         placeholder="등록 섹터 검색"
+        onFocus={() => setOpen(true)}
         onChange={(event) => onQueryChange(event.target.value)}
       />
-      <div className="investment-profile-option-list compact" aria-label={`등록 ${label} 목록`}>
-        {visibleOptions.length > 0 ? (
-          visibleOptions.map((sector) => (
-            <button
-              key={sector}
-              type="button"
-              className="investment-profile-sector-option"
-              disabled={disabled}
-              onClick={() => onAdd(sector)}
-            >
-              {sector}
-            </button>
-          ))
-        ) : (
-          <p className="investment-profile-empty">선택 가능한 등록 섹터가 없습니다.</p>
-        )}
-      </div>
+      {open && (
+        <div className="investment-profile-option-list compact" aria-label={`등록 ${label} 목록`}>
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((sector) => (
+              <button
+                key={sector}
+                type="button"
+                className="investment-profile-sector-option"
+                disabled={disabled}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onAdd(sector)}
+              >
+                {sectorLabelKo(sector)}
+              </button>
+            ))
+          ) : (
+            <p className="investment-profile-empty">선택 가능한 등록 섹터가 없습니다.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -280,6 +278,7 @@ function SymbolMultiPicker({
   onAdd: (symbol: string) => void;
   onRemove: (symbol: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const selected = new Set(values);
   const normalizedQuery = query.trim().toLowerCase();
   const selectedOptions = values
@@ -293,12 +292,18 @@ function SymbolMultiPicker({
       if (!normalizedQuery) {
         return true;
       }
-      return `${option.symbol} ${option.companyName} ${option.sector}`.toLowerCase().includes(normalizedQuery);
+      return `${option.symbol} ${option.companyName} ${option.sector} ${sectorLabelKo(option.sector)}`.toLowerCase().includes(normalizedQuery);
     })
     .slice(0, 24);
 
+  const closeWhenFocusLeaves = (event: FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setOpen(false);
+    }
+  };
+
   return (
-    <div className="investment-profile-field">
+    <div className="investment-profile-field" onBlur={closeWhenFocusLeaves}>
       <span>제외 종목</span>
       {selectedOptions.length > 0 && (
         <div className="investment-profile-selected-list" aria-label="선택된 제외 종목">
@@ -322,39 +327,44 @@ function SymbolMultiPicker({
         value={query}
         disabled={disabled}
         placeholder="등록 종목 검색"
+        onFocus={() => setOpen(true)}
         onChange={(event) => onQueryChange(event.target.value)}
       />
-      <div className="investment-profile-option-list" aria-label="등록 종목 목록">
-        {visibleOptions.length > 0 ? (
-          visibleOptions.map((option) => (
-            <button
-              key={option.symbol}
-              type="button"
-              className="investment-profile-option-button"
-              disabled={disabled}
-              onClick={() => onAdd(option.symbol)}
-            >
-              <strong>{option.symbol}</strong>
-              <span>{option.companyName}</span>
-              <em>{option.sector}</em>
-            </button>
-          ))
-        ) : (
-          <p className="investment-profile-empty">선택 가능한 등록 종목이 없습니다.</p>
-        )}
-      </div>
+      {open && (
+        <div className="investment-profile-option-list" aria-label="등록 종목 목록">
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((option) => (
+              <button
+                key={option.symbol}
+                type="button"
+                className="investment-profile-option-button"
+                disabled={disabled}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onAdd(option.symbol)}
+              >
+                <strong>{option.symbol}</strong>
+                <span>{option.companyName}</span>
+                <em>{sectorLabelKo(option.sector)}</em>
+              </button>
+            ))
+          ) : (
+            <p className="investment-profile-empty">선택 가능한 등록 종목이 없습니다.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function normalizeProfileForUniverse(profile: InvestmentProfile): InvestmentProfile {
-  const preferredSectors = uniqueValues(profile.preferredSectors).filter((item) => sectorSet.has(item));
-  const excludedSectors = uniqueValues(profile.excludedSectors)
+  const preferredSectors = normalizeSectorList(uniqueValues(profile.preferredSectors)).filter((item) => sectorSet.has(item));
+  const excludedSectors = normalizeSectorList(uniqueValues(profile.excludedSectors))
     .filter((item) => sectorSet.has(item))
     .filter((item) => !preferredSectors.includes(item));
 
   return {
     ...profile,
+    maxDrawdownPct: 6,
     preferredSectors,
     excludedSectors,
     excludedSymbols: uniqueValues(profile.excludedSymbols.map((item) => item.toUpperCase())).filter((item) => symbolSet.has(item))

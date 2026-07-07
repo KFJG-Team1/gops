@@ -1,4 +1,5 @@
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "./sp500Universe.seed";
+import { normalizeSector, sectorLabelKo } from "./sectors";
 
 export type MarketHeatmapPayload = {
   source: string;
@@ -86,10 +87,12 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
   if (!symbol) {
     return null;
   }
+  const sector = normalizeSector(asString(item.sector));
   return {
     symbol,
     companyName: asString(item.companyName) || symbol,
-    sector: asString(item.sector) || "Unclassified",
+    sector,
+    sectorLabelKo: asString(item.sectorLabelKo) || sectorLabelKo(sector),
     industry: asString(item.industry) || "Unclassified",
     cik: asString(item.cik),
     exchange: asString(item.exchange),

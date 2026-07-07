@@ -21,6 +21,9 @@ spec:
           image: YOUR_ECR_REPOSITORY/gops-market-processor:latest
           imagePullPolicy: IfNotPresent
           command: ["python", "-u", "systems/market-data/pods/market-processor/local_main.py"]
+          env:
+            - name: KAFKA_PROCESSOR_RAW_TOPICS
+              value: market.input.realtime.trades.v1,market.input.realtime.bars.1m.v1,market.input.realtime.updated-bars.1m.v1,market.input.realtime.daily-bars.v1,market.input.realtime.events.v1
           envFrom:
             - configMapRef:
                 name: alfaka-market-data-config

@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 type CompanySummaryPanelProps = {
   symbol: string;
@@ -113,7 +114,10 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
       <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
         <header className="company-info-heading">
           <span>기업정보</span>
-          <strong>{companyName}</strong>
+          <strong>
+            <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
+            <span>{companyName}</span>
+          </strong>
           <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
         </header>
         <dl className="company-info-grid">
@@ -152,6 +156,7 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
           ? "시가총액은 현재가와 발행주식수로 계산합니다."
           : "재무 데이터가 없으면 기준 유니버스 값을 임시로 표시합니다."}
       </p>
+      <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
 }
@@ -169,15 +174,14 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
   const maxValue = values.length ? Math.max(...values) : 1;
   const paddedMax = maxValue === minValue ? maxValue + 1 : maxValue + (maxValue - minValue) * 0.16;
   const chartWidth = 620;
-  const chartHeight = 270;
-  const plot = { left: 42, right: 22, top: 28, bottom: 46 };
+  const chartHeight = 238;
+  const plot = { left: metric === "revenue" ? 74 : 48, right: 22, top: 24, bottom: 40 };
   const xStep = points.length > 1 ? (chartWidth - plot.left - plot.right) / (points.length - 1) : 0;
   const yFor = (value: number) => {
     const span = paddedMax - minValue || 1;
     return plot.top + (1 - (value - minValue) / span) * (chartHeight - plot.top - plot.bottom);
   };
   const yTicks = makeTicks(minValue, paddedMax, 5);
-  const sourceLabel = metric === "eps" ? "US$" : "US$억";
 
   return (
     <div className="company-earnings-history-card">
@@ -185,7 +189,7 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
         <span><i className="estimate" />추정</span>
         <span><i className="beat" />예상치 상회</span>
         <span><i className="miss" />예상치 하회</span>
-        <span><i className="match" />매치</span>
+        <span><i className="match" />실적</span>
       </div>
       <svg className="company-earnings-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`${metric === "eps" ? "EPS" : "수익"} 실적 내역`}>
         {yTicks.map((tick) => {
@@ -193,7 +197,7 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
           return (
             <g key={tick}>
               <line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
-              <text x={0} y={y + 5}>{formatAxisValue(tick, sourceLabel)}</text>
+              <text x={0} y={y + 5}>{formatEarningsAxisValue(tick, metric)}</text>
             </g>
           );
         })}
@@ -228,7 +232,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const points = series
     .filter((point) => Number.isFinite(point.revenue ?? NaN) || Number.isFinite(point.netIncome ?? NaN))
     .slice(-12);
-  const tablePoints = points.slice(-9);
+  const tablePoints = points.slice(-6);
   if (!points.length) {
     return (
       <FinancialChartShell
@@ -258,7 +262,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const marginSpan = marginMax === marginMin ? 1 : marginMax - marginMin;
   const chartWidth = 620;
   const chartHeight = 250;
-  const plot = { left: 44, right: 40, top: 20, bottom: 46 };
+  const plot = { left: 64, right: 28, top: 20, bottom: 46 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -352,7 +356,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const points = series
     .filter((point) => Number.isFinite(point.totalEquity ?? NaN) || Number.isFinite(point.totalLiabilities ?? NaN))
     .slice(-12);
-  const tablePoints = points.slice(-9);
+  const tablePoints = points.slice(-6);
   if (!points.length) {
     return (
       <FinancialChartShell
@@ -382,7 +386,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const ratioSpan = ratioMax === ratioMin ? 1 : ratioMax - ratioMin;
   const chartWidth = 620;
   const chartHeight = 250;
-  const plot = { left: 44, right: 40, top: 20, bottom: 46 };
+  const plot = { left: 64, right: 28, top: 20, bottom: 46 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -593,7 +597,6 @@ function FinancialSeriesTable({ points, rows, emptyLabel = "재무 데이터 확
           ))}
         </tbody>
       </table>
-      <div className="company-financial-table-scroll" aria-hidden="true" />
     </div>
   );
 }
@@ -737,16 +740,24 @@ function buildEarningsSeries(
   financialSeries: FinancialChartPoint[] = [],
   apiSeries: CompanyEarningsSeriesPoint[] | null = null
 ): EarningsChartPoint[] {
-  const fromSeries = (apiSeries?.length ? apiSeries : item?.earningsSeries)?.map((point) => normalizeEarningsPoint(point)) ?? [];
-  const validSeries = fromSeries.filter((point) => (
-    Number.isFinite(point.actualEps ?? NaN) ||
-    Number.isFinite(point.estimatedEps ?? NaN) ||
-    Number.isFinite(point.actualRevenue ?? NaN) ||
-    Number.isFinite(point.estimatedRevenue ?? NaN)
-  ));
-  if (validSeries.length) {
-    return validSeries;
-  }
+  const merged = new Map<string, EarningsChartPoint>();
+  const addPoint = (point: EarningsChartPoint) => {
+    if (!hasEarningsValue(point)) {
+      return;
+    }
+    const key = earningsPeriodKey(point);
+    if (!key) {
+      return;
+    }
+    const current = merged.get(key) ?? { period: point.period, periodEndDate: point.periodEndDate };
+    current.period = current.period || point.period;
+    current.periodEndDate = current.periodEndDate || point.periodEndDate;
+    current.actualEps = firstFinite(current.actualEps, point.actualEps);
+    current.estimatedEps = firstFinite(current.estimatedEps, point.estimatedEps);
+    current.actualRevenue = firstFinite(current.actualRevenue, point.actualRevenue);
+    current.estimatedRevenue = firstFinite(current.estimatedRevenue, point.estimatedRevenue);
+    merged.set(key, current);
+  };
   const actualSeries = financialSeries
     .map((point) => ({
       period: point.period,
@@ -756,25 +767,22 @@ function buildEarningsSeries(
       actualRevenue: point.revenue,
       estimatedRevenue: null
     }))
-    .filter((point) => Number.isFinite(point.actualEps ?? NaN) || Number.isFinite(point.actualRevenue ?? NaN));
-  if (actualSeries.length) {
-    return actualSeries;
-  }
+    .filter(hasEarningsValue);
+  actualSeries.forEach(addPoint);
+  (item?.earningsSeries ?? []).map((point) => normalizeEarningsPoint(point)).forEach(addPoint);
+  (apiSeries ?? []).map((point) => normalizeEarningsPoint(point)).forEach(addPoint);
   const period = item?.fiscalPeriod || item?.periodEndDate || item?.fundamentalsAsOf;
-  if (!period) {
-    return [];
+  if (period) {
+    addPoint({
+      period,
+      periodEndDate: item?.periodEndDate,
+      actualEps: item?.eps,
+      estimatedEps: null,
+      actualRevenue: item?.revenue,
+      estimatedRevenue: null
+    });
   }
-  const fallbackPoint = {
-    period,
-    periodEndDate: item?.periodEndDate,
-    actualEps: item?.eps,
-    estimatedEps: null,
-    actualRevenue: item?.revenue,
-    estimatedRevenue: null
-  };
-  return Number.isFinite(fallbackPoint.actualEps ?? NaN) || Number.isFinite(fallbackPoint.actualRevenue ?? NaN)
-    ? [fallbackPoint]
-    : [];
+  return Array.from(merged.values()).sort(compareEarningsPoints);
 }
 
 function normalizeEarningsPoint(point: CompanyEarningsSeriesPoint): EarningsChartPoint {
@@ -786,6 +794,39 @@ function normalizeEarningsPoint(point: CompanyEarningsSeriesPoint): EarningsChar
     actualRevenue: point.actualRevenue,
     estimatedRevenue: point.estimatedRevenue
   };
+}
+
+function hasEarningsValue(point: EarningsChartPoint): boolean {
+  return Number.isFinite(point.actualEps ?? NaN) ||
+    Number.isFinite(point.estimatedEps ?? NaN) ||
+    Number.isFinite(point.actualRevenue ?? NaN) ||
+    Number.isFinite(point.estimatedRevenue ?? NaN);
+}
+
+function firstFinite(current: number | null | undefined, next: number | null | undefined): number | null | undefined {
+  return Number.isFinite(current ?? NaN) ? current : next;
+}
+
+function earningsPeriodKey(point: EarningsChartPoint): string {
+  return point.period || point.periodEndDate || "";
+}
+
+function compareEarningsPoints(left: EarningsChartPoint, right: EarningsChartPoint): number {
+  return earningsPointOrder(left) - earningsPointOrder(right);
+}
+
+function earningsPointOrder(point: EarningsChartPoint): number {
+  const timestamp = point.periodEndDate ? Date.parse(point.periodEndDate) : NaN;
+  if (Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+  const match = point.period.match(/(\d{4})\D?Q([1-4])/i) || point.period.match(/Q([1-4])\D?(\d{4})/i);
+  if (!match) {
+    return 0;
+  }
+  const year = Number(match[1].length === 4 ? match[1] : match[2]);
+  const quarter = Number(match[1].length === 4 ? match[2] : match[1]);
+  return year * 4 + quarter;
 }
 
 function normalizeRevenueForChart(value: number | null | undefined): number | null {
@@ -801,11 +842,14 @@ function makeTicks(minValue: number, maxValue: number, count: number): number[] 
   return Array.from({ length: safeCount }, (_, index) => minValue + (span / (safeCount - 1)) * index);
 }
 
-function formatAxisValue(value: number, prefix: string): string {
-  return `${prefix}${new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: value > 0 && value < 10 ? 2 : 0,
-    maximumFractionDigits: value > 0 && value < 10 ? 2 : 0
-  }).format(value)}`;
+function formatEarningsAxisValue(value: number, metric: EarningsMetric): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  const formatted = new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: abs > 0 && abs < 10 ? 2 : 0,
+    maximumFractionDigits: abs > 0 && abs < 10 ? 2 : 0
+  }).format(abs);
+  return metric === "eps" ? `${sign}US$${formatted}` : `${sign}US$${formatted}억`;
 }
 
 function formatKoreanMoneyAxis(value: number): string {

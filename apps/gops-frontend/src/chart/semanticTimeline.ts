@@ -120,7 +120,7 @@ type BuildSemanticTimelineInput = {
 };
 
 const placeholderSlotWidth = 8;
-const footprintSlotWidth = 12;
+const footprintSlotWidth = 18;
 const intradayChildCandleSlotWidth = 0.36;
 const dailyChildCandleSlotWidth = 0.5;
 const weeklyChildCandleSlotWidth = 0.6;

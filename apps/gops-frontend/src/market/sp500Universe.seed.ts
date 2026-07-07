@@ -2,6 +2,7 @@ export type Sp500UniverseItem = {
   symbol: string;
   companyName: string;
   sector: string;
+  sectorLabelKo?: string | null;
   industry: string;
   cik?: string | null;
   exchange?: string | null;

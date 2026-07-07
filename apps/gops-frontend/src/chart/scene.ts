@@ -468,9 +468,9 @@ function priceDomain(units: Extract<SemanticRenderUnit, { kind: "candle" }>[], c
   const values = units.flatMap((unit) => [
     unit.candle.high,
     unit.candle.low,
-    (chart.layers["sma:5"] ?? chart.layers.ma5) && unit.interval === chart.interval ? unit.candle.ma5 : undefined,
-    (chart.layers["sma:20"] ?? chart.layers.ma20) && unit.interval === chart.interval ? unit.candle.ma20 : undefined,
-    (chart.layers["sma:60"] ?? chart.layers.ma60) && unit.interval === chart.interval ? unit.candle.ma60 : undefined
+    (chart.layers["sma:5"] ?? chart.layers.ma5) ? unit.candle.ma5 : undefined,
+    (chart.layers["sma:20"] ?? chart.layers.ma20) ? unit.candle.ma20 : undefined,
+    (chart.layers["sma:60"] ?? chart.layers.ma60) ? unit.candle.ma60 : undefined
   ])
     .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), units))
     .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), units))
