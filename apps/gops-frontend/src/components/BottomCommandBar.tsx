@@ -13,6 +13,7 @@ export type ChatLogEntry = {
   role: "user" | "assistant" | "system";
   text: string;
   pending?: boolean;
+  confidence?: number;
 };
 export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
 
@@ -318,7 +319,16 @@ export function BottomCommandBar({
             <div className="bottom-chat-log" role="log" aria-live="polite">
               {chatLog.length ? chatLog.map((entry) => (
                 <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
-                  <span className="bottom-chat-message-role">{entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}</span>
+                  <span className="bottom-chat-message-role">
+                    {entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}
+                    {entry.role === "assistant" && typeof entry.confidence === "number" && !entry.pending && (
+                      <span
+                        className={`bottom-chat-confidence-dot ${confidenceTone(entry.confidence)}`}
+                        title={confidenceTitle(entry.confidence)}
+                        aria-label={confidenceTitle(entry.confidence)}
+                      />
+                    )}
+                  </span>
                   <p>
                     <span className="bottom-chat-message-text">{entry.text}</span>
                     {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
@@ -938,6 +948,21 @@ function bottomMenuContent({
     default:
       return <p className="bottom-menu-empty">Menu</p>;
   }
+}
+
+function confidenceTone(confidence: number): "high" | "medium" | "low" {
+  if (confidence >= 0.75) {
+    return "high";
+  }
+  if (confidence >= 0.5) {
+    return "medium";
+  }
+  return "low";
+}
+
+function confidenceTitle(confidence: number): string {
+  const percent = Math.round(Math.max(0, Math.min(1, confidence)) * 100);
+  return `신뢰도 ${percent}%`;
 }
 
 function MenuTitle({ icon, title, detail }: { icon?: ReactNode; title: string; detail: string }) {

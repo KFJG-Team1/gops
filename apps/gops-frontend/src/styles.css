@@ -528,10 +528,32 @@ button {
 }
 
 .bottom-chat-message-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--color-muted-medium);
   font-family: var(--font-ui-serif);
   font-size: 11px;
   font-weight: 700;
+}
+
+.bottom-chat-confidence-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.18);
+}
+
+.bottom-chat-confidence-dot.high {
+  background: #1f9d55;
+}
+
+.bottom-chat-confidence-dot.medium {
+  background: #d69e2e;
+}
+
+.bottom-chat-confidence-dot.low {
+  background: #d64545;
 }
 
 .bottom-chat-message p,
