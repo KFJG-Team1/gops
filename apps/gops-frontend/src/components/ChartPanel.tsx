@@ -2362,7 +2362,7 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 }
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {
-  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h";
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D";
 }
 
 function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
