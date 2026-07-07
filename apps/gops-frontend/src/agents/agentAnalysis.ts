@@ -256,27 +256,6 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     lines.push("", ...formatAgentAnswers(report.agentAnswers, "세부 근거"));
   }
 
-  const unusualEventFinding = report.findings.find((finding) =>
-    finding.role === "unusual-event-explanation" && finding.summary && !finding.summary.toLowerCase().startsWith("no unusual")
-  );
-  if (unusualEventFinding && !newsOnly) {
-    lines.push("", `이상 이벤트: ${unusualEventFinding.summary}`);
-  }
-
-  const noDataEvidence = report.providerEvidence
-    .filter((item) => item.status === "no-data")
-    .slice(0, 5);
-  const ontologyNoData = noDataEvidence.filter(isOntologyRelationshipNoData);
-  const providerNoData = noDataEvidence.filter((item) => !isOntologyRelationshipNoData(item));
-  if (ontologyNoData.length && !newsOnly) {
-    lines.push("", "확인되지 않은 내용:");
-    lines.push(...ontologyNoData.map((item) => `- ${formatNoDataSummary(item.summary ?? "기업 관계 근거가 확인되지 않았습니다.")}`));
-  }
-  if (providerNoData.length && !newsOnly) {
-    lines.push("", "데이터 한계:");
-    lines.push(...providerNoData.map((item) => `- ${providerNoDataLabel(item)}: ${formatNoDataSummary(item.summary)}`));
-  }
-
   const decision = report.notificationDecision;
   if (decision && ["watch", "alert", "critical"].includes(decision.level) && !newsOnly) {
     lines.push("", `알림 판단: ${decision.level.toUpperCase()}${decision.title ? ` - ${decision.title}` : ""}`);
@@ -300,7 +279,7 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     lines.push("", safetyNotice);
   }
 
-  const timingSummary = formatTimingSummary(report.timing);
+  const timingSummary = formatAgentTimingSummary(report.timing);
   if (timingSummary && !newsOnly) {
     lines.push("", timingSummary);
   }
@@ -314,7 +293,7 @@ function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: bo
     if (!section.title || section.bullets.length === 0) {
       continue;
     }
-    lines.push("", `■ ${section.title}`);
+    lines.push("", section.title);
     lines.push(...section.bullets.slice(0, options.compactNews ? 3 : 5).map((bullet) => `  - ${bullet}`));
   }
   if (options.compactNews) {
@@ -322,7 +301,7 @@ function formatFinalAnswer(finalAnswer: FinalAnswer, options: { compactNews?: bo
   }
   const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url));
   if (linkedCitations.length) {
-    lines.push("", "■ 근거 링크");
+    lines.push("", "근거 링크");
     lines.push(...linkedCitations.slice(0, 5).map((citation) =>
       `  - ${citation.title} (${citation.url})`
     ));
@@ -644,38 +623,6 @@ function readCommandActor(value: unknown): CommandActor | null {
   return value === "user" || value === "llm" || value === "system" ? value : null;
 }
 
-function labelForProvider(provider: string): string {
-  const labels: Record<string, string> = {
-    news: "뉴스",
-    macro: "거시",
-    ontology: "온톨로지"
-  };
-  return labels[provider] ?? provider;
-}
-
-function providerNoDataLabel(item: AgentEvidenceItem): string {
-  const relationType = typeof item.raw?.relationType === "string" ? item.raw.relationType : "";
-  if (item.provider === "ontology" && relationType === "graphdb-unavailable") {
-    return "기업 관계 데이터 일시 미확인";
-  }
-  return `${labelForProvider(item.provider)} 데이터 미확인`;
-}
-
-function formatNoDataSummary(summary?: string): string {
-  const text = summary?.trim() || "데이터가 아직 연결되지 않았습니다.";
-  return text
-    .replace(/\bprovider\b/gi, "데이터")
-    .replace(/GraphDB|ClickHouse|Redis/g, "내부 데이터");
-}
-
-function isOntologyRelationshipNoData(item: AgentEvidenceItem): boolean {
-  if (item.provider !== "ontology") {
-    return false;
-  }
-  const relationType = typeof item.raw?.relationType === "string" ? item.raw.relationType : "";
-  return ["no-direct-control", "no-ontology-evidence"].includes(relationType);
-}
-
 function isVerificationWarning(finding: AgentFinding): boolean {
   const normalized = finding.summary.trim().toLowerCase();
   if (!normalized || normalized.startsWith("no trading-action guardrail violation detected")) {
@@ -712,7 +659,7 @@ function readBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
-function formatTimingSummary(timing?: AgentAnalysisTiming | null): string | null {
+export function formatAgentTimingSummary(timing?: AgentAnalysisTiming | null): string | null {
   if (!timing) {
     return null;
   }
