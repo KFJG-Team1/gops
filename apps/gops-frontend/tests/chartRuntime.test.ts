@@ -49,6 +49,11 @@ import {
   createCoordinateTransform as createFrontendCoordinateTransform
 } from "../src/chart/scene";
 import { createIndicatorPointLookup, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
+import {
+  candleMovingAverageWindows,
+  indicatorRequestRangeFromCandles,
+  serverIndicatorLayersForLayers
+} from "../src/chart/indicatorLayerPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -277,6 +282,24 @@ assert.equal(themedDocument.style.ma5, "#abcdef");
 setDefaultChartStyle(fallbackChartStyle);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
+
+assert.deepEqual(candleMovingAverageWindows, [5, 20, 60]);
+assert.deepEqual(serverIndicatorLayersForLayers({
+  ma5: true,
+  "sma:20": true,
+  "sma:60": true,
+  "ema:20": true,
+  "rsi:14": true
+}), ["ema:20", "rsi:14"]);
+assert.deepEqual(indicatorRequestRangeFromCandles([
+  { timestamp: "2026-06-25T13:30:00Z", open: 1, high: 2, low: 1, close: 2, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:31:00Z", open: 2, high: 3, low: 2, close: 3, volume: 10, isClosed: true },
+  { timestamp: "2026-06-25T13:32:00Z", open: 3, high: 4, low: 3, close: 4, volume: 10, isClosed: false }
+]), {
+  firstTimestamp: "2026-06-25T13:30:00Z",
+  lastTimestamp: "2026-06-25T13:31:00Z",
+  candleCount: 2
+});
 
 const treeMapTestTheme = {
   ...fallbackChartStyle,

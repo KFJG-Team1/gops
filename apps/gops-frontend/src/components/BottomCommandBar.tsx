@@ -781,7 +781,7 @@ function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
     II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
-    V: "계정",
+    V: "로그인/프로필",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {

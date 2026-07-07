@@ -754,9 +754,7 @@ function drawMovingAverage(
     const serverValue = serverValueForUnit(unit);
     const value = typeof serverValue === "number"
       ? serverValue
-      : unit.interval === scene.chart.interval
-        ? candle[key]
-        : undefined;
+      : candle[key];
     const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
     if (typeof value !== "number") {
       if (started) {
@@ -812,7 +810,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
   const pointForUnit = createIndicatorPointLookup(scene.chart.indicatorSeries, layerId, scene.chart.interval);
   const units = candleUnits(scene);
 
-  // 1. Draw transparent black area between upper and lower bands
+  // 1. Draw transparent area between upper and lower bands.
   context.save();
   context.beginPath();
   let started = false;
@@ -843,20 +841,20 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
 
   if (started) {
     context.closePath();
-    context.fillStyle = colors.preview;
+    context.fillStyle = colors.purple;
     context.globalAlpha = 0.04;
     context.fill();
   }
   context.restore();
 
-  // 2. Draw upper and lower lines (진한 검정)
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.preview, 1.0);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.preview, 1.0);
+  // 2. Draw upper and lower lines.
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.upper, (value) => priceToY(scene, value), colors.purple, 1.0);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.lower, (value) => priceToY(scene, value), colors.purple, 1.0);
 
   // 3. Draw middle line (굵은 점선)
   context.save();
   context.setLineDash([6, 4]);
-  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.preview, 1.6);
+  drawSeriesLine(context, scene, (unit) => pointForUnit(unit)?.middle, (value) => priceToY(scene, value), colors.purple, 1.6);
   context.restore();
 }
 
@@ -890,13 +888,13 @@ function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene)
       : bucket.inValueArea
         ? 0.07 + normalizedVolume * 0.05
         : 0.04 + normalizedVolume * 0.03;
-    context.fillStyle = colors.preview;
+    context.fillStyle = colors.purple;
     context.fillRect(profileLeft, top, width, height);
   });
   if (profile.poc) {
     const y = priceToY(scene, profile.poc.priceMid);
     context.globalAlpha = 0.18;
-    context.strokeStyle = colors.preview;
+    context.strokeStyle = colors.purple;
     context.lineWidth = 1;
     context.setLineDash([4, 4]);
     line(context, profileLeft, y, right, y);
@@ -926,7 +924,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     const domain = { min: 0, max: 100 };
     drawPaneGuide(context, scene, pane, domain, 70);
     drawPaneGuide(context, scene, pane, domain, 30);
-    drawPaneSeries(context, scene, pane, pane.id, "value", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "value", domain, colors.signal);
     return;
   }
   if (pane.id === "stochastic:14:3:3") {
@@ -934,7 +932,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     drawPaneGuide(context, scene, pane, domain, 80);
     drawPaneGuide(context, scene, pane, domain, 20);
     drawPaneSeries(context, scene, pane, pane.id, "k", domain, colors.caution);
-    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "d", domain, colors.purple);
     return;
   }
   if (pane.id === "macd:12:26:9") {
@@ -942,7 +940,7 @@ function drawBelowIndicatorPane(context: CanvasRenderingContext2D, scene: ChartS
     drawPaneGuide(context, scene, pane, domain, 0);
     drawMacdHistogram(context, scene, pane, pane.id, domain);
     drawPaneSeries(context, scene, pane, pane.id, "macd", domain, colors.caution);
-    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.preview);
+    drawPaneSeries(context, scene, pane, pane.id, "signal", domain, colors.signal);
   }
 }
 
