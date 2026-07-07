@@ -62,6 +62,18 @@ export type ChartCompareQuery = {
   range: ChartCompareRange;
 };
 
+export class ChartApiError extends Error {
+  readonly status: number;
+  readonly retryable: boolean;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ChartApiError";
+    this.status = status;
+    this.retryable = status === 408 || status === 429 || status >= 500;
+  }
+}
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
@@ -114,7 +126,7 @@ export async function fetchIndicators(query: IndicatorQuery, signal?: AbortSigna
   }
   const response = await fetch(`/api/charts/indicators?${params.toString()}`, { signal });
   if (!response.ok) {
-    throw new Error(`Indicator API failed: ${response.status}`);
+    throw new ChartApiError(`Indicator API failed: ${response.status}`, response.status);
   }
   return normalizeIndicatorResponse(await response.json());
 }

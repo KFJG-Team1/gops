@@ -58,6 +58,7 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
+import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
@@ -287,7 +288,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       interval: candleSourceInterval(chart.interval),
       from: baseIndicatorRange.firstTimestamp,
       to: baseIndicatorRange.lastTimestamp,
-      limit: Math.max(baseIndicatorRange.candleCount, defaultVisibleBarsForInterval(chart.interval)),
+      limit: indicatorRequestLimitForInterval(chart.interval, baseIndicatorRange.candleCount),
       layers: activeIndicatorLayers
     };
   }, [activeIndicatorLayerKey, activeIndicatorLayers, baseIndicatorRange, chart.interval, chart.symbol]);
@@ -689,7 +690,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           interval: request.interval,
           from: request.from,
           to: request.to,
-          limit: Math.max(request.candleCount, defaultVisibleBarsForInterval(request.interval)),
+          limit: indicatorRequestLimitForInterval(request.interval, request.candleCount),
           layers: activeIndicatorLayers
         }, controller.signal).then((response) => ({ request, response }))
       )))
