@@ -60,6 +60,12 @@ import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThum
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
+import {
+  olderRangeQueuedRetryDelayMs,
+  olderRangeRequestKey,
+  olderRangeRetryAfterMs,
+  shouldRequestOlderRange
+} from "../chart/olderRangeRequestPolicy";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
@@ -327,6 +333,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
+  const olderRangeRetryAfterRef = useRef<Map<string, number>>(new Map());
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
@@ -392,8 +399,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     before: string,
     limit: number
   ) => {
-    const requestKey = `${symbol}:${interval}:before:${before}:${limit}`;
+    const requestKey = olderRangeRequestKey(symbol, interval, before, limit);
     if (olderRangeRequestsRef.current.has(requestKey)) {
+      return;
+    }
+    if (!shouldRequestOlderRange(olderRangeRetryAfterRef.current.get(requestKey))) {
       return;
     }
     olderRangeRequestsRef.current.add(requestKey);
@@ -411,6 +421,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+        const addedCount = Math.max(0, merged.length - current.candles.length);
+        const retryAfter = olderRangeRetryAfterMs(response, addedCount);
+        if (retryAfter === null) {
+          olderRangeRetryAfterRef.current.delete(requestKey);
+        } else {
+          olderRangeRetryAfterRef.current.set(requestKey, retryAfter);
+        }
+        if (addedCount === 0) {
+          return;
+        }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
         const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
           current.candles,
@@ -422,13 +442,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, interval) });
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
       })
-      .catch((error: unknown) => {
-        onChartRuntimeAction({
-          kind: "chart.snapshot.failed",
-          symbol,
-          interval,
-          message: error instanceof Error ? error.message : "Historical range request failed"
-        });
+      .catch(() => {
+        olderRangeRetryAfterRef.current.set(requestKey, Date.now() + olderRangeQueuedRetryDelayMs);
       })
       .finally(() => {
         olderRangeRequestsRef.current.delete(requestKey);
@@ -921,6 +936,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     activeExpansionsRef.current = [];
+    olderRangeRequestsRef.current.clear();
+    olderRangeRetryAfterRef.current.clear();
     setActiveExpansions([]);
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
@@ -1003,7 +1020,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth, clampOptions);
     const maxRightOffset = Math.max(0, currentChart.candles.length - Math.min(requestedViewport.visibleCount, currentChart.candles.length));
     const oldest = currentChart.candles[0]?.timestamp;
-    if (oldest && requestedViewport.rightOffset >= maxRightOffset - 1) {
+    if (oldest && currentChart.hasMoreBefore !== false && requestedViewport.rightOffset >= maxRightOffset - 1) {
       loadOlderCandles(
         currentChart.symbol,
         currentChart.interval,

@@ -58,6 +58,13 @@ import {
   serverIndicatorLayersForLayers
 } from "../src/chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
+import {
+  olderRangeQueuedRetryDelayMs,
+  olderRangeRequestKey,
+  olderRangeRetryAfterMs,
+  olderRangeTerminalRetryDelayMs,
+  shouldRequestOlderRange
+} from "../src/chart/olderRangeRequestPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -1303,6 +1310,35 @@ assert.equal(indicatorRequestLimitForInterval("1D", 22849), 1512);
 assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
 assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
+assert.equal(
+  olderRangeRequestKey("nvda", "1D", "2026-07-02T04:00:00.000Z", 120),
+  "NVDA:1D:before:2026-07-02T04:00:00.000Z:120"
+);
+assert.equal(shouldRequestOlderRange(undefined, 1_000), true);
+assert.equal(shouldRequestOlderRange(1_500, 1_000), false);
+assert.equal(shouldRequestOlderRange(1_500, 1_500), true);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [],
+    hasMoreBefore: false
+  }, 0, 10_000),
+  10_000 + olderRangeTerminalRetryDelayMs
+);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [],
+    hasMoreBefore: true,
+    fill: { backgroundFill: { queued: true, state: "already_queued" } }
+  }, 0, 10_000),
+  10_000 + olderRangeQueuedRetryDelayMs
+);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [testCandle("2026-07-01T04:00:00.000Z")],
+    hasMoreBefore: true
+  }, 1, 10_000),
+  null
+);
 for (const timeframe of ["1h", "4h", "1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
