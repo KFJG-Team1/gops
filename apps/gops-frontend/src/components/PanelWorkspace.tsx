@@ -67,7 +67,7 @@ import {
 import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
-import { boundaryStyle, panelNavHeight } from "./panelWorkspaceGeometry";
+import { boundaryStyle } from "./panelWorkspaceGeometry";
 import { WorkspacePanelFrame } from "./WorkspacePanelFrame";
 
 type PanelWorkspaceProps = {
@@ -728,7 +728,7 @@ export function PanelWorkspace({
               companyItem={companyItemsBySymbol.get(contentSymbol)}
               companyItems={companyItems}
               marketItems={marketItems}
-              laneHeight={Math.max(120, isChart ? slot.rect.height : slot.rect.height - panelNavHeight)}
+              laneHeight={Math.max(120, slot.rect.height)}
               chartHeaderSnapshot={chartHeaders[content.id]}
               chartDocument={chartDocument}
               chartCandles={chartCandles}

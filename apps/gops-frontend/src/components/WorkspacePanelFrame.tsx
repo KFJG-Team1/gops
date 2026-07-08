@@ -37,7 +37,7 @@ export function WorkspacePanelFrame({
       className={[
         "workspace-panel-frame",
         "workspace-panel-surface",
-        showNav ? "has-panel-nav" : "has-no-panel-nav",
+        "has-no-panel-nav",
         content.kind === "chart" ? "chart-lane-frame" : "content-panel-frame",
         isBoundaryActive ? "is-boundary-active" : "",
         isChartHovered ? "is-chart-hovered" : "",

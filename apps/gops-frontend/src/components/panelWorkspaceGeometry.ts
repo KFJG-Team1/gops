@@ -1,8 +1,6 @@
 import type { CSSProperties } from "react";
 import type { PanelBoundary } from "../layout/panelLayout";
 
-export const panelNavHeight = 30;
-
 export function boundaryStyle(boundary: PanelBoundary): CSSProperties {
   if (boundary.orientation === "vertical") {
     return {
