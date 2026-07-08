@@ -2,7 +2,6 @@ import {
   type CSSProperties,
   type Dispatch,
   type FormEvent,
-  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -54,16 +53,12 @@ import {
   scaleTiledPanelState,
   serializeTiledPanelState,
   setPrimaryChartSymbol,
+  workspaceBounds,
   type TiledPanelState,
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
-import {
-  bottomNavigationHeight,
-  navigationGap,
-  treeMapHoverMetaReserve,
-  workspaceTopInset
-} from "./layout/workspaceMetrics";
+import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
   createMainViewUrl,
   mainViewsEqual,
@@ -79,8 +74,6 @@ import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 
-type LayoutDrag =
-  { mode: "treemap"; type: "resize-bottom"; startY: number; startHeight: number };
 
 type ActiveAgentRun = {
   requestId: string;
@@ -143,13 +136,6 @@ function initialPanelState(): TiledPanelState {
   return createInitialTiledPanelState(viewport, {
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
   });
-}
-
-function initialTreeMapHeight(): number {
-  if (typeof window === "undefined") {
-    return 620;
-  }
-  return treeMapMaxHeight(window.innerHeight);
 }
 
 function buildInteractiveAgentContext(
@@ -290,7 +276,6 @@ export function App() {
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
-  const [treeMapHeight, setTreeMapHeight] = useState(() => initialTreeMapHeight());
   const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
@@ -298,7 +283,6 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
-  const [treeMapLaneHover, setTreeMapLaneHover] = useState(false);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
@@ -309,29 +293,38 @@ export function App() {
   const [, setWatchlistMessage] = useState<string | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
-  const dragRef = useRef<LayoutDrag | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
   const watchlistSavingRef = useRef(false);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetricsForPanelState(panelState));
-  const isTreeMapMode = mainView.mode === "treemap";
-  const laneCanResize = isTreeMapMode && canResizeTreeMapLayout(viewportSize.height);
 
   const serializeCurrentLayout = useCallback(() => (
     serializeTiledPanelState(
       normalizeFreeformRectsToGridLayout(panelState, viewportSizeRef.current, panelLayoutMetricsRef.current)
     )
   ), [panelState]);
+  const resolvePresetSymbol = useCallback((): string => {
+    try {
+      return normalizeStoredSymbol(window.localStorage.getItem(lastChartSymbolStorageKey) ?? "") || "MSFT";
+    } catch {
+      return "MSFT";
+    }
+  }, []);
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);
-  }, []);
+    // Applying a preset from the home (treemap) view jumps into the chart workspace,
+    // using the last chart symbol (or MSFT when none is stored).
+    if (mainView.mode !== "chart") {
+      openSymbolPage(resolvePresetSymbol());
+    }
+  }, [mainView, resolvePresetSymbol]);
   const buildPresetLayoutForCurrent = useCallback((preset: LayoutPreset) => (
     buildPresetLayout(preset, viewportSizeRef.current, {
-      symbol: mainView.mode === "chart" ? mainView.symbol : undefined,
+      symbol: mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol(),
       layoutMetrics: panelLayoutMetricsRef.current
     })
-  ), [mainView]);
+  ), [mainView, resolvePresetSymbol]);
   const presetControls = useLayoutPresets({
     authUser: user,
     authLoading,
@@ -346,7 +339,6 @@ export function App() {
 
   const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
     setSemanticSelection(null);
-    setTreeMapLaneHover(false);
     if (options.closeBottomMenu || nextView.mode === "treemap") {
       setActiveBottomMenu(null);
     }
@@ -406,28 +398,7 @@ export function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [applyMainViewState]);
 
-  const finishLayoutDrag = useCallback((event?: PointerEvent) => {
-    void event;
-    dragRef.current = null;
-  }, []);
-
-  const applyLayoutDrag = useCallback((_clientX: number, clientY: number, viewport: ViewportSize) => {
-    const drag = dragRef.current;
-    if (!drag) {
-      return;
-    }
-    setTreeMapHeight(clampTreeMapHeight(drag.startHeight + clientY - drag.startY, viewport.height));
-  }, []);
-
   useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!dragRef.current) {
-        return;
-      }
-      event.preventDefault();
-      applyLayoutDrag(event.clientX, event.clientY, viewportSizeRef.current);
-    };
-
     const handleResize = () => {
       const previous = viewportSizeRef.current;
       const next = currentViewportSize();
@@ -440,32 +411,26 @@ export function App() {
         panelLayoutMetricsRef.current,
         panelLayoutMetricsRef.current
       ));
-      setTreeMapHeight((height) => clampTreeMapHeight(height, next.height));
     };
-
-    const handlePointerUp = (event: PointerEvent) => finishLayoutDrag(event);
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
     window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [applyLayoutDrag, finishLayoutDrag]);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const layoutGutter = gridGutter(viewportSize.width);
   const workspaceStyle = {
     "--layout-gutter": `${layoutGutter}px`
   } as CSSProperties;
+  // The tree map occupies the same bounds as the panel workspace (page-edge gutter margins,
+  // bottom aligned with where panels end).
+  // The tree map fills the page from the very top edge down to the panel bottom, with only a
+  // gutter-sized margin on top/left/right (home view has no top nav). The bottom leaves the
+  // same dock reserve as the panel workspace.
+  const treeMapBounds = workspaceBounds(viewportSize, panelLayoutMetricsRef.current);
   const treeMapLaneStyle: CSSProperties = {
-    top: 0,
-    height: treeMapHeight,
-    left: 0,
-    width: viewportSize.width
+    top: layoutGutter,
+    left: layoutGutter,
+    width: Math.max(1, viewportSize.width - layoutGutter * 2),
+    height: Math.max(1, treeMapBounds.top + treeMapBounds.height - layoutGutter * 2)
   };
 
   const universeSymbols = useMemo((): ChartSymbolDto[] => treeMapItems.map((item) => ({
@@ -780,10 +745,6 @@ export function App() {
   };
 
   const toggleBottomMenu = (key: BottomMenuKey) => {
-    if (key === "V" && authEnabled && !authLoading && !user) {
-      login();
-      return;
-    }
     setActiveBottomMenu((current) => (current === key ? null : key));
   };
 
@@ -894,7 +855,6 @@ export function App() {
             addedSymbols.push(addSymbol);
           }
           setSemanticSelection(null);
-          setTreeMapLaneHover(false);
           if (addedSymbols.length) {
             setPanelState(nextPanelState);
           }
@@ -1138,33 +1098,6 @@ export function App() {
     return "chat-log";
   }, [agentBusy, agentInput, agentReferences, applyAgentLayoutProposal, authLoading, canUseAgent, chartDocumentSymbolsByPanelId, mainView, navigateMainView, openSymbolPage, panelState, semanticSelection, viewportSize]);
 
-  const beginTreeMapResize = (event: ReactPointerEvent<HTMLElement>) => {
-    event.preventDefault();
-    if (!laneCanResize) {
-      return;
-    }
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    setTreeMapLaneHover(true);
-    dragRef.current = {
-      mode: "treemap",
-      type: "resize-bottom",
-      startY: event.clientY,
-      startHeight: treeMapHeight
-    };
-  };
-
-  const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    applyLayoutDrag(event.clientX, event.clientY, viewportSize);
-  };
-
-  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    finishLayoutDrag(event.nativeEvent);
-    try {
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    } catch {
-      // Pointer capture can be released by the browser when a drag leaves the element.
-    }
-  };
 
   return (
     <main className="app-shell" style={workspaceStyle}>
@@ -1183,31 +1116,15 @@ export function App() {
       )}
       <section className="canvas-workspace" style={workspaceStyle}>
         {mainView.mode === "treemap" ? (
-          <div
-            className={[
-              "chart-lane-frame",
-              "workspace-panel-surface",
-              treeMapLaneHover ? "is-chart-hovered" : "",
-              laneCanResize ? "" : "is-resize-disabled"
-            ].filter(Boolean).join(" ")}
-            style={treeMapLaneStyle}
-            onPointerEnter={() => setTreeMapLaneHover(true)}
-            onPointerLeave={() => {
-              if (!dragRef.current) {
-                setTreeMapLaneHover(false);
-              }
-            }}
-          >
-            <TreeMapCanvas items={treeMapItems} onSelectSymbol={openSymbolPage} />
-            <div
-              className="chart-resize-grip bottom"
-              aria-hidden="true"
-              onPointerDown={beginTreeMapResize}
-              onPointerMove={updateDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
+          <>
+            <TreeMapCanvas items={treeMapItems} onSelectSymbol={openSymbolPage} style={treeMapLaneStyle} />
+            <PresetDock
+              controls={presetControls}
+              onShowHome={showTreeMap}
+              onEnterLayoutEdit={toggleLayoutEditMode}
+              layoutEditDisabled
             />
-          </div>
+          </>
         ) : (
           <PanelWorkspace
             panelState={panelState}
@@ -1227,7 +1144,13 @@ export function App() {
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
-            presetDock={<PresetDock controls={presetControls} onShowHome={showTreeMap} />}
+            presetDock={(
+              <PresetDock
+                controls={presetControls}
+                onShowHome={showTreeMap}
+                onEnterLayoutEdit={toggleLayoutEditMode}
+              />
+            )}
           />
         )}
       </section>
@@ -1542,24 +1465,4 @@ function currentViewportSize(): ViewportSize {
     return { width: 1280, height: 720 };
   }
   return { width: window.innerWidth, height: window.innerHeight };
-}
-
-function clampTreeMapHeight(height: number, viewportHeight: number): number {
-  return Math.round(Math.min(treeMapMaxHeight(viewportHeight), Math.max(treeMapMinHeight(viewportHeight), height)));
-}
-
-function chartBottomReservedSpace(): number {
-  return bottomNavigationHeight;
-}
-
-function treeMapMinHeight(viewportHeight: number): number {
-  return Math.min(360, Math.max(260, viewportHeight - chartBottomReservedSpace() - treeMapHoverMetaReserve - 220));
-}
-
-function treeMapMaxHeight(viewportHeight: number): number {
-  return Math.max(treeMapMinHeight(viewportHeight), viewportHeight - chartBottomReservedSpace() - treeMapHoverMetaReserve - navigationGap);
-}
-
-function canResizeTreeMapLayout(viewportHeight = currentViewportSize().height): boolean {
-  return treeMapMaxHeight(viewportHeight) > treeMapMinHeight(viewportHeight) + 0.5;
 }

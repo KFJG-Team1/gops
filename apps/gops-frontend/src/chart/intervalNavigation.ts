@@ -27,7 +27,13 @@ export function anchoredViewportForCandles(
   plotWidth?: number
 ): ChartViewport {
   const preferredVisibleCount = anchor?.visibleCount ?? fallback?.visibleCount ?? defaultVisibleBarsForInterval(interval);
-  const fallbackUsesLatestSpace = !fallback || fallback.rightOffset === latestCandleRightOffset(fallback.visibleCount);
+  // A fresh document defaults to rightOffset 0 (latest candle flush against the right edge).
+  // Treat that (and the standard trailing-space offset) as "following the latest" so the
+  // initial render gets the same 1/3 right-side space as the reset button, instead of
+  // gluing the newest candle to the edge.
+  const fallbackUsesLatestSpace = !fallback
+    || fallback.rightOffset === 0
+    || fallback.rightOffset === latestCandleRightOffset(fallback.visibleCount);
   if (!anchor?.timestamp || candles.length === 0) {
     const visibleViewport = normalizeViewport(
       {

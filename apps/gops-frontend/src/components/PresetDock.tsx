@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Check, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "../layout/layoutPresets";
 import type { LayoutPresetControls } from "../layout/useLayoutPresets";
 
 type PresetDockProps = {
   controls: LayoutPresetControls;
   onShowHome: () => void;
+  onEnterLayoutEdit: () => void;
+  layoutEditDisabled?: boolean;
 };
 
-export function PresetDock({ controls, onShowHome }: PresetDockProps) {
+export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEditDisabled = false }: PresetDockProps) {
   const { presets, activePresetId, applyPreset, createCustomPreset, renamePreset, deleteCustomPreset, saveActivePresetLayout } = controls;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const savedTimerRef = useRef<number | null>(null);
 
   const defaults = presets.filter((preset) => preset.kind === "default");
   const customs = presets.filter((preset) => preset.kind === "custom");
@@ -24,6 +28,12 @@ export function PresetDock({ controls, onShowHome }: PresetDockProps) {
       inputRef.current.select();
     }
   }, [editingId]);
+
+  useEffect(() => () => {
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current);
+    }
+  }, []);
 
   const stopPointer = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
@@ -56,6 +66,18 @@ export function PresetDock({ controls, onShowHome }: PresetDockProps) {
       setEditingId(id);
       setDraftName("");
     }
+  };
+
+  const handleSave = () => {
+    saveActivePresetLayout();
+    setSavedFlash(true);
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current);
+    }
+    savedTimerRef.current = window.setTimeout(() => {
+      setSavedFlash(false);
+      savedTimerRef.current = null;
+    }, 1000);
   };
 
   const renderPreset = (preset: LayoutPreset) => (
@@ -96,28 +118,38 @@ export function PresetDock({ controls, onShowHome }: PresetDockProps) {
   return (
     <div className="layout-preset-dock" role="toolbar" aria-label="레이아웃 프리셋" onPointerDown={stopPointer}>
       <button type="button" className="layout-preset-button preset-home" onClick={onShowHome}>
-        증시맵
+        증시지도
       </button>
       <span className="toolbar-separator" aria-hidden="true" />
       {defaults.map(renderPreset)}
       <span className="toolbar-separator" aria-hidden="true" />
       {customs.map(renderPreset)}
-      <button type="button" className="layout-preset-add" aria-label="현재 배치를 프리셋으로 추가" title="현재 배치를 프리셋으로 추가" onClick={handleAdd}>
+      <button type="button" className="layout-preset-add" aria-label="현재 배치를 프리셋으로 추가" title="현재 배치를 프리셋으로 추가" disabled={layoutEditDisabled} onClick={handleAdd}>
         <Plus size={14} aria-hidden="true" />
       </button>
-      {activePreset && (
-        <>
-          <span className="toolbar-separator" aria-hidden="true" />
-          <button type="button" className="layout-preset-action" onClick={saveActivePresetLayout}>
-            저장
+      <span className="toolbar-separator" aria-hidden="true" />
+      <div className="layout-preset-dock-tail">
+        {activePreset && (
+          <button type="button" className="layout-preset-action" aria-label="프리셋 저장" title="프리셋 저장" onClick={handleSave}>
+            {savedFlash ? <Check size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}
           </button>
-          {activePreset.kind === "custom" && (
-            <button type="button" className="layout-preset-action danger" onClick={() => deleteCustomPreset(activePreset.id)}>
-              삭제
-            </button>
-          )}
-        </>
-      )}
+        )}
+        {activePreset?.kind === "custom" && (
+          <button type="button" className="layout-preset-action danger" aria-label="프리셋 삭제" title="프리셋 삭제" onClick={() => deleteCustomPreset(activePreset.id)}>
+            <Trash2 size={15} aria-hidden="true" />
+          </button>
+        )}
+        <button
+          type="button"
+          className="layout-preset-edit"
+          aria-label="레이아웃 수정모드 시작"
+          title="레이아웃 수정모드 시작"
+          disabled={layoutEditDisabled}
+          onClick={onEnterLayoutEdit}
+        >
+          <LayoutPanelTop size={15} aria-hidden="true" />
+        </button>
+      </div>
     </div>
   );
 }

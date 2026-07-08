@@ -16,6 +16,7 @@ import { readThemeColors, type ThemeColors } from "../theme/colors";
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
   onSelectSymbol: (symbol: string) => void;
+  style?: CSSProperties;
 };
 
 type CanvasSize = {
@@ -23,11 +24,11 @@ type CanvasSize = {
   height: number;
 };
 
-const canvasPadding = 16;
+const canvasPadding = 4;
 const labelPadding = 8;
 const tileGap = 0.85;
 
-export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
+export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
@@ -62,6 +63,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
   }, [tiles]);
 
   const panelStyle = {
+    ...style,
     "--treemap-hover-meta-left": `${Math.round(hoverMetaLeft)}px`
   } as CSSProperties;
 
@@ -126,6 +128,7 @@ export function TreeMapCanvas({ items, onSelectSymbol }: TreeMapCanvasProps) {
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
+        style={{ cursor: hoveredTile?.symbol ? "pointer" : "default" }}
         aria-label="S&P 500 TreeMap canvas"
         onPointerMove={updateHover}
         onPointerLeave={() => setHoveredTile(null)}

@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, ChevronUp, GripVertical, LayoutPanelTop, SendHorizontal, Settings, Square, Star, UserCircle, WalletCards, X } from "lucide-react";
+import { Bell, ChevronDown, ChevronUp, GripVertical, LogIn, SendHorizontal, Settings, Square, Star, UserCircle, X } from "lucide-react";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { AlertMenu } from "../alerts/AlertMenu";
 import { AlertToast } from "../alerts/AlertToast";
@@ -16,11 +16,10 @@ import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
-import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
-export type BottomMenuKey = "II" | "III" | "IV" | "V" | "VI";
+export type BottomMenuKey = "III" | "IV" | "VI";
 export type ChatLogEntry = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -80,8 +79,8 @@ type BottomCommandBarProps = {
   onToggleMenu: (key: BottomMenuKey) => void;
 };
 
-const leftMenuKeys: BottomMenuKey[] = ["II", "III"];
-const rightMenuKeys: BottomMenuKey[] = ["IV", "V", "VI"];
+const leftMenuKeys: BottomMenuKey[] = [];
+const rightMenuKeys: BottomMenuKey[] = ["IV", "III", "VI"];
 const alertToastAdvanceMs = 6000;
 const marketOpenRetryMs = 60_000;
 const marketOpenScheduleRefreshMs = 60 * 60_000;
@@ -461,43 +460,7 @@ export function BottomCommandBar({
         />
       )}
       <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
-        <MenuActionGroup
-          side="left"
-          keys={leftMenuKeys}
-          activeMenu={activeMenu}
-          authEnabled={authEnabled}
-          authLoading={authLoading}
-          authUser={authUser}
-          symbols={symbols}
-          watchlistSymbols={watchlistPreviewSymbols ?? watchlistSymbols}
-          watchlistPersisted={watchlistPersisted}
-          watchlistLoading={watchlistLoading}
-          watchlistSaving={watchlistSaving}
-          watchlistDragSource={watchlistDragSource}
-          watchlistDragTarget={watchlistDragTarget}
-          canEditWatchlist={canEditWatchlist}
-          activeSymbol={activeSymbol}
-          onAddWatchlistSymbol={onAddWatchlistSymbol}
-          onBeginWatchlistDrag={beginWatchlistDrag}
-          onClearWatchlistDropTarget={clearWatchlistDropTarget}
-          onDropWatchlistSymbol={dropWatchlistSymbol}
-          onEndWatchlistDrag={resetWatchlistDrag}
-          onUpdateWatchlistDropTarget={updateWatchlistDropTarget}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
-          onSelectSymbol={onSelectSymbol}
-          onCloseMenu={onCloseMenu}
-          onToggleMenu={toggleBottomMenu}
-          alertUnreadCount={alertUnreadCount}
-          externallyReadNotification={externallyReadNotification}
-          marketOpenReminderEnabled={marketOpenReminderEnabled}
-          onMarketOpenReminderChange={toggleMarketOpenReminder}
-          onAlertUnreadCountChange={setAlertUnreadCount}
-          layoutEditMode={layoutEditMode}
-          layoutEditDisabled={!isChartMode}
-          onToggleLayoutEditMode={onToggleLayoutEditMode}
-        />
+        <div className="bottom-nav-actions left" aria-hidden="true" />
         <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
           <button
             type="button"
@@ -596,6 +559,8 @@ export function BottomCommandBar({
           marketOpenReminderEnabled={marketOpenReminderEnabled}
           onMarketOpenReminderChange={toggleMarketOpenReminder}
           onAlertUnreadCountChange={setAlertUnreadCount}
+          layoutEditMode={layoutEditMode}
+          onToggleLayoutEditMode={onToggleLayoutEditMode}
         />
       </nav>
     </>
@@ -708,7 +673,6 @@ function MenuActionGroup({
   onMarketOpenReminderChange,
   onAlertUnreadCountChange,
   layoutEditMode = false,
-  layoutEditDisabled = true,
   onToggleLayoutEditMode
 }: {
   side: BottomMenuSide;
@@ -744,7 +708,6 @@ function MenuActionGroup({
   onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
   layoutEditMode?: boolean;
-  layoutEditDisabled?: boolean;
   onToggleLayoutEditMode?: () => void;
 }) {
   const isMenuOpen = activeMenu !== null && keys.includes(activeMenu);
@@ -785,32 +748,52 @@ function MenuActionGroup({
         onMarketOpenReminderChange={onMarketOpenReminderChange}
         onAlertUnreadCountChange={onAlertUnreadCountChange}
       />
-      {keys.map((label) => (
-        <button
-          key={label}
-          type="button"
-          className={`workspace-nav-button surface-raised ${activeMenu === label ? "is-active" : ""}`}
-          aria-label={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
-          title={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
-          aria-expanded={activeMenu === label}
-          onClick={() => onToggleMenu(label)}
-        >
-          {bottomMenuIcon(label, label === "IV" ? alertUnreadCount : 0)}
-        </button>
-      ))}
-      {side === "left" && (
-        <button
-          type="button"
-          className={`workspace-nav-button layout-edit-toggle surface-raised ${layoutEditMode ? "is-active" : ""}`}
-          aria-label={layoutEditMode ? "레이아웃 수정모드 종료" : "레이아웃 수정모드 시작"}
-          title={layoutEditMode ? "레이아웃 수정모드 종료" : "레이아웃 수정모드 시작"}
-          aria-pressed={layoutEditMode}
-          disabled={layoutEditDisabled}
-          onClick={onToggleLayoutEditMode}
-        >
-          <LayoutPanelTop size={17} aria-hidden="true" />
-        </button>
+      {side === "right" && layoutEditMode && onToggleLayoutEditMode && (
+        <>
+          <button
+            type="button"
+            className="workspace-nav-button layout-exit-button surface-raised"
+            aria-label="레이아웃 수정모드 종료"
+            title="레이아웃 수정모드 종료"
+            onClick={onToggleLayoutEditMode}
+          >
+            Leave
+          </button>
+          <span className="layout-exit-gap" aria-hidden="true" />
+        </>
       )}
+      {keys.map((label) => {
+        // The watchlist slot doubles as the sign-in entry: when auth is required and the
+        // user is signed out, it becomes a direct login button; once signed in it is the
+        // watchlist. Logout/profile live in Settings.
+        if (label === "III" && authEnabled && !authLoading && !authUser) {
+          return (
+            <button
+              key="III-login"
+              type="button"
+              className="workspace-nav-button surface-raised"
+              aria-label="로그인"
+              title="로그인"
+              onClick={onLogin}
+            >
+              <LogIn size={17} aria-hidden="true" />
+            </button>
+          );
+        }
+        return (
+          <button
+            key={label}
+            type="button"
+            className={`workspace-nav-button surface-raised ${activeMenu === label ? "is-active" : ""}`}
+            aria-label={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
+            title={bottomMenuLabel(label, label === "IV" ? alertUnreadCount : 0)}
+            aria-expanded={activeMenu === label}
+            onClick={() => onToggleMenu(label)}
+          >
+            {bottomMenuIcon(label, label === "IV" ? alertUnreadCount : 0)}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -974,19 +957,15 @@ function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
     );
   }
   return {
-    II: <WalletCards size={size} aria-hidden="true" />,
     III: <Star size={size} aria-hidden="true" />,
-    V: <UserCircle size={size} aria-hidden="true" />,
     VI: <Settings size={size} aria-hidden="true" />
   }[key];
 }
 
 function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
   const label = {
-    II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
-    V: "로그인/프로필",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {
@@ -1082,19 +1061,6 @@ function bottomMenuContent({
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
-    case "II":
-      return (
-        <div className="bottom-menu-section bottom-menu-scroll">
-          <MenuTitle title="포트폴리오" detail="보유종목" />
-          <PortfolioHoldingsPanel
-            onSelectSymbol={(symbol) => {
-              onSelectSymbol(symbol);
-              onClose();
-              return true;
-            }}
-          />
-        </div>
-      );
     case "III":
       const watchlistTitle = canEditWatchlist && watchlistPersisted ? "내 관심종목" : "관심종목";
       const watchlistDetail = authLoading
@@ -1208,17 +1174,6 @@ function bottomMenuContent({
           onMarketOpenReminderChange={onMarketOpenReminderChange}
           onLogin={onLogin}
           onUnreadCountChange={onAlertUnreadCountChange}
-        />
-      );
-    case "V":
-      return (
-        <SettingsMenu
-          authEnabled={authEnabled}
-          authLoading={authLoading}
-          authUser={authUser}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          initialTab="account"
         />
       );
     case "VI":

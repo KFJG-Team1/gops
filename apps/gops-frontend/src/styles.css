@@ -2000,11 +2000,11 @@ h2 {
   padding: 0;
 }
 
+/* TreeMap root: positioned directly (App passes top/left/width/height inline), no extra wrapper. */
 .treemap-panel {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  position: absolute;
+  overflow: hidden;
+  border-radius: var(--surface-radius);
   background: var(--color-background);
 }
 
@@ -2014,19 +2014,22 @@ h2 {
   height: 100%;
   border: 0;
   background: var(--color-background);
-  cursor: pointer;
   touch-action: none;
 }
 
 .treemap-hover-meta {
   position: absolute;
   left: var(--treemap-hover-meta-left, 16px);
-  top: calc(100% + 8px);
+  bottom: 8px;
   z-index: 3;
   display: flex;
   align-items: baseline;
   gap: 8px;
   max-width: min(720px, calc(100vw - 32px));
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-background) 78%, transparent);
+  backdrop-filter: blur(3px);
   color: var(--color-text);
   transform: none;
   pointer-events: none;
@@ -7912,21 +7915,18 @@ h2 {
 
 .layout-palette-dock {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: var(--tool-dock-bottom);
   z-index: 44;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: safe center;
   gap: 6px;
-  width: calc(100vw - 28px);
-  max-width: calc(100vw - 28px);
   box-sizing: border-box;
-  padding: 5px;
+  padding: 5px var(--layout-gutter);
   overflow-x: auto;
-  scroll-padding-inline: 6px;
-  transform: translateX(-50%);
+  scroll-padding-inline: var(--layout-gutter);
   pointer-events: auto;
 }
 
@@ -7956,22 +7956,28 @@ h2 {
 
 .layout-preset-dock {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: var(--tool-dock-bottom);
   z-index: 43;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  max-width: calc(100vw - 28px);
-  padding: 5px;
-  transform: translateX(-50%);
+  padding: 5px var(--layout-gutter);
   pointer-events: auto;
 }
 
-.layout-preset-button,
-.layout-preset-action {
+/* Save / delete / layout-edit controls, grouped with the presets in the centered dock. */
+.layout-preset-dock-tail {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.layout-preset-button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -7984,15 +7990,20 @@ h2 {
   font-family: var(--font-ui-serif);
   font-size: 12px;
   font-weight: 300;
+  /* Global font-synthesis is disabled; re-enable weight so hover/active bold renders. */
+  font-synthesis: weight;
   white-space: nowrap;
 }
 
+/* Active and hovered presets read as bold text (no black fill). */
+.layout-preset-button:hover,
 .layout-preset-button.is-active {
-  background: var(--color-text);
-  color: var(--color-surface);
+  font-weight: 700;
 }
 
-.layout-preset-add {
+.layout-preset-edit,
+.layout-preset-add,
+.layout-preset-action {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -8003,6 +8014,20 @@ h2 {
   border-radius: 999px;
   background: var(--surface-raised-surface);
   color: var(--color-text);
+}
+
+/* Icon controls turn black on hover, like the old active preset. */
+.layout-preset-edit:hover:not(:disabled),
+.layout-preset-add:hover:not(:disabled),
+.layout-preset-action:hover:not(:disabled) {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.layout-preset-edit:disabled,
+.layout-preset-add:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .layout-preset-input {
@@ -8021,6 +8046,28 @@ h2 {
 
 .layout-preset-action.danger {
   color: var(--color-danger);
+}
+
+.layout-preset-action.danger:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: var(--color-surface);
+}
+
+/* Layout-edit exit button in the command bar: elongated pill ~2 control circles wide,
+   sitting one empty slot to the left of the alert button (only shown in edit mode). */
+.layout-exit-button {
+  width: calc(var(--bottom-control-size) * 2 + 15px);
+  border-radius: 999px;
+  font-family: var(--font-data-sans);
+  font-size: 12px;
+  font-weight: 700;
+  font-synthesis: weight;
+}
+
+.layout-exit-gap {
+  flex: 0 0 auto;
+  width: var(--bottom-control-size);
+  pointer-events: none;
 }
 
 .chart-tool-dock-row .chart-drawing-dock {

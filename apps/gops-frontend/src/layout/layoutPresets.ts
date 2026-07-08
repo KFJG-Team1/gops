@@ -66,7 +66,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   }
 };
 
-export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "chart", "compare", "asset"];
+export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "compare", "chart", "asset"];
 
 export const DEFAULT_PRESETS: LayoutPreset[] = DEFAULT_PRESET_IDS.map((id): LayoutPreset => ({
   id,
