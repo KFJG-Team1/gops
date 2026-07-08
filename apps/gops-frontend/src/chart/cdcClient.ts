@@ -12,6 +12,8 @@ import type {
   VolumeProfileBucketDto,
   VolumeProfileResponseDto
 } from "./types";
+import { derivedClientCacheTtlMs, stableVolumeProfileRangeKey } from "./derivedRequestPolicy";
+import { indicatorRequestLimitForInterval } from "./indicatorRequestPolicy";
 
 export type CandleQuery = {
   symbol: string;
@@ -74,6 +76,14 @@ export class ChartApiError extends Error {
   }
 }
 
+type DerivedClientCacheEntry<T> = {
+  expiresAt: number;
+  promise: Promise<T>;
+};
+
+const indicatorClientCache = new Map<string, DerivedClientCacheEntry<IndicatorSeriesResponseDto>>();
+const volumeProfileClientCache = new Map<string, DerivedClientCacheEntry<VolumeProfileResponseDto>>();
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,
@@ -114,43 +124,67 @@ export async function fetchChartCompare(query: ChartCompareQuery, signal?: Abort
 }
 
 export async function fetchIndicators(query: IndicatorQuery, signal?: AbortSignal): Promise<IndicatorSeriesResponseDto> {
-  const params = new URLSearchParams({
-    symbol: query.symbol,
-    interval: query.interval,
-    layers: query.layers.join(","),
-    limit: String(query.limit)
+  const normalizedQuery = {
+    ...query,
+    symbol: query.symbol.trim().toUpperCase(),
+    limit: indicatorRequestLimitForInterval(query.interval, query.limit)
+  };
+  const cacheKey = [
+    normalizedQuery.symbol,
+    normalizedQuery.interval,
+    normalizedQuery.from ?? "",
+    normalizedQuery.to ?? "",
+    normalizedQuery.limit,
+    normalizedQuery.layers.join(",")
+  ].join("|");
+  return cachedDerivedRequest(indicatorClientCache, cacheKey, derivedClientCacheTtlMs.indicators, async () => {
+    const params = new URLSearchParams({
+      symbol: normalizedQuery.symbol,
+      interval: normalizedQuery.interval,
+      layers: normalizedQuery.layers.join(","),
+      limit: String(normalizedQuery.limit)
+    });
+    if (normalizedQuery.from && normalizedQuery.to) {
+      params.set("from", normalizedQuery.from);
+      params.set("to", normalizedQuery.to);
+    }
+    const response = await fetch(`/api/charts/indicators?${params.toString()}`, { signal });
+    if (!response.ok) {
+      throw new ChartApiError(`Indicator API failed: ${response.status}`, response.status);
+    }
+    return normalizeIndicatorResponse(await response.json());
   });
-  if (query.from && query.to) {
-    params.set("from", query.from);
-    params.set("to", query.to);
-  }
-  const response = await fetch(`/api/charts/indicators?${params.toString()}`, { signal });
-  if (!response.ok) {
-    throw new ChartApiError(`Indicator API failed: ${response.status}`, response.status);
-  }
-  return normalizeIndicatorResponse(await response.json());
 }
 
 export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: AbortSignal): Promise<VolumeProfileResponseDto> {
-  const params = new URLSearchParams({
-    symbol: query.symbol,
-    interval: query.interval,
-    from: query.from,
-    to: query.to,
-    priceBinSize: query.priceBinSize ?? "auto",
-    targetBins: String(query.targetBins ?? 10)
+  const normalizedQuery = {
+    ...query,
+    symbol: query.symbol.trim().toUpperCase(),
+    targetBins: Math.max(4, Math.min(48, Math.round(query.targetBins ?? 10))),
+    priceBinSize: query.priceBinSize ?? "auto"
+  };
+  const cacheKey = stableVolumeProfileRangeKey(normalizedQuery);
+  return cachedDerivedRequest(volumeProfileClientCache, cacheKey, derivedClientCacheTtlMs.volumeProfile, async () => {
+    const params = new URLSearchParams({
+      symbol: normalizedQuery.symbol,
+      interval: normalizedQuery.interval,
+      from: normalizedQuery.from,
+      to: normalizedQuery.to,
+      priceBinSize: normalizedQuery.priceBinSize,
+      targetBins: String(normalizedQuery.targetBins)
+    });
+    if (typeof normalizedQuery.priceMin === "number" && Number.isFinite(normalizedQuery.priceMin)) {
+      params.set("priceMin", String(normalizedQuery.priceMin));
+    }
+    if (typeof normalizedQuery.priceMax === "number" && Number.isFinite(normalizedQuery.priceMax)) {
+      params.set("priceMax", String(normalizedQuery.priceMax));
+    }
+    const response = await fetch(`/api/charts/volume-profile-bins?${params.toString()}`, { signal });
+    if (!response.ok) {
+      throw new Error(`Volume profile API failed: ${response.status}`);
+    }
+    return normalizeVolumeProfileResponse(await response.json());
   });
-  if (typeof query.priceMin === "number" && Number.isFinite(query.priceMin)) {
-    params.set("priceMin", String(query.priceMin));
-  }
-  if (typeof query.priceMax === "number" && Number.isFinite(query.priceMax)) {
-    params.set("priceMax", String(query.priceMax));
-  }
-  const response = await fetch(`/api/charts/volume-profile-bins?${params.toString()}`, { signal });
-  if (!response.ok) {
-    throw new Error(`Volume profile API failed: ${response.status}`);
-  }
-  return normalizeVolumeProfileResponse(await response.json());
 }
 
 export async function fetchFootprint(query: FootprintQuery, signal?: AbortSignal): Promise<FootprintResponseDto> {
@@ -256,6 +290,25 @@ function chartSocketUrl(symbol: string, interval: ChartInterval): string {
   const params = new URLSearchParams({ symbol, interval });
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/charts?${params.toString()}`;
+}
+
+function cachedDerivedRequest<T>(
+  cache: Map<string, DerivedClientCacheEntry<T>>,
+  key: string,
+  ttlMs: number,
+  load: () => Promise<T>
+): Promise<T> {
+  const now = Date.now();
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+  const promise = load().catch((error) => {
+    cache.delete(key);
+    throw error;
+  });
+  cache.set(key, { expiresAt: now + ttlMs, promise });
+  return promise;
 }
 
 function reconnectDelayMs(attempts: number): number {

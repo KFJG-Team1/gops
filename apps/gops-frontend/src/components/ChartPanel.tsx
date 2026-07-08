@@ -57,6 +57,7 @@ import {
   type DrawingDrag
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
+import { stableVolumeProfileRangeKey } from "../chart/derivedRequestPolicy";
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
@@ -303,6 +304,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.rightOffset,
     chart.visibleCount,
     transientViewport
+  ]);
+  const visibleProfileRangeKey = useMemo(() => (
+    visibleProfileRange
+      ? stableVolumeProfileRangeKey({
+          symbol: chart.symbol,
+          interval: chart.interval === "footprint" ? "1m" : chart.interval,
+          from: visibleProfileRange.from,
+          to: visibleProfileRange.to,
+          targetBins: 10,
+          priceBinSize: "auto"
+        })
+      : ""
+  ), [
+    chart.interval,
+    chart.symbol,
+    visibleProfileRange?.from,
+    visibleProfileRange?.to
   ]);
   const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
     chart.candles,
@@ -790,7 +808,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.interval,
     chart.layers["volume-profile"],
     chart.symbol,
-    visibleProfileRange,
+    visibleProfileRangeKey,
   ]);
 
   useEffect(() => {
@@ -2118,15 +2136,19 @@ function visibleCandleRangeForProfile(chart: ChartState, transientViewport: Char
   if (!visibleCandles.length) {
     return null;
   }
-  const priceValues = visibleCandles
+  const closedVisibleCandles = visibleCandles.filter((candle) => candle.isClosed !== false);
+  const profileCandles = closedVisibleCandles.length > 0 ? closedVisibleCandles : visibleCandles;
+  const priceValues = profileCandles
     .flatMap((candle) => [candle.low, candle.high])
     .filter((value): value is number => Number.isFinite(value));
   if (!priceValues.length) {
     return null;
   }
+  const first = profileCandles[0];
+  const last = profileCandles[profileCandles.length - 1];
   return {
-    from: visibleCandles[0].timestamp,
-    to: visibleCandles[visibleCandles.length - 1].timestamp,
+    from: first.timestamp,
+    to: last.timestamp,
     priceMin: Math.min(...priceValues),
     priceMax: Math.max(...priceValues)
   };

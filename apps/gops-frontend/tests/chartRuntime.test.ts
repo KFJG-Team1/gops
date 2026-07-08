@@ -57,6 +57,7 @@ import {
   indicatorRequestRangeFromCandles,
   serverIndicatorLayersForLayers
 } from "../src/chart/indicatorLayerPolicy";
+import { stableVolumeProfileRangeKey } from "../src/chart/derivedRequestPolicy";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
 import {
   olderRangeQueuedRetryDelayMs,
@@ -1311,6 +1312,24 @@ assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
 assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
 assert.equal(
+  stableVolumeProfileRangeKey({
+    symbol: "nvda",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceBinSize: "auto"
+  }),
+  stableVolumeProfileRangeKey({
+    symbol: "NVDA",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceBinSize: "auto"
+  })
+);
+assert.equal(
   olderRangeRequestKey("nvda", "1D", "2026-07-02T04:00:00.000Z", 120),
   "NVDA:1D:before:2026-07-02T04:00:00.000Z:120"
 );
@@ -2473,6 +2492,9 @@ assert.match(portfolioHoldingsPanelSource, /loadHoldings\(undefined, true\)/);
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
+assert.match(chartPanelSource, /visibleProfileRangeKey/);
+assert.match(chartPanelSource, /closedVisibleCandles/);
+assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
 assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /Paintbrush/);
