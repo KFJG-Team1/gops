@@ -52,12 +52,6 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
 
   return (
     <section className={`popular-stocks-panel ${scrolls ? "has-scroll-rule" : ""}`} aria-label="인기종목 패널">
-      <header className="panel-inline-header">
-        <div>
-          <strong>거래대금순 Top10</strong>
-          <span>S&amp;P500</span>
-        </div>
-      </header>
       {popularItems.length === 0 ? (
         <div className="panel-empty-row">표시할 인기종목 데이터가 없습니다</div>
       ) : (

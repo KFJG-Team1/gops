@@ -68,6 +68,11 @@
      height. Every dock-area floater references this single baseline so they move together. */
   --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px - var(--tool-dock-drop));
   --surface-radius: 2px;
+  /* Panel content contract: uniform inner padding + inter-block gap for every content panel.
+     The right side additionally reserves the scrollbar via scrollbar-gutter (see the shared
+     panel rule), so content is identical whether or not a scrollbar is present. */
+  --panel-padding: 6px;
+  --panel-gap: 8px;
   --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
   --surface-raised-highlight-shadow: -1px -1px 4px var(--color-border);
   --surface-raised-depth-shadow: 2px 2px 5px var(--color-shadow);
@@ -1508,8 +1513,7 @@ button {
   gap: 10px;
 }
 
-.investment-profile-head strong,
-.stock-rec-toolbar strong {
+.investment-profile-head strong {
   font-size: 13px;
 }
 
@@ -2401,6 +2405,7 @@ h2 {
   display: grid;
   max-height: 132px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border-top: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
 }
 
@@ -2982,9 +2987,9 @@ h2 {
   pointer-events: none;
 }
 
-/* Inset by the panel's 12px padding so it lines up with the table's scrollbar. */
+/* Inset by the panel's padding so it lines up with the table's scrollbar. */
 .popular-stocks-panel.has-scroll-rule::after {
-  right: 12px;
+  right: var(--panel-padding);
 }
 
 /* The compare list reaches the panel's right edge. */
@@ -3233,9 +3238,13 @@ h2 {
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  gap: 9px;
+  gap: var(--panel-gap);
   overflow: hidden auto;
-  padding: 12px;
+  /* Tight uniform padding; the right side reserves the custom scrollbar's space via
+     scrollbar-gutter so content never crowds it and the layout is identical whether or not
+     a scrollbar is present. */
+  padding: var(--panel-padding);
+  scrollbar-gutter: stable;
   color: var(--color-text);
   font-family: var(--font-ui-serif);
 }
@@ -3255,7 +3264,7 @@ h2 {
 
 .company-info-heading {
   display: grid;
-  grid-template-columns: 1fr minmax(0, 1.3fr) 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 12px;
   min-width: 0;
@@ -3368,17 +3377,6 @@ h2 {
   --company-neutral-soft: #d8d5c7;
   --company-brass: #b8862f;
   --company-clay: #c99886;
-}
-
-.company-fundamental-section h2 {
-  margin: 0;
-  border-bottom: 1px solid rgb(var(--gops-ink-rgb) / 0.22);
-  padding-bottom: 8px;
-  font-family: var(--font-ui-serif);
-  font-size: 18px;
-  font-weight: 760;
-  line-height: 1.1;
-  text-align: center;
 }
 
 .company-fundamental-grid {
@@ -4221,26 +4219,11 @@ h2 {
   margin-top: -4px;
 }
 
-.panel-inline-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.panel-inline-header div {
-  display: grid;
-  gap: 2px;
-}
-
-.panel-inline-header span,
 .portfolio-summary-label {
   color: var(--color-muted);
   font-size: 11px;
 }
 
-.panel-inline-header strong,
 .portfolio-summary-value {
   font-size: 14px;
 }
@@ -4255,10 +4238,6 @@ h2 {
   border-radius: 50%;
   background: var(--color-surface);
   color: var(--color-text);
-}
-
-.portfolio-panel-header {
-  flex: 0 0 auto;
 }
 
 .portfolio-refresh-button {
@@ -4339,9 +4318,22 @@ h2 {
   outline: none;
 }
 
+/* Flat newspaper rows (matching the index panel): no card fill, content flush to the panel
+   padding, hairline separators instead of a raised surface. */
+.market-news-list .market-news-row {
+  padding: 8px 0;
+  background: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--color-rule-soft);
+}
+
+.market-news-list .market-news-row:last-child {
+  border-bottom: 0;
+}
+
 .market-news-row:hover,
 .market-news-row:focus-visible {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
 }
 
 .stock-rec-toolbar span {
@@ -4349,16 +4341,6 @@ h2 {
   font-size: 10px;
 }
 
-.stock-rec-toolbar button {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--color-surface);
-  color: var(--color-text);
-}
 
 .stock-rec-session-toggle {
   display: grid;
@@ -4548,13 +4530,6 @@ h2 {
   background: color-mix(in srgb, var(--color-caution) 64%, transparent);
 }
 
-.market-indices-header-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
 .market-indices-cache {
   border-radius: 999px;
   padding: 1px 6px;
@@ -4586,6 +4561,7 @@ h2 {
 .popular-stocks-table-wrap {
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   border-top: 1px solid var(--color-rule-soft);
 }
 
@@ -4842,18 +4818,21 @@ h2 {
 /* No title bar: content starts at the panel top. The reload floats over the top-right of the
    content (slightly over the first index's numbers) and only appears on hover. It is anchored
    to the non-scrolling panel body, so it stays put while the list scrolls. */
-.market-indices-reload {
+/* Generic reload overlay for any panel: floats over the top-right of the content and only
+   appears while the panel is hovered/focused. Anchored to the non-scrolling panel body so
+   it stays put while the content scrolls. */
+.panel-reload-overlay {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: var(--panel-padding);
+  right: var(--panel-padding);
   z-index: 6;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.market-indices-panel:hover .market-indices-reload,
-.market-indices-panel:focus-within .market-indices-reload {
+.workspace-panel-body:hover .panel-reload-overlay,
+.workspace-panel-body:focus-within .panel-reload-overlay {
   opacity: 1;
   pointer-events: auto;
 }
@@ -4910,7 +4889,7 @@ h2 {
 
 .watchlist-news-topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
@@ -8690,6 +8669,13 @@ h2 {
 .ontology-refresh:hover:not(:disabled) { border-color: var(--gops-ink); color: var(--gops-ink); }
 .ontology-refresh:disabled { opacity: 0.5; cursor: default; }
 .ontology-refresh-inline { position: static; margin-top: 10px; }
+/* When used as the shared hover overlay, pin top-right (override the default top-left). */
+.ontology-refresh.panel-reload-overlay {
+  left: auto;
+  top: var(--panel-padding);
+  right: var(--panel-padding);
+}
+
 .ontology-refresh .is-spinning { animation: ontology-refresh-spin 0.9s linear infinite; }
 @keyframes ontology-refresh-spin {
   from { transform: rotate(0deg); }

@@ -402,18 +402,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     });
   }, [commandTarget, onChartRuntimeAction]);
 
-  const dispatchDocumentCommandGroup = useCallback((
-    commands: ChartCommand[],
-    label: string
-  ) => {
-    if (!commands.length) {
-      return;
-    }
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    onChartRuntimeAction({ kind: "chart.command.group", commands, label });
-  }, [onChartRuntimeAction]);
-
   const loadOlderCandles = useCallback((
     symbol: string,
     interval: ChartInterval,
@@ -918,7 +906,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }), [chart, footprint, indicatorSeries, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
-  const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
   const currentPriceTimeText = useMemo(() => (
     currentPriceMarker ? currentPriceMarkerTimeText(currentPriceMarker, currentPriceClock) : null
   ), [currentPriceClock, currentPriceMarker]);
@@ -1014,24 +1001,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     dispatchDocumentCommand("chart.type.set", { chartType });
   }, [dispatchDocumentCommand]);
-
-  const setToolMode = useCallback((toolMode: ChartToolMode) => {
-    dispatchDocumentCommand("chart.drawing.clearSelection", { mode: toolMode });
-  }, [dispatchDocumentCommand]);
-
-  const setTrendLineExtension = useCallback((extension: ChartLineExtension) => {
-    dispatchDocumentCommand("chart.drawing.clearSelection", { mode: "draw-trendLine", trendLineExtension: extension });
-  }, [dispatchDocumentCommand]);
-
-  const toggleLayer = useCallback((layer: ChartLayerKey) => {
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    const enabled = !chartRef.current.layers[layer];
-    if (enabled && isBelowLayer(layer) && typeof laneHeight === "number" && activeBelowPaneIds(chartRef.current).length >= maxBelowPaneCountForHeight(laneHeight)) {
-      return;
-    }
-    dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: enabled });
-  }, [dispatchDocumentCommand, laneHeight]);
 
   const applyViewport = useCallback((viewport: ChartViewport) => {
     const currentChart = chartRef.current;
@@ -1593,47 +1562,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setHoverSnapshot(null);
     setCrosshair(undefined);
     onChartHoverChange?.(false);
-  };
-
-  const clearChartHover = useCallback(() => {
-    if (dragAnchorRef.current || drawingDragRef.current || paneResizeRef.current) {
-      return;
-    }
-    setHoveredSemanticNodeId(undefined);
-    setHoverSnapshot(null);
-    setCrosshair(undefined);
-    onChartHoverChange?.(false);
-  }, [onChartHoverChange]);
-
-  const removeSelectedDrawing = () => {
-    if (!selectedDrawing) {
-      return;
-    }
-    dispatchDocumentCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
-  };
-
-  const updateSelectedDrawingStyle = () => {
-    if (!selectedDrawing) {
-      return;
-    }
-    const defaultStyle = defaultDrawingStyle(selectedDrawing.type, chart.trendLineExtension);
-    const nextToken = selectedDrawing.style.colorToken === "down" ? defaultStyle.colorToken : "down";
-    dispatchDocumentCommand("chart.drawing.update", {
-      drawingId: selectedDrawing.id,
-      drawingPatch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
-    });
-  };
-
-  const clearAllDrawings = () => {
-    setDrawingDraft(null);
-    setTransientDrawings(null);
-    const commands = chart.drawings.map((drawing) => makeChartCommand(
-      "chart.drawing.remove",
-      "user",
-      commandTarget,
-      { drawingId: drawing.id }
-    ));
-    dispatchDocumentCommandGroup(commands, "Clear drawings");
   };
 
   const clearAllDigging = () => {
@@ -2286,10 +2214,6 @@ const belowLayerPaneMap: Partial<Record<ChartLayerKey, string>> = {
   "macd:12:26:9": "macd:12:26:9"
 };
 
-function isBelowLayer(layer: ChartLayerKey): boolean {
-  return Boolean(belowLayerPaneMap[layer]);
-}
-
 function belowLayerForPaneId(paneId: string): ChartLayerKey | null {
   const found = Object.entries(belowLayerPaneMap).find(([, id]) => id === paneId);
   return found ? found[0] as ChartLayerKey : null;
@@ -2609,13 +2533,6 @@ function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candl
     candles: [],
     openedAt: new Date().toISOString()
   };
-}
-
-function changedPreviewDrawings(baseDrawings: DrawingEntity[], previewDrawings: DrawingEntity[]): DrawingEntity[] {
-  return previewDrawings.filter((drawing) => {
-    const base = baseDrawings.find((item) => item.id === drawing.id);
-    return !base || JSON.stringify(base) !== JSON.stringify(drawing);
-  });
 }
 
 function buildLiveQuote(chart: ChartState, previousClose: number | null): LiveQuote {

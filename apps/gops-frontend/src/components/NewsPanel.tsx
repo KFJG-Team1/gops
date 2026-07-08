@@ -131,14 +131,15 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   }, [selectReference]);
   return (
     <section className="market-news-panel" aria-label={`${symbol} 뉴스 패널`}>
-      <header className="panel-inline-header">
-        <div>
-          <strong>{symbol}</strong>
-        </div>
-        <button className="panel-icon-button" type="button" title="뉴스 새로고침" onClick={() => void loadNews(undefined, true)}>
-          {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-        </button>
-      </header>
+      <button
+        className="panel-reload-overlay panel-icon-button"
+        type="button"
+        title="뉴스 새로고침"
+        aria-label="뉴스 새로고침"
+        onClick={() => void loadNews(undefined, true)}
+      >
+        {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
       {loading && (
         <div className="panel-state-row">
           <LoaderCircle size={14} className="spin" />

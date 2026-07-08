@@ -61,7 +61,7 @@ export function IndexPanel() {
   return (
     <section className="market-indices-panel" aria-label="시장 지수 패널" style={panelStyle}>
       <button
-        className="market-indices-reload panel-icon-button"
+        className="panel-reload-overlay panel-icon-button"
         type="button"
         title="지수 새로고침"
         aria-label="지수 새로고침"

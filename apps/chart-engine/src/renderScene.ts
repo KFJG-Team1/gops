@@ -192,11 +192,6 @@ function buildComparisonSeries({
   });
 }
 
-function resolveVisibleCount(plotWidth: number, requestedVisibleCount: number): number {
-  void plotWidth;
-  return Math.max(1, Math.floor(requestedVisibleCount));
-}
-
 function chartPlotTop(variant: RenderScene["variant"]): number {
   switch (variant) {
     case "compact":

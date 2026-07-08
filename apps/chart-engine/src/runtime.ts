@@ -15,7 +15,6 @@ import type {
   CandleEvent,
   CandleSnapshot,
   ChartCommand,
-  ChartCommandType,
   ChartCommandJournalEntry,
   ChartDataStatus,
   ChartDocument,

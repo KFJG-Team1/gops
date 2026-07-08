@@ -132,7 +132,6 @@ export function ChartComparisonPanel({
     <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
       <div className="chart-compare-header">
         <div>
-          <strong>비교</strong>
           <span>
             {response?.timeframe ?? timeframeLabel(range)} · {cacheLabel}
             {hoverSnapshot ? ` · ${formatHoverTime(hoverSnapshot.timestamp, range)}` : ""}

@@ -150,7 +150,7 @@ export function OntologyPanel({ symbol, onSelectSymbol }: OntologyPanelProps) {
     <div className="ontology-panel">
       <button
         type="button"
-        className="ontology-refresh"
+        className="ontology-refresh panel-reload-overlay"
         onClick={refresh}
         disabled={isLoading}
         title="관계 데이터 새로고침"

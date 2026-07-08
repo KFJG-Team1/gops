@@ -1164,11 +1164,11 @@ function drawPaneLabel(context: CanvasRenderingContext2D, pane: ChartScene["plot
   context.fillStyle = colors.axis;
   context.textAlign = "right";
   context.textBaseline = "top";
-  context.fillText(label, Math.max(0, paneRightForLabel(context, pane)), pane.top + 3);
+  context.fillText(label, Math.max(0, paneRightForLabel(context)), pane.top + 3);
   context.restore();
 }
 
-function paneRightForLabel(context: CanvasRenderingContext2D, pane: ChartScene["plot"]["belowPanes"][number]): number {
+function paneRightForLabel(context: CanvasRenderingContext2D): number {
   return Math.max(40, context.canvas.clientWidth - 68);
 }
 

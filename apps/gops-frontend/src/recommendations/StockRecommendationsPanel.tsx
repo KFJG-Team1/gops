@@ -75,14 +75,20 @@ export function StockRecommendationsPanel({
 
   return (
     <section className="stock-recommendations-panel" aria-label="장중 매수 추천">
+      <button
+        className="panel-reload-overlay panel-icon-button"
+        type="button"
+        title="추천 갱신"
+        aria-label="추천 갱신"
+        onClick={refresh}
+        disabled={loading || refreshing}
+      >
+        {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
       <div className="stock-rec-toolbar">
         <div>
-          <strong>장중 매수 추천</strong>
           <span>{formatTimestamp(payload?.generatedAt ?? payload?.slotStart)}</span>
         </div>
-        <button type="button" title="추천 갱신" onClick={refresh} disabled={loading || refreshing}>
-          {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-        </button>
       </div>
 
       <div className="stock-rec-session-toggle" role="group" aria-label="추천 세션">

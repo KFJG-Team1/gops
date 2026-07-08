@@ -139,22 +139,16 @@ export function PortfolioHoldingsPanel({
 
   return (
     <section className="portfolio-holdings-panel portfolio-dashboard-panel" aria-label="미국 주식 포트폴리오 대시보드">
-      <header className="panel-inline-header portfolio-panel-header">
-        <div>
-          <strong>포트폴리오</strong>
-          <span>{payload?.asOf ? formatPortfolioUpdatedAt(payload.asOf) : "US Stocks"}</span>
-        </div>
-        <button
-          className="portfolio-refresh-button"
-          type="button"
-          title="포트폴리오 새로고침"
-          aria-label="포트폴리오 새로고침"
-          onClick={() => void loadHoldings(undefined, true)}
-          disabled={refreshing}
-        >
-          {loading || refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-        </button>
-      </header>
+      <button
+        className="panel-reload-overlay portfolio-refresh-button"
+        type="button"
+        title="포트폴리오 새로고침"
+        aria-label="포트폴리오 새로고침"
+        onClick={() => void loadHoldings(undefined, true)}
+        disabled={refreshing}
+      >
+        {loading || refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
       {statusMessage && (
         <div className={`portfolio-state-row ${error ? "portfolio-error-inline" : ""}`}>
           {loading && <LoaderCircle size={14} className="spin" />}
@@ -996,11 +990,6 @@ function sectorForPosition(position: PortfolioPosition): string {
   return position.sector || portfolioSectorBySymbol.get(position.symbol.toUpperCase()) || "Unclassified";
 }
 
-function positionBadge(position: PortfolioPosition): string {
-  const symbol = position.symbol.trim().toUpperCase();
-  return symbol.length <= 4 ? symbol : symbol.slice(0, 4);
-}
-
 function allocationModeLabel(mode: AllocationMode): string {
   if (mode === "asset") {
     return "자산별";
@@ -1098,19 +1087,6 @@ function sortPositions(positions: PortfolioPosition[], sortMode: SortMode) {
   });
 }
 
-function formatPortfolioUpdatedAt(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) {
-    return "최근 조회";
-  }
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
 function formatMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
@@ -1155,14 +1131,6 @@ function formatSignedCompactMoney(value: number | null | undefined, currency: st
   }
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${formatCompactMoney(value, currency)}`;
-}
-
-function formatSignedPercent(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "";
-  }
-  const prefix = value > 0 ? "+" : "";
-  return `(${prefix}${value.toFixed(1)}%)`;
 }
 
 function formatSignedPercentPlain(value: number | null | undefined) {

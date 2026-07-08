@@ -336,7 +336,7 @@ function resolveDrawingColor(
 }
 
 function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
-  const { left, right, top, priceBottom, bottom } = scene.plot;
+  const { top, priceBottom, bottom } = scene.plot;
   const priceLabelX = scene.width - 6;
   ctx.fillStyle = scene.document.style.text;
   ctx.font = "11px Inter, system-ui, sans-serif";

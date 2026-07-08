@@ -736,7 +736,7 @@ function createGraphController(
         grab.call(
           d3
             .drag<SVGCircleElement, HullDatum>()
-            .on("start", (event, d) => {
+            .on("start", (_event, d) => {
               simulation.alphaTarget(0.15).restart();
               for (const member of themeMemberNodes(d.theme)) {
                 member.__wasPinned = member.fx != null;
@@ -750,7 +750,7 @@ function createGraphController(
                 member.fy = (member.fy ?? 0) + event.dy;
               }
             })
-            .on("end", (event, d) => {
+            .on("end", (_event, d) => {
               simulation.alphaTarget(0);
               for (const member of themeMemberNodes(d.theme)) {
                 if (!member.__wasPinned) {

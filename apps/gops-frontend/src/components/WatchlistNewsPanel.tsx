@@ -141,6 +141,16 @@ export function WatchlistNewsPanel({
 
   return (
     <section className="market-news-panel watchlist-news-panel" aria-label="관심종목 뉴스 패널">
+      <button
+        className="panel-reload-overlay panel-icon-button"
+        type="button"
+        title={`${activeModeLabel} 새로고침`}
+        aria-label={`${activeModeLabel} 새로고침`}
+        onClick={() => void loadNews(undefined, true)}
+        disabled={authLoading || loginRequired}
+      >
+        {refreshing || authLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
       <div className="watchlist-news-topbar">
         <div className="watchlist-news-mode-tabs" role="group" aria-label="뉴스 기준">
           {watchlistNewsModes.map((item) => (
@@ -157,15 +167,6 @@ export function WatchlistNewsPanel({
             </button>
           ))}
         </div>
-        <button
-          className="panel-icon-button"
-          type="button"
-          title={`${activeModeLabel} 새로고침`}
-          onClick={() => void loadNews(undefined, true)}
-          disabled={authLoading || loginRequired}
-        >
-          {refreshing || authLoading ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-        </button>
       </div>
 
       {loginRequired && (

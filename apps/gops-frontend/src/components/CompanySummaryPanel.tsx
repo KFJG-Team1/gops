@@ -113,7 +113,6 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
     <section className="company-summary-panel" aria-label={`${normalizedSymbol} 기업정보`}>
       <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
         <header className="company-info-heading">
-          <span>기업정보</span>
           <strong>
             <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
             <span>{companyName}</span>
@@ -131,7 +130,6 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
       </section>
 
       <section className="company-fundamental-section" aria-label={`${normalizedSymbol} 투자지표와 비교`}>
-        <h2>투자지표</h2>
         <div className="company-fundamental-grid">
           <section className="company-chart-column company-valuation-column" aria-label={`${normalizedSymbol} 가치평가`}>
             <ValuationGaugePanel metrics={valuationMetrics} />
