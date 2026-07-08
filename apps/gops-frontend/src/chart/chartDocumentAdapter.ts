@@ -80,6 +80,7 @@ export function chartStateFromDocument(
     candles,
     status: dataStatus.state,
     message: streamMessage ?? dataStatus.message,
+    requestedLimit: dataStatus.requestedLimit,
     layers: { ...document.layers },
     panes: document.panes.map((pane) => ({ id: pane.id, heightRatio: pane.heightRatio })),
     volumeRatio: volumeRatioFromDocument(document),

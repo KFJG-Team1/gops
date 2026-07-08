@@ -12,13 +12,21 @@ export type ChartViewport = {
 
 export type ViewportClampOptions = {
   extraFutureSlots?: number;
+  minimumVisibleSlots?: number;
 };
 
-export function clampVisibleCount(visibleCount: number, candleCount: number, plotWidth?: number): number {
+export function clampVisibleCount(
+  visibleCount: number,
+  candleCount: number,
+  plotWidth?: number,
+  options: Pick<ViewportClampOptions, "minimumVisibleSlots"> = {}
+): number {
   const widthBound = typeof plotWidth === "number"
     ? Math.max(MIN_VISIBLE_CANDLES, Math.floor(Math.max(1, plotWidth) / MIN_READABLE_SLOT_WIDTH))
     : MAX_VISIBLE_CANDLES;
-  const dataBound = candleCount > 0 ? Math.max(MIN_VISIBLE_CANDLES, candleCount) : MAX_VISIBLE_CANDLES;
+  const minimumVisibleSlots = Math.max(0, Math.ceil(options.minimumVisibleSlots ?? 0));
+  const visibleDataBound = Math.max(candleCount, minimumVisibleSlots);
+  const dataBound = visibleDataBound > 0 ? Math.max(MIN_VISIBLE_CANDLES, visibleDataBound) : MAX_VISIBLE_CANDLES;
   const maxVisibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(MAX_VISIBLE_CANDLES, widthBound, dataBound));
   return Math.max(MIN_VISIBLE_CANDLES, Math.min(maxVisibleCount, Math.round(visibleCount)));
 }
@@ -44,7 +52,7 @@ export function normalizeViewport(
   plotWidth?: number,
   options: ViewportClampOptions = {}
 ): ChartViewport {
-  const visibleCount = clampVisibleCount(viewport.visibleCount, candleCount, plotWidth);
+  const visibleCount = clampVisibleCount(viewport.visibleCount, candleCount, plotWidth, options);
   return {
     visibleCount,
     rightOffset: clampRightOffset(viewport.rightOffset, visibleCount, candleCount, options)

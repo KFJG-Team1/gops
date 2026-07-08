@@ -494,6 +494,7 @@ export type ChartState = {
   candles: CandleDto[];
   status: CandleQueryResponseDto["status"] | "loading";
   message?: string;
+  requestedLimit?: number;
   layers: Partial<Record<ChartLayerKey, boolean>>;
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
