@@ -60,6 +60,12 @@ import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThum
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
+import {
+  olderRangeQueuedRetryDelayMs,
+  olderRangeRequestKey,
+  olderRangeRetryAfterMs,
+  shouldRequestOlderRange
+} from "../chart/olderRangeRequestPolicy";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
@@ -327,6 +333,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
+  const olderRangeRetryAfterRef = useRef<Map<string, number>>(new Map());
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const dragAnchorRef = useRef<DragAnchor | null>(null);
@@ -392,8 +399,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     before: string,
     limit: number
   ) => {
-    const requestKey = `${symbol}:${interval}:before:${before}:${limit}`;
+    const requestKey = olderRangeRequestKey(symbol, interval, before, limit);
     if (olderRangeRequestsRef.current.has(requestKey)) {
+      return;
+    }
+    if (!shouldRequestOlderRange(olderRangeRetryAfterRef.current.get(requestKey))) {
       return;
     }
     olderRangeRequestsRef.current.add(requestKey);
@@ -411,23 +421,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+        const addedCount = Math.max(0, merged.length - current.candles.length);
+        const retryAfter = olderRangeRetryAfterMs(response, addedCount);
+        if (retryAfter === null) {
+          olderRangeRetryAfterRef.current.delete(requestKey);
+        } else {
+          olderRangeRetryAfterRef.current.set(requestKey, retryAfter);
+        }
+        if (addedCount === 0) {
+          return;
+        }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
         const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
           current.candles,
           merged,
           { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
-          plotWidth
+          plotWidth,
+          { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, interval) });
         dispatchDocumentCommand("chart.viewport.set", nextViewport);
       })
-      .catch((error: unknown) => {
-        onChartRuntimeAction({
-          kind: "chart.snapshot.failed",
-          symbol,
-          interval,
-          message: error instanceof Error ? error.message : "Historical range request failed"
-        });
+      .catch(() => {
+        olderRangeRetryAfterRef.current.set(requestKey, Date.now() + olderRangeQueuedRetryDelayMs);
       })
       .finally(() => {
         olderRangeRequestsRef.current.delete(requestKey);
@@ -462,7 +478,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             visibleCount: current.visibleCount,
             rightOffset: current.rightOffset
           },
-          sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined
+          sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
+          { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
         );
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
         setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
@@ -919,6 +936,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     activeExpansionsRef.current = [];
+    olderRangeRequestsRef.current.clear();
+    olderRangeRetryAfterRef.current.clear();
     setActiveExpansions([]);
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
@@ -997,11 +1016,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const currentChart = chartRef.current;
     const currentScene = sceneRef.current;
     const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
-    const clampOptions = viewportClampOptionsForScene(currentScene);
+    const clampOptions = viewportClampOptionsForChart(currentChart, currentScene);
     const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth, clampOptions);
     const maxRightOffset = Math.max(0, currentChart.candles.length - Math.min(requestedViewport.visibleCount, currentChart.candles.length));
     const oldest = currentChart.candles[0]?.timestamp;
-    if (oldest && requestedViewport.rightOffset >= maxRightOffset - 1) {
+    if (oldest && currentChart.hasMoreBefore !== false && requestedViewport.rightOffset >= maxRightOffset - 1) {
       loadOlderCandles(
         currentChart.symbol,
         currentChart.interval,
@@ -1167,7 +1186,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       delta,
       current.candles.length,
       plotWidth,
-      viewportClampOptionsForScene(currentScene)
+      viewportClampOptionsForChart(current, currentScene)
     );
     applyViewport(nextViewport);
   }, [applyViewport]);
@@ -1194,7 +1213,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
         current.candles.length,
         plotWidth,
-        viewportClampOptionsForScene(scene)
+        viewportClampOptionsForChart(current, scene)
       );
       const slotWidth = sceneSlotWidth
         ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
@@ -1206,7 +1225,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         current.candles.length,
         deltaMode,
         plotWidth,
-        viewportClampOptionsForScene(scene)
+        viewportClampOptionsForChart(current, scene)
       );
       applyViewport({
         visibleCount: currentViewport.visibleCount,
@@ -1234,7 +1253,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       current.candles.length,
       anchorRatio,
       plotWidth,
-      viewportClampOptionsForScene(scene)
+      viewportClampOptionsForChart(current, scene)
     );
     applyViewport(nextViewport);
   };
@@ -1346,7 +1365,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
       chart.candles.length,
       scene.plot.right - scene.plot.left,
-      viewportClampOptionsForScene(scene)
+      viewportClampOptionsForChart(chart, scene)
     );
     dragAnchorRef.current = {
       x: event.clientX,
@@ -1468,7 +1487,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         scene.scales.slotWidth,
         dragAnchor.visibleCount,
         chart.candles.length,
-        viewportClampOptionsForScene(scene)
+        viewportClampOptionsForChart(chartRef.current, scene)
       )
     };
     transientViewportRef.current = nextViewport;
@@ -2526,12 +2545,20 @@ function visibleRightAnchorTimestamp(scene: ChartScene | null, chart: ChartState
   return chart.candles.at(-1)?.timestamp;
 }
 
-function viewportClampOptionsForScene(scene: ChartScene | null | undefined): ViewportClampOptions {
-  if (!scene) {
-    return {};
-  }
-  const extraFutureSlots = Math.max(0, Math.ceil(scene.semantic.expansionExtraSlots));
-  return extraFutureSlots > 0 ? { extraFutureSlots } : {};
+function viewportClampOptionsForChart(chart: ChartState, scene: ChartScene | null | undefined): ViewportClampOptions {
+  const extraFutureSlots = scene ? Math.max(0, Math.ceil(scene.semantic.expansionExtraSlots)) : 0;
+  const minimumVisibleSlots = Math.max(0, Math.ceil(chart.requestedLimit ?? 0));
+  return {
+    ...(extraFutureSlots > 0 ? { extraFutureSlots } : {}),
+    ...(minimumVisibleSlots > 0 ? { minimumVisibleSlots } : {})
+  };
+}
+
+function requestedVisibleSlotsFromResponse(response: CandleQueryResponseDto, interval: ChartInterval): number {
+  return Math.max(
+    defaultVisibleBarsForInterval(interval),
+    Math.ceil(response.requestedLimit ?? response.request?.limit ?? 0)
+  );
 }
 
 function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candle" }>): SemanticExpansion {

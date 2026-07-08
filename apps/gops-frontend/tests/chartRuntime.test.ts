@@ -45,7 +45,7 @@ import {
   semanticNodeId,
   type SemanticExpansion
 } from "../src/chart/semanticTimeline";
-import { viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
+import { anchoredViewportForCandles, viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
@@ -58,6 +58,13 @@ import {
   serverIndicatorLayersForLayers
 } from "../src/chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
+import {
+  olderRangeQueuedRetryDelayMs,
+  olderRangeRequestKey,
+  olderRangeRetryAfterMs,
+  olderRangeTerminalRetryDelayMs,
+  shouldRequestOlderRange
+} from "../src/chart/olderRangeRequestPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
@@ -1300,7 +1307,38 @@ assert.equal(maxRequestBarsForInterval("1W"), 312);
 assert.equal(maxRequestBarsForInterval("1M"), 72);
 assert.equal(maxIndicatorRequestBars, 5000);
 assert.equal(indicatorRequestLimitForInterval("1D", 22849), 1512);
+assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
+assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
+assert.equal(
+  olderRangeRequestKey("nvda", "1D", "2026-07-02T04:00:00.000Z", 120),
+  "NVDA:1D:before:2026-07-02T04:00:00.000Z:120"
+);
+assert.equal(shouldRequestOlderRange(undefined, 1_000), true);
+assert.equal(shouldRequestOlderRange(1_500, 1_000), false);
+assert.equal(shouldRequestOlderRange(1_500, 1_500), true);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [],
+    hasMoreBefore: false
+  }, 0, 10_000),
+  10_000 + olderRangeTerminalRetryDelayMs
+);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [],
+    hasMoreBefore: true,
+    fill: { backgroundFill: { queued: true, state: "already_queued" } }
+  }, 0, 10_000),
+  10_000 + olderRangeQueuedRetryDelayMs
+);
+assert.equal(
+  olderRangeRetryAfterMs({
+    candles: [testCandle("2026-07-01T04:00:00.000Z")],
+    hasMoreBefore: true
+  }, 1, 10_000),
+  null
+);
 for (const timeframe of ["1h", "4h", "1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
@@ -1986,12 +2024,56 @@ assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120
   visibleCount: 72,
   rightOffset: -62
 });
+assert.deepEqual(frontendNormalizeViewport({ visibleCount: 120, rightOffset: 0 }, 3, 640, { minimumVisibleSlots: 120 }), {
+  visibleCount: 120,
+  rightOffset: 0
+});
 assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
 assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
 assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
 assert.equal(resolveHorizontalWheelDelta(0, -4, true), -4);
 assert.equal(resolveHorizontalWheelDelta(0, -4), null);
 assert.equal(frontendResolveHorizontalWheelDelta(2, 20), 2);
+const sparseDailyCandles = [
+  testCandle("2026-07-02T04:00:00.000Z", 100),
+  testCandle("2026-07-06T04:00:00.000Z", 102),
+  testCandle("2026-07-07T04:00:00.000Z", 104)
+];
+assert.deepEqual(
+  anchoredViewportForCandles(
+    sparseDailyCandles,
+    "1D",
+    null,
+    { visibleCount: 120, rightOffset: 0 },
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 120, rightOffset: 0 }
+);
+const sparseDailyScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: sparseDailyCandles,
+  visibleCount: 120,
+  rightOffset: 0,
+  requestedLimit: 120
+}), 640, 360);
+assert.equal(sparseDailyScene.visibleSlotCount, 120);
+assert.equal(sparseDailyScene.candles.length, 3);
+assert.equal(sparseDailyScene.viewportStartIndex, -117);
+const restoredDailyCandles = [
+  ...Array.from({ length: 117 }, (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 80 + index)),
+  ...sparseDailyCandles
+];
+assert.deepEqual(
+  viewportPreservingRightEdgeAfterCandlesChange(
+    sparseDailyCandles,
+    restoredDailyCandles,
+    { visibleCount: 120, rightOffset: 0 },
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 120, rightOffset: 0 }
+);
 const visibleCandlesBeforePrepend = Array.from({ length: 10 }, (_, index) => testCandle(`2026-06-25T13:${String(30 + index).padStart(2, "0")}:00Z`, 100 + index));
 const prependedCandles = Array.from({ length: 5 }, (_, index) => testCandle(`2026-06-25T13:${String(25 + index).padStart(2, "0")}:00Z`, 90 + index));
 assert.deepEqual(
