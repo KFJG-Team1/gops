@@ -42,6 +42,7 @@ export type ChartScene = {
   semantic: Omit<SemanticTimeline, "expansionRanges"> & { expansionRanges: SemanticExpansionRange[] };
   hoveredNodeId?: string;
   selectedNodeId?: string;
+  emphasizeSelectedNode?: boolean;
   plot: ChartPlot;
   scales: {
     minPrice: number;
@@ -68,6 +69,7 @@ export type ChartSceneOptions = {
   expansions?: SemanticExpansion[];
   hoveredNodeId?: string;
   selectedNodeId?: string;
+  emphasizeSelectedNode?: boolean;
 };
 
 export function buildChartScene(chart: ChartState, width: number, height: number, options: ChartSceneOptions = {}): ChartScene {
@@ -223,6 +225,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     },
     hoveredNodeId: options.hoveredNodeId,
     selectedNodeId: options.selectedNodeId,
+    emphasizeSelectedNode: options.emphasizeSelectedNode,
     plot,
     scales: {
       minPrice: priceRange.min,

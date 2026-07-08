@@ -36,7 +36,7 @@ import {
   type AgentEntityResolveResponse,
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
-import { agentReferenceKey, buildChartAnalysisContext, chartCandleReference, type AgentReference } from "./agent/agentReferences";
+import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartCandleReference, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
@@ -332,10 +332,30 @@ export function App() {
     applyLayout: applyPresetLayout,
     buildLayout: buildPresetLayoutForCurrent
   });
+  const [emphasizedReferenceKeys, setEmphasizedReferenceKeys] = useState<string[]>([]);
   const selectedAgentReferenceKeys = useMemo(() => (
     agentReferences.map((reference) => agentReferenceKey(reference))
   ), [agentReferences]);
-  const selectedAgentReferenceCount = agentReferences.length + (semanticSelection ? 1 : 0);
+  const agentReferenceChips = useMemo<AgentReferenceChip[]>(() => {
+    const chips: AgentReferenceChip[] = agentReferences.map((reference) => ({
+      key: agentReferenceKey(reference),
+      kind: agentReferenceChipKind(reference),
+      ticker: agentReferenceTicker(reference)
+    }));
+    if (semanticSelection) {
+      // The active chart candle sits closest to the input (rendered last in the strip).
+      chips.push({
+        key: SEMANTIC_SELECTION_REFERENCE_KEY,
+        kind: "candle",
+        ticker: semanticSelection.symbol
+      });
+    }
+    return chips;
+  }, [agentReferences, semanticSelection]);
+  const emphasizedAgentReferenceKeys = useMemo(() => (
+    emphasizedReferenceKeys.filter((key) => key !== SEMANTIC_SELECTION_REFERENCE_KEY)
+  ), [emphasizedReferenceKeys]);
+  const emphasizeChartSelection = emphasizedReferenceKeys.includes(SEMANTIC_SELECTION_REFERENCE_KEY);
 
   const applyMainViewState = useCallback((nextView: MainView, options: { closeBottomMenu?: boolean } = {}) => {
     setSemanticSelection(null);
@@ -788,9 +808,31 @@ export function App() {
     });
   }, []);
 
+  // The chart owns its candle-highlight state internally, so clearing the App-level
+  // selection is not enough — tell every chart panel to drop its selected candle too.
+  const clearChartSemanticSelections = useCallback(() => {
+    chartPanelHandlesRef.current.forEach((handle) => handle.clearSemanticSelection());
+  }, []);
+
   const clearAgentReferences = useCallback(() => {
     setAgentReferences([]);
     setSemanticSelection(null);
+    setEmphasizedReferenceKeys([]);
+    clearChartSemanticSelections();
+  }, [clearChartSemanticSelections]);
+
+  const removeAgentReference = useCallback((key: string) => {
+    if (key === SEMANTIC_SELECTION_REFERENCE_KEY) {
+      setSemanticSelection(null);
+      clearChartSemanticSelections();
+    } else {
+      setAgentReferences((current) => current.filter((item) => agentReferenceKey(item) !== key));
+    }
+    setEmphasizedReferenceKeys((current) => current.filter((item) => item !== key));
+  }, [clearChartSemanticSelections]);
+
+  const emphasizeAgentReferences = useCallback((keys: string[]) => {
+    setEmphasizedReferenceKeys(keys);
   }, []);
 
   const runAgentPrompt = useCallback(async (event: FormEvent<HTMLFormElement>): Promise<AgentSubmitResult> => {
@@ -1138,6 +1180,8 @@ export function App() {
             marketItems={treeMapItems}
             chartRuntime={chartRuntime}
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+            emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+            emphasizeChartSelection={emphasizeChartSelection}
             setSemanticSelection={setSemanticSelection}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onChartRuntimeAction={dispatchChartRuntimeAction}
@@ -1163,7 +1207,7 @@ export function App() {
         authLoading={authLoading}
         authUser={user}
         canUseAgent={canUseAgent}
-        selectedAgentReferenceCount={selectedAgentReferenceCount}
+        agentReferenceChips={agentReferenceChips}
         symbols={universeSymbols}
         watchlistSymbols={visibleWatchlistSymbols}
         watchlistPersisted={watchlistPersisted}
@@ -1176,6 +1220,8 @@ export function App() {
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentReferencesClear={clearAgentReferences}
+        onAgentReferenceRemove={removeAgentReference}
+        onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}

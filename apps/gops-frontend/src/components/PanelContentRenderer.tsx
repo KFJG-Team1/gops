@@ -38,6 +38,8 @@ type PanelContentRendererProps = {
   chartDrawingActive: boolean;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
+  emphasizedAgentReferenceKeys: string[];
+  emphasizeChartSelection: boolean;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
@@ -70,6 +72,8 @@ export function PanelContentRenderer({
   chartDrawingActive,
   chartAddActive,
   selectedAgentReferenceKeys,
+  emphasizedAgentReferenceKeys,
+  emphasizeChartSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onChartRuntimeAction,
@@ -122,6 +126,7 @@ export function PanelContentRenderer({
         initialPayload={content.props}
         sourcePanelId={content.id}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
       />
     );
@@ -132,6 +137,7 @@ export function PanelContentRenderer({
       <WatchlistNewsPanel
         sourcePanelId={content.id}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
       />
     );
@@ -275,6 +281,7 @@ export function PanelContentRenderer({
           onChartDrawingToggle={onChartDrawingToggle}
           onChartAddToggle={onChartAddToggle}
           onSemanticSelectionChange={setSemanticSelection}
+          emphasizeSelection={emphasizeChartSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
           toolbarLeading={companyToggleButton}

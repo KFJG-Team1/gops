@@ -60,8 +60,13 @@
   --top-nav-height: 68px;
   --bottom-nav-height: 60px;
   --bottom-control-size: 36px;
-  /* Floating tool/palette docks sit just above the bottom command bar, tracking its height. */
-  --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px);
+  /* Space reclaimed by removing the old chat-toggle button above the input: the whole
+     dock band and the panel bottom edge drop by this amount. Keep in sync with
+     treeMapHoverMetaReserve in layout/workspaceMetrics.ts (also reduced by 10). */
+  --tool-dock-drop: 10px;
+  /* Floating tool/palette docks sit just above the bottom command bar, tracking its
+     height. Every dock-area floater references this single baseline so they move together. */
+  --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px - var(--tool-dock-drop));
   --surface-radius: 5px;
   --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
   --surface-raised-highlight-shadow: -1px -1px 4px var(--color-border);
@@ -339,7 +344,13 @@ button {
 
 .workspace-bottom-nav {
   bottom: 0;
-  grid-template-columns: minmax(96px, 1fr) minmax(300px, 520px) minmax(96px, 1fr);
+  /* Above the dock band (preset/drawing/palette docks, z43-44) so the chat panel — which
+     lives inside this nav — rises over the dock entities, while the input stays above the
+     chat panel via their in-nav z-order. Below the alert toast (z54). */
+  z-index: 45;
+  /* Center column holds the input; it grows to 600px on wide screens and shrinks
+     fluidly toward 300px once the side columns hit their min. */
+  grid-template-columns: minmax(96px, 1fr) minmax(300px, 600px) minmax(96px, 1fr);
   column-gap: 16px;
   height: var(--bottom-nav-height);
   /* Left/right inset is intentionally decoupled from the grid gutter so the edge
@@ -567,7 +578,9 @@ button {
   left: 50%;
   bottom: 0;
   z-index: 1;
-  width: clamp(360px, calc(100vw - var(--layout-gutter) - var(--layout-gutter) - 176px), 660px);
+  /* Wider than the input and grows more, so the overhang on each side (the gap between
+     the input and chat widths) increases. Stays fluid with the viewport. */
+  width: clamp(360px, calc(100vw - var(--layout-gutter) - var(--layout-gutter) - 96px), 780px);
   height: clamp(468px, 68vh, 676px);
   overflow: visible;
   border-radius: 14px 14px 10px 10px;
@@ -922,7 +935,8 @@ button {
 .alert-toast {
   position: fixed;
   right: calc(var(--layout-gutter) + 4px);
-  bottom: calc(var(--bottom-nav-height) + 18px);
+  /* Synced to the dock baseline so the toast moves with the dock band. */
+  bottom: calc(var(--tool-dock-bottom) + 16px);
   z-index: 54;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 28px;
@@ -2640,8 +2654,7 @@ h2 {
 .agent-box {
   position: relative;
   z-index: 2;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: 7px;
   width: 100%;
@@ -2653,51 +2666,14 @@ h2 {
   pointer-events: auto;
 }
 
-.agent-dock-toggle {
-  position: absolute;
-  left: 50%;
-  top: -20px;
-  z-index: 4;
-  display: inline-grid;
-  place-items: center;
-  width: min(210px, 54%);
-  height: 20px;
-  border: 0;
-  padding: 0;
-  background: none;
+/* Chat-log toggle now lives inside the input row, next to the send button. */
+.agent-box button.agent-chat-toggle {
+  color: var(--color-muted);
+}
+
+.agent-box button.agent-chat-toggle:hover:not(:disabled),
+.agent-box button.agent-chat-toggle.is-active {
   color: var(--color-text);
-  opacity: 0;
-  transform: translateX(-50%);
-  transition: opacity 140ms ease;
-}
-
-.agent-dock-toggle::before,
-.agent-dock-toggle::after {
-  position: absolute;
-  top: 50%;
-  width: calc(50% - 17px);
-  height: 1px;
-  background: var(--color-rule-soft);
-  content: "";
-}
-
-.agent-dock-toggle::before {
-  left: 0;
-}
-
-.agent-dock-toggle::after {
-  right: 0;
-}
-
-.agent-dock-toggle svg {
-  position: relative;
-  z-index: 1;
-}
-
-.agent-dock:hover .agent-dock-toggle,
-.agent-dock:focus-within .agent-dock-toggle,
-.agent-dock.is-chat-open .agent-dock-toggle {
-  opacity: 1;
 }
 
 .agent-box::after {
@@ -2709,40 +2685,67 @@ h2 {
   z-index: 1;
 }
 
-.agent-selected-sources {
-  position: absolute;
-  left: 10px;
-  bottom: calc(100% + 6px);
+.agent-reference-strip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: calc(100% - 20px);
-  min-height: 20px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-caution) 16%, var(--surface-raised-surface));
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-shadow) 14%, transparent);
-  color: var(--color-text);
-  font-size: 11px;
-  font-weight: 760;
-  line-height: 1;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 58%;
+  overflow: hidden;
   pointer-events: auto;
 }
 
-.agent-box button.agent-selected-sources-clear {
-  width: 16px;
-  height: 16px;
+.agent-box button.agent-reference-clear,
+.agent-box button.agent-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+  font-weight: 620;
+  font-synthesis: weight;
+  line-height: 1;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.agent-box button.agent-reference-clear {
+  padding: 0 6px;
   color: var(--color-muted);
 }
 
-.agent-box button.agent-selected-sources-clear:hover,
-.agent-box button.agent-selected-sources-clear:focus-visible {
+.agent-box button.agent-reference-chip .agent-reference-chip-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.agent-reference-chip-ticker {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.agent-box button.agent-reference-chip:hover,
+.agent-box button.agent-reference-chip.is-armed {
+  background: color-mix(in srgb, var(--color-caution) 34%, var(--surface-raised-surface));
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.agent-box button.agent-reference-clear:hover,
+.agent-box button.agent-reference-clear.is-armed {
+  background: color-mix(in srgb, var(--color-caution) 30%, var(--surface-raised-surface));
+  color: var(--color-danger);
 }
 
 .agent-box input {
+  flex: 1 1 auto;
   min-width: 0;
   height: 28px;
   padding: 0 11px;
@@ -2788,7 +2791,8 @@ h2 {
 .agent-preview-controls {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--bottom-nav-height) + 8px);
+  /* Occupies the dock line (mutually exclusive with the preset dock), so it tracks it. */
+  bottom: var(--tool-dock-bottom);
   z-index: 21;
   display: inline-flex;
   align-items: center;
@@ -2865,6 +2869,65 @@ h2 {
 
 .workspace-panel-frame.has-no-panel-nav {
   grid-template-rows: minmax(0, 1fr);
+}
+
+/* Newspaper panel scrollbars: the scrollbar is part of the layout frame, not chrome.
+   A fixed 1px ink rule runs down the panel's right edge (the stem), and a very thin,
+   tall thumb rides just inside it (the bowl) — so scrolling reads like q -> d. */
+.workspace-panel-frame ::-webkit-scrollbar {
+  width: 10px;
+  height: 8px;
+  background: transparent;
+}
+
+.workspace-panel-frame ::-webkit-scrollbar-track:vertical {
+  background: linear-gradient(to right, transparent calc(100% - 2px), var(--color-text) calc(100% - 2px));
+}
+
+.workspace-panel-frame ::-webkit-scrollbar-thumb:vertical {
+  background-color: var(--color-text);
+  background-clip: padding-box;
+  border: 0 solid transparent;
+  /* Right-aligned to the panel edge so the thumb overlaps the 2px ink rule and is
+     mostly buried in it, protruding only ~2px into the panel on the left. */
+  border-left-width: 6px;
+  border-right-width: 0;
+  border-radius: 0;
+  min-height: 30px;
+}
+
+.workspace-panel-frame ::-webkit-scrollbar-thumb:vertical:hover {
+  border-left-width: 5px;
+}
+
+/* Horizontal counterpart: 2px ink rule along the bottom edge with the thumb bottom-aligned,
+   overlapping it and protruding only slightly upward. */
+.workspace-panel-frame ::-webkit-scrollbar-track:horizontal {
+  background: linear-gradient(to bottom, transparent calc(100% - 2px), var(--color-text) calc(100% - 2px));
+}
+
+.workspace-panel-frame ::-webkit-scrollbar-thumb:horizontal {
+  background-color: var(--color-text);
+  background-clip: padding-box;
+  border: 0 solid transparent;
+  border-top-width: 4px;
+  border-bottom-width: 0;
+  border-radius: 0;
+  min-width: 30px;
+}
+
+.workspace-panel-frame ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox can't offset the thumb from the rule; degrade to a thin ink thumb.
+   Gated so it never applies in Chromium — setting `scrollbar-width` there makes the
+   browser ignore every ::-webkit-scrollbar rule above, killing the newspaper design. */
+@supports not selector(::-webkit-scrollbar-thumb) {
+  .workspace-panel-frame :where(*) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-text) transparent;
+  }
 }
 
 /* The panel name is chrome-free: an overlay revealed only on hover or in layout-edit mode,
@@ -4359,6 +4422,22 @@ h2 {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   background: color-mix(in srgb, var(--color-caution) 34%, transparent);
+}
+
+/* Emphasized: a reference chip is being hovered — pull this row out of the list. */
+.market-news-row.is-agent-reference-emphasized {
+  background: color-mix(in srgb, var(--color-caution) 18%, var(--color-surface));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-caution) 62%, transparent);
+}
+
+.market-news-row.is-agent-reference-emphasized .market-news-summary > span,
+.market-news-row.is-agent-reference-emphasized .market-news-main .market-news-text-highlight,
+.market-news-row.is-agent-reference-emphasized .market-news-main p > span {
+  border-radius: 3px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: color-mix(in srgb, var(--color-caution) 64%, transparent);
 }
 
 .market-indices-header-meta {
@@ -7950,6 +8029,9 @@ h2 {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
+  /* Centered above the input like the preset dock; `safe` falls back to start-alignment
+     (scrollable) when the buttons overflow the available width. */
+  justify-content: safe center;
   gap: 6px;
   box-sizing: border-box;
   padding: 5px var(--layout-gutter);

@@ -17,6 +17,7 @@ type ChartCanvasProps = {
   agentVisualOverlays?: AgentVisualOverlay[];
   hoveredNodeId?: string;
   selectedNodeId?: string;
+  emphasizeSelectedNode?: boolean;
   crosshair?: { x: number; y: number };
   onScene?: (scene: ChartScene) => void;
   onWheel?: WheelEventHandler<HTMLCanvasElement>;
@@ -59,6 +60,7 @@ export function ChartCanvas({
   agentVisualOverlays = [],
   hoveredNodeId,
   selectedNodeId,
+  emphasizeSelectedNode = false,
   crosshair,
   onScene,
   onWheel,
@@ -88,7 +90,7 @@ export function ChartCanvas({
         return;
       }
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId });
+      const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId, emphasizeSelectedNode });
       onScene?.(scene);
       drawChart(context, scene, crosshair, previewDrawings, agentVisualOverlays);
     };
@@ -112,7 +114,7 @@ export function ChartCanvas({
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [agentVisualOverlays, chart, crosshair, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
+  }, [agentVisualOverlays, chart, crosshair, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
 
   return (
     <canvas
@@ -632,14 +634,26 @@ function candleStrokeColor(up: boolean): string {
 
 function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
   const bounds = unitBoundsX(scene, unit);
-  drawOverlayBand(
-    context,
-    scene,
-    Math.min(bounds.left, bounds.center - 4),
-    Math.max(bounds.right, bounds.center + 4),
-    colors.caution,
-    0.18
-  );
+  const emphasized = Boolean(scene.emphasizeSelectedNode);
+  const left = Math.min(bounds.left, bounds.center - 4);
+  const right = Math.max(bounds.right, bounds.center + 4);
+  drawOverlayBand(context, scene, left, right, colors.caution, emphasized ? 0.36 : 0.18);
+  if (emphasized) {
+    // When a reference chip is hovered, outline the selected candle band so it reads
+    // as strongly emphasized against the rest of the chart.
+    const clampedLeft = Math.max(scene.plot.left, left);
+    const clampedRight = Math.min(scene.plot.right, right);
+    context.save();
+    context.strokeStyle = colors.caution;
+    context.lineWidth = 1.5;
+    context.strokeRect(
+      clampedLeft,
+      scene.plot.top,
+      Math.max(1, clampedRight - clampedLeft),
+      Math.max(1, scene.plot.priceBottom - scene.plot.top)
+    );
+    context.restore();
+  }
 }
 
 function drawFootprintBuckets(context: CanvasRenderingContext2D, scene: ChartScene) {

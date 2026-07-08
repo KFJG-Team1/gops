@@ -20,6 +20,27 @@ export function agentReferenceKey(reference: AgentReference): string {
   return `${reference.type}:${reference.sourcePanelId ?? ""}:${reference.displayLabel ?? JSON.stringify(reference.data)}`;
 }
 
+// Synthetic key for the active chart's single candle/bar selection (semanticSelection),
+// which lives outside the explicit agentReferences array but is shown as a reference chip.
+export const SEMANTIC_SELECTION_REFERENCE_KEY = "semantic-selection";
+
+export type AgentReferenceChipKind = "candle" | "news";
+
+export type AgentReferenceChip = {
+  key: string;
+  kind: AgentReferenceChipKind;
+  ticker: string;
+};
+
+export function agentReferenceChipKind(reference: AgentReference): AgentReferenceChipKind {
+  return reference.type.startsWith("news") ? "news" : "candle";
+}
+
+export function agentReferenceTicker(reference: AgentReference): string {
+  const data = reference.data as { symbol?: unknown };
+  return typeof data.symbol === "string" ? data.symbol : "";
+}
+
 export function chartCandleReference(
   selection: SemanticSelectionSnapshot,
   sourcePanelId?: string

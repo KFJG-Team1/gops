@@ -48,12 +48,14 @@ type WatchlistNewsResponse = {
 type WatchlistNewsPanelProps = {
   sourcePanelId?: string;
   selectedAgentReferenceKeys?: string[];
+  emphasizedAgentReferenceKeys?: string[];
   onAgentReferenceSelect?: (reference: AgentReference) => void;
 };
 
 export function WatchlistNewsPanel({
   sourcePanelId,
   selectedAgentReferenceKeys = [],
+  emphasizedAgentReferenceKeys = [],
   onAgentReferenceSelect
 }: WatchlistNewsPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
@@ -187,11 +189,13 @@ export function WatchlistNewsPanel({
         <div className="market-news-list">
           {items.map((item, index) => {
             const reference = newsArticleReference(item, sourcePanelId);
-            const selected = selectedAgentReferenceKeys.includes(agentReferenceKey(reference));
+            const referenceKey = agentReferenceKey(reference);
+            const selected = selectedAgentReferenceKeys.includes(referenceKey);
+            const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
             return (
               <article
                 key={`${item.articleId ?? item.url ?? item.title}-${index}`}
-                className={`market-news-row watchlist-news-row ${selected ? "is-agent-reference-selected" : ""}`}
+                className={`market-news-row watchlist-news-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
                 role="button"
                 tabIndex={0}
                 aria-pressed={selected}

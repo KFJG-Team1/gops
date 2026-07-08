@@ -174,6 +174,7 @@ type ChartPanelProps = {
   onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
+  emphasizeSelection?: boolean;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   toolbarLeading?: ReactNode;
@@ -183,6 +184,7 @@ export type ChartPanelHandle = {
   getSnapshot: () => ChartState;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
+  clearSemanticSelection: () => void;
 };
 
 export type ChartHeaderSnapshot = {
@@ -229,6 +231,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartDrawingToggle,
   onChartAddToggle,
   onSemanticSelectionChange,
+  emphasizeSelection = false,
   onChartHoverChange,
   onHeaderChange,
   toolbarLeading
@@ -1175,7 +1178,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useImperativeHandle(ref, () => ({
     getSnapshot: () => chartRef.current,
     setInterval,
-    setChartType
+    setChartType,
+    // Lets the agent reference chip clear this chart's candle highlight when the
+    // reference is removed from the input strip.
+    clearSemanticSelection: () => setSelectedSemanticNode(null)
   }), [setChartType, setInterval]);
 
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
@@ -1674,6 +1680,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           previewDrawings={previewDrawings}
           hoveredNodeId={hoveredSemanticNodeId}
           selectedNodeId={selectedSemanticNode?.nodeId}
+          emphasizeSelectedNode={emphasizeSelection}
           crosshair={crosshair}
           onScene={handleScene}
           onWheel={handleWheel}

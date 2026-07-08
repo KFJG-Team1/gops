@@ -63,10 +63,11 @@ type NewsPanelProps = {
   initialPayload?: unknown;
   sourcePanelId?: string;
   selectedAgentReferenceKeys?: string[];
+  emphasizedAgentReferenceKeys?: string[];
   onAgentReferenceSelect?: (reference: AgentReference) => void;
 };
 
-export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], onAgentReferenceSelect }: NewsPanelProps) {
+export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect }: NewsPanelProps) {
   const normalizedInitialPayload = normalizeNewsResponse(initialPayload, symbol);
   const [payload, setPayload] = useState<NewsResponse | null>(normalizedInitialPayload);
   const [loading, setLoading] = useState(!normalizedInitialPayload);
@@ -152,11 +153,13 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
         <div className="market-news-list market-news-daily-list">
           {dailySummaries.map((item) => {
             const reference = newsDailySummaryReference(item, symbol, sourcePanelId);
-            const selected = selectedAgentReferenceKeys.includes(agentReferenceKey(reference));
+            const referenceKey = agentReferenceKey(reference);
+            const selected = selectedAgentReferenceKeys.includes(referenceKey);
+            const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
             return (
             <article
               key={`${item.symbol ?? symbol}-${item.date}`}
-              className={`market-news-row market-news-daily-row ${selected ? "is-agent-reference-selected" : ""}`}
+              className={`market-news-row market-news-daily-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
               role="button"
               tabIndex={0}
               aria-pressed={selected}
@@ -203,11 +206,13 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
         <div className="market-news-list">
           {items.map((item, index) => {
             const reference = newsArticleReference(item, sourcePanelId);
-            const selected = selectedAgentReferenceKeys.includes(agentReferenceKey(reference));
+            const referenceKey = agentReferenceKey(reference);
+            const selected = selectedAgentReferenceKeys.includes(referenceKey);
+            const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
             return (
             <article
               key={`${item.url ?? item.title}-${index}`}
-              className={`market-news-row ${selected ? "is-agent-reference-selected" : ""}`}
+              className={`market-news-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
               role="button"
               tabIndex={0}
               aria-pressed={selected}

@@ -82,6 +82,8 @@ type PanelWorkspaceProps = {
   marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
   selectedAgentReferenceKeys: string[];
+  emphasizedAgentReferenceKeys: string[];
+  emphasizeChartSelection: boolean;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
@@ -145,6 +147,8 @@ export function PanelWorkspace({
   marketItems,
   chartRuntime,
   selectedAgentReferenceKeys,
+  emphasizedAgentReferenceKeys,
+  emphasizeChartSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onChartRuntimeAction,
@@ -738,6 +742,8 @@ export function PanelWorkspace({
               chartDrawingActive={drawingTargetContentId === content.id}
               chartAddActive={chartAddTargetContentId === content.id}
               selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+              emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+              emphasizeChartSelection={emphasizeChartSelection}
               setSemanticSelection={setSemanticSelection}
               onAgentReferenceSelect={onAgentReferenceSelect}
               onChartRuntimeAction={onChartRuntimeAction}

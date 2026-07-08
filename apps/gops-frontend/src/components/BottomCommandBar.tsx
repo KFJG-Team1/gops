@@ -1,5 +1,6 @@
-import { Bell, ChevronDown, ChevronUp, GripVertical, LogIn, SendHorizontal, Settings, Square, Star, UserCircle, X } from "lucide-react";
+import { Bell, CandlestickChart, GripVertical, LogIn, MessagesSquare, Newspaper, SendHorizontal, Settings, Square, Star, Trash2, UserCircle, X } from "lucide-react";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertMenu } from "../alerts/AlertMenu";
 import { AlertToast } from "../alerts/AlertToast";
 import { fetchNotifications, markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
@@ -54,7 +55,7 @@ type BottomCommandBarProps = {
   authLoading: boolean;
   authUser: AuthUser | null;
   canUseAgent: boolean;
-  selectedAgentReferenceCount: number;
+  agentReferenceChips: AgentReferenceChip[];
   symbols: ChartSymbolDto[];
   watchlistSymbols: ChartSymbolDto[];
   watchlistPersisted: boolean;
@@ -66,6 +67,8 @@ type BottomCommandBarProps = {
   layoutEditMode: boolean;
   onAgentCancel: () => void;
   onAgentReferencesClear: () => void;
+  onAgentReferenceRemove: (key: string) => void;
+  onAgentReferenceEmphasize: (keys: string[]) => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
   onAddWatchlistSymbol: (symbol: string) => void;
@@ -94,7 +97,7 @@ export function BottomCommandBar({
   authLoading,
   authUser,
   canUseAgent,
-  selectedAgentReferenceCount,
+  agentReferenceChips,
   symbols,
   watchlistSymbols,
   watchlistPersisted,
@@ -106,6 +109,8 @@ export function BottomCommandBar({
   layoutEditMode,
   onAgentCancel,
   onAgentReferencesClear,
+  onAgentReferenceRemove,
+  onAgentReferenceEmphasize,
   onAgentInputChange,
   onAgentSubmit,
   onAddWatchlistSymbol,
@@ -462,15 +467,6 @@ export function BottomCommandBar({
       <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <div className="bottom-nav-actions left" aria-hidden="true" />
         <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
-          <button
-            type="button"
-            className="agent-dock-toggle"
-            aria-label={chatPanelOpen ? "채팅 로그 닫기" : "채팅 로그 열기"}
-            aria-expanded={chatPanelOpen}
-            onClick={toggleChatPanel}
-          >
-            {chatPanelOpen ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </button>
           <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Chart agent conversation" aria-hidden={!chatPanelOpen}>
             <div className="bottom-chat-log" role="log" aria-live="polite">
               {chatLog.length ? chatLog.map((entry) => (
@@ -493,20 +489,12 @@ export function BottomCommandBar({
             </div>
           </section>
           <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
-            {selectedAgentReferenceCount > 0 && (
-              <div className="agent-selected-sources" aria-label="선택한 자료">
-                <span>{selectedAgentReferenceCount} 선택한 자료</span>
-                <button
-                  type="button"
-                  className="agent-selected-sources-clear"
-                  aria-label="선택한 자료 해제"
-                  title="선택한 자료 해제"
-                  onClick={onAgentReferencesClear}
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )}
+            <AgentReferenceStrip
+              chips={agentReferenceChips}
+              onRemove={onAgentReferenceRemove}
+              onClearAll={onAgentReferencesClear}
+              onEmphasize={onAgentReferenceEmphasize}
+            />
             <input
               value={agentInput}
               onChange={(event) => onAgentInputChange(event.target.value)}
@@ -514,6 +502,16 @@ export function BottomCommandBar({
               aria-label="Agent command"
               disabled={agentBusy || !canUseAgent}
             />
+            <button
+              type="button"
+              className={`agent-chat-toggle ${chatPanelOpen ? "is-active" : ""}`}
+              aria-label={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+              title={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+              aria-expanded={chatPanelOpen}
+              onClick={toggleChatPanel}
+            >
+              <MessagesSquare size={15} aria-hidden="true" />
+            </button>
             <button
               type={agentBusy ? "button" : "submit"}
               className={agentBusy ? "agent-stop-button" : undefined}
@@ -564,6 +562,89 @@ export function BottomCommandBar({
         />
       </nav>
     </>
+  );
+}
+
+function AgentReferenceStrip({
+  chips,
+  onRemove,
+  onClearAll,
+  onEmphasize
+}: {
+  chips: AgentReferenceChip[];
+  onRemove: (key: string) => void;
+  onClearAll: () => void;
+  onEmphasize: (keys: string[]) => void;
+}) {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
+  if (chips.length === 0) {
+    return null;
+  }
+
+  const allKeys = chips.map((chip) => chip.key);
+  const trashHovered = hoveredKey === "__all__";
+
+  const emphasizeAll = () => {
+    setHoveredKey("__all__");
+    onEmphasize(allKeys);
+  };
+  const emphasizeChip = (key: string) => {
+    setHoveredKey(key);
+    onEmphasize([key]);
+  };
+  const clearEmphasis = () => {
+    setHoveredKey(null);
+    onEmphasize([]);
+  };
+
+  return (
+    <div className="agent-reference-strip" aria-label="선택한 자료">
+      <button
+        type="button"
+        className={`agent-reference-clear ${trashHovered ? "is-armed" : ""}`}
+        aria-label="선택한 자료 전체 해제"
+        title="선택한 자료 전체 해제"
+        onPointerEnter={emphasizeAll}
+        onPointerLeave={clearEmphasis}
+        onFocus={emphasizeAll}
+        onBlur={clearEmphasis}
+        onClick={() => {
+          clearEmphasis();
+          onClearAll();
+        }}
+      >
+        <Trash2 size={13} aria-hidden="true" />
+      </button>
+      {chips.map((chip) => {
+        const active = hoveredKey === chip.key;
+        const Icon = chip.kind === "candle" ? CandlestickChart : Newspaper;
+        const kindLabel = chip.kind === "candle" ? "캔들" : "뉴스";
+        const label = chip.ticker ? `${chip.ticker} ${kindLabel}` : kindLabel;
+        return (
+          <button
+            key={chip.key}
+            type="button"
+            className={`agent-reference-chip ${chip.kind} ${active ? "is-armed" : ""}`}
+            aria-label={`${label} 참조 해제`}
+            title={`${label} 참조 해제`}
+            onPointerEnter={() => emphasizeChip(chip.key)}
+            onPointerLeave={clearEmphasis}
+            onFocus={() => emphasizeChip(chip.key)}
+            onBlur={clearEmphasis}
+            onClick={() => {
+              clearEmphasis();
+              onRemove(chip.key);
+            }}
+          >
+            <span className="agent-reference-chip-icon" aria-hidden="true">
+              {active ? <X size={13} /> : <Icon size={13} />}
+            </span>
+            {chip.ticker && <span className="agent-reference-chip-ticker">{chip.ticker}</span>}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

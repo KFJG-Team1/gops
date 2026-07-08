@@ -34,4 +34,5 @@ export type TreeMapTile = TreeMapRect & {
   marketCap?: number;
   indexWeight?: number;
   changePercent?: number;
+  band?: TreeMapRect;
 };

@@ -157,7 +157,7 @@ function drawTreeMap(
   context.clearRect(0, 0, size.width, size.height);
 
   tiles.filter((tile) => tile.kind === "sector").forEach((tile) => drawSector(context, tile, theme));
-  tiles.filter((tile) => tile.kind === "industry").forEach((tile) => drawIndustry(context, tile, theme));
+  tiles.filter((tile) => tile.kind === "industry").forEach((tile) => drawIndustry(context, tile, theme, opacityScale));
   tiles.filter((tile) => tile.kind === "symbol").forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale));
 }
 
@@ -185,8 +185,27 @@ function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme:
   }
 }
 
-function drawIndustry(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
+function drawIndustry(
+  context: CanvasRenderingContext2D,
+  tile: TreeMapTile,
+  theme: TreeMapTheme,
+  opacityScale: TreeMapOpacityScale
+) {
+  const band = tile.band;
+  if (band && band.width > 2 && band.height > 0) {
+    context.save();
+    context.fillStyle = tileFillForChange(tile.changePercent, theme.colors);
+    context.globalAlpha = tileOpacityForChange(tile.changePercent, opacityScale);
+    context.fillRect(band.x, band.y, band.width, band.height);
+    context.globalAlpha = 1;
+    context.restore();
+  }
+
   if (tile.width < 70 || tile.height < 24) {
+    return;
+  }
+  const labelLimit = band ? band.y - 1 : tile.y + tile.height;
+  if (tile.y + 3 + 9 > labelLimit) {
     return;
   }
   context.save();

@@ -20,6 +20,8 @@ type Group<T> = {
 };
 
 const minimumLayoutSize = 0.01;
+const industryBandThickness = 5;
+const industryBandGap = 1.5;
 
 export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRect): TreeMapTile[] {
   const safeBounds = normalizeRect(bounds);
@@ -55,6 +57,10 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
 
     industryNodes.forEach(({ item: industry, rect: industryRect }) => {
       const industryId = `${sectorId}:industry:${industry.label}`;
+      const industryHeader = headerHeight(industryRect, 16);
+      const symbolInner = contentRect(industryRect, industryHeader, 2);
+      const band = industryBandRect(industryRect, symbolInner, industryHeader);
+
       tiles.push({
         ...industryRect,
         id: industryId,
@@ -66,10 +72,10 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
         parentId: sectorId,
         sector: sector.label,
         sectorLabelKo: sector.displayLabel,
-        industry: industry.label
+        industry: industry.label,
+        band
       });
 
-      const symbolInner = contentRect(industryRect, headerHeight(industryRect, 16), 2);
       const symbolNodes = squarify(industry.items, symbolInner, (item) => item.value);
       symbolNodes.forEach(({ item, rect: symbolRect }) => {
         tiles.push({
@@ -252,6 +258,28 @@ function worstAspectRatio(row: WeightedNode<unknown>[], side: number): number {
 
 function shortestSide(rect: TreeMapRect): number {
   return Math.max(minimumLayoutSize, Math.min(rect.width, rect.height));
+}
+
+function industryBandRect(
+  industryRect: TreeMapRect,
+  symbolInner: TreeMapRect,
+  header: number
+): TreeMapRect | undefined {
+  if (header < industryBandThickness + 1 || symbolInner.width < 8) {
+    return undefined;
+  }
+  const thickness = Math.min(industryBandThickness, header - 1);
+  const bottom = symbolInner.y - industryBandGap;
+  const y = bottom - thickness;
+  if (y < industryRect.y) {
+    return undefined;
+  }
+  return normalizeRect({
+    x: symbolInner.x,
+    y,
+    width: symbolInner.width,
+    height: thickness
+  });
 }
 
 function contentRect(rect: TreeMapRect, header: number, padding: number): TreeMapRect {
