@@ -2381,6 +2381,11 @@ assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInt
 assert.match(panelContentRendererSource, /chartIntervals\.map/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
 
+const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
+assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
+assert.match(portfolioHoldingsPanelSource, /포트폴리오 새로고침/);
+assert.match(portfolioHoldingsPanelSource, /loadHoldings\(undefined, true\)/);
+
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");

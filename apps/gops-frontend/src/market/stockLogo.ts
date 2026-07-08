@@ -1,4 +1,4 @@
-const logoDevImageBaseUrl = "https://img.logo.dev/ticker";
+const logoDevImageBaseUrl = "https://img.logo.dev";
 
 declare const __GOPS_LOGO_DEV_PUBLISHABLE_KEY__: string | undefined;
 declare const __GOPS_LOGO_DEV_ATTRIBUTION__: string | undefined;
@@ -6,6 +6,27 @@ declare const __GOPS_LOGO_DEV_ATTRIBUTION__: string | undefined;
 type StockLogoUrlOptions = {
   size?: number;
   format?: "webp" | "png" | "jpg";
+};
+
+const logoDevDomainBySymbol: Record<string, string> = {
+  AAPL: "apple.com",
+  AMAT: "appliedmaterials.com",
+  CBOE: "cboe.com",
+  CVNA: "carvana.com",
+  DELL: "delltechnologies.com",
+  DVN: "devonenergy.com",
+  GEV: "gevernova.com",
+  GILD: "gilead.com",
+  INTC: "intel.com",
+  KLAC: "kla.com",
+  LLY: "lilly.com",
+  MRVL: "marvell.com",
+  MSFT: "microsoft.com",
+  OXY: "oxy.com",
+  SNDK: "sandisk.com",
+  UNH: "unitedhealthgroup.com",
+  WELL: "welltower.com",
+  XOM: "exxonmobil.com"
 };
 
 export function buildStockLogoUrl(symbol: string, options: StockLogoUrlOptions = {}): string | null {
@@ -22,7 +43,9 @@ export function buildStockLogoUrl(symbol: string, options: StockLogoUrlOptions =
     fallback: "monogram"
   });
 
-  return `${logoDevImageBaseUrl}/${encodeURIComponent(normalizedSymbol)}?${params.toString()}`;
+  const domain = logoDevDomainBySymbol[normalizedSymbol];
+  const logoPath = domain ? encodeURIComponent(domain) : `ticker/${encodeURIComponent(normalizedSymbol)}`;
+  return `${logoDevImageBaseUrl}/${logoPath}?${params.toString()}`;
 }
 
 export function stockLogoInitials(symbol: string): string {

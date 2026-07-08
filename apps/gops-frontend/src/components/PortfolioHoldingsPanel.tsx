@@ -1,4 +1,4 @@
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, RefreshCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
@@ -80,12 +80,15 @@ export function PortfolioHoldingsPanel({
 }) {
   const [payload, setPayload] = useState<PortfolioHoldingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
   const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
 
   const loadHoldings = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (!showRefreshing) {
+    if (showRefreshing) {
+      setRefreshing(true);
+    } else {
       setLoading(true);
     }
     setError(undefined);
@@ -107,7 +110,10 @@ export function PortfolioHoldingsPanel({
         setError(caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다.");
       }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [onPortfolioSymbolsChange]);
 
@@ -133,6 +139,22 @@ export function PortfolioHoldingsPanel({
 
   return (
     <section className="portfolio-holdings-panel portfolio-dashboard-panel" aria-label="미국 주식 포트폴리오 대시보드">
+      <header className="panel-inline-header portfolio-panel-header">
+        <div>
+          <strong>포트폴리오</strong>
+          <span>{payload?.asOf ? formatPortfolioUpdatedAt(payload.asOf) : "US Stocks"}</span>
+        </div>
+        <button
+          className="portfolio-refresh-button"
+          type="button"
+          title="포트폴리오 새로고침"
+          aria-label="포트폴리오 새로고침"
+          onClick={() => void loadHoldings(undefined, true)}
+          disabled={refreshing}
+        >
+          {loading || refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+        </button>
+      </header>
       {statusMessage && (
         <div className={`portfolio-state-row ${error ? "portfolio-error-inline" : ""}`}>
           {loading && <LoaderCircle size={14} className="spin" />}
@@ -1023,6 +1045,19 @@ function sortPositions(positions: PortfolioPosition[], sortMode: SortMode) {
     }
     return (positionValue(right) ?? -Infinity) - (positionValue(left) ?? -Infinity);
   });
+}
+
+function formatPortfolioUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "최근 조회";
+  }
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function formatMoney(value: number | null | undefined, currency: string) {
