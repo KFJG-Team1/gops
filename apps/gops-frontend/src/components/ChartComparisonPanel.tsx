@@ -9,6 +9,7 @@ import type {
   ChartSymbolDto
 } from "../chart/types";
 import { SymbolSearch } from "./SymbolSearch";
+import { StockLogo } from "./StockLogo";
 
 type ChartComparisonPanelProps = {
   symbol: string;
@@ -21,9 +22,9 @@ type ChartComparisonPanelProps = {
 };
 
 const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
-const chartWidth = 960;
-const chartHeight = 360;
-const plot = { left: 54, right: 910, top: 34, bottom: 284 };
+const chartWidth = 1600;
+const chartHeight = 300;
+const plot = { left: 62, right: 1538, top: 28, bottom: 232 };
 const fallbackColors = ["#2a8c99", "#b2553d", "#b99b2e", "#ca8a4a", "#8f6bb5", "#c85363"];
 const maxCompareSymbols = 6;
 
@@ -86,10 +87,12 @@ export function ChartComparisonPanel({
       const item = items.find((candidate) => candidate.symbol === value);
       const metadata = symbols.find((candidate) => candidate.symbol.toUpperCase() === value);
       const source = item ?? emptyItem(value);
+      const apiName = item?.companyName?.trim();
+      const metadataName = metadata?.name?.trim();
       return {
         ...source,
         points: normalizeComparePoints(source.points),
-        companyName: item?.companyName ?? metadata?.name ?? value,
+        companyName: displayCompanyName(value, apiName, metadataName),
         color: item?.color ?? fallbackColors[index % fallbackColors.length]
       };
     });
@@ -97,7 +100,7 @@ export function ChartComparisonPanel({
   const series = displayItems.filter((item) => item.points.length >= 2);
   const timeScale = compareTimeScale(series);
   const percentDomain = percentRange(series);
-  const xTicks = makeTimeTicks(timeScale, 5);
+  const xTicks = makeTimeTicks(timeScale, range === "1D" ? 7 : 6);
   const yTicks = makePercentTicks(percentDomain, 5);
   const hasRenderableSeries = series.length > 0;
   const cacheLabel = response?.cache?.hit ? "cached" : response ? "fresh" : "";
@@ -105,6 +108,7 @@ export function ChartComparisonPanel({
     () => buildHoverSnapshot(hoverX, series, timeScale, percentDomain),
     [hoverX, percentDomain, series, timeScale]
   );
+  const lineLabels = useMemo(() => buildLineLabels(series, percentDomain), [percentDomain, series]);
 
   function handleComparePointerMove(event: PointerEvent<SVGSVGElement>) {
     if (!hasRenderableSeries) {
@@ -191,24 +195,18 @@ export function ChartComparisonPanel({
             style={{ stroke: item.color }}
           />
         ))}
-        {!hoverSnapshot && series.map((item) => {
-          const last = item.points[item.points.length - 1];
-          if (!last) {
-            return null;
-          }
-          return (
+        {!hoverSnapshot && lineLabels.map(({ item, point, y }) => (
             <text
               key={`${item.symbol}-label`}
               className="chart-compare-line-label"
               x={plot.right - 4}
-              y={Math.max(plot.top + 12, Math.min(plot.bottom - 6, yForPercent(last.returnPercent, percentDomain) - 7))}
+              y={y}
               textAnchor="end"
               style={{ fill: item.color }}
             >
-              {item.symbol} {formatSignedPercent(last.returnPercent)}
+              {item.symbol} {formatSignedPercent(point.returnPercent)}
             </text>
-          );
-        })}
+        ))}
         {hoverSnapshot && (
           <g className="chart-compare-hover-layer" aria-hidden="true">
             <line className="chart-compare-hover-guide" x1={hoverSnapshot.x} x2={hoverSnapshot.x} y1={plot.top} y2={plot.bottom} />
@@ -253,13 +251,19 @@ export function ChartComparisonPanel({
           return (
             <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""} ${hoverEntry ? "is-synced" : ""}`}>
               <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
+              <StockLogo
+                symbol={item.symbol}
+                companyName={item.companyName ?? item.symbol}
+                size="xs"
+                className="chart-compare-row-logo"
+              />
               <div className="chart-compare-row-name">
                 <strong>{item.companyName ?? item.symbol}</strong>
                 <span>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</span>
               </div>
-              <span>{formatPrice(rowPrice)}</span>
-              <span className={toneClass(rowPercent)}>{formatChange(rowChange)}</span>
-              <span className={toneClass(rowPercent)}>{formatSignedPercent(rowPercent)}</span>
+              <span className="chart-compare-row-price">{formatPrice(rowPrice)}</span>
+              <span className={`chart-compare-row-change ${toneClass(rowPercent)}`}>{formatChange(rowChange)}</span>
+              <span className={`chart-compare-row-percent ${toneClass(rowPercent)}`}>{formatSignedPercent(rowPercent)}</span>
               {removable ? (
                 <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
                   <X size={15} />
@@ -287,6 +291,12 @@ type HoverCompareSnapshot = {
   points: HoverComparePoint[];
 };
 
+type CompareLineLabel = {
+  item: ChartCompareItemDto;
+  point: ChartComparePointDto;
+  y: number;
+};
+
 type CompareTimeScale = {
   timeline: number[];
   min: number;
@@ -301,6 +311,18 @@ function emptyItem(symbol: string): ChartCompareItemDto {
     error: "pending",
     message: "pending"
   };
+}
+
+function displayCompanyName(symbol: string, apiName: string | undefined, metadataName: string | undefined): string {
+  const normalized = symbol.trim().toUpperCase();
+  const candidates = [metadataName, apiName];
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (value && value.toUpperCase() !== normalized) {
+      return value;
+    }
+  }
+  return normalized;
 }
 
 function normalizeComparePoints(points: ChartComparePointDto[]): ChartComparePointDto[] {
@@ -376,6 +398,36 @@ function compareTimeScale(items: ChartCompareItemDto[]): CompareTimeScale {
   return { timeline: values, min: values[0], max: values[values.length - 1] };
 }
 
+function buildLineLabels(items: ChartCompareItemDto[], percentDomain: { min: number; max: number }): CompareLineLabel[] {
+  const minY = plot.top + 12;
+  const maxY = plot.bottom - 6;
+  const minGap = 15;
+  const labels = items
+    .map((item) => {
+      const point = item.points[item.points.length - 1];
+      return point ? { item, point, y: yForPercent(point.returnPercent, percentDomain) - 7 } : null;
+    })
+    .filter((entry): entry is CompareLineLabel => entry != null)
+    .sort((left, right) => left.y - right.y);
+
+  let cursor = minY;
+  for (const label of labels) {
+    label.y = Math.max(label.y, cursor);
+    cursor = label.y + minGap;
+  }
+  const overflow = labels.length ? labels[labels.length - 1].y - maxY : 0;
+  if (overflow > 0) {
+    for (let index = labels.length - 1; index >= 0; index -= 1) {
+      const nextY = index === labels.length - 1 ? maxY : labels[index + 1].y - minGap;
+      labels[index].y = Math.min(labels[index].y - overflow, nextY);
+    }
+  }
+  return labels.map((label) => ({
+    ...label,
+    y: Math.max(minY, Math.min(maxY, label.y))
+  }));
+}
+
 function percentRange(items: ChartCompareItemDto[]): { min: number; max: number } {
   const values = items.flatMap((item) => item.points.map((point) => point.returnPercent)).filter(Number.isFinite);
   if (!values.length) {
@@ -388,25 +440,20 @@ function percentRange(items: ChartCompareItemDto[]): { min: number; max: number 
 }
 
 function xForTime(value: number, scale: CompareTimeScale): number {
-  const timeline = scale.timeline;
-  if (timeline.length <= 1) {
-    const span = Math.max(1, scale.max - scale.min);
-    return plot.left + ((value - scale.min) / span) * (plot.right - plot.left);
-  }
-  const index = nearestTimelineIndex(timeline, value);
-  return plot.left + (index / Math.max(1, timeline.length - 1)) * (plot.right - plot.left);
+  const span = Math.max(1, scale.max - scale.min);
+  const clamped = Math.max(scale.min, Math.min(scale.max, value));
+  return plot.left + ((clamped - scale.min) / span) * (plot.right - plot.left);
 }
 
 function timeForX(value: number, scale: CompareTimeScale): number {
   const timeline = scale.timeline;
   const clamped = Math.max(plot.left, Math.min(plot.right, value));
-  if (timeline.length <= 1) {
-    const span = Math.max(1, scale.max - scale.min);
-    return scale.min + ((clamped - plot.left) / Math.max(1, plot.right - plot.left)) * span;
-  }
   const ratio = (clamped - plot.left) / Math.max(1, plot.right - plot.left);
-  const index = Math.max(0, Math.min(timeline.length - 1, Math.round(ratio * (timeline.length - 1))));
-  return timeline[index];
+  const rawTime = scale.min + ratio * Math.max(1, scale.max - scale.min);
+  if (timeline.length <= 1) {
+    return rawTime;
+  }
+  return timeline[nearestTimelineIndex(timeline, rawTime)];
 }
 
 function yForPercent(value: number, range: { min: number; max: number }): number {
@@ -416,13 +463,11 @@ function yForPercent(value: number, range: { min: number; max: number }): number
 
 function makeTimeTicks(scale: CompareTimeScale, count: number): number[] {
   const safeCount = Math.max(2, count);
-  if (scale.timeline.length <= safeCount) {
+  if (scale.max <= scale.min) {
     return scale.timeline;
   }
-  const maxIndex = scale.timeline.length - 1;
-  return Array.from(
-    new Set(Array.from({ length: safeCount }, (_, index) => scale.timeline[Math.round((index / (safeCount - 1)) * maxIndex)]))
-  );
+  const span = scale.max - scale.min;
+  return Array.from({ length: safeCount }, (_, index) => scale.min + (span * index) / (safeCount - 1));
 }
 
 function nearestTimelineIndex(timeline: number[], value: number): number {

@@ -35,6 +35,14 @@ export type PortfolioPosition = {
   sectorLabelKo?: string;
   dayPnlForeign?: number | null;
   dayPnlRate?: number | null;
+  peRatio?: number | null;
+  epsTtm?: number | null;
+  low52?: number | null;
+  high52?: number | null;
+  marketStatsAsOf?: string | null;
+  stats52wSource?: string | null;
+  fundamentalsSource?: string | null;
+  fundamentalsAsOf?: string | null;
   dividendYield?: number | null;
   dividendPerShare?: number | null;
   annualDividend?: number | null;

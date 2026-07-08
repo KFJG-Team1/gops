@@ -2237,7 +2237,7 @@ h2 {
 .chart-compare-svg {
   width: 100%;
   height: 100%;
-  min-height: 250px;
+  min-height: 220px;
   cursor: crosshair;
   touch-action: none;
 }
@@ -2382,18 +2382,25 @@ h2 {
 
 .chart-compare-list {
   display: grid;
-  max-height: 180px;
+  max-height: 132px;
   overflow: auto;
   border-top: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
 }
 
 .chart-compare-list-row {
   display: grid;
-  grid-template-columns: 6px minmax(120px, 1fr) minmax(82px, auto) minmax(88px, auto) minmax(72px, auto) 38px;
+  grid-template-columns:
+    5px
+    28px
+    minmax(150px, 1.2fr)
+    minmax(86px, 0.72fr)
+    minmax(96px, 0.72fr)
+    minmax(78px, 0.56fr)
+    30px;
   align-items: center;
-  gap: 10px;
-  min-height: 54px;
-  padding: 7px 12px;
+  column-gap: clamp(8px, 0.9vw, 16px);
+  min-height: 42px;
+  padding: 5px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
   font-family: var(--font-ui-sans);
   font-size: 13px;
@@ -2411,8 +2418,16 @@ h2 {
 
 .chart-compare-row-swatch {
   width: 5px;
-  height: 38px;
+  height: 30px;
   border-radius: 999px;
+}
+
+.chart-compare-row-logo {
+  width: 28px;
+  height: 28px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.32),
+    0 1px 4px rgb(var(--gops-ink-rgb) / 0.08);
 }
 
 .chart-compare-row-name {
@@ -2430,7 +2445,7 @@ h2 {
 }
 
 .chart-compare-row-name strong {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--color-text);
 }
 
@@ -2439,6 +2454,18 @@ h2 {
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.chart-compare-row-price,
+.chart-compare-row-change,
+.chart-compare-row-percent,
+.chart-compare-row-anchor {
+  justify-self: end;
+  overflow: hidden;
+  min-width: 0;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-compare-list-row .up {
@@ -2456,8 +2483,8 @@ h2 {
 .chart-compare-list-row button {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-surface);
@@ -3881,11 +3908,30 @@ h2 {
   animation-delay: calc(var(--earnings-index, 0) * 55ms + 240ms);
 }
 
+.company-earnings-plot line.company-earnings-surprise-stem {
+  opacity: 0.55;
+  stroke: rgb(var(--gops-ink-rgb) / 0.28);
+  stroke-width: 2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  stroke-linecap: round;
+  animation: company-earnings-surprise-rise 520ms cubic-bezier(0.2, 0.76, 0.18, 1) both;
+  animation-delay: calc(var(--earnings-index, 0) * 55ms + 320ms);
+}
+
+.company-earnings-plot line.company-earnings-surprise-stem.beat {
+  stroke: color-mix(in srgb, #ad3d4d 72%, var(--color-background));
+}
+
+.company-earnings-plot line.company-earnings-surprise-stem.miss {
+  stroke: color-mix(in srgb, #06742d 72%, var(--color-background));
+}
+
 .company-earnings-dot.actual {
   stroke: rgb(var(--gops-ink-rgb) / 0.08);
   stroke-width: 1;
-  animation: company-earnings-dot-pop 640ms cubic-bezier(0.18, 0.88, 0.28, 1.2) both;
-  animation-delay: calc(var(--earnings-index, 0) * 55ms + 180ms);
+  animation: company-earnings-actual-from-estimate 700ms cubic-bezier(0.17, 0.84, 0.24, 1.12) both;
+  animation-delay: calc(var(--earnings-index, 0) * 55ms + 360ms);
 }
 
 .company-earnings-dot.beat {
@@ -3923,14 +3969,29 @@ h2 {
   }
 }
 
-@keyframes company-earnings-dot-pop {
+@keyframes company-earnings-surprise-rise {
   0% {
     opacity: 0;
-    transform: scale(0.52);
+    stroke-dashoffset: 1;
   }
-  70% {
+  100% {
+    opacity: 0.55;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes company-earnings-actual-from-estimate {
+  0% {
+    opacity: 0;
+    transform: translateY(var(--earnings-actual-offset-y, 0)) scale(0.62);
+  }
+  62% {
+    opacity: 0;
+    transform: translateY(var(--earnings-actual-offset-y, 0)) scale(0.62);
+  }
+  84% {
     opacity: 1;
-    transform: scale(1.08);
+    transform: translateY(0) scale(1.12);
   }
   100% {
     opacity: 1;
@@ -3957,10 +4018,12 @@ h2 {
   .company-earnings-plot line,
   .company-earnings-point,
   .company-earnings-dot.estimate,
-  .company-earnings-dot.actual {
+  .company-earnings-dot.actual,
+  .company-earnings-surprise-stem {
     animation: none;
     opacity: 1;
     transform: none;
+    stroke-dashoffset: 0;
   }
 }
 
