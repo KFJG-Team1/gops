@@ -1300,7 +1300,9 @@ assert.equal(maxRequestBarsForInterval("1W"), 312);
 assert.equal(maxRequestBarsForInterval("1M"), 72);
 assert.equal(maxIndicatorRequestBars, 5000);
 assert.equal(indicatorRequestLimitForInterval("1D", 22849), 1512);
+assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
+assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
 for (const timeframe of ["1h", "4h", "1D", "1W", "1M"]) {
   const timeframeDocument = createChartDocument(`chart-doc-${timeframe}`, "AAPL", "1m");
   const timeframeResult = executeChartCommand(
