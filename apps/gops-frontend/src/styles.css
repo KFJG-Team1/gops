@@ -1047,6 +1047,10 @@ button {
   gap: 14px;
 }
 
+.alert-menu.is-form-only {
+  gap: 12px;
+}
+
 .alert-menu > .bottom-menu-title {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
@@ -1083,6 +1087,12 @@ button {
 .alert-form {
   display: grid;
   gap: 8px;
+}
+
+.alert-menu.is-form-only .alert-form {
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-surface);
 }
 
 .alert-add-button,
@@ -1356,6 +1366,11 @@ button {
   opacity: 0.58;
 }
 
+.notification-row.has-symbol:hover,
+.notification-row:focus-within {
+  background: var(--color-surface-strong);
+}
+
 .notification-row-main {
   display: grid;
   gap: 2px;
@@ -1366,6 +1381,7 @@ button {
   color: inherit;
   font-family: var(--font-ui-serif);
   text-align: left;
+  cursor: pointer;
 }
 
 .notification-row-main:disabled {

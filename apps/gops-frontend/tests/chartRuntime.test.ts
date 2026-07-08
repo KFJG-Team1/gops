@@ -2344,8 +2344,14 @@ assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
 assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.symbol-search-menu/);
+assert.match(bottomCommandBarSource, /onOpenNotificationSymbol=\{\(symbol\) => \{/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
+assert.match(alertMenuSource, /is-form-only/);
+assert.match(alertMenuSource, /notificationChartSymbol/);
+assert.match(alertMenuSource, /onOpenNotificationSymbol\(chartSymbol\)/);
+assert.match(alertMenuSource, /onClick=\{\(\) => void openNotification\(notification\)\}/);
+assert.doesNotMatch(alertMenuSource, /disabled=\{saving \|\| Boolean\(notification\.readAt\)\}/);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);

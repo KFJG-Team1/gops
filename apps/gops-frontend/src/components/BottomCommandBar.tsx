@@ -1207,6 +1207,10 @@ function bottomMenuContent({
           marketOpenReminderEnabled={marketOpenReminderEnabled}
           onMarketOpenReminderChange={onMarketOpenReminderChange}
           onLogin={onLogin}
+          onOpenNotificationSymbol={(symbol) => {
+            onSelectSymbol(symbol);
+            onClose();
+          }}
           onUnreadCountChange={onAlertUnreadCountChange}
         />
       );
