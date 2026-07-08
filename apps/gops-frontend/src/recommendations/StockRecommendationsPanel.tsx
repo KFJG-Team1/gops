@@ -21,7 +21,7 @@ export function StockRecommendationsPanel({
   onSelectSymbol: (symbol: string) => void;
 }) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
-  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => isRegularSessionNow() ? "regular" : "pre");
+  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -31,7 +31,7 @@ export function StockRecommendationsPanel({
     setError(null);
     setLoading(true);
     try {
-      setPayload(await fetchStockRecommendations(sessionMode, signal));
+      setPayload(await fetchRecommendationsWithFallback(sessionMode, signal));
     } catch (caught) {
       if (isAbortError(caught)) {
         return;
@@ -48,7 +48,8 @@ export function StockRecommendationsPanel({
     setError(null);
     setRefreshing(true);
     try {
-      setPayload(await refreshStockRecommendations(activeSymbol, sessionMode));
+      const nextPayload = await refreshStockRecommendations(activeSymbol, sessionMode);
+      setPayload(await regularFallbackPayload(nextPayload, sessionMode));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천을 갱신하지 못했습니다.");
     } finally {
@@ -152,6 +153,38 @@ function sessionButtonClass(active: boolean, live = false) {
   ].filter(Boolean).join(" ");
 }
 
+async function fetchRecommendationsWithFallback(sessionMode: RecommendationSessionMode, signal?: AbortSignal) {
+  const payload = await fetchStockRecommendations(sessionMode, signal);
+  return regularFallbackPayload(payload, sessionMode, signal);
+}
+
+async function regularFallbackPayload(
+  payload: StockRecommendationPayload,
+  sessionMode: RecommendationSessionMode,
+  signal?: AbortSignal
+) {
+  if (!shouldFallbackToRegular(payload, sessionMode)) {
+    return payload;
+  }
+  const fallback = await fetchStockRecommendations("regular", signal);
+  if (fallback.items.length === 0) {
+    return payload;
+  }
+  return {
+    ...fallback,
+    summary: {
+      ...fallback.summary,
+      fallbackFromSessionMode: sessionMode,
+      fallbackReason: payload.summary?.emptyReason ?? payload.status,
+      requestedSessionMode: sessionMode
+    }
+  };
+}
+
+function shouldFallbackToRegular(payload: StockRecommendationPayload, sessionMode: RecommendationSessionMode) {
+  return sessionMode === "pre" && payload.status !== "profile_required" && payload.items.length === 0;
+}
+
 function marketClosedMessage(sessionMode: RecommendationSessionMode) {
   return sessionMode === "regular"
     ? "본장 추천은 미국 본장 시간에 생성됩니다"
@@ -184,8 +217,6 @@ function RecommendationRow({
   item: StockRecommendationItem;
   onSelectSymbol: (symbol: string) => void;
 }) {
-  const tone = recommendationTone(item);
-  const title = recommendationToneTitle(item);
   const sector = item.sector || "Unclassified";
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
@@ -202,7 +233,9 @@ function RecommendationRow({
       <span className="stock-rec-main">
         <span className="stock-rec-symbol-line">
           <strong>{item.symbol}</strong>
-          <span className={`stock-rec-signal-dot ${tone}`} title={title} aria-label={title} />
+          <span className={`stock-rec-change ${changeTone(item.changePercent)}`} title="오늘의 등락률">
+            {formatChangePercent(item.changePercent)}
+          </span>
         </span>
       </span>
       <span className="stock-rec-reasons">
@@ -218,23 +251,18 @@ function RecommendationRow({
   );
 }
 
-function recommendationTone(item: StockRecommendationItem): "high" | "medium" | "low" {
-  if (item.score >= 80 && item.confidence >= 0.75) {
-    return "high";
+function changeTone(value?: number): "up" | "down" | "flat" {
+  if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
+    return "flat";
   }
-  if (item.score >= 70 && item.confidence >= 0.5) {
-    return "medium";
-  }
-  return "low";
+  return value > 0 ? "up" : "down";
 }
 
-function recommendationToneTitle(item: StockRecommendationItem): string {
-  const label = {
-    high: "높음",
-    medium: "보통",
-    low: "낮음"
-  }[recommendationTone(item)];
-  return `추천도 ${label}, 점수 ${Math.round(item.score)}`;
+function formatChangePercent(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 function recommendationVisibleReasons(item: StockRecommendationItem) {
@@ -275,7 +303,27 @@ function formatTimestamp(value: string | undefined) {
   return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function initialRecommendationSessionMode(date = new Date()): RecommendationSessionMode {
+  return isPreSessionNow(date) ? "pre" : "regular";
+}
+
+function isPreSessionNow(date = new Date()) {
+  const clock = newYorkMarketClock(date);
+  if (!clock) {
+    return false;
+  }
+  return clock.totalMinutes >= 4 * 60 && clock.totalMinutes < 9 * 60 + 30;
+}
+
 function isRegularSessionNow(date = new Date()) {
+  const clock = newYorkMarketClock(date);
+  if (!clock) {
+    return false;
+  }
+  return clock.totalMinutes >= 9 * 60 + 30 && clock.totalMinutes < 16 * 60;
+}
+
+function newYorkMarketClock(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     weekday: "short",
@@ -286,13 +334,12 @@ function isRegularSessionNow(date = new Date()) {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const weekday = values.weekday;
   if (weekday === "Sat" || weekday === "Sun") {
-    return false;
+    return null;
   }
   const hour = Number(values.hour);
   const minute = Number(values.minute);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return false;
+    return null;
   }
-  const totalMinutes = hour * 60 + minute;
-  return totalMinutes >= 9 * 60 + 30 && totalMinutes < 16 * 60;
+  return { totalMinutes: hour * 60 + minute };
 }
