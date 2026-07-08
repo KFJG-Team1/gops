@@ -19,7 +19,7 @@ import {
   type NotificationItem,
   type PriceAlert
 } from "./alertApi";
-import { alertSummary, notificationSummary, notificationSymbol } from "./alertPresentation";
+import { alertSummary, notificationChartSymbol, notificationSummary, notificationSymbol } from "./alertPresentation";
 
 type AlertMenuProps = {
   activeSymbol: string;
@@ -31,6 +31,7 @@ type AlertMenuProps = {
   marketOpenReminderEnabled: boolean;
   onMarketOpenReminderChange: (enabled: boolean) => void;
   onLogin: () => void;
+  onOpenNotificationSymbol: (symbol: string) => void;
   onUnreadCountChange?: (count: number) => void;
 };
 
@@ -47,6 +48,7 @@ export function AlertMenu({
   marketOpenReminderEnabled,
   onMarketOpenReminderChange,
   onLogin,
+  onOpenNotificationSymbol,
   onUnreadCountChange
 }: AlertMenuProps) {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
@@ -213,16 +215,40 @@ export function AlertMenu({
     }
   };
 
-  const readNotification = async (notification: NotificationItem) => {
+  const openAlertForm = () => {
+    setError(null);
+    setFormOpen(true);
+  };
+
+  const closeAlertForm = () => {
+    setError(null);
+    setFormOpen(false);
+  };
+
+  const readNotification = async (notification: NotificationItem): Promise<NotificationItem | null> => {
     if (notification.readAt) {
-      return;
+      return notification;
     }
-    const updated = await markNotificationRead(notification.id);
-    if (!updated) {
-      return;
+    try {
+      const updated = await markNotificationRead(notification.id);
+      if (!updated) {
+        return null;
+      }
+      setNotifications((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setUnreadCount((current) => Math.max(0, current - 1));
+      return updated;
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "알림을 읽음 처리하지 못했습니다.");
+      return null;
     }
-    setNotifications((current) => current.map((item) => item.id === updated.id ? updated : item));
-    setUnreadCount((current) => Math.max(0, current - 1));
+  };
+
+  const openNotification = async (notification: NotificationItem) => {
+    const chartSymbol = notificationChartSymbol(notification);
+    await readNotification(notification);
+    if (chartSymbol) {
+      onOpenNotificationSymbol(chartSymbol);
+    }
   };
 
   const readAll = async () => {
@@ -252,7 +278,7 @@ export function AlertMenu({
   };
 
   return (
-    <div className="bottom-menu-section bottom-menu-scroll alert-menu">
+    <div className={`bottom-menu-section bottom-menu-scroll alert-menu ${formOpen ? "is-form-only" : ""}`}>
       <header className="bottom-menu-title">
         <Bell size={15} />
         <span>알림</span>
@@ -270,119 +296,120 @@ export function AlertMenu({
         <button className="bottom-menu-item surface-raised" type="button" disabled={authLoading} onClick={onLogin}>
           로그인 후 알림 사용
         </button>
-      ) : (
+      ) : formOpen ? (
         <>
-          {!formOpen ? (
-            <button className="bottom-menu-item surface-raised alert-add-button" type="button" onClick={() => setFormOpen(true)}>
-              <Plus size={14} />
-              <span>알림 추가하기</span>
-            </button>
-          ) : (
-            <form className="alert-form" onSubmit={submitAlert}>
-              <div className="alert-form-title">
-                <strong>새 알림</strong>
-                <button
-                  type="button"
-                  className="alert-icon-button"
-                  aria-label="새 알림 닫기"
-                  title="새 알림 닫기"
-                  onClick={() => setFormOpen(false)}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-              <div className="alert-form-row">
-                <label className="alert-field alert-symbol-field">
-                  <span>종목</span>
-                  <SymbolSearch
-                    symbols={symbols}
-                    selectedSymbol={symbol}
-                    selectedLabel={selectedSymbolLabel}
-                    placeholder="종목 검색"
-                    compact
-                    className="alert-symbol-search"
-                    onSelectSymbol={(nextSymbol) => setSymbol(nextSymbol.toUpperCase())}
-                  />
-                </label>
+          <form className="alert-form" onSubmit={submitAlert}>
+            <div className="alert-form-title">
+              <strong>새 알림</strong>
+              <button
+                type="button"
+                className="alert-icon-button"
+                aria-label="새 알림 닫기"
+                title="새 알림 닫기"
+                onClick={closeAlertForm}
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="alert-form-row">
+              <label className="alert-field alert-symbol-field">
+                <span>종목</span>
+                <SymbolSearch
+                  symbols={symbols}
+                  selectedSymbol={symbol}
+                  selectedLabel={selectedSymbolLabel}
+                  placeholder="종목 검색"
+                  compact
+                  className="alert-symbol-search"
+                  onSelectSymbol={(nextSymbol) => setSymbol(nextSymbol.toUpperCase())}
+                />
+              </label>
+              <label className="alert-field">
+                <span>알림 유형</span>
+                <select className="alert-input" value={mode} aria-label="알림 유형" onChange={(event) => setMode(event.target.value as AlertFormMode)}>
+                  <option value="price_cross">목표가</option>
+                  <option value="spike">급등락</option>
+                </select>
+              </label>
+            </div>
+            {mode === "price_cross" ? (
+              <label className="alert-field">
+                <span>목표가</span>
+                <input
+                  className="alert-input"
+                  inputMode="decimal"
+                  placeholder="예: 1,000,000"
+                  value={targetPrice}
+                  aria-label="목표가"
+                  onChange={(event) => setTargetPrice(cleanPriceInput(event.target.value))}
+                />
+                {targetPriceKorean && <small className="alert-target-preview">{targetPriceKorean}</small>}
+              </label>
+            ) : (
+              <div className="alert-form-row alert-form-row-three">
                 <label className="alert-field">
-                  <span>알림 유형</span>
-                  <select className="alert-input" value={mode} aria-label="알림 유형" onChange={(event) => setMode(event.target.value as AlertFormMode)}>
-                    <option value="price_cross">목표가</option>
-                    <option value="spike">급등락</option>
+                  <span>방향</span>
+                  <select className="alert-input" value={direction} aria-label="급등락 방향" onChange={(event) => setDirection(event.target.value as AlertDirection)}>
+                    <option value="above">급등</option>
+                    <option value="below">급락</option>
                   </select>
                 </label>
-              </div>
-              {mode === "price_cross" ? (
                 <label className="alert-field">
-                  <span>목표가</span>
+                  <span>변동률</span>
                   <input
                     className="alert-input"
                     inputMode="decimal"
-                    placeholder="예: 1,000,000"
-                    value={targetPrice}
-                    aria-label="목표가"
-                    onChange={(event) => setTargetPrice(cleanPriceInput(event.target.value))}
+                    value={changePct}
+                    aria-label="변동률"
+                    placeholder="%"
+                    onChange={(event) => setChangePct(cleanNumberInput(event.target.value))}
                   />
-                  {targetPriceKorean && <small className="alert-target-preview">{targetPriceKorean}</small>}
                 </label>
-              ) : (
-                <div className="alert-form-row alert-form-row-three">
-                  <label className="alert-field">
-                    <span>방향</span>
-                    <select className="alert-input" value={direction} aria-label="급등락 방향" onChange={(event) => setDirection(event.target.value as AlertDirection)}>
-                      <option value="above">급등</option>
-                      <option value="below">급락</option>
-                    </select>
-                  </label>
-                  <label className="alert-field">
-                    <span>변동률</span>
+                <label className="alert-field">
+                  <span>비교 시간</span>
+                  <span className="alert-input-with-unit">
                     <input
                       className="alert-input"
-                      inputMode="decimal"
-                      value={changePct}
-                      aria-label="변동률"
-                      placeholder="%"
-                      onChange={(event) => setChangePct(cleanNumberInput(event.target.value))}
+                      inputMode="numeric"
+                      value={windowMin}
+                      aria-label="비교 시간"
+                      onChange={(event) => setWindowMin(event.target.value.replace(/[^\d]/g, ""))}
                     />
-                  </label>
-                  <label className="alert-field">
-                    <span>비교 시간</span>
-                    <span className="alert-input-with-unit">
-                      <input
-                        className="alert-input"
-                        inputMode="numeric"
-                        value={windowMin}
-                        aria-label="비교 시간"
-                        onChange={(event) => setWindowMin(event.target.value.replace(/[^\d]/g, ""))}
-                      />
-                      <span className="alert-input-unit" aria-hidden="true">
-                        분
-                      </span>
+                    <span className="alert-input-unit" aria-hidden="true">
+                      분
                     </span>
-                  </label>
-                </div>
-              )}
-              <label className="alert-field">
-                <span>재알림 방식</span>
-                <select
-                  className="alert-input"
-                  value={repeatMode}
-                  aria-label="재알림 방식"
-                  onChange={(event) => setRepeatMode(event.target.value as AlertRepeatOption)}
-                >
-                  <option value="1">한 번만 알림</option>
-                  <option value="unlimited">다시 충족될 때마다 알림</option>
-                  <option value="3">최대 3회 알림</option>
-                  <option value="5">최대 5회 알림</option>
-                  <option value="10">최대 10회 알림</option>
-                </select>
-              </label>
-              <button className="bottom-menu-item surface-raised alert-submit" type="submit" disabled={saving || loading}>
-                {saving ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}
-                <span>등록</span>
-              </button>
-            </form>
-          )}
+                  </span>
+                </label>
+              </div>
+            )}
+            <label className="alert-field">
+              <span>재알림 방식</span>
+              <select
+                className="alert-input"
+                value={repeatMode}
+                aria-label="재알림 방식"
+                onChange={(event) => setRepeatMode(event.target.value as AlertRepeatOption)}
+              >
+                <option value="1">한 번만 알림</option>
+                <option value="unlimited">다시 충족될 때마다 알림</option>
+                <option value="3">최대 3회 알림</option>
+                <option value="5">최대 5회 알림</option>
+                <option value="10">최대 10회 알림</option>
+              </select>
+            </label>
+            <button className="bottom-menu-item surface-raised alert-submit" type="submit" disabled={saving || loading}>
+              {saving ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}
+              <span>등록</span>
+            </button>
+          </form>
+          {error && <p className="alert-menu-error">{error}</p>}
+        </>
+      ) : (
+        <>
+          <button className="bottom-menu-item surface-raised alert-add-button" type="button" onClick={openAlertForm}>
+            <Plus size={14} />
+            <span>알림 추가하기</span>
+          </button>
           {error && <p className="alert-menu-error">{error}</p>}
           <section className="alert-menu-group">
             <div className="alert-menu-group-title">
@@ -430,42 +457,48 @@ export function AlertMenu({
               </button>
             </div>
             <div className="alert-list notifications">
-              {notifications.map((notification) => (
-                <article
-                  key={notification.id}
-                  className={`notification-row ${notification.readAt ? "read" : "unread"}`}
-                >
-                  {notification.readAt ? <BellOff size={13} /> : <Bell size={13} />}
-                  <button
-                    type="button"
-                    className="notification-row-main"
-                    disabled={saving || Boolean(notification.readAt)}
-                    onClick={() => readNotification(notification)}
+              {notifications.map((notification) => {
+                const chartSymbol = notificationChartSymbol(notification);
+                const notificationActionLabel = chartSymbol ? `${chartSymbol} 기업으로 이동` : "알림 읽기";
+                return (
+                  <article
+                    key={notification.id}
+                    className={`notification-row ${notification.readAt ? "read" : "unread"} ${chartSymbol ? "has-symbol" : ""}`}
                   >
-                    <span className="notification-row-copy">
-                      <strong>{notificationSymbol(notification)}</strong>
-                      {notificationSummary(notification)}
-                    </span>
-                    {notification.createdAt && (
-                      <time className="notification-row-time" dateTime={notification.createdAt}>
-                        {formatNotificationTime(notification.createdAt)}
-                      </time>
-                    )}
-                  </button>
-                  {notification.readAt && (
+                    {notification.readAt ? <BellOff size={13} /> : <Bell size={13} />}
                     <button
                       type="button"
-                      className="alert-icon-button danger notification-delete-button"
-                      aria-label="읽은 알림 삭제"
-                      title="읽은 알림 삭제"
+                      className="notification-row-main"
+                      aria-label={notificationActionLabel}
+                      title={notificationActionLabel}
                       disabled={saving}
-                      onClick={() => removeNotification(notification)}
+                      onClick={() => void openNotification(notification)}
                     >
-                      <Trash2 size={13} />
+                      <span className="notification-row-copy">
+                        <strong>{notificationSymbol(notification)}</strong>
+                        {notificationSummary(notification)}
+                      </span>
+                      {notification.createdAt && (
+                        <time className="notification-row-time" dateTime={notification.createdAt}>
+                          {formatNotificationTime(notification.createdAt)}
+                        </time>
+                      )}
                     </button>
-                  )}
-                </article>
-              ))}
+                    {notification.readAt && (
+                      <button
+                        type="button"
+                        className="alert-icon-button danger notification-delete-button"
+                        aria-label="읽은 알림 삭제"
+                        title="읽은 알림 삭제"
+                        disabled={saving}
+                        onClick={() => removeNotification(notification)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
               {!loading && notifications.length === 0 && <p className="bottom-menu-empty">새 알림이 없습니다.</p>}
             </div>
           </section>

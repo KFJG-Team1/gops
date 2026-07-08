@@ -62,7 +62,7 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
   const dataAsOf = item?.fundamentalsAsOf ?? item?.periodEndDate ?? item?.filedAt ?? item?.priceUpdatedAt ?? item?.layoutPriceUpdatedAt ?? null;
   const comparison = buildComparison(normalizedSymbol, item, items);
   const profitabilitySeries = useMemo(
-    () => buildFinancialSeries(financialSeries ?? item?.financialSeries, item),
+    () => buildFinancialSeries(financialSeries?.length ? financialSeries : item?.financialSeries, item),
     [financialSeries, item]
   );
   const earningsSeries = useMemo(
@@ -206,13 +206,32 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
           const actual = Number.isFinite(point.actual ?? NaN) ? point.actual as number : null;
           const estimate = Number.isFinite(point.estimate ?? NaN) ? point.estimate as number : null;
           const tone = earningsTone(actual, estimate);
+          const actualY = actual == null ? null : yFor(actual);
+          const estimateY = estimate == null ? null : yFor(estimate);
+          const hasComparison = actualY != null && estimateY != null;
           return (
             <g key={`${point.period}-${index}`} className="company-earnings-point" style={{ "--earnings-index": index } as CSSProperties}>
               {estimate != null && (
-                <circle className="company-earnings-dot estimate" cx={x} cy={yFor(estimate)} r={9} />
+                <circle className="company-earnings-dot estimate" cx={x} cy={estimateY ?? 0} r={9} />
+              )}
+              {hasComparison && (
+                <line
+                  className={`company-earnings-surprise-stem ${tone}`}
+                  x1={x}
+                  x2={x}
+                  y1={estimateY ?? 0}
+                  y2={actualY ?? 0}
+                  pathLength={1}
+                />
               )}
               {actual != null && (
-                <circle className={`company-earnings-dot actual ${tone}`} cx={x} cy={yFor(actual)} r={8} />
+                <circle
+                  className={`company-earnings-dot actual ${tone}`}
+                  cx={x}
+                  cy={actualY ?? 0}
+                  r={8}
+                  style={hasComparison ? { "--earnings-actual-offset-y": `${(estimateY ?? 0) - (actualY ?? 0)}px` } as CSSProperties : undefined}
+                />
               )}
               {shouldShowPeriodLabel(index, points.length) && (
                 <text className="company-earnings-period" x={x} y={chartHeight - 11}>{formatPeriod(point.period, point.periodEndDate)}</text>
@@ -230,7 +249,7 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
 
 function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const points = series
-    .filter((point) => Number.isFinite(point.revenue ?? NaN) || Number.isFinite(point.netIncome ?? NaN))
+    .filter(isRenderableProfitabilityPoint)
     .slice(-12);
   const tablePoints = points.slice(-6);
   if (!points.length) {
@@ -254,12 +273,8 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   }
   const moneyValues = points.flatMap((point) => [point.revenue, point.netIncome]).filter((value): value is number => Number.isFinite(value ?? NaN));
   const marginValues = points.map((point) => safeDivide(point.netIncome, point.revenue)).filter((value): value is number => Number.isFinite(value ?? NaN));
-  const moneyMin = moneyValues.length ? Math.min(0, ...moneyValues) : 0;
-  const moneyMax = moneyValues.length ? Math.max(...moneyValues) : 1;
-  const moneySpan = moneyMax === moneyMin ? 1 : moneyMax - moneyMin;
-  const marginMin = marginValues.length ? Math.min(0, ...marginValues) : 0;
-  const marginMax = marginValues.length ? Math.max(...marginValues) : 0.3;
-  const marginSpan = marginMax === marginMin ? 1 : marginMax - marginMin;
+  const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1 });
+  const marginDomain = paddedDomain(marginValues, { includeZero: true, fallbackMax: 0.3 });
   const chartWidth = 620;
   const chartHeight = 250;
   const plot = { left: 64, right: 28, top: 20, bottom: 46 };
@@ -267,9 +282,9 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
   const barWidth = Math.max(6, Math.min(18, slot * 0.28));
-  const zeroY = plot.top + (1 - (0 - moneyMin) / moneySpan) * innerHeight;
-  const moneyY = (value: number) => plot.top + (1 - (value - moneyMin) / moneySpan) * innerHeight;
-  const marginY = (value: number) => plot.top + (1 - (value - marginMin) / marginSpan) * innerHeight;
+  const zeroY = valueToY(0, moneyDomain, plot.top, innerHeight);
+  const moneyY = (value: number) => valueToY(value, moneyDomain, plot.top, innerHeight);
+  const marginY = (value: number) => valueToY(value, marginDomain, plot.top, innerHeight);
   const xFor = (index: number) => plot.left + slot * index + slot / 2;
   const marginPath = points
     .map((point, index) => {
@@ -298,7 +313,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
       table={<FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />}
     >
       <svg className="company-profitability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 수익성 시계열">
-        {makeTicks(moneyMin, moneyMax, 5).map((tick) => {
+        {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
             <g key={tick}>
@@ -354,7 +369,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
 
 function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const points = series
-    .filter((point) => Number.isFinite(point.totalEquity ?? NaN) || Number.isFinite(point.totalLiabilities ?? NaN))
+    .filter(isRenderableStabilityPoint)
     .slice(-12);
   const tablePoints = points.slice(-6);
   if (!points.length) {
@@ -378,12 +393,8 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   }
   const moneyValues = points.flatMap((point) => [point.totalEquity, point.totalLiabilities]).filter((value): value is number => Number.isFinite(value ?? NaN));
   const ratioValues = points.map((point) => safeDivide(point.totalLiabilities, point.totalEquity)).filter((value): value is number => Number.isFinite(value ?? NaN));
-  const moneyMin = 0;
-  const moneyMax = moneyValues.length ? Math.max(...moneyValues) : 1;
-  const moneySpan = moneyMax - moneyMin || 1;
-  const ratioMin = ratioValues.length ? Math.min(0, ...ratioValues) : 0;
-  const ratioMax = ratioValues.length ? Math.max(...ratioValues) : 1;
-  const ratioSpan = ratioMax === ratioMin ? 1 : ratioMax - ratioMin;
+  const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1, minFloor: 0 });
+  const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
   const chartWidth = 620;
   const chartHeight = 250;
   const plot = { left: 64, right: 28, top: 20, bottom: 46 };
@@ -391,9 +402,9 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
   const barWidth = Math.max(6, Math.min(18, slot * 0.28));
-  const zeroY = plot.top + innerHeight;
-  const moneyY = (value: number) => plot.top + (1 - (value - moneyMin) / moneySpan) * innerHeight;
-  const ratioY = (value: number) => plot.top + (1 - (value - ratioMin) / ratioSpan) * innerHeight;
+  const zeroY = valueToY(0, moneyDomain, plot.top, innerHeight);
+  const moneyY = (value: number) => valueToY(value, moneyDomain, plot.top, innerHeight);
+  const ratioY = (value: number) => valueToY(value, ratioDomain, plot.top, innerHeight);
   const xFor = (index: number) => plot.left + slot * index + slot / 2;
   const ratioPath = points
     .map((point, index) => {
@@ -421,7 +432,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
     >
       <svg className="company-profitability-plot company-stability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 안정성 시계열">
-        {makeTicks(moneyMin, moneyMax, 5).map((tick) => {
+        {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
             <g key={tick}>
@@ -665,6 +676,18 @@ function buildStabilityTableRows(points: FinancialChartPoint[]): FinancialTableR
   ];
 }
 
+function isRenderableProfitabilityPoint(point: FinancialChartPoint): boolean {
+  return Number.isFinite(point.revenue ?? NaN) &&
+    Number.isFinite(point.netIncome ?? NaN) &&
+    (point.revenue as number) > 0;
+}
+
+function isRenderableStabilityPoint(point: FinancialChartPoint): boolean {
+  return Number.isFinite(point.totalEquity ?? NaN) &&
+    Number.isFinite(point.totalLiabilities ?? NaN) &&
+    (point.totalEquity as number) !== 0;
+}
+
 function buildFinancialSeries(series: CompanyFinancialSeriesPoint[] | null | undefined, item: Sp500UniverseItem | undefined): FinancialChartPoint[] {
   const fromSeries = series?.map(normalizeFinancialPoint).filter((point) => (
     Number.isFinite(point.revenue ?? NaN) ||
@@ -840,6 +863,40 @@ function makeTicks(minValue: number, maxValue: number, count: number): number[] 
   const safeCount = Math.max(2, count);
   const span = maxValue - minValue || 1;
   return Array.from({ length: safeCount }, (_, index) => minValue + (span / (safeCount - 1)) * index);
+}
+
+function paddedDomain(
+  values: number[],
+  options: { includeZero?: boolean; fallbackMax?: number; minFloor?: number } = {}
+): { min: number; max: number } {
+  const finiteValues = values.filter(Number.isFinite);
+  let min = finiteValues.length ? Math.min(...finiteValues) : 0;
+  let max = finiteValues.length ? Math.max(...finiteValues) : options.fallbackMax ?? 1;
+  if (options.includeZero) {
+    min = Math.min(min, 0);
+    max = Math.max(max, 0);
+  }
+  if (min === max) {
+    const expansion = Math.max(Math.abs(max) * 0.12, options.fallbackMax ?? 1);
+    min -= expansion;
+    max += expansion;
+  } else {
+    const padding = (max - min) * 0.1;
+    min -= padding;
+    max += padding;
+  }
+  if (options.minFloor != null) {
+    min = Math.max(min, options.minFloor);
+  }
+  if (min === max) {
+    max = min + (options.fallbackMax ?? 1);
+  }
+  return { min, max };
+}
+
+function valueToY(value: number, domain: { min: number; max: number }, top: number, height: number): number {
+  const span = domain.max - domain.min || 1;
+  return top + (1 - (value - domain.min) / span) * height;
 }
 
 function formatEarningsAxisValue(value: number, metric: EarningsMetric): string {

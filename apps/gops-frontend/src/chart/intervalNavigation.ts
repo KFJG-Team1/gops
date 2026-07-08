@@ -1,6 +1,6 @@
 import type { CandleDto, ChartInterval } from "./types";
 import { chartIntervals, defaultVisibleBarsForInterval } from "./types";
-import { latestCandleRightOffset, normalizeViewport, type ChartViewport } from "./viewport";
+import { latestCandleRightOffset, normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
 
 export type IntervalDirection = "smaller" | "larger";
 
@@ -9,6 +9,8 @@ export type ViewportAnchor = {
   timestamp?: string;
   visibleCount?: number;
 };
+
+type ViewportNavigationOptions = Pick<ViewportClampOptions, "minimumVisibleSlots">;
 
 export function adjacentInterval(interval: ChartInterval, direction: IntervalDirection): ChartInterval | null {
   const index = chartIntervals.indexOf(interval);
@@ -24,16 +26,11 @@ export function anchoredViewportForCandles(
   interval: ChartInterval,
   anchor?: ViewportAnchor | null,
   fallback?: ChartViewport,
-  plotWidth?: number
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
 ): ChartViewport {
   const preferredVisibleCount = anchor?.visibleCount ?? fallback?.visibleCount ?? defaultVisibleBarsForInterval(interval);
-  // A fresh document defaults to rightOffset 0 (latest candle flush against the right edge).
-  // Treat that (and the standard trailing-space offset) as "following the latest" so the
-  // initial render gets the same 1/3 right-side space as the reset button, instead of
-  // gluing the newest candle to the edge.
-  const fallbackUsesLatestSpace = !fallback
-    || fallback.rightOffset === 0
-    || fallback.rightOffset === latestCandleRightOffset(fallback.visibleCount);
+  const fallbackUsesLatestSpace = !fallback || fallback.rightOffset === latestCandleRightOffset(fallback.visibleCount);
   if (!anchor?.timestamp || candles.length === 0) {
     const visibleViewport = normalizeViewport(
       {
@@ -41,7 +38,8 @@ export function anchoredViewportForCandles(
         rightOffset: fallback?.rightOffset ?? 0
       },
       candles.length,
-      plotWidth
+      plotWidth,
+      options
     );
     return fallbackUsesLatestSpace
       ? normalizeViewport(
@@ -50,7 +48,8 @@ export function anchoredViewportForCandles(
             rightOffset: latestCandleRightOffset(visibleViewport.visibleCount)
           },
           candles.length,
-          plotWidth
+          plotWidth,
+          options
         )
       : visibleViewport;
   }
@@ -63,7 +62,8 @@ export function anchoredViewportForCandles(
         rightOffset: fallback?.rightOffset ?? 0
       },
       candles.length,
-      plotWidth
+      plotWidth,
+      options
     );
     return fallbackUsesLatestSpace
       ? normalizeViewport(
@@ -72,7 +72,8 @@ export function anchoredViewportForCandles(
             rightOffset: latestCandleRightOffset(visibleViewport.visibleCount)
           },
           candles.length,
-          plotWidth
+          plotWidth,
+          options
         )
       : visibleViewport;
   }
@@ -83,7 +84,8 @@ export function anchoredViewportForCandles(
       rightOffset: fallback?.rightOffset ?? 0
     },
     candles.length,
-    plotWidth
+    plotWidth,
+    options
   ).visibleCount;
   const viewportEndIndex = anchor.mode === "center"
     ? anchorIndex + 1 + Math.floor(visibleCount / 2)
@@ -95,7 +97,8 @@ export function anchoredViewportForCandles(
       rightOffset: candles.length - viewportEndIndex
     },
     candles.length,
-    plotWidth
+    plotWidth,
+    options
   );
 }
 
@@ -103,21 +106,22 @@ export function viewportPreservingRightEdgeAfterCandlesChange(
   previousCandles: CandleDto[],
   nextCandles: CandleDto[],
   viewport: ChartViewport,
-  plotWidth?: number
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
 ): ChartViewport {
-  const previousViewport = normalizeViewport(viewport, previousCandles.length, plotWidth);
+  const previousViewport = normalizeViewport(viewport, previousCandles.length, plotWidth, options);
   if (previousViewport.rightOffset < 0) {
-    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
   }
 
   const previousRightEdgeTimestamp = visibleRightEdgeTimestamp(previousCandles, previousViewport);
   if (!previousRightEdgeTimestamp) {
-    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
   }
 
   const nextRightEdgeIndex = findCandleIndexByTimestamp(nextCandles, previousRightEdgeTimestamp);
   if (nextRightEdgeIndex < 0) {
-    return normalizeViewport(previousViewport, nextCandles.length, plotWidth);
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
   }
 
   return normalizeViewport(
@@ -126,7 +130,8 @@ export function viewportPreservingRightEdgeAfterCandlesChange(
       rightOffset: nextCandles.length - nextRightEdgeIndex - 1
     },
     nextCandles.length,
-    plotWidth
+    plotWidth,
+    options
   );
 }
 

@@ -503,16 +503,6 @@ export function BottomCommandBar({
               disabled={agentBusy || !canUseAgent}
             />
             <button
-              type="button"
-              className={`agent-chat-toggle ${chatPanelOpen ? "is-active" : ""}`}
-              aria-label={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
-              title={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
-              aria-expanded={chatPanelOpen}
-              onClick={toggleChatPanel}
-            >
-              <MessagesSquare size={15} aria-hidden="true" />
-            </button>
-            <button
               type={agentBusy ? "button" : "submit"}
               className={agentBusy ? "agent-stop-button" : undefined}
               aria-label={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
@@ -521,6 +511,16 @@ export function BottomCommandBar({
               onClick={agentBusy ? onAgentCancel : undefined}
             >
               {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              className={`agent-chat-toggle ${chatPanelOpen ? "is-active" : ""}`}
+              aria-label={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+              title={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+              aria-expanded={chatPanelOpen}
+              onClick={toggleChatPanel}
+            >
+              <MessagesSquare size={15} aria-hidden="true" />
             </button>
           </form>
         </div>
@@ -1254,6 +1254,10 @@ function bottomMenuContent({
           marketOpenReminderEnabled={marketOpenReminderEnabled}
           onMarketOpenReminderChange={onMarketOpenReminderChange}
           onLogin={onLogin}
+          onOpenNotificationSymbol={(symbol) => {
+            onSelectSymbol(symbol);
+            onClose();
+          }}
           onUnreadCountChange={onAlertUnreadCountChange}
         />
       );

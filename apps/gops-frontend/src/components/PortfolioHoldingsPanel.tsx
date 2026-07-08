@@ -426,6 +426,7 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
   const yFor = (value: number) => padding.top + chartHeight - ((value - domainMin) / span) * chartHeight;
   const yZero = yFor(0);
   const ticks = [domainMin, domainMin + span * 0.25, domainMin + span * 0.5, domainMin + span * 0.75, domainMax];
+  const endLabels = purchaseEndLabelLayout(points, (point) => yFor(point.returnPercent), padding.top + 12, height - padding.bottom - 8);
 
   return (
     <div className="portfolio-purchase-compare">
@@ -446,6 +447,7 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
         <text x={xEnd} y={height - 10} textAnchor="middle" className="portfolio-terminal-axis-label">현재가</text>
         {points.map((point) => {
           const yEnd = yFor(point.returnPercent);
+          const labelY = endLabels.get(point.symbol) ?? yEnd + 4;
           const d = `M ${xStart.toFixed(1)} ${yZero.toFixed(1)} C ${xMid.toFixed(1)} ${yZero.toFixed(1)}, ${xMid.toFixed(1)} ${yEnd.toFixed(1)}, ${xEnd.toFixed(1)} ${yEnd.toFixed(1)}`;
           const isNvidia = point.symbol === "NVDA";
           return (
@@ -453,7 +455,7 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
               <path d={d} className="portfolio-purchase-line" style={{ stroke: point.color }} />
               <circle cx={xStart} cy={yZero} r="4" className="portfolio-purchase-dot start" style={{ stroke: point.color }} />
               <circle cx={xEnd} cy={yEnd} r="4.5" className="portfolio-purchase-dot end" style={{ fill: point.color }} />
-              <text x={xEnd + 8} y={yEnd + 4} className="portfolio-purchase-end-label" style={{ fill: point.color }}>
+              <text x={xEnd + 8} y={labelY} className="portfolio-purchase-end-label" style={{ fill: point.color }}>
                 {point.symbol} {formatSignedPercentPlain(point.returnPercent)}
               </text>
             </g>
@@ -554,11 +556,11 @@ function PortfolioHoldingsMatrix({
         return (
           <button key={position.symbol} className="portfolio-matrix-row" type="button" onClick={() => onSelectSymbol(position.symbol)}>
             <strong>{position.symbol}</strong>
-            <span>-</span>
-            <span>-</span>
+            <span>{formatMultiple(position.peRatio)}</span>
+            <span>{formatMoney(position.low52, "USD")}</span>
             <span>{formatMoney(position.currentPrice, "USD")}</span>
             <span>{formatMoney(position.averagePrice, "USD")}</span>
-            <span>-</span>
+            <span>{formatMoney(position.high52, "USD")}</span>
             <span className="value-cell" style={portfolioValueCellStyle}>{formatPositionValue(position)}</span>
             <span>{formatWeight(positionValue(position), totalValue)}</span>
             <span className={valueTone} style={portfolioHeatCellStyle(position.unrealizedPnlRate)}>{formatSignedCompactMoney(position.unrealizedPnlForeign, "USD")}</span>
@@ -593,7 +595,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlRate: 0.74,
       dividendYield: 0.02,
       dividendPerShare: 0.04,
-      annualDividend: 0.72
+      annualDividend: 0.72,
+      peRatio: 69.41,
+      epsTtm: 2.82,
+      low52: 86.62,
+      high52: 195.95
     },
     {
       symbol: "AAPL",
@@ -613,7 +619,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlRate: 1.33,
       dividendYield: 0.47,
       dividendPerShare: 1.04,
-      annualDividend: 22.88
+      annualDividend: 22.88,
+      peRatio: 33.24,
+      epsTtm: 6.4,
+      low52: 164.08,
+      high52: 260.1
     },
     {
       symbol: "MSFT",
@@ -633,7 +643,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlRate: -0.94,
       dividendYield: 0.72,
       dividendPerShare: 3.32,
-      annualDividend: 39.84
+      annualDividend: 39.84,
+      peRatio: 36.92,
+      epsTtm: 11.46,
+      low52: 344.79,
+      high52: 468.35
     },
     {
       symbol: "AMD",
@@ -652,7 +666,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlForeign: -38.88,
       dayPnlRate: -1.68,
       dividendYield: 0,
-      annualDividend: 0
+      annualDividend: 0,
+      peRatio: 118.25,
+      epsTtm: 1.2,
+      low52: 76.48,
+      high52: 182.5
     },
     {
       symbol: "JPM",
@@ -672,7 +690,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlRate: 0.75,
       dividendYield: 2.25,
       dividendPerShare: 4.6,
-      annualDividend: 41.4
+      annualDividend: 41.4,
+      peRatio: 12.11,
+      epsTtm: 17.87,
+      low52: 190.9,
+      high52: 247.3
     },
     {
       symbol: "XOM",
@@ -692,7 +714,11 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       dayPnlRate: 0.33,
       dividendYield: 3.38,
       dividendPerShare: 3.96,
-      annualDividend: 43.56
+      annualDividend: 43.56,
+      peRatio: 13.62,
+      epsTtm: 8.31,
+      low52: 97.8,
+      high52: 126.34
     }
   ];
   const stockValueForeign = sumNumbers(positions.map(positionValue));
@@ -796,6 +822,31 @@ function buildPurchaseComparePoints(positions: PortfolioPosition[]): PurchaseCom
     .sort((left, right) => right.marketValue - left.marketValue)
     .slice(0, 6)
     .map((point, index) => ({ ...point, color: purchaseCompareColors[index % purchaseCompareColors.length] }));
+}
+
+function purchaseEndLabelLayout(
+  points: PurchaseComparePoint[],
+  yForPoint: (point: PurchaseComparePoint) => number,
+  minY: number,
+  maxY: number
+): Map<string, number> {
+  const minGap = 16;
+  const labels = points
+    .map((point) => ({ symbol: point.symbol, y: yForPoint(point) + 4 }))
+    .sort((left, right) => left.y - right.y);
+  let cursor = minY;
+  for (const label of labels) {
+    label.y = Math.max(label.y, cursor);
+    cursor = label.y + minGap;
+  }
+  const overflow = labels.length ? labels[labels.length - 1].y - maxY : 0;
+  if (overflow > 0) {
+    for (let index = labels.length - 1; index >= 0; index -= 1) {
+      const nextY = index === labels.length - 1 ? maxY : labels[index + 1].y - minGap;
+      labels[index].y = Math.min(labels[index].y - overflow, nextY);
+    }
+  }
+  return new Map(labels.map((label) => [label.symbol, Math.max(minY, Math.min(maxY, label.y))]));
 }
 
 function buildAnnualPortfolioPoints(dashboard: PortfolioDashboard): AnnualPortfolioPoint[] {
@@ -1069,6 +1120,13 @@ function formatMoney(value: number | null | undefined, currency: string) {
     currency,
     maximumFractionDigits: currency === "KRW" ? 0 : 2
   }).format(value);
+}
+
+function formatMultiple(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${value.toFixed(value >= 100 ? 1 : 2)}x`;
 }
 
 function formatCompactMoney(value: number | null | undefined, currency: string) {

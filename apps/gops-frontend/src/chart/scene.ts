@@ -1,6 +1,6 @@
 import type { CandleDto, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
-import { normalizeViewport, type ChartViewport } from "./viewport";
+import { normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
 import {
   buildSemanticTimeline,
   type SemanticExpansion,
@@ -153,6 +153,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     belowPanes
   };
   const plotWidth = Math.max(1, plot.right - plot.left);
+  const baseViewportOptions = viewportClampOptionsForChart(chart);
   const resolveViewportTimeline = (viewport: ChartViewport) => {
     const viewportEndIndex = Math.max(0, chart.candles.length - viewport.rightOffset);
     const viewportStartIndex = viewportEndIndex - viewport.visibleCount;
@@ -180,7 +181,8 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const baseViewport = normalizeViewport(
     { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
     chart.candles.length,
-    plotWidth
+    plotWidth,
+    baseViewportOptions
   );
   const baseFrame = resolveViewportTimeline(baseViewport);
   const semanticFutureSlots = futureSlotsConsumedBySemanticContent(baseFrame.semanticBase);
@@ -188,7 +190,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
     { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
     chart.candles.length,
     plotWidth,
-    { extraFutureSlots: semanticFutureSlots }
+    { ...baseViewportOptions, extraFutureSlots: semanticFutureSlots }
   );
   const frame = viewport.visibleCount === baseFrame.viewport.visibleCount && viewport.rightOffset === baseFrame.viewport.rightOffset
     ? baseFrame
@@ -237,6 +239,11 @@ export function buildChartScene(chart: ChartState, width: number, height: number
       candleWidth
     }
   };
+}
+
+function viewportClampOptionsForChart(chart: ChartState): ViewportClampOptions {
+  const minimumVisibleSlots = Math.max(0, Math.ceil(chart.requestedLimit ?? 0));
+  return minimumVisibleSlots > 0 ? { minimumVisibleSlots } : {};
 }
 
 function futureSlotsConsumedBySemanticContent(timeline: SemanticTimeline): number {
