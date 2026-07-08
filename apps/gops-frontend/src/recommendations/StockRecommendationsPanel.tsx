@@ -21,7 +21,7 @@ export function StockRecommendationsPanel({
   onSelectSymbol: (symbol: string) => void;
 }) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
-  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => isRegularSessionNow() ? "regular" : "pre");
+  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -31,7 +31,7 @@ export function StockRecommendationsPanel({
     setError(null);
     setLoading(true);
     try {
-      setPayload(await fetchStockRecommendations(sessionMode, signal));
+      setPayload(await fetchRecommendationsWithFallback(sessionMode, signal));
     } catch (caught) {
       if (isAbortError(caught)) {
         return;
@@ -48,7 +48,8 @@ export function StockRecommendationsPanel({
     setError(null);
     setRefreshing(true);
     try {
-      setPayload(await refreshStockRecommendations(activeSymbol, sessionMode));
+      const nextPayload = await refreshStockRecommendations(activeSymbol, sessionMode);
+      setPayload(await regularFallbackPayload(nextPayload, sessionMode));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천을 갱신하지 못했습니다.");
     } finally {
@@ -150,6 +151,38 @@ function sessionButtonClass(active: boolean, live = false) {
     active ? "active" : "",
     live ? "is-live" : ""
   ].filter(Boolean).join(" ");
+}
+
+async function fetchRecommendationsWithFallback(sessionMode: RecommendationSessionMode, signal?: AbortSignal) {
+  const payload = await fetchStockRecommendations(sessionMode, signal);
+  return regularFallbackPayload(payload, sessionMode, signal);
+}
+
+async function regularFallbackPayload(
+  payload: StockRecommendationPayload,
+  sessionMode: RecommendationSessionMode,
+  signal?: AbortSignal
+) {
+  if (!shouldFallbackToRegular(payload, sessionMode)) {
+    return payload;
+  }
+  const fallback = await fetchStockRecommendations("regular", signal);
+  if (fallback.items.length === 0) {
+    return payload;
+  }
+  return {
+    ...fallback,
+    summary: {
+      ...fallback.summary,
+      fallbackFromSessionMode: sessionMode,
+      fallbackReason: payload.summary?.emptyReason ?? payload.status,
+      requestedSessionMode: sessionMode
+    }
+  };
+}
+
+function shouldFallbackToRegular(payload: StockRecommendationPayload, sessionMode: RecommendationSessionMode) {
+  return sessionMode === "pre" && payload.status !== "profile_required" && payload.items.length === 0;
 }
 
 function marketClosedMessage(sessionMode: RecommendationSessionMode) {
@@ -270,7 +303,27 @@ function formatTimestamp(value: string | undefined) {
   return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function initialRecommendationSessionMode(date = new Date()): RecommendationSessionMode {
+  return isPreSessionNow(date) ? "pre" : "regular";
+}
+
+function isPreSessionNow(date = new Date()) {
+  const clock = newYorkMarketClock(date);
+  if (!clock) {
+    return false;
+  }
+  return clock.totalMinutes >= 4 * 60 && clock.totalMinutes < 9 * 60 + 30;
+}
+
 function isRegularSessionNow(date = new Date()) {
+  const clock = newYorkMarketClock(date);
+  if (!clock) {
+    return false;
+  }
+  return clock.totalMinutes >= 9 * 60 + 30 && clock.totalMinutes < 16 * 60;
+}
+
+function newYorkMarketClock(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     weekday: "short",
@@ -281,13 +334,12 @@ function isRegularSessionNow(date = new Date()) {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const weekday = values.weekday;
   if (weekday === "Sat" || weekday === "Sun") {
-    return false;
+    return null;
   }
   const hour = Number(values.hour);
   const minute = Number(values.minute);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return false;
+    return null;
   }
-  const totalMinutes = hour * 60 + minute;
-  return totalMinutes >= 9 * 60 + 30 && totalMinutes < 16 * 60;
+  return { totalMinutes: hour * 60 + minute };
 }
