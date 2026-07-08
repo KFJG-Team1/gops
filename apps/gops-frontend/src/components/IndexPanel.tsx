@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchMarketIndices, type MarketIndexItem, type MarketIndicesPayload } from "../market/indicesApi";
 
 const FALLBACK_REFRESH_MS = 30_000;
@@ -50,21 +50,25 @@ export function IndexPanel() {
 
   const groups = useMemo(() => groupIndexItems(payload?.items ?? []), [payload?.items]);
   const cacheLabel = payload?.cacheStatus === "stale" ? "stale" : payload?.cacheStatus === "fresh" ? "live" : "";
+  // The name column's minimum width tracks the longest (caret-stripped) ticker, so the graph
+  // only starts disappearing once the fullname has already collapsed to the ticker.
+  const nameMinWidth = useMemo(() => {
+    const maxChars = (payload?.items ?? []).reduce((max, item) => Math.max(max, stripCaret(item.symbol).length), 3);
+    return Math.ceil(maxChars * 7.6 + 6);
+  }, [payload?.items]);
+  const panelStyle = { "--index-name-min": `${nameMinWidth}px` } as CSSProperties;
 
   return (
-    <section className="market-indices-panel" aria-label="시장 지수 패널">
-      <header className="panel-inline-header">
-        <div>
-          <strong>시장 지수</strong>
-          <span className="market-indices-header-meta">
-            {cacheLabel && <span className={`market-indices-cache is-${payload?.cacheStatus}`}>{cacheLabel}</span>}
-            {payload?.updatedAt && <span>{formatTime(payload.updatedAt)}</span>}
-          </span>
-        </div>
-        <button className="panel-icon-button" type="button" title="지수 새로고침" onClick={() => void loadIndices(undefined, true)}>
-          {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-        </button>
-      </header>
+    <section className="market-indices-panel" aria-label="시장 지수 패널" style={panelStyle}>
+      <button
+        className="market-indices-reload panel-icon-button"
+        type="button"
+        title="지수 새로고침"
+        aria-label="지수 새로고침"
+        onClick={() => void loadIndices(undefined, true)}
+      >
+        {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
       {loading && (
         <div className="panel-state-row">
           <LoaderCircle size={14} className="spin" />
@@ -86,6 +90,12 @@ export function IndexPanel() {
               </div>
             </section>
           ))}
+          {(cacheLabel || payload?.updatedAt) && (
+            <footer className="market-indices-footer">
+              {cacheLabel && <span className={`market-indices-cache is-${payload?.cacheStatus}`}>{cacheLabel}</span>}
+              {payload?.updatedAt && <span>{formatTime(payload.updatedAt)}</span>}
+            </footer>
+          )}
         </div>
       )}
     </section>
@@ -97,31 +107,38 @@ function IndexRow({ item }: { item: MarketIndexItem }) {
   return (
     <article className="market-index-row">
       <div className="market-index-main">
-        <div className="market-index-name-line">
-          <strong className="market-index-name">{item.name}</strong>
-          <span className="market-index-symbol">{item.symbol}</span>
-        </div>
-        <div className="market-index-subline">
-          <span>{item.unit || item.currency || item.assetClass}</span>
-          {item.updatedAt && <span>{formatTime(item.updatedAt)}</span>}
-        </div>
+        <strong className="market-index-symbol-primary">{stripCaret(item.symbol)}</strong>
+        <span className="market-index-fullname">{item.name}</span>
       </div>
       <MiniSparkline values={item.sparkline} direction={direction} />
       <div className="market-index-quote">
-        <strong>{formatPrice(item)}</strong>
-        <span className={`market-index-change is-${direction}`}>
-          {formatSigned(item.change)}
-          {item.changePercent != null && <span>{formatPercent(item.changePercent)}</span>}
-        </span>
+        <strong className={`market-index-percent is-${direction}`}>
+          {item.changePercent != null ? formatPercent(item.changePercent) : "--"}
+        </strong>
+        <span className="market-index-price">{formatPrice(item)}</span>
       </div>
     </article>
   );
 }
 
 function MiniSparkline({ values, direction }: { values: number[]; direction: "positive" | "negative" | "neutral" }) {
-  const points = sparklinePoints(values);
+  const { points, currentY } = sparklineGeometry(values);
   return (
-    <svg className={`market-index-sparkline is-${direction}`} viewBox="0 0 88 28" aria-hidden="true" focusable="false">
+    <svg
+      className={`market-index-sparkline is-${direction}`}
+      viewBox="0 0 88 28"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <line
+        className="market-index-price-line"
+        x1="0"
+        y1={currentY}
+        x2="88"
+        y2={currentY}
+        vectorEffect="non-scaling-stroke"
+      />
       <polyline points={points} fill="none" vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -139,22 +156,24 @@ function groupIndexItems(items: MarketIndexItem[]) {
     .map(([name, groupItems]) => ({ name, items: groupItems }));
 }
 
-function sparklinePoints(values: number[]): string {
+function stripCaret(symbol: string): string {
+  return symbol.startsWith("^") ? symbol.slice(1) : symbol;
+}
+
+function sparklineGeometry(values: number[]): { points: string; currentY: string } {
+  const height = 28;
   if (values.length < 2) {
-    return "0,14 88,14";
+    return { points: "0,14 88,14", currentY: "14" };
   }
   const width = 88;
-  const height = 28;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  return values
-    .map((value, index) => {
-      const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height - 4) - 2;
-      return `${roundCoord(x)},${roundCoord(y)}`;
-    })
+  const yOf = (value: number) => height - ((value - min) / range) * (height - 4) - 2;
+  const points = values
+    .map((value, index) => `${roundCoord((index / (values.length - 1)) * width)},${roundCoord(yOf(value))}`)
     .join(" ");
+  return { points, currentY: roundCoord(yOf(values[values.length - 1])) };
 }
 
 function formatPrice(item: MarketIndexItem): string {
@@ -171,14 +190,6 @@ function formatPrice(item: MarketIndexItem): string {
     return formatNumber(item.price, 2, 2);
   }
   return formatNumber(item.price, 2, 2);
-}
-
-function formatSigned(value?: number): string {
-  if (value == null) {
-    return "--";
-  }
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${formatNumber(value, 2, 2)}`;
 }
 
 function formatPercent(value: number): string {

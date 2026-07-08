@@ -1165,6 +1165,7 @@ export function App() {
               onShowHome={showTreeMap}
               onEnterLayoutEdit={toggleLayoutEditMode}
               layoutEditDisabled
+              isHome
             />
           </>
         ) : (

@@ -8,9 +8,10 @@ type PresetDockProps = {
   onShowHome: () => void;
   onEnterLayoutEdit: () => void;
   layoutEditDisabled?: boolean;
+  isHome?: boolean;
 };
 
-export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEditDisabled = false }: PresetDockProps) {
+export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEditDisabled = false, isHome = false }: PresetDockProps) {
   const { presets, activePresetId, applyPreset, createCustomPreset, renamePreset, deleteCustomPreset, saveActivePresetLayout } = controls;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -51,8 +52,9 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
   };
 
   // First click applies the preset; clicking the already-active one switches to rename.
+  // On the home (증시지도) view no preset is active, so a click always applies/navigates.
   const handlePresetClick = (preset: LayoutPreset) => {
-    if (activePresetId === preset.id) {
+    if (!isHome && activePresetId === preset.id) {
       setEditingId(preset.id);
       setDraftName(preset.name);
       return;
@@ -102,22 +104,32 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
         }}
       />
     ) : (
-      <button
-        key={preset.id}
-        type="button"
-        className={`layout-preset-button ${activePresetId === preset.id ? "is-active" : ""}`}
-        aria-pressed={activePresetId === preset.id}
-        title={activePresetId === preset.id ? "다시 눌러 이름 변경" : preset.name}
-        onClick={() => handlePresetClick(preset)}
-      >
-        {preset.name}
-      </button>
+      (() => {
+        const isActive = !isHome && activePresetId === preset.id;
+        return (
+          <button
+            key={preset.id}
+            type="button"
+            className={`layout-preset-button ${isActive ? "is-active" : ""}`}
+            aria-pressed={isActive}
+            title={isActive ? "다시 눌러 이름 변경" : preset.name}
+            onClick={() => handlePresetClick(preset)}
+          >
+            {preset.name}
+          </button>
+        );
+      })()
     )
   );
 
   return (
     <div className="layout-preset-dock" role="toolbar" aria-label="레이아웃 프리셋" onPointerDown={stopPointer}>
-      <button type="button" className="layout-preset-button preset-home" onClick={onShowHome}>
+      <button
+        type="button"
+        className={`layout-preset-button preset-home ${isHome ? "is-active" : ""}`}
+        aria-pressed={isHome}
+        onClick={onShowHome}
+      >
         증시지도
       </button>
       <span className="toolbar-separator" aria-hidden="true" />

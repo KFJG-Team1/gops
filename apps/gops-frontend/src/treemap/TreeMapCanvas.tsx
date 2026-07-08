@@ -192,27 +192,24 @@ function drawIndustry(
   opacityScale: TreeMapOpacityScale
 ) {
   const band = tile.band;
-  if (band && band.width > 2 && band.height > 0) {
-    context.save();
-    context.fillStyle = tileFillForChange(tile.changePercent, theme.colors);
-    context.globalAlpha = tileOpacityForChange(tile.changePercent, opacityScale);
-    context.fillRect(band.x, band.y, band.width, band.height);
-    context.globalAlpha = 1;
-    context.restore();
-  }
-
-  if (tile.width < 70 || tile.height < 24) {
+  if (!band || band.width <= 2 || band.height <= 0) {
     return;
   }
-  const labelLimit = band ? band.y - 1 : tile.y + tile.height;
-  if (tile.y + 3 + 9 > labelLimit) {
-    return;
-  }
+  const opacity = tileOpacityForChange(tile.changePercent, opacityScale);
   context.save();
-  context.font = `500 9px ${theme.serif}`;
-  context.fillStyle = theme.colors.footprint;
-  context.textBaseline = "top";
-  fillFittedText(context, tile.label, tile.x + 5, tile.y + 3, tile.width - 10);
+  context.fillStyle = tileFillForChange(tile.changePercent, theme.colors);
+  context.globalAlpha = opacity;
+  context.fillRect(band.x, band.y, band.width, band.height);
+  context.globalAlpha = 1;
+
+  // Industry name written inside the band when it is tall/wide enough to read.
+  if (band.height >= 8 && band.width >= 26) {
+    const fontSize = clamp(band.height - 3, 7, 10);
+    context.font = `500 ${fontSize}px ${theme.serif}`;
+    context.fillStyle = tileTextForOpacity(opacity, theme.colors);
+    context.textBaseline = "middle";
+    fillFittedText(context, tile.label, band.x + 4, band.y + band.height / 2 + 0.5, band.width - 8);
+  }
   context.restore();
 }
 

@@ -20,7 +20,9 @@ type Group<T> = {
 };
 
 const minimumLayoutSize = 0.01;
-const industryBandThickness = 5;
+// The industry band is a thin title strip above each industry's card cluster; it holds the
+// industry name, so it must be tall enough for small text while staying slim.
+const industryBandMaxThickness = 12;
 const industryBandGap = 1.5;
 
 export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRect): TreeMapTile[] {
@@ -265,20 +267,24 @@ function industryBandRect(
   symbolInner: TreeMapRect,
   header: number
 ): TreeMapRect | undefined {
-  if (header < industryBandThickness + 1 || symbolInner.width < 8) {
+  if (header < 5 || symbolInner.width < 8) {
     return undefined;
   }
-  const thickness = Math.min(industryBandThickness, header - 1);
+  const thickness = Math.min(industryBandMaxThickness, header - 1);
+  if (thickness < 4) {
+    return undefined;
+  }
   const bottom = symbolInner.y - industryBandGap;
-  const y = bottom - thickness;
-  if (y < industryRect.y) {
+  const y = Math.max(industryRect.y, bottom - thickness);
+  const height = bottom - y;
+  if (height < 4) {
     return undefined;
   }
   return normalizeRect({
     x: symbolInner.x,
     y,
     width: symbolInner.width,
-    height: thickness
+    height
   });
 }
 

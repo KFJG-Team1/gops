@@ -67,7 +67,7 @@
   /* Floating tool/palette docks sit just above the bottom command bar, tracking its
      height. Every dock-area floater references this single baseline so they move together. */
   --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px - var(--tool-dock-drop));
-  --surface-radius: 5px;
+  --surface-radius: 2px;
   --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
   --surface-raised-highlight-shadow: -1px -1px 4px var(--color-border);
   --surface-raised-depth-shadow: 2px 2px 5px var(--color-shadow);
@@ -2963,6 +2963,35 @@ h2 {
   background: transparent;
 }
 
+/* Sub-region scrollers (only part of the panel scrolls) still need the ink rule to run the
+   full panel height. The thumb rides within its scrolling region; this stem extends across
+   the whole panel, aligned to where that region's scrollbar sits. Shown only while the
+   region actually overflows (via the has-scroll-rule class). */
+.popular-stocks-panel {
+  position: relative;
+}
+
+.popular-stocks-panel.has-scroll-rule::after,
+.chart-compare-panel.has-scroll-rule::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-text);
+  pointer-events: none;
+}
+
+/* Inset by the panel's 12px padding so it lines up with the table's scrollbar. */
+.popular-stocks-panel.has-scroll-rule::after {
+  right: 12px;
+}
+
+/* The compare list reaches the panel's right edge. */
+.chart-compare-panel.has-scroll-rule::after {
+  right: 0;
+}
+
 /* Firefox can't offset the thumb from the rule; degrade to a thin ink thumb.
    Gated so it never applies in Chromium — setting `scrollbar-width` there makes the
    browser ignore every ::-webkit-scrollbar rule above, killing the newspaper design. */
@@ -4683,60 +4712,68 @@ h2 {
 
 .market-index-row {
   display: grid;
-  grid-template-columns: minmax(116px, 1fr) 88px minmax(86px, 0.58fr);
+  /* name (min = longest ticker, grows to show fullname up to a cap) | graph (stretches, has
+     a floor) | numbers (content width). The graph is the flexible track, so it widens on
+     wide panels and is the first to shrink; then the name/fullname shrinks. */
+  grid-template-columns: minmax(var(--index-name-min, 56px), 132px) minmax(48px, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  min-height: 58px;
+  min-height: 0;
+  /* Flat newspaper row: no card, content flush to the panel padding so the name axis lines
+     up with the header; rows separated by a hairline instead of a filled surface. */
+  padding: 8px 0;
+  background: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--color-rule-soft);
 }
 
-.market-index-main,
-.market-index-quote,
-.market-index-name-line,
-.market-index-subline {
-  min-width: 0;
+.market-index-list .market-index-row:last-child {
+  border-bottom: 0;
 }
 
 .market-index-main,
 .market-index-quote {
+  min-width: 0;
+}
+
+.market-index-main {
   display: grid;
-  gap: 4px;
+  gap: 1px;
 }
 
-.market-index-name-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.market-index-name {
+.market-index-symbol-primary {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 800;
+  font-synthesis: weight;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.market-index-symbol,
-.market-index-subline {
+.market-index-fullname {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-muted);
   font-size: 10px;
-}
-
-.market-index-symbol {
-  flex: 0 0 auto;
-}
-
-.market-index-subline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .market-index-sparkline {
-  width: 88px;
+  width: 100%;
   height: 28px;
   overflow: visible;
+}
+
+/* Very thin horizontal current-price reference line through the latest point. */
+.market-index-price-line {
+  stroke: var(--color-muted);
+  stroke-width: 0.75;
+  opacity: 0.4;
 }
 
 .market-index-sparkline polyline {
@@ -4755,43 +4792,91 @@ h2 {
 }
 
 .market-index-quote {
+  display: grid;
+  gap: 1px;
   justify-items: end;
   text-align: right;
 }
 
-.market-index-quote strong {
+/* Change percent on top (large), price below (small). */
+.market-index-percent {
   max-width: 100%;
   overflow: hidden;
+  color: var(--color-muted);
   font-size: 13px;
+  font-weight: 800;
+  font-synthesis: weight;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.market-index-change {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 10px;
-  font-weight: 760;
-  white-space: nowrap;
-}
-
-.market-index-change.is-positive {
+.market-index-percent.is-positive {
   color: var(--color-bullish);
 }
 
-.market-index-change.is-negative {
+.market-index-percent.is-negative {
   color: var(--color-bearish);
 }
 
-.market-index-change span {
-  min-width: 0;
+.market-index-price {
+  max-width: 100%;
   overflow: hidden;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* LIVE + timestamp, moved to the very bottom of the scroll; aligned to the panel axis. */
+.market-indices-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* No title bar: content starts at the panel top. The reload floats over the top-right of the
+   content (slightly over the first index's numbers) and only appears on hover. It is anchored
+   to the non-scrolling panel body, so it stays put while the list scrolls. */
+.market-indices-reload {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.market-indices-panel:hover .market-indices-reload,
+.market-indices-panel:focus-within .market-indices-reload {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Responsive staging: as the panel narrows the graph (flex track) shrinks first, then the
+   fullname. Once the name column has collapsed to the ticker AND the graph is at its floor,
+   drop the graph so the name reclaims that space and can show more of the fullname again
+   (which then re-truncates on further narrowing). The breakpoint ≈ nameMin + graphMin +
+   numbers + gaps for this dataset's longest ticker.
+   The query container is the inner groups wrapper (not the panel) so the panel does not
+   become the containing block for the absolutely-positioned reload button. */
+.market-indices-groups {
+  container-type: inline-size;
+}
+
+@container (max-width: 188px) {
+  .market-index-sparkline {
+    display: none;
+  }
+
+  .market-index-row {
+    grid-template-columns: minmax(var(--index-name-min, 56px), 1fr) auto;
+  }
 }
 
 .market-news-main {

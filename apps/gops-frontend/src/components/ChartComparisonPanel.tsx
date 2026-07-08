@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
-import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useVerticalOverflow } from "../hooks/useVerticalOverflow";
 import { fetchChartCompare } from "../chart/cdcClient";
 import type {
   ChartCompareItemDto,
@@ -124,8 +125,11 @@ export function ChartComparisonPanel({
     setHoverX(localX);
   }
 
+  const listRef = useRef<HTMLDivElement>(null);
+  const listScrolls = useVerticalOverflow(listRef);
+
   return (
-    <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""}`} aria-label="비교 차트">
+    <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
       <div className="chart-compare-header">
         <div>
           <strong>비교</strong>
@@ -241,7 +245,7 @@ export function ChartComparisonPanel({
           ))}
         </div>
       )}
-      <div className="chart-compare-list" aria-label="비교 종목 목록">
+      <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
         {displayItems.map((item, index) => {
           const removable = item.symbol !== symbol.toUpperCase();
           const hoverEntry = hoverSnapshot?.points.find((entry) => entry.item.symbol === item.symbol);

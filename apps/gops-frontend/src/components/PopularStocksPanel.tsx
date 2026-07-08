@@ -1,7 +1,8 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMarketIndices } from "../market/indicesApi";
 import { sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { useVerticalOverflow } from "../hooks/useVerticalOverflow";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 const popularStockLimit = 10;
@@ -46,8 +47,11 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
     selectSymbol(symbol);
   };
 
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const scrolls = useVerticalOverflow(tableWrapRef);
+
   return (
-    <section className="popular-stocks-panel" aria-label="인기종목 패널">
+    <section className={`popular-stocks-panel ${scrolls ? "has-scroll-rule" : ""}`} aria-label="인기종목 패널">
       <header className="panel-inline-header">
         <div>
           <strong>거래대금순 Top10</strong>
@@ -57,7 +61,7 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
       {popularItems.length === 0 ? (
         <div className="panel-empty-row">표시할 인기종목 데이터가 없습니다</div>
       ) : (
-        <div className="popular-stocks-table-wrap">
+        <div className="popular-stocks-table-wrap" ref={tableWrapRef}>
           <table className="popular-stocks-table">
             <colgroup>
               <col className="popular-stock-company-col" />

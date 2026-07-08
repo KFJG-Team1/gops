@@ -9,8 +9,31 @@ import {
   type SemanticTimeline
 } from "./semanticTimeline";
 
-const priceAxisWidth = 62;
 const volumeScalePadding = 1.18;
+
+// The price axis is sized to the widest expected tick label so the plot can extend as close
+// to the numbers as possible without overlapping them. Labels are right-aligned 8px from the
+// panel edge (see drawPriceAxis), so width = right margin + estimated label width + a small
+// gap. Adaptive by magnitude: cheap 2-3 digit tickers get a tight axis, high-priced names
+// (e.g. BRK.A) keep enough room.
+function priceAxisWidthForChart(chart: ChartState): number {
+  const lookback = Math.max(1, Math.round(chart.visibleCount + Math.max(0, chart.rightOffset)));
+  let maxPrice = 0;
+  for (const candle of chart.candles.slice(-lookback)) {
+    if (Number.isFinite(candle.high) && candle.high > maxPrice) {
+      maxPrice = candle.high;
+    }
+  }
+  if (maxPrice <= 0) {
+    maxPrice = chart.candles[chart.candles.length - 1]?.close ?? 0;
+  }
+  // Inflate slightly so a top tick that rounds up to an extra digit (e.g. 995 -> 1,000)
+  // still fits without overlapping the plot.
+  const label = Math.round(maxPrice * 1.06).toLocaleString("en-US");
+  // ~5.9px per glyph at 10px Inter + 8px right margin + 5px breathing gap.
+  const estimated = 8 + label.length * 5.9 + 5;
+  return Math.round(Math.min(64, Math.max(32, estimated)));
+}
 
 export type ChartPlot = {
   left: number;
@@ -82,7 +105,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const hasDigExpansions = (options.expansions?.length ?? 0) > 0;
   const padding = {
     top: hasDigExpansions ? 68 : 42,
-    right: priceAxisWidth,
+    right: priceAxisWidthForChart(chart),
     bottom: belowPaneIds.length ? 36 : 30,
     left: 0
   };
