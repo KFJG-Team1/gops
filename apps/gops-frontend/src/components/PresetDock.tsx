@@ -17,6 +17,8 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [overflowEdges, setOverflowEdges] = useState({ left: false, right: false });
+  const dockRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const savedTimerRef = useRef<number | null>(null);
 
@@ -36,6 +38,33 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
       window.clearTimeout(savedTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) {
+      return undefined;
+    }
+    const updateOverflowEdges = () => {
+      const maxScrollLeft = Math.max(0, dock.scrollWidth - dock.clientWidth);
+      const left = dock.scrollLeft > 1;
+      const right = dock.scrollLeft < maxScrollLeft - 1;
+      setOverflowEdges((current) => (
+        current.left === left && current.right === right
+          ? current
+          : { left, right }
+      ));
+    };
+    updateOverflowEdges();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateOverflowEdges);
+    resizeObserver?.observe(dock);
+    dock.addEventListener("scroll", updateOverflowEdges, { passive: true });
+    window.addEventListener("resize", updateOverflowEdges);
+    return () => {
+      resizeObserver?.disconnect();
+      dock.removeEventListener("scroll", updateOverflowEdges);
+      window.removeEventListener("resize", updateOverflowEdges);
+    };
+  }, [activePresetId, customs.length, defaults.length, editingId]);
 
   const stopPointer = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
@@ -124,7 +153,17 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
   );
 
   return (
-    <div className="layout-preset-dock" role="toolbar" aria-label="레이아웃 프리셋" onPointerDown={stopPointer}>
+    <div
+      ref={dockRef}
+      className={[
+        "layout-preset-dock",
+        overflowEdges.left ? "has-overflow-left" : "",
+        overflowEdges.right ? "has-overflow-right" : ""
+      ].filter(Boolean).join(" ")}
+      role="toolbar"
+      aria-label="레이아웃 프리셋"
+      onPointerDown={stopPointer}
+    >
       <button
         type="button"
         className={`layout-preset-button preset-home ${isHome ? "is-active" : ""}`}

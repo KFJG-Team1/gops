@@ -38,7 +38,7 @@ import {
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type AgentSubmitResult, type BottomCommandMode, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
+import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
@@ -82,6 +82,7 @@ import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
+import type { TreeMapTile } from "./treemap/treemapTypes";
 
 
 type ActiveAgentRun = {
@@ -105,6 +106,7 @@ type SideRailCompanyItem = {
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
+const appUiScale = 1.6;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
 const orderFlowDemoDefaultSymbol = "NVDA";
 
@@ -330,8 +332,8 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
+  const [hoveredTreeMapTile, setHoveredTreeMapTile] = useState<TreeMapTile | null>(null);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
-  const [bottomCommandMode, setBottomCommandMode] = useState<BottomCommandMode>("pages");
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistPersisted, setWatchlistPersisted] = useState(false);
@@ -486,6 +488,9 @@ export function App() {
 
   const layoutGutter = gridGutter(viewportSize.width);
   const workspaceStyle = {
+    "--app-ui-scale": appUiScale,
+    "--app-logical-width": `${viewportSize.width}px`,
+    "--app-logical-height": `${viewportSize.height}px`,
     "--layout-gutter": `${layoutGutter}px`
   } as CSSProperties;
   // The tree map occupies the same bounds as the panel workspace (page-edge gutter margins,
@@ -1318,6 +1323,14 @@ export function App() {
 
   return (
     <main className="app-shell" style={workspaceStyle}>
+      {mainView.mode === "treemap" && hoveredTreeMapTile?.symbol && (
+        <div className="treemap-hover-meta" aria-live="polite">
+          <strong>{hoveredTreeMapTile.symbol}</strong>
+          <span>{hoveredTreeMapTile.companyName}</span>
+          <em>{formatTreeMapHoverChange(hoveredTreeMapTile.changePercent)}</em>
+          <small>{hoveredTreeMapTile.sectorLabelKo || hoveredTreeMapTile.sector} / {hoveredTreeMapTile.industry}</small>
+        </div>
+      )}
       <div className="heatmap-background-layer" aria-hidden="true">
         <TreeMapCanvas
           items={treeMapItems}
@@ -1329,7 +1342,12 @@ export function App() {
       <section className={`canvas-workspace view-${mainView.mode}`} style={workspaceStyle}>
         {mainView.mode === "treemap" ? (
           <>
-            <TreeMapCanvas items={treeMapItems} onSelectSymbol={openSymbolPage} style={treeMapLaneStyle} />
+            <TreeMapCanvas
+              items={treeMapItems}
+              onHoverTileChange={setHoveredTreeMapTile}
+              onSelectSymbol={openSymbolPage}
+              style={treeMapLaneStyle}
+            />
           </>
         ) : (
           <PanelWorkspace
@@ -1353,13 +1371,6 @@ export function App() {
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
-            presetDock={(
-              <PresetDock
-                controls={presetControls}
-                onShowHome={showTreeMap}
-                onEnterLayoutEdit={toggleLayoutEditMode}
-              />
-            )}
             placementPickerOverlay={pendingPlacementPick ? (
               <PlacementPickerOverlay
                 pick={pendingPlacementPick}
@@ -1374,17 +1385,6 @@ export function App() {
       </section>
       <BottomCommandBar
         activeMenu={activeBottomMenu}
-        commandMode={bottomCommandMode}
-        presetDock={(
-          <PresetDock
-            controls={presetControls}
-            onShowHome={showTreeMap}
-            onShowAgent={() => setBottomCommandMode("agent")}
-            onEnterLayoutEdit={toggleLayoutEditMode}
-            layoutEditDisabled={mainView.mode !== "chart"}
-            isHome={mainView.mode === "treemap"}
-          />
-        )}
         agentBusy={agentBusy}
         agentInput={agentInput}
         chatLog={chatLog}
@@ -1403,13 +1403,19 @@ export function App() {
         sideRailCompany={sideRailCompanyItem}
         isChartMode={mainView.mode === "chart"}
         layoutEditMode={layoutEditMode}
+        topDock={mainView.mode === "chart" ? (
+          <PresetDock
+            controls={presetControls}
+            onShowHome={showTreeMap}
+            onEnterLayoutEdit={toggleLayoutEditMode}
+          />
+        ) : null}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentReferencesClear={clearAgentReferences}
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
-        onCommandModeChange={setBottomCommandMode}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
         onLogin={login}
@@ -1713,5 +1719,14 @@ function currentViewportSize(): ViewportSize {
   if (typeof window === "undefined") {
     return { width: 1280, height: 720 };
   }
-  return { width: window.innerWidth, height: window.innerHeight };
+  return {
+    width: Math.max(1, Math.round(window.innerWidth / appUiScale)),
+    height: Math.max(1, Math.round(window.innerHeight / appUiScale))
+  };
+}
+
+function formatTreeMapHoverChange(changePercent: number | undefined): string {
+  const numeric = Number.isFinite(changePercent) ? Number(changePercent) : 0;
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(2)}%`;
 }

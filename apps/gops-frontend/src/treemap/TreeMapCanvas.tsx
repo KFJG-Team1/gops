@@ -16,6 +16,7 @@ import { readThemeColors, type ThemeColors } from "../theme/colors";
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
   onSelectSymbol?: (symbol: string) => void;
+  onHoverTileChange?: (tile: TreeMapTile | null) => void;
   style?: CSSProperties;
   className?: string;
   interactive?: boolean;
@@ -37,7 +38,7 @@ const canvasPadding = 4;
 const labelPadding = 8;
 const tileGap = 0.85;
 
-export function TreeMapCanvas({ items, onSelectSymbol, style, className, interactive = true }: TreeMapCanvasProps) {
+export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
@@ -62,19 +63,6 @@ export function TreeMapCanvas({ items, onSelectSymbol, style, className, interac
     height: Math.max(1, size.height - canvasPadding * 2)
   }), [inputItems, size.height, size.width]);
   const opacityScale = useMemo(() => createTreeMapOpacityScale(inputItems.map((item) => item.changePercent)), [inputItems]);
-
-  const hoverMetaLeft = useMemo(() => {
-    const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
-    if (!symbolTiles.length) {
-      return canvasPadding;
-    }
-    return Math.min(...symbolTiles.map((tile) => insetTile(tile, tileGap).x));
-  }, [tiles]);
-
-  const panelStyle = {
-    ...style,
-    "--treemap-hover-meta-left": `${Math.round(hoverMetaLeft)}px`
-  } as CSSProperties;
 
   useEffect(() => {
     tilesRef.current = tiles;
@@ -126,7 +114,18 @@ export function TreeMapCanvas({ items, onSelectSymbol, style, className, interac
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const next = hitTestTreeMapTile(tilesRef.current, x, y) ?? null;
-    setHoveredTile((current) => current?.id === next?.id ? current : next);
+    setHoveredTile((current) => {
+      if (current?.id === next?.id) {
+        return current;
+      }
+      onHoverTileChange?.(next);
+      return next;
+    });
+  };
+
+  const clearHover = () => {
+    setHoveredTile(null);
+    onHoverTileChange?.(null);
   };
 
   const selectHoveredTile = () => {
@@ -136,24 +135,16 @@ export function TreeMapCanvas({ items, onSelectSymbol, style, className, interac
   };
 
   return (
-    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={panelStyle} aria-label="S&P 500 TreeMap">
+    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={style} aria-label="S&P 500 TreeMap">
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
         style={{ cursor: interactive && hoveredTile?.symbol ? "pointer" : "default" }}
         aria-label="S&P 500 TreeMap canvas"
         onPointerMove={interactive ? updateHover : undefined}
-        onPointerLeave={interactive ? () => setHoveredTile(null) : undefined}
+        onPointerLeave={interactive ? clearHover : undefined}
         onClick={interactive ? selectHoveredTile : undefined}
       />
-      {interactive && hoveredTile?.symbol && (
-        <div className="treemap-hover-meta" aria-live="polite">
-          <strong>{hoveredTile.symbol}</strong>
-          <span>{hoveredTile.companyName}</span>
-          <em>{formatChange(hoveredTile.changePercent)}</em>
-          <small>{hoveredTile.sectorLabelKo || hoveredTile.sector} / {hoveredTile.industry}</small>
-        </div>
-      )}
     </section>
   );
 }

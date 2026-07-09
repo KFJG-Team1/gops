@@ -62,12 +62,8 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   asset: {
     name: "자산현황",
     spec: [
-      { kind: "portfolioInvestment", gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 2 } },
-      { kind: "portfolioPerformance", gridRect: { col: 3, row: 1, colSpan: 3, rowSpan: 2 } },
-      { kind: "portfolioDiversification", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 2 } },
-      { kind: "portfolioHoldings", gridRect: { col: 1, row: 3, colSpan: 4, rowSpan: 3 } },
-      { kind: "portfolioInvested", gridRect: { col: 5, row: 3, colSpan: 2, rowSpan: 3 } },
-      { kind: "portfolioDividend", gridRect: { col: 7, row: 3, colSpan: 2, rowSpan: 3 } }
+      { kind: "portfolioInvestment", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 5 } },
+      { kind: "portfolioHoldings", gridRect: { col: 4, row: 1, colSpan: 5, rowSpan: 5 } }
     ]
   }
 };
@@ -111,9 +107,7 @@ export function ensurePortfolioInvestedPanelState(
   if (!shouldReplaceLegacyPortfolioWorkspace(contentKinds)) {
     return state;
   }
-  return createTiledPanelStateFromSpec(DEFAULT_PRESET_DEFINITIONS.asset.spec, viewport, {
-    layoutMetrics: options.layoutMetrics
-  });
+  return createAssetPortfolioPanelState(viewport, options);
 }
 
 export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
@@ -123,8 +117,15 @@ export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
   const layout = value;
   const contentKinds = Object.values(layout.contents).map((content) => content.kind);
   const hasAnyPortfolioPanel = hasPortfolioPanelKind(contentKinds);
-  const hasSplitPortfolioPanels = hasAllSplitPortfolioPanels(contentKinds);
-  if (!hasAnyPortfolioPanel || hasSplitPortfolioPanels) {
+  if (!hasAnyPortfolioPanel) {
+    return layout;
+  }
+
+  if (hasRetiredSplitPortfolioPanel(contentKinds)) {
+    return createStoredAssetPortfolioLayout();
+  }
+
+  if (hasIntegratedPortfolioPanels(contentKinds)) {
     return layout;
   }
 
@@ -148,6 +149,72 @@ export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
     };
   }
 
+  return createStoredAssetPortfolioLayout();
+}
+
+const integratedPortfolioPanelKinds: readonly PanelContentKind[] = [
+  "portfolioInvestment",
+  "portfolioHoldings"
+];
+
+const retiredSplitPortfolioPanelKinds: readonly PanelContentKind[] = [
+  "portfolioPerformance",
+  "portfolioInvested",
+  "portfolioDividend",
+  "portfolioDiversification"
+];
+
+const portfolioWorkspaceKinds: readonly PanelContentKind[] = [
+  "portfolio",
+  ...integratedPortfolioPanelKinds,
+  ...retiredSplitPortfolioPanelKinds
+];
+
+const legacyPortfolioWorkspaceAllowedKinds: readonly PanelContentKind[] = [
+  "chart",
+  ...portfolioWorkspaceKinds
+];
+
+function hasPortfolioPanelKind(kinds: readonly PanelContentKind[]): boolean {
+  return kinds.some((kind) => portfolioWorkspaceKinds.includes(kind));
+}
+
+function hasIntegratedPortfolioPanels(kinds: readonly PanelContentKind[]): boolean {
+  return integratedPortfolioPanelKinds.every((kind) => kinds.includes(kind))
+    && !hasRetiredSplitPortfolioPanel(kinds);
+}
+
+function hasRetiredSplitPortfolioPanel(kinds: readonly PanelContentKind[]): boolean {
+  return kinds.some((kind) => retiredSplitPortfolioPanelKinds.includes(kind));
+}
+
+function shouldReplaceLegacyPortfolioWorkspace(kinds: readonly PanelContentKind[]): boolean {
+  if (!hasPortfolioPanelKind(kinds)) {
+    return false;
+  }
+  if (hasRetiredSplitPortfolioPanel(kinds)) {
+    return true;
+  }
+  if (hasIntegratedPortfolioPanels(kinds)) {
+    return false;
+  }
+  if (!kinds.every((kind) => legacyPortfolioWorkspaceAllowedKinds.includes(kind))) {
+    return false;
+  }
+  const portfolioCount = kinds.filter((kind) => portfolioWorkspaceKinds.includes(kind)).length;
+  return portfolioCount >= 2 || kinds.some((kind) => kind === "portfolio" || kind === "portfolioInvestment");
+}
+
+function createAssetPortfolioPanelState(
+  viewport: ViewportSize,
+  options: { layoutMetrics?: WorkspaceLayoutMetrics } = {}
+): TiledPanelState {
+  return createTiledPanelStateFromSpec(DEFAULT_PRESET_DEFINITIONS.asset.spec, viewport, {
+    layoutMetrics: options.layoutMetrics
+  });
+}
+
+function createStoredAssetPortfolioLayout(): StoredTiledPanelState {
   const spec = DEFAULT_PRESET_DEFINITIONS.asset.spec;
   let instance = 1;
   const contents: StoredTiledPanelState["contents"] = {};
@@ -174,44 +241,6 @@ export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
     contents,
     slots
   };
-}
-
-const splitPortfolioPanelKinds: readonly PanelContentKind[] = [
-  "portfolioInvestment",
-  "portfolioPerformance",
-  "portfolioInvested",
-  "portfolioDividend",
-  "portfolioDiversification",
-  "portfolioHoldings"
-];
-
-const portfolioWorkspaceKinds: readonly PanelContentKind[] = [
-  "portfolio",
-  ...splitPortfolioPanelKinds
-];
-
-const legacyPortfolioWorkspaceAllowedKinds: readonly PanelContentKind[] = [
-  "chart",
-  ...portfolioWorkspaceKinds
-];
-
-function hasPortfolioPanelKind(kinds: readonly PanelContentKind[]): boolean {
-  return kinds.some((kind) => portfolioWorkspaceKinds.includes(kind));
-}
-
-function hasAllSplitPortfolioPanels(kinds: readonly PanelContentKind[]): boolean {
-  return splitPortfolioPanelKinds.every((kind) => kinds.includes(kind));
-}
-
-function shouldReplaceLegacyPortfolioWorkspace(kinds: readonly PanelContentKind[]): boolean {
-  if (!hasPortfolioPanelKind(kinds) || kinds.includes("portfolioInvested")) {
-    return false;
-  }
-  if (!kinds.every((kind) => legacyPortfolioWorkspaceAllowedKinds.includes(kind))) {
-    return false;
-  }
-  const portfolioCount = kinds.filter((kind) => portfolioWorkspaceKinds.includes(kind)).length;
-  return portfolioCount >= 2 || kinds.some((kind) => kind === "portfolio" || kind === "portfolioInvestment");
 }
 
 function isStoredTiledPanelStateShape(value: unknown): value is StoredTiledPanelState {

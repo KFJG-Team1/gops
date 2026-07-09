@@ -139,7 +139,7 @@ export type PanelDropGridRectPlan = {
 
 export const panelGridSpec = {
   cols: 8,
-  rows: 5
+  rows: 6
 } as const;
 
 export const panelLayoutStorageKey = "gops:workspace-grid-layout:v1";
@@ -183,7 +183,7 @@ export function createInitialTiledPanelState(
     slots: [
       createPanelSlot("slot-news", news, { col: 1, row: 1, colSpan: 4, rowSpan: 2 }, viewport, options.layoutMetrics),
       createPanelSlot("slot-ontology", ontology, { col: 5, row: 1, colSpan: 4, rowSpan: 2 }, viewport, options.layoutMetrics),
-      createPanelSlot("slot-chart", chart, { col: 1, row: 3, colSpan: 8, rowSpan: 3 }, viewport, options.layoutMetrics)
+      createPanelSlot("slot-chart", chart, { col: 1, row: 3, colSpan: 8, rowSpan: 4 }, viewport, options.layoutMetrics)
     ]
   };
 }

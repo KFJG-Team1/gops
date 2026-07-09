@@ -64,6 +64,19 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
 };
 
 const paletteVariables = [
+  "--framer-primary",
+  "--framer-on-primary",
+  "--framer-accent-blue",
+  "--framer-ink",
+  "--framer-ink-muted",
+  "--framer-canvas",
+  "--framer-surface-1",
+  "--framer-surface-2",
+  "--framer-hairline",
+  "--framer-hairline-soft",
+  "--framer-success",
+  "--framer-coral",
+  "--framer-orange",
   "--coinbase-primary",
   "--coinbase-primary-active",
   "--coinbase-primary-soft",

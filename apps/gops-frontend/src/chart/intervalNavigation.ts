@@ -186,20 +186,13 @@ export function viewportAfterSnapshotCandlesChange(
 export function viewportAfterOlderCandlesLoaded(
   previousCandles: CandleDto[],
   nextCandles: CandleDto[],
-  requestedViewport: ChartViewport | undefined,
+  _requestedViewport: ChartViewport | undefined,
   currentViewport: ChartViewport,
   plotWidth?: number,
   options: ViewportNavigationOptions = {}
 ): ChartViewport {
   const activeViewport = normalizeViewport(currentViewport, previousCandles.length, plotWidth, options);
-  const requestedStillActive = !requestedViewport || viewportsApproximatelyEqual(
-    activeViewport,
-    normalizeViewport(requestedViewport, previousCandles.length, plotWidth, options)
-  );
-
-  return requestedStillActive
-    ? viewportRevealingPrependedCandlesAfterChange(previousCandles, nextCandles, activeViewport, plotWidth, options)
-    : viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, activeViewport, plotWidth, options);
+  return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, activeViewport, plotWidth, options);
 }
 
 function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): number {
@@ -239,9 +232,4 @@ function findCandleIndexByTimestamp(candles: CandleDto[], timestamp: string): nu
     const candleTime = new Date(candle.timestamp).getTime();
     return Number.isFinite(candleTime) && candleTime === targetTime;
   });
-}
-
-function viewportsApproximatelyEqual(left: ChartViewport, right: ChartViewport): boolean {
-  return Math.abs(left.visibleCount - right.visibleCount) < 0.001
-    && Math.abs(left.rightOffset - right.rightOffset) < 0.001;
 }
