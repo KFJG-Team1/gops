@@ -493,7 +493,6 @@ export function BottomCommandBar({
         />
       )}
       <nav className="workspace-top-nav" aria-label="Global navigation">
-        <div className="workspace-top-brand" aria-label="Gops">Gops</div>
         <div className="workspace-top-center" aria-hidden="true" />
         <div className="workspace-top-actions">
           <button

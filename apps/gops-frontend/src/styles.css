@@ -34,13 +34,14 @@
   --coinbase-canvas-mid: #fbfdff;
   --coinbase-canvas-end: #eff6ff;
   --coinbase-app-canvas:
-    radial-gradient(ellipse 152% 86% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.075) 0%, rgb(var(--coinbase-primary-rgb) / 0.038) 40%, rgb(var(--coinbase-primary-rgb) / 0.014) 64%, transparent 84%),
-    radial-gradient(ellipse 118% 50% at 50% 98%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.48) 46%, transparent 78%),
-    radial-gradient(ellipse 72% 30% at 28% 94%, rgba(255, 255, 255, 0.58) 0%, transparent 72%),
-    radial-gradient(ellipse 78% 32% at 76% 104%, rgba(255, 255, 255, 0.46) 0%, transparent 74%),
-    radial-gradient(ellipse 86% 54% at 0% 112%, rgb(var(--coinbase-primary-active-rgb) / 0.014) 0%, transparent 72%),
-    radial-gradient(ellipse 86% 54% at 100% 112%, rgb(var(--coinbase-primary-rgb) / 0.016) 0%, transparent 72%),
-    linear-gradient(180deg, #ffffff 0%, #ffffff 54%, var(--coinbase-canvas-mid) 72%, #f9fcff 90%, #f4f9ff 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, transparent 42%),
+    radial-gradient(ellipse 116% 86% at 58% 6%, rgba(249, 253, 255, 0.62) 0%, rgba(229, 241, 248, 0.42) 34%, transparent 78%),
+    radial-gradient(ellipse 118% 108% at -14% 2%, rgba(191, 215, 231, 0.26) 0%, rgba(214, 229, 238, 0.16) 42%, transparent 88%),
+    radial-gradient(ellipse 172% 94% at 50% 134%, rgba(199, 216, 232, 0.070) 0%, rgba(220, 232, 241, 0.032) 52%, transparent 100%),
+    radial-gradient(ellipse 118% 50% at 50% 98%, rgba(255, 255, 255, 0.66) 0%, rgba(255, 255, 255, 0.32) 48%, transparent 80%),
+    radial-gradient(ellipse 72% 30% at 28% 94%, rgba(255, 255, 255, 0.34) 0%, transparent 76%),
+    radial-gradient(ellipse 78% 32% at 76% 104%, rgba(255, 255, 255, 0.30) 0%, transparent 78%),
+    linear-gradient(112deg, #d6e5ee 0%, #e3eef4 28%, #edf5f8 54%, #f4f8f8 74%, #d9e8f0 100%);
   --coinbase-panel: rgba(255, 255, 255, 0.05);
   --coinbase-panel-strong: rgba(255, 255, 255, 0.08);
   --coinbase-panel-muted: rgba(255, 255, 255, 0.035);
@@ -53,20 +54,18 @@
   --coinbase-glass-edge: rgba(255, 255, 255, 0.8);
   --coinbase-glass-edge-soft: rgba(255, 255, 255, 0.3);
   --coinbase-glass-inset: rgba(255, 255, 255, 0.2);
-  --coinbase-glass-filter: blur(10px);
+  --coinbase-glass-filter: blur(31px);
   --coinbase-shadow-soft: rgba(40, 64, 84, 0.10);
   --coinbase-panel-shadow-dark: rgba(184, 198, 216, 0.48);
   --coinbase-panel-shadow-light: transparent;
   --coinbase-button-surface: transparent;
   --coinbase-button-shadow: none;
-  --coinbase-button-pressed-shadow:
-    inset 7px 7px 7px rgba(184, 198, 216, 0.50),
-    inset -7px -7px 7px rgba(255, 255, 255, 0.92);
+  --coinbase-button-pressed-shadow: none;
   --coinbase-glass-shadow:
-    7px 7px 7px var(--coinbase-panel-shadow-dark),
+    0 8px 32px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
     inset 0 -1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 0 4px 2px rgba(255, 255, 255, 0.2);
+    inset 0 0 0 0 rgba(255, 255, 255, 0);
   --coinbase-shadow-glow-blue: rgba(0, 82, 255, 0.18);
   --coinbase-shadow-glow-green: rgba(5, 177, 105, 0.24);
   --coinbase-surface-soft: var(--coinbase-panel-muted);
@@ -154,8 +153,8 @@
   --surface-radius: 16px;
   --app-glass-radius: 20px;
   --side-overlay-radius: 28px;
-  --heatmap-cell-radius: var(--surface-radius);
-  --heatmap-band-radius: 7px;
+  --heatmap-cell-radius: 0px;
+  --heatmap-band-radius: 0px;
   --chart-candle-radius: 3px;
   /* Panel content contract: uniform inner padding + inter-block gap for every content panel.
      The right side additionally reserves the scrollbar via scrollbar-gutter (see the shared
@@ -324,38 +323,40 @@ button {
 }
 
 .heatmap-background-layer::before {
-  inset: 28vh -24vw -20vh;
+  inset: 66vh -28vw -48vh;
   border: 0;
   border-radius: 50% / 31%;
   background:
-    radial-gradient(ellipse 86% 46% at 50% 16%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.5) 36%, transparent 68%),
-    radial-gradient(ellipse 64% 25% at 34% 76%, rgba(255, 255, 255, 0.48) 0%, transparent 72%),
-    radial-gradient(ellipse 62% 28% at 66% 106%, rgba(255, 255, 255, 0.42) 0%, transparent 76%),
-    radial-gradient(ellipse 116% 68% at 50% 88%, rgb(var(--coinbase-primary-rgb) / 0.07) 0%, rgb(var(--coinbase-primary-rgb) / 0.032) 50%, transparent 80%),
-    radial-gradient(ellipse 76% 42% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.024) 0%, transparent 74%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76) 0%, rgb(var(--coinbase-primary-rgb) / 0.008) 46%, rgb(var(--coinbase-primary-rgb) / 0.028) 100%);
+    radial-gradient(ellipse 92% 50% at 50% 16%, rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.18) 42%, transparent 78%),
+    radial-gradient(ellipse 70% 28% at 34% 76%, rgba(255, 255, 255, 0.28) 0%, transparent 78%),
+    radial-gradient(ellipse 68% 30% at 66% 106%, rgba(255, 255, 255, 0.24) 0%, transparent 82%),
+    radial-gradient(ellipse 124% 74% at 50% 88%, rgba(196, 217, 232, 0.040) 0%, rgba(216, 229, 238, 0.018) 58%, transparent 90%),
+    radial-gradient(ellipse 82% 48% at 50% 116%, rgba(196, 217, 232, 0.018) 0%, transparent 84%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30) 0%, rgba(217, 230, 238, 0.008) 54%, rgba(196, 217, 232, 0.016) 100%);
   box-shadow:
-    inset 0 92px 128px rgba(255, 255, 255, 0.7),
-    inset 0 -130px 180px rgb(var(--coinbase-primary-rgb) / 0.036),
-    inset 120px 0 160px rgba(255, 255, 255, 0.35),
-    inset -120px 0 160px rgba(255, 255, 255, 0.35),
-    0 -42px 120px rgb(var(--coinbase-primary-rgb) / 0.025);
+    inset 0 110px 160px rgba(255, 255, 255, 0.28),
+    inset 0 -150px 220px rgba(196, 217, 232, 0.024),
+    inset 140px 0 190px rgba(255, 255, 255, 0.22),
+    inset -140px 0 190px rgba(255, 255, 255, 0.22),
+    0 -52px 160px rgba(196, 217, 232, 0.014);
+  filter: blur(18px);
+  opacity: 0.68;
   transform: rotateX(11deg) scaleX(1.03);
   transform-origin: 50% 100%;
 }
 
 .heatmap-background-layer::after {
-  inset: 2vh -14vw -10vh;
+  inset: 38vh -14vw -24vh;
   border-radius: 50% / 24%;
   background:
     radial-gradient(ellipse 88% 34% at 50% 74%, rgba(255, 255, 255, 0.28) 0%, transparent 76%),
-    radial-gradient(ellipse 98% 42% at 50% 80%, rgb(var(--coinbase-primary-rgb) / 0.010) 0%, transparent 76%),
-    radial-gradient(ellipse 128% 72% at 50% 112%, rgb(var(--coinbase-primary-rgb) / 0.020) 0%, transparent 80%),
-    linear-gradient(180deg, transparent 0%, rgb(var(--coinbase-primary-rgb) / 0.004) 48%, rgb(var(--coinbase-primary-rgb) / 0.010) 100%);
+    radial-gradient(ellipse 98% 42% at 50% 80%, rgba(196, 217, 232, 0.014) 0%, transparent 76%),
+    radial-gradient(ellipse 128% 72% at 50% 112%, rgba(196, 217, 232, 0.024) 0%, transparent 80%),
+    linear-gradient(180deg, transparent 0%, rgba(196, 217, 232, 0.006) 48%, rgba(196, 217, 232, 0.014) 100%);
   box-shadow:
     inset 0 64px 110px rgba(255, 255, 255, 0.72),
-    inset 0 -86px 140px rgb(var(--coinbase-primary-rgb) / 0.018);
-  opacity: 0.82;
+    inset 0 -86px 140px rgba(196, 217, 232, 0.022);
+  opacity: 0.48;
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
   mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
 }
@@ -2301,15 +2302,40 @@ h2 {
 .treemap-panel {
   position: absolute;
   overflow: hidden;
-  border-radius: var(--surface-radius);
-  border: 1px solid var(--coinbase-glass-border);
-  background:
-    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
-    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
-    rgb(var(--coinbase-on-primary-rgb) / 0.18);
-  box-shadow: var(--coinbase-glass-shadow);
-  -webkit-backdrop-filter: blur(23px);
-  backdrop-filter: blur(23px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--app-glass-radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 0 rgba(255, 255, 255, 0);
+  -webkit-backdrop-filter: blur(31px);
+  backdrop-filter: blur(31px);
+}
+
+.treemap-panel::before,
+.treemap-panel::after {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  content: "";
+}
+
+.treemap-panel::before {
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+}
+
+.treemap-panel::after {
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), transparent, rgba(255, 255, 255, 0.3));
 }
 
 .treemap-canvas {
@@ -11161,14 +11187,16 @@ h2 {
 }
 
 .treemap-panel {
-  border: 1px solid var(--coinbase-glass-border);
-  background:
-    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
-    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
-    var(--coinbase-panel-glass);
-  box-shadow: var(--coinbase-glass-shadow);
-  -webkit-backdrop-filter: var(--coinbase-glass-filter);
-  backdrop-filter: var(--coinbase-glass-filter);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--app-glass-radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 0 rgba(255, 255, 255, 0);
+  -webkit-backdrop-filter: blur(31px);
+  backdrop-filter: blur(31px);
 }
 
 .canvas-workspace {
@@ -11807,8 +11835,7 @@ textarea:focus,
   color: var(--coinbase-semantic-down);
 }
 
-/* Command buttons blend into the canvas by default; active state presses inward with
-   paired inset shadows only. */
+/* Command buttons blend into the canvas by default; active state keeps color only. */
 .workspace-top-action,
 .workspace-top-login,
 .workspace-bottom-nav .workspace-nav-button,
