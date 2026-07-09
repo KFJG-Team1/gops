@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { sp500WeightValue } from "../market/sp500Universe.seed";
 import { hitTestTreeMapTile, layoutSp500TreeMap } from "./treemapLayout";
-import type { TreeMapInputItem, TreeMapTile } from "./treemapTypes";
+import type { TreeMapInputItem, TreeMapRect, TreeMapTile } from "./treemapTypes";
 import {
   createTreeMapOpacityScale,
   tileFillForChange,
@@ -15,8 +15,10 @@ import { readThemeColors, type ThemeColors } from "../theme/colors";
 
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
-  onSelectSymbol: (symbol: string) => void;
+  onSelectSymbol?: (symbol: string) => void;
   style?: CSSProperties;
+  className?: string;
+  interactive?: boolean;
 };
 
 type CanvasSize = {
@@ -24,11 +26,18 @@ type CanvasSize = {
   height: number;
 };
 
+type TreeMapSymbolBounds = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 const canvasPadding = 4;
 const labelPadding = 8;
 const tileGap = 0.85;
 
-export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasProps) {
+export function TreeMapCanvas({ items, onSelectSymbol, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
@@ -110,6 +119,9 @@ export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasPro
   }, [hoveredTile, opacityScale, size, tiles]);
 
   const updateHover = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!interactive) {
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -118,23 +130,23 @@ export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasPro
   };
 
   const selectHoveredTile = () => {
-    if (hoveredTile?.symbol) {
+    if (interactive && hoveredTile?.symbol && onSelectSymbol) {
       onSelectSymbol(hoveredTile.symbol);
     }
   };
 
   return (
-    <section className="treemap-panel" style={panelStyle} aria-label="S&P 500 TreeMap">
+    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={panelStyle} aria-label="S&P 500 TreeMap">
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
-        style={{ cursor: hoveredTile?.symbol ? "pointer" : "default" }}
+        style={{ cursor: interactive && hoveredTile?.symbol ? "pointer" : "default" }}
         aria-label="S&P 500 TreeMap canvas"
-        onPointerMove={updateHover}
-        onPointerLeave={() => setHoveredTile(null)}
-        onClick={selectHoveredTile}
+        onPointerMove={interactive ? updateHover : undefined}
+        onPointerLeave={interactive ? () => setHoveredTile(null) : undefined}
+        onClick={interactive ? selectHoveredTile : undefined}
       />
-      {hoveredTile?.symbol && (
+      {interactive && hoveredTile?.symbol && (
         <div className="treemap-hover-meta" aria-live="polite">
           <strong>{hoveredTile.symbol}</strong>
           <span>{hoveredTile.companyName}</span>
@@ -156,9 +168,12 @@ function drawTreeMap(
   const theme = readTheme();
   context.clearRect(0, 0, size.width, size.height);
 
+  const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
+  const industryTiles = tiles.filter((tile) => tile.kind === "industry");
+  const symbolBounds = boundsForSymbolTiles(symbolTiles);
+  symbolTiles.forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale, symbolBounds));
+  industryTiles.forEach((tile) => drawIndustry(context, tile, theme, opacityScale, symbolTiles));
   tiles.filter((tile) => tile.kind === "sector").forEach((tile) => drawSector(context, tile, theme));
-  tiles.filter((tile) => tile.kind === "industry").forEach((tile) => drawIndustry(context, tile, theme, opacityScale));
-  tiles.filter((tile) => tile.kind === "symbol").forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale));
 }
 
 function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
@@ -189,17 +204,18 @@ function drawIndustry(
   context: CanvasRenderingContext2D,
   tile: TreeMapTile,
   theme: TreeMapTheme,
-  opacityScale: TreeMapOpacityScale
+  opacityScale: TreeMapOpacityScale,
+  symbolTiles: TreeMapTile[]
 ) {
-  const band = tile.band;
+  const band = categoryBandForTopEdge(tile.band, tile, symbolTiles);
   if (!band || band.width <= 2 || band.height <= 0) {
     return;
   }
   const opacity = tileOpacityForChange(tile.changePercent, opacityScale);
   context.save();
   context.fillStyle = tileFillForChange(tile.changePercent, theme.colors);
-  context.globalAlpha = opacity;
-  context.fillRect(band.x, band.y, band.width, band.height);
+  context.globalAlpha = 1;
+  fillRoundedRect(context, band.x, band.y, band.width, band.height, theme.radii.band);
   context.globalAlpha = 1;
 
   // Industry name written inside the band when it is tall/wide enough to read.
@@ -213,12 +229,46 @@ function drawIndustry(
   context.restore();
 }
 
+function categoryBandForTopEdge(
+  band: TreeMapRect | undefined,
+  industryTile: TreeMapTile,
+  symbolTiles: TreeMapTile[]
+): TreeMapRect | undefined {
+  if (!band) {
+    return undefined;
+  }
+  const children = symbolTiles.filter((tile) => tile.parentId === industryTile.id);
+  if (!children.length) {
+    return band;
+  }
+  const top = Math.min(...children.map((tile) => tile.y));
+  const topRow = children.filter((tile) => Math.abs(tile.y - top) <= 0.5);
+  if (!topRow.length) {
+    return band;
+  }
+  const left = Math.max(band.x, Math.min(...topRow.map((tile) => insetTile(tile, tileGap).x)));
+  const right = Math.min(band.x + band.width, Math.max(...topRow.map((tile) => {
+    const rect = insetTile(tile, tileGap);
+    return rect.x + rect.width;
+  })));
+  if (right - left <= 2) {
+    return band;
+  }
+  return {
+    x: left,
+    y: band.y,
+    width: right - left,
+    height: band.height
+  };
+}
+
 function drawSymbol(
   context: CanvasRenderingContext2D,
   tile: TreeMapTile,
   hoveredTileId: string | undefined,
   theme: TreeMapTheme,
-  opacityScale: TreeMapOpacityScale
+  opacityScale: TreeMapOpacityScale,
+  symbolBounds: TreeMapSymbolBounds | null
 ) {
   const hovered = hoveredTileId === tile.id;
   const rect = insetTile(tile, tileGap);
@@ -226,10 +276,19 @@ function drawSymbol(
     return;
   }
   const tileOpacity = tileOpacityForChange(tile.changePercent, opacityScale);
-  context.fillStyle = hovered ? theme.colors.text : tileFillForChange(tile.changePercent, theme.colors);
-  context.globalAlpha = hovered ? 1 : tileOpacity;
-  context.fillRect(rect.x, rect.y, rect.width, rect.height);
-  context.globalAlpha = 1;
+  const fillColor = hovered ? theme.colors.text : tileFillForChange(tile.changePercent, theme.colors);
+  const tileRadius = symbolBounds && isOuterSymbolTile(tile, symbolBounds) ? theme.radii.tile : 0;
+  drawRaisedTile(
+    context,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    tileRadius,
+    fillColor,
+    hovered ? 1 : tileOpacity,
+    theme.colors.shadow
+  );
 
   const labelSpace = rect.width - 10;
   if (rect.width < 38 || rect.height < 27 || labelSpace < 24) {
@@ -248,6 +307,54 @@ function drawSymbol(
   context.font = `500 ${Math.max(10, symbolSize * 0.72)}px ${theme.serif}`;
   context.fillStyle = hovered ? changeTextColor(tile.changePercent, theme) : textColor;
   fillFittedText(context, formatChange(tile.changePercent), rect.x + 6, rect.y + 8 + symbolSize, labelSpace);
+}
+
+function boundsForSymbolTiles(tiles: TreeMapTile[]): TreeMapSymbolBounds | null {
+  if (!tiles.length) {
+    return null;
+  }
+  return {
+    left: Math.min(...tiles.map((tile) => tile.x)),
+    top: Math.min(...tiles.map((tile) => tile.y)),
+    right: Math.max(...tiles.map((tile) => tile.x + tile.width)),
+    bottom: Math.max(...tiles.map((tile) => tile.y + tile.height))
+  };
+}
+
+function isOuterSymbolTile(tile: TreeMapTile, bounds: TreeMapSymbolBounds): boolean {
+  const tolerance = 0.5;
+  return Math.abs(tile.x - bounds.left) <= tolerance ||
+    Math.abs(tile.y - bounds.top) <= tolerance ||
+    Math.abs(tile.x + tile.width - bounds.right) <= tolerance ||
+    Math.abs(tile.y + tile.height - bounds.bottom) <= tolerance;
+}
+
+function drawRaisedTile(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fillStyle: string,
+  alpha: number,
+  shadowColor: string
+) {
+  context.save();
+  context.shadowColor = shadowColor;
+  context.shadowBlur = 10;
+  context.shadowOffsetX = 5;
+  context.shadowOffsetY = 5;
+  context.fillStyle = fillStyle;
+  context.globalAlpha = alpha * 0.16;
+  fillRoundedRect(context, x, y, width, height, radius);
+  context.restore();
+
+  context.save();
+  context.fillStyle = fillStyle;
+  context.globalAlpha = alpha;
+  fillRoundedRect(context, x, y, width, height, radius);
+  context.restore();
 }
 
 function changeTextColor(changePercent: number | undefined, theme: TreeMapTheme): string {
@@ -283,14 +390,66 @@ function formatChange(value: number | undefined): string {
 type TreeMapTheme = {
   serif: string;
   colors: ThemeColors;
+  radii: {
+    tile: number;
+    band: number;
+  };
 };
 
 function readTheme(): TreeMapTheme {
   const root = getComputedStyle(document.documentElement);
+  const surfaceRadius = readCssPixelNumber(root, "--surface-radius", 16);
   return {
     serif: root.getPropertyValue("--font-ui-serif").trim() || "\"Times New Roman\", Times, Georgia, serif",
-    colors: readThemeColors()
+    colors: readThemeColors(),
+    radii: {
+      tile: readCssPixelNumber(root, "--heatmap-cell-radius", surfaceRadius),
+      band: readCssPixelNumber(root, "--heatmap-band-radius", 7)
+    }
   };
+}
+
+function fillRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const safeRadius = roundedRadius(width, height, radius);
+  if (safeRadius <= 0.25) {
+    context.fillRect(x, y, width, height);
+    return;
+  }
+  roundedRectPath(context, x, y, width, height, safeRadius);
+  context.fill();
+}
+
+function roundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
+}
+
+function roundedRadius(width: number, height: number, radius: number): number {
+  return clamp(radius, 0, Math.min(width, height) * 0.32);
+}
+
+function readCssPixelNumber(root: CSSStyleDeclaration, name: string, fallback: number): number {
+  const value = Number.parseFloat(root.getPropertyValue(name));
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function insetTile(tile: TreeMapTile, gap: number) {

@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { useVerticalOverflow } from "../hooks/useVerticalOverflow";
 import { fetchChartCompare } from "../chart/cdcClient";
+import { useVerticalOverflow } from "../hooks/useVerticalOverflow";
 import type {
   ChartCompareItemDto,
   ChartComparePointDto,
@@ -26,7 +26,7 @@ const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
 const chartWidth = 1600;
 const chartHeight = 300;
 const plot = { left: 62, right: 1538, top: 28, bottom: 232 };
-const fallbackColors = ["#2a8c99", "#b2553d", "#b99b2e", "#ca8a4a", "#8f6bb5", "#c85363"];
+const fallbackColors = ["#0052ff", "#05b169", "#cf202f", "#f4b000", "#003ecc", "#8c939f"];
 const maxCompareSymbols = 6;
 
 export function ChartComparisonPanel({
@@ -110,6 +110,11 @@ export function ChartComparisonPanel({
     [hoverX, percentDomain, series, timeScale]
   );
   const lineLabels = useMemo(() => buildLineLabels(series, percentDomain), [percentDomain, series]);
+  const primaryItem = displayItems[0];
+  const primaryPercent = hoverSnapshot?.points.find((entry) => entry.item.symbol === primaryItem?.symbol)?.point.returnPercent ?? primaryItem?.changePercent;
+  const heroPercent = typeof primaryPercent === "number" && Number.isFinite(primaryPercent) ? primaryPercent : 0;
+  const listRef = useRef<HTMLDivElement>(null);
+  const listScrolls = useVerticalOverflow(listRef);
 
   function handleComparePointerMove(event: PointerEvent<SVGSVGElement>) {
     if (!hasRenderableSeries) {
@@ -125,159 +130,173 @@ export function ChartComparisonPanel({
     setHoverX(localX);
   }
 
-  const listRef = useRef<HTMLDivElement>(null);
-  const listScrolls = useVerticalOverflow(listRef);
-
   return (
     <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
-      <div className="chart-compare-header">
-        <div>
-          <span>
-            {response?.timeframe ?? timeframeLabel(range)} · {cacheLabel}
-            {hoverSnapshot ? ` · ${formatHoverTime(hoverSnapshot.timestamp, range)}` : ""}
-          </span>
+      <aside className="chart-compare-sidebar" aria-label="비교 종목 관리">
+        <div className="chart-compare-sidebar-top">
+          <span className="chart-compare-brand">GOPS</span>
+          <span className="chart-compare-overview">Comparison Overview</span>
+        </div>
+        <div className="chart-compare-hero">
+          <span>{primaryItem?.symbol ?? symbol.toUpperCase()} · 기준</span>
+          <strong className={toneClass(heroPercent)}>{formatSignedPercent(heroPercent)}</strong>
+          <p>
+            {requestSymbols.length}/{maxCompareSymbols} symbols · {response?.timeframe ?? timeframeLabel(range)}
+            {cacheLabel ? ` · ${cacheLabel}` : ""}
+          </p>
         </div>
         {requestSymbols.length < maxCompareSymbols && (
           <SymbolSearch
             symbols={availableSymbols}
             className="chart-compare-symbol-search"
             selectedLabel=""
-            placeholder="종목 추가"
+            placeholder="기업 추가"
             compact
             menuPlacement="bottom"
             onSelectSymbol={onAddSymbol}
           />
         )}
-        <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
-          {compareRanges.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={item === range ? "active" : ""}
-              onClick={() => onRangeChange(item)}
-              aria-pressed={item === range}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-      <svg
-        className="chart-compare-svg"
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-        role="img"
-        aria-label="종목 수익률 비교 차트"
-        onPointerMove={handleComparePointerMove}
-        onPointerDown={handleComparePointerMove}
-        onPointerLeave={() => setHoverX(null)}
-      >
-        {yTicks.map((tick) => {
-          const y = yForPercent(tick, percentDomain);
-          return (
-            <g key={tick}>
-              <line className="chart-compare-grid" x1={plot.left} x2={plot.right} y1={y} y2={y} />
-              <text className="chart-compare-axis-label" x={plot.left - 10} y={y + 4} textAnchor="end">{formatPercent(tick)}</text>
-            </g>
-          );
-        })}
-        {xTicks.map((tick) => {
-          const x = xForTime(tick, timeScale);
-          return (
-            <g key={tick}>
-              <line className="chart-compare-grid subtle" x1={x} x2={x} y1={plot.top} y2={plot.bottom} />
-              <text className="chart-compare-axis-label" x={x} y={plot.bottom + 28} textAnchor="middle">{formatTickTime(tick, range)}</text>
-            </g>
-          );
-        })}
-        <line className="chart-compare-zero" x1={plot.left} x2={plot.right} y1={yForPercent(0, percentDomain)} y2={yForPercent(0, percentDomain)} />
-        {series.map((item) => (
-          <polyline
-            key={item.symbol}
-            className="chart-compare-line"
-            points={item.points.map((point) => `${xForTime(Date.parse(point.time), timeScale)},${yForPercent(point.returnPercent, percentDomain)}`).join(" ")}
-            style={{ stroke: item.color }}
-          />
-        ))}
-        {!hoverSnapshot && lineLabels.map(({ item, point, y }) => (
-            <text
-              key={`${item.symbol}-label`}
-              className="chart-compare-line-label"
-              x={plot.right - 4}
-              y={y}
-              textAnchor="end"
-              style={{ fill: item.color }}
-            >
-              {item.symbol} {formatSignedPercent(point.returnPercent)}
-            </text>
-        ))}
-        {hoverSnapshot && (
-          <g className="chart-compare-hover-layer" aria-hidden="true">
-            <line className="chart-compare-hover-guide" x1={hoverSnapshot.x} x2={hoverSnapshot.x} y1={plot.top} y2={plot.bottom} />
-            {hoverSnapshot.points.map((entry) => (
-              <circle
-                key={`${entry.item.symbol}-${entry.point.time}`}
-                className="chart-compare-hover-dot"
-                cx={hoverSnapshot.x}
-                cy={entry.y}
-                r={5}
-                style={{ fill: entry.item.color, stroke: entry.item.color }}
-              />
-            ))}
-          </g>
-        )}
-        {!hasRenderableSeries && (
-          <text className="chart-compare-empty" x={chartWidth / 2} y={chartHeight / 2} textAnchor="middle">
-            {loading ? "비교 데이터 확인 중" : error ?? "비교 데이터가 없습니다"}
-          </text>
-        )}
-      </svg>
-      {hoverSnapshot && (
-        <div className="chart-compare-hover-card" aria-live="polite">
-          <strong>{formatHoverTime(hoverSnapshot.timestamp, range)}</strong>
-          {hoverSnapshot.points.map((entry) => (
-            <div key={entry.item.symbol}>
-              <i style={{ background: entry.item.color }} aria-hidden="true" />
-              <span>{entry.item.symbol}</span>
-              <em>{formatPrice(entry.point.price)}</em>
-              <b className={toneClass(entry.point.returnPercent)}>{formatSignedPercent(entry.point.returnPercent)}</b>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
-        {displayItems.map((item, index) => {
-          const removable = item.symbol !== symbol.toUpperCase();
-          const hoverEntry = hoverSnapshot?.points.find((entry) => entry.item.symbol === item.symbol);
-          const rowPrice = hoverEntry?.point.price ?? item.lastPrice;
-          const rowChange = hoverEntry ? changeFromBase(hoverEntry.point, item) : item.change;
-          const rowPercent = hoverEntry?.point.returnPercent ?? item.changePercent;
-          return (
-            <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""} ${hoverEntry ? "is-synced" : ""}`}>
-              <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
-              <StockLogo
-                symbol={item.symbol}
-                companyName={item.companyName ?? item.symbol}
-                size="xs"
-                className="chart-compare-row-logo"
-              />
-              <div className="chart-compare-row-name">
-                <strong>{item.companyName ?? item.symbol}</strong>
-                <span>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</span>
+        <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
+          {displayItems.map((item, index) => {
+            const removable = item.symbol !== symbol.toUpperCase();
+            const hoverEntry = hoverSnapshot?.points.find((entry) => entry.item.symbol === item.symbol);
+            const rowPrice = hoverEntry?.point.price ?? item.lastPrice;
+            const rowChange = hoverEntry ? changeFromBase(hoverEntry.point, item) : item.change;
+            const rowPercent = hoverEntry?.point.returnPercent ?? item.changePercent;
+            return (
+              <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""} ${hoverEntry ? "is-synced" : ""}`}>
+                <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
+                <StockLogo
+                  symbol={item.symbol}
+                  companyName={item.companyName ?? item.symbol}
+                  size="xs"
+                  className="chart-compare-row-logo"
+                />
+                <div className="chart-compare-row-name">
+                  <strong>{item.companyName ?? item.symbol}</strong>
+                  <span>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</span>
+                </div>
+                <div className="chart-compare-row-metrics">
+                  <span className="chart-compare-row-price">{formatPrice(rowPrice)}</span>
+                  <span className={`chart-compare-row-percent ${toneClass(rowPercent)}`}>{formatSignedPercent(rowPercent)}</span>
+                </div>
+                {removable ? (
+                  <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
+                    <X size={15} />
+                  </button>
+                ) : (
+                  <span className="chart-compare-row-anchor">{index === 0 ? "기준" : ""}</span>
+                )}
+                <span className={`chart-compare-row-change ${toneClass(rowPercent)}`}>{formatChange(rowChange)}</span>
               </div>
-              <span className="chart-compare-row-price">{formatPrice(rowPrice)}</span>
-              <span className={`chart-compare-row-change ${toneClass(rowPercent)}`}>{formatChange(rowChange)}</span>
-              <span className={`chart-compare-row-percent ${toneClass(rowPercent)}`}>{formatSignedPercent(rowPercent)}</span>
-              {removable ? (
-                <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
-                  <X size={15} />
-                </button>
-              ) : (
-                <span className="chart-compare-row-anchor">{index === 0 ? "기준" : ""}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </aside>
+
+      <section className="chart-compare-main" aria-label="수익률 비교 그래프">
+        <div className="chart-compare-header">
+          <div>
+            <strong>Return graph</strong>
+            <span>{hoverSnapshot ? formatHoverTime(hoverSnapshot.timestamp, range) : "first close 기준 수익률"}</span>
+          </div>
+          <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
+            {compareRanges.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={item === range ? "active" : ""}
+                onClick={() => onRangeChange(item)}
+                aria-pressed={item === range}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+        <svg
+          className="chart-compare-svg"
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-label="종목 수익률 비교 차트"
+          onPointerMove={handleComparePointerMove}
+          onPointerDown={handleComparePointerMove}
+          onPointerLeave={() => setHoverX(null)}
+        >
+          {yTicks.map((tick) => {
+            const y = yForPercent(tick, percentDomain);
+            return (
+              <g key={tick}>
+                <line className="chart-compare-grid" x1={plot.left} x2={plot.right} y1={y} y2={y} />
+                <text className="chart-compare-axis-label" x={plot.left - 10} y={y + 4} textAnchor="end">{formatPercent(tick)}</text>
+              </g>
+            );
+          })}
+          {xTicks.map((tick) => {
+            const x = xForTime(tick, timeScale);
+            return (
+              <g key={tick}>
+                <line className="chart-compare-grid subtle" x1={x} x2={x} y1={plot.top} y2={plot.bottom} />
+                <text className="chart-compare-axis-label" x={x} y={plot.bottom + 28} textAnchor="middle">{formatTickTime(tick, range)}</text>
+              </g>
+            );
+          })}
+          <line className="chart-compare-zero" x1={plot.left} x2={plot.right} y1={yForPercent(0, percentDomain)} y2={yForPercent(0, percentDomain)} />
+          {series.map((item) => (
+            <polyline
+              key={item.symbol}
+              className="chart-compare-line"
+              points={item.points.map((point) => `${xForTime(Date.parse(point.time), timeScale)},${yForPercent(point.returnPercent, percentDomain)}`).join(" ")}
+              style={{ stroke: item.color }}
+            />
+          ))}
+          {!hoverSnapshot && lineLabels.map(({ item, point, y }) => (
+              <text
+                key={`${item.symbol}-label`}
+                className="chart-compare-line-label"
+                x={plot.right - 4}
+                y={y}
+                textAnchor="end"
+                style={{ fill: item.color }}
+              >
+                {item.symbol} {formatSignedPercent(point.returnPercent)}
+              </text>
+          ))}
+          {hoverSnapshot && (
+            <g className="chart-compare-hover-layer" aria-hidden="true">
+              <line className="chart-compare-hover-guide" x1={hoverSnapshot.x} x2={hoverSnapshot.x} y1={plot.top} y2={plot.bottom} />
+              {hoverSnapshot.points.map((entry) => (
+                <circle
+                  key={`${entry.item.symbol}-${entry.point.time}`}
+                  className="chart-compare-hover-dot"
+                  cx={hoverSnapshot.x}
+                  cy={entry.y}
+                  r={5}
+                  style={{ fill: entry.item.color, stroke: entry.item.color }}
+                />
+              ))}
+            </g>
+          )}
+          {!hasRenderableSeries && (
+            <text className="chart-compare-empty" x={chartWidth / 2} y={chartHeight / 2} textAnchor="middle">
+              {loading ? "비교 데이터 확인 중" : error ?? "비교 데이터가 없습니다"}
+            </text>
+          )}
+        </svg>
+        {hoverSnapshot && (
+          <div className="chart-compare-hover-card" aria-live="polite">
+            <strong>{formatHoverTime(hoverSnapshot.timestamp, range)}</strong>
+            {hoverSnapshot.points.map((entry) => (
+              <div key={entry.item.symbol}>
+                <i style={{ background: entry.item.color }} aria-hidden="true" />
+                <span>{entry.item.symbol}</span>
+                <em>{formatPrice(entry.point.price)}</em>
+                <b className={toneClass(entry.point.returnPercent)}>{formatSignedPercent(entry.point.returnPercent)}</b>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

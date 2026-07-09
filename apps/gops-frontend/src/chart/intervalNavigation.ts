@@ -135,6 +135,35 @@ export function viewportPreservingRightEdgeAfterCandlesChange(
   );
 }
 
+export function viewportRevealingPrependedCandlesAfterChange(
+  previousCandles: CandleDto[],
+  nextCandles: CandleDto[],
+  viewport: ChartViewport,
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
+): ChartViewport {
+  const previousViewport = normalizeViewport(viewport, previousCandles.length, plotWidth, options);
+  const previousOldestTimestamp = previousCandles[0]?.timestamp;
+  if (!previousOldestTimestamp) {
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
+  }
+
+  const previousOldestIndex = findCandleIndexByTimestamp(nextCandles, previousOldestTimestamp);
+  if (previousOldestIndex <= 0) {
+    return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, previousViewport, plotWidth, options);
+  }
+
+  return normalizeViewport(
+    {
+      visibleCount: previousViewport.visibleCount,
+      rightOffset: previousViewport.rightOffset + previousOldestIndex
+    },
+    nextCandles.length,
+    plotWidth,
+    options
+  );
+}
+
 function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): number {
   const target = new Date(timestamp).getTime();
   if (!Number.isFinite(target)) {

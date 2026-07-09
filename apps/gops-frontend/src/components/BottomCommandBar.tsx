@@ -1,4 +1,4 @@
-import { Bell, CandlestickChart, GripVertical, LogIn, MessagesSquare, Newspaper, SendHorizontal, Settings, Square, Star, Trash2, UserCircle, X } from "lucide-react";
+import { Bell, CandlestickChart, GripVertical, LayoutPanelTop, LogIn, MessagesSquare, Newspaper, SendHorizontal, Settings, Square, Star, Trash2, UserCircle, WalletCards, X } from "lucide-react";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertMenu } from "../alerts/AlertMenu";
@@ -17,10 +17,23 @@ import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
+import {
+  PortfolioDividendPanel,
+  PortfolioDiversificationPanel,
+  PortfolioHoldingsOnlyPanel,
+  PortfolioInvestedPanel,
+  PortfolioInvestmentStatusPanel,
+  PortfolioPerformancePanel
+} from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
-export type BottomMenuKey = "III" | "IV" | "VI";
+export type BottomMenuKey = "II" | "III" | "IV" | "V" | "VI";
+export type SideRailCompany = {
+  symbol: string;
+  companyName?: string;
+};
+
 export type ChatLogEntry = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -30,6 +43,7 @@ export type ChatLogEntry = {
   analysisReport?: AgentAnalysisReport | null;
 };
 export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
+export type BottomCommandMode = "pages" | "agent";
 
 type BottomMenuSide = "left" | "right";
 type WatchlistDropPlacement = "before" | "after";
@@ -48,6 +62,8 @@ type AlertToastQueueItem = {
 
 type BottomCommandBarProps = {
   activeMenu: BottomMenuKey | null;
+  commandMode: BottomCommandMode;
+  presetDock: ReactNode;
   agentBusy: boolean;
   agentInput: string;
   chatLog: ChatLogEntry[];
@@ -63,6 +79,7 @@ type BottomCommandBarProps = {
   watchlistSaving: boolean;
   canEditWatchlist: boolean;
   activeSymbol: string;
+  sideRailCompany: SideRailCompany | null;
   isChartMode: boolean;
   layoutEditMode: boolean;
   onAgentCancel: () => void;
@@ -71,6 +88,7 @@ type BottomCommandBarProps = {
   onAgentReferenceEmphasize: (keys: string[]) => void;
   onAgentInputChange: (value: string) => void;
   onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
+  onCommandModeChange: (mode: BottomCommandMode) => void;
   onAddWatchlistSymbol: (symbol: string) => void;
   onCloseMenu: () => void;
   onLogin: () => void;
@@ -83,13 +101,17 @@ type BottomCommandBarProps = {
 };
 
 const leftMenuKeys: BottomMenuKey[] = [];
-const rightMenuKeys: BottomMenuKey[] = ["IV", "III", "VI"];
+const sideMenuKeys: BottomMenuKey[] = ["IV", "II", "III", "V", "VI"];
+const sideRailMenuKeys: BottomMenuKey[] = sideMenuKeys.filter((key) => key !== "IV");
+const rightMenuKeys: BottomMenuKey[] = [];
 const alertToastAdvanceMs = 6000;
 const marketOpenRetryMs = 60_000;
 const marketOpenScheduleRefreshMs = 60 * 60_000;
 
 export function BottomCommandBar({
   activeMenu,
+  commandMode,
+  presetDock,
   agentBusy,
   agentInput,
   chatLog,
@@ -105,6 +127,7 @@ export function BottomCommandBar({
   watchlistSaving,
   canEditWatchlist,
   activeSymbol,
+  sideRailCompany,
   isChartMode,
   layoutEditMode,
   onAgentCancel,
@@ -113,6 +136,7 @@ export function BottomCommandBar({
   onAgentReferenceEmphasize,
   onAgentInputChange,
   onAgentSubmit,
+  onCommandModeChange,
   onAddWatchlistSymbol,
   onCloseMenu,
   onLogin,
@@ -134,6 +158,13 @@ export function BottomCommandBar({
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const hasFloatingPanel = activeMenu !== null || chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
+  const showAgentCommand = commandMode === "agent";
+
+  useEffect(() => {
+    if (agentBusy && commandMode !== "agent") {
+      onCommandModeChange("agent");
+    }
+  }, [agentBusy, commandMode, onCommandModeChange]);
 
   const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
     const key = alertToastKey(notification);
@@ -198,7 +229,7 @@ export function BottomCommandBar({
       if (!(event.target instanceof Element)) {
         return;
       }
-      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock, .symbol-search-menu")) {
+      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock, .index-side-rail, .symbol-search-menu, .workspace-top-nav")) {
         return;
       }
       if (activeMenu) {
@@ -431,6 +462,11 @@ export function BottomCommandBar({
     onToggleMenu(key);
   };
 
+  const showPageCommands = () => {
+    setChatPanelOpen(false);
+    onCommandModeChange("pages");
+  };
+
   const submitAgentPrompt = async (event: FormEvent<HTMLFormElement>) => {
     const hasPrompt = Boolean(agentInput.trim());
     if (hasPrompt && activeMenu) {
@@ -464,65 +500,153 @@ export function BottomCommandBar({
           onOpenChart={openAlertToastChart}
         />
       )}
-      <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
+      <nav className="workspace-top-nav" aria-label="Global navigation">
+        <div className="workspace-top-center" aria-hidden="true" />
+        <div className="workspace-top-actions">
+          <button
+            type="button"
+            className={`workspace-top-action workspace-top-alert ${activeMenu === "IV" ? "is-active" : ""}`}
+            aria-label={bottomMenuLabel("IV", alertUnreadCount)}
+            title={bottomMenuLabel("IV", alertUnreadCount)}
+            aria-controls="workspace-side-menu-panel"
+            aria-expanded={activeMenu === "IV"}
+            onClick={() => toggleBottomMenu("IV")}
+          >
+            {bottomMenuIcon("IV", alertUnreadCount)}
+          </button>
+          <button
+            type="button"
+            className={`workspace-top-login ${activeMenu === "VI" ? "is-active" : ""}`}
+            disabled={authLoading}
+            aria-label={topLoginLabel(authEnabled, authLoading, authUser)}
+            title={topLoginLabel(authEnabled, authLoading, authUser)}
+            onClick={authUser ? () => toggleBottomMenu("VI") : onLogin}
+          >
+            {authUser ? <UserCircle size={15} aria-hidden="true" /> : <LogIn size={15} aria-hidden="true" />}
+            <span>{topLoginLabel(authEnabled, authLoading, authUser)}</span>
+          </button>
+        </div>
+      </nav>
+      <BottomMenuPanel
+        id="workspace-side-menu-panel"
+        variant="side"
+        side="right"
+        menuKeys={sideMenuKeys}
+        activeKey={activeMenu}
+        authEnabled={authEnabled}
+        authLoading={authLoading}
+        authUser={authUser}
+        symbols={symbols}
+        watchlistSymbols={watchlistPreviewSymbols ?? watchlistSymbols}
+        watchlistPersisted={watchlistPersisted}
+        watchlistLoading={watchlistLoading}
+        watchlistSaving={watchlistSaving}
+        watchlistDragSource={watchlistDragSource}
+        watchlistDragTarget={watchlistDragTarget}
+        canEditWatchlist={canEditWatchlist}
+        activeSymbol={activeSymbol}
+        onAddWatchlistSymbol={onAddWatchlistSymbol}
+        onBeginWatchlistDrag={beginWatchlistDrag}
+        onClearWatchlistDropTarget={clearWatchlistDropTarget}
+        onDropWatchlistSymbol={dropWatchlistSymbol}
+        onEndWatchlistDrag={resetWatchlistDrag}
+        onUpdateWatchlistDropTarget={updateWatchlistDropTarget}
+        onLogin={onLogin}
+        onLogout={onLogout}
+        onRemoveWatchlistSymbol={onRemoveWatchlistSymbol}
+        onSelectSymbol={onSelectSymbol}
+        onClose={onCloseMenu}
+        externallyReadNotification={externallyReadNotification}
+        marketOpenReminderEnabled={marketOpenReminderEnabled}
+        onMarketOpenReminderChange={toggleMarketOpenReminder}
+        onAlertUnreadCountChange={setAlertUnreadCount}
+      />
+      <SideRailMenu
+        company={sideRailCompany}
+        activeMenu={activeMenu}
+        authEnabled={authEnabled}
+        authLoading={authLoading}
+        authUser={authUser}
+        onLogin={onLogin}
+        onSelectSymbol={onSelectSymbol}
+        onToggleMenu={toggleBottomMenu}
+      />
+      <nav className={`workspace-bottom-nav command-${commandMode}`} aria-label="Workspace command bar">
         <div className="bottom-nav-actions left" aria-hidden="true" />
-        <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
-          <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Chart agent conversation" aria-hidden={!chatPanelOpen}>
-            <div className="bottom-chat-log" role="log" aria-live="polite">
-              {chatLog.length ? chatLog.map((entry) => (
-                <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
-                  <span className="bottom-chat-message-role">
-                    {entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}
-                    {entry.role === "assistant" && typeof entry.confidence === "number" && !entry.pending && (
-                      <span
-                        className={`bottom-chat-confidence-dot ${confidenceTone(entry.confidence)}`}
-                        title={confidenceTitle(entry.confidence)}
-                        aria-label={confidenceTitle(entry.confidence)}
-                      />
-                    )}
-                  </span>
-                  <ChatMessageBody entry={entry} />
-                </article>
-              )) : (
-                <p className="bottom-chat-empty">질문을 입력하면 이곳에 대화가 남습니다.</p>
-              )}
+        <div className={`bottom-command-slot ${showAgentCommand ? "is-agent" : "is-pages"}`}>
+          {showAgentCommand ? (
+            <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
+              <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Chart agent conversation" aria-hidden={!chatPanelOpen}>
+                <div className="bottom-chat-log" role="log" aria-live="polite">
+                  {chatLog.length ? chatLog.map((entry) => (
+                    <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
+                      <span className="bottom-chat-message-role">
+                        {entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}
+                        {entry.role === "assistant" && typeof entry.confidence === "number" && !entry.pending && (
+                          <span
+                            className={`bottom-chat-confidence-dot ${confidenceTone(entry.confidence)}`}
+                            title={confidenceTitle(entry.confidence)}
+                            aria-label={confidenceTitle(entry.confidence)}
+                          />
+                        )}
+                      </span>
+                      <ChatMessageBody entry={entry} />
+                    </article>
+                  )) : (
+                    <p className="bottom-chat-empty">질문을 입력하면 이곳에 대화가 남습니다.</p>
+                  )}
+                </div>
+              </section>
+              <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
+                <AgentReferenceStrip
+                  chips={agentReferenceChips}
+                  onRemove={onAgentReferenceRemove}
+                  onClearAll={onAgentReferencesClear}
+                  onEmphasize={onAgentReferenceEmphasize}
+                />
+                <input
+                  value={agentInput}
+                  onChange={(event) => onAgentInputChange(event.target.value)}
+                  placeholder={agentPlaceholder(isChartMode, canUseAgent)}
+                  aria-label="Agent command"
+                  disabled={agentBusy || !canUseAgent}
+                />
+                <button
+                  type={agentBusy ? "button" : "submit"}
+                  className={agentBusy ? "agent-stop-button" : undefined}
+                  aria-label={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
+                  title={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
+                  disabled={!agentBusy && !canUseAgent}
+                  onClick={agentBusy ? onAgentCancel : undefined}
+                >
+                  {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
+                </button>
+                <button
+                  type="button"
+                  className={`agent-chat-toggle ${chatPanelOpen ? "is-active" : ""}`}
+                  aria-label={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+                  title={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
+                  aria-expanded={chatPanelOpen}
+                  onClick={toggleChatPanel}
+                >
+                  <MessagesSquare size={15} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="agent-pages-toggle"
+                  aria-label="페이지 버튼 보기"
+                  title="페이지 버튼 보기"
+                  onClick={showPageCommands}
+                >
+                  <LayoutPanelTop size={15} aria-hidden="true" />
+                </button>
+              </form>
             </div>
-          </section>
-          <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
-            <AgentReferenceStrip
-              chips={agentReferenceChips}
-              onRemove={onAgentReferenceRemove}
-              onClearAll={onAgentReferencesClear}
-              onEmphasize={onAgentReferenceEmphasize}
-            />
-            <input
-              value={agentInput}
-              onChange={(event) => onAgentInputChange(event.target.value)}
-              placeholder={agentPlaceholder(isChartMode, canUseAgent)}
-              aria-label="Agent command"
-              disabled={agentBusy || !canUseAgent}
-            />
-            <button
-              type={agentBusy ? "button" : "submit"}
-              className={agentBusy ? "agent-stop-button" : undefined}
-              aria-label={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
-              title={agentBusy ? "Agent 분석 중단" : "Agent에게 전송"}
-              disabled={!agentBusy && !canUseAgent}
-              onClick={agentBusy ? onAgentCancel : undefined}
-            >
-              {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
-            </button>
-            <button
-              type="button"
-              className={`agent-chat-toggle ${chatPanelOpen ? "is-active" : ""}`}
-              aria-label={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
-              title={chatPanelOpen ? "대화창 닫기" : "대화창 열기"}
-              aria-expanded={chatPanelOpen}
-              onClick={toggleChatPanel}
-            >
-              <MessagesSquare size={15} aria-hidden="true" />
-            </button>
-          </form>
+          ) : (
+            <div className="page-command-dock">
+              {presetDock}
+            </div>
+          )}
         </div>
         <MenuActionGroup
           side="right"
@@ -720,6 +844,83 @@ function isCollapsibleAnalysisSection(title: string): boolean {
   return ["판단 근거", "분석한 지표", "반대로 볼 점"].includes(title.trim());
 }
 
+function SideRailMenu({
+  company,
+  activeMenu,
+  authEnabled,
+  authLoading,
+  authUser,
+  onLogin,
+  onSelectSymbol,
+  onToggleMenu
+}: {
+  company: SideRailCompany | null;
+  activeMenu: BottomMenuKey | null;
+  authEnabled: boolean;
+  authLoading: boolean;
+  authUser: AuthUser | null;
+  onLogin: () => void;
+  onSelectSymbol: (symbol: string) => void;
+  onToggleMenu: (key: BottomMenuKey) => void;
+}) {
+  if (!company) {
+    return null;
+  }
+  const railMenuOpen = activeMenu !== null && sideRailMenuKeys.includes(activeMenu);
+
+  return (
+    <nav className={`index-side-rail ${railMenuOpen ? "is-menu-open" : ""}`} aria-label="선택 회사 메뉴">
+      <button
+        className="index-side-rail-button index-side-rail-company is-active"
+        type="button"
+        title={`${company.companyName ?? company.symbol} (${company.symbol})`}
+        aria-label={`${company.companyName ?? company.symbol} 선택됨`}
+        aria-current="page"
+        onClick={() => onSelectSymbol(company.symbol)}
+      >
+        <StockLogo
+          symbol={company.symbol}
+          companyName={company.companyName}
+          size="md"
+          className="index-side-rail-logo"
+        />
+      </button>
+      <div className="index-side-rail-actions" aria-label="회사 메뉴">
+        {sideRailMenuKeys.map((key) => {
+          if (key === "III" && authEnabled && !authLoading && !authUser) {
+            return (
+              <button
+                key="III-login"
+                type="button"
+                className="index-side-rail-button index-side-rail-action"
+                aria-label="로그인"
+                title="로그인"
+                onClick={onLogin}
+              >
+                <LogIn size={17} aria-hidden="true" />
+              </button>
+            );
+          }
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`index-side-rail-button index-side-rail-action ${activeMenu === key ? "is-active" : ""}`}
+              aria-label={bottomMenuLabel(key)}
+              title={bottomMenuLabel(key)}
+              aria-controls="workspace-side-menu-panel"
+              aria-expanded={activeMenu === key}
+              onClick={() => onToggleMenu(key)}
+            >
+              {bottomMenuIcon(key)}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 function MenuActionGroup({
   side,
   keys,
@@ -880,7 +1081,10 @@ function MenuActionGroup({
 }
 
 function BottomMenuPanel({
+  id,
+  variant = "bottom",
   side,
+  menuKeys,
   activeKey,
   authEnabled,
   authLoading,
@@ -910,7 +1114,10 @@ function BottomMenuPanel({
   onMarketOpenReminderChange,
   onAlertUnreadCountChange
 }: {
+  id?: string;
+  variant?: "bottom" | "side";
   side: BottomMenuSide;
+  menuKeys?: BottomMenuKey[];
   activeKey: BottomMenuKey | null;
   authEnabled: boolean;
   authLoading: boolean;
@@ -940,7 +1147,7 @@ function BottomMenuPanel({
   onMarketOpenReminderChange: (enabled: boolean) => void;
   onAlertUnreadCountChange: (count: number) => void;
 }) {
-  const sideKeys = side === "left" ? leftMenuKeys : rightMenuKeys;
+  const sideKeys = menuKeys ?? (side === "left" ? leftMenuKeys : rightMenuKeys);
   const isOpen = activeKey !== null && sideKeys.includes(activeKey);
   const menuContent = isOpen
     ? bottomMenuContent({
@@ -977,8 +1184,9 @@ function BottomMenuPanel({
 
   return (
     <section
-      className={`bottom-menu-panel surface-floating ${side} ${activeKey ? `menu-${activeKey}` : ""} ${isOpen ? "is-open" : ""}`}
-      aria-label={`${side === "left" ? "Left" : "Right"} menu panel`}
+      id={id}
+      className={`bottom-menu-panel surface-floating ${side} ${variant === "side" ? "side-overlay" : ""} ${activeKey ? `menu-${activeKey}` : ""} ${isOpen ? "is-open" : ""}`}
+      aria-label={variant === "side" ? "Company side menu panel" : `${side === "left" ? "Left" : "Right"} menu panel`}
       aria-hidden={!isOpen}
     >
       <div className="bottom-menu-list">{menuContent}</div>
@@ -991,6 +1199,16 @@ function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean): string {
     return "로그인 후 Agent를 사용할 수 있습니다";
   }
   return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
+}
+
+function topLoginLabel(authEnabled: boolean, authLoading: boolean, authUser: AuthUser | null): string {
+  if (authLoading) {
+    return "Checking";
+  }
+  if (authUser) {
+    return authUser.name?.trim() || "Account";
+  }
+  return authEnabled ? "Login" : "Login";
 }
 
 function readSocketPayload(value: unknown): Record<string, unknown> {
@@ -1038,15 +1256,19 @@ function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
     );
   }
   return {
+    II: <WalletCards size={size} aria-hidden="true" />,
     III: <Star size={size} aria-hidden="true" />,
+    V: <UserCircle size={size} aria-hidden="true" />,
     VI: <Settings size={size} aria-hidden="true" />
   }[key];
 }
 
 function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
   const label = {
+    II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
+    V: "로그인/프로필",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {
@@ -1142,6 +1364,26 @@ function bottomMenuContent({
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
+    case "II":
+      return (
+        <div className="bottom-menu-section bottom-menu-scroll">
+          <MenuTitle title="포트폴리오" detail="보유종목" />
+          <div className="bottom-portfolio-split-grid">
+            <PortfolioInvestmentStatusPanel />
+            <PortfolioPerformancePanel />
+            <PortfolioDiversificationPanel />
+            <PortfolioInvestedPanel />
+            <PortfolioDividendPanel />
+            <PortfolioHoldingsOnlyPanel
+              onSelectSymbol={(symbol) => {
+                onSelectSymbol(symbol);
+                onClose();
+                return true;
+              }}
+            />
+          </div>
+        </div>
+      );
     case "III":
       const watchlistTitle = canEditWatchlist && watchlistPersisted ? "내 관심종목" : "관심종목";
       const watchlistDetail = authLoading
@@ -1262,6 +1504,17 @@ function bottomMenuContent({
         />
       );
     case "VI":
+      return (
+        <SettingsMenu
+          authEnabled={authEnabled}
+          authLoading={authLoading}
+          authUser={authUser}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          initialTab="recommendations"
+        />
+      );
+    case "V":
       return (
         <SettingsMenu
           authEnabled={authEnabled}

@@ -72,7 +72,7 @@ import { orderFlowDayFromMinutes, replaceOrderFlowMinute, sessionDateFromTimesta
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, viewportSlotWidth, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
-  viewportPreservingRightEdgeAfterCandlesChange,
+  viewportRevealingPrependedCandlesAfterChange,
   type ViewportAnchor
 } from "../chart/intervalNavigation";
 import {
@@ -426,7 +426,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     symbol: string,
     interval: ChartInterval,
     before: string,
-    limit: number
+    limit: number,
+    requestedViewport?: ChartViewport
   ) => {
     const requestKey = olderRangeRequestKey(symbol, interval, before, limit);
     if (olderRangeRequestsRef.current.has(requestKey)) {
@@ -461,10 +462,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-        const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
+        const viewportBeforeLoad = requestedViewport ?? { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
+        const nextViewport = viewportRevealingPrependedCandlesAfterChange(
           current.candles,
           merged,
-          { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+          viewportBeforeLoad,
           plotWidth,
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
@@ -1137,7 +1139,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         currentChart.symbol,
         currentChart.interval,
         oldest,
-        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount)
+        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount),
+        requestedViewport
       );
     }
     const nextViewport = requestedViewport;
@@ -1624,7 +1627,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
     }
-    if (dragAnchor && nextViewport && nextViewport.rightOffset !== dragAnchor.rightOffset) {
+    if (dragAnchor && nextViewport && (
+      nextViewport.rightOffset !== dragAnchor.rightOffset ||
+      event.clientX - dragAnchor.x > 5
+    )) {
       applyViewport(nextViewport);
     }
   };

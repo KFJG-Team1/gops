@@ -645,6 +645,7 @@ export function PanelWorkspace({
       {panelState.slots.map((slot) => {
         const content = panelState.contents[slot.contentId];
         const isChart = content.kind === "chart";
+        const hidePanelNav = isChart || isPortfolioPanelKind(content.kind);
         const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
         const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
@@ -666,7 +667,7 @@ export function PanelWorkspace({
             ].filter(Boolean).join(" ")}
             isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
             isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
-            showNav={!isChart}
+            showNav={!hidePanelNav}
             onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
             onFramePointerMove={layoutEditMode ? updateFrameCursor : undefined}
             onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
@@ -1011,4 +1012,14 @@ function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHe
 function readContentSymbol(content: PanelContentInstance): string | null {
   const value = content.props?.symbol;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isPortfolioPanelKind(kind: PanelContentKind): boolean {
+  return kind === "portfolio"
+    || kind === "portfolioInvestment"
+    || kind === "portfolioPerformance"
+    || kind === "portfolioInvested"
+    || kind === "portfolioDividend"
+    || kind === "portfolioDiversification"
+    || kind === "portfolioHoldings";
 }

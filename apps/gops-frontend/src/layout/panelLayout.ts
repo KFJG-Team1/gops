@@ -18,8 +18,15 @@ export type PanelContentKind =
   | "indices"
   | "popular"
   | "recommendations"
+  | "themeRadar"
   | "ontology"
   | "portfolio"
+  | "portfolioInvestment"
+  | "portfolioPerformance"
+  | "portfolioInvested"
+  | "portfolioDividend"
+  | "portfolioDiversification"
+  | "portfolioHoldings"
   | "orderFlow"
   | "trade";
 

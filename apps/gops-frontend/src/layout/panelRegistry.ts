@@ -76,6 +76,14 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "themeRadar",
+    title: "분야추천",
+    agentPanelType: "themeRadar",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 2 },
+    defaultLayoutWeight: 58
+  },
+  {
     kind: "company",
     title: "기업정보",
     agentPanelType: "companyProfile",
@@ -85,11 +93,59 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolio",
-    title: "포트폴리오",
+    title: "Holdings",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
+  },
+  {
+    kind: "portfolioInvestment",
+    title: "US Portfolio",
+    agentPanelType: "portfolioInvestment",
+    minSpan: { colSpan: 2, rowSpan: 1 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 38
+  },
+  {
+    kind: "portfolioPerformance",
+    title: "Performance",
+    agentPanelType: "portfolioPerformance",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 2 },
+    defaultLayoutWeight: 42
+  },
+  {
+    kind: "portfolioInvested",
+    title: "Invested",
+    agentPanelType: "portfolioInvested",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 36
+  },
+  {
+    kind: "portfolioDividend",
+    title: "Dividend",
+    agentPanelType: "portfolioDividend",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 2 },
+    defaultLayoutWeight: 34
+  },
+  {
+    kind: "portfolioDiversification",
+    title: "Diversification",
+    agentPanelType: "portfolioDiversification",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 36
+  },
+  {
+    kind: "portfolioHoldings",
+    title: "Holdings",
+    agentPanelType: "portfolioHoldings",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 5, rowSpan: 3 },
+    defaultLayoutWeight: 40
   },
   {
     kind: "orderFlow",

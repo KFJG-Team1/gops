@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { LogoDevAttribution } from "./StockLogo";
@@ -71,6 +71,103 @@ const DEMO_PORTFOLIO_ENABLED =
   import.meta.env.DEV ||
   (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
 
+type PortfolioHoldingsDataState = {
+  payload: PortfolioHoldingsResponse | null;
+  loading: boolean;
+  refreshing: boolean;
+  error?: string;
+};
+
+const portfolioStoreListeners = new Set<() => void>();
+let portfolioStoreState: PortfolioHoldingsDataState = {
+  payload: null,
+  loading: true,
+  refreshing: false,
+  error: undefined
+};
+let portfolioStoreInflight: Promise<void> | null = null;
+let portfolioStoreIntervalId: number | null = null;
+
+function setPortfolioStoreState(next: Partial<PortfolioHoldingsDataState>): void {
+  portfolioStoreState = { ...portfolioStoreState, ...next };
+  portfolioStoreListeners.forEach((listener) => listener());
+}
+
+function loadPortfolioHoldingsStore(showRefreshing = false): Promise<void> {
+  if (portfolioStoreInflight) {
+    return portfolioStoreInflight;
+  }
+  setPortfolioStoreState({
+    loading: showRefreshing ? portfolioStoreState.loading : portfolioStoreState.payload == null,
+    refreshing: showRefreshing,
+    error: undefined
+  });
+  portfolioStoreInflight = fetch("/api/account/holdings?market=overseas&currency=USD")
+    .then(async (response) => {
+      const nextPayload = await parsePortfolioHoldingsApiResponse(response);
+      setPortfolioStoreState({ payload: nextPayload, loading: false, refreshing: false, error: undefined });
+    })
+    .catch((caught) => {
+      if (DEMO_PORTFOLIO_ENABLED) {
+        setPortfolioStoreState({
+          payload: buildDemoPortfolioPayload(),
+          loading: false,
+          refreshing: false,
+          error: undefined
+        });
+      } else {
+        setPortfolioStoreState({
+          loading: false,
+          refreshing: false,
+          error: caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다."
+        });
+      }
+    })
+    .finally(() => {
+      portfolioStoreInflight = null;
+    });
+  return portfolioStoreInflight;
+}
+
+function subscribePortfolioHoldingsStore(listener: () => void): () => void {
+  portfolioStoreListeners.add(listener);
+  if (portfolioStoreListeners.size === 1) {
+    void loadPortfolioHoldingsStore(false);
+    if (typeof window !== "undefined") {
+      portfolioStoreIntervalId = window.setInterval(() => {
+        void loadPortfolioHoldingsStore(true);
+      }, REFRESH_INTERVAL_MS);
+    }
+  }
+  return () => {
+    portfolioStoreListeners.delete(listener);
+    if (portfolioStoreListeners.size === 0 && portfolioStoreIntervalId != null) {
+      window.clearInterval(portfolioStoreIntervalId);
+      portfolioStoreIntervalId = null;
+    }
+  };
+}
+
+function usePortfolioHoldingsData(onPortfolioSymbolsChange?: (symbols: readonly string[]) => void) {
+  const [state, setState] = useState<PortfolioHoldingsDataState>(portfolioStoreState);
+
+  useEffect(() => {
+    return subscribePortfolioHoldingsStore(() => setState(portfolioStoreState));
+  }, []);
+
+  useEffect(() => {
+    if (state.payload) {
+      onPortfolioSymbolsChange?.(state.payload.positions.map((position) => position.symbol));
+    }
+  }, [onPortfolioSymbolsChange, state.payload]);
+
+  const positions = useMemo(() => sortPositions(state.payload?.positions ?? [], "value"), [state.payload?.positions]);
+  const account = state.payload?.account;
+  const dashboard = useMemo(() => buildPortfolioDashboard(account, state.payload?.positions ?? []), [account, state.payload?.positions]);
+  const loadHoldings = useCallback(() => loadPortfolioHoldingsStore(true), []);
+  return { payload: state.payload, loading: state.loading, refreshing: state.refreshing, error: state.error, positions, dashboard, loadHoldings };
+}
+
 export function PortfolioHoldingsPanel({
   onSelectSymbol,
   onPortfolioSymbolsChange
@@ -78,60 +175,9 @@ export function PortfolioHoldingsPanel({
   onSelectSymbol: (symbol: string) => boolean;
   onPortfolioSymbolsChange?: (symbols: readonly string[]) => void;
 }) {
-  const [payload, setPayload] = useState<PortfolioHoldingsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | undefined>();
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
   const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
   const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
-
-  const loadHoldings = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (showRefreshing) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(undefined);
-    try {
-      const response = await fetch("/api/account/holdings?market=overseas&currency=USD", { signal });
-      const nextPayload = await parsePortfolioHoldingsApiResponse(response);
-      setPayload(nextPayload);
-      onPortfolioSymbolsChange?.(nextPayload.positions.map((position) => position.symbol));
-    } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") {
-        return;
-      }
-      if (DEMO_PORTFOLIO_ENABLED) {
-        const demoPayload = buildDemoPortfolioPayload();
-        setPayload(demoPayload);
-        onPortfolioSymbolsChange?.(demoPayload.positions.map((position) => position.symbol));
-        setError(undefined);
-      } else {
-        setError(caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다.");
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [onPortfolioSymbolsChange]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadHoldings(controller.signal);
-    const intervalId = window.setInterval(() => {
-      void loadHoldings(undefined, true);
-    }, REFRESH_INTERVAL_MS);
-    return () => {
-      controller.abort();
-      window.clearInterval(intervalId);
-    };
-  }, [loadHoldings]);
-
-  const positions = useMemo(() => sortPositions(payload?.positions ?? [], "value"), [payload?.positions]);
-  const account = payload?.account;
-  const dashboard = useMemo(() => buildPortfolioDashboard(account, payload?.positions ?? []), [account, payload?.positions]);
   const selectedAllocation = dashboard.allocation[allocationMode];
   const statusMessage = loading
     ? "보유종목을 불러오는 중입니다"
@@ -139,16 +185,22 @@ export function PortfolioHoldingsPanel({
 
   return (
     <section className="portfolio-holdings-panel portfolio-dashboard-panel" aria-label="미국 주식 포트폴리오 대시보드">
-      <button
-        className="panel-reload-overlay portfolio-refresh-button"
-        type="button"
-        title="포트폴리오 새로고침"
-        aria-label="포트폴리오 새로고침"
-        onClick={() => void loadHoldings(undefined, true)}
-        disabled={refreshing}
-      >
-        {loading || refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
-      </button>
+      <header className="panel-inline-header portfolio-panel-header">
+        <div>
+          <strong>포트폴리오</strong>
+          <span>{payload?.asOf ? formatPortfolioUpdatedAt(payload.asOf) : "US Stocks"}</span>
+        </div>
+        <button
+          className="portfolio-refresh-button"
+          type="button"
+          title="포트폴리오 새로고침"
+          aria-label="포트폴리오 새로고침"
+          onClick={() => void loadHoldings()}
+          disabled={refreshing}
+        >
+          {loading || refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+        </button>
+      </header>
       {statusMessage && (
         <div className={`portfolio-state-row ${error ? "portfolio-error-inline" : ""}`}>
           {loading && <LoaderCircle size={14} className="spin" />}
@@ -158,8 +210,6 @@ export function PortfolioHoldingsPanel({
 
       {!loading && (
         <div className="portfolio-dashboard-content">
-          <PortfolioInvestmentSummary dashboard={dashboard} />
-
           <div className="portfolio-terminal-grid">
             <article className="portfolio-terminal-card portfolio-performance-card">
               <div className="portfolio-terminal-heading portfolio-performance-heading">
@@ -271,6 +321,363 @@ export function PortfolioHoldingsPanel({
   );
 }
 
+export function PortfolioInvestmentStatusPanel({
+  onPortfolioSymbolsChange
+}: {
+  onPortfolioSymbolsChange?: (symbols: readonly string[]) => void;
+}) {
+  const { loading, error, dashboard } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
+  const stockWeight = percentageOf(dashboard.stockValue, dashboard.totalValue);
+  const cashWeight = percentageOf(dashboard.cashValue, dashboard.totalValue);
+  const annualDividendValue = dashboard.annualDividend ?? 0;
+  const dividendWeight = percentageOf(annualDividendValue, dashboard.totalValue);
+  const [activeAllocationIndex, setActiveAllocationIndex] = useState(0);
+  const allocationItems = [
+    {
+      key: "stock",
+      label: "주식",
+      value: dashboard.stockValue,
+      progress: stockWeight,
+      displayProgress: stockWeight,
+      color: "var(--investment-bold-blue)"
+    },
+    {
+      key: "cash",
+      label: "현금",
+      value: dashboard.cashValue,
+      progress: cashWeight,
+      displayProgress: cashWeight,
+      color: "var(--investment-cash)"
+    },
+    {
+      key: "dividend",
+      label: "배당",
+      value: annualDividendValue,
+      progress: annualDividendValue > 0 ? Math.max(4, dividendWeight) : 0,
+      displayProgress: dividendWeight,
+      color: "var(--investment-dividend)"
+    }
+  ];
+  const statusMessage = loading
+    ? "투자현황을 불러오는 중입니다"
+    : error || (!dashboard.totalValue ? "표시할 투자현황 데이터가 없습니다" : "");
+  const activeAllocation = allocationItems[activeAllocationIndex] ?? allocationItems[0];
+  const activeProgress = Math.min(100, Math.max(0, activeAllocation?.progress ?? 0));
+
+  return (
+    <section
+      className="portfolio-investment-panel portfolio-dashboard-panel"
+      aria-label="투자현황 패널"
+      style={{
+        "--portfolio-investment-meter-color": activeAllocation?.color ?? "var(--investment-bold-blue)",
+        "--portfolio-investment-progress": `${activeProgress}%`
+      } as CSSProperties}
+    >
+      {statusMessage && (
+        <div className={`portfolio-state-row ${error ? "portfolio-error-inline" : ""}`}>
+          {loading && <LoaderCircle size={14} className="spin" />}
+          <span>{statusMessage}</span>
+        </div>
+      )}
+
+      {!loading && (
+        <>
+          <div className="portfolio-investment-main">
+            <div className="portfolio-investment-heading-row">
+              <span className="portfolio-investment-kicker">투자현황</span>
+              <div className="portfolio-investment-segmented-tabs" role="tablist" aria-label="투자 구성">
+                {allocationItems.map((item, index) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={index === activeAllocationIndex}
+                    className={index === activeAllocationIndex ? "active" : ""}
+                    onClick={() => setActiveAllocationIndex(index)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <h2>{formatPanelMoney(dashboard.totalValue, "USD")}</h2>
+            <span className="portfolio-investment-subtitle">총 평가 자산</span>
+            <div className="portfolio-investment-budget-track" aria-hidden="true">
+              <i />
+            </div>
+            <div className="portfolio-investment-budget-meta">
+              <span>
+                <em>{activeAllocation?.label}</em>
+                <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")}</strong>
+              </span>
+              <span>
+                <em>비중</em>
+                <strong>{formatPercentPlain(activeAllocation?.displayProgress ?? 0)}</strong>
+              </span>
+            </div>
+            <div className="portfolio-investment-wallet-chips">
+              <span>
+                <em>오늘</em>
+                <strong className={directionClass(dashboard.dayPnl ?? dashboard.dayPnlRate)}>{formatSignedPanelMoney(dashboard.dayPnl, "USD")}</strong>
+                <b className={directionClass(dashboard.dayPnlRate)}>{formatSignedPercentPlain(dashboard.dayPnlRate)}</b>
+              </span>
+              <span>
+                <em>손익</em>
+                <strong className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>{formatSignedPanelMoney(dashboard.totalPnl, "USD")}</strong>
+                <b className={directionClass(dashboard.totalPnlRate)}>{formatSignedPercentPlain(dashboard.totalPnlRate)}</b>
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function PortfolioPerformancePanel() {
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "성과 데이터가 없습니다");
+
+  return (
+    <section className="portfolio-split-panel portfolio-performance-split-panel portfolio-dashboard-panel" aria-label="포트폴리오 성과 패널">
+      <PortfolioSplitHeader
+        title="Performance"
+        subtitle={performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}
+        asOf={payload?.asOf}
+        refreshing={loading || refreshing}
+        onRefresh={loadHoldings}
+      />
+      <div className="portfolio-performance-tabs portfolio-split-tabs" role="tablist" aria-label="포트폴리오 성과 보기">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={performanceView === "performance"}
+          className={performanceView === "performance" ? "active" : ""}
+          onClick={() => setPerformanceView("performance")}
+        >
+          성과
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={performanceView === "purchase"}
+          className={performanceView === "purchase" ? "active" : ""}
+          onClick={() => setPerformanceView("purchase")}
+        >
+          매수 비교
+        </button>
+      </div>
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : performanceView === "performance" ? (
+        <PortfolioPerformanceChart dashboard={dashboard} />
+      ) : (
+        <PortfolioPurchaseComparisonChart positions={positions} />
+      )}
+    </section>
+  );
+}
+
+export function PortfolioInvestedPanel() {
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "투자금 데이터가 없습니다");
+
+  return (
+    <section className="portfolio-split-panel portfolio-invested-split-panel portfolio-dashboard-panel" aria-label="포트폴리오 투자금 패널">
+      <PortfolioSplitHeader
+        title="Invested"
+        subtitle="Annual invested capital"
+        asOf={payload?.asOf}
+        refreshing={loading || refreshing}
+        onRefresh={loadHoldings}
+      />
+      <div className="portfolio-split-kpi-row">
+        <span>
+          <em>투입 원금</em>
+          <strong>{formatMoney(dashboard.investedValue, "USD")}</strong>
+        </span>
+        <span>
+          <em>현재 평가금</em>
+          <strong>{formatMoney(dashboard.stockValue, "USD")}</strong>
+        </span>
+      </div>
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : (
+        <PortfolioAnnualBars dashboard={dashboard} />
+      )}
+    </section>
+  );
+}
+
+export function PortfolioDividendPanel() {
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "배당 데이터가 없습니다");
+
+  return (
+    <section className="portfolio-split-panel portfolio-dividend-split-panel portfolio-dashboard-panel" aria-label="포트폴리오 배당 패널">
+      <PortfolioSplitHeader
+        title="Dividend"
+        subtitle="Expected annual income"
+        asOf={payload?.asOf}
+        refreshing={loading || refreshing}
+        onRefresh={loadHoldings}
+      />
+      <div className="portfolio-split-kpi-row">
+        <span>
+          <em>예상 배당</em>
+          <strong>{formatMoney(dashboard.annualDividend, "USD")}</strong>
+        </span>
+        <span>
+          <em>Yield</em>
+          <strong>{formatRatioPercent(dashboard.dividendYield)}</strong>
+        </span>
+      </div>
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : (
+        <>
+          <PortfolioDividendHistory positions={positions} />
+          <div className="portfolio-dividend-leaders">
+            {positions
+              .map((position) => ({ position, dividend: annualDividendForPosition(position) ?? 0 }))
+              .filter((item) => item.dividend > 0)
+              .sort((left, right) => right.dividend - left.dividend)
+              .slice(0, 4)
+              .map(({ position, dividend }) => (
+                <span key={position.symbol}>
+                  <b>{position.symbol}</b>
+                  <em>{formatCompactMoney(dividend, "USD")}</em>
+                </span>
+              ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function PortfolioDiversificationPanel() {
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
+  const selectedAllocation = dashboard.allocation[allocationMode];
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "구성 데이터가 없습니다");
+
+  return (
+    <section className="portfolio-split-panel portfolio-diversification-split-panel portfolio-dashboard-panel" aria-label="포트폴리오 분산 패널">
+      <PortfolioSplitHeader
+        title="Diversification"
+        subtitle="Portfolio distribution"
+        asOf={payload?.asOf}
+        refreshing={loading || refreshing}
+        onRefresh={loadHoldings}
+      />
+      <div className="portfolio-terminal-tabs portfolio-split-tabs" role="tablist" aria-label="투자 비중">
+        {(["asset", "symbol", "sector"] as AllocationMode[]).map((mode) => (
+          <button key={mode} type="button" className={allocationMode === mode ? "active" : ""} onClick={() => setAllocationMode(mode)}>
+            {allocationModeLabel(mode)}
+          </button>
+        ))}
+      </div>
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : (
+        <div className="portfolio-terminal-donut-row">
+          <PortfolioAllocationDonut slices={selectedAllocation} />
+          <div className="portfolio-terminal-legend">
+            {selectedAllocation.slice(0, 10).map((slice) => (
+              <span key={slice.key}>
+                <i className={`tone-${slice.tone}`} />
+                <em>{slice.label}</em>
+                <strong>{slice.weight.toFixed(1)}%</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function PortfolioHoldingsOnlyPanel({
+  onSelectSymbol
+}: {
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "보유종목이 없습니다");
+
+  return (
+    <section className="portfolio-split-panel portfolio-holdings-split-panel portfolio-dashboard-panel" aria-label="포트폴리오 보유종목 패널">
+      <PortfolioSplitHeader
+        title="Holdings"
+        subtitle="US Stocks"
+        asOf={payload?.asOf}
+        refreshing={loading || refreshing}
+        onRefresh={loadHoldings}
+      />
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : (
+        <PortfolioHoldingsMatrix positions={positions} totalValue={dashboard.totalValue} onSelectSymbol={onSelectSymbol} />
+      )}
+    </section>
+  );
+}
+
+function PortfolioSplitHeader({
+  title,
+  subtitle,
+  asOf,
+  refreshing,
+  onRefresh
+}: {
+  title: string;
+  subtitle: string;
+  asOf?: string;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <header className="panel-inline-header portfolio-panel-header portfolio-split-header">
+      <div>
+        <strong>{title}</strong>
+        <span>{asOf ? formatPortfolioUpdatedAt(asOf) : subtitle}</span>
+      </div>
+      <button
+        className="portfolio-refresh-button"
+        type="button"
+        title={`${title} 새로고침`}
+        aria-label={`${title} 새로고침`}
+        onClick={() => void onRefresh()}
+        disabled={refreshing}
+      >
+        {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
+      </button>
+    </header>
+  );
+}
+
+function PortfolioPanelStatus({ message, loading, error }: { message: string; loading: boolean; error: boolean }) {
+  return (
+    <div className={`portfolio-state-row ${error ? "portfolio-error-inline" : ""}`}>
+      {loading && <LoaderCircle size={14} className="spin" />}
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function portfolioPanelStatusMessage(loading: boolean, error: string | undefined, positionCount: number, emptyMessage: string): string {
+  if (loading) {
+    return "포트폴리오 데이터를 불러오는 중입니다";
+  }
+  if (error) {
+    return error;
+  }
+  return positionCount === 0 ? emptyMessage : "";
+}
+
 function PortfolioAllocationDonut({ slices }: { slices: AllocationSlice[] }) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   if (!slices.length) {
@@ -310,48 +717,6 @@ function PortfolioAllocationDonut({ slices }: { slices: AllocationSlice[] }) {
         <em>{activeSlice.label}</em>
       </span>
     </div>
-  );
-}
-
-function PortfolioInvestmentSummary({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const totalPnlTone = directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate);
-  const dayPnlTone = directionClass(dashboard.dayPnl ?? dashboard.dayPnlRate);
-  return (
-    <article className="portfolio-terminal-card portfolio-investment-summary-card" aria-label="투자 현황">
-      <div className="portfolio-investment-summary-head">
-        <div>
-          <span>투자 현황</span>
-          <em>보유 평가금 · 손익 · 배당</em>
-        </div>
-        <strong>{formatCompactMoney(dashboard.totalValue, "USD")}</strong>
-      </div>
-      <div className="portfolio-investment-summary-main">
-        <span>총 자산</span>
-        <strong>{formatMoney(dashboard.totalValue, "USD")}</strong>
-      </div>
-      <div className="portfolio-investment-summary-grid">
-        <div>
-          <span>일일 수익</span>
-          <strong className={dayPnlTone}>{formatSignedMoney(dashboard.dayPnl, "USD")}</strong>
-          <em className={dayPnlTone}>{formatSignedPercentPlain(dashboard.dayPnlRate)}</em>
-        </div>
-        <div>
-          <span>총 손익</span>
-          <strong className={totalPnlTone}>{formatSignedMoney(dashboard.totalPnl, "USD")}</strong>
-          <em className={totalPnlTone}>{formatSignedPercentPlain(dashboard.totalPnlRate)}</em>
-        </div>
-        <div>
-          <span>주식 평가금</span>
-          <strong>{formatMoney(dashboard.stockValue, "USD")}</strong>
-          <em>{formatWeight(dashboard.stockValue, dashboard.totalValue)}</em>
-        </div>
-        <div>
-          <span>예상 배당</span>
-          <strong>{formatMoney(dashboard.annualDividend, "USD")}</strong>
-          <em>{formatRatioPercent(dashboard.dividendYield)}</em>
-        </div>
-      </div>
-    </article>
   );
 }
 
@@ -1075,6 +1440,19 @@ function directionTone(value: number | null | undefined): PortfolioInsight["tone
   return value > 0 ? "good" : "risk";
 }
 
+function formatPortfolioUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function sortPositions(positions: PortfolioPosition[], sortMode: SortMode) {
   return [...positions].sort((left, right) => {
     if (sortMode === "return") {
@@ -1096,6 +1474,10 @@ function formatMoney(value: number | null | undefined, currency: string) {
     currency,
     maximumFractionDigits: currency === "KRW" ? 0 : 2
   }).format(value);
+}
+
+function formatPanelMoney(value: number | null | undefined, currency: string) {
+  return formatMoney(value, currency).replace(/^US/, "");
 }
 
 function formatMultiple(value: number | null | undefined) {
@@ -1125,6 +1507,14 @@ function formatSignedMoney(value: number | null | undefined, currency: string) {
   return `${prefix}${formatMoney(value, currency)}`;
 }
 
+function formatSignedPanelMoney(value: number | null | undefined, currency: string) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatPanelMoney(value, currency)}`;
+}
+
 function formatSignedCompactMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
@@ -1139,6 +1529,13 @@ function formatSignedPercentPlain(value: number | null | undefined) {
   }
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(2)}%`;
+}
+
+function formatPercentPlain(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
 }
 
 function formatPositionValue(position: PortfolioPosition) {

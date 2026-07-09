@@ -23,7 +23,7 @@ const minimumLayoutSize = 0.01;
 // The industry band is a thin title strip above each industry's card cluster; it holds the
 // industry name, so it must be tall enough for small text while staying slim.
 const industryBandMaxThickness = 12;
-const industryBandGap = 1.5;
+const industryBandGap = -1;
 
 export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRect): TreeMapTile[] {
   const safeBounds = normalizeRect(bounds);

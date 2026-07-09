@@ -2,19 +2,19 @@ import type { ChartDocument } from "./types";
 
 export type ChartDocumentStyle = ChartDocument["style"];
 
-const ink = "#1a1a0e";
-const mutedInk = "rgba(26, 26, 14, 0.66)";
-const borderInk = "rgba(26, 26, 14, 0.26)";
-const gridInk = "rgba(26, 26, 14, 0.08)";
-const ma5Ink = "#B66A00";
-const ma20Ink = "#007C89";
-const ma60Ink = "#9B2D65";
-const volumeInk = "rgba(26, 26, 14, 0.12)";
+const ink = "#0a0b0d";
+const mutedInk = "#5b616e";
+const borderInk = "rgba(10, 11, 13, 0.08)";
+const gridInk = "rgba(10, 11, 13, 0.08)";
+const ma5Ink = "#0052ff";
+const ma20Ink = "#05b169";
+const ma60Ink = "#f4b000";
+const volumeInk = "rgba(10, 11, 13, 0.12)";
 
 export const fallbackChartStyle: ChartDocumentStyle = {
-  background: "#efefe8",
-  surface: "#efefe8",
-  surfaceStrong: "#efefe8",
+  background: "#ffffff",
+  surface: "rgba(255, 255, 255, 0.68)",
+  surfaceStrong: "rgba(255, 255, 255, 0.84)",
   border: borderInk,
   shadow: ink,
   grid: gridInk,
@@ -22,30 +22,30 @@ export const fallbackChartStyle: ChartDocumentStyle = {
   crosshair: ink,
   text: ink,
   muted: mutedInk,
-  bullish: "#1b6a29",
-  bearish: "#b31a0f",
+  bullish: "#05b169",
+  bearish: "#cf202f",
   ma5: ma5Ink,
   ma20: ma20Ink,
   ma60: ma60Ink,
   volume: volumeInk,
   drawing: ink,
   preview: ink,
-  signal: "#1D4D8C",
-  caution: "#D99B00",
-  purple: "#783A6B"
+  signal: "#0052ff",
+  caution: "#f4b000",
+  purple: "#8c939f"
 };
 
 // Compatibility drop-list only: these old defaults are normalized away, not used as the active palette.
 const legacyDefaultChartStyle: Partial<ChartDocumentStyle> = {
   background: "#ffffff",
-  grid: "#edf1f7",
-  text: "#667085",
-  bullish: "#16a86b",
-  bearish: "#e94b5b",
-  ma5: "#2478f2",
-  ma20: "#c98210",
-  ma60: "#7557d9",
-  volume: "#9ca3af"
+  grid: gridInk,
+  text: "#8c939f",
+  bullish: "#05b169",
+  bearish: "#cf202f",
+  ma5: ma5Ink,
+  ma20: ma20Ink,
+  ma60: ma60Ink,
+  volume: volumeInk
 };
 
 let defaultChartStyle: ChartDocumentStyle = { ...fallbackChartStyle };
