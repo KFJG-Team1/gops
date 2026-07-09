@@ -544,6 +544,10 @@ button {
 
 .workspace-top-center {
   grid-column: 2;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  pointer-events: auto;
 }
 
 .workspace-top-actions {
@@ -2310,13 +2314,18 @@ h2 {
 .treemap-panel {
   position: absolute;
   overflow: hidden;
-  border: 0;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.055);
   border-radius: var(--app-glass-radius);
-  background: transparent;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  background:
+    linear-gradient(135deg, rgb(var(--framer-ink-rgb) / 0.09), rgb(var(--framer-ink-rgb) / 0.025) 18%, transparent 34%) top left / 44% 44% no-repeat,
+    linear-gradient(315deg, rgb(var(--framer-ink-rgb) / 0.075), rgb(var(--framer-ink-rgb) / 0.020) 20%, transparent 38%) bottom right / 46% 46% no-repeat,
+    rgb(20 20 20 / 0.045);
+  box-shadow:
+    0 8px 26px rgb(0 0 0 / 0.16),
+    inset 0 0 0 1px rgb(var(--framer-ink-rgb) / 0.026);
   isolation: isolate;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  -webkit-backdrop-filter: blur(8px) saturate(118%);
+  backdrop-filter: blur(8px) saturate(118%);
 }
 
 .treemap-panel::before,
@@ -2345,22 +2354,16 @@ h2 {
 }
 
 .treemap-panel::after {
-  display: none;
+  display: block;
   z-index: 3;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
   background:
-    linear-gradient(128deg, rgba(255, 255, 255, 0.58), rgba(133, 222, 255, 0.24) 24%, rgba(255, 255, 255, 0.42) 48%, rgba(217, 182, 255, 0.18) 66%, rgba(255, 255, 255, 0.30));
-  opacity: 0.36;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
+    linear-gradient(90deg, rgb(var(--framer-ink-rgb) / 0.22), rgb(var(--framer-ink-rgb) / 0.08) 34%, transparent 70%) top left / 54% 1px no-repeat,
+    linear-gradient(180deg, rgb(var(--framer-ink-rgb) / 0.16), rgb(var(--framer-ink-rgb) / 0.055) 34%, transparent 70%) top left / 1px 54% no-repeat,
+    linear-gradient(270deg, rgb(var(--framer-ink-rgb) / 0.18), rgb(var(--framer-ink-rgb) / 0.06) 34%, transparent 70%) bottom right / 54% 1px no-repeat,
+    linear-gradient(0deg, rgb(var(--framer-ink-rgb) / 0.13), rgb(var(--framer-ink-rgb) / 0.045) 34%, transparent 70%) bottom right / 1px 54% no-repeat;
+  opacity: 1;
 }
 
 .treemap-canvas {
@@ -8376,9 +8379,8 @@ h2 {
 }
 
 .layout-preset-dock {
-  position: relative;
-  right: auto;
-  bottom: auto;
+  --preset-dock-fade: 30px;
+  position: static;
   z-index: 43;
   display: flex;
   flex-wrap: nowrap;
@@ -8386,18 +8388,36 @@ h2 {
   justify-content: safe center;
   gap: 6px;
   box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
+  width: max-content;
+  max-width: min(720px, calc(var(--app-logical-width, 100vw) - 260px));
   min-width: 0;
-  padding: 5px 0;
+  padding: 0;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   scroll-padding-inline: var(--layout-gutter);
+  -ms-overflow-style: none;
   scrollbar-width: none;
   pointer-events: auto;
 }
 
 .layout-preset-dock::-webkit-scrollbar {
-  display: none;
+  width: 0;
+  height: 0;
+}
+
+.layout-preset-dock.has-overflow-left {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--preset-dock-fade), #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--preset-dock-fade), #000 100%);
+}
+
+.layout-preset-dock.has-overflow-right {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--preset-dock-fade)), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--preset-dock-fade)), transparent 100%);
+}
+
+.layout-preset-dock.has-overflow-left.has-overflow-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--preset-dock-fade), #000 calc(100% - var(--preset-dock-fade)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--preset-dock-fade), #000 calc(100% - var(--preset-dock-fade)), transparent 100%);
 }
 
 /* Save / delete / layout-edit controls, grouped with the presets in the centered dock. */
@@ -8515,12 +8535,22 @@ h2 {
 /* Layout-edit exit button in the command bar: elongated pill ~2 control circles wide,
    sitting one empty slot to the left of the alert button (only shown in edit mode). */
 .layout-exit-button {
-  width: calc(var(--bottom-control-size) * 2 + 15px);
+  width: auto;
+  min-width: 50px;
   border-radius: 999px;
   font-family: var(--font-data-sans);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   font-synthesis: weight;
+}
+
+.agent-box button.agent-layout-exit-button {
+  width: auto;
+  min-width: 48px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-text);
 }
 
 .layout-exit-gap {
@@ -9640,12 +9670,17 @@ h2 {
 }
 
 .treemap-panel {
-  border: 0;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.055);
   border-radius: var(--app-glass-radius);
-  background: transparent;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  background:
+    linear-gradient(135deg, rgb(var(--framer-ink-rgb) / 0.09), rgb(var(--framer-ink-rgb) / 0.025) 18%, transparent 34%) top left / 44% 44% no-repeat,
+    linear-gradient(315deg, rgb(var(--framer-ink-rgb) / 0.075), rgb(var(--framer-ink-rgb) / 0.020) 20%, transparent 38%) bottom right / 46% 46% no-repeat,
+    rgb(20 20 20 / 0.045);
+  box-shadow:
+    0 8px 26px rgb(0 0 0 / 0.16),
+    inset 0 0 0 1px rgb(var(--framer-ink-rgb) / 0.026);
+  -webkit-backdrop-filter: blur(8px) saturate(118%);
+  backdrop-filter: blur(8px) saturate(118%);
 }
 
 .canvas-workspace {

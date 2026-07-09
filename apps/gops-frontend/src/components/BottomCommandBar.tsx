@@ -79,6 +79,7 @@ type BottomCommandBarProps = {
   sideRailCompany: SideRailCompany | null;
   isChartMode: boolean;
   layoutEditMode: boolean;
+  topDock?: ReactNode;
   onAgentCancel: () => void;
   onAgentReferencesClear: () => void;
   onAgentReferenceRemove: (key: string) => void;
@@ -92,6 +93,7 @@ type BottomCommandBarProps = {
   onReorderWatchlistSymbol: (draggedSymbol: string, targetSymbol: string, placement: WatchlistDropPlacement) => void;
   onRemoveWatchlistSymbol: (symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  onToggleLayoutEditMode: () => void;
   onToggleMenu: (key: BottomMenuKey) => void;
 };
 
@@ -122,6 +124,8 @@ export function BottomCommandBar({
   activeSymbol,
   sideRailCompany,
   isChartMode,
+  layoutEditMode,
+  topDock,
   onAgentCancel,
   onAgentReferencesClear,
   onAgentReferenceRemove,
@@ -135,6 +139,7 @@ export function BottomCommandBar({
   onReorderWatchlistSymbol,
   onRemoveWatchlistSymbol,
   onSelectSymbol,
+  onToggleLayoutEditMode,
   onToggleMenu
 }: BottomCommandBarProps) {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
@@ -479,7 +484,9 @@ export function BottomCommandBar({
         />
       )}
       <nav className="workspace-top-nav" aria-label="Global navigation">
-        <div className="workspace-top-center" aria-hidden="true" />
+        <div className="workspace-top-center">
+          {topDock}
+        </div>
         <div className="workspace-top-actions">
           <button
             type="button"
@@ -607,6 +614,17 @@ export function BottomCommandBar({
               >
                 <MessagesSquare size={15} aria-hidden="true" />
               </button>
+              {layoutEditMode && (
+                <button
+                  type="button"
+                  className="layout-exit-button agent-layout-exit-button"
+                  aria-label="레이아웃 수정모드 종료"
+                  title="레이아웃 수정모드 종료"
+                  onClick={onToggleLayoutEditMode}
+                >
+                  Leave
+                </button>
+              )}
             </form>
           </div>
         </div>

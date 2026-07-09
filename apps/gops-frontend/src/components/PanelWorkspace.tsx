@@ -133,6 +133,11 @@ type LayoutPreview = {
   secondary?: { gridRect: PanelGridRect; label: string };
 };
 
+type LogicalPointerPoint = {
+  x: number;
+  y: number;
+};
+
 const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 export function PanelWorkspace({
@@ -259,13 +264,13 @@ export function PanelWorkspace({
     }
   }, [activeSymbol, setPanelState]);
 
-  const resolveEditDragPreview = useCallback((drag: LayoutDrag, clientX: number, clientY: number): LayoutPreview | null => {
+  const resolveEditDragPreview = useCallback((drag: LayoutDrag, point: LogicalPointerPoint): LayoutPreview | null => {
     if (drag.mode === "boundary") {
       return null;
     }
     const viewport = viewportSizeRef.current;
     const metrics = layoutMetricsRef.current;
-    const cell = panelGridCellFromPointSafe(viewport, clientX, clientY, metrics);
+    const cell = panelGridCellFromPointSafe(viewport, point.x, point.y, metrics);
     if (!cell) {
       return null;
     }
@@ -348,7 +353,7 @@ export function PanelWorkspace({
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     const drag = dragRef.current;
     if (drag && drag.mode !== "boundary" && event) {
-      const preview = layoutPreview ?? resolveEditDragPreview(drag, event.clientX, event.clientY);
+      const preview = layoutPreview ?? resolveEditDragPreview(drag, logicalPointFromClientPoint(event.clientX, event.clientY));
       if (preview) {
         commitLayoutPreview(preview);
       }
@@ -360,16 +365,16 @@ export function PanelWorkspace({
     setLayoutPreview(null);
   }, [commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
 
-  const applyLayoutDrag = useCallback((clientX: number, clientY: number, viewport: ViewportSize) => {
+  const applyLayoutDrag = useCallback((point: LogicalPointerPoint, viewport: ViewportSize) => {
     const drag = dragRef.current;
     if (!drag) {
       return;
     }
     if (drag.mode !== "boundary") {
-      setLayoutPreview(resolveEditDragPreview(drag, clientX, clientY));
+      setLayoutPreview(resolveEditDragPreview(drag, point));
       return;
     }
-    const delta = drag.orientation === "vertical" ? clientX - drag.startX : clientY - drag.startY;
+    const delta = drag.orientation === "vertical" ? point.x - drag.startX : point.y - drag.startY;
     setPanelState(resizeFreeformBoundary(drag.startState, drag.boundaryId, delta, viewport, layoutMetricsRef.current));
   }, [resolveEditDragPreview, setPanelState]);
 
@@ -379,7 +384,7 @@ export function PanelWorkspace({
         return;
       }
       event.preventDefault();
-      applyLayoutDrag(event.clientX, event.clientY, viewportSizeRef.current);
+      applyLayoutDrag(logicalPointFromClientPoint(event.clientX, event.clientY), viewportSizeRef.current);
     };
     const handlePointerUp = (event: PointerEvent) => finishLayoutDrag(event);
 
@@ -398,12 +403,13 @@ export function PanelWorkspace({
     setActiveBoundaryId(boundary.id);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setIsLayoutResizing(true);
+    const point = logicalPointFromClientPoint(event.clientX, event.clientY);
     dragRef.current = {
       mode: "boundary",
       boundaryId: boundary.id,
       orientation: boundary.orientation,
-      startX: event.clientX,
-      startY: event.clientY,
+      startX: point.x,
+      startY: point.y,
       startState: panelState
     };
   };
@@ -424,6 +430,7 @@ export function PanelWorkspace({
     setDraggingSlotId(slotId);
     const rect = event.currentTarget.getBoundingClientRect();
     const resizeDirection = resizeDirectionForFramePoint(rect, event.clientX, event.clientY);
+    const point = logicalPointFromClientPoint(event.clientX, event.clientY);
     let drag: LayoutDrag;
     if (resizeDirection) {
       drag = {
@@ -433,7 +440,7 @@ export function PanelWorkspace({
         startGridRect: slot.gridRect
       };
     } else {
-      const cell = panelGridCellFromPointSafe(viewportSizeRef.current, event.clientX, event.clientY, layoutMetricsRef.current);
+      const cell = panelGridCellFromPointSafe(viewportSizeRef.current, point.x, point.y, layoutMetricsRef.current);
       drag = {
         mode: "edit-move",
         sourceSlotId: slotId,
@@ -442,7 +449,7 @@ export function PanelWorkspace({
       };
     }
     dragRef.current = drag;
-    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+    setLayoutPreview(resolveEditDragPreview(drag, point));
   };
 
   const updateFrameCursor = (_slotId: PanelSlotId) => (event: ReactPointerEvent<HTMLElement>) => {
@@ -480,7 +487,7 @@ export function PanelWorkspace({
       startGridRect: slot.gridRect
     };
     dragRef.current = drag;
-    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+    setLayoutPreview(resolveEditDragPreview(drag, logicalPointFromClientPoint(event.clientX, event.clientY)));
   };
 
   const beginPaletteDrag = (kind: PanelContentKind) => (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -494,11 +501,11 @@ export function PanelWorkspace({
       kind
     };
     dragRef.current = drag;
-    setLayoutPreview(resolveEditDragPreview(drag, event.clientX, event.clientY));
+    setLayoutPreview(resolveEditDragPreview(drag, logicalPointFromClientPoint(event.clientX, event.clientY)));
   };
 
   const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    applyLayoutDrag(event.clientX, event.clientY, viewportSize);
+    applyLayoutDrag(logicalPointFromClientPoint(event.clientX, event.clientY), viewportSize);
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -818,6 +825,23 @@ export function PanelWorkspace({
       {!layoutEditMode && placementPickerOverlay}
     </>
   );
+}
+
+function logicalPointFromClientPoint(clientX: number, clientY: number): LogicalPointerPoint {
+  if (typeof document === "undefined") {
+    return { x: clientX, y: clientY };
+  }
+  const shell = document.querySelector<HTMLElement>(".app-shell");
+  if (!shell) {
+    return { x: clientX, y: clientY };
+  }
+  const rect = shell.getBoundingClientRect();
+  const scaleX = rect.width / Math.max(1, shell.offsetWidth);
+  const scaleY = rect.height / Math.max(1, shell.offsetHeight);
+  return {
+    x: (clientX - rect.left) / (Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1),
+    y: (clientY - rect.top) / (Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1)
+  };
 }
 
 function panelGridCellFromPointSafe(
