@@ -718,6 +718,7 @@ assert.equal(sparseMinuteGap?.carryTimestamp, "2026-07-09T05:36:00Z");
 assert.equal(sparseMinuteGap?.carryPrice, 100);
 assert.equal(sparseMinuteTimeline.units.filter((unit) => unit.kind === "candle").length, 2);
 assert.ok(sparseMinuteTimeline.totalSlots >= 4);
+assert.equal(sparseMinuteTimeline.expansionExtraSlots, 0);
 const sparseMinuteScene = buildFrontendChartScene(frontendChartState({
   symbol: "MU",
   interval: "1m",
@@ -732,6 +733,18 @@ const afterGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:39:00Z");
 assert.equal(typeof insideGapX, "number");
 assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
 assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
+assert.equal(sparseMinuteScene.semantic.expansionExtraSlots, 0);
+assert.equal(
+  frontendDragDeltaToRightOffset(
+    -frontendFutureEmptySlotCount(6),
+    -sparseMinuteScene.scales.slotWidth,
+    sparseMinuteScene.scales.slotWidth,
+    6,
+    sparseMinuteCandles.length,
+    { extraFutureSlots: sparseMinuteScene.semantic.expansionExtraSlots }
+  ),
+  -frontendFutureEmptySlotCount(6)
+);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]

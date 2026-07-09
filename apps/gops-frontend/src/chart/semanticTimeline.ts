@@ -422,7 +422,6 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const occupiedSlotStart = units.length ? Math.min(...units.map((unit) => unit.slotStart)) : 0;
   const occupiedSlotEnd = units.length ? Math.max(...units.map((unit) => unit.slotEnd)) : input.visibleSlotCount;
   const expansionExtraSlots = Math.max(0, normalizeSlot(rootExpansionExtraBefore[input.candles.length] ?? 0));
-  const timeGapExtraSlots = Math.max(0, normalizeSlot(rootTimeGapExtraBefore[input.candles.length] ?? 0));
   const visibleTimeGapExtraSlots = normalizeSlot(units.reduce((total, unit) => (
     unit.kind === "time-gap" ? total + Math.max(0, unit.slotEnd - unit.slotStart) : total
   ), 0));
@@ -433,7 +432,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     totalSlots: Math.max(1, normalizeSlot(input.visibleSlotCount + visibleTimeGapExtraSlots)),
     occupiedSlotStart,
     occupiedSlotEnd,
-    expansionExtraSlots: normalizeSlot(expansionExtraSlots + timeGapExtraSlots),
+    expansionExtraSlots,
     logicalIndexToSlot,
     timestampToSlot,
     unitById
