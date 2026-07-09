@@ -40,7 +40,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { fetchCandles, fetchFootprint, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
+import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -67,10 +67,12 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
+import { fetchOrderFlowDaily, fetchOrderFlowIntraday, subscribeOrderFlowDemoTicks } from "../chart/orderFlowClient";
+import { orderFlowDayFromMinutes, replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowDailyResponseDto, type OrderFlowMinuteDto } from "../chart/orderFlow";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
-  anchoredViewportForCandles,
-  viewportRevealingPrependedCandlesAfterChange,
+  viewportAfterOlderCandlesLoaded,
+  viewportAfterSnapshotCandlesChange,
   type ViewportAnchor
 } from "../chart/intervalNavigation";
 import {
@@ -219,6 +221,7 @@ const unavailableQuote: LiveQuote = {
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
+const orderFlowDefaultVisibleDays = 24;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -262,7 +265,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
-  const [footprint, setFootprint] = useState<ChartState["footprint"]>(null);
+  const [orderFlowDaily, setOrderFlowDaily] = useState<OrderFlowDailyResponseDto | null>(null);
+  const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
+  const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const chart = useMemo(() => (
     chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
@@ -314,7 +319,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     visibleProfileRange
       ? stableVolumeProfileRangeKey({
           symbol: chart.symbol,
-          interval: chart.interval === "footprint" ? "1m" : chart.interval,
+          interval: chart.interval,
           from: visibleProfileRange.from,
           to: visibleProfileRange.to,
           targetBins: 10,
@@ -327,6 +332,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     visibleProfileRange?.from,
     visibleProfileRange?.to
   ]);
+  const orderFlowActive = chart.chartType === "bidask" && chart.interval === "1D";
+  const visibleOrderFlowRange = useMemo(() => {
+    if (!orderFlowActive || !visibleProfileRange) {
+      return null;
+    }
+    return {
+      from: sessionDateFromTimestamp(visibleProfileRange.from),
+      to: sessionDateFromTimestamp(visibleProfileRange.to)
+    };
+  }, [orderFlowActive, visibleProfileRange?.from, visibleProfileRange?.to]);
+  const visibleOrderFlowRangeKey = visibleOrderFlowRange
+    ? `${chart.symbol}|${visibleOrderFlowRange.from}|${visibleOrderFlowRange.to}`
+    : "";
   const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
     chart.candles,
     chart.rightOffset,
@@ -444,11 +462,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-        const viewportBeforeLoad = requestedViewport ?? { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
-        const nextViewport = viewportRevealingPrependedCandlesAfterChange(
+        const currentViewport = { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
+        const nextViewport = viewportAfterOlderCandlesLoaded(
           current.candles,
           merged,
-          viewportBeforeLoad,
+          requestedViewport,
+          currentViewport,
           plotWidth,
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
@@ -486,14 +505,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (current.symbol !== requestedSymbol || current.interval !== requestedInterval) {
         return;
       }
-      const nextViewport = anchoredViewportForCandles(
-        response.candles,
+      const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+      const nextViewport = viewportAfterSnapshotCandlesChange(
+        current.candles,
+        merged,
         current.interval,
-        pendingLoad?.anchor ?? null,
         {
           visibleCount: current.visibleCount,
           rightOffset: current.rightOffset
         },
+        pendingLoad?.anchor ?? null,
         sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
         { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
       );
@@ -599,6 +620,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       socketSymbol,
       candleSourceInterval(chart.interval),
       (event) => {
+        if (isOrderFlowEventDto(event)) {
+          if (chartRef.current.chartType === "bidask" && chartRef.current.symbol === event.symbol.toUpperCase()) {
+            setOrderFlowTodaySessionDate(event.data.sessionDate);
+            setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+          }
+          return;
+        }
         if (isRealtimeLayerEventDto(event)) {
           onChartRuntimeAction({ kind: "chart.layer.live", event: normalizeRealtimeLayerEvent(event) });
           return;
@@ -736,7 +764,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const requests = activeExpansions
-      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .filter((expansion) => expansion.status === "ready" && expansion.candles.length > 0)
       .map((expansion) => {
         const first = expansion.candles[0];
         const last = expansion.candles[expansion.candles.length - 1];
@@ -813,7 +841,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const loadProfile = (attempt = 0) => {
         fetchVolumeProfile({
           symbol: chart.symbol,
-          interval: chart.interval === "footprint" ? "1m" : chart.interval,
+          interval: chart.interval,
           from: visibleProfileRange.from,
           to: visibleProfileRange.to,
           targetBins: 10,
@@ -851,48 +879,68 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (chart.interval !== "footprint" || !visibleProfileRange) {
-      setFootprint(null);
+    if (!orderFlowActive || !visibleOrderFlowRange) {
+      setOrderFlowDaily(null);
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      const loadFootprint = (attempt = 0) => {
-        fetchFootprint({
-          symbol: chart.symbol,
-          from: visibleProfileRange.from,
-          to: visibleProfileRange.to,
-          limit: 20000
-        }, controller.signal)
-          .then((response) => {
-            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
-              return;
-            }
-            if (shouldRetryDerived(response, attempt)) {
-              retryTimer = window.setTimeout(() => loadFootprint(attempt + 1), derivedRetryDelay(response));
-              return;
-            }
-            setFootprint(response.derived?.state === "failed" ? null : response);
-          })
-          .catch(() => {
-            if (!controller.signal.aborted) {
-              setFootprint(null);
-            }
-          });
-      };
-      loadFootprint();
+      fetchOrderFlowDaily({
+        symbol: chart.symbol,
+        from: visibleOrderFlowRange.from,
+        to: visibleOrderFlowRange.to
+      }, controller.signal)
+        .then((response) => {
+          if (!controller.signal.aborted && chartRef.current.symbol === chart.symbol && chartRef.current.chartType === "bidask") {
+            setOrderFlowDaily(response);
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setOrderFlowDaily(null);
+          }
+        });
     }, 120);
     return () => {
       window.clearTimeout(timer);
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
-  }, [
-    chart.interval,
-    chart.symbol,
-    visibleProfileRange,
-  ]);
+  }, [chart.symbol, orderFlowActive, visibleOrderFlowRangeKey]);
+
+  useEffect(() => {
+    if (!orderFlowActive) {
+      setOrderFlowToday(new Map());
+      setOrderFlowTodaySessionDate(null);
+      return;
+    }
+    const controller = new AbortController();
+    const handleOrderFlowEvent = (event: CandleEventDto) => {
+      if (event.type !== "ORDER_FLOW_BINS_UPDATE" || event.symbol.toUpperCase() !== chart.symbol) {
+        return;
+      }
+      setOrderFlowTodaySessionDate(event.data.sessionDate);
+      setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+    };
+    fetchOrderFlowIntraday(chart.symbol, controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.chartType !== "bidask") {
+          return;
+        }
+        setOrderFlowTodaySessionDate(response.sessionDate);
+        setOrderFlowToday(new Map(response.minutes.map((minute) => [minute.eventMinute, minute])));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setOrderFlowToday(new Map());
+          setOrderFlowTodaySessionDate(null);
+        }
+      });
+    const demoCleanup = subscribeOrderFlowDemoTicks(chart.symbol, handleOrderFlowEvent, () => undefined);
+    return () => {
+      controller.abort();
+      demoCleanup?.();
+    };
+  }, [chart.symbol, orderFlowActive]);
 
   useEffect(() => {
     onSemanticSelectionChange?.(selectedSemanticNode);
@@ -936,12 +984,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       };
     })
   ), [chart.comparisons, chart.interval, comparisonScopeData, comparisonScopeRequests]);
+  const orderFlowTodayDay = useMemo(() => (
+    orderFlowTodaySessionDate
+      ? orderFlowDayFromMinutes(chart.symbol, orderFlowTodaySessionDate, orderFlowToday.values())
+      : null
+  ), [chart.symbol, orderFlowToday, orderFlowTodaySessionDate]);
 
   const renderChart = useMemo(() => ({
     ...chart,
     indicatorSeries,
     volumeProfile,
-    footprint,
+    orderFlow: orderFlowActive ? { daily: orderFlowDaily, today: orderFlowTodayDay } : null,
     comparisons: renderComparisons,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
@@ -951,7 +1004,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, footprint, indicatorSeries, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [chart, indicatorSeries, orderFlowActive, orderFlowDaily, orderFlowTodayDay, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const currentPriceTimeText = useMemo(() => (
@@ -1000,7 +1053,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setTransientDrawings(null);
     setBaseIndicatorSeries({});
     setVolumeProfile(null);
-    setFootprint(null);
+    setOrderFlowDaily(null);
+    setOrderFlowToday(new Map());
+    setOrderFlowTodaySessionDate(null);
     setExpansionIndicatorSeries({});
     setComparisonScopeData({});
     clearSemanticState();
@@ -1037,8 +1092,32 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [clearSemanticState, dispatchDocumentCommand]);
 
   const setChartType = useCallback((chartType: ChartType) => {
-    if (chartRef.current.chartType === chartType) {
+    const current = chartRef.current;
+    if (current.chartType === chartType) {
       return;
+    }
+    if (chartType === "bidask" && current.interval !== "1D") {
+      pendingViewportAnchorRef.current = {
+        key: chartMemoryKey(current.symbol, "1D"),
+        anchor: {
+          mode: "right",
+          timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
+          visibleCount: orderFlowDefaultVisibleDays
+        }
+      };
+      dispatchDocumentCommand("chart.timeframe.set", { timeframe: "1D" });
+    } else if (chartType === "bidask" && current.visibleCount > 40) {
+      const currentScene = sceneRef.current;
+      const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
+      dispatchDocumentCommand("chart.viewport.set", normalizeViewport(
+        {
+          visibleCount: orderFlowDefaultVisibleDays,
+          rightOffset: latestCandleRightOffset(orderFlowDefaultVisibleDays)
+        },
+        current.candles.length,
+        plotWidth,
+        viewportClampOptionsForChart(current, currentScene)
+      ));
     }
     if (chartType === "line") {
       activeExpansionsRef.current = [];
@@ -1124,9 +1203,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, []);
 
   const loadExpansionCandles = useCallback(async (expansion: SemanticExpansion, symbol: string) => {
-    if (expansion.childInterval === "footprint") {
-      return;
-    }
     const queryRange = childQueryRange({ from: expansion.from, to: expansion.to }, expansion.childInterval);
     try {
       const response = await fetchCandles({
@@ -1162,43 +1238,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
   }, []);
 
-  const loadExpansionFootprint = useCallback(async (expansion: SemanticExpansion, symbol: string) => {
-    if (expansion.childInterval !== "footprint") {
-      return;
-    }
-    try {
-      const response = await fetchFootprint({
-        symbol,
-        from: expansion.from,
-        to: expansion.to,
-        limit: 20000
-      });
-      setActiveExpansions((current) => current.map((item) => (
-        item.id === expansion.id &&
-        chartRef.current.symbol === symbol
-          ? {
-              ...item,
-              status: response.buckets.length ? "ready" : "empty",
-              footprintBucket: response.buckets[0] ?? null,
-              message: response.buckets.length ? undefined : "No footprint data"
-            }
-          : item
-      )));
-    } catch (error: unknown) {
-      setActiveExpansions((current) => current.map((item) => (
-        item.id === expansion.id &&
-        chartRef.current.symbol === symbol
-          ? {
-              ...item,
-              status: "error",
-              footprintBucket: null,
-              message: error instanceof Error ? error.message : "Footprint request failed"
-            }
-          : item
-      )));
-    }
-  }, []);
-
   const openSemanticExpansion = useCallback((unit: SemanticRenderUnit) => {
     if (chartRef.current.chartType === "line") {
       return;
@@ -1206,15 +1245,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (unit.kind !== "candle") {
       return;
     }
+    if (nextDigTargetInterval(unit.interval) === unit.interval) {
+      return;
+    }
     const expansion = buildSemanticExpansion(unit);
     activeExpansionsRef.current = upsertExpansion(activeExpansionsRef.current, expansion);
     setActiveExpansions((current) => upsertExpansion(current, expansion));
-    if (expansion.childInterval === "footprint") {
-      void loadExpansionFootprint(expansion, unit.symbol);
-      return;
-    }
     void loadExpansionCandles(expansion, unit.symbol);
-  }, [loadExpansionCandles, loadExpansionFootprint]);
+  }, [loadExpansionCandles]);
 
   const zoomBy = useCallback((delta: number) => {
     const current = chartRef.current;
@@ -2147,7 +2185,7 @@ function visibleCandleRangeForComparison(chart: ChartState, transientViewport: C
   to: string;
   candleCount: number;
 } | null {
-  if (chart.interval === "footprint" || !chart.candles.length) {
+  if (!chart.candles.length) {
     return null;
   }
   const visibleCount = Math.max(1, Math.floor(transientViewport?.visibleCount ?? chart.visibleCount));
@@ -2178,7 +2216,7 @@ function buildComparisonScopeRequests(
       .map((comparison) => comparison.symbol.toUpperCase())
       .filter((symbol) => symbol && symbol !== chart.symbol.toUpperCase())
   )).slice(0, maxComparisonCount);
-  if (!comparisonSymbols.length || chart.interval === "footprint") {
+  if (!comparisonSymbols.length) {
     return [];
   }
   const requests: ComparisonScopeRequest[] = [];
@@ -2194,11 +2232,11 @@ function buildComparisonScopeRequests(
       });
     }
     activeExpansions
-      .filter((expansion) => expansion.childInterval !== "footprint" && expansion.status === "ready" && expansion.candles.length > 0)
+      .filter((expansion) => expansion.status === "ready" && expansion.candles.length > 0)
       .forEach((expansion) => {
         const first = expansion.candles[0];
         const last = expansion.candles[expansion.candles.length - 1];
-        if (!first || !last || expansion.childInterval === "footprint") {
+        if (!first || !last) {
           return;
         }
         requests.push({
@@ -2318,7 +2356,8 @@ function candleSnapshotFromResponse(response: CandleQueryResponseDto, intervalOv
 }
 
 type RealtimeLayerEventDto = Extract<CandleEventDto, { type: "LIVE_TRADE_UPDATE" | "LIVE_QUOTE_UPDATE" }>;
-type ChartCandleEventDto = Exclude<CandleEventDto, RealtimeLayerEventDto>;
+type OrderFlowEventDto = Extract<CandleEventDto, { type: "ORDER_FLOW_BINS_UPDATE" }>;
+type ChartCandleEventDto = Exclude<CandleEventDto, RealtimeLayerEventDto | OrderFlowEventDto>;
 
 function candleEventFromDto(event: ChartCandleEventDto, intervalOverride?: ChartInterval): CandleEvent {
   return {
@@ -2332,6 +2371,10 @@ function candleEventFromDto(event: ChartCandleEventDto, intervalOverride?: Chart
 
 function isRealtimeLayerEventDto(event: CandleEventDto): event is RealtimeLayerEventDto {
   return event.type === "LIVE_TRADE_UPDATE" || event.type === "LIVE_QUOTE_UPDATE";
+}
+
+function isOrderFlowEventDto(event: CandleEventDto): event is OrderFlowEventDto {
+  return event.type === "ORDER_FLOW_BINS_UPDATE";
 }
 
 function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {
@@ -2376,7 +2419,7 @@ function chartMemoryKey(symbol: string, interval: ChartInterval): string {
 }
 
 function candleSourceInterval(interval: ChartInterval): ChartInterval {
-  return interval === "footprint" ? "1m" : interval;
+  return interval;
 }
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {

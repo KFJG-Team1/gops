@@ -21,6 +21,7 @@ export type AgentLayoutPanelType =
   | "portfolioInvested"
   | "portfolioDividend"
   | "portfolioDiversification"
+  | "orderFlowProfile"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

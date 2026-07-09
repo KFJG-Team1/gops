@@ -1,6 +1,8 @@
-export type ChartInterval = "footprint" | "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
+import type { OrderFlowDailyResponseDto, OrderFlowDayDto, OrderFlowMinuteUpdate } from "./orderFlow";
 
-export type ChartType = "candle" | "line" | "ohlc";
+export type ChartInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
+
+export type ChartType = "candle" | "line" | "ohlc" | "bidask";
 
 export type CandleDto = {
   timestamp: string;
@@ -132,58 +134,6 @@ export type VolumeProfileResponseDto = {
   bins: VolumeProfileBucketDto[];
   poc?: VolumeProfileSummaryDto | null;
   valueArea?: VolumeProfileValueAreaDto | null;
-  derived?: DerivedMetadataDto;
-  cache?: {
-    hit: boolean;
-    ttlSeconds: number;
-    keyVersion: string;
-  };
-};
-
-export type FootprintPriceLevelDto = {
-  price: number;
-  askVolume: number;
-  bidVolume: number;
-  unknownVolume: number;
-  totalVolume: number;
-  tradeCount: number;
-  delta: number;
-};
-
-export type FootprintBucketDto = {
-  timestamp: string;
-  from: string;
-  to: string;
-  open?: number | null;
-  high?: number | null;
-  low?: number | null;
-  close?: number | null;
-  volume: number;
-  tradeCount: number;
-  askVolume: number;
-  bidVolume: number;
-  unknownVolume: number;
-  delta: number;
-  priceLevels: FootprintPriceLevelDto[];
-};
-
-export type FootprintResponseDto = {
-  symbol: string;
-  interval: "footprint";
-  sourceInterval: "1m";
-  from: string;
-  to: string;
-  timeBucket: "1m";
-  source: string;
-  feed: string;
-  dataStatus: "ready" | "empty" | "pending" | "failed";
-  sideClassification: "estimated";
-  classificationVersion: string;
-  calculationVersion: string;
-  tradeCount: number;
-  quoteCount: number;
-  requestedLimit?: number;
-  buckets: FootprintBucketDto[];
   derived?: DerivedMetadataDto;
   cache?: {
     hit: boolean;
@@ -370,6 +320,12 @@ export type CandleEventDto =
       symbol: string;
       interval?: "trades" | "quotes";
       data: Record<string, unknown>;
+    }
+  | {
+      type: "ORDER_FLOW_BINS_UPDATE";
+      symbol: string;
+      interval?: string;
+      data: OrderFlowMinuteUpdate;
     };
 
 export type ChartLayerKey =
@@ -511,7 +467,10 @@ export type ChartState = {
   layers: Partial<Record<ChartLayerKey, boolean>>;
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
-  footprint?: FootprintResponseDto | null;
+  orderFlow?: {
+    daily: OrderFlowDailyResponseDto | null;
+    today: OrderFlowDayDto | null;
+  } | null;
   panes?: ChartPaneState[];
   volumeRatio: number;
   visibleCount: number;
@@ -524,13 +483,12 @@ export type ChartState = {
   streamState: "connecting" | "live" | "idle" | "error";
 };
 
-export const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
+export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
 
-export const chartIntervals: ChartInterval[] = ["footprint", "1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
+export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
 
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
   "1m": 120,
-  "footprint": 120,
   "5m": 120,
   "10m": 120,
   "1h": 120,

@@ -148,6 +148,14 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 40
   },
   {
+    kind: "orderFlow",
+    title: "오더플로우",
+    agentPanelType: "orderFlowProfile",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    defaultSpan: { colSpan: 1, rowSpan: 2 },
+    defaultLayoutWeight: 45
+  },
+  {
     kind: "trade",
     title: "주문",
     agentPanelType: "orderTicket",

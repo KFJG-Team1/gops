@@ -164,6 +164,37 @@ export function viewportRevealingPrependedCandlesAfterChange(
   );
 }
 
+export function viewportAfterSnapshotCandlesChange(
+  previousCandles: CandleDto[],
+  nextCandles: CandleDto[],
+  interval: ChartInterval,
+  viewport: ChartViewport,
+  anchor?: ViewportAnchor | null,
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
+): ChartViewport {
+  const previousViewport = normalizeViewport(viewport, previousCandles.length, plotWidth, options);
+  if (anchor?.timestamp) {
+    return anchoredViewportForCandles(nextCandles, interval, anchor, previousViewport, plotWidth, options);
+  }
+  if (!previousCandles.length || previousViewport.rightOffset <= 0) {
+    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
+  }
+  return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, previousViewport, plotWidth, options);
+}
+
+export function viewportAfterOlderCandlesLoaded(
+  previousCandles: CandleDto[],
+  nextCandles: CandleDto[],
+  _requestedViewport: ChartViewport | undefined,
+  currentViewport: ChartViewport,
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
+): ChartViewport {
+  const activeViewport = normalizeViewport(currentViewport, previousCandles.length, plotWidth, options);
+  return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, activeViewport, plotWidth, options);
+}
+
 function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): number {
   const target = new Date(timestamp).getTime();
   if (!Number.isFinite(target)) {

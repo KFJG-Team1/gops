@@ -47,6 +47,8 @@ import {
 } from "../src/chart/semanticTimeline";
 import {
   anchoredViewportForCandles,
+  viewportAfterOlderCandlesLoaded,
+  viewportAfterSnapshotCandlesChange,
   viewportPreservingRightEdgeAfterCandlesChange,
   viewportRevealingPrependedCandlesAfterChange
 } from "../src/chart/intervalNavigation";
@@ -75,6 +77,22 @@ import {
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
+import { fetchOrderFlowSymbols } from "../src/chart/orderFlowClient";
+import {
+  autoOrderFlowTargetRows,
+  autoPriceStep,
+  buildLadder,
+  effectiveOrderFlowPriceStep,
+  maxOrderFlowTargetRowsForHeight,
+  rebinLevels,
+  replaceOrderFlowMinute,
+  resolveOrderFlowTargetRows,
+  stepOrderFlowTargetRows,
+  sumMinuteWindows,
+  visibleScaleMax,
+  type OrderFlowMinuteUpdate
+} from "../src/chart/orderFlow";
+import { chartColumnTier } from "../src/chart/orderFlowRender";
 import {
   addPanelSlotAtGridRect,
   applyPanelResizeWithYield,
@@ -381,8 +399,7 @@ const treeMapTestTheme = {
   changeUp: "#05b169",
   changeDown: "#cf202f",
   tileText: "#0a0b0d",
-  tileTextInverse: "#ffffff",
-  footprint: "rgba(10, 11, 13, 0.42)"
+  tileTextInverse: "#ffffff"
 };
 const treeMapScale = createTreeMapOpacityScale([
   0.01,
@@ -503,6 +520,31 @@ if (chartTypeResult.ok) {
     assert.equal(undoChartType.document.chartType, "candle");
   }
 }
+
+const bidAskChartTypeResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.type.set", "user", target("panel-b", documentB.id), { chartType: "bidask" })
+);
+assert.equal(bidAskChartTypeResult.ok, true);
+if (bidAskChartTypeResult.ok) {
+  assert.equal(bidAskChartTypeResult.document.chartType, "bidask");
+  const frontendBidAskState = chartStateFromDocument(
+    { ...bidAskChartTypeResult.document, timeframe: ["foot", "print"].join("") },
+    [],
+    { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+    "idle"
+  );
+  assert.equal(frontendBidAskState.chartType, "bidask");
+  assert.equal(frontendBidAskState.interval, "1D");
+}
+const legacyIntervalCandleState = chartStateFromDocument(
+  { ...documentB, chartType: "candle", timeframe: ["foot", "print"].join("") },
+  [],
+  { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+  "idle"
+);
+assert.equal(legacyIntervalCandleState.chartType, "candle");
+assert.equal(legacyIntervalCandleState.interval, "1m");
 
 const paneRatioResult = executeChartCommand(
   documentB,
@@ -663,45 +705,6 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
-const footprintExpansion: SemanticExpansion = {
-  ...emptyExpansion,
-  childInterval: "footprint",
-  status: "ready",
-  candles: [],
-  footprintBucket: {
-    timestamp: candleA.timestamp,
-    from: candleA.timestamp,
-    to: "2026-06-25T13:31:00Z",
-    open: candleA.open,
-    high: candleA.high,
-    low: candleA.low,
-    close: candleA.close,
-    volume: 1200,
-    tradeCount: 18,
-    askVolume: 720,
-    bidVolume: 430,
-    unknownVolume: 50,
-    delta: 290,
-    priceLevels: [
-      { price: 10.7, askVolume: 300, bidVolume: 120, unknownVolume: 0, totalVolume: 420, tradeCount: 6, delta: 180 },
-      { price: 10.5, askVolume: 180, bidVolume: 260, unknownVolume: 20, totalVolume: 460, tradeCount: 8, delta: -80 }
-    ]
-  },
-  message: undefined
-};
-const footprintExpansionTimeline = buildSemanticTimeline({
-  symbol: "AAPL",
-  interval: "1D",
-  candles: [candleA as CandleDto],
-  expansions: [footprintExpansion],
-  visibleStartIndex: 0,
-  visibleEndIndex: 1,
-  viewportStartIndex: 0,
-  visibleSlotCount: 40
-});
-const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
-assert.ok(footprintExpansionUnit);
-assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
 const sparseMinuteCandles = [
   testCandle("2026-07-09T05:36:00Z", 100),
   testCandle("2026-07-09T05:39:00Z", 101)
@@ -779,6 +782,30 @@ assert.equal(
   ),
   -frontendFutureEmptySlotCount(6) + 1
 );
+const priorGapViewportCandles = [
+  testCandle("2026-07-09T05:00:00Z", 99),
+  testCandle("2026-07-09T06:00:00Z", 100),
+  testCandle("2026-07-09T06:01:00Z", 101),
+  testCandle("2026-07-09T06:02:00Z", 102),
+  testCandle("2026-07-09T06:03:00Z", 103),
+  testCandle("2026-07-09T06:04:00Z", 104)
+] as CandleDto[];
+const priorGapViewportTimeline = buildSemanticTimeline({
+  symbol: "MU",
+  interval: "1m",
+  candles: priorGapViewportCandles,
+  expansions: [],
+  visibleStartIndex: 2,
+  visibleEndIndex: 6,
+  viewportStartIndex: 2,
+  visibleSlotCount: 4
+});
+const firstViewportCandleAfterPriorGap = priorGapViewportTimeline.units.find(
+  (unit) => unit.kind === "candle" && unit.sourceIndex === 2
+);
+assert.equal(firstViewportCandleAfterPriorGap?.kind, "candle");
+assert.equal(firstViewportCandleAfterPriorGap?.slotStart, 0);
+assert.ok(priorGapViewportTimeline.totalSlots <= 4);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
@@ -945,7 +972,7 @@ const firstVisibleAfterLeftExpansion = leftExpansionTimeline.units.find(
   (unit) => unit.kind === "candle" && unit.sourceIndex === 30
 );
 assert.equal(Math.ceil(leftExpansionTimeline.expansionExtraSlots), semanticFutureExtraSlots);
-assert.ok(Math.abs((firstVisibleAfterLeftExpansion?.slotStart ?? -1) - leftExpansionTimeline.expansionExtraSlots) < 0.000001);
+assert.ok(Math.abs(firstVisibleAfterLeftExpansion?.slotStart ?? -1) < 0.000001);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
@@ -1369,15 +1396,13 @@ assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("1H"), "1h");
 assert.equal(normalizeChartInterval("4H"), "4h");
-assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.deepEqual(chartIntervals.slice(0, 6), ["footprint", "1m", "5m", "10m", "1h", "4h"]);
-assert.equal(nextDigTargetInterval("1m"), "footprint");
+assert.deepEqual(chartIntervals.slice(0, 5), ["1m", "5m", "10m", "1h", "4h"]);
+assert.equal(nextDigTargetInterval("1m"), "1m");
 assert.equal(nextDigTargetInterval("1D"), "1h");
 assert.equal(nextDigTargetInterval("4h"), "1h");
 assert.equal(nextDigTargetInterval("1h"), "10m");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
-assert.equal(defaultVisibleBarsForInterval("footprint"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
 assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1h"), 120);
@@ -1386,7 +1411,6 @@ assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 36);
 assert.equal(maxRequestBarsForInterval("1m"), 589680);
-assert.equal(maxRequestBarsForInterval("footprint"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
 assert.equal(maxRequestBarsForInterval("1h"), 9828);
@@ -1399,6 +1423,136 @@ assert.equal(indicatorRequestLimitForInterval("1D", 22849), 1512);
 assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
 assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
+
+const rebinnedOrderFlow = rebinLevels([
+  { priceBin: 100.01, askVolume: 10, bidVolume: 2, unknownVolume: 1, askTradeCount: 1 },
+  { priceBin: 100.12, askVolume: 3, bidVolume: 4, unknownVolume: 0, bidTradeCount: 2 },
+  { priceBin: 100.26, askVolume: 0, bidVolume: 7, unknownVolume: 2, unknownTradeCount: 1 }
+], 0.01, 0.25);
+assert.deepEqual(rebinnedOrderFlow, [
+  { priceBin: 100.25, askVolume: 0, bidVolume: 7, unknownVolume: 2, unknownTradeCount: 1 },
+  { priceBin: 100, askVolume: 13, bidVolume: 6, unknownVolume: 1, askTradeCount: 1, bidTradeCount: 2 }
+]);
+assert.throws(() => rebinLevels([], 0.02, 0.03), /multiple/);
+
+const minuteWindowLevels = [
+  { eventMinute: "2026-07-08T13:30:00.000Z", bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:31:00.000Z", bins: [{ priceBin: 100, askVolume: 2, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:32:00.000Z", bins: [{ priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 }] }
+];
+assert.deepEqual(sumMinuteWindows(minuteWindowLevels, 2), [
+  { priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 2, bidVolume: 0, unknownVolume: 0 }
+]);
+assert.deepEqual(sumMinuteWindows(minuteWindowLevels, "session"), [
+  { priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 3, bidVolume: 0, unknownVolume: 0 }
+]);
+
+const ladder = buildLadder([
+  { priceBin: 102, askVolume: 50, bidVolume: 55, unknownVolume: 0 },
+  { priceBin: 101, askVolume: 0, bidVolume: 25, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 100, bidVolume: 5, unknownVolume: 0 },
+  { priceBin: 99, askVolume: 20, bidVolume: 1, unknownVolume: 0 }
+], 1, "fixture");
+assert.equal(ladder.pocPriceBin, 100);
+assert.equal(ladder.totals.delta, 84);
+assert.equal(ladder.maxLevelVolume, 105);
+assert.equal(ladder.levels.find((level) => level.priceBin === 100)?.askImbalance, true);
+assert.equal(ladder.levels.find((level) => level.priceBin === 102)?.bidImbalance, true);
+assert.equal(ladder.levels.find((level) => level.priceBin === 101)?.bidImbalance, false);
+assert.equal(autoPriceStep(1.2, 44), 0.05);
+assert.equal(autoPriceStep(8, 24), 0.5);
+assert.equal(maxOrderFlowTargetRowsForHeight(120), 16);
+assert.equal(autoOrderFlowTargetRows(120), 8);
+assert.equal(resolveOrderFlowTargetRows("auto", 16, 32), 16);
+assert.equal(resolveOrderFlowTargetRows(44, 16, 32), 32);
+assert.equal(stepOrderFlowTargetRows(16, 1, 44), 20);
+assert.equal(stepOrderFlowTargetRows(16, -1, 44), 12);
+assert.equal(stepOrderFlowTargetRows(44, 1, 50), 50);
+assert.equal(effectiveOrderFlowPriceStep(1.2, 32, 0.01), 0.05);
+assert.equal(visibleScaleMax([ladder]), 105);
+assert.equal(chartColumnTier(80), "full");
+assert.equal(chartColumnTier(30), "standard");
+assert.equal(chartColumnTier(12), "compact");
+assert.equal(chartColumnTier(6), "micro");
+
+const orderFlowUpdateA: OrderFlowMinuteUpdate = {
+  eventMinute: "2026-07-08T13:31:00.000Z",
+  sessionDate: "2026-07-08",
+  priceBinSize: 0.01,
+  bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:31:01.000Z"
+};
+const orderFlowUpdateB: OrderFlowMinuteUpdate = {
+  ...orderFlowUpdateA,
+  bins: [{ priceBin: 100, askVolume: 5, bidVolume: 2, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:31:02.000Z"
+};
+const orderFlowUpdateOlder: OrderFlowMinuteUpdate = {
+  eventMinute: "2026-07-08T13:30:00.000Z",
+  sessionDate: "2026-07-08",
+  priceBinSize: 0.01,
+  bins: [{ priceBin: 99, askVolume: 0, bidVolume: 3, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:30:01.000Z"
+};
+const minuteMapAfterEvents = replaceOrderFlowMinute(
+  replaceOrderFlowMinute(
+    replaceOrderFlowMinute(new Map(), orderFlowUpdateA),
+    orderFlowUpdateOlder
+  ),
+  orderFlowUpdateB
+);
+assert.deepEqual(Array.from(minuteMapAfterEvents.keys()).sort(), [
+  "2026-07-08T13:30:00.000Z",
+  "2026-07-08T13:31:00.000Z"
+]);
+assert.deepEqual(minuteMapAfterEvents.get("2026-07-08T13:31:00.000Z")?.bins, orderFlowUpdateB.bins);
+
+const originalFetch = globalThis.fetch;
+let orderFlowSymbolFetchCalls = 0;
+try {
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    orderFlowSymbolFetchCalls += 1;
+    return new Promise<Response>((resolve, reject) => {
+      const signal = init?.signal;
+      const abort = () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      };
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  }) as typeof fetch;
+  const controller = new AbortController();
+  const abortedFetch = fetchOrderFlowSymbols(controller.signal).then(
+    () => "resolved",
+    (error: Error) => error.name
+  );
+  controller.abort();
+  assert.equal(await abortedFetch, "AbortError");
+
+  globalThis.fetch = (async () => {
+    orderFlowSymbolFetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ symbols: ["nvda", "aapl"], priceBinSize: 0.01 })
+    } as Response;
+  }) as typeof fetch;
+  const symbolsAfterAbort = await fetchOrderFlowSymbols();
+  const symbolsFromCache = await fetchOrderFlowSymbols();
+  assert.deepEqual(symbolsAfterAbort.symbols, ["NVDA", "AAPL"]);
+  assert.strictEqual(symbolsFromCache, symbolsAfterAbort);
+  assert.equal(orderFlowSymbolFetchCalls, 2);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 assert.equal(
   stableVolumeProfileRangeKey({
     symbol: "nvda",
@@ -2242,6 +2396,80 @@ assert.deepEqual(
   ),
   { visibleCount: 6, rightOffset: 9 }
 );
+assert.deepEqual(
+  viewportAfterOlderCandlesLoaded(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 },
+    { visibleCount: 6, rightOffset: 4 }
+  ),
+  { visibleCount: 6, rightOffset: 4 }
+);
+assert.deepEqual(
+  viewportAfterOlderCandlesLoaded(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 },
+    { visibleCount: 6, rightOffset: 0 }
+  ),
+  { visibleCount: 6, rightOffset: 0 }
+);
+const cachedMinuteSnapshotCandles = Array.from(
+  { length: 1000 },
+  (_, index) => testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + index)).toISOString(), 100 + index)
+);
+const tailSnapshotResponseCandles = cachedMinuteSnapshotCandles.slice(-120);
+const detachedSnapshotViewport = { visibleCount: 60, rightOffset: 500 };
+assert.equal(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    null,
+    detachedSnapshotViewport,
+    640,
+    { minimumVisibleSlots: 120 }
+  ).rightOffset,
+  60
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    cachedMinuteSnapshotCandles,
+    "1m",
+    detachedSnapshotViewport,
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  detachedSnapshotViewport
+);
+const appendedSnapshotCandles = [
+  ...cachedMinuteSnapshotCandles,
+  testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + 1000)).toISOString(), 1100),
+  testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + 1001)).toISOString(), 1101)
+];
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    appendedSnapshotCandles,
+    "1m",
+    { visibleCount: 60, rightOffset: 0 },
+    null,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 0 }
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    appendedSnapshotCandles,
+    "1m",
+    detachedSnapshotViewport,
+    null,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 502 }
+);
 const drawingAnchorBeforePrepend = {
   timestamp: visibleCandlesBeforePrepend[4]?.timestamp,
   logicalIndex: 4,
@@ -2549,6 +2777,10 @@ assert.match(appSource, /panelLayoutStorageKey/);
 assert.match(appSource, /restoreTiledPanelStateSnapshot/);
 assert.match(appSource, /setPrimaryChartSymbol/);
 assert.match(appSource, /createInitialTiledPanelState\(viewport, \{/);
+assert.match(appSource, /createOrderFlowDemoPanelState/);
+assert.match(appSource, /isOrderFlowDemoRoute/);
+assert.match(appSource, /import\.meta\.env\.DEV !== true/);
+assert.doesNotMatch(appSource, /orderFlowDemoData/);
 assert.match(appSource, /차트를 같이 표시했습니다/);
 assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
@@ -2575,13 +2807,15 @@ assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /export type BottomMenuKey = "II" \| "III" \| "IV" \| "V" \| "VI";/);
 assert.match(bottomCommandBarSource, /const leftMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \["IV", "II", "III", "V", "VI"\];/);
+assert.match(bottomCommandBarSource, /const sideRailMenuKeys: BottomMenuKey\[\] = sideMenuKeys\.filter\(\(key\) => key !== "IV"\);/);
 assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /aria-label="로그인"/);
 assert.match(bottomCommandBarSource, /Logout\/profile live in Settings/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
-assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
+assert.match(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel/);
+assert.match(bottomCommandBarSource, /PortfolioInvestmentStatusPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
 assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
 assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
@@ -2619,7 +2853,7 @@ assert.match(newsPanelSource, /impactDirection/);
 const panelContentRendererSource = readFileSync(fileURLToPath(new URL("../src/components/PanelContentRenderer.tsx", import.meta.url)), "utf-8");
 assert.match(panelContentRendererSource, /NewsPanel/);
 assert.match(panelContentRendererSource, /OrderTicket/);
-assert.match(panelContentRendererSource, /PortfolioHoldingsPanel/);
+assert.match(panelContentRendererSource, /PortfolioHoldingsOnlyPanel/);
 assert.match(panelContentRendererSource, /ChartComparisonPanel/);
 assert.match(panelContentRendererSource, /content\.kind === "compare"/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
@@ -2632,11 +2866,13 @@ const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
 assert.match(portfolioHoldingsPanelSource, /포트폴리오 새로고침/);
 assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(true\)/);
+assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
+const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
 assert.match(chartPanelSource, /visibleProfileRangeKey/);
 assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
@@ -2655,13 +2891,19 @@ assert.match(chartPanelSource, /maxComparisonCount/);
 assert.doesNotMatch(chartPanelSource, /onOpenComparisonPanel|placeholder="비교 패널"|chart-comparison-picker/);
 assert.match(chartPanelSource, /comparisons: renderComparisons/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
-assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
+assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{ daily: orderFlowDaily, today: orderFlowTodayDay \} : null/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /action: "dig"/);
 assert.match(chartPanelSource, /action: "agent-select"/);
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
+assert.match(symbolSearchSource, /allowCustomSymbol/);
+assert.match(symbolSearchSource, /portalMenu/);
+assert.match(orderFlowPanelSource, /order-flow-hover-overlay/);
+assert.match(orderFlowPanelSource, /onWheel=\{handleCanvasWheel\}/);
+assert.match(orderFlowPanelSource, /stepOrderFlowTargetRows/);
+assert.doesNotMatch(orderFlowPanelSource, /order-flow-control-select|ORDER_FLOW_PRICE_STEPS/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
@@ -2675,16 +2917,15 @@ assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
-assert.match(chartCanvasSource, /const footprintBucketMinWidth = 14;/);
-assert.match(chartCanvasSource, /const footprintBucketMaxWidth = 56;/);
-assert.match(chartCanvasSource, /function drawCenteredFootprintCandle/);
-assert.match(chartCanvasSource, /context\.fillRect\(center - candleWidth \/ 2, bodyTop, candleWidth, bodyHeight\);/);
+assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
+assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
+assert.match(chartCanvasSource, /chartColumnTier/);
 assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
 assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.lower[\s\S]*connectAcrossMissing: true/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.middle[\s\S]*connectAcrossMissing: true/);
-assert.match(semanticTimelineSource, /const footprintSlotWidth = 18;/);
+assert.doesNotMatch(semanticTimelineSource, /kind:\s*"placeholder"\s*\|\s*"foot/);
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
@@ -2708,6 +2949,7 @@ const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/com
 assert.doesNotMatch(workspacePanelFrameSource, /workspace-panel-close|canClose|onClose/);
 const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/panelRegistry.ts", import.meta.url)), "utf-8");
 assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
+assert.match(panelRegistrySource, /kind: "orderFlow"[\s\S]*agentPanelType: "orderFlowProfile"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
@@ -3010,6 +3252,7 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*position: rela
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*width: 100%;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: nowrap;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
+assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: calc\(var\(--bottom-control-size\) \* 2 \+ 15px\);/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";

@@ -20,28 +20,28 @@ export const chartCapabilities: ChartCapability[] = [
     label: "Set timeframe",
     description: "Change the active candle interval.",
     commandTypes: ["chart.timeframe.set"],
-    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "footprint", "5m", "10m", "1h", "4h", "1D", "1W", "1M"] } } },
+    payloadSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"] } } },
     requiredContext: ["chartDocumentId"],
     previewable: true,
     autoApplyEligible: true,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-symbol", "chart-viewport"],
-    validationRules: ["timeframe must be one of 1m, footprint, 5m, 10m, 1h, 4h, 1D, 1W, 1M"]
+    validationRules: ["timeframe must be one of 1m, 5m, 10m, 1h, 4h, 1D, 1W, 1M"]
   },
   {
     id: "chart-type",
     label: "Chart type",
     description: "Switch the base price renderer without changing the candle source interval.",
     commandTypes: ["chart.type.set"],
-    payloadSchema: { type: "object", required: ["chartType"], properties: { chartType: { enum: ["candle", "line", "ohlc"] } } },
+    payloadSchema: { type: "object", required: ["chartType"], properties: { chartType: { enum: ["candle", "line", "ohlc", "bidask"] } } },
     requiredContext: ["chartDocumentId"],
     previewable: true,
     autoApplyEligible: true,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-timeframe", "chart-layer-visibility"],
-    validationRules: ["chartType must be candle, line, or ohlc"]
+    validationRules: ["chartType must be candle, line, ohlc, or bidask"]
   },
   {
     id: "chart-viewport",

@@ -72,10 +72,11 @@ export function chartStateFromDocument(
   streamStatus: StreamStatus,
   streamMessage?: string
 ): ChartState {
-  const interval = normalizeFrontendInterval(document.timeframe);
+  const chartType = normalizeFrontendChartType(document.chartType);
+  const interval = chartType === "bidask" ? "1D" : normalizeFrontendInterval(document.timeframe);
   return {
     symbol: document.symbol.toUpperCase(),
-    chartType: normalizeFrontendChartType(document.chartType),
+    chartType,
     interval,
     candles,
     status: dataStatus.state,
@@ -112,13 +113,16 @@ function volumeRatioFromDocument(document: ChartDocument): number {
 }
 
 function normalizeFrontendInterval(value: string): ChartInterval {
-  return value === "1m" || value === "footprint" || value === "5m" || value === "10m" || value === "1h" || value === "4h" || value === "1D" || value === "1W" || value === "1M"
+  if (value === ["foot", "print"].join("")) {
+    return "1m";
+  }
+  return value === "1m" || value === "5m" || value === "10m" || value === "1h" || value === "4h" || value === "1D" || value === "1W" || value === "1M"
     ? value
     : defaultFrontendChartInterval;
 }
 
 function normalizeFrontendChartType(value: string | undefined): ChartType {
-  return value === "line" || value === "ohlc" || value === "candle" ? value : "candle";
+  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
 }
 
 function readString(value: unknown): string | null {

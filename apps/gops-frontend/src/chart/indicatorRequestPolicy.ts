@@ -8,7 +8,6 @@ import type { ChartInterval } from "./types";
 export const maxIndicatorRequestBars = 5000;
 
 const indicatorRequestCaps: Record<ChartInterval, number> = {
-  "footprint": 5000,
   "1m": 5000,
   "5m": 5000,
   "10m": 5000,

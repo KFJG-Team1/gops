@@ -19,7 +19,6 @@ export type ThemeColorToken =
   | "ma60"
   | "drawing"
   | "preview"
-  | "footprint"
   | "volume"
   | "grid"
   | "axis"
@@ -53,7 +52,6 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   ma60: "--color-ma60",
   drawing: "--color-drawing",
   preview: "--color-preview",
-  footprint: "--color-footprint",
   volume: "--color-volume",
   grid: "--color-grid",
   axis: "--color-axis",
