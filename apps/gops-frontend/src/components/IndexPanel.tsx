@@ -1,57 +1,13 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { fetchMarketIndices, type MarketIndexItem, type MarketIndicesPayload } from "../market/indicesApi";
-
-const FALLBACK_REFRESH_MS = 30_000;
+import { useMemo, type CSSProperties } from "react";
+import type { MarketIndexItem } from "../market/indicesApi";
+import { useMarketIndices } from "../market/useMarketIndices";
 
 export function IndexPanel() {
-  const [payload, setPayload] = useState<MarketIndicesPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-
-  const loadIndices = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (showRefreshing) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(undefined);
-    try {
-      const nextPayload = await fetchMarketIndices(signal);
-      setPayload(nextPayload);
-    } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") {
-        return;
-      }
-      setError(caught instanceof Error ? caught.message : "지수 데이터를 불러오지 못했습니다.");
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadIndices(controller.signal);
-    return () => controller.abort();
-  }, [loadIndices]);
-
-  const refreshMs = Math.max(10_000, (payload?.refreshSeconds ?? FALLBACK_REFRESH_MS / 1000) * 1000);
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      const controller = new AbortController();
-      void loadIndices(controller.signal, true);
-    }, refreshMs);
-    return () => window.clearInterval(intervalId);
-  }, [loadIndices, refreshMs]);
-
+  const { payload, loading, refreshing, error, warning, reload } = useMarketIndices();
   const groups = useMemo(() => groupIndexItems(payload?.items ?? []), [payload?.items]);
-  const cacheLabel = payload?.cacheStatus === "stale" ? "stale" : payload?.cacheStatus === "fresh" ? "live" : "";
-  // The name column's minimum width tracks the longest (caret-stripped) ticker, so the graph
-  // only starts disappearing once the fullname has already collapsed to the ticker.
+  // The name column's minimum width tracks the longest ticker, so the graph only starts
+  // disappearing once the fullname has already collapsed to the ticker.
   const nameMinWidth = useMemo(() => {
     const maxChars = (payload?.items ?? []).reduce((max, item) => Math.max(max, stripCaret(item.symbol).length), 3);
     return Math.ceil(maxChars * 7.6 + 6);
@@ -65,7 +21,7 @@ export function IndexPanel() {
         type="button"
         title="지수 새로고침"
         aria-label="지수 새로고침"
-        onClick={() => void loadIndices(undefined, true)}
+        onClick={() => void reload(true)}
       >
         {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
       </button>
@@ -76,7 +32,7 @@ export function IndexPanel() {
         </div>
       )}
       {error && !loading && <div className="panel-error-row">{error}</div>}
-      {payload?.warning && !loading && !error && <div className="panel-state-row">{payload.warning}</div>}
+      {warning && !loading && !error && <div className="panel-state-row">{warning}</div>}
       {!loading && !error && groups.length === 0 && <div className="panel-empty-row">표시할 지수 데이터가 없습니다</div>}
       {!loading && !error && groups.length > 0 && (
         <div className="market-indices-groups">
@@ -90,12 +46,6 @@ export function IndexPanel() {
               </div>
             </section>
           ))}
-          {(cacheLabel || payload?.updatedAt) && (
-            <footer className="market-indices-footer">
-              {cacheLabel && <span className={`market-indices-cache is-${payload?.cacheStatus}`}>{cacheLabel}</span>}
-              {payload?.updatedAt && <span>{formatTime(payload.updatedAt)}</span>}
-            </footer>
-          )}
         </div>
       )}
     </section>
@@ -202,19 +152,6 @@ function formatNumber(value: number, minimumFractionDigits: number, maximumFract
     minimumFractionDigits,
     maximumFractionDigits
   }).format(value);
-}
-
-function formatTime(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(parsed);
 }
 
 function roundCoord(value: number): string {

@@ -56,7 +56,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "지수",
     agentPanelType: "marketIndices",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -169,5 +169,8 @@ export function panelKindForAgentType(panelType: AgentLayoutPanelType | string |
 }
 
 export function panelPaletteLabel(entry: PanelRegistryEntry): string {
+  if (entry.kind === "indices") {
+    return entry.title;
+  }
   return `${entry.title} (${entry.minSpan.rowSpan}x${entry.minSpan.colSpan})`;
 }

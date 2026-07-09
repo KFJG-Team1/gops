@@ -67,10 +67,10 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, viewportSlotWidth, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
-  viewportPreservingRightEdgeAfterCandlesChange,
+  viewportRevealingPrependedCandlesAfterChange,
   type ViewportAnchor
 } from "../chart/intervalNavigation";
 import {
@@ -408,7 +408,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     symbol: string,
     interval: ChartInterval,
     before: string,
-    limit: number
+    limit: number,
+    requestedViewport?: ChartViewport
   ) => {
     const requestKey = olderRangeRequestKey(symbol, interval, before, limit);
     if (olderRangeRequestsRef.current.has(requestKey)) {
@@ -443,10 +444,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-        const nextViewport = viewportPreservingRightEdgeAfterCandlesChange(
+        const viewportBeforeLoad = requestedViewport ?? { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
+        const nextViewport = viewportRevealingPrependedCandlesAfterChange(
           current.candles,
           merged,
-          { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+          viewportBeforeLoad,
           plotWidth,
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
@@ -1061,7 +1063,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         currentChart.symbol,
         currentChart.interval,
         oldest,
-        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount)
+        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount),
+        requestedViewport
       );
     }
     const nextViewport = requestedViewport;
@@ -1254,7 +1257,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         viewportClampOptionsForChart(current, scene)
       );
       const slotWidth = scene
-        ? viewportSlotWidth(scene)
+        ? scene.scales.slotWidth
         : Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
       const nextRightOffset = horizontalWheelDeltaToRightOffset(
         currentViewport.rightOffset,
@@ -1275,7 +1278,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (verticalDelta === 0) {
       return;
     }
-    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
+    const effectiveVisibleCount = scene?.visibleSlotCount ?? chart.visibleCount;
+    const step = Math.max(3, Math.round(effectiveVisibleCount * 0.12));
     const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
       zoomBy(delta);
@@ -1523,7 +1527,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       rightOffset: dragDeltaToRightOffset(
         dragAnchor.rightOffset,
         event.clientX - dragAnchor.x,
-        viewportSlotWidth(scene),
+        scene.scales.slotWidth,
         dragAnchor.visibleCount,
         chart.candles.length,
         viewportClampOptionsForChart(chartRef.current, scene)
@@ -1589,7 +1593,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
     }
-    if (dragAnchor && nextViewport && nextViewport.rightOffset !== dragAnchor.rightOffset) {
+    if (dragAnchor && nextViewport && (
+      nextViewport.rightOffset !== dragAnchor.rightOffset ||
+      event.clientX - dragAnchor.x > 5
+    )) {
       applyViewport(nextViewport);
     }
   };

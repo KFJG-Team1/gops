@@ -45,7 +45,11 @@ import {
   semanticNodeId,
   type SemanticExpansion
 } from "../src/chart/semanticTimeline";
-import { anchoredViewportForCandles, viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
+import {
+  anchoredViewportForCandles,
+  viewportPreservingRightEdgeAfterCandlesChange,
+  viewportRevealingPrependedCandlesAfterChange
+} from "../src/chart/intervalNavigation";
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
@@ -329,7 +333,7 @@ const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
-assert.equal(fallbackChartStyle.background, "#f8fbff");
+assert.equal(fallbackChartStyle.background, "#ffffff");
 assert.equal(fallbackChartStyle.text, "#0a0b0d");
 assert.equal(fallbackChartStyle.grid, "rgba(10, 11, 13, 0.08)");
 assert.equal(fallbackChartStyle.volume, "rgba(10, 11, 13, 0.12)");
@@ -737,8 +741,7 @@ assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
 assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
 const afterGapAnchorRatio = viewportAnchorRatioAtX(sparseMinuteScene, afterGapX ?? sparseMinuteScene.plot.left);
 const afterGapVisualRatio = ((afterGapX ?? sparseMinuteScene.plot.left) - sparseMinuteScene.plot.left) / (sparseMinuteScene.plot.right - sparseMinuteScene.plot.left);
-assert.ok(Math.abs(afterGapAnchorRatio - ((1.5 - sparseMinuteScene.viewportStartIndex) / sparseMinuteScene.visibleSlotCount)) < 0.000001);
-assert.ok(Math.abs(afterGapVisualRatio - afterGapAnchorRatio) > 0.005);
+assert.ok(Math.abs(afterGapVisualRatio - afterGapAnchorRatio) < 0.000001);
 assert.equal(sparseMinuteScene.semantic.expansionExtraSlots, 0);
 assert.equal(
   frontendDragDeltaToRightOffset(
@@ -766,12 +769,12 @@ assert.ok(compressedGapScene.scales.slotWidth < compressedGapViewportSlotWidth /
 assert.equal(
   frontendHorizontalWheelDeltaToRightOffset(
     -frontendFutureEmptySlotCount(6),
-    -compressedGapViewportSlotWidth,
-    compressedGapViewportSlotWidth,
+    -compressedGapScene.scales.slotWidth,
+    compressedGapScene.scales.slotWidth,
     6,
     compressedGapScene.allCandles.length,
     0,
-    compressedGapViewportSlotWidth * 6,
+    compressedGapScene.scales.slotWidth * 6,
     { extraFutureSlots: compressedGapScene.semantic.expansionExtraSlots }
   ),
   -frontendFutureEmptySlotCount(6) + 1
@@ -2164,7 +2167,7 @@ assert.equal(dragDeltaToRightOffset(0, 18, 9, 72, 160), 2);
 assert.equal(dragDeltaToRightOffset(8, -27, 9, 72, 160), 5);
 assert.equal(horizontalWheelDeltaToRightOffset(8, 27, 9, 72, 160), 5);
 assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
-assert.equal(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1), 4);
+assert.ok(Math.abs(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1) - (8 - 32 / 9)) < 0.000001);
 assert.equal(frontendClampRightOffset(-120, 72, 160), -48);
 assert.equal(frontendClampRightOffset(-120, 72, 160, { extraFutureSlots: 14 }), -62);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120 }, 160, 640, { extraFutureSlots: 14 }), {
@@ -2172,7 +2175,7 @@ assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120
   rightOffset: -62
 });
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 120, rightOffset: 0 }, 3, 640, { minimumVisibleSlots: 120 }), {
-  visibleCount: 120,
+  visibleCount: 6,
   rightOffset: 0
 });
 assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
@@ -2195,7 +2198,7 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 120, rightOffset: 0 }
+  { visibleCount: 6, rightOffset: 0 }
 );
 const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -2204,9 +2207,9 @@ const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   rightOffset: 0,
   requestedLimit: 120
 }), 640, 360);
-assert.equal(sparseDailyScene.visibleSlotCount, 120);
+assert.equal(sparseDailyScene.visibleSlotCount, 6);
 assert.equal(sparseDailyScene.candles.length, 3);
-assert.equal(sparseDailyScene.viewportStartIndex, -117);
+assert.equal(sparseDailyScene.viewportStartIndex, -3);
 const restoredDailyCandles = [
   ...Array.from({ length: 117 }, (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 80 + index)),
   ...sparseDailyCandles
@@ -2219,7 +2222,7 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 120, rightOffset: 0 }
+  { visibleCount: 6, rightOffset: 0 }
 );
 const visibleCandlesBeforePrepend = Array.from({ length: 10 }, (_, index) => testCandle(`2026-06-25T13:${String(30 + index).padStart(2, "0")}:00Z`, 100 + index));
 const prependedCandles = Array.from({ length: 5 }, (_, index) => testCandle(`2026-06-25T13:${String(25 + index).padStart(2, "0")}:00Z`, 90 + index));
@@ -2230,6 +2233,14 @@ assert.deepEqual(
     { visibleCount: 6, rightOffset: 3 }
   ),
   { visibleCount: 6, rightOffset: 3 }
+);
+assert.deepEqual(
+  viewportRevealingPrependedCandlesAfterChange(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 }
+  ),
+  { visibleCount: 6, rightOffset: 9 }
 );
 const drawingAnchorBeforePrepend = {
   timestamp: visibleCandlesBeforePrepend[4]?.timestamp,
@@ -2561,16 +2572,16 @@ assert.match(bottomCommandBarSource, /bottom-chat-confidence-dot/);
 assert.match(bottomCommandBarSource, /신뢰도 \$\{percent\}%/);
 assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
-assert.match(bottomCommandBarSource, /export type BottomMenuKey = "III" \| "IV" \| "VI";/);
+assert.match(bottomCommandBarSource, /export type BottomMenuKey = "II" \| "III" \| "IV" \| "V" \| "VI";/);
 assert.match(bottomCommandBarSource, /const leftMenuKeys: BottomMenuKey\[\] = \[\];/);
-assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \["IV", "III", "VI"\];/);
+assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \["IV", "II", "III", "V", "VI"\];/);
 assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /aria-label="로그인"/);
 assert.match(bottomCommandBarSource, /Logout\/profile live in Settings/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
-assert.doesNotMatch(bottomCommandBarSource, /PortfolioHoldingsPanel/);
+assert.match(bottomCommandBarSource, /PortfolioHoldingsPanel/);
 assert.match(bottomCommandBarSource, /알림설정/);
 assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
 assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
@@ -2620,7 +2631,8 @@ assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-in
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
 assert.match(portfolioHoldingsPanelSource, /포트폴리오 새로고침/);
-assert.match(portfolioHoldingsPanelSource, /loadHoldings\(undefined, true\)/);
+assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(true\)/);
+assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
@@ -2653,6 +2665,12 @@ assert.match(symbolSearchSource, /position: "fixed"/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
+assert.match(chartCanvasSource, /drawCarryForwardGapCandles\(context, scene, "candle"\)/);
+assert.match(chartCanvasSource, /drawCarryForwardGapCandles\(context, scene, "ohlc"\)/);
+assert.match(chartCanvasSource, /function drawCarryForwardCandle/);
+assert.match(chartCanvasSource, /function drawCarryForwardOhlcBar/);
+assert.doesNotMatch(chartCanvasSource, /function drawCarryForwardGaps/);
+assert.doesNotMatch(chartCanvasSource, /function drawTimeGapUnit/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
@@ -2833,7 +2851,7 @@ assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
-assert.equal(agentLayoutPortfolioPanel?.title, "포트폴리오");
+assert.equal(agentLayoutPortfolioPanel?.title, "Holdings");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
 assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
@@ -2988,10 +3006,10 @@ assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*flex-wrap: no
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*padding: 5px var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*box-sizing: border-box;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
-assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*left: 0;/);
-assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*right: 0;/);
+assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*position: relative;/);
+assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*width: 100%;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: nowrap;/);
-assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px var\(--layout-gutter\);/);
+assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: calc\(var\(--bottom-control-size\) \* 2 \+ 15px\);/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
