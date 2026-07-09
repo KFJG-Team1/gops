@@ -3845,6 +3845,7 @@ h2 {
 
 .market-news-panel,
 .market-indices-panel,
+.index-widget-panel,
 .company-summary-panel,
 .popular-stocks-panel,
 .portfolio-holdings-panel,
@@ -5148,7 +5149,8 @@ h2 {
   background: color-mix(in srgb, var(--color-caution) 64%, transparent);
 }
 
-.market-indices-cache {
+.market-indices-cache,
+.index-widget-cache {
   border-radius: 999px;
   padding: 1px 6px;
   background: color-mix(in srgb, var(--color-text) 7%, transparent);
@@ -5158,18 +5160,14 @@ h2 {
   text-transform: uppercase;
 }
 
-.market-indices-cache.is-fresh {
+.market-indices-cache.is-fresh,
+.index-widget-cache.is-fresh {
   color: var(--color-bullish);
 }
 
-.market-indices-cache.is-stale {
+.market-indices-cache.is-stale,
+.index-widget-cache.is-stale {
   color: var(--color-danger);
-}
-
-.market-indices-groups {
-  display: grid;
-  gap: 10px;
-  min-height: 0;
 }
 
 .popular-stocks-panel {
@@ -5290,6 +5288,13 @@ h2 {
   font-weight: 760;
 }
 
+.market-indices-groups {
+  container-type: inline-size;
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
 .market-index-group {
   display: grid;
   gap: 6px;
@@ -5306,16 +5311,11 @@ h2 {
 
 .market-index-row {
   display: grid;
-  /* name (min = longest ticker, grows to show fullname up to a cap) | graph (stretches, has
-     a floor) | numbers (content width). The graph is the flexible track, so it widens on
-     wide panels and is the first to shrink; then the name/fullname shrinks. */
   grid-template-columns: minmax(var(--index-name-min, 56px), 132px) minmax(48px, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-width: 0;
   min-height: 0;
-  /* Flat newspaper row: no card, content flush to the panel padding so the name axis lines
-     up with the header; rows separated by a hairline instead of a filled surface. */
   padding: 8px 0;
   background: none;
   border-radius: 0;
@@ -5363,7 +5363,6 @@ h2 {
   overflow: visible;
 }
 
-/* Very thin horizontal current-price reference line through the latest point. */
 .market-index-price-line {
   stroke: var(--color-muted);
   stroke-width: 0.75;
@@ -5392,7 +5391,6 @@ h2 {
   text-align: right;
 }
 
-/* Change percent on top (large), price below (small). */
 .market-index-percent {
   max-width: 100%;
   overflow: hidden;
@@ -5422,7 +5420,6 @@ h2 {
   white-space: nowrap;
 }
 
-/* LIVE + timestamp, moved to the very bottom of the scroll; aligned to the panel axis. */
 .market-indices-footer {
   display: flex;
   align-items: center;
@@ -5433,12 +5430,263 @@ h2 {
   font-weight: 700;
 }
 
-/* No title bar: content starts at the panel top. The reload floats over the top-right of the
-   content (slightly over the first index's numbers) and only appears on hover. It is anchored
-   to the non-scrolling panel body, so it stays put while the list scrolls. */
-/* Generic reload overlay for any panel: floats over the top-right of the content and only
-   appears while the panel is hovered/focused. Anchored to the non-scrolling panel body so
-   it stays put while the content scrolls. */
+@container (max-width: 188px) {
+  .market-index-sparkline {
+    display: none;
+  }
+
+  .market-index-row {
+    grid-template-columns: minmax(var(--index-name-min, 56px), 1fr) auto;
+  }
+}
+
+.market-indices-panel,
+.index-widget-panel {
+  position: relative;
+  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
+  border-radius: 22px;
+  background: color-mix(in srgb, #ffffff 92%, var(--color-background));
+  box-shadow:
+    0 18px 38px rgb(var(--gops-ink-rgb) / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+
+.market-indices-panel {
+  --panel-padding: 14px;
+}
+
+.index-widget-panel {
+  overflow: hidden;
+  padding: 8px;
+}
+
+.index-widget-stack {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.index-widget-anim {
+  container-type: size;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 350ms ease,
+    transform 350ms ease;
+}
+
+.index-widget-anim.is-out {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.index-widget-anim.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.index-widget-grid {
+  --iw-gap: clamp(4px, 3cqmin, 8px);
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: repeat(var(--iw-cols, 1), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--iw-rows, 1), minmax(0, 1fr));
+  gap: var(--iw-gap);
+  min-width: 0;
+  min-height: 0;
+}
+
+.index-widget-cell {
+  container-type: size;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.index-widget-card,
+.index-widget-empty {
+  width: 100%;
+  height: 100%;
+  border-radius: min(20px, 13cqmin);
+}
+
+.index-widget-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: clamp(2px, 3cqmin, 8px);
+  overflow: hidden;
+  padding: clamp(6px, 6cqmin, 12px);
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+}
+
+.index-widget-empty {
+  border: 1px dashed rgb(var(--gops-ink-rgb) / 0.18);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  opacity: 0.42;
+}
+
+.index-widget-card-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: clamp(4px, 4cqmin, 8px);
+  min-width: 0;
+}
+
+.index-widget-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.index-widget-symbol,
+.index-widget-name,
+.index-widget-percent,
+.index-widget-price {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.index-widget-symbol {
+  color: var(--color-text);
+  font-size: clamp(14px, 16cqmin, 30px);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.index-widget-name {
+  color: var(--color-muted);
+  font-size: clamp(10px, 8cqmin, 14px);
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.index-widget-percent {
+  justify-self: end;
+  color: var(--color-muted);
+  font-size: clamp(10px, 9.5cqmin, 17px);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: right;
+}
+
+.index-widget-percent.is-positive {
+  color: var(--color-bullish);
+}
+
+.index-widget-percent.is-negative {
+  color: var(--color-bearish);
+}
+
+.index-widget-sparkline {
+  display: block;
+  width: 100%;
+  min-height: clamp(24px, 30cqmin, 72px);
+  flex: 1 1 0;
+  overflow: visible;
+  color: var(--color-muted);
+}
+
+.index-widget-sparkline polyline {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.index-widget-sparkline-area {
+  fill: currentColor;
+  opacity: 0.15;
+}
+
+.index-widget-price-line {
+  stroke: var(--color-muted);
+  stroke-width: 0.75;
+  opacity: 0.32;
+}
+
+.index-widget-sparkline.is-positive {
+  color: var(--color-bullish);
+}
+
+.index-widget-sparkline.is-negative {
+  color: var(--color-bearish);
+}
+
+.index-widget-card-bottom {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.index-widget-price {
+  color: var(--color-text);
+  font-size: clamp(16px, 17cqmin, 34px);
+  font-weight: 860;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: right;
+}
+
+@container (max-width: 124px) or (max-height: 110px) {
+  .index-widget-name {
+    display: none;
+  }
+
+  .index-widget-price-line {
+    display: none;
+  }
+}
+
+
+@container (max-width: 120px) {
+  .index-widget-card {
+    gap: 3px;
+    padding: 7px;
+  }
+
+  .index-widget-symbol {
+    font-size: 15px;
+  }
+
+  .index-widget-name {
+    font-size: 10px;
+  }
+
+  .index-widget-percent {
+    font-size: 10px;
+  }
+
+  .index-widget-price {
+    font-size: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .index-widget-anim {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 .panel-reload-overlay {
   position: absolute;
   top: var(--panel-padding);
@@ -5453,27 +5701,6 @@ h2 {
 .workspace-panel-body:focus-within .panel-reload-overlay {
   opacity: 1;
   pointer-events: auto;
-}
-
-/* Responsive staging: as the panel narrows the graph (flex track) shrinks first, then the
-   fullname. Once the name column has collapsed to the ticker AND the graph is at its floor,
-   drop the graph so the name reclaims that space and can show more of the fullname again
-   (which then re-truncates on further narrowing). The breakpoint ≈ nameMin + graphMin +
-   numbers + gaps for this dataset's longest ticker.
-   The query container is the inner groups wrapper (not the panel) so the panel does not
-   become the containing block for the absolutely-positioned reload button. */
-.market-indices-groups {
-  container-type: inline-size;
-}
-
-@container (max-width: 188px) {
-  .market-index-sparkline {
-    display: none;
-  }
-
-  .market-index-row {
-    grid-template-columns: minmax(var(--index-name-min, 56px), 1fr) auto;
-  }
 }
 
 .market-news-main {
@@ -9809,7 +10036,6 @@ h2 {
 .app-error-panel,
 .workspace-panel-surface,
 .market-news-panel,
-.market-indices-panel,
 .company-summary-panel,
 .company-earnings-panel,
 .company-valuation-panel,
@@ -10060,7 +10286,6 @@ textarea:focus,
 .panel,
 .app-error-panel,
 .market-news-panel,
-.market-indices-panel,
 .company-summary-panel,
 .company-earnings-panel,
 .company-valuation-panel,

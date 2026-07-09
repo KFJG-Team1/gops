@@ -69,10 +69,10 @@ import {
 } from "../chart/olderRangeRequestPolicy";
 import { fetchOrderFlowDaily, fetchOrderFlowIntraday, subscribeOrderFlowDemoTicks } from "../chart/orderFlowClient";
 import { orderFlowDayFromMinutes, replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowDailyResponseDto, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, viewportSlotWidth, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
-  anchoredViewportForCandles,
-  viewportRevealingPrependedCandlesAfterChange,
+  viewportAfterOlderCandlesLoaded,
+  viewportAfterSnapshotCandlesChange,
   type ViewportAnchor
 } from "../chart/intervalNavigation";
 import {
@@ -462,11 +462,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-        const viewportBeforeLoad = requestedViewport ?? { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
-        const nextViewport = viewportRevealingPrependedCandlesAfterChange(
+        const currentViewport = { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
+        const nextViewport = viewportAfterOlderCandlesLoaded(
           current.candles,
           merged,
-          viewportBeforeLoad,
+          requestedViewport,
+          currentViewport,
           plotWidth,
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
@@ -504,14 +505,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (current.symbol !== requestedSymbol || current.interval !== requestedInterval) {
         return;
       }
-      const nextViewport = anchoredViewportForCandles(
-        response.candles,
+      const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+      const nextViewport = viewportAfterSnapshotCandlesChange(
+        current.candles,
+        merged,
         current.interval,
-        pendingLoad?.anchor ?? null,
         {
           visibleCount: current.visibleCount,
           rightOffset: current.rightOffset
         },
+        pendingLoad?.anchor ?? null,
         sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
         { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
       );
@@ -1292,7 +1295,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         viewportClampOptionsForChart(current, scene)
       );
       const slotWidth = scene
-        ? viewportSlotWidth(scene)
+        ? scene.scales.slotWidth
         : Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
       const nextRightOffset = horizontalWheelDeltaToRightOffset(
         currentViewport.rightOffset,
@@ -1313,7 +1316,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (verticalDelta === 0) {
       return;
     }
-    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
+    const effectiveVisibleCount = scene?.visibleSlotCount ?? chart.visibleCount;
+    const step = Math.max(3, Math.round(effectiveVisibleCount * 0.12));
     const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
       zoomBy(delta);
@@ -1561,7 +1565,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       rightOffset: dragDeltaToRightOffset(
         dragAnchor.rightOffset,
         event.clientX - dragAnchor.x,
-        viewportSlotWidth(scene),
+        scene.scales.slotWidth,
         dragAnchor.visibleCount,
         chart.candles.length,
         viewportClampOptionsForChart(chartRef.current, scene)

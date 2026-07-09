@@ -9,7 +9,7 @@ import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandl
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import { autoPriceStep, buildLadder, rebinLevels, sessionDateFromTimestamp, visibleScaleMax, type OrderFlowDayDto, type OrderFlowLadder } from "./orderFlow";
 import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
-import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
+import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
 type ChartCanvasProps = {
@@ -197,11 +197,11 @@ function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene
   }
   if (scene.chart.chartType === "ohlc") {
     drawOhlcBars(context, scene);
-    drawCarryForwardGaps(context, scene);
+    drawCarryForwardGapCandles(context, scene, "ohlc");
     return;
   }
   drawCandles(context, scene);
-  drawCarryForwardGaps(context, scene);
+  drawCarryForwardGapCandles(context, scene, "candle");
 }
 
 type ComparisonRenderPoint = {
@@ -610,27 +610,75 @@ function drawLineChart(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.restore();
 }
 
-function drawCarryForwardGaps(context: CanvasRenderingContext2D, scene: ChartScene) {
+function drawCarryForwardGapCandles(context: CanvasRenderingContext2D, scene: ChartScene, style: "candle" | "ohlc") {
   const gaps = timeGapUnits(scene).filter((unit) => Number.isFinite(unit.carryPrice));
   if (!gaps.length) {
     return;
   }
   context.save();
   context.strokeStyle = colors.upSoft;
-  context.lineWidth = 1.35;
-  context.globalAlpha = 0.72;
-  context.setLineDash([5, 4]);
+  context.fillStyle = colors.upSoft;
+  context.globalAlpha = 0.7;
+  context.setLineDash([]);
   gaps.forEach((unit) => {
-    const bounds = unitBoundsX(scene, unit);
-    const left = Math.max(scene.plot.left, bounds.left);
-    const right = Math.min(scene.plot.right, bounds.right);
-    if (right - left <= 1) {
-      return;
-    }
     const y = priceToY(scene, unit.carryPrice);
-    line(context, left, y, right, y);
+    carryForwardGapBars(scene, unit).forEach((bar) => {
+      if (bar.right < scene.plot.left || bar.left > scene.plot.right || bar.width <= 0.4) {
+        return;
+      }
+      if (style === "ohlc") {
+        drawCarryForwardOhlcBar(context, bar, y);
+        return;
+      }
+      drawCarryForwardCandle(context, bar, y);
+    });
   });
   context.restore();
+}
+
+type CarryForwardGapBar = {
+  left: number;
+  right: number;
+  center: number;
+  width: number;
+};
+
+function carryForwardGapBars(scene: ChartScene, unit: SemanticTimeGapUnit): CarryForwardGapBar[] {
+  const slotStart = unit.slotStart;
+  const slotEnd = unit.slotEnd;
+  const slotCount = Math.max(1, Math.ceil(Math.max(0.0001, slotEnd - slotStart)));
+  const bars: CarryForwardGapBar[] = [];
+  for (let index = 0; index < slotCount; index += 1) {
+    const leftSlot = slotStart + index;
+    const rightSlot = Math.min(slotEnd, leftSlot + 1);
+    const left = scene.plot.left + leftSlot * scene.scales.slotWidth;
+    const right = scene.plot.left + rightSlot * scene.scales.slotWidth;
+    const visibleLeft = Math.max(scene.plot.left, left);
+    const visibleRight = Math.min(scene.plot.right, right);
+    bars.push({
+      left: visibleLeft,
+      right: visibleRight,
+      center: (visibleLeft + visibleRight) / 2,
+      width: Math.max(0, visibleRight - visibleLeft)
+    });
+  }
+  return bars;
+}
+
+function drawCarryForwardCandle(context: CanvasRenderingContext2D, bar: CarryForwardGapBar, y: number) {
+  const bodyWidth = Math.max(1, Math.min(72, bar.width * 0.78));
+  const bodyHeight = Math.max(2, Math.min(4, bar.width * 0.24));
+  const top = y - bodyHeight / 2;
+  context.lineWidth = 1.1;
+  context.fillRect(bar.center - bodyWidth / 2, top, bodyWidth, bodyHeight);
+}
+
+function drawCarryForwardOhlcBar(context: CanvasRenderingContext2D, bar: CarryForwardGapBar, y: number) {
+  const tickWidth = Math.max(2, Math.min(12, bar.width * 0.36));
+  context.lineWidth = 1.1;
+  line(context, bar.center, y - 2, bar.center, y + 2);
+  line(context, bar.center - tickWidth, y, bar.center, y);
+  line(context, bar.center, y, bar.center + tickWidth, y);
 }
 
 function drawOhlcBars(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -2183,7 +2231,6 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
   });
   scene.semantic.units.forEach((unit) => {
     if (unit.kind === "time-gap") {
-      drawTimeGapUnit(context, scene, unit);
       return;
     }
     if (unit.kind === "placeholder") {
@@ -2298,28 +2345,7 @@ function formatParentSummaryDate(value: string): string {
   }).format(date);
 }
 
-function drawTimeGapUnit(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "time-gap" }>) {
-  const bounds = unitBoundsX(scene, unit);
-  const visibleLeft = Math.max(scene.plot.left, bounds.left);
-  const visibleRight = Math.min(scene.plot.right, bounds.right);
-  const visibleWidth = visibleRight - visibleLeft;
-  if (visibleWidth <= 1) {
-    return;
-  }
-  context.save();
-  context.fillStyle = colors.grid;
-  context.globalAlpha = 0.32;
-  context.fillRect(visibleLeft, scene.plot.top, visibleWidth, scene.plot.bottom - scene.plot.top);
-  context.strokeStyle = colors.axis;
-  context.globalAlpha = 0.22;
-  context.lineWidth = 1;
-  context.setLineDash([2, 5]);
-  const center = Math.round((visibleLeft + visibleRight) / 2) + 0.5;
-  line(context, center, scene.plot.top, center, scene.plot.bottom);
-  context.restore();
-}
-
-function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticPlaceholderUnit) {
+function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" | "footprint" }>) {
   const bounds = unitBoundsX(scene, unit);
   const visibleLeft = Math.max(scene.plot.left, bounds.left);
   const visibleRight = Math.min(scene.plot.right, bounds.right);

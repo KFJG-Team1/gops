@@ -645,13 +645,19 @@ export function PanelWorkspace({
       {panelState.slots.map((slot) => {
         const content = panelState.contents[slot.contentId];
         const isChart = content.kind === "chart";
-        const hidePanelNav = isChart || isPortfolioPanelKind(content.kind);
+        const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
         const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
         const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
         const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
+        const previewGridRect = layoutPreview?.mode === "resize"
+          && layoutPreview.valid
+          && layoutPreview.sourceSlotId === slot.id
+          ? layoutPreview.gridRect
+          : null;
+        const effectiveGridRect = previewGridRect ?? slot.gridRect;
         return (
           <WorkspacePanelFrame
             key={slot.id}
@@ -687,6 +693,9 @@ export function PanelWorkspace({
               companyItems={companyItems}
               marketItems={marketItems}
               laneHeight={Math.max(120, slot.rect.height)}
+              effectiveColSpan={effectiveGridRect.colSpan}
+              effectiveRowSpan={effectiveGridRect.rowSpan}
+              layoutResizeSuspended={Boolean(previewGridRect)}
               chartHeaderSnapshot={chartHeaders[content.id]}
               chartDocument={chartDocument}
               chartCandles={chartCandles}

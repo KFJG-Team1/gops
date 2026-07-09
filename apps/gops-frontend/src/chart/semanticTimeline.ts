@@ -229,6 +229,11 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const renderPadding = Math.max(maxExpansionWidth, maxTimeGapWidth);
   const renderStartIndex = Math.max(0, Math.floor(input.visibleStartIndex - renderPadding - 2));
   const renderEndIndex = Math.min(input.candles.length, Math.ceil(input.visibleEndIndex + renderPadding + 2));
+  const rootExtraBefore = (index: number) => normalizeSlot(
+    (rootExpansionExtraBefore[index] ?? 0) + (rootTimeGapExtraBefore[index] ?? 0)
+  );
+  const viewportExtraBaseIndex = Math.max(0, Math.min(input.candles.length, Math.floor(input.viewportStartIndex)));
+  const viewportExtraBase = rootExtraBefore(viewportExtraBaseIndex);
 
   const rememberUnit = (unit: SemanticRenderUnit) => {
     units.push(unit);
@@ -374,7 +379,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     return slotEnd;
   };
 
-  let extraSlots = normalizeSlot((rootExpansionExtraBefore[renderStartIndex] ?? 0) + (rootTimeGapExtraBefore[renderStartIndex] ?? 0));
+  let extraSlots = normalizeSlot(rootExtraBefore(renderStartIndex) - viewportExtraBase);
   for (let index = renderStartIndex; index < renderEndIndex; index += 1) {
     const candle = input.candles[index];
     if (!candle) {

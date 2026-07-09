@@ -1003,6 +1003,7 @@ export function restoreTiledPanelStateSnapshot(
     if (!isRecord(rawContent)) {
       return null;
     }
+    const rawKind = readString(rawContent.kind);
     const kind = readPanelContentKind(rawContent.kind);
     const instanceIndex = typeof rawContent.instanceIndex === "number" && Number.isFinite(rawContent.instanceIndex)
       ? rawContent.instanceIndex
@@ -1013,7 +1014,9 @@ export function restoreTiledPanelStateSnapshot(
     contents[contentId] = {
       id: contentId,
       kind,
-      title: readString(rawContent.title) ?? panelContentTitle(kind),
+      title: rawKind === "indices1x1" || rawKind === "indices2x2"
+        ? panelContentTitle(kind)
+        : readString(rawContent.title) ?? panelContentTitle(kind),
       instanceIndex,
       ...(kind === "chart" ? { chartDocumentId: readString(rawContent.chartDocumentId) ?? `${contentId}-document` } : {}),
       ...(typeof rawContent.layoutWeight === "number" ? { layoutWeight: rawContent.layoutWeight } : {}),
@@ -1200,6 +1203,9 @@ function readString(value: unknown): string | null {
 }
 
 function readPanelContentKind(value: unknown): PanelContentKind | null {
+  if (value === "indices1x1" || value === "indices2x2") {
+    return "indices";
+  }
   return typeof value === "string" && insertablePanelKinds.includes(value as PanelContentKind)
     ? value as PanelContentKind
     : null;
