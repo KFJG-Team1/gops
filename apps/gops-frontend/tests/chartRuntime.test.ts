@@ -45,7 +45,11 @@ import {
   semanticNodeId,
   type SemanticExpansion
 } from "../src/chart/semanticTimeline";
-import { anchoredViewportForCandles, viewportPreservingRightEdgeAfterCandlesChange } from "../src/chart/intervalNavigation";
+import {
+  anchoredViewportForCandles,
+  viewportPreservingRightEdgeAfterCandlesChange,
+  viewportRevealingPrependedCandlesAfterChange
+} from "../src/chart/intervalNavigation";
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
@@ -2230,6 +2234,14 @@ assert.deepEqual(
     { visibleCount: 6, rightOffset: 3 }
   ),
   { visibleCount: 6, rightOffset: 3 }
+);
+assert.deepEqual(
+  viewportRevealingPrependedCandlesAfterChange(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 }
+  ),
+  { visibleCount: 6, rightOffset: 9 }
 );
 const drawingAnchorBeforePrepend = {
   timestamp: visibleCandlesBeforePrepend[4]?.timestamp,
