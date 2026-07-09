@@ -13,6 +13,7 @@ import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./C
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
+import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
@@ -153,6 +154,14 @@ export function PanelContentRenderer({
 
   if (content.kind === "indices") {
     return <IndexPanel />;
+  }
+
+  if (content.kind === "indices1x1") {
+    return <IndexWidgetPanel variant="1x1" />;
+  }
+
+  if (content.kind === "indices2x2") {
+    return <IndexWidgetPanel variant="2x2" />;
   }
 
   if (content.kind === "popular") {

@@ -16,6 +16,8 @@ export type PanelContentKind =
   | "news"
   | "watchlistNews"
   | "indices"
+  | "indices1x1"
+  | "indices2x2"
   | "popular"
   | "recommendations"
   | "themeRadar"
