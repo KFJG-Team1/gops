@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { LogoDevAttribution } from "./StockLogo";
@@ -326,12 +326,14 @@ export function PortfolioInvestmentStatusPanel({
 }: {
   onPortfolioSymbolsChange?: (symbols: readonly string[]) => void;
 }) {
-  const { loading, error, dashboard } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
+  const { loading, error, positions, dashboard } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
   const stockWeight = percentageOf(dashboard.stockValue, dashboard.totalValue);
   const cashWeight = percentageOf(dashboard.cashValue, dashboard.totalValue);
   const annualDividendValue = dashboard.annualDividend ?? 0;
   const dividendWeight = percentageOf(annualDividendValue, dashboard.totalValue);
   const [activeAllocationIndex, setActiveAllocationIndex] = useState(0);
+  const [activeInvestmentPageIndex, setActiveInvestmentPageIndex] = useState(0);
+  const investmentPageWheelLockRef = useRef(0);
   const allocationItems = [
     {
       key: "stock",
@@ -363,6 +365,219 @@ export function PortfolioInvestmentStatusPanel({
     : error || (!dashboard.totalValue ? "표시할 투자현황 데이터가 없습니다" : "");
   const activeAllocation = allocationItems[activeAllocationIndex] ?? allocationItems[0];
   const activeProgress = Math.min(100, Math.max(0, activeAllocation?.progress ?? 0));
+  const symbolAllocation = dashboard.allocation.symbol ?? [];
+  const selectedAllocation = symbolAllocation.length > 0 ? symbolAllocation : (dashboard.allocation.asset ?? []);
+  const investmentPages = [
+    {
+      key: "summary",
+      label: "투자현황",
+      content: (
+        <div className="portfolio-investment-main">
+          <div className="portfolio-investment-heading-row">
+            <span className="portfolio-investment-kicker">투자현황</span>
+            <div className="portfolio-investment-segmented-tabs" role="tablist" aria-label="투자 구성">
+              {allocationItems.map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={index === activeAllocationIndex}
+                  className={index === activeAllocationIndex ? "active" : ""}
+                  onClick={() => setActiveAllocationIndex(index)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <h2>{formatPanelMoney(dashboard.totalValue, "USD")}</h2>
+          <span className="portfolio-investment-subtitle">총 평가 자산</span>
+          <div className="portfolio-investment-budget-track" aria-hidden="true">
+            <i />
+          </div>
+          <div className="portfolio-investment-budget-meta">
+            <span>
+              <em>{activeAllocation?.label}</em>
+              <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")}</strong>
+            </span>
+            <span>
+              <em>비중</em>
+              <strong>{formatPercentPlain(activeAllocation?.displayProgress ?? 0)}</strong>
+            </span>
+          </div>
+          <div className="portfolio-investment-wallet-chips">
+            <span>
+              <em>오늘</em>
+              <strong className={directionClass(dashboard.dayPnl ?? dashboard.dayPnlRate)}>{formatSignedPanelMoney(dashboard.dayPnl, "USD")}</strong>
+              <b className={directionClass(dashboard.dayPnlRate)}>{formatSignedPercentPlain(dashboard.dayPnlRate)}</b>
+            </span>
+            <span>
+              <em>손익</em>
+              <strong className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>{formatSignedPanelMoney(dashboard.totalPnl, "USD")}</strong>
+              <b className={directionClass(dashboard.totalPnlRate)}>{formatSignedPercentPlain(dashboard.totalPnlRate)}</b>
+            </span>
+          </div>
+        </div>
+      )
+    },
+    {
+      key: "performance",
+      label: "Performance",
+      content: (
+        <article className="portfolio-investment-bezel portfolio-investment-performance-bezel">
+          <header className="portfolio-investment-bezel-header">
+            <div>
+              <strong>Performance</strong>
+              <span>매수 비교</span>
+            </div>
+          </header>
+          <div className="portfolio-investment-bezel-body">
+            {positions.length > 0 ? (
+              <PortfolioPurchaseComparisonChart positions={positions} />
+            ) : (
+              <PortfolioPanelStatus message="성과 데이터가 없습니다" loading={false} error={false} />
+            )}
+          </div>
+        </article>
+      )
+    },
+    {
+      key: "diversification",
+      label: "Diversification",
+      content: (
+        <article className="portfolio-investment-bezel portfolio-investment-diversification-bezel">
+          <header className="portfolio-investment-bezel-header">
+            <div>
+              <strong>Diversification</strong>
+              <span>종목 비중</span>
+            </div>
+          </header>
+          <div className="portfolio-investment-bezel-body portfolio-investment-donut-bezel-body">
+            {selectedAllocation.length > 0 ? (
+              <div className="portfolio-terminal-donut-row">
+                <PortfolioAllocationDonut slices={selectedAllocation} />
+                <div className="portfolio-terminal-legend">
+                  {selectedAllocation.slice(0, 8).map((slice) => (
+                    <span key={slice.key}>
+                      <i className={`tone-${slice.tone}`} />
+                      <em>{slice.label}</em>
+                      <strong>{slice.weight.toFixed(1)}%</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <PortfolioPanelStatus message="구성 데이터가 없습니다" loading={false} error={false} />
+            )}
+          </div>
+        </article>
+      )
+    },
+    {
+      key: "invested",
+      label: "Invested",
+      content: (
+        <article className="portfolio-investment-bezel portfolio-investment-invested-bezel">
+          <header className="portfolio-investment-bezel-header">
+            <div>
+              <strong>Invested</strong>
+              <span>투입 원금</span>
+            </div>
+          </header>
+          <div className="portfolio-split-kpi-row">
+            <span>
+              <em>원금</em>
+              <strong>{formatMoney(dashboard.investedValue, "USD")}</strong>
+            </span>
+            <span>
+              <em>평가금</em>
+              <strong>{formatMoney(dashboard.stockValue, "USD")}</strong>
+            </span>
+          </div>
+          <div className="portfolio-investment-bezel-body">
+            {positions.length > 0 ? (
+              <PortfolioAnnualBars dashboard={dashboard} />
+            ) : (
+              <PortfolioPanelStatus message="투자금 데이터가 없습니다" loading={false} error={false} />
+            )}
+          </div>
+        </article>
+      )
+    },
+    {
+      key: "dividend",
+      label: "Dividend",
+      content: (
+        <article className="portfolio-investment-bezel portfolio-investment-dividend-bezel">
+          <header className="portfolio-investment-bezel-header">
+            <div>
+              <strong>Dividend</strong>
+              <span>예상 배당</span>
+            </div>
+            <em>{formatRatioPercent(dashboard.dividendYield)}</em>
+          </header>
+          <div className="portfolio-split-kpi-row">
+            <span>
+              <em>연간</em>
+              <strong>{formatMoney(dashboard.annualDividend, "USD")}</strong>
+            </span>
+            <span>
+              <em>수익률</em>
+              <strong>{formatRatioPercent(dashboard.dividendYield)}</strong>
+            </span>
+          </div>
+          <div className="portfolio-investment-bezel-body">
+            {positions.length > 0 ? (
+              <PortfolioDividendHistory positions={positions} />
+            ) : (
+              <PortfolioPanelStatus message="배당 데이터가 없습니다" loading={false} error={false} />
+            )}
+          </div>
+        </article>
+      )
+    }
+  ];
+  const activeInvestmentPage = investmentPages[activeInvestmentPageIndex] ?? investmentPages[0];
+  const setInvestmentPage = (index: number) => {
+    setActiveInvestmentPageIndex(Math.min(investmentPages.length - 1, Math.max(0, index)));
+  };
+  const handleInvestmentPageWheel = (event: WheelEvent<HTMLElement>) => {
+    if (Math.abs(event.deltaY) < 36) {
+      return;
+    }
+    const movingDown = event.deltaY > 0;
+    let scrollTarget = event.target instanceof HTMLElement ? event.target : null;
+    while (scrollTarget && scrollTarget !== event.currentTarget) {
+      const overflowY = window.getComputedStyle(scrollTarget).overflowY;
+      const canScroll = /(auto|scroll|overlay)/.test(overflowY) && scrollTarget.scrollHeight > scrollTarget.clientHeight + 2;
+      if (canScroll) {
+        const atTop = scrollTarget.scrollTop <= 1;
+        const atBottom = scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 1;
+        if ((movingDown && !atBottom) || (!movingDown && !atTop)) {
+          return;
+        }
+      }
+      scrollTarget = scrollTarget.parentElement;
+    }
+    const pageScroller = event.currentTarget.querySelector<HTMLElement>(".portfolio-investment-page-window");
+    if (pageScroller && pageScroller.scrollHeight > pageScroller.clientHeight + 2) {
+      const atTop = pageScroller.scrollTop <= 1;
+      const atBottom = pageScroller.scrollTop + pageScroller.clientHeight >= pageScroller.scrollHeight - 1;
+      if ((movingDown && !atBottom) || (!movingDown && !atTop)) {
+        return;
+      }
+    }
+    event.preventDefault();
+    const now = Date.now();
+    if (now < investmentPageWheelLockRef.current) {
+      return;
+    }
+    investmentPageWheelLockRef.current = now + 520;
+    setActiveInvestmentPageIndex((current) => {
+      const next = current + (movingDown ? 1 : -1);
+      return Math.min(investmentPages.length - 1, Math.max(0, next));
+    });
+  };
 
   return (
     <section
@@ -381,54 +596,25 @@ export function PortfolioInvestmentStatusPanel({
       )}
 
       {!loading && (
-        <>
-          <div className="portfolio-investment-main">
-            <div className="portfolio-investment-heading-row">
-              <span className="portfolio-investment-kicker">투자현황</span>
-              <div className="portfolio-investment-segmented-tabs" role="tablist" aria-label="투자 구성">
-                {allocationItems.map((item, index) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={index === activeAllocationIndex}
-                    className={index === activeAllocationIndex ? "active" : ""}
-                    onClick={() => setActiveAllocationIndex(index)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <h2>{formatPanelMoney(dashboard.totalValue, "USD")}</h2>
-            <span className="portfolio-investment-subtitle">총 평가 자산</span>
-            <div className="portfolio-investment-budget-track" aria-hidden="true">
-              <i />
-            </div>
-            <div className="portfolio-investment-budget-meta">
-              <span>
-                <em>{activeAllocation?.label}</em>
-                <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")}</strong>
-              </span>
-              <span>
-                <em>비중</em>
-                <strong>{formatPercentPlain(activeAllocation?.displayProgress ?? 0)}</strong>
-              </span>
-            </div>
-            <div className="portfolio-investment-wallet-chips">
-              <span>
-                <em>오늘</em>
-                <strong className={directionClass(dashboard.dayPnl ?? dashboard.dayPnlRate)}>{formatSignedPanelMoney(dashboard.dayPnl, "USD")}</strong>
-                <b className={directionClass(dashboard.dayPnlRate)}>{formatSignedPercentPlain(dashboard.dayPnlRate)}</b>
-              </span>
-              <span>
-                <em>손익</em>
-                <strong className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>{formatSignedPanelMoney(dashboard.totalPnl, "USD")}</strong>
-                <b className={directionClass(dashboard.totalPnlRate)}>{formatSignedPercentPlain(dashboard.totalPnlRate)}</b>
-              </span>
-            </div>
+        <div className="portfolio-investment-window-shell" onWheel={handleInvestmentPageWheel}>
+          <div className={`portfolio-investment-page-window is-${activeInvestmentPage.key}`} key={activeInvestmentPage.key}>
+            {activeInvestmentPage.content}
           </div>
-        </>
+          <div className="portfolio-investment-page-controls" role="tablist" aria-label="투자현황 화면 전환">
+            {investmentPages.map((page, index) => (
+              <button
+                key={page.key}
+                type="button"
+                role="tab"
+                aria-selected={index === activeInvestmentPageIndex}
+                className={index === activeInvestmentPageIndex ? "active" : ""}
+                onClick={() => setInvestmentPage(index)}
+              >
+                <span>{page.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </section>
   );

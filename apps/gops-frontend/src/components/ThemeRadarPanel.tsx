@@ -1,7 +1,5 @@
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import type { CSSProperties } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
-import { sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 
 type ThemeRadarPanelProps = {
@@ -10,55 +8,87 @@ type ThemeRadarPanelProps = {
   onSelectSymbol: (symbol: string) => void;
 };
 
-type ThemeCandidate = {
-  key: string;
+type ThemeVisualKind =
+  | "semiconductor"
+  | "healthcare"
+  | "financial"
+  | "communication"
+  | "realestate"
+  | "materials"
+  | "energy"
+  | "consumer";
+
+type ThemeDefinition = {
+  key: ThemeVisualKind;
   label: string;
-  sector: string;
-  sectorLabel: string;
+  eyebrow: string;
+  matcher: RegExp;
+};
+
+type ThemeCandidate = ThemeDefinition & {
   items: Sp500UniverseItem[];
   score: number;
   avgChange: number;
-  breadth: number;
   flowScore: number;
   newsSensitivity: number;
   totalMarketCap: number;
   totalDollarVolume: number;
+  topSymbols: Sp500UniverseItem[];
 };
 
-type ThemeVisualKind =
-  | "semiconductor"
-  | "healthcare"
-  | "energy"
-  | "financial"
-  | "consumer"
-  | "industrial"
-  | "technology"
-  | "space"
-  | "default";
+const THEME_DEFINITIONS: ThemeDefinition[] = [
+  {
+    key: "semiconductor",
+    label: "반도체",
+    eyebrow: "AI 인프라",
+    matcher: /semiconductor|chip|hardware|equipment|electronic|technology hardware/i
+  },
+  {
+    key: "healthcare",
+    label: "헬스케어",
+    eyebrow: "바이오 · 제약",
+    matcher: /health|healthcare|biotech|pharma|medical|life sciences/i
+  },
+  {
+    key: "financial",
+    label: "금융",
+    eyebrow: "은행 · 자본시장",
+    matcher: /financial|bank|capital|insurance|finance|mortgage|asset management/i
+  },
+  {
+    key: "communication",
+    label: "커뮤니케이션",
+    eyebrow: "플랫폼 · 미디어",
+    matcher: /communication|interactive media|entertainment|media|telecom|broadcasting|streaming|movies/i
+  },
+  {
+    key: "realestate",
+    label: "부동산",
+    eyebrow: "리츠 · 인프라",
+    matcher: /real estate|reit|property/i
+  },
+  {
+    key: "materials",
+    label: "소재",
+    eyebrow: "화학 · 원자재",
+    matcher: /materials|basic materials|chemical|mining|metal|paper|container|construction materials/i
+  },
+  {
+    key: "energy",
+    label: "에너지",
+    eyebrow: "전력 · 원유",
+    matcher: /energy|oil|gas|utilities|renewable|electric/i
+  },
+  {
+    key: "consumer",
+    label: "경기소비재",
+    eyebrow: "리테일 · 소비",
+    matcher: /consumer|retail|restaurant|automobile|apparel|home improvement|leisure|hotel|discretionary|defensive|staples/i
+  }
+];
 
-const themeLabelOverrides: Record<string, string> = {
-  "Information Technology": "정보기술",
-  "Health Care": "헬스케어",
-  Healthcare: "헬스케어",
-  Semiconductors: "반도체",
-  "Semiconductor Materials & Equipment": "반도체 장비",
-  "Technology Hardware, Storage & Peripherals": "하드웨어",
-  "Software - Infrastructure": "인프라 소프트웨어",
-  "Software - Application": "응용 소프트웨어",
-  Biotechnology: "바이오테크",
-  Pharmaceuticals: "제약",
-  "Oil & Gas Refining & Marketing": "정유",
-  "Interactive Media & Services": "인터넷 플랫폼",
-  "Information Technology Services": "IT 서비스",
-  "Capital Markets": "자본시장",
-  "Consumer Finance": "소비자 금융",
-  "Broadline Retail": "대형 유통",
-  "Automobile Manufacturers": "자동차",
-  "Aerospace & Defense": "항공방산"
-};
-
-export function ThemeRadarPanel({ items, activeSymbol }: ThemeRadarPanelProps) {
-  const [selectedThemeKey, setSelectedThemeKey] = useState<string | null>(null);
+export function ThemeRadarPanel({ items, activeSymbol, onSelectSymbol }: ThemeRadarPanelProps) {
+  const [selectedThemeKey, setSelectedThemeKey] = useState<ThemeVisualKind | null>(null);
   const themes = useMemo(() => buildThemeCandidates(items), [items]);
   const activeTheme = useMemo(() => {
     const selectedTheme = selectedThemeKey ? themes.find((theme) => theme.key === selectedThemeKey) : null;
@@ -80,22 +110,18 @@ export function ThemeRadarPanel({ items, activeSymbol }: ThemeRadarPanelProps) {
     );
   }
 
-  const featuredThemes = themes.slice(0, 5);
-  const activeRank = Math.max(0, featuredThemes.findIndex((theme) => theme.key === activeTheme.key));
-  const carouselIndex = activeRank >= 0 ? activeRank : 0;
-  const activeThemeName = displayThemeLabel(activeTheme);
-  const activeVisualKind = themeVisualKind(activeTheme);
-  const selectFeaturedTheme = (offset: number) => {
-    if (featuredThemes.length === 0) {
+  const activeIndex = Math.max(0, themes.findIndex((theme) => theme.key === activeTheme.key));
+  const selectTheme = (offset: number) => {
+    if (themes.length === 0) {
       return;
     }
-    const nextIndex = (carouselIndex + offset + featuredThemes.length) % featuredThemes.length;
-    setSelectedThemeKey(featuredThemes[nextIndex]?.key ?? null);
+    const nextIndex = (activeIndex + offset + themes.length) % themes.length;
+    setSelectedThemeKey(themes[nextIndex]?.key ?? null);
   };
-  const barSignals = [
+  const signals = [
     {
       label: "상승폭",
-      value: Math.round(clamp(50 + activeTheme.avgChange * 10, 0, 100)),
+      value: Math.round(clamp(50 + activeTheme.avgChange * 10, 3, 100)),
       valueText: formatSignedPercent(activeTheme.avgChange)
     },
     {
@@ -111,168 +137,130 @@ export function ThemeRadarPanel({ items, activeSymbol }: ThemeRadarPanelProps) {
   ];
 
   return (
-    <section className="theme-radar-panel" aria-label="분야 추천">
-      <button
-        type="button"
-        className="theme-radar-nav-button theme-radar-nav-prev"
-        aria-label="이전 추천 분야"
-        onClick={() => selectFeaturedTheme(-1)}
-      >
-        <ChevronLeft size={18} />
-      </button>
-
-      <div className="theme-radar-card" key={activeTheme.key}>
-        <div className="theme-radar-card-header">
-          <div className="theme-radar-header-mark">
-            <span className="theme-radar-header-icon" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
-            <strong>Theme Radar</strong>
-          </div>
-          <div className="theme-radar-actions">
-            <button type="button" className="theme-radar-period">
-              다음 거래일
-              <ChevronDown size={14} />
-            </button>
-            <button type="button" className="theme-radar-menu-button" aria-label="분야 추천 옵션">
-              <span />
-              <span />
-              <span />
-            </button>
-          </div>
-        </div>
-
-        <div className={`theme-radar-industry-visual visual-${activeVisualKind}`} aria-hidden="true" />
-
-        <div className="theme-radar-score-block">
-          <p>{activeRank + 1}위 관심 분야</p>
-          <div className="theme-radar-score-line">
+    <section className={`theme-radar-panel theme-radar-theme-${activeTheme.key}`} aria-label="분야 추천">
+      <div className={`theme-radar-hero theme-radar-image-${activeTheme.key}`}>
+        <div className="theme-radar-shade" aria-hidden="true" />
+        <div className="theme-radar-content">
+          <span className="theme-radar-kicker">분야추천</span>
+          <div className="theme-radar-title-row">
+            <h3>{activeTheme.label}</h3>
             <strong>{activeTheme.score}%</strong>
-            <span aria-hidden="true">↗</span>
           </div>
-          <h3>{activeThemeName}</h3>
-          <p className="theme-radar-summary">
-            {activeThemeName}는 현재 {activeTheme.score}% 관심도로 상위권입니다.
+          <p>
+            {activeTheme.eyebrow} · {formatSignedPercent(activeTheme.avgChange)}
           </p>
         </div>
 
-        <div className="theme-radar-rank-strip" aria-label="추천 분야 순위">
-          {featuredThemes.map((theme, index) => (
-            <button
-              key={theme.key}
-              type="button"
-              className={`theme-radar-rank-pill ${theme.key === activeTheme.key ? "active" : ""}`}
-              onClick={() => setSelectedThemeKey(theme.key)}
-            >
-              <span>{index + 1}</span>
-              <strong>{displayThemeLabel(theme)}</strong>
-              <em>{theme.score}%</em>
+        <div className="theme-radar-symbol-row" aria-label={`${activeTheme.label} 대표 종목`}>
+          {activeTheme.topSymbols.slice(0, 3).map((item) => (
+            <button key={item.symbol} type="button" onClick={() => onSelectSymbol(item.symbol)}>
+              <span>{item.symbol}</span>
+              <em>{formatSignedPercent(item.changePercent)}</em>
             </button>
           ))}
         </div>
 
-        <div className="theme-radar-signal-stack" aria-label="선택 분야 신호">
-          {barSignals.map((signal) => (
-            <div className="theme-radar-signal" key={signal.label}>
+        <div className="theme-radar-metrics" aria-label={`${activeTheme.label} 시장 신호`}>
+          {signals.map((signal) => (
+            <div className="theme-radar-metric" key={signal.label}>
               <span>
                 <em>{signal.label}</em>
                 <strong>{signal.valueText}</strong>
               </span>
-              <i className="theme-radar-signal-track">
-                <b
-                  className="theme-radar-signal-fill"
-                  style={{ "--signal-width": `${signal.value}%` } as CSSProperties}
-                />
+              <i>
+                <b style={{ width: `${signal.value}%` }} />
               </i>
             </div>
           ))}
         </div>
-      </div>
 
-      <button
-        type="button"
-        className="theme-radar-nav-button theme-radar-nav-next"
-        aria-label="다음 추천 분야"
-        onClick={() => selectFeaturedTheme(1)}
-      >
-        <ChevronRight size={18} />
-      </button>
+        <div className="theme-radar-sector-dots" aria-label="분야 선택">
+          {themes.map((theme) => (
+            <button
+              key={theme.key}
+              type="button"
+              className={theme.key === activeTheme.key ? "active" : ""}
+              aria-label={`${theme.label} 보기`}
+              onClick={() => setSelectedThemeKey(theme.key)}
+            >
+              <span>{theme.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="theme-radar-nav-button theme-radar-nav-prev"
+          aria-label="이전 추천 분야"
+          onClick={() => selectTheme(-1)}
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <button
+          type="button"
+          className="theme-radar-nav-button theme-radar-nav-next"
+          aria-label="다음 추천 분야"
+          onClick={() => selectTheme(1)}
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
     </section>
   );
 }
 
 function buildThemeCandidates(items: Sp500UniverseItem[]): ThemeCandidate[] {
-  const universe = items.filter((item) => item.symbol && item.industry && Number.isFinite(item.marketCap));
-  const industryGroups = groupItems(universe, (item) => item.industry || item.sector);
-  const eligible = industryGroups.filter((group) => group.items.length >= 3);
-  const groups = eligible.length >= 6 ? eligible : groupItems(universe, (item) => item.sector || item.industry);
-  const maxDollarVolume = Math.max(...groups.map((group) => dollarVolumeForItems(group.items)), 1);
-  const maxMarketCap = Math.max(...groups.map((group) => group.items.reduce((sum, item) => sum + marketCapForItem(item), 0)), 1);
+  const universe = items.filter((item) => item.symbol && Number.isFinite(item.marketCap));
+  const maxDollarVolume = Math.max(
+    ...THEME_DEFINITIONS.map((definition) => dollarVolumeForItems(filterThemeItems(universe, definition))),
+    1
+  );
+  const maxMarketCap = Math.max(
+    ...THEME_DEFINITIONS.map((definition) =>
+      filterThemeItems(universe, definition).reduce((sum, item) => sum + marketCapForItem(item), 0)
+    ),
+    1
+  );
 
-  return groups
-    .map((group): ThemeCandidate => {
-      const totalMarketCap = group.items.reduce((sum, item) => sum + marketCapForItem(item), 0);
-      const totalDollarVolume = dollarVolumeForItems(group.items);
-      const avgChange = weightedAverageChange(group.items);
-      const positiveCount = group.items.filter((item) => item.changePercent > 0).length;
-      const breadth = group.items.length > 0 ? positiveCount / group.items.length : 0;
-      const flowScore = clamp((totalDollarVolume > 0 ? totalDollarVolume / maxDollarVolume : totalMarketCap / maxMarketCap) * 100, 8, 100);
-      const momentumScore = clamp(50 + avgChange * 9, 0, 100);
-      const breadthScore = clamp(breadth * 100, 0, 100);
-      const newsSensitivity = clamp(34 + Math.abs(avgChange) * 9 + Math.log10(group.items.length + 1) * 18, 15, 100);
-      const score = Math.round(clamp(momentumScore * 0.42 + breadthScore * 0.28 + flowScore * 0.18 + newsSensitivity * 0.12, 0, 100));
-      return {
-        key: group.key,
-        label: group.label,
-        sector: group.sector,
-        sectorLabel: sectorLabelKo(group.sector),
-        items: group.items,
-        score,
-        avgChange,
-        breadth,
-        flowScore,
-        newsSensitivity,
-        totalMarketCap,
-        totalDollarVolume
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10);
+  return THEME_DEFINITIONS.map((definition): ThemeCandidate => {
+    const themeItems = filterThemeItems(universe, definition);
+    const totalMarketCap = themeItems.reduce((sum, item) => sum + marketCapForItem(item), 0);
+    const totalDollarVolume = dollarVolumeForItems(themeItems);
+    const avgChange = weightedAverageChange(themeItems);
+    const breadth = themeItems.length
+      ? themeItems.filter((item) => Number.isFinite(item.changePercent) && item.changePercent > 0).length / themeItems.length
+      : 0;
+    const flowScore = clamp((totalDollarVolume > 0 ? totalDollarVolume / maxDollarVolume : totalMarketCap / maxMarketCap) * 100, 8, 100);
+    const momentumScore = clamp(50 + avgChange * 9, 0, 100);
+    const breadthScore = clamp(breadth * 100, 0, 100);
+    const newsSensitivity = clamp(34 + Math.abs(avgChange) * 9 + Math.log10(themeItems.length + 1) * 18, 15, 100);
+    const score = Math.round(clamp(momentumScore * 0.44 + breadthScore * 0.26 + flowScore * 0.18 + newsSensitivity * 0.12, 0, 100));
+    return {
+      ...definition,
+      items: themeItems,
+      score,
+      avgChange,
+      flowScore,
+      newsSensitivity,
+      totalMarketCap,
+      totalDollarVolume,
+      topSymbols: [...themeItems].sort((a, b) => marketCapForItem(b) - marketCapForItem(a)).slice(0, 4)
+    };
+  }).sort((a, b) => b.score - a.score);
 }
 
-function groupItems(items: Sp500UniverseItem[], keyForItem: (item: Sp500UniverseItem) => string) {
-  const groups = new Map<string, Sp500UniverseItem[]>();
-  for (const item of items) {
-    const key = keyForItem(item).trim();
-    if (!key) {
-      continue;
-    }
-    const next = groups.get(key) ?? [];
-    next.push(item);
-    groups.set(key, next);
-  }
-  return Array.from(groups.entries()).map(([key, groupItems]) => ({
-    key,
-    label: readableThemeLabel(key),
-    sector: dominantSector(groupItems),
-    items: groupItems
-  }));
-}
-
-function dominantSector(items: Sp500UniverseItem[]) {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    counts.set(item.sector, (counts.get(item.sector) ?? 0) + 1);
-  }
-  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Unclassified";
+function filterThemeItems(items: Sp500UniverseItem[], definition: ThemeDefinition) {
+  return items.filter((item) => {
+    const text = `${item.sector} ${item.sectorLabelKo ?? ""} ${item.industry} ${item.companyName}`.toLowerCase();
+    return definition.matcher.test(text);
+  });
 }
 
 function weightedAverageChange(items: Sp500UniverseItem[]) {
   const totalWeight = items.reduce((sum, item) => sum + marketCapForItem(item), 0);
+  if (items.length === 0) {
+    return 0;
+  }
   if (totalWeight <= 0) {
     return average(items.map((item) => item.changePercent));
   }
@@ -298,47 +286,6 @@ function marketCapForItem(item: Sp500UniverseItem) {
 function average(values: number[]) {
   const finite = values.filter((value) => Number.isFinite(value));
   return finite.length ? finite.reduce((sum, value) => sum + value, 0) / finite.length : 0;
-}
-
-function readableThemeLabel(value: string) {
-  return value
-    .replace(/&/g, " & ")
-    .replace(/\s+/g, " ")
-    .replace(/\bAnd\b/g, "&")
-    .trim();
-}
-
-function displayThemeLabel(theme: Pick<ThemeCandidate, "label" | "sectorLabel">) {
-  return themeLabelOverrides[theme.label] ?? themeLabelOverrides[theme.sectorLabel] ?? theme.label;
-}
-
-function themeVisualKind(theme: Pick<ThemeCandidate, "label" | "sector" | "sectorLabel">): ThemeVisualKind {
-  const text = `${theme.label} ${theme.sector} ${theme.sectorLabel}`.toLowerCase();
-  if (/semiconductor|chip|equipment|hardware/.test(text)) {
-    return "semiconductor";
-  }
-  if (/health|biotech|pharma|medical/.test(text)) {
-    return "healthcare";
-  }
-  if (/energy|oil|gas|utilities/.test(text)) {
-    return "energy";
-  }
-  if (/financial|bank|capital|insurance|finance/.test(text)) {
-    return "financial";
-  }
-  if (/consumer|retail|restaurant|automobile/.test(text)) {
-    return "consumer";
-  }
-  if (/aerospace|defense|space/.test(text)) {
-    return "space";
-  }
-  if (/industrial|aerospace|defense|machinery/.test(text)) {
-    return "industrial";
-  }
-  if (/technology|software|interactive|information/.test(text)) {
-    return "technology";
-  }
-  return "default";
 }
 
 function formatSignedPercent(value: number) {

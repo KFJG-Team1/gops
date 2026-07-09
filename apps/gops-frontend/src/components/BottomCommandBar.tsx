@@ -17,14 +17,7 @@ import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
-import {
-  PortfolioDividendPanel,
-  PortfolioDiversificationPanel,
-  PortfolioHoldingsOnlyPanel,
-  PortfolioInvestedPanel,
-  PortfolioInvestmentStatusPanel,
-  PortfolioPerformancePanel
-} from "./PortfolioHoldingsPanel";
+import { PortfolioHoldingsOnlyPanel, PortfolioInvestmentStatusPanel } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
@@ -1155,10 +1148,6 @@ function bottomMenuContent({
           <MenuTitle title="포트폴리오" detail="보유종목" />
           <div className="bottom-portfolio-split-grid">
             <PortfolioInvestmentStatusPanel />
-            <PortfolioPerformancePanel />
-            <PortfolioDiversificationPanel />
-            <PortfolioInvestedPanel />
-            <PortfolioDividendPanel />
             <PortfolioHoldingsOnlyPanel
               onSelectSymbol={(symbol) => {
                 onSelectSymbol(symbol);
