@@ -221,7 +221,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const { viewportEndIndex, viewportStartIndex, visibleStartIndex, visibleEndIndex, semanticBase } = frame;
   const candleUnits = semanticBase.units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
   const candles = candleUnits.map((unit) => unit.candle);
-  const priceRange = priceDomain(candleUnits, chart);
+  const priceRange = priceDomain(semanticBase.units, chart);
   const maxVolume = Math.max(1, ...candles.map((candle) => candle.volume));
   const volumeRange = volumeDomain(maxVolume);
   const slotWidth = plotWidth / Math.max(1, semanticBase.totalSlots);
@@ -507,20 +507,25 @@ export function hitTestTimeAxisUnit(scene: ChartScene, x: number, y: number): Se
   return best;
 }
 
-function priceDomain(units: Extract<SemanticRenderUnit, { kind: "candle" }>[], chart: ChartState): { min: number; max: number; ticks: number[] } {
-  const values = units.flatMap((unit) => [
+function priceDomain(units: SemanticRenderUnit[], chart: ChartState): { min: number; max: number; ticks: number[] } {
+  const candleUnits = units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
+  const carryPrices = units
+    .map((unit) => unit.kind === "time-gap" ? unit.carryPrice : undefined)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const values = candleUnits.flatMap((unit) => [
     unit.candle.high,
     unit.candle.low,
     (chart.layers["sma:5"] ?? chart.layers.ma5) ? unit.candle.ma5 : undefined,
     (chart.layers["sma:20"] ?? chart.layers.ma20) ? unit.candle.ma20 : undefined,
     (chart.layers["sma:60"] ?? chart.layers.ma60) ? unit.candle.ma60 : undefined
   ])
-    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), units))
-    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), units))
-    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), units))
-    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), units))
-    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), units))
-    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), units))
+    .concat(carryPrices)
+    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), candleUnits))
+    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), candleUnits))
+    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), candleUnits))
+    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), candleUnits))
+    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
+    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };

@@ -7,7 +7,7 @@ import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
-import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit } from "./semanticTimeline";
+import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
 type ChartCanvasProps = {
@@ -205,9 +205,11 @@ function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene
   }
   if (scene.chart.chartType === "ohlc") {
     drawOhlcBars(context, scene);
+    drawCarryForwardGaps(context, scene);
     return;
   }
   drawCandles(context, scene);
+  drawCarryForwardGaps(context, scene);
 }
 
 type ComparisonRenderPoint = {
@@ -580,12 +582,25 @@ function drawLineChart(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.beginPath();
   let started = false;
   let lastSegmentKey = "";
-  candleUnits(scene).forEach((unit) => {
-    const segmentKey = `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
+  pricePathUnits(scene).forEach((unit) => {
+    const segmentKey = pricePathSegmentKey(unit);
     if (started && segmentKey !== lastSegmentKey) {
       context.stroke();
       context.beginPath();
       started = false;
+    }
+    if (unit.kind === "time-gap") {
+      const y = priceToY(scene, unit.carryPrice);
+      const bounds = unitBoundsX(scene, unit);
+      if (!started) {
+        context.moveTo(bounds.left, y);
+        started = true;
+      } else {
+        context.lineTo(bounds.left, y);
+      }
+      context.lineTo(bounds.right, y);
+      lastSegmentKey = segmentKey;
+      return;
     }
     const x = unitCenterX(scene, unit);
     const y = priceToY(scene, unit.candle.close);
@@ -600,6 +615,29 @@ function drawLineChart(context: CanvasRenderingContext2D, scene: ChartScene) {
   if (started) {
     context.stroke();
   }
+  context.restore();
+}
+
+function drawCarryForwardGaps(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const gaps = timeGapUnits(scene).filter((unit) => Number.isFinite(unit.carryPrice));
+  if (!gaps.length) {
+    return;
+  }
+  context.save();
+  context.strokeStyle = colors.upSoft;
+  context.lineWidth = 1.35;
+  context.globalAlpha = 0.72;
+  context.setLineDash([5, 4]);
+  gaps.forEach((unit) => {
+    const bounds = unitBoundsX(scene, unit);
+    const left = Math.max(scene.plot.left, bounds.left);
+    const right = Math.min(scene.plot.right, bounds.right);
+    if (right - left <= 1) {
+      return;
+    }
+    const y = priceToY(scene, unit.carryPrice);
+    line(context, left, y, right, y);
+  });
   context.restore();
 }
 
@@ -1966,7 +2004,19 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
   }
   let best: { x: number; close: number } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
+  const hit = hitTestSemanticNode(scene, crosshair.x, crosshair.y);
+  if (hit?.kind === "time-gap" && Number.isFinite(hit.carryPrice)) {
+    const bounds = unitBoundsX(scene, hit);
+    best = {
+      x: Math.max(bounds.left, Math.min(bounds.right, crosshair.x)),
+      close: hit.carryPrice
+    };
+    bestDistance = 0;
+  }
   scene.semantic.units.forEach((unit) => {
+    if (bestDistance === 0) {
+      return;
+    }
     if (unit.kind !== "candle") {
       return;
     }
@@ -2404,6 +2454,23 @@ function isThemeColorToken(value: unknown): value is ThemeColorToken {
 
 function candleUnits(scene: ChartScene): SemanticCandleUnit[] {
   return scene.semantic.units.filter((unit): unit is SemanticCandleUnit => unit.kind === "candle");
+}
+
+function timeGapUnits(scene: ChartScene): SemanticTimeGapUnit[] {
+  return scene.semantic.units.filter((unit): unit is SemanticTimeGapUnit => unit.kind === "time-gap");
+}
+
+function pricePathUnits(scene: ChartScene): Array<SemanticCandleUnit | SemanticTimeGapUnit> {
+  return scene.semantic.units.filter((unit): unit is SemanticCandleUnit | SemanticTimeGapUnit => (
+    unit.kind === "candle" || (unit.kind === "time-gap" && Number.isFinite(unit.carryPrice))
+  ));
+}
+
+function pricePathSegmentKey(unit: SemanticCandleUnit | SemanticTimeGapUnit): string {
+  if (unit.kind === "time-gap") {
+    return `root:${unit.interval}`;
+  }
+  return `${unit.parentExpansionId ?? "root"}:${unit.interval}`;
 }
 
 function candleBodyWidth(scene: ChartScene, unit: SemanticCandleUnit, hovered = false): number {

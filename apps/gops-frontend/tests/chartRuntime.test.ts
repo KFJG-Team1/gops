@@ -714,6 +714,8 @@ const sparseMinuteGap = sparseMinuteTimeline.units.find((unit) => unit.kind === 
 assert.equal(sparseMinuteGap?.from, "2026-07-09T05:37:00Z");
 assert.equal(sparseMinuteGap?.to, "2026-07-09T05:39:00Z");
 assert.equal(sparseMinuteGap?.missingSlots, 2);
+assert.equal(sparseMinuteGap?.carryTimestamp, "2026-07-09T05:36:00Z");
+assert.equal(sparseMinuteGap?.carryPrice, 100);
 assert.equal(sparseMinuteTimeline.units.filter((unit) => unit.kind === "candle").length, 2);
 assert.ok(sparseMinuteTimeline.totalSlots >= 4);
 const sparseMinuteScene = buildFrontendChartScene(frontendChartState({

@@ -69,6 +69,8 @@ export type SemanticTimeGapUnit = {
   status: ExpansionStatus;
   message: string;
   missingSlots: number;
+  carryTimestamp: string;
+  carryPrice: number;
   slotStart: number;
   slotEnd: number;
   slotCenter: number;
@@ -378,6 +380,8 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       status: "empty",
       message: gap.missingSlots === 1 ? "No bar" : `${gap.missingSlots} bars missing`,
       missingSlots: gap.missingSlots,
+      carryTimestamp: gap.carryTimestamp,
+      carryPrice: gap.carryPrice,
       slotStart,
       slotEnd,
       slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
@@ -442,6 +446,8 @@ type RootTimeGap = {
   to: string;
   missingSlots: number;
   slotWidth: number;
+  carryTimestamp: string;
+  carryPrice: number;
 };
 
 function buildTimeGaps(symbol: string, interval: ChartInterval, candles: CandleDto[]): Map<number, RootTimeGap> {
@@ -451,8 +457,10 @@ function buildTimeGaps(symbol: string, interval: ChartInterval, candles: CandleD
     return gaps;
   }
   for (let index = 1; index < candles.length; index += 1) {
-    const previous = parseIso(candles[index - 1].timestamp);
-    const current = parseIso(candles[index].timestamp);
+    const previousCandle = candles[index - 1];
+    const currentCandle = candles[index];
+    const previous = parseIso(previousCandle.timestamp);
+    const current = parseIso(currentCandle.timestamp);
     const expectedCurrent = new Date(previous.getTime() + intervalMs);
     const gapMs = current.getTime() - expectedCurrent.getTime();
     if (!Number.isFinite(gapMs) || gapMs < intervalMs * 0.5) {
@@ -467,7 +475,9 @@ function buildTimeGaps(symbol: string, interval: ChartInterval, candles: CandleD
       from,
       to,
       missingSlots,
-      slotWidth: normalizeSlot(slotWidth)
+      slotWidth: normalizeSlot(slotWidth),
+      carryTimestamp: previousCandle.timestamp,
+      carryPrice: previousCandle.close
     });
   }
   return gaps;
