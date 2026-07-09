@@ -36,7 +36,7 @@ import {
   type AgentEntityResolveResponse,
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
-import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartCandleReference, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
+import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
@@ -155,7 +155,7 @@ function buildInteractiveAgentContext(
     ? [preferredContentId, handles.get(preferredContentId)!] as const
     : firstChartPanelHandle(handles);
   const chart = activeEntry?.[1].getSnapshot();
-  const reference = selection ? chartCandleReference(selection, activeEntry?.[0]) : null;
+  const reference = chart && selection ? chartReferenceForSelection(chart, selection, activeEntry?.[0]) : null;
   const references = [
     ...(reference ? [reference] : []),
     ...explicitReferences
@@ -1295,6 +1295,7 @@ export function App() {
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
+            semanticSelection={semanticSelection}
             setSemanticSelection={setSemanticSelection}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onChartRuntimeAction={dispatchChartRuntimeAction}

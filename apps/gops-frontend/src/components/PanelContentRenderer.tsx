@@ -14,6 +14,7 @@ import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
 import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
+import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
@@ -40,6 +41,7 @@ type PanelContentRendererProps = {
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
+  semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
@@ -74,6 +76,7 @@ export function PanelContentRenderer({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
+  semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onChartRuntimeAction,
@@ -170,6 +173,20 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "orderFlow") {
+    const panelSymbol = readPanelSymbol(content, symbol);
+    const hasExplicitSymbol = hasPanelSymbol(content);
+    return (
+      <OrderFlowPanel
+        panelId={slot.id}
+        symbol={panelSymbol}
+        defaultToPinnedSymbol={!hasExplicitSymbol}
+        semanticSelection={semanticSelection}
+        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+      />
+    );
+  }
+
   if (content.kind === "trade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -192,6 +209,13 @@ export function PanelContentRenderer({
   }
   const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
   const chartType = normalizeChartType(chartDocument.chartType);
+  const chartIntervalValue = chartType === "bidask" ? "1D" : interval;
+  const handleChartTypeChange = (nextChartType: ChartType) => {
+    if (nextChartType === "bidask" && interval !== "1D") {
+      chartPanelHandleRef.current?.setInterval("1D");
+    }
+    chartPanelHandleRef.current?.setChartType(nextChartType);
+  };
   const companyToggleButton = (
     <button
       type="button"
@@ -245,7 +269,7 @@ export function PanelContentRenderer({
             value={chartType}
             aria-label="Chart type"
             onPointerDown={(event) => event.stopPropagation()}
-            onChange={(event) => chartPanelHandleRef.current?.setChartType(event.target.value as ChartType)}
+            onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
           >
             {chartTypes.map((nextChartType) => (
               <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
@@ -253,8 +277,9 @@ export function PanelContentRenderer({
           </select>
           <select
             className="chart-instance-select chart-instance-interval"
-            value={interval}
+            value={chartIntervalValue}
             aria-label="Interval"
+            disabled={chartType === "bidask"}
             onPointerDown={(event) => event.stopPropagation()}
             onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
           >
@@ -299,10 +324,13 @@ export function PanelContentRenderer({
 }
 
 function normalizeChartType(value: string | undefined): ChartType {
-  return value === "line" || value === "ohlc" || value === "candle" ? value : "candle";
+  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
 }
 
 function chartTypeLabel(chartType: ChartType): string {
+  if (chartType === "bidask") {
+    return "Bid/Ask";
+  }
   if (chartType === "line") {
     return "Line";
   }
@@ -323,6 +351,16 @@ function symbolsToWatchlistSymbols(symbols: ChartSymbolDto[]): WatchlistSymbol[]
 function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
   const raw = content.props?.baseSymbol ?? content.props?.symbol ?? fallbackSymbol;
   return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readPanelSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.symbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function hasPanelSymbol(content: PanelContentInstance): boolean {
+  const raw = content.props?.symbol;
+  return typeof raw === "string" && Boolean(raw.trim());
 }
 
 function readCompareSymbols(content: PanelContentInstance, baseSymbol: string): string[] {

@@ -1,6 +1,6 @@
-import type { CandleDto, ChartInterval, FootprintBucketDto } from "./types";
+import type { CandleDto, ChartInterval } from "./types";
 
-export type DigTargetInterval = ChartInterval | "footprint";
+export type DigTargetInterval = ChartInterval;
 
 export type ExpansionStatus = "loading" | "ready" | "empty" | "error";
 
@@ -18,7 +18,6 @@ export type SemanticExpansion = {
   depth: number;
   status: ExpansionStatus;
   candles: CandleDto[];
-  footprintBucket?: FootprintBucketDto | null;
   message?: string;
   openedAt: string;
 };
@@ -41,7 +40,7 @@ export type SemanticCandleUnit = {
 };
 
 export type SemanticPlaceholderUnit = {
-  kind: "placeholder" | "footprint";
+  kind: "placeholder";
   id: string;
   symbol: string;
   interval: DigTargetInterval;
@@ -52,7 +51,6 @@ export type SemanticPlaceholderUnit = {
   depth: number;
   status: ExpansionStatus;
   message: string;
-  footprintBucket?: FootprintBucketDto | null;
   slotStart: number;
   slotEnd: number;
   slotCenter: number;
@@ -138,7 +136,6 @@ type BuildSemanticTimelineInput = {
 };
 
 const placeholderSlotWidth = 8;
-const footprintSlotWidth = 18;
 const intradayChildCandleSlotWidth = 0.36;
 const dailyChildCandleSlotWidth = 0.5;
 const weeklyChildCandleSlotWidth = 0.6;
@@ -147,8 +144,6 @@ const compressedTimeGapSlots = 12;
 
 export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterval {
   switch (interval) {
-    case "footprint":
-      return "footprint";
     case "1M":
       return "1W";
     case "1W":
@@ -164,7 +159,7 @@ export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterva
     case "5m":
       return "1m";
     case "1m":
-      return "footprint";
+      return "1m";
   }
 }
 
@@ -185,9 +180,6 @@ export function candleRange(candle: CandleDto, interval: ChartInterval): { from:
 }
 
 export function expansionLimitForInterval(interval: DigTargetInterval): number {
-  if (interval === "footprint") {
-    return 1;
-  }
   if (interval === "10m") {
     return 80;
   }
@@ -204,9 +196,6 @@ export function expansionLimitForInterval(interval: DigTargetInterval): number {
 }
 
 export function childQueryRange(parentRange: { from: string; to: string }, childInterval: DigTargetInterval): { from: string; to: string } {
-  if (childInterval === "footprint") {
-    return parentRange;
-  }
   return {
     from: toIso(floorInterval(parseIso(parentRange.from), childInterval)),
     to: toIso(ceilInterval(parseIso(parentRange.to), childInterval))
@@ -254,15 +243,14 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
 
   const appendPlaceholder = (
     expansion: SemanticExpansion,
-    kind: "placeholder" | "footprint",
     slotStart: number,
     message: string
   ): number => {
-    const width = kind === "footprint" ? footprintSlotWidth : placeholderSlotWidthForExpansion(expansion);
+    const width = placeholderSlotWidthForExpansion(expansion);
     const slotEnd = normalizeSlot(slotStart + width);
     rememberUnit({
-      kind,
-      id: `${kind}:${expansion.id}`,
+      kind: "placeholder",
+      id: `placeholder:${expansion.id}`,
       symbol: input.symbol,
       interval: expansion.childInterval,
       parentExpansionId: expansion.id,
@@ -272,7 +260,6 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       depth: expansion.depth,
       status: expansion.status,
       message,
-      footprintBucket: kind === "footprint" ? expansion.footprintBucket ?? null : undefined,
       slotStart,
       slotEnd,
       slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
@@ -282,9 +269,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
 
   const appendExpansion = (expansion: SemanticExpansion, slotStart: number): number => {
     let cursor = slotStart;
-    if (expansion.childInterval === "footprint") {
-      cursor = appendPlaceholder(expansion, "footprint", cursor, "footprint");
-    } else if (expansion.status === "ready" && expansion.candles.length > 0) {
+    if (expansion.status === "ready" && expansion.candles.length > 0) {
       const childInterval = expansion.childInterval;
       const childSlotWidth = childCandleSlotWidthForExpansion(expansion);
       expansion.candles.forEach((childCandle) => {
@@ -296,7 +281,7 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
         : expansion.status === "empty"
           ? expansion.message ?? "empty"
           : expansion.message ?? "error";
-      cursor = appendPlaceholder(expansion, "placeholder", cursor, message);
+      cursor = appendPlaceholder(expansion, cursor, message);
     }
     const slotEnd = normalizeSlot(Math.max(slotStart + 1, cursor));
     const slotCenter = normalizeSlot((slotStart + slotEnd) / 2);
@@ -492,9 +477,6 @@ function expansionSlotWidth(
   }
   const nextVisited = new Set(visited).add(expansion.id);
   const childInterval = expansion.childInterval;
-  if (childInterval === "footprint") {
-    return footprintSlotWidth;
-  }
   if (expansion.status === "ready" && expansion.candles.length > 0) {
     const childCandleSlotWidth = childCandleSlotWidthForExpansion(expansion);
     return normalizeSlot(Math.max(1, expansion.candles.reduce((total, candle) => {
@@ -529,7 +511,6 @@ function placeholderSlotWidthForExpansion(expansion: SemanticExpansion): number 
 
 function fixedIntervalMs(interval: ChartInterval): number | null {
   switch (interval) {
-    case "footprint":
     case "1m":
       return 60_000;
     case "5m":
@@ -630,7 +611,6 @@ function parseIso(value: string): Date {
 function addInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   switch (interval) {
-    case "footprint":
     case "1m":
       next.setUTCMinutes(next.getUTCMinutes() + 1);
       return next;
@@ -661,7 +641,6 @@ function floorInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   next.setUTCSeconds(0, 0);
   switch (interval) {
-    case "footprint":
     case "1m":
       return next;
     case "5m":

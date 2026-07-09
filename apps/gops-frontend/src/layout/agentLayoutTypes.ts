@@ -14,6 +14,7 @@ export type AgentLayoutPanelType =
   | "stockRecommendations"
   | "ontologyGraph"
   | "portfolioHoldings"
+  | "orderFlowProfile"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

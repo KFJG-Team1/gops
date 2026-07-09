@@ -35,6 +35,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   watchlistNews: "newsFeed",
   ontology: "ontologyGraph",
   portfolio: "portfolioHoldings",
+  orderFlow: "orderFlowProfile",
   trade: "orderTicket"
 };
 
@@ -74,7 +75,9 @@ export function buildTiledAgentLayoutContext(
       const content = gridState.contents[slot.contentId];
       const kind = content?.kind ?? "chart";
       const documentSymbol = chartDocumentSymbols[slot.id] ?? (content ? chartDocumentSymbols[content.id] : undefined);
-      const symbol = kind === "chart" ? (readString(documentSymbol) || readString(content?.props?.symbol) || activeSymbol || "").toUpperCase() : undefined;
+      const symbol = kind === "chart" || kind === "orderFlow"
+        ? (readString(documentSymbol) || readString(content?.props?.symbol) || activeSymbol || "").toUpperCase()
+        : undefined;
       return {
         id: slot.id,
         type: kindToPanelType[kind],

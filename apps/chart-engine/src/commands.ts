@@ -27,7 +27,7 @@ export type ChartCommandResult =
   | { ok: true; document: ChartDocument; message: string; historyEntry?: ChartHistoryEntry; noOp?: boolean }
   | { ok: false; document: ChartDocument; message: string };
 
-const chartTypes: ChartType[] = ["candle", "line", "ohlc"];
+const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
 
 export function makeChartCommand(
   type: ChartCommandType,

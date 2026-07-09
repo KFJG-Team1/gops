@@ -1,8 +1,10 @@
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartState } from "../chart/types";
+import { buildLadder, sessionDateFromTimestamp, type OrderFlowDayDto } from "../chart/orderFlow";
 
 export type AgentReferenceType =
   | "chart.candle"
+  | "chart.orderFlow"
   | "chart.range"
   | "news.article"
   | "news.dailySummary"
@@ -52,6 +54,33 @@ export function chartCandleReference(
     displayLabel: `${selection.symbol} ${selection.interval} ${labelTime}`,
     data: { ...selection }
   };
+}
+
+export function chartOrderFlowReference(
+  selection: SemanticSelectionSnapshot,
+  day: { sessionDate: string; totals: OrderFlowDayDto["totals"]; pocPriceBin: number | null } | null,
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  return {
+    type: "chart.orderFlow",
+    sourcePanelId,
+    displayLabel: `${selection.symbol} ${day?.sessionDate ?? selection.from} Order Flow`,
+    data: {
+      ...selection,
+      orderFlow: day ?? undefined,
+      sideClassification: "estimated"
+    }
+  };
+}
+
+export function chartReferenceForSelection(
+  chart: ChartState,
+  selection: SemanticSelectionSnapshot,
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  return chart.chartType === "bidask"
+    ? chartOrderFlowReference(selection, orderFlowSummaryForSelection(chart, selection), sourcePanelId)
+    : chartCandleReference(selection, sourcePanelId);
 }
 
 export function newsArticleReference(
@@ -158,7 +187,26 @@ export function buildChartAnalysisContext(
       low,
       change: change === undefined ? undefined : `${change >= 0 ? "+" : ""}${change.toFixed(4)}`
     },
-    selectedReference: selection ? chartCandleReference(selection) : null,
+    selectedReference: selection ? chartReferenceForSelection(chart, selection) : null,
     candles: visibleCandles
+  };
+}
+
+function orderFlowSummaryForSelection(
+  chart: ChartState,
+  selection: SemanticSelectionSnapshot
+): { sessionDate: string; totals: OrderFlowDayDto["totals"]; pocPriceBin: number | null } | null {
+  const date = sessionDateFromTimestamp(selection.timestamp ?? selection.from);
+  const dailyDay = chart.orderFlow?.daily?.days.find((day) => day.sessionDate === date) ?? null;
+  const today = chart.orderFlow?.today?.sessionDate === date ? chart.orderFlow.today : null;
+  const day = today ?? dailyDay;
+  if (!day) {
+    return null;
+  }
+  const priceStep = Math.max(0.01, chart.orderFlow?.daily?.priceBinSize ?? 0.01);
+  return {
+    sessionDate: day.sessionDate,
+    totals: day.totals,
+    pocPriceBin: buildLadder(day.levels, priceStep).pocPriceBin
   };
 }

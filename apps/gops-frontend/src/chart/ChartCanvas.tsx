@@ -1,12 +1,14 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
-import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
+import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
+import { autoPriceStep, buildLadder, rebinLevels, sessionDateFromTimestamp, visibleScaleMax, type OrderFlowDayDto, type OrderFlowLadder } from "./orderFlow";
+import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticPlaceholderUnit, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 
@@ -41,17 +43,7 @@ const volumeProfileAlpha = {
   pocLine: 0.34,
   label: 0.84
 } as const;
-const footprintBucketMinWidth = 14;
-const footprintBucketMaxWidth = 56;
-const footprintBucketScale = 3.2;
-const footprintBucketRowMinHeight = 4;
-const footprintBucketRowMaxHeight = 14;
-const footprintBucketRowScale = 0.24;
-const footprintLevelAlpha = 0.58;
-const footprintUnknownLevelAlpha = 0.24;
-const footprintCandleMinWidth = 5;
-const footprintCandleMaxWidth = 16;
-const footprintCandleWidthScale = 0.26;
+const orderFlowLadderCache = new WeakMap<OrderFlowDayDto, Map<number, OrderFlowLadder>>();
 
 export function ChartCanvas({
   chart,
@@ -165,7 +157,6 @@ function drawChart(
     () => drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
     () => drawBelowIndicatorPanes(context, scene),
     () => drawExpansionParentSummaries(context, scene),
-    () => drawFootprintEstimatedLabel(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
     () => drawDrawingLabelsOnAxes(context, scene),
@@ -195,8 +186,8 @@ function movingAverageLayerVisible(scene: ChartScene, key: "ma5" | "ma20" | "ma6
 }
 
 function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene) {
-  if (scene.chart.interval === "footprint") {
-    drawFootprintBuckets(context, scene);
+  if (scene.chart.chartType === "bidask") {
+    drawOrderFlowColumns(context, scene);
     return;
   }
   if (scene.chart.chartType === "line") {
@@ -694,159 +685,130 @@ function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: C
   }
 }
 
-function drawFootprintBuckets(context: CanvasRenderingContext2D, scene: ChartScene) {
-  const buckets = new Map((scene.chart.footprint?.buckets ?? []).map((bucket) => [bucket.timestamp, bucket]));
-  if (!buckets.size) {
-    context.save();
-    context.globalAlpha = 0.22;
-    drawCandles(context, scene);
-    context.restore();
-    drawFootprintEmptyState(context, scene);
+function drawOrderFlowColumns(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const orderFlow = scene.chart.orderFlow;
+  const daily = orderFlow?.daily ?? null;
+  const today = orderFlow?.today ?? null;
+  const days = new Map<string, OrderFlowDayDto>();
+  daily?.days.forEach((day) => days.set(day.sessionDate, day));
+  if (today) {
+    days.set(today.sessionDate, today);
+  }
+  if (daily?.dataStatus === "unsupported") {
+    drawOrderFlowState(context, scene, unsupportedOrderFlowMessage(scene.chart.symbol, daily.supportedSymbols));
     return;
   }
-  const maxLevelVolume = Math.max(1, ...Array.from(buckets.values()).flatMap((bucket) => bucket.priceLevels.map((level) => level.totalVolume)));
-  candleUnits(scene).forEach((unit) => {
-    const bucket = buckets.get(unit.candle.timestamp);
-    if (!bucket?.priceLevels.length) {
-      drawFootprintGhostCandle(context, scene, unit);
+  if (!days.size && daily?.dataStatus === "empty") {
+    drawOrderFlowState(context, scene, "아직 수집된 오더플로우 데이터가 없어요");
+    return;
+  }
+  if (!days.size) {
+    drawOrderFlowState(context, scene, "오더플로우 데이터를 불러오는 중입니다");
+    return;
+  }
+
+  const units = candleUnits(scene);
+  const visibleDays = units
+    .map((unit) => days.get(sessionDateFromTimestamp(unit.timestamp)))
+    .filter((day): day is OrderFlowDayDto => Boolean(day?.levels.length));
+  const sourceStep = Math.max(0.01, daily?.priceBinSize ?? 0.01);
+  const displayStep = orderFlowDisplayStep(scene, sourceStep, visibleDays);
+  const rects = new Map<string, { x: number; y: number; width: number; height: number }>();
+  units.forEach((unit) => rects.set(unit.id, orderFlowColumnRect(scene, unit)));
+  const tier = chartColumnTier(Math.min(...Array.from(rects.values()).map((rect) => rect.width).filter((width) => width > 0)));
+  const drawable = units
+    .map((unit) => {
+      const sessionDate = sessionDateFromTimestamp(unit.timestamp);
+      const day = days.get(sessionDate);
+      return day?.levels.length
+        ? { unit, day, ladder: cachedOrderFlowLadder(day, sourceStep, displayStep) }
+        : null;
+    })
+    .filter((item): item is { unit: SemanticCandleUnit; day: OrderFlowDayDto; ladder: OrderFlowLadder } => Boolean(item));
+  const scaleMax = visibleScaleMax(drawable.map((item) => item.ladder));
+  units.forEach((unit) => {
+    const sessionDate = sessionDateFromTimestamp(unit.timestamp);
+    const day = days.get(sessionDate);
+    if (!day?.levels.length) {
+      if (tier !== "micro") {
+        drawOrderFlowGhostCandle(context, scene, unit);
+      }
       return;
     }
-    drawFootprintBucket(context, scene, unit, bucket, maxLevelVolume);
+    const rect = rects.get(unit.id) ?? orderFlowColumnRect(scene, unit);
+    const ladder = cachedOrderFlowLadder(day, sourceStep, displayStep);
+    drawOrderFlowChartColumn(context, rect, ladder, colors, {
+      tier,
+      scaleMax,
+      priceToY: (price) => priceToY(scene, price),
+      isLive: today?.sessionDate === day.sessionDate,
+      selected: scene.selectedNodeId === unit.id
+    });
   });
+  drawEstimatedBadge(context, scene.plot.left + 7, scene.plot.top + 6, colors);
 }
 
-function drawFootprintBucket(
-  context: CanvasRenderingContext2D,
-  scene: ChartScene,
-  unit: SemanticCandleUnit,
-  bucket: FootprintBucketDto,
-  maxLevelVolume: number
-) {
-  const center = unitCenterX(scene, unit);
-  const baseWidth = Math.max(
-    footprintBucketMinWidth,
-    Math.min(footprintBucketMaxWidth, candleBodyWidth(scene, unit, scene.hoveredNodeId === unit.id) * footprintBucketScale)
-  );
-  const halfWidth = baseWidth / 2;
-  const rowHeight = Math.max(footprintBucketRowMinHeight, Math.min(footprintBucketRowMaxHeight, baseWidth * footprintBucketRowScale));
-  context.save();
-  context.strokeStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
-  context.globalAlpha = 0.38;
-  line(context, center, priceToY(scene, bucket.high ?? unit.candle.high), center, priceToY(scene, bucket.low ?? unit.candle.low));
-  context.globalAlpha = 1;
-  bucket.priceLevels.forEach((level) => {
-    const y = priceToY(scene, level.price);
-    if (y < scene.plot.top - rowHeight || y > scene.plot.priceBottom + rowHeight) {
-      return;
-    }
-    const bidWidth = Math.max(0, (halfWidth - 1) * (level.bidVolume / maxLevelVolume));
-    const askWidth = Math.max(0, (halfWidth - 1) * (level.askVolume / maxLevelVolume));
-    const unknownWidth = Math.max(0, (baseWidth - 2) * (level.unknownVolume / maxLevelVolume));
-    context.globalAlpha = footprintLevelAlpha;
-    context.fillStyle = colors.downSoft;
-    context.fillRect(center - bidWidth, y - rowHeight / 2, bidWidth, rowHeight);
-    context.fillStyle = colors.upSoft;
-    context.fillRect(center, y - rowHeight / 2, askWidth, rowHeight);
-    if (unknownWidth > 0.5) {
-      context.globalAlpha = footprintUnknownLevelAlpha;
-      context.fillStyle = colors.axis;
-      context.fillRect(center - unknownWidth / 2, y - rowHeight / 2, unknownWidth, rowHeight);
-    }
-    if (baseWidth > 28 && Math.abs(level.delta) > 0) {
-      context.globalAlpha = 0.72;
-      context.fillStyle = level.delta >= 0 ? colors.upSoft : colors.downSoft;
-      context.font = "8px var(--font-data-sans)";
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillText(String(Math.round(level.delta)), center, y, baseWidth);
-    }
-  });
-  drawCenteredFootprintCandle(context, scene, unit, bucket, center, baseWidth);
-  if (baseWidth > 18) {
-    context.globalAlpha = 0.78;
-    context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
-    context.font = "700 9px var(--font-data-sans)";
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText(`${bucket.delta >= 0 ? "+" : ""}${Math.round(bucket.delta)}`, center, Math.min(scene.plot.priceBottom - 12, priceToY(scene, bucket.low ?? unit.candle.low) + 3), baseWidth + 8);
+function orderFlowColumnRect(scene: ChartScene, unit: SemanticCandleUnit): { x: number; y: number; width: number; height: number } {
+  const bounds = unitBoundsX(scene, unit);
+  const x = Math.max(scene.plot.left, bounds.left + 1);
+  return {
+    x,
+    y: scene.plot.top + 4,
+    width: Math.max(2, Math.min(scene.plot.right, bounds.right - 1) - x),
+    height: Math.max(16, scene.plot.priceBottom - scene.plot.top - 8)
+  };
+}
+
+function cachedOrderFlowLadder(day: OrderFlowDayDto, sourceStep: number, displayStep: number): OrderFlowLadder {
+  let byStep = orderFlowLadderCache.get(day);
+  if (!byStep) {
+    byStep = new Map();
+    orderFlowLadderCache.set(day, byStep);
   }
+  const cached = byStep.get(displayStep);
+  if (cached) {
+    return cached;
+  }
+  const levels = rebinLevels(day.levels, sourceStep, displayStep);
+  const ladder = buildLadder(levels, displayStep, day.sessionDate);
+  byStep.set(displayStep, ladder);
+  return ladder;
+}
+
+function orderFlowDisplayStep(scene: ChartScene, sourceStep: number, days: OrderFlowDayDto[]): number {
+  const visiblePrices = days.flatMap((day) => day.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price)));
+  const dataPriceRange = visiblePrices.length
+    ? Math.max(...visiblePrices) - Math.min(...visiblePrices)
+    : 0;
+  const priceRange = Math.max(0.01, dataPriceRange || scene.scales.maxPrice - scene.scales.minPrice);
+  const rowBudget = Math.max(12, Math.min(64, Math.floor((scene.plot.priceBottom - scene.plot.top) / 6)));
+  return Math.max(sourceStep, autoPriceStep(priceRange, rowBudget));
+}
+
+function drawOrderFlowState(context: CanvasRenderingContext2D, scene: ChartScene, message: string) {
+  context.save();
+  context.globalAlpha = 0.22;
+  drawCandles(context, scene);
+  context.globalAlpha = 0.88;
+  context.fillStyle = colors.muted;
+  context.font = "700 11px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(message, (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 30, Math.max(120, scene.plot.right - scene.plot.left - 18));
+  drawEstimatedBadge(context, scene.plot.left + 7, scene.plot.top + 6, colors);
   context.restore();
 }
 
-function drawCenteredFootprintCandle(
-  context: CanvasRenderingContext2D,
-  scene: ChartScene,
-  unit: SemanticCandleUnit,
-  bucket: FootprintBucketDto,
-  center: number,
-  baseWidth: number
-) {
-  const candleWidth = Math.max(footprintCandleMinWidth, Math.min(footprintCandleMaxWidth, baseWidth * footprintCandleWidthScale));
-  drawFootprintCandleShape(
-    context,
-    scene,
-    center,
-    candleWidth,
-    bucket.open ?? unit.candle.open,
-    bucket.high ?? unit.candle.high,
-    bucket.low ?? unit.candle.low,
-    bucket.close ?? unit.candle.close
-  );
+function unsupportedOrderFlowMessage(symbol: string, supportedSymbols: string[] | undefined): string {
+  const supported = supportedSymbols?.length ? ` · 지원: ${supportedSymbols.join(", ")}` : "";
+  return `Order Flow는 아직 ${symbol.toUpperCase()}을 지원하지 않아요${supported}`;
 }
 
-function drawFootprintCandleShape(
-  context: CanvasRenderingContext2D,
-  scene: ChartScene,
-  center: number,
-  candleWidth: number,
-  openPrice: number | null | undefined,
-  highPrice: number | null | undefined,
-  lowPrice: number | null | undefined,
-  closePrice: number | null | undefined
-) {
-  if (
-    typeof openPrice !== "number" ||
-    typeof highPrice !== "number" ||
-    typeof lowPrice !== "number" ||
-    typeof closePrice !== "number" ||
-    ![openPrice, highPrice, lowPrice, closePrice].every(Number.isFinite)
-  ) {
-    return;
-  }
-  const open = priceToY(scene, openPrice);
-  const close = priceToY(scene, closePrice);
-  const high = priceToY(scene, highPrice);
-  const low = priceToY(scene, lowPrice);
-  const bodyTop = Math.min(open, close);
-  const bodyHeight = Math.max(2, Math.abs(close - open));
-  const bodyBottom = bodyTop + bodyHeight;
-  const candleColor = candleStrokeColor(closePrice >= openPrice);
-  context.save();
-  context.globalAlpha = 0.96;
-  context.strokeStyle = candleColor;
-  context.fillStyle = candleColor;
-  context.lineWidth = 1.35;
-  line(context, center, high, center, bodyTop);
-  line(context, center, bodyBottom, center, low);
-  context.fillRect(center - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
-  context.restore();
-}
-
-function drawFootprintGhostCandle(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
+function drawOrderFlowGhostCandle(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
   context.save();
   context.globalAlpha = 0.28;
   const center = unitCenterX(scene, unit);
   line(context, center, priceToY(scene, unit.candle.high), center, priceToY(scene, unit.candle.low));
-  context.restore();
-}
-
-function drawFootprintEmptyState(context: CanvasRenderingContext2D, scene: ChartScene) {
-  context.save();
-  context.fillStyle = colors.muted;
-  context.font = "11px Inter, system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText("No footprint data", (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 28);
   context.restore();
 }
 
@@ -1023,6 +985,7 @@ function drawBollinger(context: CanvasRenderingContext2D, scene: ChartScene, lay
 }
 
 function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene) {
+  // Phase 2 candidate: adopt tick-based order-flow bins when symbol coverage allows.
   const profile = scene.chart.volumeProfile;
   if (!scene.chart.layers["volume-profile"] || !profile?.bins?.length || profile.totalVolume <= 0) {
     return;
@@ -1510,7 +1473,7 @@ function drawTimePeriodDividers(context: CanvasRenderingContext2D, scene: ChartS
     return;
   }
   const interval = scene.chart.interval;
-  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "footprint";
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h";
   const isDaily = interval === "1D";
   const isWeekly = interval === "1W";
   const isMonthly = interval === "1M";
@@ -1684,7 +1647,7 @@ function buildTimeTicks(scene: ChartScene): TimeTick[] {
   }
 
   const interval = scene.chart.interval;
-  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "footprint";
+  const isIntraday = interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h";
   const isDaily = interval === "1D";
   const isWeekly = interval === "1W";
   const isMonthly = interval === "1M";
@@ -1813,7 +1776,6 @@ function shouldShowTimeTick(unit: SemanticCandleUnit, slotWidth: number, edge: b
   const candlesPerTick = Math.ceil(62 / slotWidth);
 
   switch (unit.interval) {
-    case "footprint":
     case "1m": {
       if (candlesPerTick <= 5) return minute % 5 === 0;
       if (candlesPerTick <= 15) return minute % 15 === 0;
@@ -2204,7 +2166,7 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
     context.clip();
     const depthAlpha = Math.min(0.034, 0.012 + range.depth * 0.004);
     context.fillStyle = colors.shadow;
-    context.globalAlpha = range.childInterval === "footprint" ? Math.min(0.04, depthAlpha + 0.004) : depthAlpha;
+    context.globalAlpha = depthAlpha;
     context.fillRect(left, 0, width, scene.height);
 
     if (active) {
@@ -2223,7 +2185,7 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
       drawTimeGapUnit(context, scene, unit);
       return;
     }
-    if (unit.kind === "placeholder" || unit.kind === "footprint") {
+    if (unit.kind === "placeholder") {
       drawSemanticPlaceholder(context, scene, unit);
     }
   });
@@ -2356,7 +2318,7 @@ function drawTimeGapUnit(context: CanvasRenderingContext2D, scene: ChartScene, u
   context.restore();
 }
 
-function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" | "footprint" }>) {
+function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticPlaceholderUnit) {
   const bounds = unitBoundsX(scene, unit);
   const visibleLeft = Math.max(scene.plot.left, bounds.left);
   const visibleRight = Math.min(scene.plot.right, bounds.right);
@@ -2364,74 +2326,15 @@ function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: Chart
   if (visibleWidth <= 4) {
     return;
   }
-  if (unit.kind === "footprint" && unit.footprintBucket?.priceLevels?.length) {
-    drawSemanticFootprint(context, scene, unit, visibleLeft, visibleRight);
-    return;
-  }
   const x = (visibleLeft + visibleRight) / 2;
   const y = scene.plot.top + (scene.plot.priceBottom - scene.plot.top) / 2;
   context.save();
-  context.fillStyle = unit.kind === "footprint" ? colors.footprint : colors.muted;
+  context.fillStyle = colors.muted;
   context.font = "10px Inter, system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(unit.message, x, y, Math.max(24, visibleWidth - 8));
   context.restore();
-}
-
-function drawSemanticFootprint(
-  context: CanvasRenderingContext2D,
-  scene: ChartScene,
-  unit: SemanticPlaceholderUnit,
-  left: number,
-  right: number
-) {
-  const bucket = unit.footprintBucket;
-  if (!bucket) {
-    return;
-  }
-  const center = (left + right) / 2;
-  const width = Math.max(24, Math.min(96, right - left - 8));
-  const halfWidth = width / 2;
-  const maxLevelVolume = Math.max(1, ...bucket.priceLevels.map((level) => level.totalVolume));
-  context.save();
-  context.fillStyle = colors.footprint;
-  context.globalAlpha = 0.12;
-  context.fillRect(left + 3, scene.plot.top + 12, Math.max(1, right - left - 6), Math.max(1, scene.plot.priceBottom - scene.plot.top - 24));
-  bucket.priceLevels.forEach((level) => {
-    const y = priceToY(scene, level.price);
-    if (y < scene.plot.top || y > scene.plot.priceBottom) {
-      return;
-    }
-    const bidWidth = (halfWidth - 1) * (level.bidVolume / maxLevelVolume);
-    const askWidth = (halfWidth - 1) * (level.askVolume / maxLevelVolume);
-    context.globalAlpha = 0.62;
-    context.fillStyle = colors.downSoft;
-    context.fillRect(center - bidWidth, y - 2, bidWidth, 4);
-    context.fillStyle = colors.upSoft;
-    context.fillRect(center, y - 2, askWidth, 4);
-  });
-  drawFootprintCandleShape(context, scene, center, Math.max(5, Math.min(18, width * 0.24)), bucket.open, bucket.high, bucket.low, bucket.close);
-  context.globalAlpha = 0.78;
-  context.fillStyle = bucket.delta >= 0 ? colors.upSoft : colors.downSoft;
-  context.font = "700 9px var(--font-data-sans)";
-  context.textAlign = "center";
-  context.textBaseline = "top";
-  context.fillText(`${bucket.delta >= 0 ? "+" : ""}${Math.round(bucket.delta)}`, center, scene.plot.top + 16, width);
-  context.restore();
-}
-
-function drawFootprintEstimatedLabel(context: CanvasRenderingContext2D, scene: ChartScene) {
-  const hasFootprint = scene.chart.interval === "footprint" || scene.semantic.units.some((unit) => unit.kind === "footprint");
-  if (!hasFootprint) {
-    return;
-  }
-  context.save();
-  context.fillStyle = colors.muted;
-  context.font = "10px Inter, system-ui, sans-serif";
-  context.textAlign = "right";
-  context.textBaseline = "top";
-  context.fillText("Estimated", scene.plot.right - 4, topPriceGridY(scene) + 2);
   context.restore();
 }
 

@@ -124,7 +124,7 @@ export type RealtimeLayerEvent =
 
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
-export type ChartType = "candle" | "line" | "ohlc";
+export type ChartType = "candle" | "line" | "ohlc" | "bidask";
 
 export type ChartLayerKey =
   | "candles"

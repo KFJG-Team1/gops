@@ -20,6 +20,7 @@ export type PanelContentKind =
   | "recommendations"
   | "ontology"
   | "portfolio"
+  | "orderFlow"
   | "trade";
 
 export type PanelSlotId = string;
@@ -198,7 +199,7 @@ export function createTiledPanelStateFromSpec(
   const slots: PanelSlot[] = [];
   let instance = 1;
   spec.forEach((item) => {
-    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare";
+    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare" || item.kind === "orderFlow";
     const symbol = item.symbol ?? (inheritsSymbol ? options.symbol : undefined);
     const content = createPanelContent(item.kind, instance, {
       symbol: symbol?.trim().toUpperCase(),

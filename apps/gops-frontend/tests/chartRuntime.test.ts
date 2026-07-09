@@ -71,6 +71,17 @@ import {
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
+import { fetchOrderFlowSymbols } from "../src/chart/orderFlowClient";
+import {
+  autoPriceStep,
+  buildLadder,
+  rebinLevels,
+  replaceOrderFlowMinute,
+  sumMinuteWindows,
+  visibleScaleMax,
+  type OrderFlowMinuteUpdate
+} from "../src/chart/orderFlow";
+import { chartColumnTier } from "../src/chart/orderFlowRender";
 import {
   addPanelSlotAtGridRect,
   applyPanelResizeWithYield,
@@ -377,8 +388,7 @@ const treeMapTestTheme = {
   changeUp: "#1b6a29",
   changeDown: "#b31a0f",
   tileText: "#1a1a0e",
-  tileTextInverse: "#efefe8",
-  footprint: "rgba(26, 26, 14, 0.42)"
+  tileTextInverse: "#efefe8"
 };
 const treeMapScale = createTreeMapOpacityScale([
   0.01,
@@ -499,6 +509,31 @@ if (chartTypeResult.ok) {
     assert.equal(undoChartType.document.chartType, "candle");
   }
 }
+
+const bidAskChartTypeResult = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.type.set", "user", target("panel-b", documentB.id), { chartType: "bidask" })
+);
+assert.equal(bidAskChartTypeResult.ok, true);
+if (bidAskChartTypeResult.ok) {
+  assert.equal(bidAskChartTypeResult.document.chartType, "bidask");
+  const frontendBidAskState = chartStateFromDocument(
+    { ...bidAskChartTypeResult.document, timeframe: ["foot", "print"].join("") },
+    [],
+    { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+    "idle"
+  );
+  assert.equal(frontendBidAskState.chartType, "bidask");
+  assert.equal(frontendBidAskState.interval, "1D");
+}
+const legacyIntervalCandleState = chartStateFromDocument(
+  { ...documentB, chartType: "candle", timeframe: ["foot", "print"].join("") },
+  [],
+  { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
+  "idle"
+);
+assert.equal(legacyIntervalCandleState.chartType, "candle");
+assert.equal(legacyIntervalCandleState.interval, "1m");
 
 const paneRatioResult = executeChartCommand(
   documentB,
@@ -659,45 +694,6 @@ const readyExpansionTimeline = buildSemanticTimeline({
 const readyExpansionChildCandle = readyExpansionTimeline.units.find((unit) => unit.kind === "candle" && unit.parentExpansionId === readyExpansion.id);
 assert.ok(readyExpansionChildCandle);
 assert.ok((readyExpansionChildCandle?.slotEnd ?? 0) - (readyExpansionChildCandle?.slotStart ?? 0) < 0.5);
-const footprintExpansion: SemanticExpansion = {
-  ...emptyExpansion,
-  childInterval: "footprint",
-  status: "ready",
-  candles: [],
-  footprintBucket: {
-    timestamp: candleA.timestamp,
-    from: candleA.timestamp,
-    to: "2026-06-25T13:31:00Z",
-    open: candleA.open,
-    high: candleA.high,
-    low: candleA.low,
-    close: candleA.close,
-    volume: 1200,
-    tradeCount: 18,
-    askVolume: 720,
-    bidVolume: 430,
-    unknownVolume: 50,
-    delta: 290,
-    priceLevels: [
-      { price: 10.7, askVolume: 300, bidVolume: 120, unknownVolume: 0, totalVolume: 420, tradeCount: 6, delta: 180 },
-      { price: 10.5, askVolume: 180, bidVolume: 260, unknownVolume: 20, totalVolume: 460, tradeCount: 8, delta: -80 }
-    ]
-  },
-  message: undefined
-};
-const footprintExpansionTimeline = buildSemanticTimeline({
-  symbol: "AAPL",
-  interval: "1D",
-  candles: [candleA as CandleDto],
-  expansions: [footprintExpansion],
-  visibleStartIndex: 0,
-  visibleEndIndex: 1,
-  viewportStartIndex: 0,
-  visibleSlotCount: 40
-});
-const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
-assert.ok(footprintExpansionUnit);
-assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
 const sparseMinuteCandles = [
   testCandle("2026-07-09T05:36:00Z", 100),
   testCandle("2026-07-09T05:39:00Z", 101)
@@ -1366,15 +1362,13 @@ assert.equal(normalizeChartInterval("1w"), "1W");
 assert.equal(normalizeChartInterval("1mo"), "1M");
 assert.equal(normalizeChartInterval("1H"), "1h");
 assert.equal(normalizeChartInterval("4H"), "4h");
-assert.equal(normalizeChartInterval("Footprint"), "footprint");
 assert.equal(normalizeChartInterval("bad"), null);
-assert.deepEqual(chartIntervals.slice(0, 6), ["footprint", "1m", "5m", "10m", "1h", "4h"]);
-assert.equal(nextDigTargetInterval("1m"), "footprint");
+assert.deepEqual(chartIntervals.slice(0, 5), ["1m", "5m", "10m", "1h", "4h"]);
+assert.equal(nextDigTargetInterval("1m"), "1m");
 assert.equal(nextDigTargetInterval("1D"), "1h");
 assert.equal(nextDigTargetInterval("4h"), "1h");
 assert.equal(nextDigTargetInterval("1h"), "10m");
 assert.equal(defaultVisibleBarsForInterval("1m"), 120);
-assert.equal(defaultVisibleBarsForInterval("footprint"), 120);
 assert.equal(defaultVisibleBarsForInterval("5m"), 120);
 assert.equal(defaultVisibleBarsForInterval("10m"), 120);
 assert.equal(defaultVisibleBarsForInterval("1h"), 120);
@@ -1383,7 +1377,6 @@ assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 36);
 assert.equal(maxRequestBarsForInterval("1m"), 589680);
-assert.equal(maxRequestBarsForInterval("footprint"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
 assert.equal(maxRequestBarsForInterval("1h"), 9828);
@@ -1396,6 +1389,128 @@ assert.equal(indicatorRequestLimitForInterval("1D", 22849), 1512);
 assert.equal(indicatorRequestLimitForInterval("1D", 36477), 1512);
 assert.equal(indicatorRequestLimitForInterval("1m", 22849), 5000);
 assert.equal(indicatorRequestLimitForInterval("4h", 5000), 2457);
+
+const rebinnedOrderFlow = rebinLevels([
+  { priceBin: 100.01, askVolume: 10, bidVolume: 2, unknownVolume: 1, askTradeCount: 1 },
+  { priceBin: 100.12, askVolume: 3, bidVolume: 4, unknownVolume: 0, bidTradeCount: 2 },
+  { priceBin: 100.26, askVolume: 0, bidVolume: 7, unknownVolume: 2, unknownTradeCount: 1 }
+], 0.01, 0.25);
+assert.deepEqual(rebinnedOrderFlow, [
+  { priceBin: 100.25, askVolume: 0, bidVolume: 7, unknownVolume: 2, unknownTradeCount: 1 },
+  { priceBin: 100, askVolume: 13, bidVolume: 6, unknownVolume: 1, askTradeCount: 1, bidTradeCount: 2 }
+]);
+assert.throws(() => rebinLevels([], 0.02, 0.03), /multiple/);
+
+const minuteWindowLevels = [
+  { eventMinute: "2026-07-08T13:30:00.000Z", bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:31:00.000Z", bins: [{ priceBin: 100, askVolume: 2, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:32:00.000Z", bins: [{ priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 }] }
+];
+assert.deepEqual(sumMinuteWindows(minuteWindowLevels, 2), [
+  { priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 2, bidVolume: 0, unknownVolume: 0 }
+]);
+assert.deepEqual(sumMinuteWindows(minuteWindowLevels, "session"), [
+  { priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 3, bidVolume: 0, unknownVolume: 0 }
+]);
+
+const ladder = buildLadder([
+  { priceBin: 102, askVolume: 50, bidVolume: 55, unknownVolume: 0 },
+  { priceBin: 101, askVolume: 0, bidVolume: 25, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 100, bidVolume: 5, unknownVolume: 0 },
+  { priceBin: 99, askVolume: 20, bidVolume: 1, unknownVolume: 0 }
+], 1, "fixture");
+assert.equal(ladder.pocPriceBin, 100);
+assert.equal(ladder.totals.delta, 84);
+assert.equal(ladder.maxLevelVolume, 105);
+assert.equal(ladder.levels.find((level) => level.priceBin === 100)?.askImbalance, true);
+assert.equal(ladder.levels.find((level) => level.priceBin === 102)?.bidImbalance, true);
+assert.equal(ladder.levels.find((level) => level.priceBin === 101)?.bidImbalance, false);
+assert.equal(autoPriceStep(1.2, 44), 0.05);
+assert.equal(autoPriceStep(8, 24), 0.5);
+assert.equal(visibleScaleMax([ladder]), 105);
+assert.equal(chartColumnTier(80), "full");
+assert.equal(chartColumnTier(30), "standard");
+assert.equal(chartColumnTier(12), "compact");
+assert.equal(chartColumnTier(6), "micro");
+
+const orderFlowUpdateA: OrderFlowMinuteUpdate = {
+  eventMinute: "2026-07-08T13:31:00.000Z",
+  sessionDate: "2026-07-08",
+  priceBinSize: 0.01,
+  bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:31:01.000Z"
+};
+const orderFlowUpdateB: OrderFlowMinuteUpdate = {
+  ...orderFlowUpdateA,
+  bins: [{ priceBin: 100, askVolume: 5, bidVolume: 2, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:31:02.000Z"
+};
+const orderFlowUpdateOlder: OrderFlowMinuteUpdate = {
+  eventMinute: "2026-07-08T13:30:00.000Z",
+  sessionDate: "2026-07-08",
+  priceBinSize: 0.01,
+  bins: [{ priceBin: 99, askVolume: 0, bidVolume: 3, unknownVolume: 0 }],
+  updatedAt: "2026-07-08T13:30:01.000Z"
+};
+const minuteMapAfterEvents = replaceOrderFlowMinute(
+  replaceOrderFlowMinute(
+    replaceOrderFlowMinute(new Map(), orderFlowUpdateA),
+    orderFlowUpdateOlder
+  ),
+  orderFlowUpdateB
+);
+assert.deepEqual(Array.from(minuteMapAfterEvents.keys()).sort(), [
+  "2026-07-08T13:30:00.000Z",
+  "2026-07-08T13:31:00.000Z"
+]);
+assert.deepEqual(minuteMapAfterEvents.get("2026-07-08T13:31:00.000Z")?.bins, orderFlowUpdateB.bins);
+
+const originalFetch = globalThis.fetch;
+let orderFlowSymbolFetchCalls = 0;
+try {
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    orderFlowSymbolFetchCalls += 1;
+    return new Promise<Response>((resolve, reject) => {
+      const signal = init?.signal;
+      const abort = () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      };
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  }) as typeof fetch;
+  const controller = new AbortController();
+  const abortedFetch = fetchOrderFlowSymbols(controller.signal).then(
+    () => "resolved",
+    (error: Error) => error.name
+  );
+  controller.abort();
+  assert.equal(await abortedFetch, "AbortError");
+
+  globalThis.fetch = (async () => {
+    orderFlowSymbolFetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ symbols: ["nvda", "aapl"], priceBinSize: 0.01 })
+    } as Response;
+  }) as typeof fetch;
+  const symbolsAfterAbort = await fetchOrderFlowSymbols();
+  const symbolsFromCache = await fetchOrderFlowSymbols();
+  assert.deepEqual(symbolsAfterAbort.symbols, ["NVDA", "AAPL"]);
+  assert.strictEqual(symbolsFromCache, symbolsAfterAbort);
+  assert.equal(orderFlowSymbolFetchCalls, 2);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 assert.equal(
   stableVolumeProfileRangeKey({
     symbol: "nvda",
@@ -2642,7 +2757,7 @@ assert.match(chartPanelSource, /maxComparisonCount/);
 assert.doesNotMatch(chartPanelSource, /onOpenComparisonPanel|placeholder="비교 패널"|chart-comparison-picker/);
 assert.match(chartPanelSource, /comparisons: renderComparisons/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
-assert.match(chartPanelSource, /interval: chart\.interval === "footprint" \? "1m" : chart\.interval/);
+assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{ daily: orderFlowDaily, today: orderFlowTodayDay \} : null/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /action: "dig"/);
@@ -2656,16 +2771,15 @@ assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
-assert.match(chartCanvasSource, /const footprintBucketMinWidth = 14;/);
-assert.match(chartCanvasSource, /const footprintBucketMaxWidth = 56;/);
-assert.match(chartCanvasSource, /function drawCenteredFootprintCandle/);
-assert.match(chartCanvasSource, /context\.fillRect\(center - candleWidth \/ 2, bodyTop, candleWidth, bodyHeight\);/);
+assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
+assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
+assert.match(chartCanvasSource, /chartColumnTier/);
 assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
 assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.lower[\s\S]*connectAcrossMissing: true/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.middle[\s\S]*connectAcrossMissing: true/);
-assert.match(semanticTimelineSource, /const footprintSlotWidth = 18;/);
+assert.doesNotMatch(semanticTimelineSource, /kind:\s*"placeholder"\s*\|\s*"foot/);
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
@@ -2689,6 +2803,7 @@ const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/com
 assert.doesNotMatch(workspacePanelFrameSource, /workspace-panel-close|canClose|onClose/);
 const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/panelRegistry.ts", import.meta.url)), "utf-8");
 assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
+assert.match(panelRegistrySource, /kind: "orderFlow"[\s\S]*agentPanelType: "orderFlowProfile"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({

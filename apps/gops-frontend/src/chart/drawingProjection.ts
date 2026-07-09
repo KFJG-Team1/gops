@@ -170,7 +170,6 @@ function hasDetailExpansionForDrawing(
 ): boolean {
   return scene.semantic.expansionRanges.some((range) => (
     intervalsOverlap(timeRange, isoRange(range.from, range.to)) &&
-    range.childInterval !== "footprint" &&
     intervalRank(range.childInterval) <= intervalRank(sourceInterval) &&
     drawing.anchors.some((anchor) => anchor.timestamp && timestampInRange(anchor.timestamp, isoRange(range.from, range.to)))
   ));

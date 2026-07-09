@@ -5,8 +5,6 @@ import type {
   CandleQueryResponseDto,
   ChartInterval,
   ChartSymbolsResponseDto,
-  FootprintBucketDto,
-  FootprintResponseDto,
   IndicatorPointDto,
   IndicatorSeriesResponseDto,
   VolumeProfileBucketDto,
@@ -44,13 +42,6 @@ export type VolumeProfileQuery = {
   priceMin?: number;
   priceMax?: number;
   priceBinSize?: string;
-};
-
-export type FootprintQuery = {
-  symbol: string;
-  from: string;
-  to: string;
-  limit?: number;
 };
 
 export type ActiveChartHeartbeat = {
@@ -185,20 +176,6 @@ export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: Abo
     }
     return normalizeVolumeProfileResponse(await response.json());
   });
-}
-
-export async function fetchFootprint(query: FootprintQuery, signal?: AbortSignal): Promise<FootprintResponseDto> {
-  const params = new URLSearchParams({
-    symbol: query.symbol,
-    from: query.from,
-    to: query.to,
-    limit: String(query.limit ?? 20000)
-  });
-  const response = await fetch(`/api/charts/footprint?${params.toString()}`, { signal });
-  if (!response.ok) {
-    throw new Error(`Footprint API failed: ${response.status}`);
-  }
-  return normalizeFootprintResponse(await response.json());
 }
 
 export async function fetchSymbols(signal?: AbortSignal): Promise<ChartSymbolsResponseDto> {
@@ -440,50 +417,6 @@ function isVolumeProfileBucket(value: VolumeProfileBucketDto): value is VolumePr
     Number.isFinite(value.volume);
 }
 
-function normalizeFootprintResponse(payload: unknown): FootprintResponseDto {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Invalid footprint response");
-  }
-  const source = payload as FootprintResponseDto;
-  if (!source.symbol || !Array.isArray(source.buckets)) {
-    throw new Error("Footprint response missing required fields");
-  }
-  const buckets = source.buckets
-    .filter(isFootprintBucket)
-    .map((bucket) => ({
-      ...bucket,
-      priceLevels: Array.isArray(bucket.priceLevels)
-        ? bucket.priceLevels
-            .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.totalVolume))
-            .sort((left, right) => right.price - left.price)
-        : []
-    }))
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  return {
-    ...source,
-    interval: "footprint",
-    sourceInterval: "1m",
-    timeBucket: "1m",
-    sideClassification: "estimated",
-    dataStatus: source.dataStatus === "pending" || source.dataStatus === "failed"
-      ? source.dataStatus
-      : buckets.length ? "ready" : "empty",
-    tradeCount: Number.isFinite(source.tradeCount) ? source.tradeCount : buckets.reduce((sum, bucket) => sum + bucket.tradeCount, 0),
-    quoteCount: Number.isFinite(source.quoteCount) ? source.quoteCount : 0,
-    buckets
-  };
-}
-
-function isFootprintBucket(value: FootprintBucketDto): value is FootprintBucketDto {
-  return Boolean(value) &&
-    typeof value.timestamp === "string" &&
-    Number.isFinite(value.volume) &&
-    Number.isFinite(value.askVolume) &&
-    Number.isFinite(value.bidVolume) &&
-    Number.isFinite(value.unknownVolume) &&
-    Number.isFinite(value.delta);
-}
-
 function normalizeSymbolsResponse(payload: unknown): ChartSymbolsResponseDto {
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid symbols response");
@@ -509,7 +442,7 @@ function normalizeCandleEvent(payload: unknown): CandleEventDto {
   if (!source.type || !source.symbol || !source.data) {
     throw new Error("Candle event missing required fields");
   }
-  if ((source.type === "LIVE_TRADE_UPDATE" || source.type === "LIVE_QUOTE_UPDATE")) {
+  if (source.type === "LIVE_TRADE_UPDATE" || source.type === "LIVE_QUOTE_UPDATE" || source.type === "ORDER_FLOW_BINS_UPDATE") {
     return source;
   }
   if (!source.interval) {
