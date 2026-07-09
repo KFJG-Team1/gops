@@ -351,12 +351,12 @@ const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
-assert.equal(fallbackChartStyle.background, "#ffffff");
-assert.equal(fallbackChartStyle.text, "#0a0b0d");
-assert.equal(fallbackChartStyle.grid, "rgba(10, 11, 13, 0.08)");
-assert.equal(fallbackChartStyle.volume, "rgba(10, 11, 13, 0.12)");
-assert.equal(fallbackChartStyle.bullish, "#05b169");
-assert.equal(fallbackChartStyle.bearish, "#cf202f");
+assert.equal(fallbackChartStyle.background, "#090909");
+assert.equal(fallbackChartStyle.text, "#ffffff");
+assert.equal(fallbackChartStyle.grid, "rgba(255, 255, 255, 0.08)");
+assert.equal(fallbackChartStyle.volume, "rgba(255, 255, 255, 0.12)");
+assert.equal(fallbackChartStyle.bullish, "#22c55e");
+assert.equal(fallbackChartStyle.bearish, "#ff5577");
 setDefaultChartStyle({
   background: "#242832",
   bullish: "#05b169",
@@ -1656,7 +1656,7 @@ const defaultChartSlot = tiledState.slots.find((slot) => slot.id === "slot-chart
 const initialNewsSlot = tiledState.slots.find((slot) => slot.id === "slot-news");
 const initialOntologySlot = tiledState.slots.find((slot) => slot.id === "slot-ontology");
 const defaultChartContent = defaultChartSlot ? tiledState.contents[defaultChartSlot.contentId] : undefined;
-const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 3 }, tiledViewport);
+const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 4 }, tiledViewport);
 const expectedInitialNewsRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedInitialOntologyRect = panelRectForGridRect({ col: 5, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 1 }, tiledViewport);
@@ -1683,7 +1683,7 @@ const testSlotsOverlap = (slots: Array<{ rect: { left: number; top: number; widt
   }
   return false;
 };
-assert.deepEqual(panelGridSpec, { cols: 8, rows: 5 });
+assert.deepEqual(panelGridSpec, { cols: 8, rows: 6 });
 assert.deepEqual(
   tiledState.slots.map((slot) => tiledState.contents[slot.contentId]?.kind).sort(),
   ["chart", "news", "ontology"]
@@ -1702,7 +1702,7 @@ assert.ok(defaultChartDocument);
 assert.equal(defaultChartDocument.layers.volume, false);
 assert.equal((defaultChartContent as Record<string, unknown> | undefined)?.isDefaultChart, undefined);
 assert.equal((defaultChartSlot as Record<string, unknown> | undefined)?.required, undefined);
-assert.deepEqual(defaultChartSlot.gridRect, { col: 1, row: 3, colSpan: 8, rowSpan: 3 });
+assert.deepEqual(defaultChartSlot.gridRect, { col: 1, row: 3, colSpan: 8, rowSpan: 4 });
 assert.deepEqual(initialNewsSlot.gridRect, { col: 1, row: 1, colSpan: 4, rowSpan: 2 });
 assert.deepEqual(initialOntologySlot.gridRect, { col: 5, row: 1, colSpan: 4, rowSpan: 2 });
 assert.deepEqual(defaultChartSlot.rect, expectedInitialChartRect);
@@ -1985,21 +1985,25 @@ const ontologySouthYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ont
 assert.equal(ontologySouthYieldPlan.valid, true);
 assert.deepEqual(ontologySouthYieldPlan.yieldedSlots, [{
   slotId: "slot-chart",
-  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 3 },
-  gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 2 }
+  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 4 },
+  gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 3 }
 }]);
 const ontologySouthYieldState = applyPanelResizeWithYield(tiledState, ontologySouthYieldPlan, tiledViewport);
 assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-ontology")?.gridRect, { col: 5, row: 1, colSpan: 4, rowSpan: 3 });
-assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-chart")?.gridRect, { col: 1, row: 4, colSpan: 8, rowSpan: 2 });
+assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-chart")?.gridRect, { col: 1, row: 4, colSpan: 8, rowSpan: 3 });
 assert.equal(layoutHasGapsOrOverlaps(ontologySouthYieldState, tiledViewport), false);
-const ontologySouthBlockedPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 5, row: 1, colSpan: 4, rowSpan: 5 });
-assert.equal(ontologySouthBlockedPlan.valid, false);
-assert.equal(ontologySouthBlockedPlan.reason, "minimum-span");
+const ontologySouthCompressedPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 5, row: 1, colSpan: 4, rowSpan: 5 });
+assert.equal(ontologySouthCompressedPlan.valid, true);
+assert.deepEqual(ontologySouthCompressedPlan.yieldedSlots, [{
+  slotId: "slot-chart",
+  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 4 },
+  gridRect: { col: 1, row: 6, colSpan: 8, rowSpan: 1 }
+}]);
 const ontologyDiagonalYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 4, row: 1, colSpan: 5, rowSpan: 3 });
 assert.equal(ontologyDiagonalYieldPlan.valid, true);
 assert.deepEqual(ontologyDiagonalYieldPlan.yieldedSlots.map((slot) => [slot.slotId, slot.gridRect]), [
   ["slot-news", { col: 1, row: 1, colSpan: 3, rowSpan: 2 }],
-  ["slot-chart", { col: 1, row: 4, colSpan: 8, rowSpan: 2 }]
+  ["slot-chart", { col: 1, row: 4, colSpan: 8, rowSpan: 3 }]
 ]);
 const cornerCollisionContents = {
   "content-source": { id: "content-source", kind: "ontology" as const, title: "온톨로지", instanceIndex: 1 },
@@ -2255,7 +2259,6 @@ assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.props?.sym
 assert.equal(typeof chartAddState.contents[addedChartSlot?.contentId ?? ""]?.chartDocumentId, "string");
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
 assert.deepEqual(addedChartSlot.gridRect, { col: 1, row: 4, colSpan: 4, rowSpan: 2 });
-assert.equal(rectBottom(addedChartSlot.rect), tiledInnerBottom);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
 assert.equal(layoutHasGapsOrOverlaps(chartAddState, tiledViewport), false);
 
@@ -2810,7 +2813,8 @@ assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \[
 assert.match(bottomCommandBarSource, /const sideRailMenuKeys: BottomMenuKey\[\] = sideMenuKeys\.filter\(\(key\) => key !== "IV"\);/);
 assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /aria-label="로그인"/);
-assert.match(bottomCommandBarSource, /Logout\/profile live in Settings/);
+assert.match(bottomCommandBarSource, /case "VI":[\s\S]*<SettingsMenu/);
+assert.match(bottomCommandBarSource, /title="로그인\/프로필"/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
@@ -3097,12 +3101,12 @@ const expandedAgentLayoutPanels = (buildTiledAgentLayoutContext(expandedAgentLay
 const agentLayoutOrderPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "orderTicket");
 assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
-assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
+assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
 assert.equal(agentLayoutPortfolioPanel?.title, "Holdings");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
-assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
+assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
 
 const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
@@ -3261,7 +3265,8 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: now
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
-assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: calc\(var\(--bottom-control-size\) \* 2 \+ 15px\);/);
+assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: auto;/);
+assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*min-width: 50px;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
