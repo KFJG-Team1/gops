@@ -15,7 +15,6 @@ import type { ChartDocument } from "@gops/chart-engine";
 import {
   type CSSProperties,
   type Dispatch,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type SetStateAction,
@@ -135,18 +134,6 @@ type LayoutPreview = {
 };
 
 const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-const indexPaletteKinds = ["indices2x2", "indices1x1", "indices"] as const;
-type IndexPaletteKind = typeof indexPaletteKinds[number];
-
-const indexPaletteLabels: Record<IndexPaletteKind, string> = {
-  indices2x2: "지수 위젯 2×2",
-  indices1x1: "지수 위젯 1×1",
-  indices: "지수 표"
-};
-
-function isIndexPaletteKind(kind: PanelContentKind): kind is IndexPaletteKind {
-  return (indexPaletteKinds as readonly PanelContentKind[]).includes(kind);
-}
 
 export function PanelWorkspace({
   panelState,
@@ -176,13 +163,10 @@ export function PanelWorkspace({
   const [draggingSlotId, setDraggingSlotId] = useState<PanelSlotId | null>(null);
   const [isLayoutResizing, setIsLayoutResizing] = useState(false);
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
-  const [indexPaletteOpen, setIndexPaletteOpen] = useState(false);
-  const [indexPaletteMenuLeft, setIndexPaletteMenuLeft] = useState<number | null>(null);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
-  const indexPaletteGroupRef = useRef<HTMLDivElement | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const layoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetrics);
@@ -202,35 +186,6 @@ export function PanelWorkspace({
     layoutMetricsRef.current = layoutMetrics;
   }, [layoutMetrics]);
 
-  useEffect(() => {
-    if (!layoutEditMode) {
-      setIndexPaletteOpen(false);
-    }
-  }, [layoutEditMode]);
-
-  useEffect(() => {
-    if (!indexPaletteOpen) {
-      return undefined;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && indexPaletteGroupRef.current?.contains(event.target)) {
-        return;
-      }
-      setIndexPaletteOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIndexPaletteOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [indexPaletteOpen]);
-
   const panelBoundaries = useMemo(() => detectResizablePanelBoundaries(panelState, viewportSize, layoutMetrics), [layoutMetrics, panelState, viewportSize]);
   const activeBoundary = useMemo(() => (
     activeBoundaryId ? panelBoundaries.find((boundary) => boundary.id === activeBoundaryId) ?? null : null
@@ -238,21 +193,6 @@ export function PanelWorkspace({
   const activeBoundarySlotIds = useMemo(() => (
     new Set([...(activeBoundary?.negativeSlotIds ?? []), ...(activeBoundary?.positiveSlotIds ?? [])])
   ), [activeBoundary]);
-  const paletteDockItems = useMemo(() => {
-    const items: Array<{ type: "entry"; kind: PanelContentKind } | { type: "index-group" }> = [];
-    let indexGroupAdded = false;
-    for (const entry of panelPaletteEntries()) {
-      if (isIndexPaletteKind(entry.kind)) {
-        if (!indexGroupAdded) {
-          items.push({ type: "index-group" });
-          indexGroupAdded = true;
-        }
-        continue;
-      }
-      items.push({ type: "entry", kind: entry.kind });
-    }
-    return items;
-  }, []);
   const setChartSlotHover = useCallback((slotId: PanelSlotId, hovered: boolean) => {
     setHoveredChartSlotId((current) => {
       if (hovered) {
@@ -548,7 +488,6 @@ export function PanelWorkspace({
       return;
     }
     event.preventDefault();
-    setIndexPaletteOpen(false);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const drag: LayoutDrag = {
       mode: "palette",
@@ -569,13 +508,6 @@ export function PanelWorkspace({
     } catch {
       // Pointer capture can be released by the browser when a drag leaves the element.
     }
-  };
-
-  const toggleIndexPaletteMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    setIndexPaletteMenuLeft(rect.left + rect.width / 2);
-    setIndexPaletteOpen((current) => !current);
   };
 
   const closePanel = (slotId: PanelSlotId) => {
@@ -711,13 +643,19 @@ export function PanelWorkspace({
       {panelState.slots.map((slot) => {
         const content = panelState.contents[slot.contentId];
         const isChart = content.kind === "chart";
-        const hidePanelNav = isChart || isPortfolioPanelKind(content.kind);
+        const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
         const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
         const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
         const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
+        const previewGridRect = layoutPreview?.mode === "resize"
+          && layoutPreview.valid
+          && layoutPreview.sourceSlotId === slot.id
+          ? layoutPreview.gridRect
+          : null;
+        const effectiveGridRect = previewGridRect ?? slot.gridRect;
         return (
           <WorkspacePanelFrame
             key={slot.id}
@@ -753,6 +691,9 @@ export function PanelWorkspace({
               companyItems={companyItems}
               marketItems={marketItems}
               laneHeight={Math.max(120, slot.rect.height)}
+              effectiveColSpan={effectiveGridRect.colSpan}
+              effectiveRowSpan={effectiveGridRect.rowSpan}
+              layoutResizeSuspended={Boolean(previewGridRect)}
               chartHeaderSnapshot={chartHeaders[content.id]}
               chartDocument={chartDocument}
               chartCandles={chartCandles}
@@ -846,62 +787,19 @@ export function PanelWorkspace({
       )}
       {layoutEditMode && (
         <div className="layout-palette-dock" aria-label="패널 추가 Dock">
-          {paletteDockItems.map((item) => {
-            if (item.type === "index-group") {
-              return (
-                <div key="indices-group" ref={indexPaletteGroupRef} className="layout-palette-group">
-                  <button
-                    type="button"
-                    className={`layout-palette-button layout-palette-group-button surface-raised${indexPaletteOpen ? " is-open" : ""}`}
-                    aria-haspopup="menu"
-                    aria-expanded={indexPaletteOpen}
-                    onClick={toggleIndexPaletteMenu}
-                  >
-                    <span>지수</span>
-                    <ChevronRight size={13} strokeWidth={2.3} aria-hidden="true" />
-                  </button>
-                  {indexPaletteOpen && (
-                    <div
-                      className="layout-palette-submenu surface-raised"
-                      role="menu"
-                      aria-label="지수 패널 선택"
-                      style={{
-                        "--layout-index-menu-left": indexPaletteMenuLeft ? `${indexPaletteMenuLeft}px` : "50vw"
-                      } as CSSProperties}
-                    >
-                      {indexPaletteKinds.map((kind) => (
-                        <button
-                          key={kind}
-                          type="button"
-                          className="layout-palette-subitem"
-                          role="menuitem"
-                          onPointerDown={beginPaletteDrag(kind)}
-                          onPointerMove={updateDrag}
-                          onPointerUp={endDrag}
-                          onPointerCancel={endDrag}
-                        >
-                          <span>{indexPaletteLabels[kind]}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            return (
-              <button
-                key={item.kind}
-                type="button"
-                className="layout-palette-button surface-raised"
-                onPointerDown={beginPaletteDrag(item.kind)}
-                onPointerMove={updateDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-              >
-                <span>{panelPaletteEntryLabel(item.kind)}</span>
-              </button>
-            );
-          })}
+          {panelPaletteEntries().map((entry) => (
+            <button
+              key={entry.kind}
+              type="button"
+              className="layout-palette-button surface-raised"
+              onPointerDown={beginPaletteDrag(entry.kind)}
+              onPointerMove={updateDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
+              <span>{panelPaletteEntryLabel(entry.kind)}</span>
+            </button>
+          ))}
         </div>
       )}
       {!layoutEditMode && (drawingTarget || chartAddTarget) && (
