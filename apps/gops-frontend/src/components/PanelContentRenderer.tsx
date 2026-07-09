@@ -12,7 +12,6 @@ import { StockRecommendationsPanel } from "../recommendations/StockRecommendatio
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { CompanySummaryPanel } from "./CompanySummaryPanel";
-import { IndexPanel } from "./IndexPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
@@ -38,6 +37,9 @@ type PanelContentRendererProps = {
   companyItems: Sp500UniverseItem[];
   marketItems: Sp500UniverseItem[];
   laneHeight: number;
+  effectiveColSpan?: number;
+  effectiveRowSpan?: number;
+  layoutResizeSuspended?: boolean;
   chartHeaderSnapshot?: ChartHeaderSnapshot;
   chartDocument?: ChartDocument;
   chartCandles: CandleDto[];
@@ -72,6 +74,9 @@ export function PanelContentRenderer({
   companyItems,
   marketItems,
   laneHeight,
+  effectiveColSpan,
+  effectiveRowSpan,
+  layoutResizeSuspended = false,
   chartHeaderSnapshot,
   chartDocument,
   chartCandles,
@@ -153,15 +158,13 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "indices") {
-    return <IndexPanel />;
-  }
-
-  if (content.kind === "indices1x1") {
-    return <IndexWidgetPanel variant="1x1" />;
-  }
-
-  if (content.kind === "indices2x2") {
-    return <IndexWidgetPanel variant="2x2" />;
+    return (
+      <IndexWidgetPanel
+        cols={effectiveColSpan ?? slot.gridRect.colSpan}
+        rows={effectiveRowSpan ?? slot.gridRect.rowSpan}
+        suspended={layoutResizeSuspended}
+      />
+    );
   }
 
   if (content.kind === "popular") {

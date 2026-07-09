@@ -1,19 +1,33 @@
 import { LoaderCircle, RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { MarketIndexItem } from "../market/indicesApi";
 import { useMarketIndices } from "../market/useMarketIndices";
 
-type IndexWidgetVariant = "1x1" | "2x2";
 type Direction = "positive" | "negative" | "neutral";
 
 const ROTATION_MS = 5_000;
 const ANIMATION_MS = 350;
 const GROUP_ORDER = ["US", "Korea", "Asia", "Commodities", "Crypto", "FX"];
 
-export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
+export const IndexWidgetPanel = memo(function IndexWidgetPanel({
+  cols,
+  rows,
+  suspended = false
+}: {
+  cols: number;
+  rows: number;
+  suspended?: boolean;
+}) {
   const { payload, loading, refreshing, error, warning, reload } = useMarketIndices();
   const items = useMemo(() => flattenIndexItems(payload?.items ?? []), [payload?.items]);
   const itemSignature = useMemo(() => items.map((item) => item.symbol).join("|"), [items]);
+  const safeCols = Math.max(1, Math.floor(cols));
+  const safeRows = Math.max(1, Math.floor(rows));
+  const visibleCount = safeCols * safeRows;
+  const gridStyle = {
+    "--iw-cols": safeCols,
+    "--iw-rows": safeRows
+  } as CSSProperties;
   const [displayCursor, setDisplayCursor] = useState(0);
   const [animationPhase, setAnimationPhase] = useState<"idle" | "out" | "in">("idle");
   const [rotationPaused, setRotationPaused] = useState(false);
@@ -24,14 +38,14 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
   const inTimerRef = useRef<number | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  const step = variant === "1x1" ? 1 : 4;
-  const canRotate = variant === "1x1" ? items.length > 1 : items.length > 4;
+  const step = visibleCount;
+  const canRotate = items.length > visibleCount;
 
   const visibleItems = useMemo(
-    () => visibleItemsForVariant(items, displayCursor, variant),
-    [displayCursor, items, variant]
+    () => selectVisibleItems(items, displayCursor, visibleCount),
+    [displayCursor, items, visibleCount]
   );
-  const emptySlots = variant === "2x2" ? Math.max(0, 4 - visibleItems.length) : 0;
+  const emptySlots = Math.max(0, visibleCount - items.length);
   const pauseRotation = useCallback(() => setRotationPaused(true), []);
   const resumeRotation = useCallback(() => setRotationPaused(false), []);
 
@@ -60,7 +74,7 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
       if (nextCursor === cursorRef.current) {
         return;
       }
-      if (prefersReducedMotion) {
+      if (prefersReducedMotion || suspended) {
         clearAnimationTimers();
         animatingRef.current = false;
         setAnimationPhase("idle");
@@ -86,7 +100,7 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
         }, ANIMATION_MS);
       }, ANIMATION_MS);
     },
-    [clearAnimationTimers, items.length, prefersReducedMotion, swapCursor]
+    [clearAnimationTimers, items.length, prefersReducedMotion, suspended, swapCursor]
   );
 
   const advance = useCallback(() => {
@@ -105,6 +119,15 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
   }, [clearAnimationTimers]);
 
   useEffect(() => {
+    if (!suspended) {
+      return;
+    }
+    clearAnimationTimers();
+    animatingRef.current = false;
+    setAnimationPhase("idle");
+  }, [clearAnimationTimers, suspended]);
+
+  useEffect(() => {
     clearAnimationTimers();
     animatingRef.current = false;
     setAnimationPhase("idle");
@@ -115,24 +138,24 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
     const rematchedCursor = firstVisibleSymbolIndex(visibleSymbolsRef.current, items);
     const nextCursor = rematchedCursor ?? normalizeCursor(cursorRef.current, items.length);
     swapCursor(nextCursor);
-  }, [clearAnimationTimers, itemSignature, items, items.length, swapCursor]);
+  }, [clearAnimationTimers, itemSignature, items, items.length, safeCols, safeRows, swapCursor]);
 
   useEffect(() => {
     visibleSymbolsRef.current = visibleItems.map((item) => item.symbol);
   }, [visibleItems]);
 
   useEffect(() => {
-    if (!canRotate || rotationPaused) {
+    if (!canRotate || rotationPaused || suspended) {
       return undefined;
     }
     const intervalId = window.setInterval(advance, ROTATION_MS);
     return () => window.clearInterval(intervalId);
-  }, [advance, canRotate, rotationPaused]);
+  }, [advance, canRotate, rotationPaused, suspended]);
 
   return (
     <section
-      className={`index-widget-panel is-${variant}`}
-      aria-label={variant === "1x1" ? "시장 지수 1x1 위젯" : "시장 지수 2x2 위젯"}
+      className="index-widget-panel"
+      aria-label={`시장 지수 ${safeCols}x${safeRows} 위젯`}
       onMouseEnter={pauseRotation}
       onMouseLeave={resumeRotation}
       onPointerEnter={pauseRotation}
@@ -160,7 +183,7 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
       {!loading && !error && items.length > 0 && (
         <div className="index-widget-stack">
           <div className={`index-widget-anim is-${animationPhase}`}>
-            <div className={`index-widget-grid is-${variant === "1x1" ? "single" : "quad"}`}>
+            <div className="index-widget-grid" style={gridStyle}>
               {visibleItems.map((item) => (
                 <div className="index-widget-cell" key={item.symbol}>
                   <IndexWidgetCard item={item} />
@@ -177,7 +200,7 @@ export function IndexWidgetPanel({ variant }: { variant: IndexWidgetVariant }) {
       )}
     </section>
   );
-}
+});
 
 function IndexWidgetCard({ item }: { item: MarketIndexItem }) {
   const direction = directionForItem(item);
@@ -240,15 +263,12 @@ function groupOrderIndex(group: string) {
   return index === -1 ? 99 : index;
 }
 
-function visibleItemsForVariant(items: MarketIndexItem[], cursor: number, variant: IndexWidgetVariant) {
+function selectVisibleItems(items: MarketIndexItem[], cursor: number, count: number): MarketIndexItem[] {
   if (items.length === 0) {
     return [];
   }
-  if (variant === "1x1") {
-    return [items[normalizeCursor(cursor, items.length)]!];
-  }
-  const count = Math.min(4, items.length);
-  return Array.from({ length: count }, (_, index) => items[normalizeCursor(cursor + index, items.length)]!);
+  const visibleCount = Math.min(count, items.length);
+  return Array.from({ length: visibleCount }, (_, index) => items[normalizeCursor(cursor + index, items.length)]!);
 }
 
 function firstVisibleSymbolIndex(symbols: string[], items: MarketIndexItem[]) {
