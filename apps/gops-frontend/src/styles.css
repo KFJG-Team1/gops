@@ -1,101 +1,192 @@
 :root {
   color-scheme: light;
-  --font-ui-serif: "Times New Roman", Times, Georgia, "Nanum Myeongjo", "Noto Serif KR", serif;
-  --font-data-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --gops-background: #efefe8;
-  --gops-ink: #1a1a0e;
-  --gops-ink-rgb: 26 26 14;
-  --gops-down: #b31a0f;
-  --gops-up: #1b6a29;
-  --gops-signal: #1D4D8C;
-  --gops-signal-rgb: 29 77 140;
-  --gops-caution: #D99B00;
-  --gops-caution-rgb: 217 155 0;
-  --gops-purple: #783A6B;
-  --gops-purple-rgb: 120 58 107;
-  --color-background: var(--gops-background);
-  --color-surface: var(--gops-background);
-  --color-surface-strong: var(--gops-background);
-  --color-text: var(--gops-ink);
-  --color-muted: rgb(var(--gops-ink-rgb) / 0.66);
-  --color-muted-medium: rgb(var(--gops-ink-rgb) / 0.45);
-  --color-muted-soft: rgb(var(--gops-ink-rgb) / 0.38);
-  --color-text-medium: rgb(var(--gops-ink-rgb) / 0.78);
-  --color-text-soft: rgb(var(--gops-ink-rgb) / 0.68);
-  --color-border: rgb(var(--gops-ink-rgb) / 0.26);
-  --color-rule-soft: rgb(var(--gops-ink-rgb) / 0.3);
-  --color-shadow: var(--gops-ink);
-  --color-up: var(--gops-up);
-  --color-up-soft: var(--gops-up);
-  --color-down: var(--gops-down);
-  --color-down-soft: var(--gops-down);
-  --color-change-up: var(--gops-up);
-  --color-change-down: var(--gops-down);
+  --font-ui-serif: "Coinbase Sans", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-data-sans: "Coinbase Sans", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --coinbase-primary: #0052ff;
+  --coinbase-primary-rgb: 0 82 255;
+  --coinbase-primary-active: #003ecc;
+  --coinbase-primary-active-rgb: 0 62 204;
+  --coinbase-primary-soft: #e7efff;
+  --coinbase-primary-disabled: #b9c0ca;
+  --coinbase-primary-disabled-rgb: 185 192 202;
+  --coinbase-ink: #0a0b0d;
+  --coinbase-ink-rgb: 10 11 13;
+  --coinbase-ink-soft: #242832;
+  --coinbase-ink-soft-rgb: 36 40 50;
+  --coinbase-body: #5b616e;
+  --coinbase-body-rgb: 91 97 110;
+  --coinbase-body-strong: #0a0b0d;
+  --coinbase-muted: #8c939f;
+  --coinbase-muted-rgb: 140 147 159;
+  --coinbase-muted-soft: #b9c0ca;
+  --coinbase-muted-soft-rgb: 185 192 202;
+  --coinbase-hairline: rgba(10, 11, 13, 0.08);
+  --coinbase-hairline-strong: rgba(10, 11, 13, 0.14);
+  --coinbase-hairline-rgb: 10 11 13;
+  --coinbase-hairline-soft: color-mix(in srgb, var(--coinbase-hairline) 58%, transparent);
+  --coinbase-canvas-oklch: oklch(100% 0 0);
+  --coinbase-canvas-mid-oklch: oklch(99.3% 0.004 247);
+  --coinbase-canvas-end-oklch: oklch(96.4% 0.026 250);
+  --coinbase-canvas: #ffffff;
+  --coinbase-canvas-rgb: 255 255 255;
+  --coinbase-canvas-left: #ffffff;
+  --coinbase-canvas-right: #eef7ff;
+  --coinbase-canvas-mid: #fbfdff;
+  --coinbase-canvas-end: #dbeaff;
+  --coinbase-app-canvas:
+    radial-gradient(ellipse 152% 86% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.16) 0%, rgb(var(--coinbase-primary-rgb) / 0.085) 40%, rgb(var(--coinbase-primary-rgb) / 0.032) 64%, transparent 84%),
+    radial-gradient(ellipse 118% 50% at 50% 98%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.48) 46%, transparent 78%),
+    radial-gradient(ellipse 72% 30% at 28% 94%, rgba(255, 255, 255, 0.58) 0%, transparent 72%),
+    radial-gradient(ellipse 78% 32% at 76% 104%, rgba(255, 255, 255, 0.46) 0%, transparent 74%),
+    radial-gradient(ellipse 86% 54% at 0% 112%, rgb(var(--coinbase-primary-active-rgb) / 0.035) 0%, transparent 72%),
+    radial-gradient(ellipse 86% 54% at 100% 112%, rgb(var(--coinbase-primary-rgb) / 0.04) 0%, transparent 72%),
+    linear-gradient(180deg, #ffffff 0%, #ffffff 50%, var(--coinbase-canvas-mid) 66%, #f4f9ff 86%, #eaf4ff 100%);
+  --coinbase-panel: rgba(255, 255, 255, 0.05);
+  --coinbase-panel-strong: rgba(255, 255, 255, 0.08);
+  --coinbase-panel-muted: rgba(255, 255, 255, 0.035);
+  --coinbase-rail: rgba(255, 255, 255, 0.05);
+  --coinbase-panel-glass: rgba(255, 255, 255, 0.05);
+  --coinbase-panel-glass-strong: rgba(255, 255, 255, 0.08);
+  --coinbase-rail-glass: rgba(255, 255, 255, 0.05);
+  --coinbase-control-glass: rgba(255, 255, 255, 0.05);
+  --coinbase-glass-border: rgba(255, 255, 255, 0.3);
+  --coinbase-glass-edge: rgba(255, 255, 255, 0.8);
+  --coinbase-glass-edge-soft: rgba(255, 255, 255, 0.3);
+  --coinbase-glass-inset: rgba(255, 255, 255, 0.2);
+  --coinbase-glass-filter: blur(10px);
+  --coinbase-shadow-soft: rgba(40, 64, 84, 0.10);
+  --coinbase-glass-shadow:
+    0 8px 32px rgb(var(--coinbase-ink-rgb) / 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 4px 2px rgba(255, 255, 255, 0.2);
+  --coinbase-shadow-glow-blue: rgba(0, 82, 255, 0.18);
+  --coinbase-shadow-glow-green: rgba(5, 177, 105, 0.24);
+  --coinbase-surface-soft: var(--coinbase-panel-muted);
+  --coinbase-surface-card: var(--coinbase-panel);
+  --coinbase-surface-strong: var(--coinbase-panel-strong);
+  --coinbase-surface-dark: #0a0b0d;
+  --coinbase-surface-dark-elevated: #242832;
+  --coinbase-on-primary: #ffffff;
+  --coinbase-on-primary-rgb: 255 255 255;
+  --coinbase-on-dark: #ffffff;
+  --coinbase-on-dark-soft: #b9c0ca;
+  --coinbase-semantic-up: #05b169;
+  --coinbase-semantic-up-rgb: 5 177 105;
+  --coinbase-semantic-up-glow: #6cff5f;
+  --coinbase-semantic-down: #cf202f;
+  --coinbase-semantic-down-rgb: 207 32 47;
+  --coinbase-semantic-down-glow: #ff5f7a;
+  --coinbase-accent-yellow: #f4b000;
+  --coinbase-accent-yellow-rgb: 244 176 0;
+  --coinbase-accent-yellow-glow: #ffe45f;
+  --gops-background: var(--coinbase-canvas);
+  --gops-ink: var(--coinbase-ink);
+  --gops-ink-rgb: var(--coinbase-ink-rgb);
+  --gops-down: var(--coinbase-semantic-down);
+  --gops-up: var(--coinbase-semantic-up);
+  --gops-signal: var(--coinbase-primary);
+  --gops-signal-rgb: var(--coinbase-primary-rgb);
+  --gops-caution: var(--coinbase-accent-yellow);
+  --gops-caution-rgb: var(--coinbase-accent-yellow-rgb);
+  --gops-purple: var(--coinbase-muted);
+  --gops-purple-rgb: var(--coinbase-muted-rgb);
+  --color-background: var(--coinbase-canvas);
+  --color-surface: var(--coinbase-panel);
+  --color-surface-strong: var(--coinbase-panel-strong);
+  --color-text: var(--coinbase-ink);
+  --color-muted: var(--coinbase-body);
+  --color-muted-medium: var(--coinbase-muted);
+  --color-muted-soft: var(--coinbase-muted-soft);
+  --color-text-medium: var(--coinbase-body-strong);
+  --color-text-soft: var(--coinbase-body);
+  --color-border: var(--coinbase-hairline);
+  --color-rule-soft: var(--coinbase-hairline-soft);
+  --color-shadow: var(--coinbase-ink);
+  --color-up: var(--coinbase-semantic-up);
+  --color-up-soft: var(--coinbase-semantic-up);
+  --color-down: var(--coinbase-semantic-down);
+  --color-down-soft: var(--coinbase-semantic-down);
+  --color-change-up: var(--coinbase-semantic-up);
+  --color-change-down: var(--coinbase-semantic-down);
   --color-bullish: var(--color-change-up);
   --color-bearish: var(--color-change-down);
   --color-danger: var(--color-change-down);
-  --color-ma5: #B66A00;
-  --color-ma20: #007C89;
-  --color-ma60: #9B2D65;
-  --color-drawing: var(--gops-ink);
-  --color-preview: var(--gops-ink);
-  --color-footprint: rgb(var(--gops-ink-rgb) / 0.42);
-  --color-volume: rgb(var(--gops-ink-rgb) / 0.12);
-  --color-grid: rgb(var(--gops-ink-rgb) / 0.08);
+  --color-ma5: var(--coinbase-primary);
+  --color-ma20: var(--coinbase-semantic-up);
+  --color-ma60: var(--coinbase-accent-yellow);
+  --color-drawing: var(--coinbase-ink);
+  --color-preview: var(--coinbase-ink);
+  --color-footprint: rgb(var(--coinbase-ink-rgb) / 0.42);
+  --color-volume: rgb(var(--coinbase-ink-rgb) / 0.12);
+  --color-grid: rgb(var(--coinbase-ink-rgb) / 0.08);
   --color-axis: var(--color-muted);
-  --color-axis-soft: rgb(var(--gops-ink-rgb) / 0.5);
-  --color-chart-readout: rgb(var(--gops-ink-rgb) / 0.48);
-  --color-ontology-edge: rgb(var(--gops-ink-rgb) / 0.28);
-  --color-ontology-edge-muted: rgb(var(--gops-ink-rgb) / 0.12);
-  --color-crosshair: var(--gops-ink);
-  --color-tile-text: var(--gops-ink);
-  --color-tile-text-inverse: var(--gops-background);
-  --color-signal: var(--gops-signal);
-  --color-signal-soft: rgb(var(--gops-signal-rgb) / 0.48);
-  --color-caution: var(--gops-caution);
-  --color-caution-soft: rgb(var(--gops-caution-rgb) / 0.48);
-  --color-purple: var(--gops-purple);
-  --color-purple-soft: rgb(var(--gops-purple-rgb) / 0.48);
+  --color-axis-soft: rgb(var(--coinbase-ink-rgb) / 0.5);
+  --color-chart-readout: rgb(var(--coinbase-ink-rgb) / 0.48);
+  --color-ontology-edge: rgb(var(--coinbase-ink-rgb) / 0.28);
+  --color-ontology-edge-muted: rgb(var(--coinbase-ink-rgb) / 0.12);
+  --color-crosshair: var(--coinbase-ink);
+  --color-tile-text: var(--coinbase-ink);
+  --color-tile-text-inverse: var(--coinbase-on-dark);
+  --color-signal: var(--coinbase-primary);
+  --color-signal-soft: var(--coinbase-primary-soft);
+  --color-caution: var(--coinbase-accent-yellow);
+  --color-caution-soft: var(--coinbase-accent-yellow-glow);
+  --color-purple: var(--coinbase-muted);
+  --color-purple-soft: var(--coinbase-muted-soft);
   --layout-gutter: 24px;
-  --top-nav-height: 68px;
-  --bottom-nav-height: 60px;
+  --top-nav-height: 64px;
+  --bottom-nav-height: 64px;
   --bottom-control-size: 36px;
-  /* Space reclaimed by removing the old chat-toggle button above the input: the whole
-     dock band and the panel bottom edge drop by this amount. Keep in sync with
-     treeMapHoverMetaReserve in layout/workspaceMetrics.ts (also reduced by 10). */
+  /* Pull floating tool docks slightly into the bottom command band. The visible workspace
+     bottom now tracks the command band height in layout/workspaceMetrics.ts. */
   --tool-dock-drop: 10px;
   /* Floating tool/palette docks sit just above the bottom command bar, tracking its
      height. Every dock-area floater references this single baseline so they move together. */
   --tool-dock-bottom: calc(var(--bottom-nav-height) + 2px - var(--tool-dock-drop));
-  --surface-radius: 2px;
+  --surface-radius: 16px;
+  --app-glass-radius: 20px;
+  --side-overlay-radius: 28px;
+  --heatmap-cell-radius: var(--surface-radius);
+  --heatmap-band-radius: 7px;
+  --chart-candle-radius: 3px;
   /* Panel content contract: uniform inner padding + inter-block gap for every content panel.
      The right side additionally reserves the scrollbar via scrollbar-gutter (see the shared
      panel rule), so content is identical whether or not a scrollbar is present. */
-  --panel-padding: 6px;
-  --panel-gap: 8px;
-  --surface-raised-surface: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
-  --surface-raised-highlight-shadow: -1px -1px 4px var(--color-border);
-  --surface-raised-depth-shadow: 2px 2px 5px var(--color-shadow);
-  --surface-raised-depth-opacity: 0.04;
-  --surface-floating-depth-shadow: 0 16px 34px var(--color-shadow);
-  --surface-floating-depth-opacity: 0.1;
-  --surface-recessed-shadow: inset 0 0 8px var(--color-shadow);
-  --surface-recessed-opacity: 0.12;
-  --surface-recessed-strong-opacity: 0.3;
-  --paper-fiber-light: color-mix(in srgb, var(--color-background) 74%, rgb(255 255 255));
-  --paper-fiber-mid: color-mix(in srgb, var(--color-background) 86%, var(--color-text));
-  --paper-fiber-deep: color-mix(in srgb, var(--color-background) 78%, var(--color-text));
-  --paper-grain-light: color-mix(in srgb, var(--color-background) 82%, rgb(255 255 255));
-  --paper-grain-mid: color-mix(in srgb, var(--color-background) 90%, var(--color-text));
-  --paper-grain-deep: color-mix(in srgb, var(--color-background) 84%, var(--color-text));
-  --paper-texture-opacity: 0.12;
-  --paper-grain-opacity: 0.1;
+  --panel-padding: 8px;
+  --panel-gap: 12px;
+  --surface-raised-surface: var(--coinbase-panel-strong);
+  --surface-raised-highlight-shadow: inset 0 1px 0 rgb(var(--coinbase-on-primary-rgb) / 0.82);
+  --surface-raised-depth-shadow: 0 2px 8px var(--color-shadow);
+  --surface-raised-depth-opacity: 0.08;
+  --surface-floating-depth-shadow: 0 8px 24px var(--color-shadow);
+  --surface-floating-depth-opacity: 0.12;
+  --surface-recessed-shadow: inset 0 0 0 1px var(--coinbase-hairline);
+  --surface-recessed-opacity: 1;
+  --surface-recessed-strong-opacity: 1;
+  --paper-fiber-light: var(--coinbase-canvas-left);
+  --paper-fiber-mid: var(--coinbase-canvas-right);
+  --paper-fiber-deep: var(--coinbase-hairline-soft);
+  --paper-grain-light: var(--coinbase-canvas);
+  --paper-grain-mid: var(--coinbase-canvas-mid);
+  --paper-grain-deep: var(--coinbase-canvas-end);
+  --paper-texture-opacity: 0;
+  --paper-grain-opacity: 0;
   font-family: var(--font-data-sans);
   font-size: 14px;
   background: var(--color-background);
   color: var(--color-text);
   font-synthesis: none;
   text-rendering: geometricPrecision;
+}
+
+@supports (color: oklch(100% 0 0)) {
+  :root {
+    --coinbase-canvas-left: var(--coinbase-canvas-oklch);
+    --coinbase-canvas-right: oklch(97.7% 0.014 247);
+    --coinbase-canvas-mid: var(--coinbase-canvas-mid-oklch);
+    --coinbase-canvas-end: var(--coinbase-canvas-end-oklch);
+  }
 }
 
 * {
@@ -108,7 +199,7 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: var(--color-background);
+  background: var(--coinbase-app-canvas);
 }
 
 html,
@@ -135,12 +226,12 @@ button {
   overflow: hidden;
   border: 1px solid rgb(var(--gops-ink-rgb) / 0.16);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface) 88%, rgb(255 255 255));
+  background: color-mix(in srgb, var(--color-surface) 88%, rgb(var(--coinbase-on-primary-rgb)));
   color: var(--color-text);
   font-family: var(--font-data-sans);
   font-weight: 820;
   line-height: 1;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.28);
+  box-shadow: inset 0 0 0 1px rgb(var(--coinbase-on-primary-rgb) / 0.28);
 }
 
 .stock-logo-xs {
@@ -204,49 +295,115 @@ button {
   height: 100vh;
   overflow: hidden;
   padding: 0;
-  background: var(--color-background);
+  background: var(--coinbase-app-canvas);
 }
 
-.app-shell::before {
+.heatmap-background-layer {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  background-image:
-    repeating-linear-gradient(0deg, var(--paper-fiber-light) 0 1px, var(--color-background) 1px 8px, var(--paper-fiber-mid) 8px 9px, var(--color-background) 9px 23px),
-    repeating-linear-gradient(90deg, var(--paper-fiber-mid) 0 1px, var(--color-background) 1px 13px, var(--paper-fiber-light) 13px 14px, var(--color-background) 14px 31px),
-    repeating-linear-gradient(0deg, var(--color-background) 0 17px, var(--paper-fiber-deep) 17px 18px, var(--color-background) 18px 43px);
-  background-position: 0 0, 11px 7px, 0 19px;
-  background-size: 160px 180px, 210px 190px, 260px 260px;
-  background-blend-mode: soft-light, multiply, multiply;
-  mix-blend-mode: multiply;
-  opacity: var(--paper-texture-opacity);
+  z-index: 0;
+  overflow: hidden;
+  perspective: 960px;
+  pointer-events: none;
+}
+
+.heatmap-background-layer::before,
+.heatmap-background-layer::after {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
   content: "";
+}
+
+.heatmap-background-layer::before {
+  inset: 28vh -24vw -20vh;
+  border: 0;
+  border-radius: 50% / 31%;
+  background:
+    radial-gradient(ellipse 86% 46% at 50% 16%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.5) 36%, transparent 68%),
+    radial-gradient(ellipse 64% 25% at 34% 76%, rgba(255, 255, 255, 0.48) 0%, transparent 72%),
+    radial-gradient(ellipse 62% 28% at 66% 106%, rgba(255, 255, 255, 0.42) 0%, transparent 76%),
+    radial-gradient(ellipse 116% 68% at 50% 88%, rgb(var(--coinbase-primary-rgb) / 0.16) 0%, rgb(var(--coinbase-primary-rgb) / 0.075) 50%, transparent 80%),
+    radial-gradient(ellipse 76% 42% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.055) 0%, transparent 74%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgb(var(--coinbase-primary-rgb) / 0.018) 46%, rgb(var(--coinbase-primary-rgb) / 0.07) 100%);
+  box-shadow:
+    inset 0 92px 128px rgba(255, 255, 255, 0.7),
+    inset 0 -130px 180px rgb(var(--coinbase-primary-rgb) / 0.09),
+    inset 120px 0 160px rgba(255, 255, 255, 0.35),
+    inset -120px 0 160px rgba(255, 255, 255, 0.35),
+    0 -42px 120px rgb(var(--coinbase-primary-rgb) / 0.07);
+  transform: rotateX(11deg) scaleX(1.03);
+  transform-origin: 50% 100%;
+}
+
+.heatmap-background-layer::after {
+  inset: 2vh -14vw -10vh;
+  border-radius: 50% / 24%;
+  background:
+    radial-gradient(ellipse 88% 34% at 50% 74%, rgba(255, 255, 255, 0.28) 0%, transparent 76%),
+    radial-gradient(ellipse 98% 42% at 50% 80%, rgb(var(--coinbase-primary-rgb) / 0.025) 0%, transparent 76%),
+    radial-gradient(ellipse 128% 72% at 50% 112%, rgb(var(--coinbase-primary-rgb) / 0.05) 0%, transparent 80%),
+    linear-gradient(180deg, transparent 0%, rgb(var(--coinbase-primary-rgb) / 0.008) 48%, rgb(var(--coinbase-primary-rgb) / 0.024) 100%);
+  box-shadow:
+    inset 0 64px 110px rgba(255, 255, 255, 0.72),
+    inset 0 -86px 140px rgb(var(--coinbase-primary-rgb) / 0.045);
+  opacity: 0.82;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
+}
+
+.heatmap-background-layer .treemap-panel {
+  display: none;
+  z-index: 1;
+  border: 0;
+  border-radius: 46% / 12%;
+  background: transparent;
+  box-shadow: none;
+  filter: blur(18px) grayscale(0.9) saturate(0.25) contrast(0.9);
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  transform: translateZ(-130px) rotateX(6deg) translateY(8vh) scaleX(1.08) scaleY(0.96);
+  transform-origin: center;
+  transform-style: preserve-3d;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.heatmap-background-layer .treemap-canvas {
+  background: transparent;
+}
+
+.heatmap-background-layer .treemap-hover-meta {
+  display: none;
 }
 
 .app-shell::after {
   position: fixed;
   inset: 0;
-  z-index: 61;
-  background-image:
-    repeating-linear-gradient(0deg, var(--paper-grain-light) 0 1px, var(--paper-grain-mid) 1px 2px, var(--color-background) 2px 5px),
-    repeating-linear-gradient(90deg, var(--paper-grain-mid) 0 1px, var(--color-background) 1px 4px, var(--paper-grain-light) 4px 5px, var(--color-background) 5px 9px),
-    repeating-linear-gradient(0deg, var(--color-background) 0 3px, var(--paper-grain-deep) 3px 4px, var(--color-background) 4px 11px);
-  background-position: 0 0, 2px 3px, 0 5px;
-  background-size: 6px 7px, 8px 6px, 14px 18px;
-  background-blend-mode: multiply, soft-light, multiply;
-  mix-blend-mode: multiply;
-  opacity: var(--paper-grain-opacity);
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 120% 56% at 50% 112%, rgba(255, 255, 255, 0.58) 0%, transparent 68%),
+    radial-gradient(ellipse 64% 24% at 34% 82%, rgba(255, 255, 255, 0.32) 0%, transparent 76%),
+    radial-gradient(ellipse 74% 28% at 70% 106%, rgba(255, 255, 255, 0.28) 0%, transparent 78%),
+    radial-gradient(ellipse 104% 42% at 50% 80%, rgb(var(--coinbase-primary-rgb) / 0.02) 0%, transparent 76%),
+    radial-gradient(ellipse 72% 42% at 12% 112%, rgb(var(--coinbase-primary-rgb) / 0.014) 0%, transparent 78%),
+    radial-gradient(ellipse 72% 42% at 88% 112%, rgb(var(--coinbase-primary-rgb) / 0.016) 0%, transparent 78%),
+    linear-gradient(180deg, transparent 0%, transparent 32%, rgba(255, 255, 255, 0.22) 52%, rgb(var(--coinbase-primary-rgb) / 0.018) 100%);
+  opacity: 0.72;
   pointer-events: none;
   content: "";
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, transparent 27%, rgba(0, 0, 0, 0.55) 54%, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, transparent 27%, rgba(0, 0, 0, 0.55) 54%, #000 100%);
 }
 
 .canvas-workspace {
   position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--color-background);
+  background: transparent;
 }
 
 .panel {
@@ -355,12 +512,12 @@ button {
   z-index: 45;
   /* Center column holds the input; it grows to 600px on wide screens and shrinks
      fluidly toward 300px once the side columns hit their min. */
-  grid-template-columns: minmax(96px, 1fr) minmax(300px, 600px) minmax(96px, 1fr);
-  column-gap: 16px;
+  grid-template-columns: minmax(72px, 1fr) minmax(280px, clamp(280px, 52vw, 560px)) minmax(72px, 1fr);
+  column-gap: clamp(18px, 4vw, 48px);
   height: var(--bottom-nav-height);
   /* Left/right inset is intentionally decoupled from the grid gutter so the edge
      buttons sit the same distance from the page sides as they do from the bottom. */
-  padding: 8px 14px 12px;
+  padding: 2px max(14px, var(--layout-gutter)) 12px;
 }
 
 .bottom-nav-actions {
@@ -571,10 +728,32 @@ button {
   opacity: 0.12;
 }
 
+.bottom-command-slot {
+  grid-column: 2;
+  justify-self: center;
+  width: min(720px, calc(100vw - var(--layout-gutter) - var(--layout-gutter)));
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.bottom-command-slot.is-agent {
+  width: min(560px, calc(100vw - var(--layout-gutter) - var(--layout-gutter)));
+}
+
+.page-command-dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 100%;
+}
+
 .agent-dock {
   position: relative;
   z-index: 3;
   width: 100%;
+  max-width: 560px;
+  justify-self: center;
   pointer-events: auto;
 }
 
@@ -657,19 +836,19 @@ button {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.18);
+  box-shadow: 0 0 0 1px rgb(var(--coinbase-ink-rgb) / 0.18);
 }
 
 .bottom-chat-confidence-dot.high {
-  background: #1f9d55;
+  background: #05b169;
 }
 
 .bottom-chat-confidence-dot.medium {
-  background: #d69e2e;
+  background: #f4b000;
 }
 
 .bottom-chat-confidence-dot.low {
-  background: #d64545;
+  background: #cf202f;
 }
 
 .bottom-chat-message p,
@@ -722,7 +901,7 @@ button {
 }
 
 .agent-analysis-details {
-  border-top: 1px solid rgba(17, 24, 39, 0.1);
+  border-top: 1px solid rgb(var(--coinbase-ink-rgb) / 0.1);
   padding-top: 8px;
 }
 
@@ -954,7 +1133,7 @@ button {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px;
-  background: color-mix(in srgb, var(--color-background) 96%, rgb(255 255 255));
+  background: color-mix(in srgb, var(--color-background) 96%, rgb(var(--coinbase-on-primary-rgb)));
   color: var(--color-text);
   pointer-events: auto;
 }
@@ -2039,7 +2218,14 @@ h2 {
   position: absolute;
   overflow: hidden;
   border-radius: var(--surface-radius);
-  background: var(--color-background);
+  border: 1px solid var(--coinbase-glass-border);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    rgb(var(--coinbase-on-primary-rgb) / 0.18);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: blur(23px);
+  backdrop-filter: blur(23px);
 }
 
 .treemap-canvas {
@@ -2047,7 +2233,7 @@ h2 {
   width: 100%;
   height: 100%;
   border: 0;
-  background: var(--color-background);
+  background: transparent;
   touch-action: none;
 }
 
@@ -2319,10 +2505,10 @@ h2 {
   max-width: min(280px, calc(100% - 28px));
   border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-surface) 94%, rgb(255 255 255));
+  background: color-mix(in srgb, var(--color-surface) 94%, rgb(var(--coinbase-on-primary-rgb)));
   box-shadow:
     0 16px 30px rgb(var(--gops-ink-rgb) / 0.12),
-    inset 0 1px 0 rgb(255 255 255 / 0.28);
+    inset 0 1px 0 rgb(var(--coinbase-on-primary-rgb) / 0.28);
   padding: 9px 10px;
   font-family: var(--font-ui-sans);
   font-variant-numeric: tabular-nums;
@@ -2448,7 +2634,7 @@ h2 {
   width: 28px;
   height: 28px;
   box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.32),
+    inset 0 0 0 1px rgb(var(--coinbase-on-primary-rgb) / 0.32),
     0 1px 4px rgb(var(--gops-ink-rgb) / 0.08);
 }
 
@@ -2721,6 +2907,14 @@ h2 {
 
 .agent-box button.agent-chat-toggle:hover:not(:disabled),
 .agent-box button.agent-chat-toggle.is-active {
+  color: var(--color-text);
+}
+
+.agent-box button.agent-pages-toggle {
+  color: var(--color-muted);
+}
+
+.agent-box button.agent-pages-toggle:hover:not(:disabled) {
   color: var(--color-text);
 }
 
@@ -3367,16 +3561,16 @@ h2 {
 
 .company-fundamental-section {
   gap: 11px;
-  --company-positive-strong: #2f7137;
-  --company-positive: #6f9a70;
-  --company-positive-soft: #9fb89c;
-  --company-negative-strong: #bd342b;
-  --company-negative: #d8796d;
-  --company-negative-soft: #dea196;
-  --company-neutral: #aaa99d;
-  --company-neutral-soft: #d8d5c7;
-  --company-brass: #b8862f;
-  --company-clay: #c99886;
+  --company-positive-strong: #05b169;
+  --company-positive: #05b169;
+  --company-positive-soft: #05b169;
+  --company-negative-strong: #cf202f;
+  --company-negative: #f5f8fb;
+  --company-negative-soft: #f5f8fb;
+  --company-neutral: #b9c0ca;
+  --company-neutral-soft: #b9c0ca;
+  --company-brass: #f4b000;
+  --company-clay: #f5f8fb;
 }
 
 .company-fundamental-grid {
@@ -3447,9 +3641,9 @@ h2 {
   border-radius: 9px;
   background:
     linear-gradient(145deg, rgb(var(--gops-ink-rgb) / 0.03), transparent 58%),
-    color-mix(in srgb, var(--color-surface) 90%, rgb(255 255 255));
+    color-mix(in srgb, var(--color-surface) 90%, rgb(var(--coinbase-on-primary-rgb)));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 1px 0 rgb(var(--coinbase-on-primary-rgb) / 0.28),
     0 10px 22px rgb(var(--gops-ink-rgb) / 0.035);
   padding: 10px 11px 9px;
 }
@@ -3491,7 +3685,7 @@ h2 {
   flex: 0 0 auto;
   border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface) 88%, rgb(255 255 255));
+  background: color-mix(in srgb, var(--color-surface) 88%, rgb(var(--coinbase-on-primary-rgb)));
   padding: 2px 5px;
   color: var(--color-muted);
   font-family: var(--font-data-sans);
@@ -3508,7 +3702,7 @@ h2 {
 
 .company-valuation-card.watch .company-valuation-card-top em {
   border-color: color-mix(in srgb, var(--company-brass) 46%, transparent);
-  color: #7b5a21;
+  color: #8c939f;
 }
 
 .company-valuation-card.risk .company-valuation-card-top em {
@@ -3814,7 +4008,7 @@ h2 {
 }
 
 .company-financial-table td.down {
-  color: #2f76ff;
+  color: #0052ff;
 }
 
 .company-financial-table-empty {
@@ -3950,11 +4144,11 @@ h2 {
 }
 
 .company-earnings-legend i.beat {
-  background: #ad3d4d;
+  background: #cf202f;
 }
 
 .company-earnings-legend i.miss {
-  background: #06742d;
+  background: #05b169;
 }
 
 .company-earnings-legend i.match {
@@ -4020,11 +4214,11 @@ h2 {
 }
 
 .company-earnings-plot line.company-earnings-surprise-stem.beat {
-  stroke: color-mix(in srgb, #ad3d4d 72%, var(--color-background));
+  stroke: color-mix(in srgb, #cf202f 72%, var(--color-background));
 }
 
 .company-earnings-plot line.company-earnings-surprise-stem.miss {
-  stroke: color-mix(in srgb, #06742d 72%, var(--color-background));
+  stroke: color-mix(in srgb, #05b169 72%, var(--color-background));
 }
 
 .company-earnings-dot.actual {
@@ -4035,11 +4229,11 @@ h2 {
 }
 
 .company-earnings-dot.beat {
-  fill: #ad3d4d;
+  fill: #cf202f;
 }
 
 .company-earnings-dot.miss {
-  fill: #06742d;
+  fill: #05b169;
 }
 
 .company-earnings-dot.match,
@@ -5324,9 +5518,9 @@ h2 {
   container-type: inline-size;
   gap: 16px;
   background: transparent;
-  color: #171a14;
+  color: #0a0b0d;
   font-family: var(--font-data-sans);
-  scrollbar-color: color-mix(in srgb, #1b1f18 18%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, #0a0b0d 18%, transparent) transparent;
 }
 
 .portfolio-dashboard-header,
@@ -5365,7 +5559,7 @@ h2 {
 }
 
 .portfolio-dashboard-eyebrow {
-  color: #2f6b42;
+  color: #05b169;
   font-family: var(--font-data-sans);
   font-size: 10px;
   font-weight: 820;
@@ -5384,7 +5578,7 @@ h2 {
   min-height: 28px;
   border-radius: 999px;
   padding: 0 10px;
-  background: #245c35;
+  background: #05b169;
   color: #ffffff;
   font-family: var(--font-data-sans);
   font-size: 11px;
@@ -5392,11 +5586,11 @@ h2 {
 }
 
 .portfolio-dashboard-card {
-  border: 1px solid color-mix(in srgb, #1b1f18 9%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
   border-radius: 8px;
   background: #ffffff;
   box-shadow:
-    0 12px 30px color-mix(in srgb, #1b1f18 8%, transparent),
+    0 12px 30px color-mix(in srgb, #0a0b0d 8%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 92%, transparent);
 }
 
@@ -5413,20 +5607,20 @@ h2 {
 
 .portfolio-dashboard-panel .positive,
 .portfolio-dashboard-panel .good {
-  color: #167a3f;
+  color: #05b169;
 }
 
 .portfolio-dashboard-panel .negative,
 .portfolio-dashboard-panel .risk {
-  color: #d23b35;
+  color: #cf202f;
 }
 
 .portfolio-dashboard-panel .watch {
-  color: #9b6f18;
+  color: #cf202f;
 }
 
 .portfolio-dashboard-panel .neutral {
-  color: #171a14;
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-toolbar {
@@ -5435,15 +5629,15 @@ h2 {
 }
 
 .portfolio-dashboard-panel .portfolio-toolbar select {
-  border: 1px solid color-mix(in srgb, #1b1f18 10%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
   background: #ffffff;
-  box-shadow: 0 4px 14px color-mix(in srgb, #1b1f18 5%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, #0a0b0d 5%, transparent);
   font-family: var(--font-data-sans);
   font-weight: 760;
 }
 
 .portfolio-error-inline {
-  color: #d23b35;
+  color: #cf202f;
 }
 
 .portfolio-dashboard-content {
@@ -5464,11 +5658,11 @@ h2 {
   min-width: 0;
   min-height: 78px;
   align-content: space-between;
-  border: 1px solid color-mix(in srgb, #1b1f18 8%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, #ffffff 94%, transparent);
   box-shadow:
-    0 8px 20px color-mix(in srgb, #1b1f18 5%, transparent),
+    0 8px 20px color-mix(in srgb, #0a0b0d 5%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 90%, transparent);
   padding: 12px;
 }
@@ -5497,9 +5691,9 @@ h2 {
   white-space: nowrap;
 }
 
-.portfolio-kpi-item em.positive { color: #167a3f; }
-.portfolio-kpi-item em.negative { color: #d23b35; }
-.portfolio-kpi-item em.watch { color: #9b6f18; }
+.portfolio-kpi-item em.positive { color: #05b169; }
+.portfolio-kpi-item em.negative { color: #cf202f; }
+.portfolio-kpi-item em.watch { color: #cf202f; }
 
 .portfolio-overview-grid {
   display: grid;
@@ -5543,14 +5737,14 @@ h2 {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
-  border: 1px solid color-mix(in srgb, #1b1f18 10%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
   border-radius: 8px;
   padding: 0 13px;
   background: #ffffff;
-  color: #1b1f18;
+  color: #0a0b0d;
   font-size: 13px;
   font-weight: 760;
-  box-shadow: 0 4px 14px color-mix(in srgb, #1b1f18 5%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, #0a0b0d 5%, transparent);
 }
 
 .portfolio-overview-total {
@@ -5618,7 +5812,7 @@ h2 {
 .portfolio-overview-balance span {
   display: grid;
   gap: 4px;
-  border-top: 1px solid color-mix(in srgb, #1b1f18 9%, transparent);
+  border-top: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
   padding-top: 10px;
 }
 
@@ -5669,17 +5863,17 @@ h2 {
   border: 0;
   border-radius: 999px;
   padding: 0 14px;
-  background: color-mix(in srgb, #1b1f18 6%, #ffffff);
-  color: color-mix(in srgb, #1b1f18 58%, #ffffff);
+  background: color-mix(in srgb, #0a0b0d 6%, #ffffff);
+  color: color-mix(in srgb, #0a0b0d 58%, #ffffff);
   font-family: var(--font-data-sans);
   font-size: 13px;
   font-weight: 780;
 }
 
 .portfolio-allocation-tabs button.active {
-  background: #171a14;
+  background: #0a0b0d;
   color: #ffffff;
-  box-shadow: 0 6px 16px color-mix(in srgb, #171a14 16%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, #0a0b0d 16%, transparent);
 }
 
 .portfolio-allocation-body {
@@ -5709,7 +5903,7 @@ h2 {
   height: 54%;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #1b1f18 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #0a0b0d 5%, transparent);
   content: "";
 }
 
@@ -5722,7 +5916,7 @@ h2 {
 }
 
 .portfolio-allocation-empty {
-  background: color-mix(in srgb, #1b1f18 5%, #ffffff);
+  background: color-mix(in srgb, #0a0b0d 5%, #ffffff);
   color: var(--color-muted);
   font-family: var(--font-data-sans);
   font-size: 11px;
@@ -5768,14 +5962,14 @@ h2 {
   border-radius: 50%;
 }
 
-.tone-green-deep { background: #245c35; }
-.tone-green { background: #2f7d46; }
-.tone-red { background: #d23b35; }
-.tone-red-soft { background: #e07a70; }
-.tone-neutral { background: #a2a69d; }
-.tone-brass { background: #b58b24; }
-.tone-green-soft { background: #8eb18f; }
-.tone-clay { background: #c58b76; }
+.tone-green-deep { background: #05b169; }
+.tone-green { background: #05b169; }
+.tone-red { background: #cf202f; }
+.tone-red-soft { background: #f5f8fb; }
+.tone-neutral { background: #b9c0ca; }
+.tone-brass { background: #cf202f; }
+.tone-green-soft { background: #05b169; }
+.tone-clay { background: #f5f8fb; }
 
 .portfolio-return-chart,
 .portfolio-chart-empty {
@@ -5794,34 +5988,34 @@ h2 {
 }
 
 .portfolio-chart-grid {
-  stroke: color-mix(in srgb, #1b1f18 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
   stroke-width: 1;
 }
 
 .portfolio-chart-zero {
-  stroke: color-mix(in srgb, #1b1f18 24%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 24%, transparent);
   stroke-dasharray: 6 6;
   stroke-width: 1.2;
 }
 
 .portfolio-chart-area {
-  fill: color-mix(in srgb, #2f7d46 18%, transparent);
+  fill: color-mix(in srgb, #05b169 18%, transparent);
 }
 
 .portfolio-chart-area.negative {
-  fill: color-mix(in srgb, #d23b35 16%, transparent);
+  fill: color-mix(in srgb, #cf202f 16%, transparent);
 }
 
 .portfolio-chart-line {
   fill: none;
-  stroke: #167a3f;
+  stroke: #05b169;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 4;
 }
 
 .portfolio-chart-line.negative {
-  stroke: #d23b35;
+  stroke: #cf202f;
 }
 
 .portfolio-chart-bar {
@@ -5829,11 +6023,11 @@ h2 {
 }
 
 .portfolio-chart-bar.positive {
-  fill: #2f7d46;
+  fill: #05b169;
 }
 
 .portfolio-chart-bar.negative {
-  fill: #e07a70;
+  fill: #f5f8fb;
 }
 
 .portfolio-chart-label {
@@ -5846,9 +6040,9 @@ h2 {
 .portfolio-chart-empty {
   display: grid;
   place-items: center;
-  border: 1px dashed color-mix(in srgb, #1b1f18 12%, transparent);
+  border: 1px dashed color-mix(in srgb, #0a0b0d 12%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, #f7f8f4 74%, #ffffff);
+  background: color-mix(in srgb, #f8fbff 74%, #ffffff);
   color: var(--color-muted);
   font-family: var(--font-data-sans);
   font-size: 13px;
@@ -5872,7 +6066,7 @@ h2 {
   min-height: 76px;
   overflow: hidden;
   border-radius: 8px;
-  background: color-mix(in srgb, #1b1f18 5%, #ffffff);
+  background: color-mix(in srgb, #0a0b0d 5%, #ffffff);
 }
 
 .portfolio-composition-stack span {
@@ -5948,7 +6142,7 @@ h2 {
   display: block;
   min-height: 10px;
   border-radius: 999px 999px 2px 2px;
-  background: linear-gradient(180deg, #b58b24, #2f7d46);
+  background: linear-gradient(180deg, #cf202f, #05b169);
   opacity: 0.9;
 }
 
@@ -5966,7 +6160,7 @@ h2 {
   grid-template-columns: minmax(52px, 0.7fr) minmax(68px, 0.9fr) minmax(92px, 1.2fr);
   align-items: center;
   gap: 8px;
-  border-top: 1px solid color-mix(in srgb, #1b1f18 9%, transparent);
+  border-top: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
   padding-top: 7px;
 }
 
@@ -6023,7 +6217,7 @@ h2 {
 .portfolio-dashboard-row {
   align-items: center;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, #1b1f18 7%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
   background: color-mix(in srgb, #ffffff 92%, transparent);
   padding: 9px 10px;
 }
@@ -6031,7 +6225,7 @@ h2 {
 .portfolio-dashboard-row:hover,
 .portfolio-dashboard-row:focus-visible {
   background: #ffffff;
-  box-shadow: 0 8px 20px color-mix(in srgb, #1b1f18 7%, transparent);
+  box-shadow: 0 8px 20px color-mix(in srgb, #0a0b0d 7%, transparent);
   outline: none;
 }
 
@@ -6045,7 +6239,7 @@ h2 {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #245c35;
+  background: #05b169;
   color: #ffffff;
   font-family: var(--font-data-sans);
   font-size: 10px;
@@ -6187,12 +6381,12 @@ h2 {
 
 .portfolio-terminal-kpis .portfolio-kpi-item,
 .portfolio-terminal-card {
-  border: 1px solid color-mix(in srgb, #f7f8f4 10%, transparent);
+  border: 1px solid color-mix(in srgb, #f8fbff 10%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #343238 96%, transparent), color-mix(in srgb, #242429 96%, transparent));
-  color: #f4f3eb;
+    linear-gradient(180deg, color-mix(in srgb, #242832 96%, transparent), color-mix(in srgb, #242832 96%, transparent));
+  color: #ffffff;
   box-shadow:
-    0 18px 34px color-mix(in srgb, #171a14 20%, transparent),
+    0 18px 34px color-mix(in srgb, #0a0b0d 20%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
 }
 
@@ -6203,28 +6397,28 @@ h2 {
 
 .portfolio-terminal-kpis .portfolio-kpi-item span,
 .portfolio-terminal-kpis .portfolio-kpi-item em {
-  color: color-mix(in srgb, #f4f3eb 70%, transparent);
+  color: color-mix(in srgb, #ffffff 70%, transparent);
   font-size: 9px;
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item strong {
-  color: #f4f3eb;
+  color: #ffffff;
   font-size: clamp(15px, 1.7cqw, 23px);
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item strong.positive,
 .portfolio-terminal-kpis .portfolio-kpi-item em.positive {
-  color: #34c46b;
+  color: #05b169;
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item strong.negative,
 .portfolio-terminal-kpis .portfolio-kpi-item em.negative {
-  color: #ff563f;
+  color: #cf202f;
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item strong.watch,
 .portfolio-terminal-kpis .portfolio-kpi-item em.watch {
-  color: #f2c14f;
+  color: #cf202f;
 }
 
 .portfolio-terminal-grid {
@@ -6289,7 +6483,7 @@ h2 {
 }
 
 .portfolio-terminal-heading span {
-  color: #f4f3eb;
+  color: #ffffff;
   font-family: var(--font-data-sans);
   font-size: 15px;
   font-weight: 850;
@@ -6297,7 +6491,7 @@ h2 {
 
 .portfolio-terminal-heading em {
   overflow: hidden;
-  color: color-mix(in srgb, #f4f3eb 58%, transparent);
+  color: color-mix(in srgb, #ffffff 58%, transparent);
   font-family: var(--font-data-sans);
   font-size: 10px;
   font-style: normal;
@@ -6318,12 +6512,12 @@ h2 {
 }
 
 .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #f4f3eb 14%, transparent);
+  stroke: color-mix(in srgb, #ffffff 14%, transparent);
   stroke-width: 1;
 }
 
 .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #f4f3eb 40%, transparent);
+  stroke: color-mix(in srgb, #ffffff 40%, transparent);
   stroke-dasharray: 5 5;
   stroke-width: 1;
 }
@@ -6336,19 +6530,19 @@ h2 {
 }
 
 .portfolio-terminal-line.invested {
-  stroke: #2d9cff;
+  stroke: #0052ff;
 }
 
 .portfolio-terminal-line.value {
-  stroke: #ff3e36;
+  stroke: #cf202f;
 }
 
 .portfolio-terminal-line.gain {
-  stroke: #38c861;
+  stroke: #05b169;
 }
 
 .portfolio-terminal-axis-label {
-  fill: color-mix(in srgb, #f4f3eb 62%, transparent);
+  fill: color-mix(in srgb, #ffffff 62%, transparent);
   font-family: var(--font-data-sans);
   font-size: 10px;
 }
@@ -6356,7 +6550,7 @@ h2 {
 .portfolio-terminal-chart-legend {
   flex-wrap: wrap;
   gap: 12px;
-  color: color-mix(in srgb, #f4f3eb 68%, transparent);
+  color: color-mix(in srgb, #ffffff 68%, transparent);
   font-family: var(--font-data-sans);
   font-size: 10px;
 }
@@ -6376,11 +6570,11 @@ h2 {
   border-radius: 50%;
 }
 
-.portfolio-terminal-chart-legend i.invested { background: #2d9cff; }
-.portfolio-terminal-chart-legend i.value { background: #ff3e36; }
-.portfolio-terminal-chart-legend i.gain { background: #38c861; }
-.portfolio-terminal-chart-legend i.dividend { background: #ffd43f; }
-.portfolio-terminal-chart-legend i.brass { background: #f2a71b; }
+.portfolio-terminal-chart-legend i.invested { background: #0052ff; }
+.portfolio-terminal-chart-legend i.value { background: #cf202f; }
+.portfolio-terminal-chart-legend i.gain { background: #05b169; }
+.portfolio-terminal-chart-legend i.dividend { background: #cf202f; }
+.portfolio-terminal-chart-legend i.brass { background: #cf202f; }
 
 .portfolio-mini-chart {
   position: relative;
@@ -6389,7 +6583,7 @@ h2 {
   align-items: end;
   gap: 10px;
   min-height: 136px;
-  border-bottom: 1px solid color-mix(in srgb, #f4f3eb 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #ffffff 20%, transparent);
   padding: 18px 2px 20px;
 }
 
@@ -6409,11 +6603,11 @@ h2 {
   width: 62%;
   justify-self: center;
   border-radius: 3px 3px 0 0;
-  background: #2d9cff;
+  background: #0052ff;
 }
 
 .portfolio-dividend-history .portfolio-mini-chart i {
-  background: #ffd43f;
+  background: #cf202f;
 }
 
 .portfolio-mini-chart b {
@@ -6422,7 +6616,7 @@ h2 {
   right: 16%;
   height: 2px;
   border-radius: 999px;
-  background: color-mix(in srgb, #f4f3eb 72%, transparent);
+  background: color-mix(in srgb, #ffffff 72%, transparent);
 }
 
 .portfolio-mini-chart em {
@@ -6430,7 +6624,7 @@ h2 {
   right: 0;
   bottom: -20px;
   left: 0;
-  color: color-mix(in srgb, #f4f3eb 58%, transparent);
+  color: color-mix(in srgb, #ffffff 58%, transparent);
   font-family: var(--font-data-sans);
   font-size: 9px;
   font-style: normal;
@@ -6453,11 +6647,11 @@ h2 {
 }
 
 .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #26262b;
+  background: #242832;
 }
 
 .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .portfolio-terminal-tabs {
@@ -6466,19 +6660,19 @@ h2 {
 
 .portfolio-terminal-tabs button {
   min-height: 24px;
-  border: 1px solid color-mix(in srgb, #f4f3eb 12%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 12%, transparent);
   border-radius: 999px;
   padding: 0 9px;
-  background: color-mix(in srgb, #f4f3eb 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 64%, transparent);
+  background: color-mix(in srgb, #ffffff 8%, transparent);
+  color: color-mix(in srgb, #ffffff 64%, transparent);
   font-family: var(--font-data-sans);
   font-size: 10px;
   font-weight: 780;
 }
 
 .portfolio-terminal-tabs button.active {
-  background: #f4f3eb;
-  color: #171a14;
+  background: #ffffff;
+  color: #0a0b0d;
 }
 
 .portfolio-terminal-legend {
@@ -6489,7 +6683,7 @@ h2 {
 .portfolio-terminal-legend span {
   justify-content: space-between;
   gap: 8px;
-  color: color-mix(in srgb, #f4f3eb 74%, transparent);
+  color: color-mix(in srgb, #ffffff 74%, transparent);
   font-family: var(--font-data-sans);
   font-size: 11px;
 }
@@ -6503,7 +6697,7 @@ h2 {
 }
 
 .portfolio-terminal-legend strong {
-  color: #f4f3eb;
+  color: #ffffff;
   font-size: 11px;
 }
 
@@ -6526,18 +6720,18 @@ h2 {
 }
 
 .portfolio-activity-head {
-  background: color-mix(in srgb, #f4f3eb 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 58%, transparent);
+  background: color-mix(in srgb, #ffffff 8%, transparent);
+  color: color-mix(in srgb, #ffffff 58%, transparent);
   font-weight: 760;
 }
 
 .portfolio-activity-row {
-  border-top: 1px solid color-mix(in srgb, #f4f3eb 9%, transparent);
-  color: color-mix(in srgb, #f4f3eb 72%, transparent);
+  border-top: 1px solid color-mix(in srgb, #ffffff 9%, transparent);
+  color: color-mix(in srgb, #ffffff 72%, transparent);
 }
 
 .portfolio-activity-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .portfolio-activity-row em {
@@ -6545,19 +6739,19 @@ h2 {
   place-items: center;
   min-height: 18px;
   border-radius: 2px;
-  background: #ff4b1f;
+  background: #cf202f;
   color: #ffffff;
   font-style: normal;
   font-weight: 840;
 }
 
 .portfolio-activity-row em.div {
-  background: #f2a71b;
-  color: #171a14;
+  background: #cf202f;
+  color: #0a0b0d;
 }
 
 .portfolio-activity-row em.cash {
-  background: #2d9cff;
+  background: #0052ff;
 }
 
 .portfolio-insight-card {
@@ -6565,16 +6759,16 @@ h2 {
 }
 
 .portfolio-terminal-card .portfolio-insight-list div {
-  border-top-color: color-mix(in srgb, #f4f3eb 12%, transparent);
+  border-top-color: color-mix(in srgb, #ffffff 12%, transparent);
 }
 
 .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #f4f3eb 62%, transparent);
+  color: color-mix(in srgb, #ffffff 62%, transparent);
 }
 
 .portfolio-terminal-card .portfolio-insight-list strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .portfolio-holdings-matrix-card {
@@ -6584,7 +6778,7 @@ h2 {
 .portfolio-matrix-table {
   display: grid;
   overflow-x: auto;
-  scrollbar-color: color-mix(in srgb, #f4f3eb 24%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, #ffffff 24%, transparent) transparent;
 }
 
 .portfolio-matrix-head,
@@ -6600,8 +6794,8 @@ h2 {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #222226;
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  background: #242832;
+  color: color-mix(in srgb, #ffffff 66%, transparent);
   font-size: 10px;
   font-weight: 760;
 }
@@ -6613,8 +6807,8 @@ h2 {
   place-items: center end;
   min-width: 0;
   min-height: 30px;
-  border-right: 1px solid color-mix(in srgb, #f4f3eb 8%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, #f4f3eb 8%, transparent);
+  border-right: 1px solid color-mix(in srgb, #ffffff 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #ffffff 8%, transparent);
   padding: 4px 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6629,51 +6823,51 @@ h2 {
 .portfolio-matrix-row {
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
   font-size: 10px;
   text-align: right;
 }
 
 .portfolio-matrix-row:hover,
 .portfolio-matrix-row:focus-visible {
-  background: color-mix(in srgb, #f4f3eb 6%, transparent);
+  background: color-mix(in srgb, #ffffff 6%, transparent);
   outline: none;
 }
 
 .portfolio-matrix-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
   font-weight: 850;
   text-align: left;
 }
 
 .portfolio-matrix-row .value-cell {
-  background: #f2a71b;
-  color: #171a14;
+  background: #cf202f;
+  color: #0a0b0d;
   font-weight: 840;
 }
 
 .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #05b169 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #b82624 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #cf202f 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .portfolio-matrix-row .heat-neutral {
-  background: color-mix(in srgb, #f4f3eb 7%, transparent);
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  background: color-mix(in srgb, #ffffff 7%, transparent);
+  color: color-mix(in srgb, #ffffff 66%, transparent);
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item,
 .portfolio-terminal-card {
   border-color: color-mix(in srgb, #ffffff 10%, transparent);
-  background: linear-gradient(180deg, #303036, #25252a);
-  color: #f4f3eb;
+  background: linear-gradient(180deg, #242832, #242832);
+  color: #ffffff;
   box-shadow:
-    0 16px 32px color-mix(in srgb, #171a14 24%, transparent),
+    0 16px 32px color-mix(in srgb, #0a0b0d 24%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
 }
 
@@ -6688,7 +6882,7 @@ h2 {
 .portfolio-terminal-axis-label,
 .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #f4f3eb 62%, transparent);
+  color: color-mix(in srgb, #ffffff 62%, transparent);
 }
 
 .portfolio-terminal-kpis .portfolio-kpi-item strong,
@@ -6697,42 +6891,42 @@ h2 {
 .portfolio-activity-row strong,
 .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-matrix-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #f4f3eb 13%, transparent);
+  stroke: color-mix(in srgb, #ffffff 13%, transparent);
 }
 
 .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #f4f3eb 36%, transparent);
+  stroke: color-mix(in srgb, #ffffff 36%, transparent);
 }
 
 .portfolio-mini-chart b {
-  background: color-mix(in srgb, #f4f3eb 58%, transparent);
+  background: color-mix(in srgb, #ffffff 58%, transparent);
 }
 
 .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #27272d;
+  background: #242832;
 }
 
 .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .portfolio-terminal-tabs button,
 .portfolio-performance-tabs button {
   border-color: color-mix(in srgb, #ffffff 12%, transparent);
   background: color-mix(in srgb, #ffffff 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 68%, transparent);
+  color: color-mix(in srgb, #ffffff 68%, transparent);
 }
 
 .portfolio-terminal-tabs button.active,
 .portfolio-performance-tabs button.active,
 .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #f4f3eb;
-  box-shadow: 0 6px 14px color-mix(in srgb, #315f3d 16%, transparent);
+  background: #05b169;
+  color: #ffffff;
+  box-shadow: 0 6px 14px color-mix(in srgb, #05b169 16%, transparent);
 }
 
 .portfolio-performance-heading {
@@ -6750,7 +6944,7 @@ h2 {
   flex: 0 0 auto;
   align-items: center;
   gap: 3px;
-  border: 1px solid color-mix(in srgb, #1b1f18 12%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 12%, transparent);
   border-radius: 999px;
   padding: 3px;
   background: color-mix(in srgb, #ffffff 56%, transparent);
@@ -6785,12 +6979,12 @@ h2 {
 }
 
 .portfolio-purchase-dot.start {
-  fill: #fffdf3;
+  fill: #ffffff;
   stroke-width: 2.5;
 }
 
 .portfolio-purchase-dot.end {
-  stroke: #fffdf3;
+  stroke: #ffffff;
   stroke-width: 1.5;
 }
 
@@ -6804,9 +6998,9 @@ h2 {
   display: grid;
   gap: 4px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, #1b1f18 8%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, #fffdf3 64%, transparent);
+  background: color-mix(in srgb, #ffffff 64%, transparent);
 }
 
 .portfolio-purchase-legend-row {
@@ -6815,7 +7009,7 @@ h2 {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border-top: 1px solid color-mix(in srgb, #1b1f18 7%, transparent);
+  border-top: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
   padding: 7px 9px;
   font-family: var(--font-data-sans);
   font-size: 10px;
@@ -6846,7 +7040,7 @@ h2 {
 
 .portfolio-purchase-legend-row em {
   overflow: hidden;
-  color: color-mix(in srgb, #f4f3eb 56%, transparent);
+  color: color-mix(in srgb, #ffffff 56%, transparent);
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6871,12 +7065,12 @@ h2 {
 }
 
 .portfolio-matrix-head {
-  background: #222226;
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  background: #242832;
+  color: color-mix(in srgb, #ffffff 66%, transparent);
 }
 
 .portfolio-matrix-row {
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
 }
 
 .portfolio-matrix-head span,
@@ -6892,22 +7086,22 @@ h2 {
 }
 
 .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #05b169 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #b82624 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #cf202f 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .portfolio-matrix-row .heat-neutral {
   background: color-mix(in srgb, #ffffff 7%, transparent);
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  color: color-mix(in srgb, #ffffff 66%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel {
-  color: #171a14;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-content {
@@ -6918,11 +7112,11 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-card {
   border-color: color-mix(in srgb, #ffffff 11%, transparent);
   background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, #465042 18%, transparent), transparent 34%),
-    linear-gradient(180deg, #303036 0%, #25252a 100%);
-  color: #f4f3eb;
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, #5b616e 18%, transparent), transparent 34%),
+    linear-gradient(180deg, #242832 0%, #242832 100%);
+  color: #ffffff;
   box-shadow:
-    0 18px 38px color-mix(in srgb, #171a14 30%, transparent),
+    0 18px 38px color-mix(in srgb, #0a0b0d 30%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent);
 }
 
@@ -6942,7 +7136,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-axis-label,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list span,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #f4f3eb 64%, transparent);
+  color: color-mix(in srgb, #ffffff 64%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-kpis .portfolio-kpi-item strong,
@@ -6951,43 +7145,43 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-activity-row strong,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list strong,
 .bottom-menu-panel.menu-II .portfolio-matrix-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button {
   border-color: color-mix(in srgb, #ffffff 12%, transparent);
   background: color-mix(in srgb, #ffffff 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 72%, transparent);
+  color: color-mix(in srgb, #ffffff 72%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-allocation-tabs button.active {
-  background: #f4f3eb;
-  color: #171a14;
-  box-shadow: 0 8px 18px color-mix(in srgb, #171a14 22%, transparent);
+  background: #ffffff;
+  color: #0a0b0d;
+  box-shadow: 0 8px 18px color-mix(in srgb, #0a0b0d 22%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #f4f3eb 13%, transparent);
+  stroke: color-mix(in srgb, #ffffff 13%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #f4f3eb 40%, transparent);
+  stroke: color-mix(in srgb, #ffffff 40%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #27272d;
+  background: #242832;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-head,
 .bottom-menu-panel.menu-II .portfolio-matrix-head {
-  background: #202126;
+  background: #242832;
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-row,
@@ -6996,7 +7190,7 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row {
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -7012,8 +7206,8 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell {
-  background: #f2a71b;
-  color: #171a14;
+  background: #cf202f;
+  color: #0a0b0d;
 }
 
 @container (max-width: 960px) {
@@ -7071,7 +7265,7 @@ h2 {
 
 .portfolio-dashboard-panel,
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-panel .portfolio-dashboard-content,
@@ -7079,12 +7273,12 @@ h2 {
   position: relative;
   gap: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, #1d2019 13%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 13%, transparent);
   border-radius: 10px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #fffdf3 86%, transparent), color-mix(in srgb, #f4f1e4 88%, transparent));
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 86%, transparent), color-mix(in srgb, #f8fbff 88%, transparent));
   box-shadow:
-    0 18px 38px color-mix(in srgb, #4a4a3e 10%, transparent),
+    0 18px 38px color-mix(in srgb, #8c939f 10%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent);
 }
 
@@ -7093,7 +7287,7 @@ h2 {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #1d2019;
+  color: #0a0b0d;
   box-shadow: none;
 }
 
@@ -7101,7 +7295,7 @@ h2 {
   grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.8fr);
   align-items: center;
   gap: 18px;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 11%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 11%, transparent);
   padding: 22px 26px;
 }
 
@@ -7122,21 +7316,21 @@ h2 {
 .portfolio-investment-summary-head span,
 .portfolio-investment-summary-main span,
 .portfolio-investment-summary-grid span {
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
   font-family: var(--font-data-sans);
   font-size: 12px;
   font-weight: 760;
 }
 
 .portfolio-investment-summary-head > div span {
-  color: #1d2019;
+  color: #0a0b0d;
   font-size: clamp(22px, 2.4cqw, 34px);
   font-weight: 880;
 }
 
 .portfolio-investment-summary-head em,
 .portfolio-investment-summary-grid em {
-  color: color-mix(in srgb, #1d2019 54%, transparent);
+  color: color-mix(in srgb, #0a0b0d 54%, transparent);
   font-family: var(--font-data-sans);
   font-size: 11px;
   font-style: normal;
@@ -7144,14 +7338,14 @@ h2 {
 }
 
 .portfolio-investment-summary-head > strong {
-  color: color-mix(in srgb, #1d2019 54%, transparent);
+  color: color-mix(in srgb, #0a0b0d 54%, transparent);
   font-family: var(--font-data-sans);
   font-size: 14px;
   white-space: nowrap;
 }
 
 .portfolio-investment-summary-main strong {
-  color: #1d2019;
+  color: #0a0b0d;
   font-family: var(--font-data-sans);
   font-size: clamp(34px, 4.3cqw, 62px);
   line-height: 1;
@@ -7167,13 +7361,13 @@ h2 {
 
 .portfolio-investment-summary-grid div {
   min-height: 76px;
-  border-left: 1px solid color-mix(in srgb, #1d2019 9%, transparent);
+  border-left: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
   padding-left: 16px;
 }
 
 .portfolio-investment-summary-grid strong {
   overflow: hidden;
-  color: #1d2019;
+  color: #0a0b0d;
   font-family: var(--font-data-sans);
   font-size: clamp(17px, 1.6cqw, 28px);
   font-weight: 860;
@@ -7183,12 +7377,12 @@ h2 {
 
 .portfolio-investment-summary-grid .positive,
 .portfolio-matrix-row .positive {
-  color: #06742f;
+  color: #05b169;
 }
 
 .portfolio-investment-summary-grid .negative,
 .portfolio-matrix-row .negative {
-  color: #c8231d;
+  color: #cf202f;
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-grid,
@@ -7198,7 +7392,7 @@ h2 {
     "performance dividend diversification";
   grid-template-columns: minmax(360px, 1.16fr) minmax(220px, 0.62fr) minmax(260px, 0.64fr);
   gap: 0;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-activity-card,
@@ -7214,7 +7408,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-dashboard-panel .portfolio-matrix-row strong,
 .bottom-menu-panel.menu-II .portfolio-matrix-row strong {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-panel .portfolio-performance-card,
@@ -7234,12 +7428,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-dividend-history-card,
 .bottom-menu-panel.menu-II .portfolio-annual-card,
 .bottom-menu-panel.menu-II .portfolio-dividend-history-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-annual-card,
 .bottom-menu-panel.menu-II .portfolio-annual-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-lower-grid,
@@ -7256,7 +7450,7 @@ h2 {
 
 .portfolio-dashboard-panel .portfolio-insight-card,
 .bottom-menu-panel.menu-II .portfolio-insight-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-heading em,
@@ -7273,17 +7467,17 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list em,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list span,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-grid-line,
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #1d2019 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-zero-line,
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #1d2019 34%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 34%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-donut-row,
@@ -7305,21 +7499,21 @@ h2 {
 
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut::after,
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #fffdf3;
+  background: #ffffff;
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span,
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-tabs button,
 .portfolio-dashboard-panel .portfolio-performance-tabs button,
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button {
-  border-color: color-mix(in srgb, #1d2019 13%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 13%, transparent);
   background: color-mix(in srgb, #ffffff 64%, transparent);
-  color: color-mix(in srgb, #1d2019 70%, transparent);
+  color: color-mix(in srgb, #0a0b0d 70%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-terminal-tabs button.active,
@@ -7328,36 +7522,36 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #fffdf3;
-  box-shadow: 0 6px 14px color-mix(in srgb, #315f3d 14%, transparent);
+  background: #05b169;
+  color: #ffffff;
+  box-shadow: 0 6px 14px color-mix(in srgb, #05b169 14%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-mini-chart,
 .bottom-menu-panel.menu-II .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #1d2019 14%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 14%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-mini-chart b,
 .bottom-menu-panel.menu-II .portfolio-mini-chart b {
-  background: color-mix(in srgb, #1d2019 42%, transparent);
+  background: color-mix(in srgb, #0a0b0d 42%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-purchase-legend,
 .bottom-menu-panel.menu-II .portfolio-purchase-legend {
-  border-color: color-mix(in srgb, #1d2019 10%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 10%, transparent);
   background: color-mix(in srgb, #ffffff 58%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-purchase-legend-row,
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row {
-  border-top-color: color-mix(in srgb, #1d2019 8%, transparent);
-  color: #1d2019;
+  border-top-color: color-mix(in srgb, #0a0b0d 8%, transparent);
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-panel .portfolio-purchase-legend-row em,
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row em {
-  color: color-mix(in srgb, #1d2019 55%, transparent);
+  color: color-mix(in srgb, #0a0b0d 55%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-head,
@@ -7370,13 +7564,13 @@ h2 {
 
 .portfolio-dashboard-panel .portfolio-matrix-head,
 .bottom-menu-panel.menu-II .portfolio-matrix-head {
-  background: color-mix(in srgb, #1d2019 5%, #fffdf3);
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  background: color-mix(in srgb, #0a0b0d 5%, #ffffff);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row,
 .bottom-menu-panel.menu-II .portfolio-matrix-row {
-  color: color-mix(in srgb, #1d2019 76%, transparent);
+  color: color-mix(in srgb, #0a0b0d 76%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-head span,
@@ -7385,39 +7579,39 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
 .bottom-menu-panel.menu-II .portfolio-matrix-row span,
 .bottom-menu-panel.menu-II .portfolio-matrix-row strong {
-  border-right-color: color-mix(in srgb, #1d2019 8%, transparent);
-  border-bottom-color: color-mix(in srgb, #1d2019 8%, transparent);
+  border-right-color: color-mix(in srgb, #0a0b0d 8%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row:hover,
 .portfolio-dashboard-panel .portfolio-matrix-row:focus-visible,
 .bottom-menu-panel.menu-II .portfolio-matrix-row:hover,
 .bottom-menu-panel.menu-II .portfolio-matrix-row:focus-visible {
-  background: color-mix(in srgb, #315f3d 8%, transparent);
+  background: color-mix(in srgb, #05b169 8%, transparent);
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row .value-cell,
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell {
-  background: color-mix(in srgb, #d5a83b 24%, #fffdf3);
-  color: #1d2019;
+  background: color-mix(in srgb, #cf202f 24%, #ffffff);
+  color: #0a0b0d;
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-positive,
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 18%, transparent);
-  color: #06742f;
+  background: color-mix(in srgb, #05b169 18%, transparent);
+  color: #05b169;
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-negative,
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #d13b34 18%, transparent);
-  color: #b9221d;
+  background: color-mix(in srgb, #cf202f 18%, transparent);
+  color: #cf202f;
 }
 
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-neutral,
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral {
-  background: color-mix(in srgb, #1d2019 4%, transparent);
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  background: color-mix(in srgb, #0a0b0d 4%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 @container (max-width: 960px) {
@@ -8208,18 +8402,28 @@ h2 {
 }
 
 .layout-preset-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: var(--tool-dock-bottom);
+  position: relative;
+  right: auto;
+  bottom: auto;
   z-index: 43;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   gap: 6px;
-  padding: 5px var(--layout-gutter);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 0;
+  overflow-x: auto;
+  scroll-padding-inline: var(--layout-gutter);
+  scrollbar-width: none;
   pointer-events: auto;
+}
+
+.layout-preset-dock::-webkit-scrollbar {
+  display: none;
 }
 
 /* Save / delete / layout-edit controls, grouped with the presets in the centered dock. */
@@ -8269,10 +8473,38 @@ h2 {
   color: var(--color-text);
 }
 
+.layout-preset-agent {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 11px;
+  background: var(--surface-raised-surface);
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.layout-preset-agent svg {
+  width: 14px;
+  height: 14px;
+}
+
+.layout-preset-agent span {
+  white-space: nowrap;
+}
+
 /* Icon controls turn black on hover, like the old active preset. */
 .layout-preset-edit:hover:not(:disabled),
 .layout-preset-add:hover:not(:disabled),
-.layout-preset-action:hover:not(:disabled) {
+.layout-preset-action:hover:not(:disabled),
+.layout-preset-agent:hover:not(:disabled) {
   background: var(--color-text);
   color: var(--color-surface);
 }
@@ -8379,9 +8611,9 @@ h2 {
 
 .chart-add-dock .chart-add-layer-button.active {
   background: var(--chart-layer-accent, var(--color-preview));
-  color: #fff;
+  color: #ffffff;
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, #fff 28%, var(--chart-layer-accent, var(--color-preview))),
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 28%, var(--chart-layer-accent, var(--color-preview))),
     inset 1px 1px 3px rgb(var(--gops-ink-rgb) / 0.08);
 }
 
@@ -8768,11 +9000,11 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-kpis .portfolio-kpi-item {
   border-color: color-mix(in srgb, #ffffff 11%, transparent);
   background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, #465042 18%, transparent), transparent 34%),
-    linear-gradient(180deg, #303036 0%, #25252a 100%);
-  color: #f4f3eb;
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, #5b616e 18%, transparent), transparent 34%),
+    linear-gradient(180deg, #242832 0%, #242832 100%);
+  color: #ffffff;
   box-shadow:
-    0 18px 38px color-mix(in srgb, #171a14 30%, transparent),
+    0 18px 38px color-mix(in srgb, #0a0b0d 30%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent);
 }
 
@@ -8781,7 +9013,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-legend strong,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list strong,
 .bottom-menu-panel.menu-II .portfolio-matrix-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -8797,13 +9029,13 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-axis-label,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list span,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #f4f3eb 64%, transparent);
+  color: color-mix(in srgb, #ffffff 64%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
 .bottom-menu-panel.menu-II .portfolio-investment-summary-main strong,
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div {
@@ -8811,57 +9043,57 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #f4f3eb 13%, transparent);
+  stroke: color-mix(in srgb, #ffffff 13%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #f4f3eb 40%, transparent);
+  stroke: color-mix(in srgb, #ffffff 40%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #27272d;
+  background: #242832;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button {
   border-color: color-mix(in srgb, #ffffff 12%, transparent);
   background: color-mix(in srgb, #ffffff 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 72%, transparent);
+  color: color-mix(in srgb, #ffffff 72%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-allocation-tabs button.active {
-  background: #f4f3eb;
-  color: #171a14;
-  box-shadow: 0 8px 18px color-mix(in srgb, #171a14 22%, transparent);
+  background: #ffffff;
+  color: #0a0b0d;
+  box-shadow: 0 8px 18px color-mix(in srgb, #0a0b0d 22%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #f4f3eb 18%, transparent);
+  border-bottom-color: color-mix(in srgb, #ffffff 18%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b {
-  background: color-mix(in srgb, #f4f3eb 52%, transparent);
+  background: color-mix(in srgb, #ffffff 52%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend {
   border-color: color-mix(in srgb, #ffffff 8%, transparent);
-  background: color-mix(in srgb, #171a14 24%, transparent);
+  background: color-mix(in srgb, #0a0b0d 24%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row {
   border-top-color: color-mix(in srgb, #ffffff 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-head,
 .bottom-menu-panel.menu-II .portfolio-matrix-head {
-  background: #202126;
+  background: #242832;
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-row,
@@ -8870,7 +9102,7 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row {
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -8886,23 +9118,23 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell {
-  background: #f2a71b;
-  color: #171a14;
+  background: #cf202f;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #05b169 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #b82624 82%, #171a14);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #cf202f 82%, #0a0b0d);
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral {
   background: color-mix(in srgb, #ffffff 7%, transparent);
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  color: color-mix(in srgb, #ffffff 66%, transparent);
 }
 
 /* Absolute final portfolio override: inherit the page background, no panel/card backplates. */
@@ -8915,7 +9147,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel,
 .portfolio-dashboard-panel {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-content,
@@ -8936,19 +9168,19 @@ h2 {
   border-radius: 0;
   background: transparent;
   background-image: none;
-  color: #1d2019;
+  color: #0a0b0d;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid,
 .portfolio-dashboard-panel .portfolio-terminal-grid {
   gap: 0;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-card,
 .portfolio-dashboard-panel .portfolio-investment-summary-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-performance-card,
@@ -8957,12 +9189,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-performance-card,
 .portfolio-dashboard-panel .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-dividend-history-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-annual-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-lower-grid,
@@ -8972,7 +9204,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-insight-card,
 .portfolio-dashboard-panel .portfolio-insight-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
@@ -8989,7 +9221,7 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-legend strong,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -9018,24 +9250,24 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-axis-label,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div,
 .portfolio-dashboard-panel .portfolio-investment-summary-grid div,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list div,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list div {
-  border-color: color-mix(in srgb, #1d2019 7%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line,
 .portfolio-dashboard-panel .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #1d2019 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line,
 .portfolio-dashboard-panel .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #1d2019 34%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 34%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after,
@@ -9045,16 +9277,16 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button,
 .portfolio-dashboard-panel .portfolio-terminal-tabs button,
 .portfolio-dashboard-panel .portfolio-performance-tabs button {
-  border-color: color-mix(in srgb, #1d2019 13%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 13%, transparent);
   background: color-mix(in srgb, #ffffff 58%, transparent);
-  color: color-mix(in srgb, #1d2019 70%, transparent);
+  color: color-mix(in srgb, #0a0b0d 70%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
@@ -9063,47 +9295,47 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-tabs button.active,
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
 .portfolio-dashboard-panel .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #fffdf3;
+  background: #05b169;
+  color: #ffffff;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart,
 .portfolio-dashboard-panel .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #1d2019 12%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 12%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b,
 .portfolio-dashboard-panel .portfolio-mini-chart b {
-  background: color-mix(in srgb, #1d2019 36%, transparent);
+  background: color-mix(in srgb, #0a0b0d 36%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend,
 .portfolio-dashboard-panel .portfolio-purchase-legend {
-  border-color: color-mix(in srgb, #1d2019 9%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 9%, transparent);
   background: transparent;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row {
-  border-top-color: color-mix(in srgb, #1d2019 7%, transparent);
-  color: #1d2019;
+  border-top-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row em,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row em {
-  color: color-mix(in srgb, #1d2019 55%, transparent);
+  color: color-mix(in srgb, #0a0b0d 55%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head,
 .portfolio-dashboard-panel .portfolio-matrix-head {
   background: transparent;
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row,
 .portfolio-dashboard-panel .portfolio-matrix-row {
-  color: color-mix(in srgb, #1d2019 76%, transparent);
+  color: color-mix(in srgb, #0a0b0d 76%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -9112,8 +9344,8 @@ h2 {
 .portfolio-dashboard-panel .portfolio-matrix-head span,
 .portfolio-dashboard-panel .portfolio-matrix-row span,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  border-right-color: color-mix(in srgb, #1d2019 7%, transparent);
-  border-bottom-color: color-mix(in srgb, #1d2019 7%, transparent);
+  border-right-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row:hover,
@@ -9606,7 +9838,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-donut-track,
 .portfolio-dashboard-panel .portfolio-donut-track {
   fill: none;
-  stroke: color-mix(in srgb, #1d2019 8%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 8%, transparent);
   stroke-width: 18;
 }
 
@@ -9629,7 +9861,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-donut-segment:hover,
 .portfolio-dashboard-panel .portfolio-donut-segment.active,
 .portfolio-dashboard-panel .portfolio-donut-segment:hover {
-  filter: drop-shadow(0 2px 5px color-mix(in srgb, #1d2019 22%, transparent));
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, #0a0b0d 22%, transparent));
   opacity: 1;
   stroke-width: 22;
 }
@@ -9646,7 +9878,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span strong,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span strong {
-  color: #1d2019;
+  color: #0a0b0d;
   font-family: var(--font-data-sans);
   font-size: clamp(26px, 4cqw, 42px);
   font-weight: 900;
@@ -9657,7 +9889,7 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span em {
   overflow: hidden;
   max-width: 86px;
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
   font-family: var(--font-data-sans);
   font-size: 10px;
   font-style: normal;
@@ -9669,30 +9901,30 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
 .portfolio-dashboard-panel .portfolio-matrix-row .value-cell {
   background:
-    linear-gradient(90deg, rgba(211, 168, 58, 0.32), rgba(211, 168, 58, 0.12));
-  color: #1d2019;
+    linear-gradient(90deg, color-mix(in srgb, var(--coinbase-semantic-down) 32%, transparent), color-mix(in srgb, var(--coinbase-semantic-down) 12%, transparent));
+  color: #0a0b0d;
   font-weight: 900;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-positive {
   background:
-    linear-gradient(90deg, rgba(46, 135, 80, 0.24), rgba(46, 135, 80, 0.09));
-  color: #047331;
+    linear-gradient(90deg, color-mix(in srgb, var(--coinbase-semantic-up) 24%, transparent), color-mix(in srgb, var(--coinbase-semantic-up) 9%, transparent));
+  color: #05b169;
   font-weight: 820;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-negative {
   background:
-    linear-gradient(90deg, rgba(193, 58, 49, 0.22), rgba(193, 58, 49, 0.08));
-  color: #ad251e;
+    linear-gradient(90deg, color-mix(in srgb, var(--coinbase-semantic-down) 22%, transparent), color-mix(in srgb, var(--coinbase-semantic-down) 8%, transparent));
+  color: #cf202f;
   font-weight: 820;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-neutral {
-  background: rgba(29, 32, 25, 0.04);
+  background: rgb(var(--coinbase-ink-rgb) / 0.04);
 }
 
 /* Portfolio final override: no separate background sheet. Keep the page paper visible. */
@@ -9705,7 +9937,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel,
 .portfolio-dashboard-panel {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-content,
@@ -9725,20 +9957,20 @@ h2 {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #1d2019;
+  color: #0a0b0d;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-card,
 .portfolio-dashboard-panel .portfolio-investment-summary-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
-  color: #1d2019;
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid,
 .portfolio-dashboard-panel .portfolio-terminal-grid {
   gap: 0;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 9%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-performance-card,
@@ -9747,12 +9979,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-performance-card,
 .portfolio-dashboard-panel .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-dividend-history-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-annual-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-lower-grid,
@@ -9762,7 +9994,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-insight-card,
 .portfolio-dashboard-panel .portfolio-insight-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -9791,7 +10023,7 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-axis-label,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
@@ -9808,22 +10040,22 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-legend strong,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div,
 .portfolio-dashboard-panel .portfolio-investment-summary-grid div {
-  border-left-color: color-mix(in srgb, #1d2019 8%, transparent);
+  border-left-color: color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line,
 .portfolio-dashboard-panel .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #1d2019 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line,
 .portfolio-dashboard-panel .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #1d2019 34%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 34%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after,
@@ -9833,16 +10065,16 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button,
 .portfolio-dashboard-panel .portfolio-terminal-tabs button,
 .portfolio-dashboard-panel .portfolio-performance-tabs button {
-  border-color: color-mix(in srgb, #1d2019 13%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 13%, transparent);
   background: color-mix(in srgb, #ffffff 58%, transparent);
-  color: color-mix(in srgb, #1d2019 70%, transparent);
+  color: color-mix(in srgb, #0a0b0d 70%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
@@ -9851,47 +10083,47 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-tabs button.active,
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
 .portfolio-dashboard-panel .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #fffdf3;
+  background: #05b169;
+  color: #ffffff;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart,
 .portfolio-dashboard-panel .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #1d2019 12%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 12%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b,
 .portfolio-dashboard-panel .portfolio-mini-chart b {
-  background: color-mix(in srgb, #1d2019 36%, transparent);
+  background: color-mix(in srgb, #0a0b0d 36%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend,
 .portfolio-dashboard-panel .portfolio-purchase-legend {
-  border-color: color-mix(in srgb, #1d2019 9%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 9%, transparent);
   background: transparent;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row {
-  border-top-color: color-mix(in srgb, #1d2019 7%, transparent);
-  color: #1d2019;
+  border-top-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row em,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row em {
-  color: color-mix(in srgb, #1d2019 55%, transparent);
+  color: color-mix(in srgb, #0a0b0d 55%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head,
 .portfolio-dashboard-panel .portfolio-matrix-head {
   background: transparent;
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row,
 .portfolio-dashboard-panel .portfolio-matrix-row {
-  color: color-mix(in srgb, #1d2019 76%, transparent);
+  color: color-mix(in srgb, #0a0b0d 76%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -9900,15 +10132,15 @@ h2 {
 .portfolio-dashboard-panel .portfolio-matrix-head span,
 .portfolio-dashboard-panel .portfolio-matrix-row span,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  border-right-color: color-mix(in srgb, #1d2019 7%, transparent);
-  border-bottom-color: color-mix(in srgb, #1d2019 7%, transparent);
+  border-right-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row:hover,
 .bottom-menu-panel.menu-II .portfolio-matrix-row:focus-visible,
 .portfolio-dashboard-panel .portfolio-matrix-row:hover,
 .portfolio-dashboard-panel .portfolio-matrix-row:focus-visible {
-  background: color-mix(in srgb, #315f3d 6%, transparent);
+  background: color-mix(in srgb, #05b169 6%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
@@ -9924,22 +10156,22 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
 .portfolio-dashboard-panel .portfolio-matrix-row .value-cell {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-positive {
-  color: #06742f;
+  color: #05b169;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-negative {
-  color: #b9221d;
+  color: #cf202f;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-neutral {
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 /* Portfolio final surface: one warm sheet, not separated dark cards. */
@@ -9947,12 +10179,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-dashboard-content {
   gap: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, #1d2019 13%, transparent);
+  border: 1px solid color-mix(in srgb, #0a0b0d 13%, transparent);
   border-radius: 10px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #fffdf3 88%, transparent), color-mix(in srgb, #f4f1e4 90%, transparent));
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 88%, transparent), color-mix(in srgb, #f8fbff 90%, transparent));
   box-shadow:
-    0 18px 38px color-mix(in srgb, #4a4a3e 9%, transparent),
+    0 18px 38px color-mix(in srgb, #8c939f 9%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 76%, transparent);
 }
 
@@ -9963,20 +10195,20 @@ h2 {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #1d2019;
+  color: #0a0b0d;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-card,
 .portfolio-dashboard-panel .portfolio-investment-summary-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
-  color: #1d2019;
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid,
 .portfolio-dashboard-panel .portfolio-terminal-grid {
   gap: 0;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 10%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-performance-card,
@@ -9985,12 +10217,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-performance-card,
 .portfolio-dashboard-panel .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-dividend-history-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 9%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-annual-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 9%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-lower-grid,
@@ -10000,7 +10232,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-insight-card,
 .portfolio-dashboard-panel .portfolio-insight-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 9%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -10029,7 +10261,7 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-axis-label,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
@@ -10046,41 +10278,41 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-legend strong,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div,
 .portfolio-dashboard-panel .portfolio-investment-summary-grid div {
-  border-left-color: color-mix(in srgb, #1d2019 9%, transparent);
+  border-left-color: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line,
 .portfolio-dashboard-panel .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #1d2019 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line,
 .portfolio-dashboard-panel .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #1d2019 34%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 34%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #fffdf3;
+  background: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button,
 .portfolio-dashboard-panel .portfolio-terminal-tabs button,
 .portfolio-dashboard-panel .portfolio-performance-tabs button {
-  border-color: color-mix(in srgb, #1d2019 13%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 13%, transparent);
   background: color-mix(in srgb, #ffffff 62%, transparent);
-  color: color-mix(in srgb, #1d2019 70%, transparent);
+  color: color-mix(in srgb, #0a0b0d 70%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
@@ -10089,47 +10321,47 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-tabs button.active,
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
 .portfolio-dashboard-panel .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #fffdf3;
-  box-shadow: 0 6px 14px color-mix(in srgb, #315f3d 14%, transparent);
+  background: #05b169;
+  color: #ffffff;
+  box-shadow: 0 6px 14px color-mix(in srgb, #05b169 14%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart,
 .portfolio-dashboard-panel .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #1d2019 14%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 14%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b,
 .portfolio-dashboard-panel .portfolio-mini-chart b {
-  background: color-mix(in srgb, #1d2019 42%, transparent);
+  background: color-mix(in srgb, #0a0b0d 42%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend,
 .portfolio-dashboard-panel .portfolio-purchase-legend {
-  border-color: color-mix(in srgb, #1d2019 10%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 10%, transparent);
   background: color-mix(in srgb, #ffffff 52%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row {
-  border-top-color: color-mix(in srgb, #1d2019 8%, transparent);
-  color: #1d2019;
+  border-top-color: color-mix(in srgb, #0a0b0d 8%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row em,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row em {
-  color: color-mix(in srgb, #1d2019 55%, transparent);
+  color: color-mix(in srgb, #0a0b0d 55%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head,
 .portfolio-dashboard-panel .portfolio-matrix-head {
-  background: color-mix(in srgb, #1d2019 4%, transparent);
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  background: color-mix(in srgb, #0a0b0d 4%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row,
 .portfolio-dashboard-panel .portfolio-matrix-row {
-  color: color-mix(in srgb, #1d2019 76%, transparent);
+  color: color-mix(in srgb, #0a0b0d 76%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -10138,39 +10370,39 @@ h2 {
 .portfolio-dashboard-panel .portfolio-matrix-head span,
 .portfolio-dashboard-panel .portfolio-matrix-row span,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  border-right-color: color-mix(in srgb, #1d2019 8%, transparent);
-  border-bottom-color: color-mix(in srgb, #1d2019 8%, transparent);
+  border-right-color: color-mix(in srgb, #0a0b0d 8%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row:hover,
 .bottom-menu-panel.menu-II .portfolio-matrix-row:focus-visible,
 .portfolio-dashboard-panel .portfolio-matrix-row:hover,
 .portfolio-dashboard-panel .portfolio-matrix-row:focus-visible {
-  background: color-mix(in srgb, #315f3d 7%, transparent);
+  background: color-mix(in srgb, #05b169 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
 .portfolio-dashboard-panel .portfolio-matrix-row .value-cell {
-  background: color-mix(in srgb, #d5a83b 20%, transparent);
-  color: #1d2019;
+  background: color-mix(in srgb, #cf202f 20%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 16%, transparent);
-  color: #06742f;
+  background: color-mix(in srgb, #05b169 16%, transparent);
+  color: #05b169;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #d13b34 16%, transparent);
-  color: #b9221d;
+  background: color-mix(in srgb, #cf202f 16%, transparent);
+  color: #cf202f;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-neutral {
-  background: color-mix(in srgb, #1d2019 4%, transparent);
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  background: color-mix(in srgb, #0a0b0d 4%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 /* Portfolio menu final rendering: full-width site background with a dark investment dashboard board. */
@@ -10184,7 +10416,7 @@ h2 {
   border-radius: 12px;
   background: var(--color-background);
   box-shadow:
-    0 24px 60px color-mix(in srgb, #171a14 22%, transparent),
+    0 24px 60px color-mix(in srgb, #0a0b0d 22%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent);
   transform: translateY(7%);
 }
@@ -10194,7 +10426,7 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-header,
@@ -10203,11 +10435,11 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-toolbar,
 .bottom-menu-panel.menu-II .portfolio-toolbar span,
 .bottom-menu-panel.menu-II .portfolio-toolbar select {
-  color: #171a14;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-eyebrow {
-  color: #315f3d;
+  color: #05b169;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-content {
@@ -10215,10 +10447,10 @@ h2 {
   overflow: hidden;
   border-color: color-mix(in srgb, #ffffff 11%, transparent);
   background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, #315f3d 16%, transparent), transparent 32%),
-    linear-gradient(180deg, #25252a 0%, #1f2024 100%);
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, #05b169 16%, transparent), transparent 32%),
+    linear-gradient(180deg, #242832 0%, #242832 100%);
   box-shadow:
-    0 24px 54px color-mix(in srgb, #171a14 30%, transparent),
+    0 24px 54px color-mix(in srgb, #0a0b0d 30%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
 }
 
@@ -10227,9 +10459,9 @@ h2 {
   border: 0;
   border-radius: 0;
   background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, #465042 18%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, #303036 92%, transparent), color-mix(in srgb, #25252a 94%, transparent));
-  color: #f4f3eb;
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, #5b616e 18%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, #242832 92%, transparent), color-mix(in srgb, #242832 94%, transparent));
+  color: #ffffff;
   box-shadow: none;
 }
 
@@ -10242,7 +10474,7 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-legend strong,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list strong,
 .bottom-menu-panel.menu-II .portfolio-matrix-row strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -10258,13 +10490,13 @@ h2 {
 .bottom-menu-panel.menu-II .portfolio-terminal-axis-label,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list span,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #f4f3eb 64%, transparent);
+  color: color-mix(in srgb, #ffffff 64%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
 .bottom-menu-panel.menu-II .portfolio-investment-summary-main strong,
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid strong {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div,
@@ -10273,58 +10505,58 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #f4f3eb 13%, transparent);
+  stroke: color-mix(in srgb, #ffffff 13%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #f4f3eb 40%, transparent);
+  stroke: color-mix(in srgb, #ffffff 40%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after {
-  background: #27272d;
+  background: #242832;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button {
   border-color: color-mix(in srgb, #ffffff 12%, transparent);
   background: color-mix(in srgb, #ffffff 8%, transparent);
-  color: color-mix(in srgb, #f4f3eb 72%, transparent);
+  color: color-mix(in srgb, #ffffff 72%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button.active,
 .bottom-menu-panel.menu-II .portfolio-allocation-tabs button.active {
-  background: #f4f3eb;
-  color: #171a14;
-  box-shadow: 0 8px 18px color-mix(in srgb, #171a14 22%, transparent);
+  background: #ffffff;
+  color: #0a0b0d;
+  box-shadow: 0 8px 18px color-mix(in srgb, #0a0b0d 22%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #f4f3eb 18%, transparent);
+  border-bottom-color: color-mix(in srgb, #ffffff 18%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b {
-  background: color-mix(in srgb, #f4f3eb 52%, transparent);
+  background: color-mix(in srgb, #ffffff 52%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend {
   border-color: color-mix(in srgb, #ffffff 8%, transparent);
-  background: color-mix(in srgb, #171a14 24%, transparent);
+  background: color-mix(in srgb, #0a0b0d 24%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row {
   border-top-color: color-mix(in srgb, #ffffff 8%, transparent);
-  color: #f4f3eb;
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-head,
 .bottom-menu-panel.menu-II .portfolio-matrix-head {
   background: color-mix(in srgb, #ffffff 5%, transparent);
-  color: color-mix(in srgb, #f4f3eb 62%, transparent);
+  color: color-mix(in srgb, #ffffff 62%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-activity-row,
@@ -10333,7 +10565,7 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row {
-  color: color-mix(in srgb, #f4f3eb 78%, transparent);
+  color: color-mix(in srgb, #ffffff 78%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -10349,23 +10581,23 @@ h2 {
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell {
-  background: color-mix(in srgb, #d5a83b 80%, #2b2920);
-  color: #171a14;
+  background: color-mix(in srgb, #cf202f 80%, #242832);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive {
-  background: color-mix(in srgb, #23883e 70%, #1d241d);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #05b169 70%, #242832);
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative {
-  background: color-mix(in srgb, #bb2924 72%, #2a1f1d);
-  color: #f4f3eb;
+  background: color-mix(in srgb, #cf202f 72%, #242832);
+  color: #ffffff;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral {
   background: color-mix(in srgb, #ffffff 7%, transparent);
-  color: color-mix(in srgb, #f4f3eb 66%, transparent);
+  color: color-mix(in srgb, #ffffff 66%, transparent);
 }
 
 /* Absolute final portfolio override: inherit the page paper, no backplate. */
@@ -10378,7 +10610,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel,
 .portfolio-dashboard-panel {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-dashboard-content,
@@ -10399,19 +10631,19 @@ h2 {
   border-radius: 0;
   background: transparent;
   background-image: none;
-  color: #1d2019;
+  color: #0a0b0d;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid,
 .portfolio-dashboard-panel .portfolio-terminal-grid {
   gap: 0;
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-card,
 .portfolio-dashboard-panel .portfolio-investment-summary-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 8%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-performance-card,
@@ -10420,12 +10652,12 @@ h2 {
 .portfolio-dashboard-panel .portfolio-performance-card,
 .portfolio-dashboard-panel .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-dividend-history-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-annual-card,
 .portfolio-dashboard-panel .portfolio-annual-card {
-  border-bottom: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-lower-grid,
@@ -10435,7 +10667,7 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-insight-card,
 .portfolio-dashboard-panel .portfolio-insight-card {
-  border-right: 1px solid color-mix(in srgb, #1d2019 7%, transparent);
+  border-right: 1px solid color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head > div span,
@@ -10452,7 +10684,7 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-legend strong,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list strong,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-head span,
@@ -10481,24 +10713,24 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-axis-label,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list span,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list em {
-  color: color-mix(in srgb, #1d2019 58%, transparent);
+  color: color-mix(in srgb, #0a0b0d 58%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-investment-summary-grid div,
 .portfolio-dashboard-panel .portfolio-investment-summary-grid div,
 .bottom-menu-panel.menu-II .portfolio-terminal-card .portfolio-insight-list div,
 .portfolio-dashboard-panel .portfolio-terminal-card .portfolio-insight-list div {
-  border-color: color-mix(in srgb, #1d2019 7%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-grid-line,
 .portfolio-dashboard-panel .portfolio-terminal-grid-line {
-  stroke: color-mix(in srgb, #1d2019 9%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 9%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-zero-line,
 .portfolio-dashboard-panel .portfolio-terminal-zero-line {
-  stroke: color-mix(in srgb, #1d2019 34%, transparent);
+  stroke: color-mix(in srgb, #0a0b0d 34%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut::after,
@@ -10508,16 +10740,16 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-terminal-donut-row .portfolio-donut span,
 .portfolio-dashboard-panel .portfolio-terminal-donut-row .portfolio-donut span {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button,
 .bottom-menu-panel.menu-II .portfolio-performance-tabs button,
 .portfolio-dashboard-panel .portfolio-terminal-tabs button,
 .portfolio-dashboard-panel .portfolio-performance-tabs button {
-  border-color: color-mix(in srgb, #1d2019 13%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 13%, transparent);
   background: color-mix(in srgb, #ffffff 58%, transparent);
-  color: color-mix(in srgb, #1d2019 70%, transparent);
+  color: color-mix(in srgb, #0a0b0d 70%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-terminal-tabs button.active,
@@ -10526,47 +10758,47 @@ h2 {
 .portfolio-dashboard-panel .portfolio-terminal-tabs button.active,
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
 .portfolio-dashboard-panel .portfolio-allocation-tabs button.active {
-  background: #315f3d;
-  color: #fffdf3;
+  background: #05b169;
+  color: #ffffff;
   box-shadow: none;
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart,
 .portfolio-dashboard-panel .portfolio-mini-chart {
-  border-bottom-color: color-mix(in srgb, #1d2019 12%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 12%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-mini-chart b,
 .portfolio-dashboard-panel .portfolio-mini-chart b {
-  background: color-mix(in srgb, #1d2019 36%, transparent);
+  background: color-mix(in srgb, #0a0b0d 36%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend,
 .portfolio-dashboard-panel .portfolio-purchase-legend {
-  border-color: color-mix(in srgb, #1d2019 9%, transparent);
+  border-color: color-mix(in srgb, #0a0b0d 9%, transparent);
   background: transparent;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row {
-  border-top-color: color-mix(in srgb, #1d2019 7%, transparent);
-  color: #1d2019;
+  border-top-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-purchase-legend-row em,
 .portfolio-dashboard-panel .portfolio-purchase-legend-row em {
-  color: color-mix(in srgb, #1d2019 55%, transparent);
+  color: color-mix(in srgb, #0a0b0d 55%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head,
 .portfolio-dashboard-panel .portfolio-matrix-head {
   background: transparent;
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row,
 .portfolio-dashboard-panel .portfolio-matrix-row {
-  color: color-mix(in srgb, #1d2019 76%, transparent);
+  color: color-mix(in srgb, #0a0b0d 76%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-head span,
@@ -10575,15 +10807,15 @@ h2 {
 .portfolio-dashboard-panel .portfolio-matrix-head span,
 .portfolio-dashboard-panel .portfolio-matrix-row span,
 .portfolio-dashboard-panel .portfolio-matrix-row strong {
-  border-right-color: color-mix(in srgb, #1d2019 7%, transparent);
-  border-bottom-color: color-mix(in srgb, #1d2019 7%, transparent);
+  border-right-color: color-mix(in srgb, #0a0b0d 7%, transparent);
+  border-bottom-color: color-mix(in srgb, #0a0b0d 7%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row:hover,
 .bottom-menu-panel.menu-II .portfolio-matrix-row:focus-visible,
 .portfolio-dashboard-panel .portfolio-matrix-row:hover,
 .portfolio-dashboard-panel .portfolio-matrix-row:focus-visible {
-  background: color-mix(in srgb, #315f3d 6%, transparent);
+  background: color-mix(in srgb, #05b169 6%, transparent);
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
@@ -10599,22 +10831,22 @@ h2 {
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .value-cell,
 .portfolio-dashboard-panel .portfolio-matrix-row .value-cell {
-  color: #1d2019;
+  color: #0a0b0d;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-positive,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-positive {
-  color: #06742f;
+  color: #05b169;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-negative,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-negative {
-  color: #b9221d;
+  color: #cf202f;
 }
 
 .bottom-menu-panel.menu-II .portfolio-matrix-row .heat-neutral,
 .portfolio-dashboard-panel .portfolio-matrix-row .heat-neutral {
-  color: color-mix(in srgb, #1d2019 62%, transparent);
+  color: color-mix(in srgb, #0a0b0d 62%, transparent);
 }
 /* EOF portfolio palette hard lock: this must remain after duplicated legacy portfolio blocks. */
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
@@ -10698,12 +10930,12 @@ h2 {
 /* EOF portfolio soft palette lock: final visual pass after the hard lock above. */
 .portfolio-dashboard-panel,
 .bottom-menu-panel.menu-II .portfolio-dashboard-panel {
-  --portfolio-soft-positive: #23622e;
-  --portfolio-soft-negative: #a3281f;
-  --portfolio-soft-signal: #284e81;
-  --portfolio-soft-caution: #c39216;
-  --portfolio-soft-purple: #724067;
-  --portfolio-soft-muted: #67665d;
+  --portfolio-soft-positive: #05b169;
+  --portfolio-soft-negative: #cf202f;
+  --portfolio-soft-signal: #003ecc;
+  --portfolio-soft-caution: #f4b000;
+  --portfolio-soft-purple: #8c939f;
+  --portfolio-soft-muted: #8c939f;
 }
 
 .portfolio-dashboard-panel .portfolio-performance-tabs button.active,
@@ -10837,4 +11069,672 @@ h2 {
 .portfolio-dashboard-panel .tone-neutral,
 .bottom-menu-panel.menu-II .tone-neutral {
   background: var(--portfolio-soft-muted);
+}
+
+/* Coinbase design system application layer: tokens come from DESIGN.md. */
+.app-shell {
+  background: var(--coinbase-app-canvas);
+}
+
+.treemap-panel {
+  border: 1px solid var(--coinbase-glass-border);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+}
+
+.canvas-workspace {
+  background: transparent;
+}
+
+.workspace-top-nav,
+.workspace-bottom-nav,
+.bottom-menu-panel,
+.bottom-chat-panel,
+.agent-box,
+.panel,
+.app-error-panel,
+.workspace-panel-surface,
+.market-news-panel,
+.market-indices-panel,
+.company-summary-panel,
+.company-earnings-panel,
+.company-valuation-panel,
+.popular-stocks-panel,
+.portfolio-holdings-panel,
+.portfolio-dashboard-panel,
+.stock-recommendations-panel,
+.order-ticket,
+.chart-compare-panel,
+.chart-panel,
+.ontology-panel,
+.symbol-search-menu,
+.alert-toast {
+  border: 1px solid var(--coinbase-hairline);
+  border-color: var(--coinbase-glass-border);
+  border-radius: var(--app-glass-radius);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass);
+  color: var(--coinbase-ink);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+}
+
+.workspace-top-nav,
+.workspace-bottom-nav {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.workspace-panel-surface,
+.bottom-menu-panel,
+.bottom-chat-panel,
+.alert-toast {
+  border-radius: var(--app-glass-radius);
+}
+
+.bottom-menu-panel.left,
+.bottom-menu-panel.right,
+.bottom-menu-panel.is-open {
+  border-radius: var(--app-glass-radius);
+}
+
+.workspace-panel-frame,
+.workspace-panel-body,
+.chart-instance,
+.chart-panel,
+.chart-wrap {
+  background: transparent;
+}
+
+.workspace-panel-nav {
+  border-bottom: 1px solid var(--coinbase-hairline);
+  background: var(--coinbase-control-glass);
+  color: var(--coinbase-ink);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.workspace-panel-title,
+.company-ticker,
+.agent-analysis-title,
+.bottom-menu-title,
+.company-info-heading strong,
+.portfolio-terminal-heading span,
+.stock-rec-toolbar strong {
+  color: var(--coinbase-ink);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.workspace-nav-button,
+.icon-button,
+.panel-icon-button,
+.panel-edit-button,
+.bottom-menu-item,
+.alert-icon-button,
+.alert-inline-button,
+.alert-submit,
+.investment-profile-save,
+.chart-instance-sync-page,
+.chart-content-toggle,
+.chart-compare-range-tabs button,
+.settings-tab,
+.stock-rec-session-toggle button,
+.watchlist-news-mode-tabs button,
+.portfolio-terminal-tabs button,
+.portfolio-performance-tabs button,
+.portfolio-allocation-tabs button,
+.agent-box button,
+.symbol-search > button {
+  min-width: 36px;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 4px;
+  background: var(--coinbase-panel-strong);
+  color: var(--coinbase-ink);
+  box-shadow: none;
+  letter-spacing: 0;
+}
+
+.workspace-nav-button.is-active,
+.icon-button.active,
+.layout-edit-toggle.is-active,
+.bottom-menu-item.active,
+.settings-tab.active,
+.chart-compare-range-tabs button.active,
+.stock-rec-session-toggle button.active,
+.watchlist-news-mode-tabs button.active,
+.portfolio-terminal-tabs button.active,
+.portfolio-performance-tabs button.active,
+.portfolio-allocation-tabs button.active,
+.agent-box button[type="submit"]:not(:disabled),
+.alert-submit,
+.investment-profile-save {
+  border-color: var(--coinbase-primary);
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+}
+
+.workspace-nav-button:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.bottom-menu-item:hover:not(:disabled),
+.chart-compare-range-tabs button:hover,
+.settings-tab:hover,
+.symbol-search > button:hover:not(:disabled),
+.agent-box button:hover:not(:disabled) {
+  border-color: var(--coinbase-primary);
+  color: var(--coinbase-primary);
+}
+
+.agent-box button[type="submit"]:not(:disabled):hover,
+.alert-submit:hover:not(:disabled),
+.investment-profile-save:hover:not(:disabled) {
+  border-color: var(--coinbase-primary-active);
+  background: var(--coinbase-primary-active);
+  color: var(--coinbase-on-primary);
+}
+
+input,
+select,
+textarea,
+.agent-box input,
+.symbol-search,
+.symbol-search input,
+.alert-input,
+.investment-profile-field input,
+.investment-profile-field select,
+.chart-instance-select {
+  border-color: var(--coinbase-hairline);
+  border-radius: 4px;
+  background: var(--coinbase-canvas);
+  color: var(--coinbase-ink);
+  box-shadow: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.agent-box:focus-within,
+.symbol-search:focus-within,
+.alert-input:focus,
+.investment-profile-field input:focus,
+.investment-profile-field select:focus,
+.chart-instance-select:focus {
+  border-color: var(--coinbase-ink);
+  outline: none;
+}
+
+.bottom-chat-message,
+.alert-row,
+.notification-row,
+.market-news-row,
+.popular-stock-row,
+.stock-rec-row,
+.portfolio-matrix-row,
+.company-info-cell,
+.company-valuation-card,
+.portfolio-terminal-card,
+.portfolio-terminal-kpis .portfolio-kpi-item {
+  border-color: var(--coinbase-hairline);
+  background: var(--coinbase-surface-card);
+  color: var(--coinbase-ink);
+}
+
+.bottom-chat-message.assistant,
+.bottom-chat-message.system,
+.workspace-panel-placeholder,
+.panel-empty-row,
+.panel-state-row,
+.stock-rec-state,
+.portfolio-state-row {
+  background: var(--coinbase-surface-soft);
+  color: var(--coinbase-body);
+}
+
+.agent-reference-chip,
+.investment-profile-chip,
+.watchlist-news-badge,
+.draft-pill,
+.workspace-nav-badge {
+  border-color: var(--coinbase-primary);
+  background: var(--coinbase-primary-disabled);
+  color: var(--coinbase-primary-active);
+}
+
+.alert-icon-button.danger,
+.agent-stop-button,
+.bottom-menu-item.danger,
+.stock-rec-change.down,
+.negative,
+.risk,
+.down {
+  color: var(--coinbase-semantic-down);
+}
+
+.positive,
+.good,
+.up,
+.stock-rec-change.up,
+.heat-positive {
+  color: var(--coinbase-semantic-up);
+}
+
+.chart-canvas,
+.ontology-panel,
+.ontology-graph,
+.ontology-graph-svg {
+  background: var(--coinbase-panel-glass);
+}
+
+.treemap-canvas {
+  background: transparent;
+}
+
+.workspace-panel-frame.workspace-panel-surface,
+.workspace-panel-surface,
+.panel,
+.app-error-panel,
+.market-news-panel,
+.market-indices-panel,
+.company-summary-panel,
+.company-earnings-panel,
+.company-valuation-panel,
+.popular-stocks-panel,
+.portfolio-holdings-panel,
+.portfolio-dashboard-panel,
+.stock-recommendations-panel,
+.order-ticket,
+.chart-compare-panel,
+.ontology-panel,
+.alert-toast {
+  border: 1px solid var(--coinbase-glass-border);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+}
+
+.bottom-chat-panel {
+  border: 1px solid var(--coinbase-hairline);
+  border-color: var(--coinbase-glass-border);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass);
+  color: var(--coinbase-ink);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+}
+
+.bottom-chat-message.assistant,
+.bottom-chat-message.system {
+  border: 1px solid var(--coinbase-glass-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 12px;
+  color: var(--coinbase-ink);
+}
+
+.index-side-rail {
+  position: fixed;
+  top: 32vh;
+  left: 0;
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 5px;
+  border: 1px solid var(--coinbase-glass-border);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-rail-glass);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  backdrop-filter: blur(24px) saturate(145%);
+  opacity: 0.58;
+  pointer-events: auto;
+  transform: translateX(calc(-100% + 10px));
+  transition:
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.index-side-rail::before {
+  position: absolute;
+  top: -18px;
+  right: -28px;
+  bottom: -18px;
+  width: 34px;
+  content: "";
+}
+
+.index-side-rail:hover,
+.index-side-rail:focus-within,
+.index-side-rail.is-menu-open {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.index-side-rail-button {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  place-items: center;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 999px;
+  background: var(--coinbase-control-glass);
+  color: var(--coinbase-ink-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(145%);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.index-side-rail-company {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  background: color-mix(in srgb, var(--coinbase-ink-soft) 86%, transparent);
+}
+
+.index-side-rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--coinbase-hairline);
+}
+
+.index-side-rail-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.index-side-rail-button:hover,
+.index-side-rail-button:focus-visible {
+  border-color: var(--coinbase-primary);
+  color: var(--coinbase-primary);
+  transform: scale(1.04);
+}
+
+.index-side-rail-action.is-active {
+  border-color: var(--coinbase-ink-soft);
+  background: color-mix(in srgb, var(--coinbase-ink-soft) 88%, transparent);
+  color: var(--coinbase-on-dark);
+  box-shadow: 0 10px 28px var(--coinbase-shadow-glow-blue);
+}
+
+.index-side-rail-button:focus-visible {
+  outline: 2px solid var(--coinbase-primary);
+  outline-offset: 2px;
+}
+
+.index-side-rail-logo {
+  width: 36px;
+  height: 36px;
+  border-color: var(--coinbase-hairline);
+  background: var(--coinbase-panel-glass-strong);
+  box-shadow: 0 0 0 1px var(--coinbase-hairline), 0 10px 28px var(--coinbase-shadow-soft);
+}
+
+.index-side-rail-button:hover .index-side-rail-logo,
+.index-side-rail-button:focus-visible .index-side-rail-logo {
+  border-color: var(--coinbase-primary);
+  box-shadow: 0 0 0 1px var(--coinbase-primary), 0 10px 28px var(--coinbase-shadow-glow-blue);
+}
+
+.bottom-menu-panel.side-overlay {
+  top: clamp(88px, 18vh, 148px);
+  right: auto;
+  bottom: auto;
+  left: 62px;
+  z-index: 44;
+  width: clamp(288px, 30vw, 396px);
+  height: min(68vh, calc(100vh - var(--bottom-nav-height) - 80px));
+  border-radius: var(--side-overlay-radius);
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass-strong);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+  transform: translateX(-14px) scale(0.98);
+}
+
+.bottom-menu-panel.side-overlay.right {
+  right: auto;
+  left: 62px;
+  border-radius: var(--side-overlay-radius);
+  transform: translateX(-14px) scale(0.98);
+}
+
+.bottom-menu-panel.side-overlay.is-open {
+  transform: translateX(0) scale(1);
+}
+
+.chart-add-dock .chart-add-layer-button.active,
+.chart-drawing-target-button.is-active,
+.chart-add-target-button.is-active {
+  border-color: var(--coinbase-primary);
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+}
+
+@media (max-width: 640px) {
+  .workspace-bottom-nav {
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0;
+    height: 72px;
+    padding: 8px;
+  }
+
+  .bottom-nav-actions.left {
+    display: none;
+  }
+
+  .bottom-nav-actions.right {
+    position: fixed;
+    right: 8px;
+    bottom: 80px;
+    display: inline-flex;
+    gap: 8px;
+    padding: 4px;
+    border: 1px solid var(--coinbase-hairline);
+    border-radius: 16px;
+    background: var(--coinbase-surface-card);
+    box-shadow: 0 2px 8px rgb(var(--coinbase-ink-rgb) / 0.08);
+  }
+
+  .agent-dock {
+    grid-column: 1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .agent-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .agent-box input {
+    font-size: 12px;
+  }
+
+  .bottom-menu-panel.left,
+  .bottom-menu-panel.right {
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .index-side-rail {
+    top: 30vh;
+    left: 0;
+    padding: 5px;
+  }
+
+  .index-side-rail-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
+  .index-side-rail-company {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .index-side-rail-logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .bottom-menu-panel.side-overlay,
+  .bottom-menu-panel.side-overlay.right {
+    top: 72px;
+    right: 8px;
+    left: 54px;
+    width: auto;
+    height: min(68vh, calc(100vh - var(--bottom-nav-height) - 88px));
+    border-radius: 22px;
+  }
+}
+
+@media (hover: none) {
+  .index-side-rail {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Fixed bottom command surface: this is not part of the customizable panel grid. It stays
+   pinned to the canvas and removes card borders/shadows from the input and base controls. */
+.workspace-bottom-nav {
+  border: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.24) 100%);
+  box-shadow: none;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-bottom-nav .agent-dock,
+.workspace-bottom-nav .bottom-nav-actions {
+  background: transparent;
+  box-shadow: none;
+}
+
+.workspace-bottom-nav .agent-box {
+  border: 0;
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    var(--coinbase-panel-glass);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: var(--coinbase-glass-filter);
+  backdrop-filter: var(--coinbase-glass-filter);
+}
+
+.workspace-bottom-nav .agent-box::after,
+.workspace-bottom-nav .workspace-nav-button::after,
+.workspace-bottom-nav .bottom-nav-actions::after {
+  box-shadow: none;
+  opacity: 0;
+}
+
+.workspace-bottom-nav .workspace-nav-button,
+.workspace-bottom-nav .agent-box button {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workspace-bottom-nav .workspace-nav-button:hover:not(:disabled),
+.workspace-bottom-nav .workspace-nav-button:focus-visible,
+.workspace-bottom-nav .workspace-nav-button.is-active,
+.workspace-bottom-nav .layout-edit-toggle.is-active,
+.workspace-bottom-nav .agent-box button:hover:not(:disabled),
+.workspace-bottom-nav .agent-box button:focus-visible,
+.workspace-bottom-nav .agent-box button[type="submit"]:not(:disabled) {
+  border: 0;
+  background: transparent;
+  color: var(--coinbase-primary);
+  box-shadow: none;
+}
+
+.workspace-bottom-nav .agent-box button.agent-stop-button,
+.workspace-bottom-nav .agent-box button.agent-stop-button:hover:not(:disabled),
+.workspace-bottom-nav .agent-box button.agent-stop-button:focus-visible {
+  color: var(--coinbase-semantic-down);
+}
+
+@media (max-width: 640px) {
+  .workspace-bottom-nav {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
+    align-items: center;
+  }
+
+  .bottom-command-slot {
+    grid-column: 1;
+    width: 100%;
+  }
+
+  .agent-dock {
+    width: 100%;
+  }
+
+  .bottom-nav-actions.right {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    grid-column: 2;
+    justify-self: end;
+    max-width: 42vw;
+    overflow-x: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    scrollbar-width: none;
+  }
+
+  .bottom-nav-actions.right::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bottom-nav-actions.right .workspace-nav-button {
+    flex: 0 0 var(--bottom-control-size);
+  }
+
+  .layout-preset-dock {
+    right: auto;
+    left: auto;
+    bottom: auto;
+    max-width: calc(100vw - 16px);
+  }
 }

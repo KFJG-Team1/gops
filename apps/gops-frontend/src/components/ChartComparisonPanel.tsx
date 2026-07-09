@@ -26,7 +26,7 @@ const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
 const chartWidth = 1600;
 const chartHeight = 300;
 const plot = { left: 62, right: 1538, top: 28, bottom: 232 };
-const fallbackColors = ["#2a8c99", "#b2553d", "#b99b2e", "#ca8a4a", "#8f6bb5", "#c85363"];
+const fallbackColors = ["#0052ff", "#05b169", "#cf202f", "#f4b000", "#003ecc", "#8c939f"];
 const maxCompareSymbols = 6;
 
 export function ChartComparisonPanel({

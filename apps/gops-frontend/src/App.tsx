@@ -38,8 +38,8 @@ import {
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartCandleReference, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
-import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
+import { BottomCommandBar, type AgentSubmitResult, type BottomCommandMode, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
+import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
@@ -58,7 +58,6 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
-import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
   createMainViewUrl,
   mainViewsEqual,
@@ -88,45 +87,33 @@ type InteractiveAgentContext = {
   uiContext: Record<string, unknown>;
 };
 
+type SideRailCompanyItem = {
+  symbol: string;
+  companyName?: string;
+};
+
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
+const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: 0 };
 
 let chatLogEntrySequence = 0;
 
-const unavailableHeaderQuote: LiveQuote = {
-  priceText: "-",
-  changeText: "-",
-  percentText: "-",
-  tone: "unavailable"
-};
-
-const headerQuoteFormatter = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-});
-
-function chartPanelLayoutMetrics(hasMultipleChartPanels: boolean): WorkspaceLayoutMetrics {
-  return { topInset: hasMultipleChartPanels ? 0 : workspaceTopInset };
-}
-
-function layoutMetricsForPanelState(state: TiledPanelState): WorkspaceLayoutMetrics {
-  return chartPanelLayoutMetrics(countChartPanels(state) >= 2);
-}
-
 function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
-    return createInitialTiledPanelState({ width: 1280, height: 720 });
+    return createInitialTiledPanelState({ width: 1280, height: 720 }, {
+      layoutMetrics: chartWorkspaceLayoutMetrics
+    });
   }
   const viewport = currentViewportSize();
   const initialView = resolveMainViewFromUrl(window.location.href).view;
   try {
     const stored = window.localStorage.getItem(panelLayoutStorageKey);
     if (stored) {
-      const restored = restoreTiledPanelStateSnapshot(JSON.parse(stored), viewport);
+      const restored = restoreTiledPanelStateSnapshot(JSON.parse(stored), viewport, chartWorkspaceLayoutMetrics);
       if (restored) {
         return initialView.mode === "chart"
-          ? setPrimaryChartSymbol(restored, initialView.symbol, viewport)
+          ? setPrimaryChartSymbol(restored, initialView.symbol, viewport, chartWorkspaceLayoutMetrics)
           : restored;
       }
     }
@@ -134,6 +121,7 @@ function initialPanelState(): TiledPanelState {
     // Invalid local layout state falls back to the default 8x5 workspace.
   }
   return createInitialTiledPanelState(viewport, {
+    layoutMetrics: chartWorkspaceLayoutMetrics,
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
   });
 }
@@ -284,6 +272,7 @@ export function App() {
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
+  const [bottomCommandMode, setBottomCommandMode] = useState<BottomCommandMode>("pages");
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistPersisted, setWatchlistPersisted] = useState(false);
@@ -297,7 +286,7 @@ export function App() {
   const watchlistSavingRef = useRef(false);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
-  const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetricsForPanelState(panelState));
+  const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(chartWorkspaceLayoutMetrics);
 
   const serializeCurrentLayout = useCallback(() => (
     serializeTiledPanelState(
@@ -446,6 +435,21 @@ export function App() {
   // gutter-sized margin on top/left/right (home view has no top nav). The bottom leaves the
   // same dock reserve as the panel workspace.
   const treeMapBounds = workspaceBounds(viewportSize, panelLayoutMetricsRef.current);
+  const isCompactHeatmapBackground = viewportSize.width < 700;
+  const heatMapBackgroundWidth = Math.max(
+    isCompactHeatmapBackground ? 740 : 1220,
+    viewportSize.width * (isCompactHeatmapBackground ? 1.9 : 1.48)
+  );
+  const heatMapBackgroundHeight = Math.max(
+    isCompactHeatmapBackground ? 560 : 760,
+    viewportSize.height * (isCompactHeatmapBackground ? 1.02 : 1.08)
+  );
+  const heatMapBackgroundStyle: CSSProperties = {
+    top: Math.round(viewportSize.height * (isCompactHeatmapBackground ? -0.03 : -0.04)),
+    left: Math.round((viewportSize.width - heatMapBackgroundWidth) / 2),
+    width: Math.round(heatMapBackgroundWidth),
+    height: Math.round(heatMapBackgroundHeight)
+  };
   const treeMapLaneStyle: CSSProperties = {
     top: layoutGutter,
     left: layoutGutter,
@@ -460,16 +464,13 @@ export function App() {
     isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
   })), [treeMapItems]);
   const activePageSymbol = mainView.mode === "chart" ? mainView.symbol : "";
-  const activeHeaderQuote = useMemo(() => (
-    mainView.mode === "chart" ? headerQuoteForSymbol(treeMapItems, mainView.symbol) : unavailableHeaderQuote
-  ), [mainView, treeMapItems]);
+  const sideRailCompanyItem = useMemo(() => (
+    mainView.mode === "chart" ? buildSideRailCompanyItem(treeMapItems, activePageSymbol) : null
+  ), [activePageSymbol, mainView.mode, treeMapItems]);
   const chartDocumentSymbolsByPanelId = useMemo(() => (
     chartDocumentSymbolsForLayout(panelState, chartRuntime)
   ), [chartRuntime, panelState]);
-  const hasMultipleChartPanels = useMemo(() => (
-    countChartPanels(panelState) >= 2
-  ), [panelState]);
-  const panelLayoutMetrics = useMemo(() => chartPanelLayoutMetrics(hasMultipleChartPanels), [hasMultipleChartPanels]);
+  const panelLayoutMetrics = chartWorkspaceLayoutMetrics;
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
   const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
   const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
@@ -1143,30 +1144,18 @@ export function App() {
 
   return (
     <main className="app-shell" style={workspaceStyle}>
-      {mainView.mode === "chart" && (
-        <header className={`workspace-top-nav chart ${hasMultipleChartPanels ? "is-hidden" : ""}`} aria-label="Workspace header">
-          <div className={`header-quote-stack ${activeHeaderQuote?.tone ?? "unavailable"}`} aria-label="Live quote">
-            <span className="quote-percent">{activeHeaderQuote?.percentText ?? "-"}</span>
-            <span className="quote-price-line">
-              <span className="quote-price">{activeHeaderQuote?.priceText ?? "-"}</span>
-              <span className="quote-change">{activeHeaderQuote?.changeText ?? "-"}</span>
-            </span>
-          </div>
-          <h1 className="company-ticker">{activePageSymbol}</h1>
-          <div className="workspace-top-nav-spacer" aria-hidden="true" />
-        </header>
-      )}
-      <section className="canvas-workspace" style={workspaceStyle}>
+      <div className="heatmap-background-layer" aria-hidden="true">
+        <TreeMapCanvas
+          items={treeMapItems}
+          style={heatMapBackgroundStyle}
+          className="treemap-background-panel"
+          interactive={false}
+        />
+      </div>
+      <section className={`canvas-workspace view-${mainView.mode}`} style={workspaceStyle}>
         {mainView.mode === "treemap" ? (
           <>
             <TreeMapCanvas items={treeMapItems} onSelectSymbol={openSymbolPage} style={treeMapLaneStyle} />
-            <PresetDock
-              controls={presetControls}
-              onShowHome={showTreeMap}
-              onEnterLayoutEdit={toggleLayoutEditMode}
-              layoutEditDisabled
-              isHome
-            />
           </>
         ) : (
           <PanelWorkspace
@@ -1189,18 +1178,22 @@ export function App() {
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
-            presetDock={(
-              <PresetDock
-                controls={presetControls}
-                onShowHome={showTreeMap}
-                onEnterLayoutEdit={toggleLayoutEditMode}
-              />
-            )}
           />
         )}
       </section>
       <BottomCommandBar
         activeMenu={activeBottomMenu}
+        commandMode={bottomCommandMode}
+        presetDock={(
+          <PresetDock
+            controls={presetControls}
+            onShowHome={showTreeMap}
+            onShowAgent={() => setBottomCommandMode("agent")}
+            onEnterLayoutEdit={toggleLayoutEditMode}
+            layoutEditDisabled={mainView.mode !== "chart"}
+            isHome={mainView.mode === "treemap"}
+          />
+        )}
         agentBusy={agentBusy}
         agentInput={agentInput}
         chatLog={chatLog}
@@ -1216,6 +1209,7 @@ export function App() {
         watchlistSaving={watchlistSaving}
         canEditWatchlist={canEditWatchlist}
         activeSymbol={activePageSymbol}
+        sideRailCompany={sideRailCompanyItem}
         isChartMode={mainView.mode === "chart"}
         layoutEditMode={layoutEditMode}
         onAgentInputChange={setAgentInput}
@@ -1224,6 +1218,7 @@ export function App() {
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
+        onCommandModeChange={setBottomCommandMode}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
         onLogin={login}
@@ -1286,30 +1281,24 @@ function normalizeMarketItems(items: readonly Sp500UniverseItem[]): Sp500Univers
   });
 }
 
-function headerQuoteForSymbol(items: readonly Sp500UniverseItem[], symbol: string): LiveQuote {
-  const item = items.find((entry) => entry.symbol.toUpperCase() === symbol.toUpperCase());
-  const price = item?.lastPrice;
-  const changePercent = item?.changePercent;
-  if (typeof price !== "number" || !Number.isFinite(price) || typeof changePercent !== "number" || !Number.isFinite(changePercent)) {
-    return unavailableHeaderQuote;
+function buildSideRailCompanyItem(
+  items: readonly Sp500UniverseItem[],
+  activeSymbol: string
+): SideRailCompanyItem | null {
+  const symbol = normalizeStoredSymbol(activeSymbol);
+  if (!symbol) {
+    return null;
   }
-  const previous = price / (1 + changePercent / 100);
-  const change = Number.isFinite(previous) ? price - previous : 0;
-  const tone = changePercent > 0 ? "up" : changePercent < 0 ? "down" : "flat";
-  return {
-    priceText: headerQuoteFormatter.format(price),
-    changeText: formatSignedHeaderNumber(change),
-    percentText: `${formatSignedHeaderNumber(changePercent)}%`,
-    tone
-  };
-}
-
-function formatSignedHeaderNumber(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
+  for (const item of items) {
+    if (normalizeStoredSymbol(item.symbol) !== symbol) {
+      continue;
+    }
+    return {
+      symbol,
+      companyName: item.companyName
+    };
   }
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${headerQuoteFormatter.format(Math.abs(value))}`;
+  return { symbol, companyName: symbol };
 }
 
 function chartDocumentSymbolsForLayout(
@@ -1358,10 +1347,6 @@ function chartSymbolsForPanelState(
 
 function firstChartSlotId(panelState: TiledPanelState): string | undefined {
   return panelState.slots.find((slot) => panelState.contents[slot.contentId]?.kind === "chart")?.id;
-}
-
-function countChartPanels(panelState: TiledPanelState): number {
-  return panelState.slots.filter((slot) => panelState.contents[slot.contentId]?.kind === "chart").length;
 }
 
 function workspaceLayoutMetricsEqual(left: WorkspaceLayoutMetrics, right: WorkspaceLayoutMetrics): boolean {

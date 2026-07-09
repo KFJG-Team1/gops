@@ -16,14 +16,18 @@ const LOGICAL_WIDTH = 640;
 const LOGICAL_HEIGHT = 420;
 
 // 프론트 공통 팔레트 (styles.css :root 토큰과 동일 계열)
-const INK = "#1a1a0e";
-const PAPER = "#efefe8";
-const UP_COLOR = "#1b6a29";
-const DOWN_COLOR = "#b31a0f";
-const NEUTRAL_FILL = "#d9d9d0";
-const SUBSIDIARY_FILL = "#f1dfc8";
-const SUBSIDIARY_STROKE = "#9b6b3d";
-const SUBSIDIARY_TEXT = "#64411f";
+const INK = "#0a0b0d";
+const PAPER = "#ffffff";
+const UP_COLOR = "#05b169";
+const DOWN_COLOR = "#cf202f";
+const NEUTRAL_FILL = "#f8fbff";
+const SUBSIDIARY_FILL = "#b9c0ca";
+const SUBSIDIARY_STROKE = "#0052ff";
+const SUBSIDIARY_TEXT = "#003ecc";
+const STOCK_STROKE = "rgba(10, 11, 13,.4)";
+const STOCK_TEXT_LIGHT = "rgba(255,255,255,.9)";
+const STOCK_TEXT_DARK = "rgba(10, 11, 13,.72)";
+const COMPANY_TEXT = "rgba(10, 11, 13,.6)";
 
 export type OntologyQuote = {
   changePercent?: number;
@@ -649,7 +653,7 @@ function createGraphController(
       .select<SVGCircleElement>("circle.ofg-body")
       .attr("r", (d) => d.r)
       .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : d.kind === "company" ? SUBSIDIARY_FILL : null))
-      .attr("stroke", (d) => (d.kind === "stock" ? "rgba(26,26,14,.4)" : d.kind === "company" ? SUBSIDIARY_STROKE : null))
+      .attr("stroke", (d) => (d.kind === "stock" ? STOCK_STROKE : d.kind === "company" ? SUBSIDIARY_STROKE : null))
       .attr("stroke-width", (d) => (d.kind === "company" ? 1.8 : null));
     nodeGroups
       .select<SVGCircleElement>("circle.ofg-selected-ring")
@@ -668,7 +672,7 @@ function createGraphController(
       .attr("y", 3)
       .attr("dy", "0.85em")
       .attr("fill", (d) =>
-        d.kind === "stock" ? (isDeepFill(d.label) ? "rgba(239,239,232,.9)" : "rgba(26,26,14,.72)") : "rgba(26,26,14,.6)"
+        d.kind === "stock" ? (isDeepFill(d.label) ? STOCK_TEXT_LIGHT : STOCK_TEXT_DARK) : COMPANY_TEXT
       )
       .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
     nodeGroups
@@ -808,7 +812,7 @@ function createGraphController(
       nodeGroups
         .select<SVGTextElement>("text.ofg-pct")
         .attr("fill", (d) =>
-          d.kind === "stock" ? (isDeepFill(d.label) ? "rgba(239,239,232,.9)" : "rgba(26,26,14,.72)") : "rgba(26,26,14,.6)"
+          d.kind === "stock" ? (isDeepFill(d.label) ? STOCK_TEXT_LIGHT : STOCK_TEXT_DARK) : COMPANY_TEXT
         )
         .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
     },

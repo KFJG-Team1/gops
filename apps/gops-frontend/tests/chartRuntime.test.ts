@@ -275,7 +275,7 @@ function testDrawing(overrides: Partial<DrawingEntity>): DrawingEntity {
     id: "drawing-test",
     type: "rangeBox",
     anchors: [],
-    style: { color: "#2563eb", fillColor: "#2563eb", fillOpacity: 0.12 },
+    style: { color: "#0052ff", fillColor: "#0052ff", fillOpacity: 0.12 },
     visible: true,
     createdBy: "user",
     createdAt: "2026-06-25T00:00:00.000Z",
@@ -322,26 +322,26 @@ const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
-assert.equal(fallbackChartStyle.background, "#efefe8");
-assert.equal(fallbackChartStyle.text, "#1a1a0e");
-assert.equal(fallbackChartStyle.grid, "rgba(26, 26, 14, 0.08)");
-assert.equal(fallbackChartStyle.volume, "rgba(26, 26, 14, 0.12)");
-assert.equal(fallbackChartStyle.bullish, "#1b6a29");
-assert.equal(fallbackChartStyle.bearish, "#b31a0f");
+assert.equal(fallbackChartStyle.background, "#f8fbff");
+assert.equal(fallbackChartStyle.text, "#0a0b0d");
+assert.equal(fallbackChartStyle.grid, "rgba(10, 11, 13, 0.08)");
+assert.equal(fallbackChartStyle.volume, "rgba(10, 11, 13, 0.12)");
+assert.equal(fallbackChartStyle.bullish, "#05b169");
+assert.equal(fallbackChartStyle.bearish, "#cf202f");
 setDefaultChartStyle({
-  background: "#101010",
-  bullish: "#00ff00",
-  bearish: "#ff0000",
-  ma5: "#abcdef"
+  background: "#242832",
+  bullish: "#05b169",
+  bearish: "#cf202f",
+  ma5: "#0052ff"
 });
 const themedDocument = createChartDocument("chart-doc-themed-custom", "AAPL", "1m");
-assert.equal(themedDocument.style.background, "#101010");
-assert.equal(themedDocument.style.bullish, "#00ff00");
-assert.equal(themedDocument.style.bearish, "#ff0000");
-assert.equal(themedDocument.style.ma5, "#abcdef");
+assert.equal(themedDocument.style.background, "#242832");
+assert.equal(themedDocument.style.bullish, "#05b169");
+assert.equal(themedDocument.style.bearish, "#cf202f");
+assert.equal(themedDocument.style.ma5, "#0052ff");
 setDefaultChartStyle(fallbackChartStyle);
-assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).background, fallbackChartStyle.background);
-assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#16a86b" }).bullish, fallbackChartStyle.bullish);
+assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#05b169" }).background, fallbackChartStyle.background);
+assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#05b169" }).bullish, fallbackChartStyle.bullish);
 
 assert.deepEqual(candleMovingAverageWindows, [5, 20, 60]);
 assert.deepEqual(serverIndicatorLayersForLayers({
@@ -363,15 +363,15 @@ assert.deepEqual(indicatorRequestRangeFromCandles([
 
 const treeMapTestTheme = {
   ...fallbackChartStyle,
-  up: "#1b6a29",
-  upSoft: "#1b6a29",
-  down: "#b31a0f",
-  downSoft: "#b31a0f",
-  changeUp: "#1b6a29",
-  changeDown: "#b31a0f",
-  tileText: "#1a1a0e",
-  tileTextInverse: "#efefe8",
-  footprint: "rgba(26, 26, 14, 0.42)"
+  up: "#05b169",
+  upSoft: "#05b169",
+  down: "#cf202f",
+  downSoft: "#cf202f",
+  changeUp: "#05b169",
+  changeDown: "#cf202f",
+  tileText: "#0a0b0d",
+  tileTextInverse: "#ffffff",
+  footprint: "rgba(10, 11, 13, 0.42)"
 };
 const treeMapScale = createTreeMapOpacityScale([
   0.01,
@@ -2435,7 +2435,8 @@ assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /export type BottomMenuKey = "III" \| "IV" \| "VI";/);
 assert.match(bottomCommandBarSource, /const leftMenuKeys: BottomMenuKey\[\] = \[\];/);
-assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \["IV", "III", "VI"\];/);
+assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \["IV", "III", "VI"\];/);
+assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /aria-label="로그인"/);
 assert.match(bottomCommandBarSource, /Logout\/profile live in Settings/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
@@ -2448,7 +2449,7 @@ assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
 assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
-assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.symbol-search-menu/);
+assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.index-side-rail, \.symbol-search-menu/);
 assert.match(bottomCommandBarSource, /onOpenNotificationSymbol=\{\(symbol\) => \{/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
@@ -2845,12 +2846,12 @@ assert.match(bottomCommandBarSourceForAgentAnalysis, /<details className="agent-
 assert.match(bottomCommandBarSourceForAgentAnalysis, /"판단 근거", "분석한 지표", "반대로 볼 점"/);
 assert.match(frontendStylesSource, /\.bottom-chat-message\.is-pending \.bottom-chat-message-text \{[\s\S]*color: var\(--color-muted-medium\);/);
 assert.match(frontendStylesSource, /\.bottom-chat-loading-mark \{[\s\S]*font-weight: 800;[\s\S]*animation: bottom-chat-loading-spin/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*background: #1f9d55;/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #d69e2e;/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #d64545;/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*background: #05b169;/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #f4b000;/);
+assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #cf202f;/);
 assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
-assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #fff;/);
+assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #ffffff;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*position: absolute;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*overflow: hidden;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*left: 0;/);
@@ -3061,7 +3062,7 @@ const trendLineResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-a", documentA.id), {
     drawingType: "trendLine",
     anchors: [anchorA, anchorB],
-    style: { color: "#111111", lineWidth: 1.5, extension: "ray" },
+    style: { color: "#0a0b0d", lineWidth: 1.5, extension: "ray" },
     label: "Trend ray"
   })
 );
@@ -3165,7 +3166,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
       label: "MSFT",
       scaleMode: "percent",
       base: { mode: "visibleRangeStart" },
-      style: { color: "#2563eb" }
+      style: { color: "#0052ff" }
     }
   })
 });
@@ -3182,7 +3183,7 @@ const regressionPreviewProposal: ChartProposal = {
     makeChartCommand("chart.drawing.add", "llm", target(regressionPanelA.id, regressionDocAId), {
       drawingType: "horizontalLine",
       anchors: [anchorA],
-      style: { color: "#111111" },
+      style: { color: "#0a0b0d" },
       label: "Chart A preview"
     }, "proposal-regression-preview-a")
   ],
@@ -3259,7 +3260,7 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
         id: "preview-drawing-b",
         type: "horizontalLine",
         anchors: [{ ...anchorA, symbol: "MSFT" }],
-        style: { color: "#8a1f1f" },
+        style: { color: "#cf202f" },
         label: "Chart B preview",
         createdAt: new Date().toISOString(),
         createdBy: "llm"
@@ -3295,7 +3296,7 @@ const drawingAddResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-a", documentA.id), {
     drawingType: "horizontalLine",
     anchors: [anchorA],
-    style: { color: "#111111" },
+    style: { color: "#0a0b0d" },
     label: "Support"
   })
 );
@@ -3326,7 +3327,7 @@ const scopedAdd = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-scoped", scopedUndoDocument.id), {
     drawingType: "horizontalLine",
     anchors: [anchorA],
-    style: { color: "#111111" },
+    style: { color: "#0a0b0d" },
     label: "Scoped support"
   }, undefined, "chartPanel")
 );
@@ -3356,13 +3357,13 @@ const clearAllDocument = createChartDocument("chart-doc-clear-all", "AAPL", "1m"
 const firstDrawing = makeChartCommand("chart.drawing.add", "user", target("panel-clear", clearAllDocument.id), {
   drawingType: "horizontalLine",
   anchors: [anchorA],
-  style: { color: "#111111" },
+  style: { color: "#0a0b0d" },
   label: "Level A"
 });
 const secondDrawing = makeChartCommand("chart.drawing.add", "user", target("panel-clear", clearAllDocument.id), {
   drawingType: "verticalMarker",
   anchors: [{ timestamp: candleB.timestamp, price: 10.8, paneId: "price", symbol: "AAPL", logicalIndex: 1 }],
-  style: { color: "#dc2626" },
+  style: { color: "#cf202f" },
   label: "Event B"
 });
 const seededDrawings = executeChartCommandGroup(clearAllDocument, [firstDrawing, secondDrawing], "Seed drawings");
@@ -3390,7 +3391,7 @@ const isolatedDrawingResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-b", documentB.id), {
     drawingType: "verticalMarker",
     anchors: [{ timestamp: candleB.timestamp, price: 10.8, paneId: "price", symbol: "MSFT", logicalIndex: 1 }],
-    style: { color: "#dc2626" },
+    style: { color: "#cf202f" },
     label: "MSFT event"
   })
 );
@@ -3408,7 +3409,7 @@ const priceOnlyHorizontalLineResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "llm", target("panel-a", documentA.id), {
     drawingType: "horizontalLine",
     anchors: [{ timestamp: null, price: 141.2, paneId: "price", symbol: "AAPL", logicalIndex: null, value: null }],
-    style: { color: "#3b82f6", fillColor: null, lineWidth: 2, textColor: null, lineDash: [] },
+    style: { color: "#0052ff", fillColor: null, lineWidth: 2, textColor: null, lineDash: [] },
     label: "Last 141.20",
     comparison: null,
     comparisonId: null
@@ -3425,7 +3426,7 @@ const comparisonResult = executeChartCommand(
       label: "SPY",
       scaleMode: "percent",
       base: { mode: "visibleRangeStart" },
-      style: { color: "#0f766e" }
+      style: { color: "#05b169" }
     }
   })
 );
@@ -3474,7 +3475,7 @@ const nvdaComparisonResult = executeChartCommand(
       label: "NVDA",
       scaleMode: "percent",
       base: { mode: "visibleRangeStart" },
-      style: { color: "#16a34a" }
+      style: { color: "#05b169" }
     }
   })
 );
@@ -3489,7 +3490,7 @@ const unsupportedComparisonResult = executeChartCommand(
       label: "BAD!",
       scaleMode: "percent",
       base: { mode: "visibleRangeStart" },
-      style: { color: "#111111" }
+      style: { color: "#0a0b0d" }
     }
   })
 );
@@ -3544,7 +3545,7 @@ const previewProposal: ChartProposal = {
     makeChartCommand("chart.drawing.add", "llm", target("panel-preview", previewDocument.id), {
       drawingType: "horizontalLine",
       anchors: [anchorA],
-      style: { color: "#2563eb" },
+      style: { color: "#0052ff" },
       label: "Agent level"
     }, "proposal-preview"),
     makeChartCommand("chart.comparison.add", "llm", target("panel-preview", previewDocument.id), {
@@ -3554,7 +3555,7 @@ const previewProposal: ChartProposal = {
         label: "SPY",
         scaleMode: "percent",
         base: { mode: "visibleRangeStart" },
-        style: { color: "#0f766e", lineWidth: 1.5 }
+        style: { color: "#05b169", lineWidth: 1.5 }
       }
     }, "proposal-preview")
   ],

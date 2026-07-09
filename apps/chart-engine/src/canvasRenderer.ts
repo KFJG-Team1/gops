@@ -3,6 +3,8 @@ import { normalizeLineExtension, projectTrendLine } from "./drawingGeometry";
 import type { CandleData, DrawingEntity, RenderScene } from "./types";
 import { resolveChartStyleColor } from "./theme";
 
+const chartCandleRadius = 3;
+
 export function drawChartScene(
   canvas: HTMLCanvasElement,
   scene: RenderScene,
@@ -113,6 +115,8 @@ function drawCandles(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const color = isUp ? scene.document.style.bullish : scene.document.style.bearish;
     const bodyTop = Math.min(openY, closeY);
     const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
+    const bodyWidth = scene.scales.candleWidth;
+    const bodyX = x - bodyWidth / 2;
 
     ctx.save();
     if (candle.displayOnly || candle.synthetic) {
@@ -121,8 +125,10 @@ function drawCandles(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = 1;
+    ctx.lineCap = "round";
     line(ctx, x, highY, x, lowY);
-    ctx.fillRect(x - scene.scales.candleWidth / 2, bodyTop, scene.scales.candleWidth, bodyHeight);
+    roundedRect(ctx, bodyX, bodyTop, bodyWidth, bodyHeight, candleBodyRadius(bodyWidth, bodyHeight));
+    ctx.fill();
     ctx.restore();
   });
 }
@@ -399,6 +405,10 @@ function priceY(scene: RenderScene, value: number): number {
 function candleCenter(scene: RenderScene, index: number): number {
   const slot = (scene.plot.right - scene.plot.left) / Math.max(1, scene.candles.length);
   return scene.plot.left + slot * index + slot / 2;
+}
+
+function candleBodyRadius(width: number, height: number): number {
+  return Math.min(chartCandleRadius, width * 0.34, height / 2);
 }
 
 function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {

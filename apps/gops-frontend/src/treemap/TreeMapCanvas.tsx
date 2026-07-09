@@ -15,8 +15,10 @@ import { readThemeColors, type ThemeColors } from "../theme/colors";
 
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
-  onSelectSymbol: (symbol: string) => void;
+  onSelectSymbol?: (symbol: string) => void;
   style?: CSSProperties;
+  className?: string;
+  interactive?: boolean;
 };
 
 type CanvasSize = {
@@ -28,7 +30,7 @@ const canvasPadding = 4;
 const labelPadding = 8;
 const tileGap = 0.85;
 
-export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasProps) {
+export function TreeMapCanvas({ items, onSelectSymbol, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
@@ -110,6 +112,9 @@ export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasPro
   }, [hoveredTile, opacityScale, size, tiles]);
 
   const updateHover = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!interactive) {
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -118,23 +123,23 @@ export function TreeMapCanvas({ items, onSelectSymbol, style }: TreeMapCanvasPro
   };
 
   const selectHoveredTile = () => {
-    if (hoveredTile?.symbol) {
+    if (interactive && hoveredTile?.symbol && onSelectSymbol) {
       onSelectSymbol(hoveredTile.symbol);
     }
   };
 
   return (
-    <section className="treemap-panel" style={panelStyle} aria-label="S&P 500 TreeMap">
+    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={panelStyle} aria-label="S&P 500 TreeMap">
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
-        style={{ cursor: hoveredTile?.symbol ? "pointer" : "default" }}
+        style={{ cursor: interactive && hoveredTile?.symbol ? "pointer" : "default" }}
         aria-label="S&P 500 TreeMap canvas"
-        onPointerMove={updateHover}
-        onPointerLeave={() => setHoveredTile(null)}
-        onClick={selectHoveredTile}
+        onPointerMove={interactive ? updateHover : undefined}
+        onPointerLeave={interactive ? () => setHoveredTile(null) : undefined}
+        onClick={interactive ? selectHoveredTile : undefined}
       />
-      {hoveredTile?.symbol && (
+      {interactive && hoveredTile?.symbol && (
         <div className="treemap-hover-meta" aria-live="polite">
           <strong>{hoveredTile.symbol}</strong>
           <span>{hoveredTile.companyName}</span>
@@ -199,7 +204,7 @@ function drawIndustry(
   context.save();
   context.fillStyle = tileFillForChange(tile.changePercent, theme.colors);
   context.globalAlpha = opacity;
-  context.fillRect(band.x, band.y, band.width, band.height);
+  fillRoundedRect(context, band.x, band.y, band.width, band.height, theme.radii.band);
   context.globalAlpha = 1;
 
   // Industry name written inside the band when it is tall/wide enough to read.
@@ -228,7 +233,7 @@ function drawSymbol(
   const tileOpacity = tileOpacityForChange(tile.changePercent, opacityScale);
   context.fillStyle = hovered ? theme.colors.text : tileFillForChange(tile.changePercent, theme.colors);
   context.globalAlpha = hovered ? 1 : tileOpacity;
-  context.fillRect(rect.x, rect.y, rect.width, rect.height);
+  fillRoundedRect(context, rect.x, rect.y, rect.width, rect.height, theme.radii.tile);
   context.globalAlpha = 1;
 
   const labelSpace = rect.width - 10;
@@ -283,14 +288,55 @@ function formatChange(value: number | undefined): string {
 type TreeMapTheme = {
   serif: string;
   colors: ThemeColors;
+  radii: {
+    tile: number;
+    band: number;
+  };
 };
 
 function readTheme(): TreeMapTheme {
   const root = getComputedStyle(document.documentElement);
+  const surfaceRadius = readCssPixelNumber(root, "--surface-radius", 16);
   return {
     serif: root.getPropertyValue("--font-ui-serif").trim() || "\"Times New Roman\", Times, Georgia, serif",
-    colors: readThemeColors()
+    colors: readThemeColors(),
+    radii: {
+      tile: readCssPixelNumber(root, "--heatmap-cell-radius", surfaceRadius),
+      band: readCssPixelNumber(root, "--heatmap-band-radius", 7)
+    }
   };
+}
+
+function fillRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const safeRadius = roundedRadius(width, height, radius);
+  if (safeRadius <= 0.25) {
+    context.fillRect(x, y, width, height);
+    return;
+  }
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.arcTo(x + width, y, x + width, y + height, safeRadius);
+  context.arcTo(x + width, y + height, x, y + height, safeRadius);
+  context.arcTo(x, y + height, x, y, safeRadius);
+  context.arcTo(x, y, x + width, y, safeRadius);
+  context.closePath();
+  context.fill();
+}
+
+function roundedRadius(width: number, height: number, radius: number): number {
+  return clamp(radius, 0, Math.min(width, height) * 0.32);
+}
+
+function readCssPixelNumber(root: CSSStyleDeclaration, name: string, fallback: number): number {
+  const value = Number.parseFloat(root.getPropertyValue(name));
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function insetTile(tile: TreeMapTile, gap: number) {
