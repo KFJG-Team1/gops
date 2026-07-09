@@ -16,8 +16,16 @@ import { IndexPanel } from "./IndexPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
-import { PortfolioHoldingsPanel } from "./PortfolioHoldingsPanel";
+import {
+  PortfolioDividendPanel,
+  PortfolioDiversificationPanel,
+  PortfolioHoldingsOnlyPanel,
+  PortfolioInvestedPanel,
+  PortfolioInvestmentStatusPanel,
+  PortfolioPerformancePanel
+} from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
+import { ThemeRadarPanel } from "./ThemeRadarPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 
 type PanelContentRendererProps = {
@@ -155,13 +163,48 @@ export function PanelContentRenderer({
     return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
 
+  if (content.kind === "themeRadar") {
+    return <ThemeRadarPanel items={marketItems} activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
+  }
+
   if (content.kind === "ontology") {
     return <OntologyPanel symbol={symbol} onSelectSymbol={onSelectSymbol} />;
   }
 
   if (content.kind === "portfolio") {
     return (
-      <PortfolioHoldingsPanel
+      <PortfolioHoldingsOnlyPanel
+        onSelectSymbol={(nextSymbol) => {
+          onSelectSymbol(nextSymbol);
+          return true;
+        }}
+      />
+    );
+  }
+
+  if (content.kind === "portfolioInvestment") {
+    return <PortfolioInvestmentStatusPanel />;
+  }
+
+  if (content.kind === "portfolioPerformance") {
+    return <PortfolioPerformancePanel />;
+  }
+
+  if (content.kind === "portfolioInvested") {
+    return <PortfolioInvestedPanel />;
+  }
+
+  if (content.kind === "portfolioDividend") {
+    return <PortfolioDividendPanel />;
+  }
+
+  if (content.kind === "portfolioDiversification") {
+    return <PortfolioDiversificationPanel />;
+  }
+
+  if (content.kind === "portfolioHoldings") {
+    return (
+      <PortfolioHoldingsOnlyPanel
         onSelectSymbol={(nextSymbol) => {
           onSelectSymbol(nextSymbol);
           return true;
