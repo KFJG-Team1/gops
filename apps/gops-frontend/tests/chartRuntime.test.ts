@@ -77,10 +77,15 @@ import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/cha
 import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
 import { fetchOrderFlowSymbols } from "../src/chart/orderFlowClient";
 import {
+  autoOrderFlowTargetRows,
   autoPriceStep,
   buildLadder,
+  effectiveOrderFlowPriceStep,
+  maxOrderFlowTargetRowsForHeight,
   rebinLevels,
   replaceOrderFlowMinute,
+  resolveOrderFlowTargetRows,
+  stepOrderFlowTargetRows,
   sumMinuteWindows,
   visibleScaleMax,
   type OrderFlowMinuteUpdate
@@ -1433,6 +1438,14 @@ assert.equal(ladder.levels.find((level) => level.priceBin === 102)?.bidImbalance
 assert.equal(ladder.levels.find((level) => level.priceBin === 101)?.bidImbalance, false);
 assert.equal(autoPriceStep(1.2, 44), 0.05);
 assert.equal(autoPriceStep(8, 24), 0.5);
+assert.equal(maxOrderFlowTargetRowsForHeight(120), 16);
+assert.equal(autoOrderFlowTargetRows(120), 8);
+assert.equal(resolveOrderFlowTargetRows("auto", 16, 32), 16);
+assert.equal(resolveOrderFlowTargetRows(44, 16, 32), 32);
+assert.equal(stepOrderFlowTargetRows(16, 1, 44), 20);
+assert.equal(stepOrderFlowTargetRows(16, -1, 44), 12);
+assert.equal(stepOrderFlowTargetRows(44, 1, 50), 50);
+assert.equal(effectiveOrderFlowPriceStep(1.2, 32, 0.01), 0.05);
 assert.equal(visibleScaleMax([ladder]), 105);
 assert.equal(chartColumnTier(80), "full");
 assert.equal(chartColumnTier(30), "standard");
@@ -2665,6 +2678,10 @@ assert.match(appSource, /panelLayoutStorageKey/);
 assert.match(appSource, /restoreTiledPanelStateSnapshot/);
 assert.match(appSource, /setPrimaryChartSymbol/);
 assert.match(appSource, /createInitialTiledPanelState\(viewport, \{/);
+assert.match(appSource, /createOrderFlowDemoPanelState/);
+assert.match(appSource, /isOrderFlowDemoRoute/);
+assert.match(appSource, /import\.meta\.env\.DEV !== true/);
+assert.doesNotMatch(appSource, /orderFlowDemoData/);
 assert.match(appSource, /차트를 같이 표시했습니다/);
 assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
@@ -2755,6 +2772,7 @@ assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
+const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
 assert.match(chartPanelSource, /visibleProfileRangeKey/);
 assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
@@ -2780,6 +2798,12 @@ assert.match(chartPanelSource, /action: "dig"/);
 assert.match(chartPanelSource, /action: "agent-select"/);
 assert.match(symbolSearchSource, /createPortal/);
 assert.match(symbolSearchSource, /position: "fixed"/);
+assert.match(symbolSearchSource, /allowCustomSymbol/);
+assert.match(symbolSearchSource, /portalMenu/);
+assert.match(orderFlowPanelSource, /order-flow-hover-overlay/);
+assert.match(orderFlowPanelSource, /onWheel=\{handleCanvasWheel\}/);
+assert.match(orderFlowPanelSource, /stepOrderFlowTargetRows/);
+assert.doesNotMatch(orderFlowPanelSource, /order-flow-control-select|ORDER_FLOW_PRICE_STEPS/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);

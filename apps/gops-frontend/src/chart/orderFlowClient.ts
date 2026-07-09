@@ -7,13 +7,6 @@ import type {
   OrderFlowMinuteDto
 } from "./orderFlow";
 import type { CandleEventDto } from "./types";
-import {
-  fetchDemoOrderFlowDaily,
-  fetchDemoOrderFlowIntraday,
-  fetchDemoOrderFlowSymbols,
-  isOrderFlowDemoEnabled,
-  subscribeDemoOrderFlowTicks
-} from "./orderFlowDemoData";
 
 type OrderFlowSymbolsResponse = {
   symbols: string[];
@@ -21,10 +14,12 @@ type OrderFlowSymbolsResponse = {
 };
 
 let symbolsCache: OrderFlowSymbolsResponse | null = null;
+const orderFlowDemoBuildEnabled = typeof import.meta.env !== "undefined" && import.meta.env.DEV === true;
 
 export async function fetchOrderFlowSymbols(signal?: AbortSignal): Promise<OrderFlowSymbolsResponse> {
-  if (isOrderFlowDemoEnabled()) {
-    return fetchDemoOrderFlowSymbols();
+  if (isOrderFlowDemoRuntimeEnabled()) {
+    const demo = await import("./orderFlowDemoData");
+    return demo.fetchDemoOrderFlowSymbols();
   }
   if (symbolsCache) {
     return symbolsCache;
@@ -38,8 +33,9 @@ export async function fetchOrderFlowDaily(
   q: { symbol: string; from: string; to: string; limitDays?: number },
   signal?: AbortSignal
 ): Promise<OrderFlowDailyResponseDto> {
-  if (isOrderFlowDemoEnabled()) {
-    return fetchDemoOrderFlowDaily(q);
+  if (isOrderFlowDemoRuntimeEnabled()) {
+    const demo = await import("./orderFlowDemoData");
+    return demo.fetchDemoOrderFlowDaily(q);
   }
   const params = new URLSearchParams({
     symbol: q.symbol.trim().toUpperCase(),
@@ -53,8 +49,9 @@ export async function fetchOrderFlowDaily(
 }
 
 export async function fetchOrderFlowIntraday(symbol: string, signal?: AbortSignal): Promise<OrderFlowIntradayResponseDto> {
-  if (isOrderFlowDemoEnabled()) {
-    return fetchDemoOrderFlowIntraday(symbol);
+  if (isOrderFlowDemoRuntimeEnabled()) {
+    const demo = await import("./orderFlowDemoData");
+    return demo.fetchDemoOrderFlowIntraday(symbol);
   }
   const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
   return normalizeIntradayResponse(await fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`, signal));
@@ -65,7 +62,33 @@ export function subscribeOrderFlowDemoTicks(
   onEvent: (event: CandleEventDto) => void,
   onState: (state: "connecting" | "live" | "idle" | "error") => void
 ): (() => void) | null {
-  return subscribeDemoOrderFlowTicks(symbol, onEvent, onState);
+  if (!isOrderFlowDemoRuntimeEnabled()) {
+    return null;
+  }
+  let disposed = false;
+  let cleanup: (() => void) | null = null;
+  void import("./orderFlowDemoData")
+    .then((demo) => {
+      if (disposed) {
+        return;
+      }
+      cleanup = demo.subscribeDemoOrderFlowTicks(symbol, onEvent, onState);
+    })
+    .catch(() => {
+      if (!disposed) {
+        onState("error");
+      }
+    });
+  return () => {
+    disposed = true;
+    cleanup?.();
+  };
+}
+
+function isOrderFlowDemoRuntimeEnabled(): boolean {
+  return orderFlowDemoBuildEnabled &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("orderFlowDemo");
 }
 
 async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {

@@ -3711,8 +3711,7 @@ h2 {
 }
 
 .order-flow-panel {
-  display: grid;
-  grid-template-rows: 36px 32px 24px minmax(0, 1fr);
+  position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -3723,125 +3722,125 @@ h2 {
   font-family: var(--font-ui-serif);
 }
 
-.order-flow-panel-header,
-.order-flow-controls,
-.order-flow-stats {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 8px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--coinbase-hairline);
-}
-
-.order-flow-title {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  min-width: 0;
-  gap: 7px;
-  font-family: var(--font-ui-serif);
-  font-size: 12px;
-  font-weight: 780;
-  line-height: 1;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.order-flow-title > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.order-flow-estimated-pill,
-.order-flow-mode,
-.order-flow-delta {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 4px;
-  background: var(--coinbase-control-glass);
-  color: var(--color-muted);
-  font-family: var(--font-ui-serif);
-  font-size: 10px;
-  font-weight: 760;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.order-flow-symbol-select,
-.order-flow-control-select {
-  height: 24px;
-  min-width: 0;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--coinbase-canvas) 88%, transparent);
-  color: var(--color-text);
-  font-family: var(--font-ui-serif);
-  font-size: 11px;
-  font-weight: 720;
-  letter-spacing: 0;
-}
-
-.order-flow-symbol-select {
-  width: 78px;
-}
-
-.order-flow-control-select {
-  flex: 0 1 74px;
-}
-
-.order-flow-mode {
-  max-width: 128px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.order-flow-mode.live,
-.order-flow-delta.up {
-  color: var(--color-up-soft);
-}
-
-.order-flow-mode.selected,
-.order-flow-delta.down {
-  color: var(--color-down-soft);
-}
-
-.order-flow-delta {
-  margin-left: auto;
-  max-width: 112px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.order-flow-stats {
-  gap: 12px;
-  color: var(--color-muted);
-  font-family: var(--font-ui-serif);
-  font-size: 10px;
-  font-weight: 720;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.order-flow-stats > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .order-flow-canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
+}
+
+.order-flow-hover-overlay {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
+    color-mix(in srgb, var(--coinbase-panel-glass-strong) 78%, transparent);
+  backdrop-filter: var(--coinbase-glass-filter);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.order-flow-hover-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.order-flow-symbol-search {
+  z-index: 3;
+  width: 100%;
+  height: 32px;
+  min-width: 0;
+}
+
+.order-flow-symbol-search input {
+  height: 32px;
+}
+
+.order-flow-symbol-search > button {
+  width: 26px;
+  height: 24px;
+}
+
+.order-flow-symbol-search .symbol-search-menu {
+  top: 38px;
+  max-height: min(190px, calc(100vh - 120px));
+}
+
+.order-flow-window-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface) 76%, transparent);
+}
+
+.order-flow-window-grid button {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 4px;
+  border: 0;
+  border-right: 1px solid var(--coinbase-hairline);
+  border-bottom: 1px solid var(--coinbase-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-ui-serif);
+  font-size: 11px;
+  font-weight: 780;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.order-flow-window-grid button:nth-of-type(2n) {
+  border-right: 0;
+}
+
+.order-flow-window-grid button:nth-of-type(n + 3) {
+  border-bottom: 0;
+}
+
+.order-flow-window-grid button.active {
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+}
+
+.order-flow-window-grid button:disabled {
+  color: var(--coinbase-muted);
+}
+
+.order-flow-window-badge {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
 }
 
 .market-news-panel,

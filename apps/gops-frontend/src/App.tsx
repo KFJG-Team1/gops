@@ -48,6 +48,7 @@ import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./ch
 import { gridGutter } from "./layout/grid";
 import {
   createInitialTiledPanelState,
+  createTiledPanelStateFromSpec,
   normalizeFreeformRectsToGridLayout,
   panelLayoutStorageKey,
   restoreTiledPanelStateSnapshot,
@@ -66,7 +67,8 @@ import {
   mainViewUrlPath,
   normalizeStoredSymbol,
   resolveMainViewFromUrl,
-  type MainView
+  type MainView,
+  type MainViewUrlResolution
 } from "./navigation/mainViewUrl";
 import {
   applyPlacementPickCandidate,
@@ -104,6 +106,7 @@ const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
+const orderFlowDemoDefaultSymbol = "NVDA";
 
 let chatLogEntrySequence = 0;
 
@@ -114,7 +117,13 @@ function initialPanelState(): TiledPanelState {
     });
   }
   const viewport = currentViewportSize();
-  const initialView = resolveMainViewFromUrl(window.location.href).view;
+  const initialView = resolveAppMainViewFromUrl(window.location.href).view;
+  if (isOrderFlowDemoRoute(window.location.href)) {
+    return createOrderFlowDemoPanelState(
+      viewport,
+      initialView.mode === "chart" ? initialView.symbol : orderFlowDemoDefaultSymbol
+    );
+  }
   try {
     const stored = window.localStorage.getItem(panelLayoutStorageKey);
     if (stored) {
@@ -138,6 +147,40 @@ function initialPanelState(): TiledPanelState {
   return createInitialTiledPanelState(viewport, {
     layoutMetrics: chartWorkspaceLayoutMetrics,
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
+  });
+}
+
+function createOrderFlowDemoPanelState(viewport: ViewportSize, symbol: string): TiledPanelState {
+  const normalizedSymbol = normalizeStoredSymbol(symbol) || orderFlowDemoDefaultSymbol;
+  return createTiledPanelStateFromSpec([
+    {
+      kind: "chart",
+      gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 5 },
+      symbol: normalizedSymbol,
+      props: { symbol: normalizedSymbol, timeframe: "1D" },
+      layoutWeight: 100
+    },
+    {
+      kind: "orderFlow",
+      gridRect: { col: 6, row: 1, colSpan: 1, rowSpan: 1 },
+      props: { symbol: normalizedSymbol, window: "10m", resolution: "auto" },
+      layoutWeight: 45
+    },
+    {
+      kind: "orderFlow",
+      gridRect: { col: 7, row: 1, colSpan: 1, rowSpan: 2 },
+      props: { symbol: "AMZN", window: "10m", resolution: "auto" },
+      layoutWeight: 45
+    },
+    {
+      kind: "orderFlow",
+      gridRect: { col: 6, row: 3, colSpan: 2, rowSpan: 2 },
+      props: { symbol: normalizedSymbol, window: "10m", resolution: "auto" },
+      layoutWeight: 45
+    }
+  ], viewport, {
+    symbol: normalizedSymbol,
+    layoutMetrics: chartWorkspaceLayoutMetrics
   });
 }
 
@@ -377,7 +420,7 @@ export function App() {
 
   const navigateMainView = useCallback((nextView: MainView, options: { replace?: boolean; closeBottomMenu?: boolean } = {}) => {
     if (typeof window !== "undefined" && window.history) {
-      const currentView = resolveMainViewFromUrl(window.location.href).view;
+      const currentView = resolveAppMainViewFromUrl(window.location.href).view;
       const nextUrl = createMainViewUrl(window.location.href, nextView);
       const currentUrl = mainViewUrlPath(window.location.href);
       if (nextUrl !== currentUrl) {
@@ -399,7 +442,7 @@ export function App() {
     if (typeof window === "undefined" || !window.history?.replaceState) {
       return;
     }
-    const resolved = resolveMainViewFromUrl(window.location.href);
+    const resolved = resolveAppMainViewFromUrl(window.location.href);
     const currentUrl = mainViewUrlPath(window.location.href);
     if (resolved.url !== currentUrl) {
       window.history.replaceState(window.history.state, "", resolved.url);
@@ -411,7 +454,7 @@ export function App() {
       return undefined;
     }
     const handlePopState = () => {
-      const resolved = resolveMainViewFromUrl(window.location.href);
+      const resolved = resolveAppMainViewFromUrl(window.location.href);
       const currentUrl = mainViewUrlPath(window.location.href);
       if (window.history?.replaceState && resolved.url !== currentUrl) {
         window.history.replaceState(window.history.state, "", resolved.url);
@@ -516,6 +559,9 @@ export function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") {
+      return;
+    }
+    if (isOrderFlowDemoRoute(window.location.href)) {
       return;
     }
     try {
@@ -1544,7 +1590,27 @@ function initialMainView(): MainView {
   if (typeof window === "undefined") {
     return { mode: "treemap" };
   }
-  return resolveMainViewFromUrl(window.location.href).view;
+  return resolveAppMainViewFromUrl(window.location.href).view;
+}
+
+function resolveAppMainViewFromUrl(value: string | URL): MainViewUrlResolution {
+  const resolved = resolveMainViewFromUrl(value);
+  if (resolved.view.mode === "chart" || !isOrderFlowDemoRoute(value)) {
+    return resolved;
+  }
+  const nextView: MainView = { mode: "chart", symbol: orderFlowDemoDefaultSymbol };
+  return {
+    view: nextView,
+    url: createMainViewUrl(value, nextView)
+  };
+}
+
+function isOrderFlowDemoRoute(value: string | URL): boolean {
+  if (import.meta.env.DEV !== true) {
+    return false;
+  }
+  const url = value instanceof URL ? value : new URL(value, "http://gops.local");
+  return url.searchParams.has("orderFlowDemo");
 }
 
 function persistMainView(view: MainView) {

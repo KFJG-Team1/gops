@@ -13,6 +13,8 @@ type SymbolSearchProps = {
   menuPlacement?: "bottom" | "top";
   className?: string;
   style?: CSSProperties;
+  allowCustomSymbol?: boolean;
+  portalMenu?: boolean;
   onSelectSymbol: (symbol: string) => void;
   onPointerActivity?: () => void;
   formatSelectedLabel?: (symbol: ChartSymbolDto) => string;
@@ -27,6 +29,8 @@ export function SymbolSearch({
   menuPlacement = "bottom",
   className,
   style,
+  allowCustomSymbol = false,
+  portalMenu = true,
   onSelectSymbol,
   onPointerActivity,
   formatSelectedLabel
@@ -46,6 +50,7 @@ export function SymbolSearch({
     const normalizedQuery = query.trim().toLowerCase();
     return rankSymbolMatches(symbols, normalizedQuery).slice(0, 10);
   }, [query, symbols]);
+  const customSymbol = useMemo(() => normalizeCustomSymbol(query), [query]);
 
   useEffect(() => {
     if (!open) {
@@ -60,6 +65,12 @@ export function SymbolSearch({
   useEffect(() => {
     if (!open) {
       setMenuStyle(null);
+      return;
+    }
+    if (!portalMenu) {
+      setMenuStyle(menuPlacement === "top"
+        ? { position: "absolute", left: 0, right: 0, bottom: 42, width: "100%" }
+        : { position: "absolute", left: 0, right: 0, top: 42, width: "100%" });
       return;
     }
     const updateMenuStyle = () => {
@@ -92,7 +103,7 @@ export function SymbolSearch({
       window.removeEventListener("resize", updateMenuStyle);
       window.removeEventListener("scroll", updateMenuStyle, true);
     };
-  }, [compact, menuPlacement, open]);
+  }, [compact, menuPlacement, open, portalMenu]);
 
   const selectSymbol = (symbol: ChartSymbolDto) => {
     setQuery(formatSymbolLabel(symbol, formatSelectedLabel));
@@ -108,6 +119,14 @@ export function SymbolSearch({
     const next = exact ?? matches[0];
     if (next) {
       selectSymbol(next);
+      return;
+    }
+    const custom = allowCustomSymbol ? normalizeCustomSymbol(rawQuery) : null;
+    if (custom) {
+      setQuery(custom);
+      setOpen(false);
+      setFocused(false);
+      onSelectSymbol(custom);
     }
   };
 
@@ -139,6 +158,61 @@ export function SymbolSearch({
   const activeOptionId = open && filteredSymbols[highlightedIndex]
     ? `${listboxId}-option-${filteredSymbols[highlightedIndex].symbol}`
     : undefined;
+  const menu = open && menuStyle ? (
+    <div
+      id={listboxId}
+      className="symbol-search-menu surface-flat surface-recessed"
+      style={menuStyle}
+      role="listbox"
+      aria-label="Symbols"
+      onPointerEnter={onPointerActivity}
+      onPointerMove={onPointerActivity}
+    >
+      {filteredSymbols.map((symbol, index) => (
+        <button
+          key={symbol.symbol}
+          id={`${listboxId}-option-${symbol.symbol}`}
+          type="button"
+          className={[
+            symbol.symbol === selectedSymbol ? "active" : "",
+            index === highlightedIndex ? "highlighted" : ""
+          ].filter(Boolean).join(" ")}
+          role="option"
+          aria-selected={index === highlightedIndex}
+          onPointerMove={() => setHighlightedIndex(index)}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            selectSymbol(symbol);
+          }}
+        >
+          <StockLogo symbol={symbol.symbol} companyName={symbol.name} size="xs" />
+          <strong>{symbol.symbol}</strong>
+          <span>{symbol.name}</span>
+        </button>
+      ))}
+      {!filteredSymbols.length && allowCustomSymbol && customSymbol && (
+        <button
+          type="button"
+          className="symbol-search-custom"
+          role="option"
+          aria-selected="true"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            setQuery(customSymbol);
+            setOpen(false);
+            setFocused(false);
+            onSelectSymbol(customSymbol);
+          }}
+        >
+          <Search size={13} aria-hidden="true" />
+          <strong>{customSymbol}</strong>
+          <span>Search</span>
+        </button>
+      )}
+      {!filteredSymbols.length && !(allowCustomSymbol && customSymbol) && <p>검색 결과 없음</p>}
+      <LogoDevAttribution className="symbol-search-attribution" />
+    </div>
+  ) : null;
 
   return (
     <div
@@ -245,43 +319,7 @@ export function SymbolSearch({
       >
         <Search size={compact ? 12 : 14} aria-hidden="true" />
       </button>
-      {open && menuStyle && createPortal(
-        <div
-          id={listboxId}
-          className="symbol-search-menu surface-flat surface-recessed"
-          style={menuStyle}
-          role="listbox"
-          aria-label="Symbols"
-          onPointerEnter={onPointerActivity}
-          onPointerMove={onPointerActivity}
-        >
-          {filteredSymbols.map((symbol, index) => (
-            <button
-              key={symbol.symbol}
-              id={`${listboxId}-option-${symbol.symbol}`}
-              type="button"
-              className={[
-                symbol.symbol === selectedSymbol ? "active" : "",
-                index === highlightedIndex ? "highlighted" : ""
-              ].filter(Boolean).join(" ")}
-              role="option"
-              aria-selected={index === highlightedIndex}
-              onPointerMove={() => setHighlightedIndex(index)}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                selectSymbol(symbol);
-              }}
-            >
-              <StockLogo symbol={symbol.symbol} companyName={symbol.name} size="xs" />
-              <strong>{symbol.symbol}</strong>
-              <span>{symbol.name}</span>
-            </button>
-          ))}
-          {!filteredSymbols.length && <p>검색 결과 없음</p>}
-          <LogoDevAttribution className="symbol-search-attribution" />
-        </div>,
-        document.body
-      )}
+      {menu && (portalMenu ? createPortal(menu, document.body) : menu)}
     </div>
   );
 }
@@ -333,4 +371,9 @@ function symbolSearchRank(symbol: ChartSymbolDto, query: string): number {
     return 4;
   }
   return 5;
+}
+
+function normalizeCustomSymbol(value: string): string | null {
+  const symbol = value.trim().toUpperCase();
+  return /^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol) ? symbol : null;
 }

@@ -32,6 +32,7 @@ export type OrderFlowPanelRenderOptions = {
 const minChartRowHeight = 2;
 const chartFooterHeight = 13;
 const panelFooterHeight = 16;
+const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export function chartColumnTier(width: number): ChartColumnTier {
   if (width >= 72) {
@@ -117,13 +118,16 @@ export function drawOrderFlowPanelLadder(
   if (!ladder.levels.length || rect.width <= 0 || rect.height <= 0) {
     return;
   }
-  const drawHeight = Math.max(24, rect.height - panelFooterHeight);
+  const micro = rect.width < 132 || rect.height < 92;
+  const compact = micro || rect.width < 190 || rect.height < 132;
+  const footerHeight = micro ? 12 : panelFooterHeight;
+  const drawHeight = Math.max(24, rect.height - footerHeight);
   const rowHeight = Math.max(3, drawHeight / ladder.levels.length);
   const priceLabel = ladder.maxPrice >= 100 ? ladder.maxPrice.toFixed(2) : ladder.maxPrice.toFixed(2);
   ctx.save();
-  ctx.font = "700 10px Inter, system-ui, sans-serif";
+  ctx.font = `700 10px ${canvasFontFamily}`;
   const measuredGutter = Math.ceil(ctx.measureText(priceLabel).width) + 18;
-  const gutterWidth = clamp(measuredGutter, 46, Math.min(78, rect.width * 0.3));
+  const gutterWidth = clamp(measuredGutter, compact ? 34 : 46, Math.min(compact ? 58 : 78, rect.width * 0.32));
   const centerX = rect.x + rect.width / 2;
   const gutterLeft = centerX - gutterWidth / 2;
   const gutterRight = centerX + gutterWidth / 2;
@@ -136,7 +140,7 @@ export function drawOrderFlowPanelLadder(
   const quoteBidIndex = nearestLevelIndex(ladder.levels, options.quote?.bidPrice);
   const quoteAskIndex = nearestLevelIndex(ladder.levels, options.quote?.askPrice);
   const lastPriceIndex = nearestLevelIndex(ladder.levels, options.lastPrice);
-  const labelEvery = rowHeight >= 13 ? 1 : Math.ceil(13 / rowHeight);
+  const labelEvery = micro ? Number.POSITIVE_INFINITY : rowHeight >= 13 ? 1 : Math.ceil(13 / rowHeight);
 
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.width, rect.height);
@@ -157,23 +161,21 @@ export function drawOrderFlowPanelLadder(
       leftWidth,
       rightWidth,
       maxSideVolume,
-      showText: rowHeight >= 12 && rect.width >= 220
+      showText: !compact && rowHeight >= 12 && rect.width >= 220
     }, theme);
-    if (index === quoteBidIndex) {
-      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, formatSize(options.quote?.bidSize));
+    if (!micro && index === quoteBidIndex) {
+      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, compact ? "-" : formatSize(options.quote?.bidSize));
     }
-    if (index === quoteAskIndex) {
-      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, formatSize(options.quote?.askSize));
+    if (!micro && index === quoteAskIndex) {
+      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, compact ? "-" : formatSize(options.quote?.askSize));
     }
     const showLabel = index % labelEvery === 0 ||
       level.priceBin === ladder.pocPriceBin ||
-      index === quoteBidIndex ||
-      index === quoteAskIndex ||
       index === lastPriceIndex;
     if (showLabel) {
       ctx.globalAlpha = level.priceBin === ladder.pocPriceBin ? 0.96 : 0.78;
       ctx.fillStyle = level.priceBin === ladder.pocPriceBin ? theme.caution : theme.text;
-      ctx.font = `${level.priceBin === ladder.pocPriceBin ? "800" : "700"} 10px Inter, system-ui, sans-serif`;
+      ctx.font = `${level.priceBin === ladder.pocPriceBin ? "800" : "700"} ${micro ? 9 : 10}px ${canvasFontFamily}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(formatPrice(level.priceBin), centerX, y + h / 2, gutterWidth - 4);
@@ -194,14 +196,14 @@ export function drawOrderFlowPanelLadder(
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  drawPanelFooter(ctx, rect, ladder, theme, options.clippedHint);
+  drawPanelFooter(ctx, rect, ladder, theme, options.clippedHint, micro);
   ctx.restore();
 }
 
 export function drawEstimatedBadge(ctx: CanvasRenderingContext2D, x: number, y: number, theme: ThemeColors): void {
   const label = "estimated";
   ctx.save();
-  ctx.font = "700 10px Inter, system-ui, sans-serif";
+  ctx.font = `700 10px ${canvasFontFamily}`;
   const width = Math.ceil(ctx.measureText(label).width) + 14;
   const height = 16;
   ctx.globalAlpha = 0.82;
@@ -238,7 +240,8 @@ function drawTwoSidedColumn(
     if (y > rect.y + drawHeight || y + rowHeight < rect.y) {
       return;
     }
-    const h = Math.max(minChartRowHeight, rowHeight - 1);
+    const minRowHeight = options.tier === "full" || options.tier === "standard" ? 4 : minChartRowHeight;
+    const h = Math.max(minRowHeight, rowHeight - 1);
     const bidWidth = sideWidth(level.bidVolume, options.scaleMax, halfWidth);
     const askWidth = sideWidth(level.askVolume, options.scaleMax, halfWidth);
     const intensity = clamp(Math.abs(level.delta) / Math.max(1, options.scaleMax), 0.04, 0.38);
@@ -317,11 +320,13 @@ function drawColumnFooter(
   const delta = ladder.totals.delta;
   ctx.globalAlpha = tier === "compact" ? 0.72 : 0.86;
   ctx.fillStyle = delta >= 0 ? theme.upSoft : theme.downSoft;
-  ctx.font = `${tier === "full" ? "800" : "700"} 9px Inter, system-ui, sans-serif`;
+  ctx.font = `${tier === "full" ? "800" : "700"} 9px ${canvasFontFamily}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  const label = tier === "compact" ? (delta >= 0 ? "+" : "-") : `Delta ${signedNumber(delta)}`;
-  ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height - 1, rect.width - 2);
+  const fallback = delta >= 0 ? "+" : "-";
+  const preferred = tier === "compact" ? fallback : `Δ${shortSignedNumber(delta)}`;
+  const label = ctx.measureText(preferred).width <= rect.width - 4 ? preferred : fallback;
+  ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height - 3);
 }
 
 function drawPanelRowBackground(
@@ -387,7 +392,7 @@ function drawPanelBars(
   if (geometry.showText) {
     ctx.globalAlpha = 0.88;
     ctx.fillStyle = theme.text;
-    ctx.font = "800 9px Inter, system-ui, sans-serif";
+    ctx.font = `800 9px ${canvasFontFamily}`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "right";
     ctx.fillText(shortNumber(level.bidVolume), geometry.leftX - 3, geometry.y + geometry.h / 2, geometry.leftWidth - 5);
@@ -419,19 +424,32 @@ function drawPanelFooter(
   rect: OrderFlowLadderRect,
   ladder: OrderFlowLadder,
   theme: ThemeColors,
-  clippedHint: boolean | undefined
+  clippedHint: boolean | undefined,
+  micro: boolean
 ): void {
   const y = rect.y + rect.height - 2;
-  ctx.globalAlpha = 0.84;
-  ctx.fillStyle = ladder.totals.delta >= 0 ? theme.upSoft : theme.downSoft;
-  ctx.font = "800 10px Inter, system-ui, sans-serif";
-  ctx.textAlign = "left";
+  const footerHeight = micro ? 12 : panelFooterHeight;
+  ctx.globalAlpha = micro ? 0.52 : 0.68;
+  ctx.fillStyle = theme.surface;
+  ctx.fillRect(rect.x, rect.y + rect.height - footerHeight, rect.width, footerHeight);
+  if (micro) {
+    return;
+  }
+  ctx.font = `800 10px ${canvasFontFamily}`;
   ctx.textBaseline = "bottom";
-  ctx.fillText(`Delta ${signedNumber(ladder.totals.delta)}`, rect.x + 2, y, rect.width * 0.5);
   ctx.textAlign = "right";
-  ctx.fillStyle = theme.muted;
   const poc = ladder.pocPriceBin === null ? "POC -" : `POC ${formatPrice(ladder.pocPriceBin)}`;
-  ctx.fillText(clippedHint ? `${poc} · clipped` : poc, rect.x + rect.width - 2, y, rect.width * 0.6);
+  const label = clippedHint ? `${poc} · clipped` : poc;
+  if (clippedHint) {
+    const pillWidth = Math.min(rect.width * 0.62, ctx.measureText(label).width + 12);
+    ctx.globalAlpha = 0.76;
+    ctx.fillStyle = theme.surfaceStrong;
+    roundRect(ctx, rect.x + rect.width - pillWidth - 1, y - 13, pillWidth, 14, 4);
+    ctx.fill();
+    ctx.globalAlpha = 0.9;
+  }
+  ctx.fillStyle = theme.muted;
+  ctx.fillText(label, rect.x + rect.width - 4, y, rect.width * 0.6);
 }
 
 function drawPocLine(ctx: CanvasRenderingContext2D, rect: OrderFlowLadderRect, y: number, drawHeight: number, theme: ThemeColors): void {
@@ -472,7 +490,7 @@ function drawQuoteWedge(
   ctx.fill();
   if (label !== "-") {
     ctx.globalAlpha = 0.75;
-    ctx.font = "700 8px Inter, system-ui, sans-serif";
+    ctx.font = `700 8px ${canvasFontFamily}`;
     ctx.textAlign = direction === "left" ? "right" : "left";
     ctx.textBaseline = "middle";
     ctx.fillText(label, direction === "left" ? x - 8 : x + 8, y, 38);
@@ -512,7 +530,7 @@ function drawLevelText(
 ): void {
   ctx.globalAlpha = 0.88;
   ctx.fillStyle = theme.text;
-  ctx.font = "800 9px Inter, system-ui, sans-serif";
+  ctx.font = `800 9px ${canvasFontFamily}`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
   ctx.fillText(shortNumber(level.bidVolume), centerX - 3, y, halfWidth - 5);
@@ -596,11 +614,6 @@ function formatSize(value: number | undefined): string {
   return shortNumber(value);
 }
 
-function signedNumber(value: number): string {
-  const rounded = Math.round(value);
-  return `${rounded >= 0 ? "+" : ""}${rounded.toLocaleString("en-US")}`;
-}
-
 function shortNumber(value: number): string {
   if (Math.abs(value) >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}m`;
@@ -609,6 +622,18 @@ function shortNumber(value: number): string {
     return `${Math.round(value / 1_000)}k`;
   }
   return String(Math.round(value));
+}
+
+function shortSignedNumber(value: number): string {
+  const sign = value >= 0 ? "+" : "-";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    return `${sign}${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}m`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+  }
+  return `${sign}${Math.round(abs)}`;
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CandleEventDto } from "../chart/types";
+import { type WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CandleEventDto, ChartSymbolDto } from "../chart/types";
 import { openChartSocket } from "../chart/cdcClient";
 import {
   fetchOrderFlowDaily,
@@ -8,73 +8,112 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import {
-  autoPriceStep,
+  autoOrderFlowTargetRows,
   buildLadder,
-  ORDER_FLOW_PRICE_STEPS,
   ORDER_FLOW_WINDOWS,
+  effectiveOrderFlowPriceStep,
+  maxOrderFlowTargetRowsForHeight,
   rebinLevels,
   replaceOrderFlowMinute,
+  resolveOrderFlowTargetRows,
   sessionDateFromTimestamp,
+  stepOrderFlowTargetRows,
   sumMinuteWindows,
   type OrderFlowDayDto,
   type OrderFlowIntradayResponseDto,
   type OrderFlowLadder,
   type OrderFlowMinuteDto,
-  type OrderFlowPriceStepSelection,
+  type OrderFlowResolutionSelection,
   type OrderFlowWindow
 } from "../chart/orderFlow";
 import { drawOrderFlowPanelLadder } from "../chart/orderFlowRender";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { readThemeColors } from "../theme/colors";
+import type { ThemeColors } from "../theme/colors";
+import { SymbolSearch } from "./SymbolSearch";
 
 type OrderFlowPanelProps = {
   panelId: string;
   symbol: string;
   defaultToPinnedSymbol?: boolean;
+  savedWindow?: OrderFlowWindow;
+  savedResolution?: OrderFlowResolutionSelection;
   onSymbolChange?: (symbol: string) => void;
+  onWindowChange?: (windowKey: OrderFlowWindow) => void;
+  onResolutionChange?: (resolution: OrderFlowResolutionSelection) => void;
   semanticSelection: SemanticSelectionSnapshot | null;
 };
 
 type LiveQuote = NonNullable<OrderFlowIntradayResponseDto["liveQuote"]>;
 type PanelMode = "live" | "selected";
 type StreamState = "connecting" | "live" | "idle" | "error";
+type WheelFeedback = { x: number; y: number; expiresAt: number } | null;
 
 const defaultWindow: OrderFlowWindow = "10m";
-const defaultPriceStep: OrderFlowPriceStepSelection = "auto";
+const defaultResolution: OrderFlowResolutionSelection = "auto";
 const preferredDefaultSymbol = "NVDA";
-const minPanelRows = 12;
-const maxPanelRows = 44;
+const wheelNotchThreshold = 90;
+const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
-export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false, onSymbolChange, semanticSelection }: OrderFlowPanelProps) {
+export function OrderFlowPanel({
+  panelId,
+  symbol,
+  defaultToPinnedSymbol = false,
+  savedWindow = defaultWindow,
+  savedResolution = defaultResolution,
+  onSymbolChange,
+  onWindowChange,
+  onResolutionChange,
+  semanticSelection
+}: OrderFlowPanelProps) {
   const requestedSymbol = symbol.trim().toUpperCase();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scheduleDrawRef = useRef<(() => void) | null>(null);
+  const overlayIntentRef = useRef<number | null>(null);
+  const wheelAccumulatorRef = useRef(0);
+  const feedbackTimerRef = useRef<number | null>(null);
+  const resolutionMetricsRef = useRef({
+    autoRows: 12,
+    maxRows: 12,
+    targetRows: 12,
+    effectiveStep: 0.01
+  });
   const drawStateRef = useRef<{
     ladder: OrderFlowLadder | null;
     liveQuote: LiveQuote | null;
     lastPrice: number | null;
     clippedHint: boolean;
     mode: PanelMode;
+    streamState: StreamState;
     loading: boolean;
     supported: boolean;
     symbol: string;
     supportedSymbols: string[];
+    effectiveStep: number;
+    targetRows: number;
+    resolution: OrderFlowResolutionSelection;
+    wheelFeedback: WheelFeedback;
   }>({
     ladder: null,
     liveQuote: null,
     lastPrice: null,
     clippedHint: false,
     mode: "live",
+    streamState: "idle",
     loading: true,
     supported: false,
     symbol: "",
-    supportedSymbols: []
+    supportedSymbols: [],
+    effectiveStep: 0.01,
+    targetRows: 12,
+    resolution: "auto",
+    wheelFeedback: null
   });
   const [supportedSymbols, setSupportedSymbols] = useState<string[]>([]);
   const [sourcePriceStep, setSourcePriceStep] = useState(0.01);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
-  const [windowKey, setWindowKey] = useState<OrderFlowWindow>(defaultWindow);
-  const [priceStep, setPriceStep] = useState<OrderFlowPriceStepSelection>(defaultPriceStep);
+  const [windowKey, setWindowKeyState] = useState<OrderFlowWindow>(savedWindow);
+  const [resolution, setResolutionState] = useState<OrderFlowResolutionSelection>(savedResolution);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [minutes, setMinutes] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [liveSessionDate, setLiveSessionDate] = useState("");
@@ -83,6 +122,49 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [selectedDay, setSelectedDay] = useState<OrderFlowDayDto | null>(null);
   const [fallbackDay, setFallbackDay] = useState<OrderFlowDayDto | null>(null);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [wheelFeedback, setWheelFeedback] = useState<WheelFeedback>(null);
+
+  useEffect(() => {
+    setWindowKeyState(savedWindow);
+  }, [savedWindow]);
+
+  useEffect(() => {
+    setResolutionState(savedResolution);
+  }, [savedResolution]);
+
+  useEffect(() => () => {
+    if (overlayIntentRef.current !== null) {
+      window.clearTimeout(overlayIntentRef.current);
+    }
+    if (feedbackTimerRef.current !== null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+  }, []);
+
+  const setWindowKey = useCallback((nextWindow: OrderFlowWindow) => {
+    setWindowKeyState(nextWindow);
+    onWindowChange?.(nextWindow);
+  }, [onWindowChange]);
+
+  const updateResolution = useCallback((update: OrderFlowResolutionSelection | ((current: OrderFlowResolutionSelection) => OrderFlowResolutionSelection)) => {
+    setResolutionState((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      onResolutionChange?.(next);
+      return next;
+    });
+  }, [onResolutionChange]);
+
+  const showWheelFeedback = useCallback((x: number, y: number) => {
+    if (feedbackTimerRef.current !== null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+    setWheelFeedback({ x, y, expiresAt: Date.now() + 800 });
+    feedbackTimerRef.current = window.setTimeout(() => {
+      setWheelFeedback(null);
+      feedbackTimerRef.current = null;
+    }, 820);
+  }, []);
 
   const normalizedSymbol = useMemo(() => {
     if (defaultToPinnedSymbol && supportedSymbols.length > 0 && !supportedSymbols.includes(requestedSymbol)) {
@@ -252,21 +334,25 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
     };
   }, [fallbackDay, liveSessionDate, minutes, mode, selectedDay, sourcePriceStep, windowKey]);
 
-  const panelRowBudget = useMemo(() => (
-    Math.max(minPanelRows, Math.min(maxPanelRows, Math.floor(Math.max(120, canvasSize.height - 28) / 13)))
-  ), [canvasSize.height]);
+  const maxTargetRows = useMemo(() => maxOrderFlowTargetRowsForHeight(canvasSize.height), [canvasSize.height]);
+  const autoTargetRows = useMemo(() => autoOrderFlowTargetRows(canvasSize.height), [canvasSize.height]);
+  const effectiveTargetRows = useMemo(() => (
+    resolveOrderFlowTargetRows(resolution, autoTargetRows, maxTargetRows)
+  ), [autoTargetRows, maxTargetRows, resolution]);
   const lastPrice = useMemo(() => latestPanelPrice(minutes, liveQuote), [liveQuote, minutes]);
+  const priceRange = useMemo(() => {
+    if (!activeDay?.levels.length) {
+      return sourcePriceStep;
+    }
+    const prices = activeDay.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price));
+    return prices.length ? Math.max(...prices) - Math.min(...prices) : sourcePriceStep;
+  }, [activeDay, sourcePriceStep]);
   const resolvedPriceStep = useMemo(() => {
     if (!activeDay?.levels.length) {
       return sourcePriceStep;
     }
-    if (priceStep !== "auto") {
-      return Math.max(sourcePriceStep, priceStep);
-    }
-    const prices = activeDay.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price));
-    const priceRange = prices.length ? Math.max(...prices) - Math.min(...prices) : sourcePriceStep;
-    return Math.max(sourcePriceStep, autoPriceStep(priceRange, panelRowBudget));
-  }, [activeDay, panelRowBudget, priceStep, sourcePriceStep]);
+    return effectiveOrderFlowPriceStep(priceRange, effectiveTargetRows, sourcePriceStep);
+  }, [activeDay, effectiveTargetRows, priceRange, sourcePriceStep]);
   const fullLadder = useMemo(() => {
     if (!activeDay?.levels.length) {
       return null;
@@ -274,9 +360,18 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
     return buildLadder(rebinLevels(activeDay.levels, sourcePriceStep, resolvedPriceStep), resolvedPriceStep, activeDay.sessionDate);
   }, [activeDay, resolvedPriceStep, sourcePriceStep]);
   const clipped = useMemo(() => (
-    fullLadder ? clipPanelLadder(fullLadder, panelRowBudget, priceStep !== "auto", lastPrice) : { ladder: null, clipped: false }
-  ), [fullLadder, lastPrice, panelRowBudget, priceStep]);
+    fullLadder ? clipPanelLadder(fullLadder, maxTargetRows, fullLadder.levels.length > maxTargetRows, lastPrice) : { ladder: null, clipped: false }
+  ), [fullLadder, lastPrice, maxTargetRows]);
   const ladder = clipped.ladder;
+
+  useEffect(() => {
+    resolutionMetricsRef.current = {
+      autoRows: autoTargetRows,
+      maxRows: maxTargetRows,
+      targetRows: effectiveTargetRows,
+      effectiveStep: resolvedPriceStep
+    };
+  }, [autoTargetRows, effectiveTargetRows, maxTargetRows, resolvedPriceStep]);
 
   useEffect(() => {
     drawStateRef.current = {
@@ -285,13 +380,33 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
       lastPrice,
       clippedHint: clipped.clipped,
       mode,
+      streamState,
       loading: symbolsLoading,
       supported,
       symbol: normalizedSymbol,
-      supportedSymbols
+      supportedSymbols,
+      effectiveStep: resolvedPriceStep,
+      targetRows: effectiveTargetRows,
+      resolution,
+      wheelFeedback
     };
     scheduleDrawRef.current?.();
-  }, [clipped.clipped, ladder, lastPrice, liveQuote, mode, normalizedSymbol, supported, supportedSymbols, symbolsLoading]);
+  }, [
+    clipped.clipped,
+    effectiveTargetRows,
+    ladder,
+    lastPrice,
+    liveQuote,
+    mode,
+    normalizedSymbol,
+    resolution,
+    resolvedPriceStep,
+    streamState,
+    supported,
+    supportedSymbols,
+    symbolsLoading,
+    wheelFeedback
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -314,17 +429,29 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
       context.clearRect(0, 0, rect.width, rect.height);
       if (!state.ladder) {
         context.fillStyle = theme.muted;
-        context.font = "700 12px Inter, system-ui, sans-serif";
+        context.font = `700 ${rect.width < 150 ? 10 : 12}px ${canvasFontFamily}`;
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText(emptyPanelMessage(state.loading, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
+        drawPanelCaptions(context, rect.width, rect.height, state, theme);
         return;
       }
-      drawOrderFlowPanelLadder(context, { x: 12, y: 8, width: Math.max(80, rect.width - 24), height: Math.max(60, rect.height - 18) }, state.ladder, theme, {
+      const inset = rect.width < 150 || rect.height < 110 ? 3 : 7;
+      drawOrderFlowPanelLadder(context, {
+        x: inset,
+        y: inset,
+        width: Math.max(40, rect.width - inset * 2),
+        height: Math.max(40, rect.height - inset * 2)
+      }, state.ladder, theme, {
         quote: state.mode === "live" ? state.liveQuote : null,
         lastPrice: state.mode === "live" ? state.lastPrice : null,
         clippedHint: state.clippedHint
       });
+      drawPanelCaptions(context, rect.width, rect.height, state, theme);
+      const feedbackActive = drawWheelFeedback(context, rect.width, rect.height, state, theme);
+      if (feedbackActive) {
+        schedule();
+      }
     };
     const schedule = () => {
       if (animationFrame !== null) {
@@ -358,68 +485,205 @@ export function OrderFlowPanel({ panelId, symbol, defaultToPinnedSymbol = false,
     };
   }, []);
 
-  const delta = ladder?.totals.delta ?? 0;
-  const volume = ladder?.totals.volume ?? 0;
-  const unknownPct = volume > 0 ? (ladder?.totals.unknownVolume ?? 0) / volume * 100 : 0;
-  const pocText = ladder?.pocPriceBin === null || ladder?.pocPriceBin === undefined ? "-" : ladder.pocPriceBin.toFixed(2);
-  const fallback = mode === "live" && fallbackDay ? `${fallbackDay.sessionDate} · daily aggregate` : null;
   const dailyMode = mode === "selected" || Boolean(fallbackDay);
-  const windowSelectValue = dailyMode ? "day" : windowKey;
-  const priceStepSelectValue = priceStep === "auto" ? "auto" : String(priceStep);
+  const disabledWindowBadge = mode === "selected"
+    ? `day · ${selectedDate ?? ""}`
+    : fallbackDay ? `day · ${fallbackDay.sessionDate}` : null;
+  const symbolOptions = useMemo<ChartSymbolDto[]>(() => (
+    supportedSymbols.map((item) => ({ symbol: item, name: "Order Flow Pin" }))
+  ), [supportedSymbols]);
+
+  const handlePointerEnter = useCallback(() => {
+    if (overlayIntentRef.current !== null) {
+      window.clearTimeout(overlayIntentRef.current);
+    }
+    overlayIntentRef.current = window.setTimeout(() => {
+      setOverlayVisible(true);
+      overlayIntentRef.current = null;
+    }, 100);
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    if (overlayIntentRef.current !== null) {
+      window.clearTimeout(overlayIntentRef.current);
+      overlayIntentRef.current = null;
+    }
+    setOverlayVisible(false);
+  }, []);
+
+  const handleSymbolChange = useCallback((nextSymbol: string) => {
+    const normalized = nextSymbol.trim().toUpperCase();
+    if (normalized) {
+      onSymbolChange?.(normalized);
+    }
+  }, [onSymbolChange]);
+
+  const handleCanvasWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
+    if (overlayVisible) {
+      return;
+    }
+    event.preventDefault();
+    const deltaY = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 80 : event.deltaY;
+    wheelAccumulatorRef.current += deltaY;
+    let fired = false;
+    while (Math.abs(wheelAccumulatorRef.current) >= wheelNotchThreshold) {
+      const direction: 1 | -1 = wheelAccumulatorRef.current < 0 ? 1 : -1;
+      updateResolution((current) => {
+        const metrics = resolutionMetricsRef.current;
+        const baseRows = current === "auto" ? metrics.targetRows : current;
+        return stepOrderFlowTargetRows(baseRows, direction, metrics.maxRows);
+      });
+      wheelAccumulatorRef.current -= Math.sign(wheelAccumulatorRef.current) * wheelNotchThreshold;
+      fired = true;
+    }
+    if (fired) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      showWheelFeedback(event.clientX - rect.left, event.clientY - rect.top);
+    }
+  }, [overlayVisible, showWheelFeedback, updateResolution]);
+
   return (
-    <section className="order-flow-panel" data-panel-id={panelId}>
-      <header className="order-flow-panel-header">
-        <div className="order-flow-title">
-          <span>Order Flow Profile</span>
-          <span className="order-flow-estimated-pill">estimated</span>
-        </div>
-        <select
-          className="order-flow-symbol-select"
-          value={supported ? normalizedSymbol : ""}
-          aria-label="Order flow symbol"
-          onChange={(event) => onSymbolChange?.(event.target.value)}
-        >
-          {!supported && <option value="">{normalizedSymbol || "Symbol"}</option>}
-          {supportedSymbols.map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
-        </select>
-      </header>
-      <div className="order-flow-controls">
-        <span className={`order-flow-mode ${mode}`}>{fallback ?? (mode === "selected" ? `${selectedDate} · daily aggregate` : streamState)}</span>
-        <select
-          className="order-flow-control-select"
-          value={windowSelectValue}
-          disabled={dailyMode}
-          aria-label="Order flow window"
-          onChange={(event) => setWindowKey(event.target.value as OrderFlowWindow)}
-        >
-          {dailyMode && <option value="day">day</option>}
+    <section
+      className="order-flow-panel"
+      data-panel-id={panelId}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+      onFocus={() => setOverlayVisible(true)}
+      onBlur={(event) => {
+        const relatedTarget = event.relatedTarget;
+        if (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget)) {
+          setOverlayVisible(false);
+        }
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="order-flow-canvas"
+        aria-label={`${normalizedSymbol} order flow profile`}
+        onWheel={handleCanvasWheel}
+      />
+      <div
+        className={`order-flow-hover-overlay ${overlayVisible ? "is-visible" : ""}`}
+        aria-hidden={!overlayVisible}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <SymbolSearch
+          symbols={symbolOptions}
+          selectedSymbol={supported ? normalizedSymbol : undefined}
+          selectedLabel={normalizedSymbol}
+          placeholder="symbol search..."
+          className="order-flow-symbol-search"
+          allowCustomSymbol
+          portalMenu={false}
+          formatSelectedLabel={(item) => item.symbol}
+          onSelectSymbol={handleSymbolChange}
+          onPointerActivity={() => setOverlayVisible(true)}
+        />
+        <div className={`order-flow-window-grid ${dailyMode ? "is-disabled" : ""}`} aria-label="Order flow time window">
+          {disabledWindowBadge && <span className="order-flow-window-badge">{disabledWindowBadge}</span>}
           {ORDER_FLOW_WINDOWS.map((item) => (
-            <option key={item} value={item}>{item}</option>
+            <button
+              key={item}
+              type="button"
+              className={item === windowKey ? "active" : ""}
+              disabled={dailyMode}
+              onClick={() => setWindowKey(item)}
+            >
+              {item}
+            </button>
           ))}
-        </select>
-        <select
-          className="order-flow-control-select"
-          value={priceStepSelectValue}
-          aria-label="Order flow price step"
-          onChange={(event) => setPriceStep(event.target.value === "auto" ? "auto" : Number(event.target.value) as OrderFlowPriceStepSelection)}
-        >
-          <option value="auto">auto</option>
-          {ORDER_FLOW_PRICE_STEPS.map((item) => (
-            <option key={item} value={item}>{item.toFixed(item < 0.1 ? 2 : item < 1 ? 2 : 0)}</option>
-          ))}
-        </select>
-        <span className={`order-flow-delta ${delta >= 0 ? "up" : "down"}`}>Δ {signed(delta)}</span>
+        </div>
       </div>
-      <div className="order-flow-stats">
-        <span>POC {pocText}</span>
-        <span>Vol {compactNumber(volume)}</span>
-        <span>UNK {unknownPct.toFixed(1)}%</span>
-      </div>
-      <canvas ref={canvasRef} className="order-flow-canvas" aria-label={`${normalizedSymbol} order flow profile`} />
     </section>
   );
+}
+
+function drawPanelCaptions(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  state: {
+    mode: PanelMode;
+    streamState: StreamState;
+    symbol: string;
+    supported: boolean;
+    effectiveStep: number;
+    resolution: OrderFlowResolutionSelection;
+  },
+  theme: ThemeColors
+): void {
+  const small = width < 150 || height < 112;
+  const modeLabel = state.mode === "selected" ? "day" : state.streamState === "live" ? "live" : state.streamState;
+  const symbolLabel = state.symbol || "Order Flow";
+  const topLabel = small ? `${symbolLabel} est.` : `${symbolLabel} · ${modeLabel} · est.`;
+  const bottomLabel = small
+    ? formatPriceStep(state.effectiveStep)
+    : `bin ${formatPriceStep(state.effectiveStep)}${state.resolution === "auto" ? " auto" : ""}`;
+  drawCaptionPill(context, 6, 6, topLabel, theme, small);
+  drawCaptionPill(context, 6, Math.max(6, height - (small ? 22 : 24)), bottomLabel, theme, small);
+}
+
+function drawWheelFeedback(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  state: {
+    effectiveStep: number;
+    targetRows: number;
+    wheelFeedback: WheelFeedback;
+  },
+  theme: ThemeColors
+): boolean {
+  if (!state.wheelFeedback) {
+    return false;
+  }
+  const remaining = state.wheelFeedback.expiresAt - Date.now();
+  if (remaining <= 0) {
+    return false;
+  }
+  const label = `${formatPriceStep(state.effectiveStep)} · ${state.targetRows} rows`;
+  context.save();
+  context.font = `800 11px ${canvasFontFamily}`;
+  const availableWidth = Math.max(48, width - 16);
+  const pillWidth = Math.min(availableWidth, Math.max(76, context.measureText(label).width + 18));
+  const pillHeight = 24;
+  const x = clamp(state.wheelFeedback.x - pillWidth / 2, 8, Math.max(8, width - pillWidth - 8));
+  const y = clamp(state.wheelFeedback.y - pillHeight - 10, 8, Math.max(8, height - pillHeight - 8));
+  context.globalAlpha = Math.min(1, remaining / 260);
+  context.fillStyle = theme.surfaceStrong;
+  roundRect(context, x, y, pillWidth, pillHeight, 6);
+  context.fill();
+  context.globalAlpha = Math.min(1, remaining / 260) * 0.95;
+  context.fillStyle = theme.text;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, x + pillWidth / 2, y + pillHeight / 2 + 0.5, pillWidth - 12);
+  context.restore();
+  return true;
+}
+
+function drawCaptionPill(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  label: string,
+  theme: ThemeColors,
+  small: boolean
+): void {
+  context.save();
+  context.font = `800 ${small ? 9 : 10}px ${canvasFontFamily}`;
+  const width = Math.ceil(context.measureText(label).width) + (small ? 10 : 12);
+  const height = small ? 16 : 18;
+  context.globalAlpha = 0.7;
+  context.fillStyle = theme.surface;
+  roundRect(context, x, y, width, height, 5);
+  context.fill();
+  context.globalAlpha = 0.88;
+  context.fillStyle = theme.text;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, x + width / 2, y + height / 2 + 0.5, width - 8);
+  context.restore();
 }
 
 function windowToMinuteCount(windowKey: OrderFlowWindow): number | "session" {
@@ -466,21 +730,6 @@ function sessionDateDaysBefore(sessionDate: string, days: number): string {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function signed(value: number): string {
-  const rounded = Math.round(value);
-  return `${rounded >= 0 ? "+" : ""}${rounded.toLocaleString("en-US")}`;
-}
-
-function compactNumber(value: number): string {
-  if (Math.abs(value) >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}m`;
-  }
-  if (Math.abs(value) >= 1_000) {
-    return `${Math.round(value / 1_000)}k`;
-  }
-  return String(Math.round(value));
 }
 
 function clipPanelLadder(
@@ -537,4 +786,33 @@ function nearestLevelIndexByPrice(levels: OrderFlowLadder["levels"], price: numb
     }
   });
   return bestIndex;
+}
+
+function formatPriceStep(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0.01";
+  }
+  if (value >= 1) {
+    return value.toFixed(0);
+  }
+  return value.toFixed(2);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
+  const r = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
 }

@@ -3,6 +3,7 @@ import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus }
 import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
+import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { chartIntervals, chartTypes, type CandleDto, type ChartCompareRange, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
 import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
@@ -224,8 +225,12 @@ export function PanelContentRenderer({
         panelId={slot.id}
         symbol={panelSymbol}
         defaultToPinnedSymbol={!hasExplicitSymbol}
+        savedWindow={readOrderFlowWindow(content)}
+        savedResolution={readOrderFlowResolution(content)}
         semanticSelection={semanticSelection}
         onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+        onWindowChange={(nextWindow) => onUpdatePanelProps(content.id, { window: nextWindow })}
+        onResolutionChange={(nextResolution) => onUpdatePanelProps(content.id, { resolution: nextResolution })}
       />
     );
   }
@@ -404,6 +409,19 @@ function readPanelSymbol(content: PanelContentInstance, fallbackSymbol: string):
 function hasPanelSymbol(content: PanelContentInstance): boolean {
   const raw = content.props?.symbol;
   return typeof raw === "string" && Boolean(raw.trim());
+}
+
+function readOrderFlowWindow(content: PanelContentInstance): OrderFlowWindow {
+  const raw = content.props?.window;
+  return raw === "1m" || raw === "10m" || raw === "1h" || raw === "session" ? raw : "10m";
+}
+
+function readOrderFlowResolution(content: PanelContentInstance): OrderFlowResolutionSelection {
+  const raw = content.props?.resolution;
+  if (raw === "auto") {
+    return "auto";
+  }
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 8 ? raw : "auto";
 }
 
 function readCompareSymbols(content: PanelContentInstance, baseSymbol: string): string[] {

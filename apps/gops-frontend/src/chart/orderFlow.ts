@@ -84,16 +84,61 @@ export const ORDER_FLOW_IMBALANCE_RATIO = 3.0;
 export const ORDER_FLOW_IMBALANCE_MIN_SHARE = 0.05;
 export const ORDER_FLOW_PRICE_STEPS = [0.01, 0.05, 0.1, 0.25, 0.5, 1] as const;
 export const ORDER_FLOW_WINDOWS = ["1m", "10m", "1h", "session"] as const;
+export const ORDER_FLOW_MIN_TARGET_ROWS = 8;
+export const ORDER_FLOW_MIN_ROW_HEIGHT = 6;
+export const ORDER_FLOW_AUTO_ROW_CAP = 44;
 
 export type OrderFlowWindow = typeof ORDER_FLOW_WINDOWS[number];
 export type OrderFlowPriceStep = typeof ORDER_FLOW_PRICE_STEPS[number];
 export type OrderFlowPriceStepSelection = "auto" | OrderFlowPriceStep;
+export type OrderFlowResolutionSelection = "auto" | number;
+
+const orderFlowTargetRowSteps = [8, 10, 12, 16, 20, 24, 32, 44, 64, 80, 96, 128] as const;
 
 export function autoPriceStep(priceRange: number, maxRows: number): OrderFlowPriceStep {
   const range = Math.max(0, isFiniteNumber(priceRange) ? priceRange : 0);
   const rows = Math.max(1, Math.floor(isFiniteNumber(maxRows) ? maxRows : 1));
   return ORDER_FLOW_PRICE_STEPS.find((step) => range / step <= rows)
     ?? ORDER_FLOW_PRICE_STEPS[ORDER_FLOW_PRICE_STEPS.length - 1];
+}
+
+export function maxOrderFlowTargetRowsForHeight(height: number, reservedPx = 20): number {
+  const available = Math.max(0, isFiniteNumber(height) ? height - reservedPx : 0);
+  return Math.max(ORDER_FLOW_MIN_TARGET_ROWS, Math.floor(available / ORDER_FLOW_MIN_ROW_HEIGHT));
+}
+
+export function autoOrderFlowTargetRows(height: number): number {
+  const maxRows = maxOrderFlowTargetRowsForHeight(height);
+  const available = Math.max(0, isFiniteNumber(height) ? height - 24 : 0);
+  const comfortableRows = Math.floor(available / 13);
+  return clampNumber(comfortableRows, ORDER_FLOW_MIN_TARGET_ROWS, Math.min(maxRows, ORDER_FLOW_AUTO_ROW_CAP));
+}
+
+export function resolveOrderFlowTargetRows(
+  resolution: OrderFlowResolutionSelection,
+  autoRows: number,
+  maxRows = ORDER_FLOW_AUTO_ROW_CAP
+): number {
+  const source = resolution === "auto" ? autoRows : resolution;
+  return clampNumber(Math.round(source), ORDER_FLOW_MIN_TARGET_ROWS, Math.max(ORDER_FLOW_MIN_TARGET_ROWS, Math.floor(maxRows)));
+}
+
+export function stepOrderFlowTargetRows(currentTargetRows: number, direction: 1 | -1, maxRows: number): number {
+  const upper = Math.max(ORDER_FLOW_MIN_TARGET_ROWS, Math.floor(maxRows));
+  const steps = [...orderFlowTargetRowSteps, upper]
+    .filter((value, index, values) => value <= upper && values.indexOf(value) === index)
+    .sort((left, right) => left - right);
+  if (!steps.length) {
+    return ORDER_FLOW_MIN_TARGET_ROWS;
+  }
+  if (direction > 0) {
+    return steps.find((value) => value > currentTargetRows) ?? steps[steps.length - 1];
+  }
+  return [...steps].reverse().find((value) => value < currentTargetRows) ?? steps[0];
+}
+
+export function effectiveOrderFlowPriceStep(priceRange: number, targetRows: number, sourceStep: number): OrderFlowPriceStep {
+  return Math.max(sourceStep, autoPriceStep(priceRange, targetRows)) as OrderFlowPriceStep;
 }
 
 export function visibleScaleMax(ladders: OrderFlowLadder[]): number {
@@ -392,4 +437,8 @@ function safeNumber(value: unknown): number {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }

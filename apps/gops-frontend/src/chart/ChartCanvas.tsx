@@ -32,6 +32,7 @@ type ChartCanvasProps = {
 };
 
 let colors: ThemeColors;
+const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const bollingerFillAlpha = 0.1;
 const volumeProfileAlpha = {
@@ -791,7 +792,7 @@ function drawOrderFlowState(context: CanvasRenderingContext2D, scene: ChartScene
   drawCandles(context, scene);
   context.globalAlpha = 0.88;
   context.fillStyle = colors.muted;
-  context.font = "700 11px Inter, system-ui, sans-serif";
+  context.font = `700 11px ${canvasFontFamily}`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(message, (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 30, Math.max(120, scene.plot.right - scene.plot.left - 18));

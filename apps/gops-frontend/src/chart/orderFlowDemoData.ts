@@ -15,22 +15,22 @@ type OrderFlowSymbolsResponse = {
   priceBinSize: number;
 };
 
-const demoSymbols = ["NVDA", "AAPL", "MSFT", "TSLA", "AMD"] as const;
+const demoSymbols = ["NVDA", "AMZN", "MU", "AAPL", "GOOGL"] as const;
 const demoPriceBinSize = 0.01;
 const symbolBasePrice: Record<string, number> = {
   NVDA: 152.4,
+  AMZN: 224.8,
+  MU: 132.6,
   AAPL: 211.6,
-  MSFT: 384.2,
-  TSLA: 304.5,
-  AMD: 168.8
+  GOOGL: 181.3
 };
 
 const dailyCache = new Map<string, OrderFlowDayDto[]>();
 const intradayCache = new Map<string, OrderFlowIntradayResponseDto>();
 
 export function isOrderFlowDemoEnabled(): boolean {
-  const viteEnv = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env;
-  return viteEnv?.DEV !== false &&
+  return typeof import.meta.env !== "undefined" &&
+    import.meta.env.DEV === true &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("orderFlowDemo");
 }
