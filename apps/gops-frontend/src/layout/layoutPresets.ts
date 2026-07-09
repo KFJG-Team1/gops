@@ -29,7 +29,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   market: {
     name: "시장분석",
     spec: [
-      { kind: "indices", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 2 } },
+      { kind: "indices2x2", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 2 } },
       { kind: "themeRadar", gridRect: { col: 4, row: 1, colSpan: 5, rowSpan: 2 } },
       { kind: "popular", gridRect: { col: 1, row: 3, colSpan: 3, rowSpan: 3 } },
       { kind: "news", gridRect: { col: 4, row: 3, colSpan: 3, rowSpan: 3 } },
@@ -55,7 +55,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     name: "비교분석",
     spec: [
       { kind: "compare", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
-      { kind: "indices", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
+      { kind: "indices2x2", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
       { kind: "watchlistNews", gridRect: { col: 5, row: 4, colSpan: 4, rowSpan: 2 } }
     ]
   },

@@ -29,6 +29,8 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   compare: "compareChart",
   company: "companyProfile",
   indices: "marketIndices",
+  indices1x1: "marketIndices",
+  indices2x2: "marketIndices",
   popular: "popularStocks",
   recommendations: "stockRecommendations",
   themeRadar: "themeRadar",
