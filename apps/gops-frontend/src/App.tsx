@@ -41,6 +41,7 @@ import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle, type LiveQuote } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
+import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { fetchWatchlist, replaceWatchlistSymbols, WatchlistApiError } from "./chart/watchlistApi";
@@ -67,7 +68,13 @@ import {
   resolveMainViewFromUrl,
   type MainView
 } from "./navigation/mainViewUrl";
-import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "./layout/tiledAgentLayout";
+import {
+  applyPlacementPickCandidate,
+  applyTiledAgentLayoutProposalWithResult,
+  buildTiledAgentLayoutContext,
+  type PlacementPickCandidate,
+  type PendingPlacementPick
+} from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
@@ -277,6 +284,7 @@ export function App() {
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
   const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
+  const [pendingPlacementPick, setPendingPlacementPick] = useState<PendingPlacementPick | null>(null);
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
@@ -709,8 +717,18 @@ export function App() {
   }, []);
 
   const applyAgentLayoutProposal = useCallback((proposal: AgentLayoutProposal) => {
+    const preview = applyTiledAgentLayoutProposalWithResult(panelState, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
+    if (preview.pendingPlacementPick) {
+      setPendingPlacementPick(preview.pendingPlacementPick);
+      setChatLog((entries) => [
+        ...entries,
+        createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
+      ]);
+      return;
+    }
     setPanelState((current) => {
-      const next = applyTiledAgentLayoutProposal(current, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
+      const result = applyTiledAgentLayoutProposalWithResult(current, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
+      const next = result.state;
       const commands = chartDocumentCommandsForPanelPropChanges(current, next);
       if (commands.length) {
         setChartRuntime((runtime) => {
@@ -722,6 +740,39 @@ export function App() {
       }
       return next;
     });
+  }, [panelState]);
+
+  const handlePlacementPickSelect = useCallback((candidate: PlacementPickCandidate) => {
+    const pick = pendingPlacementPick;
+    if (!pick) {
+      return;
+    }
+    setPanelState((current) => {
+      const next = applyPlacementPickCandidate(current, pick, candidate, viewportSizeRef.current, panelLayoutMetricsRef.current);
+      const commands = chartDocumentCommandsForPanelPropChanges(current, next);
+      if (commands.length) {
+        setChartRuntime((runtime) => {
+          const activeCommands = commands.filter((command) => runtime.documents[command.target.chartDocumentId]);
+          return activeCommands.length
+            ? chartRuntimeReducer(runtime, { kind: "chart.command.group", commands: activeCommands, label: "Apply picked layout chart props" })
+            : runtime;
+        });
+      }
+      return next;
+    });
+    setPendingPlacementPick(null);
+    setChatLog((current) => [
+      ...current,
+      createChatLogEntry("assistant", `${candidate.label} 배치로 적용했습니다.`)
+    ]);
+  }, [pendingPlacementPick]);
+
+  const handlePlacementPickCancel = useCallback(() => {
+    setPendingPlacementPick(null);
+    setChatLog((current) => [
+      ...current,
+      createChatLogEntry("assistant", "배치를 취소했습니다.")
+    ]);
   }, []);
 
   useEffect(() => {
@@ -888,12 +939,23 @@ export function App() {
             if (layoutResolution?.status !== "ui_layout" || !layoutResolution.layoutProposal) {
               throw new Error(`${addSymbol} 차트 패널을 추가할 수 없습니다.`);
             }
-            nextPanelState = applyTiledAgentLayoutProposal(
+            const applyResult = applyTiledAgentLayoutProposalWithResult(
               nextPanelState,
               layoutResolution.layoutProposal,
               viewportSizeRef.current,
               workingLayoutMetrics
             );
+            if (applyResult.pendingPlacementPick) {
+              const pick = applyResult.pendingPlacementPick;
+              setPendingPlacementPick(pick);
+              setChatLog((current) => [
+                ...current,
+                userEntry,
+                createChatLogEntry("assistant", placementPickMessage(pick))
+              ]);
+              return "chat-log";
+            }
+            nextPanelState = applyResult.state;
             addedSymbols.push(addSymbol);
           }
           setSemanticSelection(null);
@@ -940,7 +1002,39 @@ export function App() {
             )
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
-            applyAgentLayoutProposal(layoutResolution.layoutProposal);
+            const preview = applyTiledAgentLayoutProposalWithResult(
+              panelState,
+              layoutResolution.layoutProposal,
+              viewportSizeRef.current,
+              panelLayoutMetricsRef.current
+            );
+            if (preview.pendingPlacementPick) {
+              setPendingPlacementPick(preview.pendingPlacementPick);
+              setChatLog((current) => [
+                ...current,
+                userEntry,
+                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
+              ]);
+              return "chat-log";
+            }
+            setPanelState((current) => {
+              const result = applyTiledAgentLayoutProposalWithResult(
+                current,
+                layoutResolution.layoutProposal!,
+                viewportSizeRef.current,
+                panelLayoutMetricsRef.current
+              );
+              const commands = chartDocumentCommandsForPanelPropChanges(current, result.state);
+              if (commands.length) {
+                setChartRuntime((runtime) => {
+                  const activeCommands = commands.filter((command) => runtime.documents[command.target.chartDocumentId]);
+                  return activeCommands.length
+                    ? chartRuntimeReducer(runtime, { kind: "chart.command.group", commands: activeCommands, label: "Apply layout chart props" })
+                    : runtime;
+                });
+              }
+              return result.state;
+            });
             setChatLog((current) => [
               ...current,
               userEntry,
@@ -1031,12 +1125,30 @@ export function App() {
         const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
         if (layoutResolution?.status === "ui_layout") {
           if (layoutResolution.layoutProposal) {
-            setPanelState((current) => applyTiledAgentLayoutProposal(
-              current,
-              layoutResolution.layoutProposal!,
+            const preview = applyTiledAgentLayoutProposalWithResult(
+              panelState,
+              layoutResolution.layoutProposal,
               viewportSizeRef.current,
               panelLayoutMetricsRef.current
-            ));
+            );
+            if (preview.pendingPlacementPick) {
+              setPendingPlacementPick(preview.pendingPlacementPick);
+              setChatLog((current) => [
+                ...current,
+                userEntry,
+                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
+              ]);
+              return;
+            }
+            setPanelState((current) => {
+              const result = applyTiledAgentLayoutProposalWithResult(
+                current,
+                layoutResolution.layoutProposal!,
+                viewportSizeRef.current,
+                panelLayoutMetricsRef.current
+              );
+              return result.state;
+            });
           }
           setChatLog((current) => [
             ...current,
@@ -1196,6 +1308,15 @@ export function App() {
                 onEnterLayoutEdit={toggleLayoutEditMode}
               />
             )}
+            placementPickerOverlay={pendingPlacementPick ? (
+              <PlacementPickerOverlay
+                pick={pendingPlacementPick}
+                viewportSize={viewportSize}
+                layoutMetrics={panelLayoutMetrics}
+                onSelect={handlePlacementPickSelect}
+                onCancel={handlePlacementPickCancel}
+              />
+            ) : null}
           />
         )}
       </section>
@@ -1459,6 +1580,12 @@ function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string
     return resolution.rationale;
   }
   return resolution.summary || "변경할 수 없습니다.";
+}
+
+function placementPickMessage(pick: PendingPlacementPick): string {
+  const subject = pick.symbol ? `${pick.symbol} 차트` : "차트";
+  const labels = pick.candidates.map((candidate, index) => `${index + 1}. ${candidate.label}`).join(" / ");
+  return `${subject}를 배치할 위치를 선택해 주세요. ${labels}`;
 }
 
 function isInternalLayoutRationale(value: string): boolean {

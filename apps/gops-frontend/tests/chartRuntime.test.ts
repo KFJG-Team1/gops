@@ -37,7 +37,7 @@ import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveRespons
 import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
-import type { AgentLayoutCommand, AgentLayoutCommandType, CommandActor } from "../src/layout/agentLayoutTypes";
+import type { AgentLayoutCommand, AgentLayoutCommandType, AgentLayoutProposal, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
   buildSemanticTimeline,
   nextDigTargetInterval,
@@ -94,7 +94,12 @@ import {
   workspaceBounds
 } from "../src/layout/panelLayout";
 import { rectBottom, rectRight, rectsOverlap } from "../src/layout/panelGeometry";
-import { applyTiledAgentLayoutProposal, buildTiledAgentLayoutContext } from "../src/layout/tiledAgentLayout";
+import {
+  applyPlacementPickCandidate,
+  applyTiledAgentLayoutProposal,
+  applyTiledAgentLayoutProposalWithResult,
+  buildTiledAgentLayoutContext
+} from "../src/layout/tiledAgentLayout";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
   clampRightOffset,
@@ -2017,6 +2022,49 @@ assert.equal(rectBottom(addedChartSlot.rect), tiledInnerBottom);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
 assert.equal(layoutHasGapsOrOverlaps(chartAddState, tiledViewport), false);
 
+const placementPickProposal: AgentLayoutProposal = {
+  id: "layout-proposal-placement-pick",
+  title: "Pick chart placement",
+  rationale: "Test placement picker.",
+  autoApply: false,
+  commands: [
+    makeAgentLayoutCommand("layout.placement.pick", "llm", {
+      panelType: "chart",
+      panelId: "panel-chart-tsla",
+      symbol: "TSLA",
+      candidates: [
+        {
+          id: "bottom",
+          label: "맨 아래",
+          placement: testPlacement(1, 4, 8, 2),
+          arrangement: [
+            { panelId: "slot-news", placement: testPlacement(1, 1, 4, 1), layoutWeight: 40 },
+            { panelId: "slot-ontology", placement: testPlacement(5, 1, 4, 1), layoutWeight: 40 },
+            { panelId: "slot-chart", placement: testPlacement(1, 2, 8, 2), layoutWeight: 100 },
+            { panelId: "panel-chart-tsla", placement: testPlacement(1, 4, 8, 2), layoutWeight: 120 }
+          ]
+        }
+      ]
+    }, { panelId: "panel-chart-tsla" })
+  ],
+  createdAt: "2026-06-29T00:00:00.000Z"
+};
+const placementPickResult = applyTiledAgentLayoutProposalWithResult(tiledState, placementPickProposal, tiledViewport);
+assert.equal(placementPickResult.state, tiledState);
+assert.equal(placementPickResult.pendingPlacementPick?.symbol, "TSLA");
+assert.equal(placementPickResult.pendingPlacementPick?.candidates[0]?.id, "bottom");
+assert.equal(applyTiledAgentLayoutProposal(tiledState, placementPickProposal, tiledViewport), tiledState);
+const pickedPlacementState = applyPlacementPickCandidate(
+  tiledState,
+  placementPickResult.pendingPlacementPick!,
+  placementPickResult.pendingPlacementPick!.candidates[0]!,
+  tiledViewport
+);
+const pickedChartSlot = pickedPlacementState.slots.find((slot) => slot.id === "panel-chart-tsla");
+assert.ok(pickedChartSlot);
+assert.deepEqual(pickedChartSlot.gridRect, { col: 1, row: 4, colSpan: 8, rowSpan: 2 });
+assert.equal(pickedPlacementState.contents[pickedChartSlot?.contentId ?? ""]?.props?.symbol, "TSLA");
+
 const chartPanels = [
   runtimePanel("primary-chart", "chart"),
   runtimePanel("secondary-chart", "chart", { symbol: "TSLA" })
@@ -2700,12 +2748,12 @@ const expandedAgentLayoutState = applyTiledAgentLayoutProposal(createInitialTile
 const expandedAgentLayoutPanels = (buildTiledAgentLayoutContext(expandedAgentLayoutState, tiledViewport) as { panels: Array<Record<string, unknown>> }).panels;
 const agentLayoutOrderPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "orderTicket");
 assert.equal(agentLayoutOrderPanel?.title, "주문");
-assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
 assert.equal(agentLayoutPortfolioPanel?.title, "포트폴리오");
-assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
 assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
 
