@@ -35,13 +35,13 @@ const panelFooterHeight = 16;
 const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export function chartColumnTier(width: number): ChartColumnTier {
-  if (width >= 72) {
+  if (width >= 56) {
     return "full";
   }
-  if (width >= 26) {
+  if (width >= 20) {
     return "standard";
   }
-  if (width >= 10) {
+  if (width >= 8) {
     return "compact";
   }
   return "micro";
@@ -232,9 +232,9 @@ function drawTwoSidedColumn(
   options: OrderFlowChartColumnOptions
 ): void {
   const centerX = rect.x + rect.width / 2;
-  const halfWidth = Math.max(1, rect.width / 2 - 2);
+  const halfWidth = Math.max(2, rect.width / 2 - 1);
   const rowHeight = chartRowHeightForLevels(visibleLevels, options.priceToY, 15);
-  const showText = options.tier === "full" && rowHeight >= 10.5 && rect.width >= 92;
+  const showText = options.tier === "full" && rowHeight >= 10.5 && rect.width >= 72;
   visibleLevels.forEach((level) => {
     const y = options.priceToY(level.priceBin) - rowHeight / 2;
     if (y > rect.y + drawHeight || y + rowHeight < rect.y) {
@@ -244,10 +244,17 @@ function drawTwoSidedColumn(
     const h = Math.max(minRowHeight, rowHeight - 1);
     const bidWidth = sideWidth(level.bidVolume, options.scaleMax, halfWidth);
     const askWidth = sideWidth(level.askVolume, options.scaleMax, halfWidth);
+    const unknownWidth = sideWidth(level.unknownVolume, options.scaleMax, Math.max(2, rect.width - 2));
     const intensity = clamp(Math.abs(level.delta) / Math.max(1, options.scaleMax), 0.04, 0.38);
-    ctx.globalAlpha = ladder.pocPriceBin === level.priceBin ? 0.2 : intensity;
-    ctx.fillStyle = level.delta >= 0 ? theme.upSoft : theme.downSoft;
+    const tone = orderFlowLevelTone(level);
+    ctx.globalAlpha = ladder.pocPriceBin === level.priceBin ? 0.2 : tone === "unknown" ? 0.16 : intensity;
+    ctx.fillStyle = tone === "unknown" ? theme.axis : tone === "ask" ? theme.upSoft : theme.downSoft;
     ctx.fillRect(rect.x + 1, y, rect.width - 2, h);
+    if (unknownWidth > 0.5) {
+      ctx.globalAlpha = tone === "unknown" ? 0.48 : 0.28;
+      ctx.fillStyle = theme.axis;
+      ctx.fillRect(centerX - unknownWidth / 2, y + Math.max(1, h * 0.5 - 1), unknownWidth, Math.max(1, Math.min(2, h - 1)));
+    }
     ctx.globalAlpha = options.tier === "standard" && (level.askImbalance || level.bidImbalance) ? 0.95 : 0.64;
     ctx.fillStyle = theme.downSoft;
     ctx.fillRect(centerX - bidWidth, y + 1, bidWidth, Math.max(1, h - 2));
@@ -274,15 +281,22 @@ function drawCompactColumn(
   theme: ThemeColors,
   options: OrderFlowChartColumnOptions
 ): void {
-  const maxWidth = Math.max(1, rect.width - 4);
+  const maxWidth = Math.max(2, rect.width - 2);
   const rowHeight = chartRowHeightForLevels(visibleLevels, options.priceToY, 12);
   visibleLevels.forEach((level) => {
     const y = options.priceToY(level.priceBin) - rowHeight / 2;
     const h = Math.max(2, rowHeight - 1);
     const width = sideWidth(level.totalVolume, options.scaleMax, maxWidth);
-    ctx.globalAlpha = 0.32 + 0.45 * clamp(Math.abs(level.delta) / Math.max(1, level.totalVolume), 0, 1);
-    ctx.fillStyle = level.delta >= 0 ? theme.upSoft : theme.downSoft;
-    ctx.fillRect(rect.x + 2, y, width, h);
+    const tone = orderFlowLevelTone(level);
+    ctx.globalAlpha = tone === "unknown" ? 0.46 : 0.32 + 0.45 * clamp(Math.abs(level.delta) / Math.max(1, level.totalVolume), 0, 1);
+    ctx.fillStyle = tone === "unknown" ? theme.axis : tone === "ask" ? theme.upSoft : theme.downSoft;
+    ctx.fillRect(rect.x + 1, y, width, h);
+    if (tone !== "unknown" && level.unknownVolume > 0) {
+      const unknownWidth = sideWidth(level.unknownVolume, options.scaleMax, maxWidth);
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = theme.axis;
+      ctx.fillRect(rect.x + 1, y + Math.max(1, h - 2), unknownWidth, Math.max(1, Math.min(2, h - 1)));
+    }
   });
   if (ladder.pocPriceBin !== null) {
     drawPocLine(ctx, rect, options.priceToY(ladder.pocPriceBin), drawHeight, theme);
@@ -298,11 +312,13 @@ function drawMicroColumn(
 ): void {
   const totalDelta = visibleLevels.reduce((sum, level) => sum + level.delta, 0);
   const totalVolume = visibleLevels.reduce((sum, level) => sum + level.totalVolume, 0);
+  const totalUnknown = visibleLevels.reduce((sum, level) => sum + level.unknownVolume, 0);
+  const unknownDominant = totalUnknown > 0 && totalUnknown >= totalVolume - totalUnknown;
   const yValues = visibleLevels.map((level) => options.priceToY(level.priceBin));
   const top = clamp(Math.min(...yValues), rect.y, rect.y + rect.height);
   const bottom = clamp(Math.max(...yValues), rect.y, rect.y + rect.height);
   ctx.globalAlpha = 0.28 + 0.5 * clamp(totalVolume / Math.max(1, options.scaleMax * visibleLevels.length), 0, 1);
-  ctx.strokeStyle = totalDelta >= 0 ? theme.upSoft : theme.downSoft;
+  ctx.strokeStyle = unknownDominant ? theme.axis : totalDelta >= 0 ? theme.upSoft : theme.downSoft;
   ctx.lineWidth = Math.max(2, rect.width * 0.6);
   ctx.beginPath();
   ctx.moveTo(rect.x + rect.width / 2, top);
@@ -319,7 +335,7 @@ function drawColumnFooter(
 ): void {
   const delta = ladder.totals.delta;
   ctx.globalAlpha = tier === "compact" ? 0.72 : 0.86;
-  ctx.fillStyle = delta >= 0 ? theme.upSoft : theme.downSoft;
+  ctx.fillStyle = ladderTone(ladder) === "unknown" ? theme.axis : delta >= 0 ? theme.upSoft : theme.downSoft;
   ctx.font = `${tier === "full" ? "800" : "700"} 9px ${canvasFontFamily}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
@@ -327,6 +343,24 @@ function drawColumnFooter(
   const preferred = tier === "compact" ? fallback : `Δ${shortSignedNumber(delta)}`;
   const label = ctx.measureText(preferred).width <= rect.width - 4 ? preferred : fallback;
   ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height - 3);
+}
+
+function orderFlowLevelTone(level: OrderFlowLadderLevel): "ask" | "bid" | "unknown" {
+  const unknown = Math.max(0, level.unknownVolume);
+  const directional = Math.max(0, level.askVolume) + Math.max(0, level.bidVolume);
+  if (unknown > 0 && unknown >= directional) {
+    return "unknown";
+  }
+  return level.delta >= 0 ? "ask" : "bid";
+}
+
+function ladderTone(ladder: OrderFlowLadder): "ask" | "bid" | "unknown" {
+  const unknown = Math.max(0, ladder.totals.unknownVolume);
+  const directional = Math.max(0, ladder.totals.askVolume) + Math.max(0, ladder.totals.bidVolume);
+  if (unknown > 0 && unknown >= directional) {
+    return "unknown";
+  }
+  return ladder.totals.delta >= 0 ? "ask" : "bid";
 }
 
 function drawPanelRowBackground(

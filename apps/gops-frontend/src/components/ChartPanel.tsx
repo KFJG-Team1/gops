@@ -1061,16 +1061,30 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
 
+  const semanticSelectionEnabled = chart.chartType !== "line";
+  const semanticDigEnabled = semanticSelectionEnabled && chart.chartType !== "bidask";
+  const previousChartTypeRef = useRef(chart.chartType);
+
   useEffect(() => {
-    if (chart.chartType !== "line") {
+    const previousChartType = previousChartTypeRef.current;
+    previousChartTypeRef.current = chart.chartType;
+    if (chart.chartType === "bidask" && previousChartType !== "bidask") {
+      setSelectedSemanticNode(null);
+    }
+  }, [chart.chartType]);
+
+  useEffect(() => {
+    if (semanticDigEnabled) {
       return;
     }
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
     pendingSemanticClickRef.current = null;
-    setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-  }, [chart.chartType]);
+    if (!semanticSelectionEnabled) {
+      setSelectedSemanticNode(null);
+    }
+  }, [semanticDigEnabled, semanticSelectionEnabled]);
 
   const setInterval = useCallback((interval: ChartInterval) => {
     const current = chartRef.current;
@@ -1375,10 +1389,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const transform = createCoordinateTransform(scene);
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
-    const semanticSelectionEnabled = chart.chartType !== "line";
 
     // Time-axis digging: a click on the bottom time axis opens (digs) the bar above the cursor.
-    if ((chart.toolMode === "select" || chart.toolMode === "pan") && semanticSelectionEnabled) {
+    if ((chart.toolMode === "select" || chart.toolMode === "pan") && semanticDigEnabled) {
       const axisUnit = hitTestTimeAxisUnit(scene, point.x, point.y);
       if (axisUnit && axisUnit.kind === "candle") {
         pendingSemanticClickRef.current = { unit: axisUnit, action: "dig", x: event.clientX, y: event.clientY };
@@ -1469,7 +1482,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const paneResize = paneResizeRef.current;
     const boundaryHit = findBoundaryHit(scene, point);
-    const axisDigUnit = !paneResize && !boundaryHit && chart.chartType !== "line"
+    const axisDigUnit = !paneResize && !boundaryHit && semanticDigEnabled
       ? hitTestTimeAxisUnit(scene, point.x, point.y)
       : null;
     if (paneResize || boundaryHit) {
