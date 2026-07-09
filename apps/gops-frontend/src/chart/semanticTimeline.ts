@@ -58,7 +58,23 @@ export type SemanticPlaceholderUnit = {
   slotCenter: number;
 };
 
-export type SemanticRenderUnit = SemanticCandleUnit | SemanticPlaceholderUnit;
+export type SemanticTimeGapUnit = {
+  kind: "time-gap";
+  id: string;
+  symbol: string;
+  interval: ChartInterval;
+  from: string;
+  to: string;
+  depth: number;
+  status: ExpansionStatus;
+  message: string;
+  missingSlots: number;
+  slotStart: number;
+  slotEnd: number;
+  slotCenter: number;
+};
+
+export type SemanticRenderUnit = SemanticCandleUnit | SemanticPlaceholderUnit | SemanticTimeGapUnit;
 
 export type SemanticExpansionRange = {
   id: string;
@@ -124,6 +140,8 @@ const footprintSlotWidth = 18;
 const intradayChildCandleSlotWidth = 0.36;
 const dailyChildCandleSlotWidth = 0.5;
 const weeklyChildCandleSlotWidth = 0.6;
+const maxInlineTimeGapSlots = 60;
+const compressedTimeGapSlots = 12;
 
 export function nextDigTargetInterval(interval: ChartInterval): DigTargetInterval {
   switch (interval) {
@@ -200,8 +218,10 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const timestampToSlot = new Map<string, number>();
   const unitById = new Map<string, SemanticRenderUnit>();
   const expansionByParent = new Map(input.expansions.map((expansion) => [expansion.parentNodeId, expansion]));
+  const timeGapByIndex = buildTimeGaps(input.symbol, input.interval, input.candles);
   const rootExpansionExtraByIndex = new Map<number, number>();
   const rootExpansionExtraBefore: number[] = new Array(input.candles.length + 1).fill(0);
+  const rootTimeGapExtraBefore: number[] = new Array(input.candles.length + 1).fill(0);
   for (let index = 0; index < input.candles.length; index += 1) {
     const candle = input.candles[index];
     const rootNodeId = candle ? semanticNodeId(input.symbol, input.interval, candle.timestamp) : "";
@@ -211,15 +231,18 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
       rootExpansionExtraByIndex.set(index, expansionExtra);
     }
     rootExpansionExtraBefore[index + 1] = normalizeSlot(rootExpansionExtraBefore[index] + expansionExtra);
+    rootTimeGapExtraBefore[index + 1] = normalizeSlot(rootTimeGapExtraBefore[index] + (timeGapByIndex.get(index)?.slotWidth ?? 0));
   }
   const maxExpansionWidth = Math.max(0, ...input.expansions.map((expansion) => expansionSlotWidth(expansion, expansionByParent)));
-  const renderStartIndex = Math.max(0, Math.floor(input.visibleStartIndex - maxExpansionWidth - 2));
-  const renderEndIndex = Math.min(input.candles.length, Math.ceil(input.visibleEndIndex + maxExpansionWidth + 2));
+  const maxTimeGapWidth = Math.max(0, ...Array.from(timeGapByIndex.values()).map((gap) => gap.slotWidth));
+  const renderPadding = Math.max(maxExpansionWidth, maxTimeGapWidth);
+  const renderStartIndex = Math.max(0, Math.floor(input.visibleStartIndex - renderPadding - 2));
+  const renderEndIndex = Math.min(input.candles.length, Math.ceil(input.visibleEndIndex + renderPadding + 2));
 
   const rememberUnit = (unit: SemanticRenderUnit) => {
     units.push(unit);
     unitById.set(unit.id, unit);
-    if (!timestampToSlot.has(unit.from)) {
+    if (unit.kind !== "time-gap" && !timestampToSlot.has(unit.from)) {
       timestampToSlot.set(unit.from, unit.slotCenter);
     }
     if (unit.kind === "candle" && !timestampToSlot.has(unit.timestamp)) {
@@ -342,11 +365,40 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
     return unit.slotEnd;
   };
 
-  let extraSlots = rootExpansionExtraBefore[renderStartIndex] ?? 0;
+  const appendTimeGap = (gap: RootTimeGap, slotStart: number): number => {
+    const slotEnd = normalizeSlot(slotStart + gap.slotWidth);
+    rememberUnit({
+      kind: "time-gap",
+      id: gap.id,
+      symbol: input.symbol,
+      interval: input.interval,
+      from: gap.from,
+      to: gap.to,
+      depth: 0,
+      status: "empty",
+      message: gap.missingSlots === 1 ? "No bar" : `${gap.missingSlots} bars missing`,
+      missingSlots: gap.missingSlots,
+      slotStart,
+      slotEnd,
+      slotCenter: normalizeSlot((slotStart + slotEnd) / 2)
+    });
+    return slotEnd;
+  };
+
+  let extraSlots = normalizeSlot((rootExpansionExtraBefore[renderStartIndex] ?? 0) + (rootTimeGapExtraBefore[renderStartIndex] ?? 0));
   for (let index = renderStartIndex; index < renderEndIndex; index += 1) {
     const candle = input.candles[index];
     if (!candle) {
       continue;
+    }
+    const gap = timeGapByIndex.get(index);
+    if (gap) {
+      const gapSlotStart = index - input.viewportStartIndex + extraSlots;
+      const gapSlotEnd = normalizeSlot(gapSlotStart + gap.slotWidth);
+      if (gapSlotStart < input.visibleSlotCount && gapSlotEnd > 0) {
+        appendTimeGap(gap, gapSlotStart);
+      }
+      extraSlots = normalizeSlot(extraSlots + gap.slotWidth);
     }
     const slotStart = index - input.viewportStartIndex + extraSlots;
     const rootNodeId = semanticNodeId(input.symbol, input.interval, candle.timestamp);
@@ -366,18 +418,59 @@ export function buildSemanticTimeline(input: BuildSemanticTimelineInput): Semant
   const occupiedSlotStart = units.length ? Math.min(...units.map((unit) => unit.slotStart)) : 0;
   const occupiedSlotEnd = units.length ? Math.max(...units.map((unit) => unit.slotEnd)) : input.visibleSlotCount;
   const expansionExtraSlots = Math.max(0, normalizeSlot(rootExpansionExtraBefore[input.candles.length] ?? 0));
+  const timeGapExtraSlots = Math.max(0, normalizeSlot(rootTimeGapExtraBefore[input.candles.length] ?? 0));
+  const visibleTimeGapExtraSlots = normalizeSlot(units.reduce((total, unit) => (
+    unit.kind === "time-gap" ? total + Math.max(0, unit.slotEnd - unit.slotStart) : total
+  ), 0));
 
   return {
     units,
     expansionRanges,
-    totalSlots: Math.max(1, input.visibleSlotCount),
+    totalSlots: Math.max(1, normalizeSlot(input.visibleSlotCount + visibleTimeGapExtraSlots)),
     occupiedSlotStart,
     occupiedSlotEnd,
-    expansionExtraSlots,
+    expansionExtraSlots: normalizeSlot(expansionExtraSlots + timeGapExtraSlots),
     logicalIndexToSlot,
     timestampToSlot,
     unitById
   };
+}
+
+type RootTimeGap = {
+  id: string;
+  from: string;
+  to: string;
+  missingSlots: number;
+  slotWidth: number;
+};
+
+function buildTimeGaps(symbol: string, interval: ChartInterval, candles: CandleDto[]): Map<number, RootTimeGap> {
+  const gaps = new Map<number, RootTimeGap>();
+  const intervalMs = fixedIntervalMs(interval);
+  if (!intervalMs) {
+    return gaps;
+  }
+  for (let index = 1; index < candles.length; index += 1) {
+    const previous = parseIso(candles[index - 1].timestamp);
+    const current = parseIso(candles[index].timestamp);
+    const expectedCurrent = new Date(previous.getTime() + intervalMs);
+    const gapMs = current.getTime() - expectedCurrent.getTime();
+    if (!Number.isFinite(gapMs) || gapMs < intervalMs * 0.5) {
+      continue;
+    }
+    const missingSlots = Math.max(1, Math.round(gapMs / intervalMs));
+    const slotWidth = missingSlots <= maxInlineTimeGapSlots ? missingSlots : compressedTimeGapSlots;
+    const from = toIso(expectedCurrent);
+    const to = toIso(current);
+    gaps.set(index, {
+      id: ["time-gap", symbol, interval, from, to].join(":"),
+      from,
+      to,
+      missingSlots,
+      slotWidth: normalizeSlot(slotWidth)
+    });
+  }
+  return gaps;
 }
 
 function expansionSlotWidth(
@@ -423,6 +516,26 @@ function placeholderSlotWidthForExpansion(expansion: SemanticExpansion): number 
     return placeholderSlotWidth;
   }
   return estimatedLoadingExpansionSlotWidth(expansion);
+}
+
+function fixedIntervalMs(interval: ChartInterval): number | null {
+  switch (interval) {
+    case "footprint":
+    case "1m":
+      return 60_000;
+    case "5m":
+      return 5 * 60_000;
+    case "10m":
+      return 10 * 60_000;
+    case "1h":
+      return 60 * 60_000;
+    case "4h":
+      return 4 * 60 * 60_000;
+    case "1D":
+    case "1W":
+    case "1M":
+      return null;
+  }
 }
 
 function estimatedLoadingExpansionSlotWidth(expansion: SemanticExpansion): number {

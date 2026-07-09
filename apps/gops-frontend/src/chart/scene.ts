@@ -364,6 +364,16 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
           interval: semanticHit.interval
         };
       }
+      if (semanticHit?.kind === "time-gap") {
+        return {
+          timestamp: timestampAtUnitX(scene, semanticHit, x),
+          logicalIndex: Math.max(0, Math.round(xToLogical(x))),
+          price: yToPrice(y),
+          paneId: "price",
+          symbol,
+          interval: semanticHit.interval
+        };
+      }
       const logicalIndex = Math.max(0, Math.min(Math.max(scene.viewportEndIndex - 1, scene.allCandles.length - 1), Math.round(xToLogical(x))));
       const candle = scene.allCandles[logicalIndex];
       if (!candle && logicalIndex < scene.allCandles.length) {
@@ -414,7 +424,7 @@ function continuousTimestampToX(scene: ChartScene, timestamp: string): number | 
   return bounds.left + (bounds.right - bounds.left) * ratio;
 }
 
-function timestampAtUnitX(scene: ChartScene, unit: SemanticRenderUnit, x: number): string {
+export function timestampAtUnitX(scene: ChartScene, unit: SemanticRenderUnit, x: number): string {
   const start = Date.parse(unit.from);
   const end = Date.parse(unit.to);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) {

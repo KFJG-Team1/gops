@@ -696,6 +696,40 @@ const footprintExpansionTimeline = buildSemanticTimeline({
 const footprintExpansionUnit = footprintExpansionTimeline.units.find((unit) => unit.kind === "footprint");
 assert.ok(footprintExpansionUnit);
 assert.equal((footprintExpansionUnit?.slotEnd ?? 0) - (footprintExpansionUnit?.slotStart ?? 0), 18);
+const sparseMinuteCandles = [
+  testCandle("2026-07-09T05:36:00Z", 100),
+  testCandle("2026-07-09T05:39:00Z", 101)
+] as CandleDto[];
+const sparseMinuteTimeline = buildSemanticTimeline({
+  symbol: "MU",
+  interval: "1m",
+  candles: sparseMinuteCandles,
+  expansions: [],
+  visibleStartIndex: 0,
+  visibleEndIndex: 2,
+  viewportStartIndex: 0,
+  visibleSlotCount: 6
+});
+const sparseMinuteGap = sparseMinuteTimeline.units.find((unit) => unit.kind === "time-gap");
+assert.equal(sparseMinuteGap?.from, "2026-07-09T05:37:00Z");
+assert.equal(sparseMinuteGap?.to, "2026-07-09T05:39:00Z");
+assert.equal(sparseMinuteGap?.missingSlots, 2);
+assert.equal(sparseMinuteTimeline.units.filter((unit) => unit.kind === "candle").length, 2);
+assert.ok(sparseMinuteTimeline.totalSlots >= 4);
+const sparseMinuteScene = buildFrontendChartScene(frontendChartState({
+  symbol: "MU",
+  interval: "1m",
+  candles: sparseMinuteCandles,
+  visibleCount: 6,
+  requestedLimit: 6
+}), 600, 320);
+const sparseMinuteTransform = createFrontendCoordinateTransform(sparseMinuteScene);
+const beforeGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:36:00Z");
+const insideGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:38:00Z");
+const afterGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:39:00Z");
+assert.equal(typeof insideGapX, "number");
+assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
+assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]

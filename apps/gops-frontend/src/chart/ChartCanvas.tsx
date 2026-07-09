@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, FootprintBucketDto, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, topPriceGridY, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
@@ -1922,13 +1922,16 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   if (!semanticHit) {
     return;
   }
-  const x = unitCenterX(scene, semanticHit);
+  const gapBounds = semanticHit.kind === "time-gap" ? unitBoundsX(scene, semanticHit) : null;
+  const x = gapBounds
+    ? Math.max(gapBounds.left, Math.min(gapBounds.right, crosshair.x))
+    : unitCenterX(scene, semanticHit);
   const y = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, crosshair.y));
   const drawingToolActive = scene.chart.toolMode !== "pan" && scene.chart.toolMode !== "select";
   const alpha = drawingToolActive ? 0.12 : 0.22;
   const label = semanticHit.kind === "candle"
     ? formatSemanticTimestamp(semanticHit.timestamp, semanticHit.interval)
-    : formatSemanticTimestamp(semanticHit.from, semanticHit.interval);
+    : formatSemanticTimestamp(timestampAtUnitX(scene, semanticHit, x), semanticHit.interval);
   const inPricePane = crosshair.y <= scene.plot.priceBottom;
   const activeBelowPane = scene.plot.belowPanes.find((pane) => crosshair.y >= pane.top && crosshair.y <= pane.bottom);
   const inVolumePane = activeBelowPane?.id === "volume";
@@ -2166,6 +2169,10 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
     context.restore();
   });
   scene.semantic.units.forEach((unit) => {
+    if (unit.kind === "time-gap") {
+      drawTimeGapUnit(context, scene, unit);
+      return;
+    }
     if (unit.kind === "placeholder" || unit.kind === "footprint") {
       drawSemanticPlaceholder(context, scene, unit);
     }
@@ -2276,6 +2283,27 @@ function formatParentSummaryDate(value: string): string {
     month: "short",
     day: "2-digit"
   }).format(date);
+}
+
+function drawTimeGapUnit(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "time-gap" }>) {
+  const bounds = unitBoundsX(scene, unit);
+  const visibleLeft = Math.max(scene.plot.left, bounds.left);
+  const visibleRight = Math.min(scene.plot.right, bounds.right);
+  const visibleWidth = visibleRight - visibleLeft;
+  if (visibleWidth <= 1) {
+    return;
+  }
+  context.save();
+  context.fillStyle = colors.grid;
+  context.globalAlpha = 0.32;
+  context.fillRect(visibleLeft, scene.plot.top, visibleWidth, scene.plot.bottom - scene.plot.top);
+  context.strokeStyle = colors.axis;
+  context.globalAlpha = 0.22;
+  context.lineWidth = 1;
+  context.setLineDash([2, 5]);
+  const center = Math.round((visibleLeft + visibleRight) / 2) + 0.5;
+  line(context, center, scene.plot.top, center, scene.plot.bottom);
+  context.restore();
 }
 
 function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" | "footprint" }>) {
