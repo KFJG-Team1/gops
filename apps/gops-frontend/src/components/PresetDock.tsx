@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
+import { Bot, Check, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "../layout/layoutPresets";
 import type { LayoutPresetControls } from "../layout/useLayoutPresets";
 
 type PresetDockProps = {
   controls: LayoutPresetControls;
   onShowHome: () => void;
+  onShowAgent?: () => void;
   onEnterLayoutEdit: () => void;
   layoutEditDisabled?: boolean;
   isHome?: boolean;
 };
 
-export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEditDisabled = false, isHome = false }: PresetDockProps) {
+export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdit, layoutEditDisabled = false, isHome = false }: PresetDockProps) {
   const { presets, activePresetId, applyPreset, createCustomPreset, renamePreset, deleteCustomPreset, saveActivePresetLayout } = controls;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -162,6 +163,21 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
           <LayoutPanelTop size={15} aria-hidden="true" />
         </button>
       </div>
+      {onShowAgent && (
+        <>
+          <span className="toolbar-separator" aria-hidden="true" />
+          <button
+            type="button"
+            className="layout-preset-agent"
+            aria-label="Agent 입력 열기"
+            title="Agent 입력 열기"
+            onClick={onShowAgent}
+          >
+            <Bot size={14} aria-hidden="true" />
+            <span>Agents</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }
