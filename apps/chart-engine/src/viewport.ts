@@ -70,7 +70,8 @@ export function clampRightOffset(
   const maxRightOffset = Math.max(0, candleCount - Math.max(1, Math.min(visibleCount, candleCount)));
   const extraFutureSlots = Math.max(0, Math.ceil(options.extraFutureSlots ?? 0));
   const minRightOffset = -(futureEmptySlotCount(visibleCount) + extraFutureSlots);
-  return Math.max(minRightOffset, Math.min(maxRightOffset, Math.round(rightOffset)));
+  const safeRightOffset = Number.isFinite(rightOffset) ? rightOffset : 0;
+  return Math.max(minRightOffset, Math.min(maxRightOffset, safeRightOffset));
 }
 
 export function futureEmptySlotCount(visibleCount: number): number {
@@ -85,7 +86,7 @@ export function dragDeltaToRightOffset(
   candleCount: number,
   options: ViewportClampOptions = {}
 ): number {
-  const slotDelta = Math.round(dragPixels / Math.max(0.0001, slotWidth));
+  const slotDelta = dragPixels / Math.max(0.0001, slotWidth);
   return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount, options);
 }
 
@@ -100,7 +101,7 @@ export function horizontalWheelDeltaToRightOffset(
   options: ViewportClampOptions = {}
 ): number {
   const pixelDelta = wheelDeltaToPixels(deltaX, deltaMode, pageWidth);
-  const slotDelta = Math.round(-pixelDelta / Math.max(0.0001, slotWidth));
+  const slotDelta = -pixelDelta / Math.max(0.0001, slotWidth);
   return clampRightOffset(startRightOffset + slotDelta, visibleCount, candleCount, options);
 }
 

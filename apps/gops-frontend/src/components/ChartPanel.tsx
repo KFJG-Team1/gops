@@ -67,7 +67,7 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, viewportSlotWidth, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportRevealingPrependedCandlesAfterChange,
@@ -1257,7 +1257,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         viewportClampOptionsForChart(current, scene)
       );
       const slotWidth = scene
-        ? viewportSlotWidth(scene)
+        ? scene.scales.slotWidth
         : Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
       const nextRightOffset = horizontalWheelDeltaToRightOffset(
         currentViewport.rightOffset,
@@ -1526,7 +1526,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       rightOffset: dragDeltaToRightOffset(
         dragAnchor.rightOffset,
         event.clientX - dragAnchor.x,
-        viewportSlotWidth(scene),
+        scene.scales.slotWidth,
         dragAnchor.visibleCount,
         chart.candles.length,
         viewportClampOptionsForChart(chartRef.current, scene)
