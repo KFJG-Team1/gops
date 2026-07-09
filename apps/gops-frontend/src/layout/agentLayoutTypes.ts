@@ -12,8 +12,15 @@ export type AgentLayoutPanelType =
   | "popularStocks"
   | "newsFeed"
   | "stockRecommendations"
+  | "themeRadar"
   | "ontologyGraph"
+  | "portfolioDashboard"
   | "portfolioHoldings"
+  | "portfolioInvestment"
+  | "portfolioPerformance"
+  | "portfolioInvested"
+  | "portfolioDividend"
+  | "portfolioDiversification"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

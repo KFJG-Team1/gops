@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
 import { PresetDock } from "./components/PresetDock";
-import { buildPresetLayout, type LayoutPreset } from "./layout/layoutPresets";
+import { buildPresetLayout, ensurePortfolioInvestedPanelState, migratePortfolioInvestmentSnapshot, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -118,11 +118,18 @@ function initialPanelState(): TiledPanelState {
   try {
     const stored = window.localStorage.getItem(panelLayoutStorageKey);
     if (stored) {
-      const restored = restoreTiledPanelStateSnapshot(JSON.parse(stored), viewport, chartWorkspaceLayoutMetrics);
+      const restored = restoreTiledPanelStateSnapshot(
+        migratePortfolioInvestmentSnapshot(JSON.parse(stored)),
+        viewport,
+        chartWorkspaceLayoutMetrics
+      );
       if (restored) {
+        const migrated = ensurePortfolioInvestedPanelState(restored, viewport, {
+          layoutMetrics: chartWorkspaceLayoutMetrics
+        });
         return initialView.mode === "chart"
-          ? setPrimaryChartSymbol(restored, initialView.symbol, viewport, chartWorkspaceLayoutMetrics)
-          : restored;
+          ? setPrimaryChartSymbol(migrated, initialView.symbol, viewport, chartWorkspaceLayoutMetrics)
+          : migrated;
       }
     }
   } catch {
@@ -475,13 +482,22 @@ export function App() {
   const sideRailCompanyItem = useMemo(() => (
     mainView.mode === "chart" ? buildSideRailCompanyItem(treeMapItems, activePageSymbol) : null
   ), [activePageSymbol, mainView.mode, treeMapItems]);
-  const chartDocumentSymbolsByPanelId = useMemo(() => (
-    chartDocumentSymbolsForLayout(panelState, chartRuntime)
-  ), [chartRuntime, panelState]);
   const panelLayoutMetrics = chartWorkspaceLayoutMetrics;
+  const effectivePanelState = useMemo(() => (
+    ensurePortfolioInvestedPanelState(panelState, viewportSize, { layoutMetrics: panelLayoutMetrics })
+  ), [panelLayoutMetrics, panelState, viewportSize]);
+  const chartDocumentSymbolsByPanelId = useMemo(() => (
+    chartDocumentSymbolsForLayout(effectivePanelState, chartRuntime)
+  ), [chartRuntime, effectivePanelState]);
   const canUseAgent = !authLoading && (!authEnabled || Boolean(user));
   const canEditWatchlist = !authLoading && (!authEnabled || Boolean(user));
   const visibleWatchlistSymbols = canEditWatchlist ? watchlistSymbols : universeSymbols.slice(0, 24);
+
+  useEffect(() => {
+    if (effectivePanelState !== panelState) {
+      setPanelState(effectivePanelState);
+    }
+  }, [effectivePanelState, panelState]);
 
   useEffect(() => {
     const previousMetrics = panelLayoutMetricsRef.current;
@@ -1271,7 +1287,7 @@ export function App() {
           </>
         ) : (
           <PanelWorkspace
-            panelState={panelState}
+            panelState={effectivePanelState}
             setPanelState={setPanelState}
             viewportSize={viewportSize}
             layoutMetrics={panelLayoutMetrics}

@@ -1,7 +1,9 @@
 import {
   createTiledPanelStateFromSpec,
+  panelContentTitle,
   restoreTiledPanelStateSnapshot,
   type PanelLayoutSpecItem,
+  type PanelContentKind,
   type StoredTiledPanelState,
   type TiledPanelState,
   type ViewportSize,
@@ -27,10 +29,11 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   market: {
     name: "시장분석",
     spec: [
-      { kind: "indices", gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "popular", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 1, row: 3, colSpan: 4, rowSpan: 3 } },
-      { kind: "ontology", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 3 } }
+      { kind: "indices", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 2 } },
+      { kind: "themeRadar", gridRect: { col: 4, row: 1, colSpan: 5, rowSpan: 2 } },
+      { kind: "popular", gridRect: { col: 1, row: 3, colSpan: 3, rowSpan: 3 } },
+      { kind: "news", gridRect: { col: 4, row: 3, colSpan: 3, rowSpan: 3 } },
+      { kind: "ontology", gridRect: { col: 7, row: 3, colSpan: 2, rowSpan: 3 } }
     ]
   },
   stock: {
@@ -59,9 +62,12 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   asset: {
     name: "자산현황",
     spec: [
-      { kind: "portfolio", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 5 } },
-      { kind: "trade", gridRect: { col: 4, row: 1, colSpan: 2, rowSpan: 5 } },
-      { kind: "recommendations", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 5 } }
+      { kind: "portfolioInvestment", gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 2 } },
+      { kind: "portfolioPerformance", gridRect: { col: 3, row: 1, colSpan: 3, rowSpan: 2 } },
+      { kind: "portfolioDiversification", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 2 } },
+      { kind: "portfolioHoldings", gridRect: { col: 1, row: 3, colSpan: 4, rowSpan: 3 } },
+      { kind: "portfolioInvested", gridRect: { col: 5, row: 3, colSpan: 2, rowSpan: 3 } },
+      { kind: "portfolioDividend", gridRect: { col: 7, row: 3, colSpan: 2, rowSpan: 3 } }
     ]
   }
 };
@@ -81,7 +87,8 @@ export function buildPresetLayout(
 ): TiledPanelState | null {
   // A saved override layout (valid snapshot) wins; otherwise defaults rebuild from spec.
   if (preset.layout) {
-    const restored = restoreTiledPanelStateSnapshot(preset.layout, viewport, options.layoutMetrics);
+    const layout = migratePortfolioInvestmentSnapshot(preset.layout);
+    const restored = restoreTiledPanelStateSnapshot(layout, viewport, options.layoutMetrics);
     if (restored) {
       return restored;
     }
@@ -91,6 +98,130 @@ export function buildPresetLayout(
     return definition ? createTiledPanelStateFromSpec(definition.spec, viewport, options) : null;
   }
   return null;
+}
+
+export function ensurePortfolioInvestedPanelState(
+  state: TiledPanelState,
+  viewport: ViewportSize,
+  options: { layoutMetrics?: WorkspaceLayoutMetrics } = {}
+): TiledPanelState {
+  const contentKinds = state.slots
+    .map((slot) => state.contents[slot.contentId]?.kind)
+    .filter((kind): kind is PanelContentKind => Boolean(kind));
+  if (!shouldReplaceLegacyPortfolioWorkspace(contentKinds)) {
+    return state;
+  }
+  return createTiledPanelStateFromSpec(DEFAULT_PRESET_DEFINITIONS.asset.spec, viewport, {
+    layoutMetrics: options.layoutMetrics
+  });
+}
+
+export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
+  if (!isStoredTiledPanelStateShape(value)) {
+    return value;
+  }
+  const layout = value;
+  const contentKinds = Object.values(layout.contents).map((content) => content.kind);
+  const hasAnyPortfolioPanel = hasPortfolioPanelKind(contentKinds);
+  const hasSplitPortfolioPanels = hasAllSplitPortfolioPanels(contentKinds);
+  if (!hasAnyPortfolioPanel || hasSplitPortfolioPanels) {
+    return layout;
+  }
+
+  const hasChartPanel = contentKinds.includes("chart");
+  if (hasChartPanel) {
+    return {
+      ...layout,
+      contents: Object.fromEntries(Object.entries(layout.contents).map(([id, content]) => {
+        if (content.kind !== "portfolio") {
+          return [id, content];
+        }
+        return [
+          id,
+          {
+            ...content,
+            kind: "portfolioHoldings",
+            title: panelContentTitle("portfolioHoldings")
+          }
+        ];
+      }))
+    };
+  }
+
+  const spec = DEFAULT_PRESET_DEFINITIONS.asset.spec;
+  let instance = 1;
+  const contents: StoredTiledPanelState["contents"] = {};
+  const slots: StoredTiledPanelState["slots"] = [];
+  for (const item of spec) {
+    const contentId = `content-${item.kind}-${instance}`;
+    contents[contentId] = {
+      id: contentId,
+      kind: item.kind,
+      title: panelContentTitle(item.kind),
+      instanceIndex: instance,
+      ...(typeof item.layoutWeight === "number" ? { layoutWeight: item.layoutWeight } : {})
+    };
+    slots.push({
+      id: `slot-${item.kind}-${instance}`,
+      contentId,
+      gridRect: item.gridRect
+    });
+    instance += 1;
+  }
+  return {
+    version: 1,
+    nextInstance: instance,
+    contents,
+    slots
+  };
+}
+
+const splitPortfolioPanelKinds: readonly PanelContentKind[] = [
+  "portfolioInvestment",
+  "portfolioPerformance",
+  "portfolioInvested",
+  "portfolioDividend",
+  "portfolioDiversification",
+  "portfolioHoldings"
+];
+
+const portfolioWorkspaceKinds: readonly PanelContentKind[] = [
+  "portfolio",
+  ...splitPortfolioPanelKinds
+];
+
+const legacyPortfolioWorkspaceAllowedKinds: readonly PanelContentKind[] = [
+  "chart",
+  ...portfolioWorkspaceKinds
+];
+
+function hasPortfolioPanelKind(kinds: readonly PanelContentKind[]): boolean {
+  return kinds.some((kind) => portfolioWorkspaceKinds.includes(kind));
+}
+
+function hasAllSplitPortfolioPanels(kinds: readonly PanelContentKind[]): boolean {
+  return splitPortfolioPanelKinds.every((kind) => kinds.includes(kind));
+}
+
+function shouldReplaceLegacyPortfolioWorkspace(kinds: readonly PanelContentKind[]): boolean {
+  if (!hasPortfolioPanelKind(kinds) || kinds.includes("portfolioInvested")) {
+    return false;
+  }
+  if (!kinds.every((kind) => legacyPortfolioWorkspaceAllowedKinds.includes(kind))) {
+    return false;
+  }
+  const portfolioCount = kinds.filter((kind) => portfolioWorkspaceKinds.includes(kind)).length;
+  return portfolioCount >= 2 || kinds.some((kind) => kind === "portfolio" || kind === "portfolioInvestment");
+}
+
+function isStoredTiledPanelStateShape(value: unknown): value is StoredTiledPanelState {
+  return Boolean(value)
+    && typeof value === "object"
+    && (value as { version?: unknown }).version === 1
+    && typeof (value as { nextInstance?: unknown }).nextInstance === "number"
+    && Array.isArray((value as { slots?: unknown }).slots)
+    && Boolean((value as { contents?: unknown }).contents)
+    && typeof (value as { contents?: unknown }).contents === "object";
 }
 
 const CUSTOM_PRESET_PLACEHOLDER = "사용자지정";

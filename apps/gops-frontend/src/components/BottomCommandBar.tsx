@@ -1,4 +1,4 @@
-import { Bell, CandlestickChart, GripVertical, LayoutPanelTop, LogIn, MessagesSquare, Newspaper, SendHorizontal, Settings, Square, Star, Trash2, UserCircle, X } from "lucide-react";
+import { Bell, CandlestickChart, GripVertical, LayoutPanelTop, LogIn, MessagesSquare, Newspaper, SendHorizontal, Settings, Square, Star, Trash2, UserCircle, WalletCards, X } from "lucide-react";
 import { type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertMenu } from "../alerts/AlertMenu";
@@ -17,10 +17,18 @@ import type { AuthUser } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { InvestmentProfileForm } from "../recommendations/InvestmentProfileForm";
+import {
+  PortfolioDividendPanel,
+  PortfolioDiversificationPanel,
+  PortfolioHoldingsOnlyPanel,
+  PortfolioInvestedPanel,
+  PortfolioInvestmentStatusPanel,
+  PortfolioPerformancePanel
+} from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
-export type BottomMenuKey = "III" | "IV" | "VI";
+export type BottomMenuKey = "II" | "III" | "IV" | "V" | "VI";
 export type SideRailCompany = {
   symbol: string;
   companyName?: string;
@@ -93,7 +101,7 @@ type BottomCommandBarProps = {
 };
 
 const leftMenuKeys: BottomMenuKey[] = [];
-const sideMenuKeys: BottomMenuKey[] = ["IV", "III", "VI"];
+const sideMenuKeys: BottomMenuKey[] = ["IV", "II", "III", "V", "VI"];
 const sideRailMenuKeys: BottomMenuKey[] = sideMenuKeys.filter((key) => key !== "IV");
 const rightMenuKeys: BottomMenuKey[] = [];
 const alertToastAdvanceMs = 6000;
@@ -1248,15 +1256,19 @@ function bottomMenuIcon(key: BottomMenuKey, alertUnreadCount = 0): ReactNode {
     );
   }
   return {
+    II: <WalletCards size={size} aria-hidden="true" />,
     III: <Star size={size} aria-hidden="true" />,
+    V: <UserCircle size={size} aria-hidden="true" />,
     VI: <Settings size={size} aria-hidden="true" />
   }[key];
 }
 
 function bottomMenuLabel(key: BottomMenuKey, alertUnreadCount = 0): string {
   const label = {
+    II: "포트폴리오",
     III: "관심종목",
     IV: "알림설정",
+    V: "로그인/프로필",
     VI: "설정"
   }[key];
   if (key === "IV" && alertUnreadCount > 0) {
@@ -1352,6 +1364,26 @@ function bottomMenuContent({
   onAlertUnreadCountChange: (count: number) => void;
 }) {
   switch (activeKey) {
+    case "II":
+      return (
+        <div className="bottom-menu-section bottom-menu-scroll">
+          <MenuTitle title="포트폴리오" detail="보유종목" />
+          <div className="bottom-portfolio-split-grid">
+            <PortfolioInvestmentStatusPanel />
+            <PortfolioPerformancePanel />
+            <PortfolioDiversificationPanel />
+            <PortfolioInvestedPanel />
+            <PortfolioDividendPanel />
+            <PortfolioHoldingsOnlyPanel
+              onSelectSymbol={(symbol) => {
+                onSelectSymbol(symbol);
+                onClose();
+                return true;
+              }}
+            />
+          </div>
+        </div>
+      );
     case "III":
       const watchlistTitle = canEditWatchlist && watchlistPersisted ? "내 관심종목" : "관심종목";
       const watchlistDetail = authLoading
@@ -1472,6 +1504,17 @@ function bottomMenuContent({
         />
       );
     case "VI":
+      return (
+        <SettingsMenu
+          authEnabled={authEnabled}
+          authLoading={authLoading}
+          authUser={authUser}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          initialTab="recommendations"
+        />
+      );
+    case "V":
       return (
         <SettingsMenu
           authEnabled={authEnabled}
