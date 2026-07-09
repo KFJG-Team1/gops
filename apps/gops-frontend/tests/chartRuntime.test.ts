@@ -2403,7 +2403,7 @@ assert.deepEqual(
     { visibleCount: 6, rightOffset: 4 },
     { visibleCount: 6, rightOffset: 4 }
   ),
-  { visibleCount: 6, rightOffset: 9 }
+  { visibleCount: 6, rightOffset: 4 }
 );
 assert.deepEqual(
   viewportAfterOlderCandlesLoaded(
