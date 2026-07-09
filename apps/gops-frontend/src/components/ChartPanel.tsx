@@ -69,8 +69,8 @@ import {
 } from "../chart/olderRangeRequestPolicy";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
-  anchoredViewportForCandles,
-  viewportRevealingPrependedCandlesAfterChange,
+  viewportAfterOlderCandlesLoaded,
+  viewportAfterSnapshotCandlesChange,
   type ViewportAnchor
 } from "../chart/intervalNavigation";
 import {
@@ -444,11 +444,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           return;
         }
         const plotWidth = sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined;
-        const viewportBeforeLoad = requestedViewport ?? { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
-        const nextViewport = viewportRevealingPrependedCandlesAfterChange(
+        const currentViewport = { visibleCount: current.visibleCount, rightOffset: current.rightOffset };
+        const nextViewport = viewportAfterOlderCandlesLoaded(
           current.candles,
           merged,
-          viewportBeforeLoad,
+          requestedViewport,
+          currentViewport,
           plotWidth,
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
@@ -486,14 +487,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (current.symbol !== requestedSymbol || current.interval !== requestedInterval) {
         return;
       }
-      const nextViewport = anchoredViewportForCandles(
-        response.candles,
+      const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+      const nextViewport = viewportAfterSnapshotCandlesChange(
+        current.candles,
+        merged,
         current.interval,
-        pendingLoad?.anchor ?? null,
         {
           visibleCount: current.visibleCount,
           rightOffset: current.rightOffset
         },
+        pendingLoad?.anchor ?? null,
         sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
         { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
       );

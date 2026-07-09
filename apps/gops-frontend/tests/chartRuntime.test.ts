@@ -47,6 +47,8 @@ import {
 } from "../src/chart/semanticTimeline";
 import {
   anchoredViewportForCandles,
+  viewportAfterOlderCandlesLoaded,
+  viewportAfterSnapshotCandlesChange,
   viewportPreservingRightEdgeAfterCandlesChange,
   viewportRevealingPrependedCandlesAfterChange
 } from "../src/chart/intervalNavigation";
@@ -2265,6 +2267,80 @@ assert.deepEqual(
     { visibleCount: 6, rightOffset: 4 }
   ),
   { visibleCount: 6, rightOffset: 9 }
+);
+assert.deepEqual(
+  viewportAfterOlderCandlesLoaded(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 },
+    { visibleCount: 6, rightOffset: 4 }
+  ),
+  { visibleCount: 6, rightOffset: 9 }
+);
+assert.deepEqual(
+  viewportAfterOlderCandlesLoaded(
+    visibleCandlesBeforePrepend,
+    [...prependedCandles, ...visibleCandlesBeforePrepend],
+    { visibleCount: 6, rightOffset: 4 },
+    { visibleCount: 6, rightOffset: 0 }
+  ),
+  { visibleCount: 6, rightOffset: 0 }
+);
+const cachedMinuteSnapshotCandles = Array.from(
+  { length: 1000 },
+  (_, index) => testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + index)).toISOString(), 100 + index)
+);
+const tailSnapshotResponseCandles = cachedMinuteSnapshotCandles.slice(-120);
+const detachedSnapshotViewport = { visibleCount: 60, rightOffset: 500 };
+assert.equal(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    null,
+    detachedSnapshotViewport,
+    640,
+    { minimumVisibleSlots: 120 }
+  ).rightOffset,
+  60
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    cachedMinuteSnapshotCandles,
+    "1m",
+    detachedSnapshotViewport,
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  detachedSnapshotViewport
+);
+const appendedSnapshotCandles = [
+  ...cachedMinuteSnapshotCandles,
+  testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + 1000)).toISOString(), 1100),
+  testCandle(new Date(Date.UTC(2026, 5, 25, 13, 30 + 1001)).toISOString(), 1101)
+];
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    appendedSnapshotCandles,
+    "1m",
+    { visibleCount: 60, rightOffset: 0 },
+    null,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 0 }
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    cachedMinuteSnapshotCandles,
+    appendedSnapshotCandles,
+    "1m",
+    detachedSnapshotViewport,
+    null,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 502 }
 );
 const drawingAnchorBeforePrepend = {
   timestamp: visibleCandlesBeforePrepend[4]?.timestamp,
