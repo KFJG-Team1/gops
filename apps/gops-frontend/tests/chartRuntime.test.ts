@@ -779,6 +779,30 @@ assert.equal(
   ),
   -frontendFutureEmptySlotCount(6) + 1
 );
+const priorGapViewportCandles = [
+  testCandle("2026-07-09T05:00:00Z", 99),
+  testCandle("2026-07-09T06:00:00Z", 100),
+  testCandle("2026-07-09T06:01:00Z", 101),
+  testCandle("2026-07-09T06:02:00Z", 102),
+  testCandle("2026-07-09T06:03:00Z", 103),
+  testCandle("2026-07-09T06:04:00Z", 104)
+] as CandleDto[];
+const priorGapViewportTimeline = buildSemanticTimeline({
+  symbol: "MU",
+  interval: "1m",
+  candles: priorGapViewportCandles,
+  expansions: [],
+  visibleStartIndex: 2,
+  visibleEndIndex: 6,
+  viewportStartIndex: 2,
+  visibleSlotCount: 4
+});
+const firstViewportCandleAfterPriorGap = priorGapViewportTimeline.units.find(
+  (unit) => unit.kind === "candle" && unit.sourceIndex === 2
+);
+assert.equal(firstViewportCandleAfterPriorGap?.kind, "candle");
+assert.equal(firstViewportCandleAfterPriorGap?.slotStart, 0);
+assert.ok(priorGapViewportTimeline.totalSlots <= 4);
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],
   [scopedIndicatorSeriesKey("10m", "rsi:14")]: [{ timestamp: candleA.timestamp, value: 77 }]
@@ -945,7 +969,7 @@ const firstVisibleAfterLeftExpansion = leftExpansionTimeline.units.find(
   (unit) => unit.kind === "candle" && unit.sourceIndex === 30
 );
 assert.equal(Math.ceil(leftExpansionTimeline.expansionExtraSlots), semanticFutureExtraSlots);
-assert.ok(Math.abs((firstVisibleAfterLeftExpansion?.slotStart ?? -1) - leftExpansionTimeline.expansionExtraSlots) < 0.000001);
+assert.ok(Math.abs(firstVisibleAfterLeftExpansion?.slotStart ?? -1) < 0.000001);
 
 const staleResult = applyCandleEvent([candleB], {
   type: "LIVE_CANDLE_UPDATE",
