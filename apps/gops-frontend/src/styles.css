@@ -10838,3 +10838,60 @@ h2 {
 .bottom-menu-panel.menu-II .tone-neutral {
   background: var(--portfolio-soft-muted);
 }
+
+.placement-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(12, 18, 26, 0.34);
+}
+
+.placement-picker-ghosts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.placement-picker-ghost {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.24);
+}
+
+.placement-picker-target {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 10px;
+  border: 2px dashed rgba(125, 211, 252, 0.9);
+  border-radius: 8px;
+  background: rgba(8, 18, 30, 0.16);
+  color: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.placement-picker-target span {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.placement-picker-target:hover,
+.placement-picker-target:focus-visible,
+.placement-picker-target.is-active {
+  border-color: rgba(45, 212, 191, 0.96);
+  background: rgba(45, 212, 191, 0.14);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
+  outline: none;
+}

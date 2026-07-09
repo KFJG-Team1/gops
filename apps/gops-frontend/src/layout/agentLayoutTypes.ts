@@ -27,6 +27,7 @@ export type AgentLayoutCommandType =
   | "layout.panel.select"
   | "layout.panel.priority.set"
   | "layout.panels.arrange"
+  | "layout.placement.pick"
   | "layout.boundary.resize"
   | "layout.reflow"
   | "layout.undo"
@@ -53,6 +54,7 @@ export const agentLayoutCommandTypes: readonly AgentLayoutCommandType[] = [
   "layout.panel.select",
   "layout.panel.priority.set",
   "layout.panels.arrange",
+  "layout.placement.pick",
   "layout.boundary.resize",
   "layout.reflow",
   "layout.undo",
@@ -73,7 +75,7 @@ export type AgentLayoutCommand = {
   id: string;
   type: AgentLayoutCommandType;
   actor: CommandActor;
-  target?: { panelId?: string; group?: AgentLayoutGridGroup; zone?: AgentLayoutGridZone };
+  target?: { panelId?: string; panelIds?: string[]; group?: AgentLayoutGridGroup; zone?: AgentLayoutGridZone };
   payload: Record<string, unknown>;
   createdAt: string;
   proposalId?: string;

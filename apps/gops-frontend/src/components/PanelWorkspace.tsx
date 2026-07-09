@@ -90,6 +90,7 @@ type PanelWorkspaceProps = {
   onSyncPageSymbolFromChart: (contentId: string) => void;
   onSelectSymbol: (symbol: string) => void;
   presetDock?: ReactNode;
+  placementPickerOverlay?: ReactNode;
 };
 
 type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
@@ -154,7 +155,8 @@ export function PanelWorkspace({
   onChartHandleChange,
   onSyncPageSymbolFromChart,
   onSelectSymbol,
-  presetDock
+  presetDock,
+  placementPickerOverlay
 }: PanelWorkspaceProps) {
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
@@ -812,6 +814,7 @@ export function PanelWorkspace({
         </div>
       )}
       {!layoutEditMode && !drawingTarget && !chartAddTarget && presetDock}
+      {!layoutEditMode && placementPickerOverlay}
     </>
   );
 }

@@ -3,6 +3,7 @@ import {
   addPanelSlotAtGridRect,
   firstAvailablePanelGridRect,
   gridRectsOverlap,
+  layoutHasGapsOrOverlaps,
   maxGridSpan,
   minGridSpanForKind,
   movePanelSlotToGridRect,
@@ -37,6 +38,25 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   trade: "orderTicket"
 };
 
+export type PlacementPickCandidate = {
+  id: string;
+  label: string;
+  placement: AgentPanelPlacement;
+  arrangement: unknown[];
+};
+
+export type PendingPlacementPick = {
+  panelType: AgentLayoutPanelType | string;
+  panelId?: string;
+  symbol?: string;
+  candidates: PlacementPickCandidate[];
+};
+
+export type ApplyTiledAgentLayoutResult = {
+  state: TiledPanelState;
+  pendingPlacementPick?: PendingPlacementPick;
+};
+
 export function buildTiledAgentLayoutContext(
   state: TiledPanelState,
   viewport: ViewportSize,
@@ -47,7 +67,8 @@ export function buildTiledAgentLayoutContext(
 ) {
   const gridState = normalizeFreeformRectsToGridLayout(state, viewport, layoutMetrics);
   return {
-    version: 1,
+    version: 2,
+    grid: panelGridSpec,
     ...(selectedPanelId ? { selectedPanelId } : {}),
     panels: gridState.slots.map((slot) => {
       const content = gridState.contents[slot.contentId];
@@ -75,8 +96,21 @@ export function applyTiledAgentLayoutProposal(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
+  return applyTiledAgentLayoutProposalWithResult(state, proposal, viewport, layoutMetrics).state;
+}
+
+export function applyTiledAgentLayoutProposalWithResult(
+  state: TiledPanelState,
+  proposal: AgentLayoutProposal,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): ApplyTiledAgentLayoutResult {
+  const pendingPlacementPick = readPendingPlacementPick(proposal);
+  if (pendingPlacementPick) {
+    return { state, pendingPlacementPick };
+  }
   if (proposal.autoApply === false || proposal.commands.length === 0) {
-    return state;
+    return { state };
   }
 
   let next = state;
@@ -129,7 +163,56 @@ export function applyTiledAgentLayoutProposal(
       }
     }
   }
-  return normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics);
+  return { state: normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics) };
+}
+
+export function applyPlacementPickCandidate(
+  state: TiledPanelState,
+  pick: PendingPlacementPick,
+  candidate: PlacementPickCandidate,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const kind = panelKindForAgentType(pick.panelType);
+  if (!kind) {
+    return state;
+  }
+  const panelId = pick.panelId;
+  const now = new Date().toISOString();
+  const proposal: AgentLayoutProposal = {
+    id: `placement-pick-${candidate.id}`,
+    title: "Placement picker",
+    rationale: candidate.label,
+    autoApply: true,
+    panelPriorities: panelId ? [{ panelId, panelType: pick.panelType, layoutWeight: 120 }] : undefined,
+    commands: [
+      {
+        id: `placement-pick-add-${candidate.id}`,
+        type: "layout.panel.add",
+        actor: "llm",
+        payload: {
+          panelId,
+          panelType: pick.panelType,
+          placement: candidate.placement,
+          props: pick.symbol ? { symbol: pick.symbol } : undefined,
+          symbol: pick.symbol,
+          layoutWeight: 120
+        },
+        target: panelId ? { panelId } : undefined,
+        createdAt: now
+      },
+      {
+        id: `placement-pick-arrange-${candidate.id}`,
+        type: "layout.panels.arrange",
+        actor: "llm",
+        payload: { placements: candidate.arrangement },
+        target: panelId ? { panelId } : undefined,
+        createdAt: now
+      }
+    ],
+    createdAt: now
+  };
+  return applyTiledAgentLayoutProposal(state, proposal, viewport, layoutMetrics);
 }
 
 function tiledPlacement(gridRect: PanelGridRect) {
@@ -248,7 +331,7 @@ function focusPanelKind(state: TiledPanelState, kind: PanelContentKind, viewport
   return state;
 }
 
-type AgentPanelPlacement = {
+export type AgentPanelPlacement = {
   group?: string;
   zone?: string;
   col: number;
@@ -282,17 +365,29 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
   if (!gridRectsBySlotId.size) {
     return next;
   }
-  const nextSlots = next.slots.map((slot) => (
+  const acceptedSlotIds = new Set(gridRectsBySlotId.keys());
+  const arrangedSlots = next.slots.map((slot) => (
     gridRectsBySlotId.has(slot.id) ? { ...slot, gridRect: gridRectsBySlotId.get(slot.id)! } : slot
   ));
-  for (let leftIndex = 0; leftIndex < nextSlots.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < nextSlots.length; rightIndex += 1) {
-      if (gridRectsOverlap(nextSlots[leftIndex]!.gridRect, nextSlots[rightIndex]!.gridRect)) {
-        return next;
+  for (let leftIndex = 0; leftIndex < arrangedSlots.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < arrangedSlots.length; rightIndex += 1) {
+      const left = arrangedSlots[leftIndex]!;
+      const right = arrangedSlots[rightIndex]!;
+      if (gridRectsOverlap(left.gridRect, right.gridRect)) {
+        const skipId = gridRectsBySlotId.has(right.id) ? right.id : left.id;
+        acceptedSlotIds.delete(skipId);
+        console.warn(`Skipped conflicting layout arrangement for panel '${skipId}'.`);
       }
     }
   }
-  return normalizeTiledPanelStateToWorkspace({ ...next, slots: nextSlots }, viewport, layoutMetrics);
+  const nextSlots = next.slots.map((slot) => (
+    acceptedSlotIds.has(slot.id) ? { ...slot, gridRect: gridRectsBySlotId.get(slot.id)! } : slot
+  ));
+  const normalized = normalizeTiledPanelStateToWorkspace({ ...next, slots: nextSlots }, viewport, layoutMetrics);
+  if (layoutHasGapsOrOverlaps(normalized, viewport, 1, layoutMetrics)) {
+    console.warn("Applied layout arrangement with residual gaps or overlaps.");
+  }
+  return normalized;
 }
 
 function applyPanelPlacement(
@@ -383,6 +478,44 @@ function readPanelSymbol(payload: Record<string, unknown>): string | null {
 
 function readPanelProps(payload: Record<string, unknown>): Record<string, unknown> | undefined {
   return isRecord(payload.props) ? payload.props : undefined;
+}
+
+function readPendingPlacementPick(proposal: AgentLayoutProposal): PendingPlacementPick | undefined {
+  const command = proposal.commands.find((item) => item.type === "layout.placement.pick");
+  if (!command) {
+    return undefined;
+  }
+  const panelType = readString(command.payload.panelType);
+  if (!panelType) {
+    return undefined;
+  }
+  const candidatesRaw = Array.isArray(command.payload.candidates) ? command.payload.candidates : [];
+  const candidates = candidatesRaw.flatMap((item): PlacementPickCandidate[] => {
+    if (!isRecord(item)) {
+      return [];
+    }
+    const id = readString(item.id);
+    const label = readString(item.label);
+    const placement = readPlacement(item.placement);
+    if (!id || !label || !placement) {
+      return [];
+    }
+    return [{
+      id,
+      label,
+      placement,
+      arrangement: Array.isArray(item.arrangement) ? item.arrangement : []
+    }];
+  });
+  if (!candidates.length) {
+    return undefined;
+  }
+  return {
+    panelType,
+    panelId: readString(command.payload.panelId) ?? readString(command.target?.panelId) ?? undefined,
+    symbol: readString(command.payload.symbol) ?? undefined,
+    candidates
+  };
 }
 
 function layoutWeightForPanelId(proposal: AgentLayoutProposal, panelId: string | null): number | null {

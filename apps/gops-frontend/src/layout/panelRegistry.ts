@@ -71,7 +71,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "recommendations",
     title: "추천",
     agentPanelType: "stockRecommendations",
-    minSpan: { colSpan: 1, rowSpan: 2 },
+    minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 45
   },
@@ -87,7 +87,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "portfolio",
     title: "포트폴리오",
     agentPanelType: "portfolioHoldings",
-    minSpan: { colSpan: 1, rowSpan: 2 },
+    minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
   },
@@ -95,7 +95,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "trade",
     title: "주문",
     agentPanelType: "orderTicket",
-    minSpan: { colSpan: 1, rowSpan: 2 },
+    minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
   }
