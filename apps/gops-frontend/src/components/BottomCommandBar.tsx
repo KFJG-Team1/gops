@@ -94,6 +94,7 @@ type BottomCommandBarProps = {
 
 const leftMenuKeys: BottomMenuKey[] = [];
 const sideMenuKeys: BottomMenuKey[] = ["IV", "III", "VI"];
+const sideRailMenuKeys: BottomMenuKey[] = sideMenuKeys.filter((key) => key !== "IV");
 const rightMenuKeys: BottomMenuKey[] = [];
 const alertToastAdvanceMs = 6000;
 const marketOpenRetryMs = 60_000;
@@ -220,7 +221,7 @@ export function BottomCommandBar({
       if (!(event.target instanceof Element)) {
         return;
       }
-      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock, .index-side-rail, .symbol-search-menu")) {
+      if (event.target.closest(".bottom-menu-panel, .bottom-nav-actions, .bottom-chat-panel, .agent-dock, .index-side-rail, .symbol-search-menu, .workspace-top-nav")) {
         return;
       }
       if (activeMenu) {
@@ -491,6 +492,34 @@ export function BottomCommandBar({
           onOpenChart={openAlertToastChart}
         />
       )}
+      <nav className="workspace-top-nav" aria-label="Global navigation">
+        <div className="workspace-top-brand" aria-label="Gops">Gops</div>
+        <div className="workspace-top-center" aria-hidden="true" />
+        <div className="workspace-top-actions">
+          <button
+            type="button"
+            className={`workspace-top-action workspace-top-alert ${activeMenu === "IV" ? "is-active" : ""}`}
+            aria-label={bottomMenuLabel("IV", alertUnreadCount)}
+            title={bottomMenuLabel("IV", alertUnreadCount)}
+            aria-controls="workspace-side-menu-panel"
+            aria-expanded={activeMenu === "IV"}
+            onClick={() => toggleBottomMenu("IV")}
+          >
+            {bottomMenuIcon("IV", alertUnreadCount)}
+          </button>
+          <button
+            type="button"
+            className={`workspace-top-login ${activeMenu === "VI" ? "is-active" : ""}`}
+            disabled={authLoading}
+            aria-label={topLoginLabel(authEnabled, authLoading, authUser)}
+            title={topLoginLabel(authEnabled, authLoading, authUser)}
+            onClick={authUser ? () => toggleBottomMenu("VI") : onLogin}
+          >
+            {authUser ? <UserCircle size={15} aria-hidden="true" /> : <LogIn size={15} aria-hidden="true" />}
+            <span>{topLoginLabel(authEnabled, authLoading, authUser)}</span>
+          </button>
+        </div>
+      </nav>
       <BottomMenuPanel
         id="workspace-side-menu-panel"
         variant="side"
@@ -528,7 +557,6 @@ export function BottomCommandBar({
       <SideRailMenu
         company={sideRailCompany}
         activeMenu={activeMenu}
-        alertUnreadCount={alertUnreadCount}
         authEnabled={authEnabled}
         authLoading={authLoading}
         authUser={authUser}
@@ -812,7 +840,6 @@ function isCollapsibleAnalysisSection(title: string): boolean {
 function SideRailMenu({
   company,
   activeMenu,
-  alertUnreadCount,
   authEnabled,
   authLoading,
   authUser,
@@ -822,7 +849,6 @@ function SideRailMenu({
 }: {
   company: SideRailCompany | null;
   activeMenu: BottomMenuKey | null;
-  alertUnreadCount: number;
   authEnabled: boolean;
   authLoading: boolean;
   authUser: AuthUser | null;
@@ -833,9 +859,10 @@ function SideRailMenu({
   if (!company) {
     return null;
   }
+  const railMenuOpen = activeMenu !== null && sideRailMenuKeys.includes(activeMenu);
 
   return (
-    <nav className={`index-side-rail ${activeMenu ? "is-menu-open" : ""}`} aria-label="선택 회사 메뉴">
+    <nav className={`index-side-rail ${railMenuOpen ? "is-menu-open" : ""}`} aria-label="선택 회사 메뉴">
       <button
         className="index-side-rail-button index-side-rail-company is-active"
         type="button"
@@ -852,7 +879,7 @@ function SideRailMenu({
         />
       </button>
       <div className="index-side-rail-actions" aria-label="회사 메뉴">
-        {sideMenuKeys.map((key) => {
+        {sideRailMenuKeys.map((key) => {
           if (key === "III" && authEnabled && !authLoading && !authUser) {
             return (
               <button
@@ -867,19 +894,18 @@ function SideRailMenu({
               </button>
             );
           }
-          const unreadCount = key === "IV" ? alertUnreadCount : 0;
           return (
             <button
               key={key}
               type="button"
               className={`index-side-rail-button index-side-rail-action ${activeMenu === key ? "is-active" : ""}`}
-              aria-label={bottomMenuLabel(key, unreadCount)}
-              title={bottomMenuLabel(key, unreadCount)}
+              aria-label={bottomMenuLabel(key)}
+              title={bottomMenuLabel(key)}
               aria-controls="workspace-side-menu-panel"
               aria-expanded={activeMenu === key}
               onClick={() => onToggleMenu(key)}
             >
-              {bottomMenuIcon(key, unreadCount)}
+              {bottomMenuIcon(key)}
             </button>
           );
         })}
@@ -1166,6 +1192,16 @@ function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean): string {
     return "로그인 후 Agent를 사용할 수 있습니다";
   }
   return isChartMode ? "Agent에게 물어보기" : "기업명/티커로 차트 열기";
+}
+
+function topLoginLabel(authEnabled: boolean, authLoading: boolean, authUser: AuthUser | null): string {
+  if (authLoading) {
+    return "Checking";
+  }
+  if (authUser) {
+    return authUser.name?.trim() || "Account";
+  }
+  return authEnabled ? "Login" : "Login";
 }
 
 function readSocketPayload(value: unknown): Record<string, unknown> {

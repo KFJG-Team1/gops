@@ -25,22 +25,22 @@
   --coinbase-hairline-rgb: 10 11 13;
   --coinbase-hairline-soft: color-mix(in srgb, var(--coinbase-hairline) 58%, transparent);
   --coinbase-canvas-oklch: oklch(100% 0 0);
-  --coinbase-canvas-mid-oklch: oklch(99.3% 0.004 247);
-  --coinbase-canvas-end-oklch: oklch(96.4% 0.026 250);
+  --coinbase-canvas-mid-oklch: oklch(99.6% 0.002 247);
+  --coinbase-canvas-end-oklch: oklch(98.4% 0.010 250);
   --coinbase-canvas: #ffffff;
   --coinbase-canvas-rgb: 255 255 255;
   --coinbase-canvas-left: #ffffff;
-  --coinbase-canvas-right: #eef7ff;
+  --coinbase-canvas-right: #f8fbff;
   --coinbase-canvas-mid: #fbfdff;
-  --coinbase-canvas-end: #dbeaff;
+  --coinbase-canvas-end: #eff6ff;
   --coinbase-app-canvas:
-    radial-gradient(ellipse 152% 86% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.16) 0%, rgb(var(--coinbase-primary-rgb) / 0.085) 40%, rgb(var(--coinbase-primary-rgb) / 0.032) 64%, transparent 84%),
+    radial-gradient(ellipse 152% 86% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.075) 0%, rgb(var(--coinbase-primary-rgb) / 0.038) 40%, rgb(var(--coinbase-primary-rgb) / 0.014) 64%, transparent 84%),
     radial-gradient(ellipse 118% 50% at 50% 98%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.48) 46%, transparent 78%),
     radial-gradient(ellipse 72% 30% at 28% 94%, rgba(255, 255, 255, 0.58) 0%, transparent 72%),
     radial-gradient(ellipse 78% 32% at 76% 104%, rgba(255, 255, 255, 0.46) 0%, transparent 74%),
-    radial-gradient(ellipse 86% 54% at 0% 112%, rgb(var(--coinbase-primary-active-rgb) / 0.035) 0%, transparent 72%),
-    radial-gradient(ellipse 86% 54% at 100% 112%, rgb(var(--coinbase-primary-rgb) / 0.04) 0%, transparent 72%),
-    linear-gradient(180deg, #ffffff 0%, #ffffff 50%, var(--coinbase-canvas-mid) 66%, #f4f9ff 86%, #eaf4ff 100%);
+    radial-gradient(ellipse 86% 54% at 0% 112%, rgb(var(--coinbase-primary-active-rgb) / 0.014) 0%, transparent 72%),
+    radial-gradient(ellipse 86% 54% at 100% 112%, rgb(var(--coinbase-primary-rgb) / 0.016) 0%, transparent 72%),
+    linear-gradient(180deg, #ffffff 0%, #ffffff 54%, var(--coinbase-canvas-mid) 72%, #f9fcff 90%, #f4f9ff 100%);
   --coinbase-panel: rgba(255, 255, 255, 0.05);
   --coinbase-panel-strong: rgba(255, 255, 255, 0.08);
   --coinbase-panel-muted: rgba(255, 255, 255, 0.035);
@@ -55,8 +55,15 @@
   --coinbase-glass-inset: rgba(255, 255, 255, 0.2);
   --coinbase-glass-filter: blur(10px);
   --coinbase-shadow-soft: rgba(40, 64, 84, 0.10);
+  --coinbase-panel-shadow-dark: rgba(184, 198, 216, 0.48);
+  --coinbase-panel-shadow-light: transparent;
+  --coinbase-button-surface: transparent;
+  --coinbase-button-shadow: none;
+  --coinbase-button-pressed-shadow:
+    inset 7px 7px 7px rgba(184, 198, 216, 0.50),
+    inset -7px -7px 7px rgba(255, 255, 255, 0.92);
   --coinbase-glass-shadow:
-    0 8px 32px rgb(var(--coinbase-ink-rgb) / 0.10),
+    7px 7px 7px var(--coinbase-panel-shadow-dark),
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
     inset 0 -1px 0 rgba(255, 255, 255, 0.1),
     inset 0 0 4px 2px rgba(255, 255, 255, 0.2);
@@ -135,7 +142,7 @@
   --color-purple: var(--coinbase-muted);
   --color-purple-soft: var(--coinbase-muted-soft);
   --layout-gutter: 24px;
-  --top-nav-height: 64px;
+  --top-nav-height: 48px;
   --bottom-nav-height: 64px;
   --bottom-control-size: 36px;
   /* Pull floating tool docks slightly into the bottom command band. The visible workspace
@@ -156,10 +163,10 @@
   --panel-padding: 8px;
   --panel-gap: 12px;
   --surface-raised-surface: var(--coinbase-panel-strong);
-  --surface-raised-highlight-shadow: inset 0 1px 0 rgb(var(--coinbase-on-primary-rgb) / 0.82);
-  --surface-raised-depth-shadow: 0 2px 8px var(--color-shadow);
+  --surface-raised-highlight-shadow: inset 0 1px 0 rgb(var(--coinbase-on-primary-rgb) / 0.58);
+  --surface-raised-depth-shadow: 7px 7px 7px var(--coinbase-panel-shadow-dark);
   --surface-raised-depth-opacity: 0.08;
-  --surface-floating-depth-shadow: 0 8px 24px var(--color-shadow);
+  --surface-floating-depth-shadow: 7px 7px 12px var(--coinbase-panel-shadow-dark);
   --surface-floating-depth-opacity: 0.12;
   --surface-recessed-shadow: inset 0 0 0 1px var(--coinbase-hairline);
   --surface-recessed-opacity: 1;
@@ -183,7 +190,7 @@
 @supports (color: oklch(100% 0 0)) {
   :root {
     --coinbase-canvas-left: var(--coinbase-canvas-oklch);
-    --coinbase-canvas-right: oklch(97.7% 0.014 247);
+    --coinbase-canvas-right: oklch(99.0% 0.005 247);
     --coinbase-canvas-mid: var(--coinbase-canvas-mid-oklch);
     --coinbase-canvas-end: var(--coinbase-canvas-end-oklch);
   }
@@ -324,15 +331,15 @@ button {
     radial-gradient(ellipse 86% 46% at 50% 16%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.5) 36%, transparent 68%),
     radial-gradient(ellipse 64% 25% at 34% 76%, rgba(255, 255, 255, 0.48) 0%, transparent 72%),
     radial-gradient(ellipse 62% 28% at 66% 106%, rgba(255, 255, 255, 0.42) 0%, transparent 76%),
-    radial-gradient(ellipse 116% 68% at 50% 88%, rgb(var(--coinbase-primary-rgb) / 0.16) 0%, rgb(var(--coinbase-primary-rgb) / 0.075) 50%, transparent 80%),
-    radial-gradient(ellipse 76% 42% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.055) 0%, transparent 74%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgb(var(--coinbase-primary-rgb) / 0.018) 46%, rgb(var(--coinbase-primary-rgb) / 0.07) 100%);
+    radial-gradient(ellipse 116% 68% at 50% 88%, rgb(var(--coinbase-primary-rgb) / 0.07) 0%, rgb(var(--coinbase-primary-rgb) / 0.032) 50%, transparent 80%),
+    radial-gradient(ellipse 76% 42% at 50% 116%, rgb(var(--coinbase-primary-rgb) / 0.024) 0%, transparent 74%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76) 0%, rgb(var(--coinbase-primary-rgb) / 0.008) 46%, rgb(var(--coinbase-primary-rgb) / 0.028) 100%);
   box-shadow:
     inset 0 92px 128px rgba(255, 255, 255, 0.7),
-    inset 0 -130px 180px rgb(var(--coinbase-primary-rgb) / 0.09),
+    inset 0 -130px 180px rgb(var(--coinbase-primary-rgb) / 0.036),
     inset 120px 0 160px rgba(255, 255, 255, 0.35),
     inset -120px 0 160px rgba(255, 255, 255, 0.35),
-    0 -42px 120px rgb(var(--coinbase-primary-rgb) / 0.07);
+    0 -42px 120px rgb(var(--coinbase-primary-rgb) / 0.025);
   transform: rotateX(11deg) scaleX(1.03);
   transform-origin: 50% 100%;
 }
@@ -342,12 +349,12 @@ button {
   border-radius: 50% / 24%;
   background:
     radial-gradient(ellipse 88% 34% at 50% 74%, rgba(255, 255, 255, 0.28) 0%, transparent 76%),
-    radial-gradient(ellipse 98% 42% at 50% 80%, rgb(var(--coinbase-primary-rgb) / 0.025) 0%, transparent 76%),
-    radial-gradient(ellipse 128% 72% at 50% 112%, rgb(var(--coinbase-primary-rgb) / 0.05) 0%, transparent 80%),
-    linear-gradient(180deg, transparent 0%, rgb(var(--coinbase-primary-rgb) / 0.008) 48%, rgb(var(--coinbase-primary-rgb) / 0.024) 100%);
+    radial-gradient(ellipse 98% 42% at 50% 80%, rgb(var(--coinbase-primary-rgb) / 0.010) 0%, transparent 76%),
+    radial-gradient(ellipse 128% 72% at 50% 112%, rgb(var(--coinbase-primary-rgb) / 0.020) 0%, transparent 80%),
+    linear-gradient(180deg, transparent 0%, rgb(var(--coinbase-primary-rgb) / 0.004) 48%, rgb(var(--coinbase-primary-rgb) / 0.010) 100%);
   box-shadow:
     inset 0 64px 110px rgba(255, 255, 255, 0.72),
-    inset 0 -86px 140px rgb(var(--coinbase-primary-rgb) / 0.045);
+    inset 0 -86px 140px rgb(var(--coinbase-primary-rgb) / 0.018);
   opacity: 0.82;
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
   mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 32%, #000 100%);
@@ -489,7 +496,7 @@ button {
   grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
   column-gap: 18px;
   height: var(--top-nav-height);
-  padding: 8px var(--layout-gutter) 12px;
+  padding: 6px var(--layout-gutter) 7px;
 }
 
 .workspace-top-nav.chart::after {
@@ -502,6 +509,83 @@ button {
   opacity: 0.86;
   pointer-events: none;
   content: "";
+}
+
+.workspace-top-brand {
+  grid-column: 1;
+  justify-self: start;
+  pointer-events: auto;
+  color: var(--coinbase-ink);
+  font-family: var(--font-data-sans);
+  font-size: 17px;
+  font-weight: 820;
+  line-height: 1;
+}
+
+.workspace-top-center {
+  grid-column: 2;
+}
+
+.workspace-top-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.workspace-top-action,
+.workspace-top-login {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--coinbase-ink);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-top-action {
+  width: 30px;
+  padding: 0;
+}
+
+.workspace-top-login {
+  gap: 6px;
+  max-width: min(160px, 32vw);
+  padding: 0 11px;
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.workspace-top-login span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-top-action:hover:not(:disabled),
+.workspace-top-action:focus-visible,
+.workspace-top-action.is-active,
+.workspace-top-login:hover:not(:disabled),
+.workspace-top-login:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  color: var(--coinbase-primary);
+  box-shadow: none;
+}
+
+.workspace-top-action:disabled,
+.workspace-top-login:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .workspace-bottom-nav {
@@ -11134,6 +11218,14 @@ h2 {
   border-radius: 0;
 }
 
+.workspace-top-nav {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .workspace-panel-surface,
 .bottom-menu-panel,
 .bottom-chat-panel,
@@ -11534,6 +11626,20 @@ textarea:focus,
   transform: translateX(0) scale(1);
 }
 
+.bottom-menu-panel.side-overlay.menu-IV {
+  top: calc(var(--top-nav-height) + 8px);
+  right: var(--layout-gutter);
+  left: auto;
+  width: clamp(304px, 30vw, 420px);
+  height: min(68vh, calc(100vh - var(--top-nav-height) - var(--bottom-nav-height) - 24px));
+  transform: translateY(-8px) scale(0.98);
+  transform-origin: 100% 0;
+}
+
+.bottom-menu-panel.side-overlay.menu-IV.is-open {
+  transform: translateY(0) scale(1);
+}
+
 .chart-add-dock .chart-add-layer-button.active,
 .chart-drawing-target-button.is-active,
 .chart-add-target-button.is-active {
@@ -11622,6 +11728,15 @@ textarea:focus,
     height: min(68vh, calc(100vh - var(--bottom-nav-height) - 88px));
     border-radius: 22px;
   }
+
+  .bottom-menu-panel.side-overlay.menu-IV {
+    top: calc(var(--top-nav-height) + 8px);
+    right: 8px;
+    left: 54px;
+    width: auto;
+    height: min(68vh, calc(100vh - var(--bottom-nav-height) - 88px));
+    border-radius: 22px;
+  }
 }
 
 @media (hover: none) {
@@ -11690,6 +11805,97 @@ textarea:focus,
 .workspace-bottom-nav .agent-box button.agent-stop-button:hover:not(:disabled),
 .workspace-bottom-nav .agent-box button.agent-stop-button:focus-visible {
   color: var(--coinbase-semantic-down);
+}
+
+/* Command buttons blend into the canvas by default; active state presses inward with
+   paired inset shadows only. */
+.workspace-top-action,
+.workspace-top-login,
+.workspace-bottom-nav .workspace-nav-button,
+.workspace-bottom-nav .agent-box button,
+.layout-preset-button,
+.layout-preset-edit,
+.layout-preset-add,
+.layout-preset-action,
+.layout-preset-agent,
+.layout-palette-button {
+  border: 0;
+  border-radius: 42px;
+  background: transparent;
+  color: var(--coinbase-ink);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition:
+    color 130ms ease,
+    box-shadow 130ms ease,
+    transform 130ms ease;
+}
+
+.workspace-top-action:hover:not(:disabled),
+.workspace-top-action:focus-visible,
+.workspace-top-login:hover:not(:disabled),
+.workspace-top-login:focus-visible,
+.workspace-bottom-nav .workspace-nav-button:hover:not(:disabled),
+.workspace-bottom-nav .workspace-nav-button:focus-visible,
+.workspace-bottom-nav .agent-box button:hover:not(:disabled),
+.workspace-bottom-nav .agent-box button:focus-visible,
+.layout-preset-button:hover:not(:disabled),
+.layout-preset-edit:hover:not(:disabled),
+.layout-preset-add:hover:not(:disabled),
+.layout-preset-action:hover:not(:disabled),
+.layout-preset-agent:hover:not(:disabled),
+.layout-palette-button:hover:not(:disabled),
+.layout-palette-button:focus-visible {
+  background: var(--coinbase-button-surface);
+  color: var(--coinbase-primary);
+  box-shadow: none;
+}
+
+.workspace-top-action:active:not(:disabled),
+.workspace-top-action.is-active,
+.workspace-top-login:active:not(:disabled),
+.workspace-top-login.is-active,
+.workspace-bottom-nav .workspace-nav-button:active:not(:disabled),
+.workspace-bottom-nav .workspace-nav-button.is-active,
+.workspace-bottom-nav .layout-edit-toggle.is-active,
+.workspace-bottom-nav .agent-box button:active:not(:disabled),
+.workspace-bottom-nav .agent-box button.agent-chat-toggle.is-active,
+.layout-preset-button:active:not(:disabled),
+.layout-preset-button.is-active,
+.layout-preset-edit:active:not(:disabled),
+.layout-preset-add:active:not(:disabled),
+.layout-preset-action:active:not(:disabled),
+.layout-preset-agent:active:not(:disabled),
+.layout-palette-button:active:not(:disabled) {
+  background: transparent;
+  color: var(--coinbase-primary);
+  box-shadow: var(--coinbase-button-pressed-shadow);
+  transform: translateY(1px);
+}
+
+.workspace-bottom-nav .agent-box button.agent-stop-button,
+.workspace-bottom-nav .agent-box button.agent-stop-button:hover:not(:disabled),
+.workspace-bottom-nav .agent-box button.agent-stop-button:focus-visible,
+.workspace-bottom-nav .agent-box button.agent-stop-button:active:not(:disabled),
+.layout-preset-action.danger,
+.layout-preset-action.danger:hover:not(:disabled),
+.layout-preset-action.danger:active:not(:disabled) {
+  color: var(--coinbase-semantic-down);
+}
+
+.workspace-top-action:disabled,
+.workspace-top-login:disabled,
+.workspace-bottom-nav .workspace-nav-button:disabled,
+.workspace-bottom-nav .agent-box button:disabled,
+.layout-preset-edit:disabled,
+.layout-preset-add:disabled,
+.layout-preset-action:disabled,
+.layout-preset-agent:disabled,
+.layout-palette-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
 }
 
 @media (max-width: 640px) {

@@ -58,6 +58,7 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
+import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
   createMainViewUrl,
   mainViewsEqual,
@@ -95,7 +96,7 @@ type SideRailCompanyItem = {
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
-const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: 0 };
+const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
 
 let chatLogEntrySequence = 0;
 
@@ -431,9 +432,8 @@ export function App() {
   } as CSSProperties;
   // The tree map occupies the same bounds as the panel workspace (page-edge gutter margins,
   // bottom aligned with where panels end).
-  // The tree map fills the page from the very top edge down to the panel bottom, with only a
-  // gutter-sized margin on top/left/right (home view has no top nav). The bottom leaves the
-  // same dock reserve as the panel workspace.
+  // The tree map uses the same top/bottom workspace bounds as panels, so the compact header
+  // owns the top strip instead of overlaying the canvas.
   const treeMapBounds = workspaceBounds(viewportSize, panelLayoutMetricsRef.current);
   const isCompactHeatmapBackground = viewportSize.width < 700;
   const heatMapBackgroundWidth = Math.max(
@@ -451,10 +451,10 @@ export function App() {
     height: Math.round(heatMapBackgroundHeight)
   };
   const treeMapLaneStyle: CSSProperties = {
-    top: layoutGutter,
+    top: treeMapBounds.top,
     left: layoutGutter,
     width: Math.max(1, viewportSize.width - layoutGutter * 2),
-    height: Math.max(1, treeMapBounds.top + treeMapBounds.height - layoutGutter * 2)
+    height: Math.max(1, treeMapBounds.height)
   };
 
   const universeSymbols = useMemo((): ChartSymbolDto[] => treeMapItems.map((item) => ({
