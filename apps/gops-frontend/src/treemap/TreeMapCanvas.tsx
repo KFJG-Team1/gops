@@ -63,19 +63,6 @@ export function TreeMapCanvas({ items, onSelectSymbol, style, className, interac
   }), [inputItems, size.height, size.width]);
   const opacityScale = useMemo(() => createTreeMapOpacityScale(inputItems.map((item) => item.changePercent)), [inputItems]);
 
-  const hoverMetaLeft = useMemo(() => {
-    const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
-    if (!symbolTiles.length) {
-      return canvasPadding;
-    }
-    return Math.min(...symbolTiles.map((tile) => insetTile(tile, tileGap).x));
-  }, [tiles]);
-
-  const panelStyle = {
-    ...style,
-    "--treemap-hover-meta-left": `${Math.round(hoverMetaLeft)}px`
-  } as CSSProperties;
-
   useEffect(() => {
     tilesRef.current = tiles;
   }, [tiles]);
@@ -136,7 +123,7 @@ export function TreeMapCanvas({ items, onSelectSymbol, style, className, interac
   };
 
   return (
-    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={panelStyle} aria-label="S&P 500 TreeMap">
+    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={style} aria-label="S&P 500 TreeMap">
       <canvas
         ref={canvasRef}
         className="treemap-canvas"

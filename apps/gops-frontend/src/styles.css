@@ -1,94 +1,102 @@
 :root {
-  color-scheme: light;
-  --font-ui-serif: "Coinbase Sans", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-data-sans: "Coinbase Sans", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --coinbase-primary: #0052ff;
-  --coinbase-primary-rgb: 0 82 255;
-  --coinbase-primary-active: #003ecc;
-  --coinbase-primary-active-rgb: 0 62 204;
-  --coinbase-primary-soft: #e7efff;
+  color-scheme: dark;
+  --font-ui-serif: "GT Walsheim", "Inter Variable", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-data-sans: "Inter Variable", Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --framer-primary: #ffffff;
+  --framer-on-primary: #000000;
+  --framer-accent-blue: #0099ff;
+  --framer-accent-blue-rgb: 0 153 255;
+  --framer-ink: #ffffff;
+  --framer-ink-rgb: 255 255 255;
+  --framer-ink-muted: #999999;
+  --framer-ink-muted-rgb: 153 153 153;
+  --framer-canvas: #090909;
+  --framer-canvas-rgb: 9 9 9;
+  --framer-surface-1: #141414;
+  --framer-surface-2: #1c1c1c;
+  --framer-hairline: #262626;
+  --framer-hairline-soft: #1a1a1a;
+  --framer-success: #22c55e;
+  --framer-success-rgb: 34 197 94;
+  --framer-coral: #ff5577;
+  --framer-coral-rgb: 255 85 119;
+  --framer-orange: #ff7a3d;
+  --coinbase-primary: var(--framer-accent-blue);
+  --coinbase-primary-rgb: var(--framer-accent-blue-rgb);
+  --coinbase-primary-active: #33adff;
+  --coinbase-primary-active-rgb: 51 173 255;
+  --coinbase-primary-soft: color-mix(in srgb, var(--framer-accent-blue) 18%, var(--framer-canvas));
   --coinbase-primary-disabled: #b9c0ca;
   --coinbase-primary-disabled-rgb: 185 192 202;
-  --coinbase-ink: #0a0b0d;
-  --coinbase-ink-rgb: 10 11 13;
-  --coinbase-ink-soft: #242832;
-  --coinbase-ink-soft-rgb: 36 40 50;
-  --coinbase-body: #5b616e;
-  --coinbase-body-rgb: 91 97 110;
-  --coinbase-body-strong: #0a0b0d;
-  --coinbase-muted: #8c939f;
-  --coinbase-muted-rgb: 140 147 159;
-  --coinbase-muted-soft: #b9c0ca;
-  --coinbase-muted-soft-rgb: 185 192 202;
-  --coinbase-hairline: rgba(10, 11, 13, 0.08);
-  --coinbase-hairline-strong: rgba(10, 11, 13, 0.14);
-  --coinbase-hairline-rgb: 10 11 13;
+  --coinbase-ink: var(--framer-ink);
+  --coinbase-ink-rgb: var(--framer-ink-rgb);
+  --coinbase-ink-soft: #f5f5f5;
+  --coinbase-ink-soft-rgb: 245 245 245;
+  --coinbase-body: var(--framer-ink-muted);
+  --coinbase-body-rgb: var(--framer-ink-muted-rgb);
+  --coinbase-body-strong: var(--framer-ink);
+  --coinbase-muted: var(--framer-ink-muted);
+  --coinbase-muted-rgb: var(--framer-ink-muted-rgb);
+  --coinbase-muted-soft: #6f6f6f;
+  --coinbase-muted-soft-rgb: 111 111 111;
+  --coinbase-hairline: var(--framer-hairline);
+  --coinbase-hairline-strong: #333333;
+  --coinbase-hairline-rgb: 38 38 38;
   --coinbase-hairline-soft: color-mix(in srgb, var(--coinbase-hairline) 58%, transparent);
-  --coinbase-canvas-oklch: oklch(100% 0 0);
-  --coinbase-canvas-mid-oklch: oklch(99.6% 0.002 247);
-  --coinbase-canvas-end-oklch: oklch(98.4% 0.010 250);
-  --coinbase-canvas: #ffffff;
-  --coinbase-canvas-rgb: 255 255 255;
-  --coinbase-canvas-left: #ffffff;
-  --coinbase-canvas-right: #f8fbff;
-  --coinbase-canvas-mid: #fbfdff;
-  --coinbase-canvas-end: #eff6ff;
-  --coinbase-app-canvas:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, transparent 42%),
-    linear-gradient(128deg, transparent 0%, transparent 40%, rgba(168, 143, 255, 0.10) 52%, transparent 68%, transparent 100%),
-    radial-gradient(ellipse 104% 72% at 82% 5%, rgba(184, 165, 255, 0.18) 0%, rgba(216, 207, 255, 0.10) 34%, transparent 78%),
-    radial-gradient(ellipse 116% 86% at 58% 6%, rgba(249, 253, 255, 0.62) 0%, rgba(229, 241, 248, 0.42) 34%, transparent 78%),
-    radial-gradient(ellipse 126% 68% at 14% 110%, rgba(149, 123, 255, 0.12) 0%, rgba(213, 205, 255, 0.07) 48%, transparent 86%),
-    radial-gradient(ellipse 118% 108% at -14% 2%, rgba(191, 215, 231, 0.26) 0%, rgba(214, 229, 238, 0.16) 42%, transparent 88%),
-    radial-gradient(ellipse 172% 94% at 50% 134%, rgba(199, 216, 232, 0.070) 0%, rgba(220, 232, 241, 0.032) 52%, transparent 100%),
-    radial-gradient(ellipse 118% 50% at 50% 98%, rgba(255, 255, 255, 0.66) 0%, rgba(255, 255, 255, 0.32) 48%, transparent 80%),
-    radial-gradient(ellipse 72% 30% at 28% 94%, rgba(255, 255, 255, 0.34) 0%, transparent 76%),
-    radial-gradient(ellipse 78% 32% at 76% 104%, rgba(255, 255, 255, 0.30) 0%, transparent 78%),
-    linear-gradient(112deg, #d6e5ee 0%, #e3eef4 28%, #ebeaf7 54%, #f5f3fb 74%, #d9e8f0 100%);
-  --coinbase-panel: rgba(255, 255, 255, 0.05);
-  --coinbase-panel-strong: rgba(255, 255, 255, 0.08);
-  --coinbase-panel-muted: rgba(255, 255, 255, 0.035);
-  --coinbase-rail: rgba(255, 255, 255, 0.05);
-  --coinbase-panel-glass: rgba(255, 255, 255, 0.05);
-  --coinbase-panel-glass-strong: rgba(255, 255, 255, 0.08);
-  --coinbase-rail-glass: rgba(255, 255, 255, 0.05);
-  --coinbase-control-glass: rgba(255, 255, 255, 0.05);
-  --coinbase-glass-border: rgba(255, 255, 255, 0.3);
-  --coinbase-glass-edge: rgba(255, 255, 255, 0.8);
-  --coinbase-glass-edge-soft: rgba(255, 255, 255, 0.3);
-  --coinbase-glass-inset: rgba(255, 255, 255, 0.2);
+  --coinbase-canvas-oklch: oklch(12% 0 0);
+  --coinbase-canvas-mid-oklch: oklch(16% 0 0);
+  --coinbase-canvas-end-oklch: oklch(20% 0 0);
+  --coinbase-canvas: var(--framer-canvas);
+  --coinbase-canvas-rgb: var(--framer-canvas-rgb);
+  --coinbase-canvas-left: var(--framer-canvas);
+  --coinbase-canvas-right: #0d0d0d;
+  --coinbase-canvas-mid: var(--framer-surface-1);
+  --coinbase-canvas-end: var(--framer-surface-2);
+  --coinbase-app-canvas: var(--framer-canvas);
+  --coinbase-panel: rgb(20 20 20 / 0.78);
+  --coinbase-panel-strong: rgb(28 28 28 / 0.86);
+  --coinbase-panel-muted: rgb(20 20 20 / 0.48);
+  --coinbase-rail: rgb(20 20 20 / 0.82);
+  --coinbase-panel-glass: rgb(20 20 20 / 0.78);
+  --coinbase-panel-glass-strong: rgb(28 28 28 / 0.86);
+  --coinbase-rail-glass: rgb(20 20 20 / 0.82);
+  --coinbase-control-glass: rgb(28 28 28 / 0.84);
+  --coinbase-glass-border: rgb(255 255 255 / 0.12);
+  --coinbase-glass-edge: rgb(255 255 255 / 0.24);
+  --coinbase-glass-edge-soft: rgb(255 255 255 / 0.08);
+  --coinbase-glass-inset: rgb(255 255 255 / 0.08);
   --coinbase-glass-filter: blur(31px);
   --coinbase-shadow-soft: rgba(40, 64, 84, 0.10);
-  --coinbase-panel-shadow-dark: rgba(184, 198, 216, 0.48);
+  --coinbase-panel-shadow-dark: rgba(0, 0, 0, 0.4);
   --coinbase-panel-shadow-light: transparent;
   --coinbase-button-surface: transparent;
   --coinbase-button-shadow: none;
   --coinbase-button-pressed-shadow: none;
   --coinbase-glass-shadow:
     0 8px 32px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 0 0 0 rgba(255, 255, 255, 0);
-  --coinbase-shadow-glow-blue: rgba(0, 82, 255, 0.18);
-  --coinbase-shadow-glow-green: rgba(5, 177, 105, 0.24);
+    inset 0 1px 0 rgb(var(--framer-ink-rgb) / 0.24),
+    inset 0 -1px 0 rgb(var(--framer-ink-rgb) / 0.08),
+    inset 0 0 0 0 rgb(var(--framer-ink-rgb) / 0);
+  --coinbase-shadow-glow-blue: rgb(var(--framer-accent-blue-rgb) / 0.18);
+  --coinbase-shadow-glow-green: rgb(var(--framer-success-rgb) / 0.24);
   --coinbase-surface-soft: var(--coinbase-panel-muted);
   --coinbase-surface-card: var(--coinbase-panel);
   --coinbase-surface-strong: var(--coinbase-panel-strong);
   --coinbase-surface-dark: #0a0b0d;
   --coinbase-surface-dark-elevated: #242832;
-  --coinbase-on-primary: #ffffff;
-  --coinbase-on-primary-rgb: 255 255 255;
-  --coinbase-on-dark: #ffffff;
-  --coinbase-on-dark-soft: #b9c0ca;
-  --coinbase-semantic-up: #05b169;
-  --coinbase-semantic-up-rgb: 5 177 105;
-  --coinbase-semantic-up-glow: #6cff5f;
-  --coinbase-semantic-down: #cf202f;
-  --coinbase-semantic-down-rgb: 207 32 47;
-  --coinbase-semantic-down-glow: #ff5f7a;
-  --coinbase-accent-yellow: #f4b000;
-  --coinbase-accent-yellow-rgb: 244 176 0;
-  --coinbase-accent-yellow-glow: #ffe45f;
+  --coinbase-on-primary: var(--framer-primary);
+  --coinbase-on-primary-rgb: var(--framer-ink-rgb);
+  --coinbase-on-dark: var(--framer-ink);
+  --coinbase-on-dark-soft: var(--framer-ink-muted);
+  --coinbase-semantic-up: var(--framer-success);
+  --coinbase-semantic-up-rgb: var(--framer-success-rgb);
+  --coinbase-semantic-up-glow: #86efac;
+  --coinbase-semantic-down: var(--framer-coral);
+  --coinbase-semantic-down-rgb: var(--framer-coral-rgb);
+  --coinbase-semantic-down-glow: #ff8ca1;
+  --coinbase-accent-yellow: var(--framer-orange);
+  --coinbase-accent-yellow-rgb: 255 122 61;
+  --coinbase-accent-yellow-glow: #ffb088;
   --gops-background: var(--coinbase-canvas);
   --gops-ink: var(--coinbase-ink);
   --gops-ink-rgb: var(--coinbase-ink-rgb);
@@ -144,6 +152,9 @@
   --color-purple: var(--coinbase-muted);
   --color-purple-soft: var(--coinbase-muted-soft);
   --layout-gutter: 24px;
+  --app-ui-scale: 1.6;
+  --app-logical-width: 100vw;
+  --app-logical-height: 100vh;
   --top-nav-height: 48px;
   --bottom-nav-height: 64px;
   --bottom-control-size: 36px;
@@ -192,7 +203,7 @@
 @supports (color: oklch(100% 0 0)) {
   :root {
     --coinbase-canvas-left: var(--coinbase-canvas-oklch);
-    --coinbase-canvas-right: oklch(99.0% 0.005 247);
+    --coinbase-canvas-right: oklch(13% 0 0);
     --coinbase-canvas-mid: var(--coinbase-canvas-mid-oklch);
     --coinbase-canvas-end: var(--coinbase-canvas-end-oklch);
   }
@@ -300,14 +311,17 @@ button {
 .app-shell {
   position: relative;
   isolation: isolate;
-  width: 100vw;
-  height: 100vh;
+  width: var(--app-logical-width);
+  height: var(--app-logical-height);
   overflow: hidden;
   padding: 0;
   background: var(--coinbase-app-canvas);
+  transform: scale(var(--app-ui-scale));
+  transform-origin: top left;
 }
 
 .heatmap-background-layer {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -318,6 +332,7 @@ button {
 
 .heatmap-background-layer::before,
 .heatmap-background-layer::after {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 2;
@@ -371,7 +386,7 @@ button {
   border-radius: 46% / 12%;
   background: transparent;
   box-shadow: none;
-  filter: blur(18px) grayscale(0.9) saturate(0.25) contrast(0.9);
+  filter: blur(6px) grayscale(0.9) saturate(0.32) contrast(0.98);
   opacity: 0.16;
   mix-blend-mode: multiply;
   transform: translateZ(-130px) rotateX(6deg) translateY(8vh) scaleX(1.08) scaleY(0.96);
@@ -390,6 +405,7 @@ button {
 }
 
 .app-shell::after {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -598,10 +614,7 @@ button {
      lives inside this nav — rises over the dock entities, while the input stays above the
      chat panel via their in-nav z-order. Below the alert toast (z54). */
   z-index: 45;
-  /* Center column holds the input; it grows to 600px on wide screens and shrinks
-     fluidly toward 300px once the side columns hit their min. */
-  grid-template-columns: minmax(72px, 1fr) minmax(280px, clamp(280px, 52vw, 560px)) minmax(72px, 1fr);
-  column-gap: clamp(18px, 4vw, 48px);
+  grid-template-columns: minmax(0, 1fr);
   height: var(--bottom-nav-height);
   /* Left/right inset is intentionally decoupled from the grid gutter so the edge
      buttons sit the same distance from the page sides as they do from the bottom. */
@@ -817,30 +830,22 @@ button {
 }
 
 .bottom-command-slot {
-  grid-column: 2;
+  grid-column: 1;
   justify-self: center;
-  width: min(720px, calc(100vw - var(--layout-gutter) - var(--layout-gutter)));
+  width: min(420px, calc(100vw - var(--layout-gutter) - var(--layout-gutter)));
   min-width: 0;
   pointer-events: auto;
 }
 
 .bottom-command-slot.is-agent {
-  width: min(560px, calc(100vw - var(--layout-gutter) - var(--layout-gutter)));
-}
-
-.page-command-dock {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  width: 100%;
+  width: clamp(280px, 34vw, 420px);
 }
 
 .agent-dock {
   position: relative;
   z-index: 3;
   width: 100%;
-  max-width: 560px;
+  max-width: 420px;
   justify-self: center;
   pointer-events: auto;
 }
@@ -2305,21 +2310,13 @@ h2 {
 .treemap-panel {
   position: absolute;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 0;
   border-radius: var(--app-glass-radius);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.026) 42%, rgba(255, 255, 255, 0.048)),
-    rgba(255, 255, 255, 0.032);
-  box-shadow:
-    inset 1px 0 0 rgba(150, 220, 255, 0.14),
-    inset -1px 0 0 rgba(205, 174, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.46),
-    inset 0 -1px 0 rgba(255, 160, 226, 0.06),
-    0 8px 32px rgba(0, 0, 0, 0.1),
-    inset 0 0 0 0 rgba(255, 255, 255, 0);
+  background: transparent;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   isolation: isolate;
-  -webkit-backdrop-filter: blur(31px) saturate(112%);
-  backdrop-filter: blur(31px) saturate(112%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .treemap-panel::before,
@@ -2330,6 +2327,7 @@ h2 {
 }
 
 .treemap-panel::before {
+  display: none;
   z-index: 0;
   inset: 0;
   border-radius: inherit;
@@ -2347,6 +2345,7 @@ h2 {
 }
 
 .treemap-panel::after {
+  display: none;
   z-index: 3;
   inset: 0;
   border-radius: inherit;
@@ -2376,14 +2375,15 @@ h2 {
 }
 
 .treemap-hover-meta {
-  position: absolute;
-  left: var(--treemap-hover-meta-left, 16px);
-  bottom: 8px;
-  z-index: 4;
+  position: fixed;
+  top: 15px;
+  left: var(--layout-gutter);
+  z-index: 46;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  max-width: min(720px, calc(100vw - 32px));
+  max-width: min(720px, max(180px, calc(var(--app-logical-width, 100vw) - var(--layout-gutter) * 2 - 220px)));
+  min-height: 30px;
   padding: 4px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--color-background) 78%, transparent);
@@ -3181,10 +3181,10 @@ h2 {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   width: 100%;
-  min-height: var(--bottom-control-size);
-  padding: 5px;
+  min-height: 30px;
+  padding: 2px 4px;
   border-radius: 999px;
   background: var(--surface-raised-surface);
   backdrop-filter: blur(14px);
@@ -3198,14 +3198,6 @@ h2 {
 
 .agent-box button.agent-chat-toggle:hover:not(:disabled),
 .agent-box button.agent-chat-toggle.is-active {
-  color: var(--color-text);
-}
-
-.agent-box button.agent-pages-toggle {
-  color: var(--color-muted);
-}
-
-.agent-box button.agent-pages-toggle:hover:not(:disabled) {
   color: var(--color-text);
 }
 
@@ -3280,8 +3272,8 @@ h2 {
 .agent-box input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
-  padding: 0 11px;
+  height: 26px;
+  padding: 0 9px;
   border: 0;
   border-radius: 999px;
   background: none;
@@ -3295,7 +3287,7 @@ h2 {
   display: inline-grid;
   place-items: center;
   width: 26px;
-  height: 28px;
+  height: 26px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -9642,26 +9634,18 @@ h2 {
   outline: none;
 }
 
-/* Coinbase design system application layer: tokens come from DESIGN.md. */
+/* Framer design system application layer: tokens come from DESIGN.md. */
 .app-shell {
   background: var(--coinbase-app-canvas);
 }
 
 .treemap-panel {
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 0;
   border-radius: var(--app-glass-radius);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.026) 42%, rgba(255, 255, 255, 0.048)),
-    rgba(255, 255, 255, 0.032);
-  box-shadow:
-    inset 1px 0 0 rgba(150, 220, 255, 0.14),
-    inset -1px 0 0 rgba(205, 174, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.46),
-    inset 0 -1px 0 rgba(255, 160, 226, 0.06),
-    0 8px 32px rgba(0, 0, 0, 0.1),
-    inset 0 0 0 0 rgba(255, 255, 255, 0);
-  -webkit-backdrop-filter: blur(31px) saturate(112%);
-  backdrop-filter: blur(31px) saturate(112%);
+  background: transparent;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .canvas-workspace {
@@ -10243,11 +10227,10 @@ textarea:focus,
    pinned to the canvas and removes card borders/shadows from the input and base controls. */
 .workspace-bottom-nav {
   border: 0;
-  background:
-    linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.24) 100%);
+  background: transparent;
   box-shadow: none;
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .workspace-bottom-nav .agent-dock,
@@ -10259,12 +10242,16 @@ textarea:focus,
 .workspace-bottom-nav .agent-box {
   border: 0;
   background:
-    linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
-    linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
-    var(--coinbase-panel-glass);
-  box-shadow: var(--coinbase-glass-shadow);
-  -webkit-backdrop-filter: var(--coinbase-glass-filter);
-  backdrop-filter: var(--coinbase-glass-filter);
+    linear-gradient(90deg, transparent 0%, rgb(var(--framer-ink-rgb) / 0.06) 16%, rgb(var(--framer-ink-rgb) / 0.06) 46%, transparent 74%) top left / 100% 1px no-repeat,
+    linear-gradient(0deg, rgb(var(--framer-ink-rgb) / 0.045), transparent 72%) left bottom / 1px 42% no-repeat,
+    rgb(0 0 0 / 0.36);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.22),
+    inset 0 1px 0 rgb(var(--framer-ink-rgb) / 0.055),
+    inset 1px -1px 0 rgb(var(--framer-ink-rgb) / 0.05),
+    inset 0 -1px 0 rgb(0 0 0 / 0.34);
+  -webkit-backdrop-filter: blur(26px) saturate(145%);
+  backdrop-filter: blur(26px) saturate(145%);
 }
 
 .workspace-bottom-nav .agent-box::after,
@@ -10392,8 +10379,8 @@ textarea:focus,
 
 @media (max-width: 640px) {
   .workspace-bottom-nav {
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0;
     align-items: center;
   }
 
@@ -10404,29 +10391,6 @@ textarea:focus,
 
   .agent-dock {
     width: 100%;
-  }
-
-  .bottom-nav-actions.right {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    grid-column: 2;
-    justify-self: end;
-    max-width: 42vw;
-    overflow-x: auto;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    scrollbar-width: none;
-  }
-
-  .bottom-nav-actions.right::-webkit-scrollbar {
-    display: none;
-  }
-
-  .bottom-nav-actions.right .workspace-nav-button {
-    flex: 0 0 var(--bottom-control-size);
   }
 
   .layout-preset-dock {

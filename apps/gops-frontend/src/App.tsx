@@ -38,7 +38,7 @@ import {
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartCandleReference, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type AgentSubmitResult, type BottomCommandMode, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
+import { BottomCommandBar, type AgentSubmitResult, type BottomMenuKey, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
@@ -103,6 +103,7 @@ type SideRailCompanyItem = {
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const maxWatchlistSymbols = 10;
+const appUiScale = 1.6;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
 
 let chatLogEntrySequence = 0;
@@ -288,7 +289,6 @@ export function App() {
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
-  const [bottomCommandMode, setBottomCommandMode] = useState<BottomCommandMode>("pages");
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistPersisted, setWatchlistPersisted] = useState(false);
@@ -443,6 +443,9 @@ export function App() {
 
   const layoutGutter = gridGutter(viewportSize.width);
   const workspaceStyle = {
+    "--app-ui-scale": appUiScale,
+    "--app-logical-width": `${viewportSize.width}px`,
+    "--app-logical-height": `${viewportSize.height}px`,
     "--layout-gutter": `${layoutGutter}px`
   } as CSSProperties;
   // The tree map occupies the same bounds as the panel workspace (page-edge gutter margins,
@@ -1327,17 +1330,6 @@ export function App() {
       </section>
       <BottomCommandBar
         activeMenu={activeBottomMenu}
-        commandMode={bottomCommandMode}
-        presetDock={(
-          <PresetDock
-            controls={presetControls}
-            onShowHome={showTreeMap}
-            onShowAgent={() => setBottomCommandMode("agent")}
-            onEnterLayoutEdit={toggleLayoutEditMode}
-            layoutEditDisabled={mainView.mode !== "chart"}
-            isHome={mainView.mode === "treemap"}
-          />
-        )}
         agentBusy={agentBusy}
         agentInput={agentInput}
         chatLog={chatLog}
@@ -1362,7 +1354,6 @@ export function App() {
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
-        onCommandModeChange={setBottomCommandMode}
         onAddWatchlistSymbol={addWatchlistSymbol}
         onCloseMenu={() => setActiveBottomMenu(null)}
         onLogin={login}
@@ -1370,7 +1361,6 @@ export function App() {
         onReorderWatchlistSymbol={reorderWatchlistSymbol}
         onRemoveWatchlistSymbol={removeWatchlistSymbol}
         onSelectSymbol={openSymbolPage}
-        onToggleLayoutEditMode={toggleLayoutEditMode}
         onToggleMenu={toggleBottomMenu}
       />
     </main>
@@ -1646,5 +1636,8 @@ function currentViewportSize(): ViewportSize {
   if (typeof window === "undefined") {
     return { width: 1280, height: 720 };
   }
-  return { width: window.innerWidth, height: window.innerHeight };
+  return {
+    width: Math.max(1, Math.round(window.innerWidth / appUiScale)),
+    height: Math.max(1, Math.round(window.innerHeight / appUiScale))
+  };
 }
