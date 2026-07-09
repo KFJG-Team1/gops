@@ -25,7 +25,9 @@ export function clampVisibleCount(
     ? Math.max(MIN_VISIBLE_CANDLES, Math.floor(Math.max(1, plotWidth) / MIN_READABLE_SLOT_WIDTH))
     : MAX_VISIBLE_CANDLES;
   const minimumVisibleSlots = Math.max(0, Math.ceil(options.minimumVisibleSlots ?? 0));
-  const visibleDataBound = Math.max(candleCount, minimumVisibleSlots);
+  // Once real candles are available, do not let a larger request limit create
+  // leading empty chart space that becomes the mouse-wheel zoom anchor.
+  const visibleDataBound = candleCount > 0 ? candleCount : minimumVisibleSlots;
   const dataBound = visibleDataBound > 0 ? Math.max(MIN_VISIBLE_CANDLES, visibleDataBound) : MAX_VISIBLE_CANDLES;
   const maxVisibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(MAX_VISIBLE_CANDLES, widthBound, dataBound));
   return Math.max(MIN_VISIBLE_CANDLES, Math.min(maxVisibleCount, Math.round(visibleCount)));
@@ -86,7 +88,7 @@ export function zoomViewportAt(
   options: ViewportClampOptions = {}
 ): ChartViewport {
   const current = normalizeViewport(viewport, candleCount, plotWidth, options);
-  const nextVisibleCount = clampVisibleCount(current.visibleCount + visibleCountDelta, candleCount, plotWidth);
+  const nextVisibleCount = clampVisibleCount(current.visibleCount + visibleCountDelta, candleCount, plotWidth, options);
   const ratio = Math.max(0, Math.min(1, Number.isFinite(anchorRatio) ? anchorRatio : 0.5));
   const currentEndIndex = candleCount - current.rightOffset;
   const currentStartIndex = currentEndIndex - current.visibleCount;

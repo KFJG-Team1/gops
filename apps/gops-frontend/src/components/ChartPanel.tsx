@@ -1278,7 +1278,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (verticalDelta === 0) {
       return;
     }
-    const step = Math.max(3, Math.round(chart.visibleCount * 0.12));
+    const effectiveVisibleCount = scene?.visibleSlotCount ?? chart.visibleCount;
+    const step = Math.max(3, Math.round(effectiveVisibleCount * 0.12));
     const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
       zoomBy(delta);
