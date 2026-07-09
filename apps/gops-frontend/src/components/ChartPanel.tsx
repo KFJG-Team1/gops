@@ -103,6 +103,8 @@ function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
 }
 
+const realtimeSnapshotRetryDelayMs = 6500;
+
 type DragAnchor = {
   x: number;
   y: number;
@@ -461,51 +463,95 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     const controller = new AbortController();
-    const requestKey = chartMemoryKey(chart.symbol, chart.interval);
+    let retryTimer: number | undefined;
+    const requestedSymbol = chart.symbol;
+    const requestedInterval = chart.interval;
+    const requestedSourceInterval = candleSourceInterval(requestedInterval);
+    const requestKey = chartMemoryKey(requestedSymbol, requestedInterval);
     const pendingLoad = pendingViewportAnchorRef.current?.key === requestKey ? pendingViewportAnchorRef.current : null;
     onChartRuntimeAction({
       kind: "chart.data.status",
-      symbol: chart.symbol,
-      interval: chart.interval,
+      symbol: requestedSymbol,
+      interval: requestedInterval,
       status: { state: "loading", message: "Loading CDC candles..." }
     });
     setPreviousClose(null);
-    fetchCandles({
-      symbol: chart.symbol,
-      interval: candleSourceInterval(chart.interval),
-      limit: defaultVisibleBarsForInterval(chart.interval),
-      ma: candleMovingAverageWindows,
-      includePreviousClose: true
-    }, controller.signal)
-      .then((response) => {
-        const current = chartRef.current;
-        const nextViewport = anchoredViewportForCandles(
-          response.candles,
-          current.interval,
-          pendingLoad?.anchor ?? null,
-          {
-            visibleCount: current.visibleCount,
-            rightOffset: current.rightOffset
-          },
-          sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
-          { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
-        );
-        onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, chart.interval) });
-        setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
-        dispatchDocumentCommand("chart.viewport.set", nextViewport);
-        if (pendingViewportAnchorRef.current?.key === requestKey) {
-          pendingViewportAnchorRef.current = null;
-        }
-      })
-      .catch((error: unknown) => {
-        onChartRuntimeAction({
-          kind: "chart.snapshot.failed",
-          symbol: chart.symbol,
-          interval: chart.interval,
-          message: error instanceof Error ? error.message : "Candle request failed"
+    const applyResponse = (response: CandleQueryResponseDto) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      const current = chartRef.current;
+      if (current.symbol !== requestedSymbol || current.interval !== requestedInterval) {
+        return;
+      }
+      const nextViewport = anchoredViewportForCandles(
+        response.candles,
+        current.interval,
+        pendingLoad?.anchor ?? null,
+        {
+          visibleCount: current.visibleCount,
+          rightOffset: current.rightOffset
+        },
+        sceneRef.current ? sceneRef.current.plot.right - sceneRef.current.plot.left : undefined,
+        { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
+      );
+      onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, requestedInterval) });
+      setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
+      dispatchDocumentCommand("chart.viewport.set", nextViewport);
+      if (pendingViewportAnchorRef.current?.key === requestKey) {
+        pendingViewportAnchorRef.current = null;
+      }
+    };
+    const loadCandles = (attempt: number) => {
+      fetchCandles({
+        symbol: requestedSymbol,
+        interval: requestedSourceInterval,
+        limit: defaultVisibleBarsForInterval(requestedInterval),
+        ma: candleMovingAverageWindows,
+        includePreviousClose: true
+      }, controller.signal)
+        .then((response) => {
+          applyResponse(response);
+          if (!controller.signal.aborted && shouldRetryRealtimeSnapshot(response, requestedInterval, attempt)) {
+            retryTimer = window.setTimeout(() => loadCandles(attempt + 1), realtimeSnapshotRetryDelayMs);
+          }
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          onChartRuntimeAction({
+            kind: "chart.snapshot.failed",
+            symbol: requestedSymbol,
+            interval: requestedInterval,
+            message: error instanceof Error ? error.message : "Candle request failed"
+          });
         });
-      });
-    return () => controller.abort();
+    };
+    const warmAndLoad = async () => {
+      const activeSymbol = requestedSymbol.trim().toUpperCase();
+      if (activeSymbol && isRealtimeStreamInterval(requestedInterval)) {
+        try {
+          await refreshActiveChartSymbol({
+            symbol: activeSymbol,
+            sessionId: activeChartSessionIdRef.current,
+            ttlSeconds: 45
+          }, controller.signal);
+        } catch {
+          // Snapshot loading can still proceed; the steady heartbeat effect retries.
+        }
+      }
+      if (!controller.signal.aborted) {
+        loadCandles(0);
+      }
+    };
+    void warmAndLoad();
+    return () => {
+      controller.abort();
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
+    };
   }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
@@ -2328,6 +2374,20 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {
   return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D";
+}
+
+function shouldRetryRealtimeSnapshot(response: CandleQueryResponseDto, interval: ChartInterval, attempt: number): boolean {
+  if (!isRealtimeStreamInterval(interval) || attempt >= 1) {
+    return false;
+  }
+  if (response.status === "empty" || response.status === "pending") {
+    return true;
+  }
+  const fillState = response.fill?.backgroundFill?.state;
+  if (fillState === "queued" || fillState === "already_queued") {
+    return true;
+  }
+  return response.status === "partial" && response.candles.length < requestedVisibleSlotsFromResponse(response, interval);
 }
 
 function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {

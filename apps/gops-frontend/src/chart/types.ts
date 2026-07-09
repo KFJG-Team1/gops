@@ -284,6 +284,16 @@ export type FillSourceTraceDto = {
   error?: string | null;
 };
 
+export type CandleFillRouteDto = {
+  start?: string;
+  end?: string;
+  feed?: string | null;
+  session?: "pre" | "regular" | "after" | "overnight" | "closed" | "all" | string;
+  state?: "fetchable" | "skipped" | string;
+  reason?: string | null;
+  rowCount?: number;
+};
+
 export type CandleFillTraceDto = {
   status: FillStatus;
   requestedRange?: {
@@ -295,6 +305,7 @@ export type CandleFillTraceDto = {
   sources?: Partial<Record<"redis" | "clickhouse" | "s3" | "alpaca", FillSourceTraceDto>>;
   missingRanges?: CoverageRangeDto[];
   gapRanges?: CoverageRangeDto[];
+  feedRoutes?: CandleFillRouteDto[];
   renderable?: boolean;
   minimumReturnedCount?: number;
   minimumRenderableSourceBars?: number;
