@@ -49,7 +49,9 @@ import { anchoredViewportForCandles, viewportPreservingRightEdgeAfterCandlesChan
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
-  createCoordinateTransform as createFrontendCoordinateTransform
+  createCoordinateTransform as createFrontendCoordinateTransform,
+  viewportAnchorRatioAtX,
+  viewportSlotWidth
 } from "../src/chart/scene";
 import { createIndicatorPointLookup, createIndicatorValueLookup, mergeIndicatorSeries, scopedIndicatorSeriesKey } from "../src/chart/indicatorSeries";
 import {
@@ -733,6 +735,10 @@ const afterGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:39:00Z");
 assert.equal(typeof insideGapX, "number");
 assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
 assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
+const afterGapAnchorRatio = viewportAnchorRatioAtX(sparseMinuteScene, afterGapX ?? sparseMinuteScene.plot.left);
+const afterGapVisualRatio = ((afterGapX ?? sparseMinuteScene.plot.left) - sparseMinuteScene.plot.left) / (sparseMinuteScene.plot.right - sparseMinuteScene.plot.left);
+assert.ok(Math.abs(afterGapAnchorRatio - ((1.5 - sparseMinuteScene.viewportStartIndex) / sparseMinuteScene.visibleSlotCount)) < 0.000001);
+assert.ok(Math.abs(afterGapVisualRatio - afterGapAnchorRatio) > 0.005);
 assert.equal(sparseMinuteScene.semantic.expansionExtraSlots, 0);
 assert.equal(
   frontendDragDeltaToRightOffset(
@@ -744,6 +750,31 @@ assert.equal(
     { extraFutureSlots: sparseMinuteScene.semantic.expansionExtraSlots }
   ),
   -frontendFutureEmptySlotCount(6)
+);
+const compressedGapScene = buildFrontendChartScene(frontendChartState({
+  symbol: "MU",
+  interval: "1m",
+  candles: [
+    testCandle("2026-07-09T05:36:00Z", 100),
+    testCandle("2026-07-09T06:50:00Z", 101)
+  ] as CandleDto[],
+  visibleCount: 6,
+  requestedLimit: 6
+}), 600, 320);
+const compressedGapViewportSlotWidth = viewportSlotWidth(compressedGapScene);
+assert.ok(compressedGapScene.scales.slotWidth < compressedGapViewportSlotWidth / 2);
+assert.equal(
+  frontendHorizontalWheelDeltaToRightOffset(
+    -frontendFutureEmptySlotCount(6),
+    -compressedGapViewportSlotWidth,
+    compressedGapViewportSlotWidth,
+    6,
+    compressedGapScene.allCandles.length,
+    0,
+    compressedGapViewportSlotWidth * 6,
+    { extraFutureSlots: compressedGapScene.semantic.expansionExtraSlots }
+  ),
+  -frontendFutureEmptySlotCount(6) + 1
 );
 const scopedRsiLookup = createIndicatorPointLookup({
   "rsi:14": [{ timestamp: candleA.timestamp, value: 55 }],

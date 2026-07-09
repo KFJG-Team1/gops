@@ -67,7 +67,7 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, viewportSlotWidth, type ChartScene } from "../chart/scene";
 import {
   anchoredViewportForCandles,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -1246,7 +1246,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const scene = sceneRef.current;
     if (resolvedHorizontalDelta !== null) {
       const plotWidth = scene ? Math.max(1, scene.plot.right - scene.plot.left) : undefined;
-      const sceneSlotWidth = scene?.scales.slotWidth;
       const current = chartRef.current;
       const currentViewport = normalizeViewport(
         { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
@@ -1254,8 +1253,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         plotWidth,
         viewportClampOptionsForChart(current, scene)
       );
-      const slotWidth = sceneSlotWidth
-        ?? Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
+      const slotWidth = scene
+        ? viewportSlotWidth(scene)
+        : Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
       const nextRightOffset = horizontalWheelDeltaToRightOffset(
         currentViewport.rightOffset,
         resolvedHorizontalDelta,
@@ -1284,7 +1284,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
-    const anchorRatio = (x - scene.plot.left) / plotWidth;
+    const anchorRatio = viewportAnchorRatioAtX(scene, x);
     const current = chartRef.current;
     const nextViewport = zoomViewportAt(
       { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
@@ -1523,7 +1523,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       rightOffset: dragDeltaToRightOffset(
         dragAnchor.rightOffset,
         event.clientX - dragAnchor.x,
-        scene.scales.slotWidth,
+        viewportSlotWidth(scene),
         dragAnchor.visibleCount,
         chart.candles.length,
         viewportClampOptionsForChart(chartRef.current, scene)

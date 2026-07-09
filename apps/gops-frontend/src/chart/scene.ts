@@ -452,6 +452,50 @@ export function slotCenterToX(scene: Pick<ChartScene, "plot" | "scales">, slotCe
   return scene.plot.left + slotCenter * scene.scales.slotWidth;
 }
 
+export function viewportSlotWidth(scene: Pick<ChartScene, "plot" | "visibleSlotCount">): number {
+  return Math.max(0.0001, (scene.plot.right - scene.plot.left) / Math.max(1, scene.visibleSlotCount));
+}
+
+export function viewportAnchorRatioAtX(scene: ChartScene, x: number): number {
+  const dataSlot = dataSlotAtX(scene, x);
+  const ratio = (dataSlot - scene.viewportStartIndex) / Math.max(1, scene.visibleSlotCount);
+  return Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 0.5));
+}
+
+function dataSlotAtX(scene: ChartScene, x: number): number {
+  const clampedX = Math.max(scene.plot.left, Math.min(scene.plot.right, x));
+  const semanticUnit = semanticUnitAtX(scene, clampedX);
+  if (semanticUnit?.kind === "candle" && typeof semanticUnit.sourceIndex === "number") {
+    const bounds = unitBoundsX(scene, semanticUnit);
+    const fraction = Math.max(0, Math.min(1, (clampedX - bounds.left) / Math.max(0.0001, bounds.right - bounds.left)));
+    return semanticUnit.sourceIndex + fraction;
+  }
+  if (semanticUnit?.kind === "time-gap") {
+    const afterIndex = scene.allCandles.findIndex((candle) => candle.timestamp === semanticUnit.to);
+    if (afterIndex >= 0) {
+      return afterIndex;
+    }
+  }
+  return scene.viewportStartIndex + (clampedX - scene.plot.left) / viewportSlotWidth(scene);
+}
+
+function semanticUnitAtX(scene: ChartScene, x: number): SemanticRenderUnit | null {
+  let best: SemanticRenderUnit | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  scene.semantic.units.forEach((unit) => {
+    const bounds = unitBoundsX(scene, unit);
+    if (x < bounds.left || x > bounds.right) {
+      return;
+    }
+    const distance = Math.abs(x - bounds.center);
+    if (distance < bestDistance) {
+      best = unit;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
 export function unitCenterX(scene: ChartScene, unit: SemanticRenderUnit): number {
   return slotCenterToX(scene, unit.slotCenter);
 }
