@@ -16100,14 +16100,6 @@ textarea:focus,
   font: var(--type-label-md);
 }
 
-.watchlist-news-heading {
-  margin: 0;
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-  color: var(--color-text);
-}
-
 .market-news-main strong {
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
