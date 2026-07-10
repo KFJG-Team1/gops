@@ -13,6 +13,10 @@ export type PanelContentKind =
   | "chart"
   | "compare"
   | "company"
+  | "companyMulti"
+  | "companyValuation"
+  | "companyProfitability"
+  | "companyStability"
   | "news"
   | "newsList"
   | "watchlistNews"
@@ -23,12 +27,14 @@ export type PanelContentKind =
   | "themeRadar"
   | "ontology"
   | "portfolio"
+  | "portfolioMulti"
   | "portfolioInvestment"
   | "portfolioPerformance"
   | "portfolioInvested"
   | "portfolioDividend"
   | "portfolioDiversification"
   | "portfolioHoldings"
+  | "portfolioHoldingsCards"
   | "orderFlow"
   | "trade";
 
@@ -72,6 +78,11 @@ export type PanelGridMetrics = {
 export type WorkspaceLayoutMetrics = {
   topInset?: number;
   bottomInset?: number;
+  /** Render scale applied by the app shell. Pixel policies are divided by this value. */
+  uiScale?: number;
+  /** Small-screen floor for one rendered grid cell. */
+  minCellWidthPx?: number;
+  minCellHeightPx?: number;
 };
 
 export type PanelSlot = {
@@ -149,7 +160,9 @@ export const panelLayoutStorageKey = "gops:workspace-grid-layout:v1";
 const epsilon = 0.5;
 const defaultViewport: ViewportSize = { width: 1280, height: 720 };
 
-export const insertablePanelKinds: PanelContentKind[] = panelRegistry.map((entry) => entry.kind);
+export const insertablePanelKinds: PanelContentKind[] = panelRegistry
+  .filter((entry) => entry.insertable !== false)
+  .map((entry) => entry.kind);
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -159,11 +172,21 @@ export function workspaceBounds(
   const bottomInset = readLayoutMetric(layoutMetrics.bottomInset, workspaceBottomInset);
   const top = Math.max(0, Math.round(topInset));
   const bottom = Math.max(top + 1, Math.round(viewport.height - bottomInset));
+  const uiScale = Math.max(0.1, readLayoutMetric(layoutMetrics.uiScale, 1));
+  const gutter = gridGutter(viewport.width);
+  const minCellWidth = Math.max(0, readLayoutMetric(layoutMetrics.minCellWidthPx, 0)) / uiScale;
+  const minCellHeight = Math.max(0, readLayoutMetric(layoutMetrics.minCellHeightPx, 0)) / uiScale;
+  const minimumGridWidth = minCellWidth > 0
+    ? minCellWidth * panelGridSpec.cols + gutter * (panelGridSpec.cols + 1)
+    : 0;
+  const minimumGridHeight = minCellHeight > 0
+    ? minCellHeight * panelGridSpec.rows + gutter * (panelGridSpec.rows + 1)
+    : 0;
   return {
     left: 0,
     top,
-    width: Math.max(1, Math.round(viewport.width)),
-    height: Math.max(1, bottom - top)
+    width: Math.max(1, Math.round(viewport.width), minimumGridWidth),
+    height: Math.max(1, bottom - top, minimumGridHeight)
   };
 }
 
@@ -401,7 +424,7 @@ export function normalizeTiledPanelStateToWorkspace(
   const slots = state.slots.map((slot) => {
     const content = state.contents[slot.contentId];
     const kind = content?.kind ?? "news";
-    const gridRect = normalizePanelGridRect(slot.gridRect, minGridSpanForKind(kind));
+    const gridRect = normalizePanelGridRectForKind(slot.gridRect, kind);
     const rect = panelRectForGridRect(gridRect, viewport, layoutMetrics);
     const minSize = minPanelPixelSizeForKind(kind, viewport, layoutMetrics);
     if (!gridRectEquals(gridRect, slot.gridRect) || !rectEquals(rect, slot.rect) || slot.minWidth !== minSize.minWidth || slot.minHeight !== minSize.minHeight) {
@@ -578,6 +601,28 @@ export function minGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, 
   return panelRegistryEntry(kind).minSpan;
 }
 
+export function readableMinGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return panelRegistryEntry(kind).readableMinSpan;
+}
+
+export function maxGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return panelRegistryEntry(kind).maxSpan ?? maxGridSpan();
+}
+
+export function normalizePanelGridRectForKind(gridRect: PanelGridRect, kind: PanelContentKind): PanelGridRect {
+  const minSpan = minGridSpanForKind(kind);
+  const maxSpan = maxGridSpanForKind(kind);
+  return normalizePanelGridRect({
+    ...gridRect,
+    colSpan: Math.min(gridRect.colSpan, maxSpan.colSpan),
+    rowSpan: Math.min(gridRect.rowSpan, maxSpan.rowSpan)
+  }, minSpan);
+}
+
+export function panelMinimumRenderedSizeForKind(kind: PanelContentKind): { width: number; height: number } {
+  return panelRegistryEntry(kind).minSizePx;
+}
+
 export function maxGridSpan(): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
   return { colSpan: panelGridSpec.cols, rowSpan: panelGridSpec.rows };
 }
@@ -587,7 +632,7 @@ export function defaultGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRe
 }
 
 export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
-  return panelRegistry;
+  return panelRegistry.filter((entry) => entry.insertable !== false);
 }
 
 export function panelPaletteEntryLabel(kind: PanelContentKind): string {
@@ -636,6 +681,22 @@ export function gridRectFromPoint(
   }, span);
 }
 
+export function gridRectForPanelDrag(
+  sourceGridRect: PanelGridRect,
+  pointerCell: PanelGridCell,
+  pointerOffset: PanelGridCell
+): PanelGridRect {
+  const fixedSpan = {
+    colSpan: sourceGridRect.colSpan,
+    rowSpan: sourceGridRect.rowSpan
+  };
+  return normalizePanelGridRect({
+    col: pointerCell.col - pointerOffset.col,
+    row: pointerCell.row - pointerOffset.row,
+    ...fixedSpan
+  }, fixedSpan);
+}
+
 export function slotAtGridCell(state: TiledPanelState, cell: PanelGridCell, exceptSlotId?: PanelSlotId): PanelSlot | null {
   return state.slots.find((slot) => (
     slot.id !== exceptSlotId &&
@@ -652,28 +713,39 @@ export function resolvePanelDropGridRect(
     preferredSpan?: Pick<PanelGridRect, "colSpan" | "rowSpan">;
   } = {}
 ): PanelDropGridRectPlan {
-  const minSpan = minGridSpanForKind(kind);
-  const fallback = normalizePanelGridRect({
-    col: cell.col,
-    row: cell.row,
-    colSpan: minSpan.colSpan,
-    rowSpan: minSpan.rowSpan
-  }, minSpan);
+  const preferredSpan = options.preferredSpan ?? defaultGridSpanForKind(kind);
+  const fallback = recommendedGridRectAroundCell(cell, preferredSpan);
   if (!gridCellInsideGrid(cell)) {
     return { valid: false, gridRect: fallback, reason: "outside-grid" };
   }
-  const occupiedCells = occupiedGridCellKeys(state, options.exceptSlotId);
-  if (occupiedCells.has(gridCellKey(cell))) {
-    return { valid: false, gridRect: fallback, reason: "occupied-cell" };
-  }
-  const component = emptyGridComponentFromCell(cell, occupiedCells);
-  const candidates = dropGridRectCandidates(component, minSpan);
+  const targetComponent = emptyGridComponentCellKeys(state, cell, options.exceptSlotId);
+  const candidates = recommendedGridRectCandidates(
+    state,
+    kind,
+    preferredSpan,
+    options.exceptSlotId
+  ).filter((candidate) => gridRectFitsCellKeys(candidate, targetComponent));
   if (!candidates.length) {
-    return { valid: false, gridRect: fallback, reason: "minimum-span" };
+    return { valid: false, gridRect: fallback, reason: "preferred-span-unavailable" };
   }
-  const preferredSpan = options.preferredSpan ?? defaultGridSpanForKind(kind);
-  const [gridRect] = candidates.sort((left, right) => compareDropGridRectCandidates(left, right, cell, preferredSpan));
+  const [gridRect] = candidates.sort((left, right) => compareRecommendedGridRectCandidates(left, right, cell));
   return { valid: true, gridRect: gridRect ?? fallback };
+}
+
+export function resolveFirstAvailableRecommendedGridRect(
+  state: TiledPanelState,
+  kind: PanelContentKind
+): PanelGridRect | null {
+  const span = defaultGridSpanForKind(kind);
+  for (let row = 1; row <= panelGridSpec.rows - span.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - span.colSpan + 1; col += 1) {
+      const candidate = { col, row, colSpan: span.colSpan, rowSpan: span.rowSpan };
+      if (canPlaceGridRect(state, candidate, { kind })) {
+        return candidate;
+      }
+    }
+  }
+  return null;
 }
 
 export function gridRectsOverlap(left: PanelGridRect, right: PanelGridRect): boolean {
@@ -688,7 +760,7 @@ export function canPlaceGridRect(
   gridRect: PanelGridRect,
   options: { exceptSlotId?: PanelSlotId; kind?: PanelContentKind } = {}
 ): boolean {
-  const normalized = normalizePanelGridRect(gridRect, options.kind ? minGridSpanForKind(options.kind) : undefined);
+  const normalized = options.kind ? normalizePanelGridRectForKind(gridRect, options.kind) : normalizePanelGridRect(gridRect);
   if (!gridRectEquals(normalized, gridRect)) {
     return false;
   }
@@ -709,7 +781,7 @@ export function addPanelSlotAtGridRect(
   viewport: ViewportSize = viewportFromState(state),
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, kind);
   if (!options.allowOverlap && !canPlaceGridRect(state, normalized, { kind })) {
     return state;
   }
@@ -748,7 +820,7 @@ export function movePanelSlotToGridRect(
   if (!slot || !kind) {
     return state;
   }
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, kind);
   if (!canPlaceGridRect(state, normalized, { exceptSlotId: slot.id, kind })) {
     return state;
   }
@@ -785,7 +857,7 @@ export function resolvePanelResizeWithYield(
       reason: "source-not-found"
     };
   }
-  const sourceGridRect = normalizePanelGridRect(desiredGridRect, minGridSpanForKind(kind));
+  const sourceGridRect = normalizePanelGridRectForKind(desiredGridRect, kind);
   if (!gridRectEquals(sourceGridRect, desiredGridRect)) {
     return {
       valid: false,
@@ -920,7 +992,7 @@ export function expandGridRectForKind(
   kind: PanelContentKind,
   exceptSlotId?: PanelSlotId
 ): PanelGridRect | null {
-  const minSpan = minGridSpanForKind(kind);
+  const minSpan = readableMinGridSpanForKind(kind);
   const base = normalizePanelGridRect({
     col: start.col,
     row: start.row,
@@ -1079,7 +1151,7 @@ function createPanelSlot(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): PanelSlot {
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(content.kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, content.kind);
   return {
     id,
     contentId: content.id,
@@ -1094,11 +1166,13 @@ function minPanelPixelSizeForKind(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics
 ): Pick<PanelSlot, "minWidth" | "minHeight"> {
-  const minSpan = minGridSpanForKind(kind);
+  const minSpan = readableMinGridSpanForKind(kind);
   const rect = panelRectForGridRect({ col: 1, row: 1, colSpan: minSpan.colSpan, rowSpan: minSpan.rowSpan }, viewport, layoutMetrics);
+  const uiScale = Math.max(0.1, readLayoutMetric(layoutMetrics.uiScale, 1));
+  const minimum = panelMinimumRenderedSizeForKind(kind);
   return {
-    minWidth: rect.width,
-    minHeight: rect.height
+    minWidth: Math.max(rect.width, minimum.width / uiScale),
+    minHeight: Math.max(rect.height, minimum.height / uiScale)
   };
 }
 
@@ -1110,15 +1184,16 @@ function preferredGridRectFromPanelRect(
 ): PanelGridRect {
   const metrics = panelGridMetrics(viewport, layoutMetrics);
   const minSpan = minGridSpanForKind(kind);
-  const colSpan = clampInt(Math.round((rect.width + metrics.gutter) / metrics.stepX), minSpan.colSpan, panelGridSpec.cols);
-  const rowSpan = clampInt(Math.round((rect.height + metrics.gutter) / metrics.stepY), minSpan.rowSpan, panelGridSpec.rows);
+  const maxSpan = maxGridSpanForKind(kind);
+  const colSpan = clampInt(Math.round((rect.width + metrics.gutter) / metrics.stepX), minSpan.colSpan, maxSpan.colSpan);
+  const rowSpan = clampInt(Math.round((rect.height + metrics.gutter) / metrics.stepY), minSpan.rowSpan, maxSpan.rowSpan);
   const spanWidth = colSpan * metrics.cellWidth + Math.max(0, colSpan - 1) * metrics.gutter;
   const spanHeight = rowSpan * metrics.cellHeight + Math.max(0, rowSpan - 1) * metrics.gutter;
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
   const col = Math.round((centerX - spanWidth / 2 - metrics.left) / metrics.stepX) + 1;
   const row = Math.round((centerY - spanHeight / 2 - metrics.top) / metrics.stepY) + 1;
-  return normalizePanelGridRect({ col, row, colSpan, rowSpan }, minSpan);
+  return normalizePanelGridRectForKind({ col, row, colSpan, rowSpan }, kind);
 }
 
 function candidateSpans(
@@ -1339,72 +1414,66 @@ function gridCellInsideGrid(cell: PanelGridCell): boolean {
     cell.row <= panelGridSpec.rows;
 }
 
-function gridCellKey(cell: PanelGridCell): string {
-  return `${cell.col}:${cell.row}`;
-}
-
-function occupiedGridCellKeys(state: TiledPanelState, exceptSlotId?: PanelSlotId): Set<string> {
-  const occupied = new Set<string>();
-  for (const slot of state.slots) {
-    if (slot.id === exceptSlotId) {
-      continue;
-    }
-    for (let row = slot.gridRect.row; row < gridRectRowEnd(slot.gridRect); row += 1) {
-      for (let col = slot.gridRect.col; col < gridRectColEnd(slot.gridRect); col += 1) {
-        occupied.add(gridCellKey({ col, row }));
-      }
-    }
-  }
-  return occupied;
-}
-
-function emptyGridComponentFromCell(start: PanelGridCell, occupied: Set<string>): Set<string> {
-  const component = new Set<string>();
-  const stack: PanelGridCell[] = [start];
-  while (stack.length) {
-    const cell = stack.pop()!;
-    if (!gridCellInsideGrid(cell)) {
-      continue;
-    }
-    const key = gridCellKey(cell);
-    if (occupied.has(key) || component.has(key)) {
-      continue;
-    }
-    component.add(key);
-    stack.push(
-      { col: cell.col + 1, row: cell.row },
-      { col: cell.col - 1, row: cell.row },
-      { col: cell.col, row: cell.row + 1 },
-      { col: cell.col, row: cell.row - 1 }
-    );
-  }
-  return component;
-}
-
-function dropGridRectCandidates(
-  component: Set<string>,
-  minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+function recommendedGridRectCandidates(
+  state: TiledPanelState,
+  kind: PanelContentKind,
+  span: Pick<PanelGridRect, "colSpan" | "rowSpan">,
+  exceptSlotId?: PanelSlotId
 ): PanelGridRect[] {
   const candidates: PanelGridRect[] = [];
-  for (let row = 1; row <= panelGridSpec.rows; row += 1) {
-    for (let col = 1; col <= panelGridSpec.cols; col += 1) {
-      for (let rowSpan = minSpan.rowSpan; rowSpan <= panelGridSpec.rows - row + 1; rowSpan += 1) {
-        for (let colSpan = minSpan.colSpan; colSpan <= panelGridSpec.cols - col + 1; colSpan += 1) {
-          const candidate = { col, row, colSpan, rowSpan };
-          if (gridRectCellsInComponent(candidate, component)) {
-            candidates.push(candidate);
-          }
-        }
+  for (let row = 1; row <= panelGridSpec.rows - span.rowSpan + 1; row += 1) {
+    for (let col = 1; col <= panelGridSpec.cols - span.colSpan + 1; col += 1) {
+      const candidate = { col, row, colSpan: span.colSpan, rowSpan: span.rowSpan };
+      if (canPlaceGridRect(state, candidate, { exceptSlotId, kind })) {
+        candidates.push(candidate);
       }
     }
   }
   return candidates;
 }
 
-function gridRectCellsInComponent(rect: PanelGridRect, component: Set<string>): boolean {
-  for (let row = rect.row; row < gridRectRowEnd(rect); row += 1) {
-    for (let col = rect.col; col < gridRectColEnd(rect); col += 1) {
-      if (!component.has(gridCellKey({ col, row }))) {
+function emptyGridComponentCellKeys(
+  state: TiledPanelState,
+  start: PanelGridCell,
+  exceptSlotId?: PanelSlotId
+): Set<string> {
+  const occupied = new Set<string>();
+  state.slots.forEach((slot) => {
+    if (slot.id === exceptSlotId) {
+      return;
+    }
+    for (let row = slot.gridRect.row; row < slot.gridRect.row + slot.gridRect.rowSpan; row += 1) {
+      for (let col = slot.gridRect.col; col < slot.gridRect.col + slot.gridRect.colSpan; col += 1) {
+        occupied.add(panelGridCellKey({ col, row }));
+      }
+    }
+  });
+  if (occupied.has(panelGridCellKey(start))) {
+    return new Set();
+  }
+  const connected = new Set<string>();
+  const queue: PanelGridCell[] = [start];
+  while (queue.length) {
+    const cell = queue.shift()!;
+    const key = panelGridCellKey(cell);
+    if (!gridCellInsideGrid(cell) || occupied.has(key) || connected.has(key)) {
+      continue;
+    }
+    connected.add(key);
+    queue.push(
+      { col: cell.col - 1, row: cell.row },
+      { col: cell.col + 1, row: cell.row },
+      { col: cell.col, row: cell.row - 1 },
+      { col: cell.col, row: cell.row + 1 }
+    );
+  }
+  return connected;
+}
+
+function gridRectFitsCellKeys(gridRect: PanelGridRect, cells: Set<string>): boolean {
+  for (let row = gridRect.row; row < gridRect.row + gridRect.rowSpan; row += 1) {
+    for (let col = gridRect.col; col < gridRect.col + gridRect.colSpan; col += 1) {
+      if (!cells.has(panelGridCellKey({ col, row }))) {
         return false;
       }
     }
@@ -1412,26 +1481,21 @@ function gridRectCellsInComponent(rect: PanelGridRect, component: Set<string>): 
   return true;
 }
 
-function compareDropGridRectCandidates(
+function panelGridCellKey(cell: PanelGridCell): string {
+  return `${cell.col}:${cell.row}`;
+}
+
+function compareRecommendedGridRectCandidates(
   left: PanelGridRect,
   right: PanelGridRect,
-  targetCell: PanelGridCell,
-  preferredSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
+  targetCell: PanelGridCell
 ): number {
   const leftContainsTarget = gridRectContainsCell(left, targetCell) ? 1 : 0;
   const rightContainsTarget = gridRectContainsCell(right, targetCell) ? 1 : 0;
   return rightContainsTarget - leftContainsTarget ||
-    gridRectArea(right) - gridRectArea(left) ||
     dropGridRectDistance(left, targetCell) - dropGridRectDistance(right, targetCell) ||
-    gridRectAspectDistance(left, preferredSpan) - gridRectAspectDistance(right, preferredSpan) ||
     left.row - right.row ||
-    left.col - right.col ||
-    right.colSpan - left.colSpan ||
-    right.rowSpan - left.rowSpan;
-}
-
-function gridRectArea(rect: PanelGridRect): number {
-  return rect.colSpan * rect.rowSpan;
+    left.col - right.col;
 }
 
 function dropGridRectDistance(rect: PanelGridRect, targetCell: PanelGridCell): number {
@@ -1440,11 +1504,16 @@ function dropGridRectDistance(rect: PanelGridRect, targetCell: PanelGridCell): n
   return Math.abs(centerCol - targetCell.col) + Math.abs(centerRow - targetCell.row);
 }
 
-function gridRectAspectDistance(
-  rect: Pick<PanelGridRect, "colSpan" | "rowSpan">,
-  preferredSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">
-): number {
-  return Math.abs((rect.colSpan / rect.rowSpan) - (preferredSpan.colSpan / preferredSpan.rowSpan));
+function recommendedGridRectAroundCell(
+  cell: PanelGridCell,
+  span: Pick<PanelGridRect, "colSpan" | "rowSpan">
+): PanelGridRect {
+  return normalizePanelGridRect({
+    col: cell.col - Math.floor((span.colSpan - 1) / 2),
+    row: cell.row - Math.floor((span.rowSpan - 1) / 2),
+    colSpan: span.colSpan,
+    rowSpan: span.rowSpan
+  }, span);
 }
 
 function gridRectContainsCell(rect: PanelGridRect, cell: PanelGridCell): boolean {
@@ -1495,7 +1564,7 @@ function firstAvailableGridRect(state: TiledPanelState, kind: PanelContentKind):
       }
     }
   }
-  const minSpan = minGridSpanForKind(kind);
+  const minSpan = readableMinGridSpanForKind(kind);
   for (let row = 1; row <= panelGridSpec.rows - minSpan.rowSpan + 1; row += 1) {
     for (let col = 1; col <= panelGridSpec.cols - minSpan.colSpan + 1; col += 1) {
       const candidate = { col, row, colSpan: minSpan.colSpan, rowSpan: minSpan.rowSpan };
@@ -1668,7 +1737,13 @@ function clampBoundaryDelta(
       maxDelta = Math.min(maxDelta, slot.rect.height - minHeight);
     });
   }
-  return clamp(delta, minDelta, maxDelta);
+  if (minDelta > maxDelta) {
+    return 0;
+  }
+  const resolvedDelta = clamp(delta, minDelta, maxDelta);
+  return delta !== 0 && resolvedDelta !== 0 && Math.sign(resolvedDelta) !== Math.sign(delta)
+    ? 0
+    : resolvedDelta;
 }
 
 function resizeSlotRectAtBoundary(slot: PanelSlot, boundary: PanelBoundary, delta: number): PanelSlot {

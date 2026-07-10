@@ -109,8 +109,8 @@ export function maxOrderFlowTargetRowsForHeight(height: number, reservedPx = 20)
 
 export function autoOrderFlowTargetRows(height: number): number {
   const maxRows = maxOrderFlowTargetRowsForHeight(height);
-  const available = Math.max(0, isFiniteNumber(height) ? height - 24 : 0);
-  const comfortableRows = Math.floor(available / 13);
+  const available = Math.max(0, isFiniteNumber(height) ? height - 30 : 0);
+  const comfortableRows = Math.floor(available / 19);
   return clampNumber(comfortableRows, ORDER_FLOW_MIN_TARGET_ROWS, Math.min(maxRows, ORDER_FLOW_AUTO_ROW_CAP));
 }
 
