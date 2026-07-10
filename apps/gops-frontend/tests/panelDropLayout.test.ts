@@ -7,9 +7,11 @@ import {
   normalizePanelGridRect,
   panelPaletteEntryLabel,
   readableMinGridSpanForKind,
+  applyPanelMoveWithPush,
   replacePanelSlotKind,
   resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
+  resolvePanelMoveWithPush,
   type PanelContentKind,
   type PanelGridRect,
   type TiledPanelState
@@ -113,6 +115,91 @@ assert.deepEqual(
   normalizePanelGridRect({ col: 1, row: 1, colSpan: 1, rowSpan: 1 }, readableNewsSpan),
   { col: 1, row: 1, colSpan: 2, rowSpan: 2 }
 );
+
+// Push-on-move: dragging a panel onto an occupied cell shoves the sitting panel downward.
+const pushState = stateWithRects([
+  { col: 1, row: 1, colSpan: 2, rowSpan: 2 }, // slot-block-1 (mover)
+  { col: 1, row: 3, colSpan: 2, rowSpan: 2 }  // slot-block-2 (sitting target)
+]);
+const overlapPush = resolvePanelMoveWithPush(pushState, "slot-block-1", { col: 1, row: 3, colSpan: 2, rowSpan: 2 });
+assert.equal(overlapPush.valid, true);
+assert.equal(overlapPush.pushedSlots.length, 1);
+assert.deepEqual(
+  overlapPush.pushedSlots.find((slot) => slot.slotId === "slot-block-2")?.gridRect,
+  { col: 1, row: 5, colSpan: 2, rowSpan: 2 }
+);
+
+const appliedPush = applyPanelMoveWithPush(pushState, overlapPush, viewport);
+assert.deepEqual(
+  appliedPush.slots.find((slot) => slot.id === "slot-block-1")?.gridRect,
+  { col: 1, row: 3, colSpan: 2, rowSpan: 2 }
+);
+assert.deepEqual(
+  appliedPush.slots.find((slot) => slot.id === "slot-block-2")?.gridRect,
+  { col: 1, row: 5, colSpan: 2, rowSpan: 2 }
+);
+
+// Cascade: one push chains into the panel below it.
+const cascadeState = stateWithRects([
+  { col: 1, row: 1, colSpan: 2, rowSpan: 2 }, // mover
+  { col: 1, row: 3, colSpan: 2, rowSpan: 1 }, // pushed down -> row 4
+  { col: 1, row: 4, colSpan: 2, rowSpan: 1 }  // shoved by the one above -> row 5
+]);
+const cascadePush = resolvePanelMoveWithPush(cascadeState, "slot-block-1", { col: 1, row: 2, colSpan: 2, rowSpan: 2 });
+assert.equal(cascadePush.valid, true);
+assert.equal(cascadePush.pushedSlots.find((slot) => slot.slotId === "slot-block-2")?.gridRect.row, 4);
+assert.equal(cascadePush.pushedSlots.find((slot) => slot.slotId === "slot-block-3")?.gridRect.row, 5);
+
+// Panels in other columns are untouched by the push.
+const sideBySide = stateWithRects([
+  { col: 1, row: 1, colSpan: 2, rowSpan: 2 }, // mover
+  { col: 1, row: 3, colSpan: 2, rowSpan: 2 }, // pushed
+  { col: 3, row: 1, colSpan: 2, rowSpan: 2 }  // different column, stays put
+]);
+const sidePush = resolvePanelMoveWithPush(sideBySide, "slot-block-1", { col: 1, row: 3, colSpan: 2, rowSpan: 2 });
+assert.equal(sidePush.valid, true);
+assert.equal(sidePush.pushedSlots.some((slot) => slot.slotId === "slot-block-3"), false);
+
+// No room: pushing off the bottom edge fails so the caller can block the drop.
+const crowdedState = stateWithRects([
+  { col: 1, row: 1, colSpan: 2, rowSpan: 2 }, // mover
+  { col: 1, row: 3, colSpan: 2, rowSpan: 4 }  // fills down to the bottom row
+]);
+const blockedPush = resolvePanelMoveWithPush(crowdedState, "slot-block-1", { col: 1, row: 3, colSpan: 2, rowSpan: 2 });
+assert.equal(blockedPush.valid, false);
+assert.equal(blockedPush.reason, "no-room");
+
+// Unobstructed move: plan is valid with no pushed panels.
+const freeMove = resolvePanelMoveWithPush(sideBySide, "slot-block-1", { col: 5, row: 1, colSpan: 2, rowSpan: 2 });
+assert.equal(freeMove.valid, true);
+assert.equal(freeMove.pushedSlots.length, 0);
+
+// Direction-aware push: dragging UP shoves the panel above upward (into room above it).
+const upState = stateWithRects([
+  { col: 1, row: 5, colSpan: 2, rowSpan: 2 }, // slot-block-1 mover (bottom)
+  { col: 1, row: 3, colSpan: 2, rowSpan: 2 }  // slot-block-2 sitting above
+]);
+const upPush = resolvePanelMoveWithPush(upState, "slot-block-1", { col: 1, row: 3, colSpan: 2, rowSpan: 2 });
+assert.equal(upPush.valid, true);
+assert.equal(upPush.pushedSlots.find((slot) => slot.slotId === "slot-block-2")?.gridRect.row, 1);
+
+// Dragging RIGHT shoves the panel to the right.
+const rightState = stateWithRects([
+  { col: 1, row: 1, colSpan: 2, rowSpan: 2 }, // slot-block-1 mover (left)
+  { col: 3, row: 1, colSpan: 2, rowSpan: 2 }  // slot-block-2 sitting to the right
+]);
+const rightPush = resolvePanelMoveWithPush(rightState, "slot-block-1", { col: 3, row: 1, colSpan: 2, rowSpan: 2 });
+assert.equal(rightPush.valid, true);
+assert.equal(rightPush.pushedSlots.find((slot) => slot.slotId === "slot-block-2")?.gridRect.col, 5);
+
+// Dragging LEFT shoves the panel to the left (into room on the left).
+const leftState = stateWithRects([
+  { col: 5, row: 1, colSpan: 2, rowSpan: 2 }, // slot-block-1 mover (right)
+  { col: 3, row: 1, colSpan: 2, rowSpan: 2 }  // slot-block-2 sitting to the left
+]);
+const leftPush = resolvePanelMoveWithPush(leftState, "slot-block-1", { col: 3, row: 1, colSpan: 2, rowSpan: 2 });
+assert.equal(leftPush.valid, true);
+assert.equal(leftPush.pushedSlots.find((slot) => slot.slotId === "slot-block-2")?.gridRect.col, 1);
 
 console.log("panel drop layout tests passed");
 
