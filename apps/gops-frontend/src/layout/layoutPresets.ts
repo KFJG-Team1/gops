@@ -23,7 +23,7 @@ export type LayoutPreset = {
 
 type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecItem[] };
 
-// Sensible starting arrangements built from the existing panels (8 cols x 5 rows).
+// Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
 const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinition> = {
   market: {
@@ -48,7 +48,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     name: "차트분석",
     spec: [
       { kind: "chart", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 4 } },
-      { kind: "news", gridRect: { col: 1, row: 5, colSpan: 8, rowSpan: 1 } }
+      { kind: "news", gridRect: { col: 1, row: 5, colSpan: 8, rowSpan: 2 } }
     ]
   },
   compare: {

@@ -59,6 +59,7 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
+import { resolveResponsivePanelLayout } from "./layout/responsivePanelLayout";
 import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
   createMainViewUrl,
@@ -100,7 +101,10 @@ type InteractiveAgentContext = {
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
 const appUiScale = 1.6;
-const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
+const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
+  topInset: workspaceTopInset,
+  uiScale: appUiScale
+};
 const orderFlowDemoDefaultSymbol = "NVDA";
 
 let chatLogEntrySequence = 0;
@@ -112,6 +116,7 @@ function initialPanelState(): TiledPanelState {
     });
   }
   const viewport = currentViewportSize();
+  const responsiveLayout = resolveResponsivePanelLayout(viewport, chartWorkspaceLayoutMetrics);
   const initialView = resolveAppMainViewFromUrl(window.location.href).view;
   if (isOrderFlowDemoRoute(window.location.href)) {
     return createOrderFlowDemoPanelState(
@@ -125,22 +130,22 @@ function initialPanelState(): TiledPanelState {
       const restored = restoreTiledPanelStateSnapshot(
         migratePortfolioInvestmentSnapshot(JSON.parse(stored)),
         viewport,
-        chartWorkspaceLayoutMetrics
+        responsiveLayout.metrics
       );
       if (restored) {
         const migrated = ensurePortfolioInvestedPanelState(restored, viewport, {
-          layoutMetrics: chartWorkspaceLayoutMetrics
+          layoutMetrics: responsiveLayout.metrics
         });
         return initialView.mode === "chart"
-          ? setPrimaryChartSymbol(migrated, initialView.symbol, viewport, chartWorkspaceLayoutMetrics)
+          ? setPrimaryChartSymbol(migrated, initialView.symbol, viewport, responsiveLayout.metrics)
           : migrated;
       }
     }
   } catch {
-    // Invalid local layout state falls back to the default 8x5 workspace.
+    // Invalid local layout state falls back to the default 8x6 workspace.
   }
   return createInitialTiledPanelState(viewport, {
-    layoutMetrics: chartWorkspaceLayoutMetrics,
+    layoutMetrics: responsiveLayout.metrics,
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
   });
 }
@@ -150,32 +155,32 @@ function createOrderFlowDemoPanelState(viewport: ViewportSize, symbol: string): 
   return createTiledPanelStateFromSpec([
     {
       kind: "chart",
-      gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 5 },
+      gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 },
       symbol: normalizedSymbol,
       props: { symbol: normalizedSymbol, timeframe: "1D" },
       layoutWeight: 100
     },
     {
       kind: "orderFlow",
-      gridRect: { col: 6, row: 1, colSpan: 1, rowSpan: 1 },
+      gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 2 },
       props: { symbol: normalizedSymbol, window: "10m", resolution: "auto" },
       layoutWeight: 45
     },
     {
       kind: "orderFlow",
-      gridRect: { col: 7, row: 1, colSpan: 1, rowSpan: 2 },
+      gridRect: { col: 6, row: 3, colSpan: 3, rowSpan: 2 },
       props: { symbol: "AMZN", window: "10m", resolution: "auto" },
       layoutWeight: 45
     },
     {
       kind: "orderFlow",
-      gridRect: { col: 6, row: 3, colSpan: 2, rowSpan: 2 },
+      gridRect: { col: 6, row: 5, colSpan: 3, rowSpan: 2 },
       props: { symbol: normalizedSymbol, window: "10m", resolution: "auto" },
       layoutWeight: 45
     }
   ], viewport, {
     symbol: normalizedSymbol,
-    layoutMetrics: chartWorkspaceLayoutMetrics
+    layoutMetrics: resolveResponsivePanelLayout(viewport, chartWorkspaceLayoutMetrics).metrics
   });
 }
 
@@ -316,6 +321,11 @@ function formatAgentDebugNumber(value: number | null): string {
 export function App() {
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
+  const responsivePanelLayout = useMemo(
+    () => resolveResponsivePanelLayout(viewportSize, chartWorkspaceLayoutMetrics),
+    [viewportSize.height, viewportSize.width]
+  );
+  const panelLayoutMetrics = responsivePanelLayout.metrics;
   const [panelState, setPanelState] = useState<TiledPanelState>(() => initialPanelState());
   const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
   const [pendingPlacementPick, setPendingPlacementPick] = useState<PendingPlacementPick | null>(null);
@@ -332,7 +342,7 @@ export function App() {
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
-  const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(chartWorkspaceLayoutMetrics);
+  const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
 
   const serializeCurrentLayout = useCallback(() => (
     serializeTiledPanelState(
@@ -453,7 +463,10 @@ export function App() {
   useEffect(() => {
     const handleResize = () => {
       const previous = viewportSizeRef.current;
-      const next = currentViewportSize();
+      const next = currentViewportSize(document.getElementById("root"));
+      if (next.width === previous.width && next.height === previous.height) {
+        return;
+      }
       viewportSizeRef.current = next;
       setViewportSize(next);
       setPanelState((current) => scaleTiledPanelState(
@@ -464,6 +477,12 @@ export function App() {
         panelLayoutMetricsRef.current
       ));
     };
+    const resizeTarget = document.getElementById("root");
+    if (resizeTarget && typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(handleResize);
+      observer.observe(resizeTarget);
+      return () => observer.disconnect();
+    }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -479,7 +498,7 @@ export function App() {
   // bottom aligned with where panels end).
   // The tree map uses the same top/bottom workspace bounds as panels, so the compact header
   // owns the top strip instead of overlaying the canvas.
-  const treeMapBounds = workspaceBounds(viewportSize, panelLayoutMetricsRef.current);
+  const treeMapBounds = workspaceBounds(viewportSize, chartWorkspaceLayoutMetrics);
   const isCompactHeatmapBackground = viewportSize.width < 700;
   const heatMapBackgroundWidth = Math.max(
     isCompactHeatmapBackground ? 740 : 1220,
@@ -508,7 +527,6 @@ export function App() {
     sector: item.sector,
     isMock: item.symbol === "TSLA" || item.symbol === "AAPL" || item.symbol === "GOOGL"
   })), [treeMapItems]);
-  const panelLayoutMetrics = chartWorkspaceLayoutMetrics;
   const effectivePanelState = useMemo(() => (
     ensurePortfolioInvestedPanelState(panelState, viewportSize, { layoutMetrics: panelLayoutMetrics })
   ), [panelLayoutMetrics, panelState, viewportSize]);
@@ -1150,7 +1168,11 @@ export function App() {
           interactive={false}
         />
       </div>
-      <section className={`canvas-workspace view-${mainView.mode}`} style={workspaceStyle}>
+      <section
+        className={`canvas-workspace view-${mainView.mode} layout-mode-${responsivePanelLayout.mode}`}
+        style={workspaceStyle}
+        data-layout-mode={responsivePanelLayout.mode}
+      >
         {mainView.mode === "treemap" ? (
           <>
             <TreeMapCanvas
@@ -1166,7 +1188,9 @@ export function App() {
             setPanelState={setPanelState}
             viewportSize={viewportSize}
             layoutMetrics={panelLayoutMetrics}
+            layoutMode={responsivePanelLayout.mode}
             layoutEditMode={layoutEditMode}
+            onExitLayoutEdit={toggleLayoutEditMode}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
             companyItems={treeMapItems}
@@ -1221,7 +1245,6 @@ export function App() {
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
-        onToggleLayoutEditMode={toggleLayoutEditMode}
       />
     </main>
   );
@@ -1324,7 +1347,11 @@ function firstChartSlotId(panelState: TiledPanelState): string | undefined {
 }
 
 function workspaceLayoutMetricsEqual(left: WorkspaceLayoutMetrics, right: WorkspaceLayoutMetrics): boolean {
-  return left.topInset === right.topInset && left.bottomInset === right.bottomInset;
+  return left.topInset === right.topInset
+    && left.bottomInset === right.bottomInset
+    && left.uiScale === right.uiScale
+    && left.minCellWidthPx === right.minCellWidthPx
+    && left.minCellHeightPx === right.minCellHeightPx;
 }
 
 function chartDocumentCommandsForPanelPropChanges(
@@ -1474,13 +1501,15 @@ function replaceChatLogEntry(
   )));
 }
 
-function currentViewportSize(): ViewportSize {
+function currentViewportSize(container?: HTMLElement | null): ViewportSize {
   if (typeof window === "undefined") {
     return { width: 1280, height: 720 };
   }
+  const width = container?.clientWidth || window.innerWidth;
+  const height = container?.clientHeight || window.innerHeight;
   return {
-    width: Math.max(1, Math.round(window.innerWidth / appUiScale)),
-    height: Math.max(1, Math.round(window.innerHeight / appUiScale))
+    width: Math.max(1, Math.round(width / appUiScale)),
+    height: Math.max(1, Math.round(height / appUiScale))
   };
 }
 
