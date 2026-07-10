@@ -15,9 +15,9 @@ const REFRESH_INTERVAL_MS = 60_000;
 type WatchlistNewsMode = "watchlist" | "hot" | "recommended";
 
 const watchlistNewsModes: Array<{ mode: WatchlistNewsMode; label: string; title: string }> = [
-  { mode: "watchlist", label: "Watchlist", title: "관심 기업 기준 뉴스" },
-  { mode: "recommended", label: "Recommendation", title: "추천 기업 기준 뉴스" },
-  { mode: "hot", label: "Hot", title: "급등, 급락, 거래대금 상위 종목 기준 뉴스" }
+  { mode: "watchlist", label: "관심", title: "관심 기업 기준 뉴스" },
+  { mode: "recommended", label: "추천", title: "추천 기업 기준 뉴스" },
+  { mode: "hot", label: "인기", title: "급등, 급락, 거래대금 상위 종목 기준 뉴스" }
 ];
 
 type WatchlistNewsMatch = {
@@ -80,7 +80,7 @@ export function WatchlistNewsPanel({
   const [companyError, setCompanyError] = useState<string | undefined>();
   const loginRequired = authEnabled && !authLoading && !user && !localDemoEnabled;
   const panelAuthLoading = authLoading && !localDemoEnabled;
-  const activeModeLabel = selectedCompany?.companyName ?? selectedCompany?.symbol ?? watchlistNewsModes.find((item) => item.mode === mode)?.label ?? "Watchlist";
+  const activeModeLabel = selectedCompany?.companyName ?? selectedCompany?.symbol ?? watchlistNewsModes.find((item) => item.mode === mode)?.label ?? "관심";
 
   const loadNews = useCallback(async (targetMode: WatchlistNewsMode, signal?: AbortSignal, showRefreshing = false, background = false) => {
     if (loginRequired) {
