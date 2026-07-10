@@ -20,6 +20,7 @@ export type RequiredGlossaryId =
   | "hvn" | "lvn" | "volume_spike" | "relative_volume"
   | "double_bottom" | "double_top" | "head_and_shoulders" | "triangle" | "wedge" | "flag_pattern"
   | "candlestick" | "ohlc" | "closed_bar" | "daily" | "weekly" | "monthly" | "wick"
+  | "bullish_candle" | "bearish_candle"
   | "long_bullish_candle" | "long_bearish_candle"
   | "volatility" | "regime" | "trend" | "uptrend" | "downtrend" | "invalidation"
   | "confidence" | "liquidity";
@@ -93,13 +94,15 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
   wedge: entry("wedge", "쐐기형", ["쐐기형", "쐐기", "wedge", "wedge pattern"], "두 경계가 같은 방향으로 기울며 좁아지는 형태로, 경계 이탈을 확인할 때 봅니다.", "pattern"),
   flag_pattern: entry("flag_pattern", "깃발형", ["깃발형", "플래그 패턴", "flag pattern"], "급한 움직임 뒤 짧은 평행 조정 형태입니다. 차트의 이벤트 Flag 마커와는 다른 패턴 개념입니다.", "pattern"),
 
-  candlestick: entry("candlestick", "캔들", ["캔들", "봉", "candlestick", "candle"], "한 기간의 시가·고가·저가·종가를 몸통과 꼬리로 나타낸 가격 표시 방식입니다.", "candle"),
+  candlestick: entry("candlestick", "캔들", ["캔들", "candlestick", "candle"], "한 기간의 시가·고가·저가·종가를 몸통과 꼬리로 나타낸 가격 표시 방식입니다.", "candle"),
   ohlc: entry("ohlc", "OHLC", ["OHLC", "시가·고가·저가·종가", "open high low close"], "한 기간의 시가·고가·저가·종가 네 가격으로, 캔들의 범위와 방향을 구성합니다.", "candle"),
   closed_bar: entry("closed_bar", "확정봉", ["확정봉", "마감봉", "closed bar", "closed candle"], "해당 기간이 끝나 값이 더 바뀌지 않는 봉으로, 신호 확인은 보통 확정봉을 기준으로 합니다.", "candle"),
   daily: entry("daily", "일봉", ["일봉", "daily", "daily candle"], "하루의 가격 움직임을 한 봉으로 묶은 주기로, 중기 흐름과 일별 구조를 볼 때 씁니다.", "candle"),
   weekly: entry("weekly", "주봉", ["주봉", "weekly", "weekly candle"], "한 주의 가격 움직임을 한 봉으로 묶은 주기로, 더 큰 추세와 장기 레벨을 봅니다.", "candle"),
   monthly: entry("monthly", "월봉", ["월봉", "monthly", "monthly candle"], "한 달의 가격 움직임을 한 봉으로 묶은 주기로, 장기 구조와 거시 추세를 봅니다.", "candle"),
   wick: entry("wick", "꼬리", ["꼬리", "윗꼬리", "아랫꼬리", "wick", "shadow"], "캔들 몸통 밖의 고가·저가 구간으로, 장중 가격 거부나 변동 범위를 살필 때 봅니다.", "candle"),
+  bullish_candle: entry("bullish_candle", "양봉", ["양봉", "bullish candle"], "종가가 시가보다 높은 캔들로, 해당 기간에 가격이 상승 마감했음을 나타냅니다.", "candle"),
+  bearish_candle: entry("bearish_candle", "음봉", ["음봉", "bearish candle"], "종가가 시가보다 낮은 캔들로, 해당 기간에 가격이 하락 마감했음을 나타냅니다.", "candle"),
   long_bullish_candle: entry("long_bullish_candle", "장대양봉", ["장대양봉", "long bullish candle"], "몸통이 평소보다 큰 상승 캔들로, 강한 매수 움직임이 나온 구간을 표시합니다.", "candle"),
   long_bearish_candle: entry("long_bearish_candle", "장대음봉", ["장대음봉", "long bearish candle"], "몸통이 평소보다 큰 하락 캔들로, 강한 매도 움직임이 나온 구간을 표시합니다.", "candle"),
 
@@ -108,7 +111,7 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
   trend: entry("trend", "추세", ["추세", "trend"], "가격이 일정 기간 대체로 향하는 방향으로, 고점·저점과 평균선 등을 함께 살펴 판단합니다.", "general"),
   uptrend: entry("uptrend", "상승 추세", ["상승 추세", "상승추세", "uptrend"], "고점과 저점이 대체로 높아지는 흐름으로, 구조 유지와 지지 반응을 확인합니다.", "general"),
   downtrend: entry("downtrend", "하락 추세", ["하락 추세", "하락추세", "downtrend"], "고점과 저점이 대체로 낮아지는 흐름으로, 구조 유지와 저항 반응을 확인합니다.", "general"),
-  invalidation: entry("invalidation", "무효화 조건", ["무효화 조건", "무효화", "무효", "invalidation", "invalidation condition"], "현재 해석이 더는 유효하지 않다고 보는 가격·종가 조건으로, 시나리오 경계를 명확히 합니다.", "general"),
+  invalidation: entry("invalidation", "무효화 조건", ["무효화 조건", "무효화", "invalidation", "invalidation condition"], "현재 해석이 더는 유효하지 않다고 보는 가격·종가 조건으로, 시나리오 경계를 명확히 합니다.", "general"),
   confidence: entry("confidence", "신뢰도", ["신뢰도", "confidence"], "분석 근거의 일치 정도를 요약한 값으로, 결과의 확실성을 보장하지는 않습니다.", "general"),
   liquidity: entry("liquidity", "유동성", ["유동성", "liquidity"], "원하는 가격 근처에서 큰 가격 충격 없이 거래할 수 있는 정도로, 체결 여건을 가늠합니다.", "general")
 };

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isLocalAgentDebugEnabled } from "../localAgentDebug";
 import {
   cancelChartAssetBuild,
   fetchChartAssetBuildStatus,
@@ -15,7 +14,6 @@ const terminalStatuses = new Set(["completed", "completed_with_errors", "failed"
 const allIntervals: AnalysisAssetInterval[] = ["1D", "1W", "1M"];
 
 export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string }) {
-  const enabled = isLocalAgentDebugEnabled();
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
   const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
@@ -40,10 +38,8 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   }, []);
 
   useEffect(() => {
-    if (enabled) {
-      void loadCoverage();
-    }
-  }, [enabled, loadCoverage]);
+    void loadCoverage();
+  }, [loadCoverage]);
 
   useEffect(() => {
     const node = logRef.current;
@@ -53,7 +49,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   }, [job?.logs]);
 
   useEffect(() => {
-    if (!accepted || job && terminalStatuses.has(job.status)) {
+    if (!accepted) {
       return undefined;
     }
     let active = true;
@@ -103,11 +99,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
       source?.close();
       if (pollingTimer !== null) window.clearTimeout(pollingTimer);
     };
-  }, [accepted, job?.status, loadCoverage]);
-
-  if (!enabled) {
-    return <div className="chart-asset-ops-gated">`?agentDebug=1`에서만 사용할 수 있습니다.</div>;
-  }
+  }, [accepted, loadCoverage]);
 
   const running = job?.status === "queued" || job?.status === "running";
   const failedSymbols = [...new Set((job?.failedItems ?? job?.recentItems ?? []).filter((item) => item.status === "failed").map((item) => item.symbol))];
@@ -131,12 +123,15 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
     }
     setError(null);
     setJob(null);
+    const normalizedSkipFreshHours = Number.isFinite(skipFreshHours)
+      ? Math.max(0, Math.floor(skipFreshHours))
+      : 0;
     try {
       setAccepted(await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
         intervals,
         llmEnabled,
-        skipFreshHours: Math.max(0, Math.floor(skipFreshHours))
+        skipFreshHours: normalizedSkipFreshHours
       }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
@@ -156,7 +151,10 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
           <label><input type="checkbox" checked={llmEnabled} onChange={(event) => setLlmEnabled(event.target.checked)} />LLM 포함</label>
-          <label>신선 자산 스킵(시간)<input type="number" min="0" value={skipFreshHours} onChange={(event) => setSkipFreshHours(Number(event.target.value))} /></label>
+          <label>신선 자산 스킵(시간)<input type="number" min="0" value={skipFreshHours} onChange={(event) => {
+            const value = Number(event.target.value);
+            setSkipFreshHours(Number.isFinite(value) ? value : 0);
+          }} /></label>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>

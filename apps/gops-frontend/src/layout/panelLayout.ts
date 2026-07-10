@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import { isLocalAgentDebugEnabled } from "../localAgentDebug";
 import { gridGutter } from "./grid";
 import { almostEqual, clamp, rangesOverlap, rectBottom, rectRight, rectsOverlap, uniqueStrings } from "./panelGeometry";
 import { panelPaletteLabel, panelRegistry, panelRegistryEntry, type PanelRegistryEntry } from "./panelRegistry";
@@ -645,9 +644,7 @@ export function defaultGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRe
 }
 
 export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
-  return panelRegistry.filter((entry) => (
-    entry.insertable !== false && (entry.kind !== "chartAssetOps" || isLocalAgentDebugEnabled())
-  ));
+  return panelRegistry.filter((entry) => entry.insertable !== false);
 }
 
 export function panelPaletteEntryLabel(kind: PanelContentKind): string {

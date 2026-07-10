@@ -2596,7 +2596,7 @@ h2 {
 .chart-analysis-layer-controls {
   position: absolute;
   z-index: 4;
-  bottom: 10px;
+  bottom: 38px;
   left: 10px;
   display: flex;
   max-width: calc(100% - 20px);
@@ -2621,11 +2621,12 @@ h2 {
 
 .chart-analysis-layer-buttons button {
   display: inline-flex;
-  min-width: 44px;
+  width: 30px;
+  min-width: 30px;
   height: 26px;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  padding: 0;
   border: 0;
   border-right: 1px solid var(--color-border);
   background: transparent;
@@ -2758,8 +2759,7 @@ h2 {
   text-transform: var(--type-caption-text-transform);
 }
 
-.chart-commentary-empty,
-.chart-asset-ops-gated {
+.chart-commentary-empty {
   display: flex;
   height: 100%;
   align-items: center;
@@ -2944,7 +2944,7 @@ h2 {
   color: var(--color-muted);
   font: var(--type-caption);
   letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: none;
+  text-transform: var(--type-caption-text-transform);
   white-space: pre-wrap;
 }
 

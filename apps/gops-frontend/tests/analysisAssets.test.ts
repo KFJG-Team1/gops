@@ -7,6 +7,7 @@ import {
   isChartAssetDrawing
 } from "../src/chart/analysisLayerController";
 import type { ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
+import { formatAnalysisAssetAsOf, isAnalysisAssetStale } from "../src/chart/analysisAssetPresentation";
 import type { DrawingEntity } from "../src/chart/types";
 
 const now = "2026-07-10T20:00:00.000Z";
@@ -45,13 +46,22 @@ const asset = {
   },
   chartSetup: {
     alwaysOn: ["volume-profile", "volume"],
-    recommended: [{ layer: "rsi:14", reason: "과매도", source: "rule" }]
+    recommended: [
+      { layer: "rsi:14", reason: "과매도", source: "rule" },
+      { layer: "macd:12:26:9", reason: "교차", source: "rule" },
+      { layer: "ema:20", reason: "방어적 초과 입력", source: "llm" }
+    ]
   },
   commentary: { text: "", keyLevels: [], invalidation: "", confidence: 0.3, enrichment: null }
 } satisfies ChartAnalysisAsset;
 
 assert.equal(isChartAssetDrawing(assetDrawing), true);
 assert.equal(isChartAssetDrawing(userDrawing), false);
+assert.equal(formatAnalysisAssetAsOf("2026-07-10T20:00:00.000Z"), "07-10");
+assert.equal(isAnalysisAssetStale(now, [
+  { timestamp: "2026-07-11T20:00:00.000Z", open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true },
+  { timestamp: "2026-07-12T20:00:00.000Z", open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true }
+]), true);
 
 const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDrawing], asset, {
   structure: true,
@@ -60,7 +70,7 @@ const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDraw
 });
 assert.equal(applyCommands.filter((command) => command.type === "chart.drawing.remove").length, 1);
 assert.equal(applyCommands.every((command) => command.actor === "system" && command.historyScope === "external"), true);
-assert.equal(applyCommands.filter((command) => command.type === "chart.layer.visibility.set").length, 3);
+assert.equal(applyCommands.filter((command) => command.type === "chart.layer.visibility.set").length, 4);
 
 const recovered = analysisLayerToggleCommands(target, [], asset, "structure", true);
 assert.equal(recovered[0]?.type, "chart.drawing.add");

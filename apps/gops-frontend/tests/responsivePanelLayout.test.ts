@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createInitialTiledPanelState,
   gridRectsOverlap,
+  panelPaletteEntries,
   panelGridMetrics,
   panelMinimumRenderedSizeForKind,
   readableMinGridSpanForKind,
@@ -37,6 +38,7 @@ assert.deepEqual(readableMinGridSpanForKind("news"), { colSpan: 2, rowSpan: 2 })
 assert.deepEqual(readableMinGridSpanForKind("chart"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("trade"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("chart"), { width: 320, height: 220 });
+assert.ok(panelPaletteEntries().some((entry) => entry.kind === "chartAssetOps"));
 
 const initial = createInitialTiledPanelState({ width: 854, height: 480 }, {
   symbol: "NVDA",

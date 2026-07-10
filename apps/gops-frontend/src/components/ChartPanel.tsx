@@ -42,6 +42,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
+import { isAnalysisAssetStale } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   type AnalysisAssetInterval,
@@ -51,6 +52,7 @@ import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
+  isChartAssetDrawing,
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
@@ -557,7 +559,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
       ? analysisAssets.assets[interval]
       : null;
-    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none", latestClosedAssetCandleTimestamp ?? "none"].join("|");
+    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none"].join("|");
     if (appliedAnalysisAssetKeyRef.current === applyKey) {
       return;
     }
@@ -2174,12 +2176,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            structure: !activeAnalysisAsset,
-            trend: !activeAnalysisAsset,
-            agent: !activeAnalysisAsset || (activeAnalysisAsset.status === "degraded" && activeAnalysisAsset.layers.agent.drawings.length === 0)
+            structure: !activeAnalysisAsset?.layers.structure.drawings.length,
+            trend: !activeAnalysisAsset?.layers.trend.drawings.length,
+            agent: !activeAnalysisAsset?.layers.agent.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAsset ? isAssetStale(activeAnalysisAsset.asOf, chart.candles) : false}
+          stale={activeAnalysisAsset ? isAnalysisAssetStale(activeAnalysisAsset.asOf, chart.candles) : false}
           onToggle={toggleAnalysisLayer}
         />
         {labelEditor && labelEditorLayout && (
@@ -2334,7 +2336,9 @@ export function ChartDrawingDock({
   };
   const clearAllDrawings = () => {
     dispatchCommandGroup(
-      document.drawings.map((drawing) => makeChartCommand("chart.drawing.remove", "user", target, { drawingId: drawing.id })),
+      document.drawings
+        .filter((drawing) => !isChartAssetDrawing(drawing))
+        .map((drawing) => makeChartCommand("chart.drawing.remove", "user", target, { drawingId: drawing.id })),
       "Clear drawings"
     );
   };
@@ -2929,16 +2933,6 @@ function latestClosedTimestamp(candles: CandleDto[]): string | null {
     }
   }
   return null;
-}
-
-function isAssetStale(asOf: string, candles: CandleDto[]): boolean {
-  const asOfTime = Date.parse(asOf);
-  if (!Number.isFinite(asOfTime)) {
-    return false;
-  }
-  return candles.filter((candle) => (
-    candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime
-  )).length >= 2;
 }
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {

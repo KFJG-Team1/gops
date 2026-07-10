@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   fetchAnalysisAssets,
-  type AnalysisAssetInterval,
-  type ChartAnalysisAsset
+  type AnalysisAssetInterval
 } from "../chart/analysisAssetsApi";
+import { formatAnalysisAssetAsOf, isAnalysisAssetStale } from "../chart/analysisAssetPresentation";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
 
@@ -57,12 +57,12 @@ export function ChartCommentaryPanel({ symbol, interval, candles }: ChartComment
     return <CommentaryEmpty text="분석 자산이 준비되지 않았습니다" />;
   }
 
-  const stale = isAssetStale(asset, candles);
+  const stale = isAnalysisAssetStale(asset.asOf, candles);
   return (
     <article className="chart-commentary-panel" data-enrichment-state={panelState}>
       <header className="chart-commentary-meta">
         <span className="chart-commentary-badge">{interval}</span>
-        <span className={stale ? "is-stale" : ""}>분석 기준 {formatAsOf(asset.asOf)}</span>
+        <span className={stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
         <span className="chart-commentary-confidence">
           <span className={`bottom-chat-confidence-dot ${confidenceTone(asset.commentary.confidence)}`} aria-hidden="true" />
           신뢰도 {Math.round(asset.commentary.confidence * 100)}%
@@ -102,18 +102,6 @@ function CommentaryEmpty({ text, loading = false }: { text: string; loading?: bo
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
   return interval === "1D" || interval === "1W" || interval === "1M";
-}
-
-function isAssetStale(asset: ChartAnalysisAsset, candles: CandleDto[]): boolean {
-  const asOf = Date.parse(asset.asOf);
-  return Number.isFinite(asOf) && candles.filter((candle) => (
-    candle.isClosed !== false && Date.parse(candle.timestamp) > asOf
-  )).length >= 2;
-}
-
-function formatAsOf(value: string): string {
-  const match = value.match(/-(\d{2})-(\d{2})T/);
-  return match ? `${match[1]}-${match[2]}` : value.slice(0, 10);
 }
 
 function confidenceTone(value: number): "high" | "medium" | "low" {

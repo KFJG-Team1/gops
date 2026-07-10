@@ -53,6 +53,8 @@ export type AnalysisAssetsResponse = {
 
 const responseCache = new Map<string, AnalysisAssetsResponse>();
 const inFlight = new Map<string, Promise<AnalysisAssetsResponse>>();
+const symbolGenerations = new Map<string, number>();
+let globalGeneration = 0;
 
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
@@ -64,7 +66,10 @@ export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsRespo
   if (pending) {
     return pending;
   }
-  const request = fetch(`/api/charts/analysis-assets?${new URLSearchParams({ symbol: normalized }).toString()}`, {
+  const requestGlobalGeneration = globalGeneration;
+  const requestSymbolGeneration = symbolGenerations.get(normalized) ?? 0;
+  let request: Promise<AnalysisAssetsResponse>;
+  request = fetch(`/api/charts/analysis-assets?${new URLSearchParams({ symbol: normalized }).toString()}`, {
     headers: { Accept: "application/json" }
   })
     .then(async (response) => {
@@ -76,20 +81,35 @@ export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsRespo
       return normalizeAnalysisAssetsResponse(payload, normalized);
     })
     .then((payload) => {
-      responseCache.set(normalized, payload);
+      if (
+        globalGeneration === requestGlobalGeneration
+        && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration
+      ) {
+        responseCache.set(normalized, payload);
+      }
       return payload;
     })
-    .finally(() => inFlight.delete(normalized));
+    .finally(() => {
+      if (inFlight.get(normalized) === request) {
+        inFlight.delete(normalized);
+      }
+    });
   inFlight.set(normalized, request);
   return request;
 }
 
 export function invalidateAnalysisAssets(symbol?: string): void {
   if (symbol) {
-    responseCache.delete(symbol.trim().toUpperCase());
+    const normalized = symbol.trim().toUpperCase();
+    responseCache.delete(normalized);
+    inFlight.delete(normalized);
+    symbolGenerations.set(normalized, (symbolGenerations.get(normalized) ?? 0) + 1);
     return;
   }
   responseCache.clear();
+  inFlight.clear();
+  symbolGenerations.clear();
+  globalGeneration += 1;
 }
 
 function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: string): AnalysisAssetsResponse {

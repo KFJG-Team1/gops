@@ -8,7 +8,7 @@ export type AnalysisLayerKey = "structure" | "trend" | "agent";
 export type AnalysisLayerVisibility = Record<AnalysisLayerKey, boolean>;
 export type ChartCommandTarget = ChartCommand["target"];
 
-export function isChartAssetDrawing(drawing: DrawingEntity): boolean {
+export function isChartAssetDrawing(drawing: Pick<DrawingEntity, "sourceProposalId">): boolean {
   return drawing.sourceProposalId?.startsWith(chartAssetSourcePrefix) === true;
 }
 
@@ -33,7 +33,10 @@ export function analysisAssetApplyCommands(
       }));
     });
   });
-  const layers = [...asset.chartSetup.alwaysOn, ...asset.chartSetup.recommended.map((item) => item.layer)];
+  const layers = [
+    ...asset.chartSetup.alwaysOn,
+    ...asset.chartSetup.recommended.slice(0, 2).map((item) => item.layer),
+  ];
   [...new Set(layers)].forEach((layer) => {
     commands.push(externalSystemCommand(target, "chart.layer.visibility.set", { layer, visible: true }));
   });

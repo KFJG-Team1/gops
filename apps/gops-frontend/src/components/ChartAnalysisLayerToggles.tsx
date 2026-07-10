@@ -1,4 +1,5 @@
-import { Bot, ChartNoAxesCombined, TrendingUp } from "lucide-react";
+import { ChartNoAxesCombined, Focus, TrendingUp } from "lucide-react";
+import { formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysisLayerController";
 
 type ChartAnalysisLayerTogglesProps = {
@@ -10,9 +11,9 @@ type ChartAnalysisLayerTogglesProps = {
 };
 
 const toggles = [
-  { layer: "structure" as const, label: "S/R", Icon: ChartNoAxesCombined },
+  { layer: "structure" as const, label: "지지·저항", Icon: ChartNoAxesCombined },
   { layer: "trend" as const, label: "추세", Icon: TrendingUp },
-  { layer: "agent" as const, label: "AI", Icon: Bot }
+  { layer: "agent" as const, label: "인사이트", Icon: Focus }
 ];
 
 export function ChartAnalysisLayerToggles({
@@ -37,21 +38,15 @@ export function ChartAnalysisLayerToggles({
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => onToggle(layer)}
           >
-            <Icon size={12} aria-hidden="true" />
-            <span>{label}</span>
+            <Icon size={14} aria-hidden="true" />
           </button>
         ))}
       </div>
       {asOf && (
         <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>
-          분석 기준 {formatAsOf(asOf)}
+          분석 기준 {formatAnalysisAssetAsOf(asOf)}
         </span>
       )}
     </div>
   );
-}
-
-function formatAsOf(value: string): string {
-  const match = value.match(/-(\d{2})-(\d{2})T/);
-  return match ? `${match[1]}-${match[2]}` : value.slice(0, 10);
 }

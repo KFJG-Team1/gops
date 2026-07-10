@@ -32,3 +32,10 @@ assert.deepEqual(
   annotateGlossaryTerms("무효화: 종가 이탈").filter((segment) => segment.glossaryId).map((segment) => segment.text),
   ["무효화"]
 );
+
+assert.deepEqual(
+  annotateGlossaryTerms("양봉 뒤 음봉 전환").filter((segment) => segment.glossaryId).map((segment) => segment.glossaryId),
+  ["bullish_candle", "bearish_candle"]
+);
+assert.equal(annotateGlossaryTerms("가봉된 문서").some((segment) => segment.glossaryId === "candlestick"), false);
+assert.equal(annotateGlossaryTerms("무효성 검사").some((segment) => segment.glossaryId === "invalidation"), false);
