@@ -4,11 +4,11 @@ import {
   firstAvailablePanelGridRect,
   gridRectsOverlap,
   layoutHasGapsOrOverlaps,
-  maxGridSpan,
+  maxGridSpanForKind,
   minGridSpanForKind,
   movePanelSlotToGridRect,
   normalizeFreeformRectsToGridLayout,
-  normalizePanelGridRect,
+  normalizePanelGridRectForKind,
   normalizeTiledPanelStateToWorkspace,
   panelContentTitle,
   panelGridSpec,
@@ -28,6 +28,10 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
   compare: "compareChart",
   company: "companyProfile",
+  companyMulti: "companyMulti",
+  companyValuation: "companyValuation",
+  companyProfitability: "companyProfitability",
+  companyStability: "companyStability",
   indices: "marketIndices",
   popular: "popularStocks",
   recommendations: "stockRecommendations",
@@ -37,13 +41,15 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   watchlistNews: "newsFeed",
   watchlistNewsList: "newsFeed",
   ontology: "ontologyGraph",
-  portfolio: "portfolioHoldings",
+  portfolio: "portfolioDashboard",
+  portfolioMulti: "portfolioMulti",
   portfolioInvestment: "portfolioInvestment",
   portfolioPerformance: "portfolioPerformance",
   portfolioInvested: "portfolioInvested",
   portfolioDividend: "portfolioDividend",
   portfolioDiversification: "portfolioDiversification",
   portfolioHoldings: "portfolioHoldings",
+  portfolioHoldingsCards: "portfolioHoldingsCards",
   orderFlow: "orderFlowProfile",
   trade: "orderTicket"
 };
@@ -367,7 +373,7 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     const slot = panelId ? slotForPanelId(next, panelId) : null;
     const content = slot ? next.contents[slot.contentId] : null;
     if (slot && content && placement?.group === "workspace") {
-      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, minGridSpanForKind(content.kind)));
+      gridRectsBySlotId.set(slot.id, normalizePanelGridRectForKind(placement, content.kind));
     }
     const layoutWeight = readNumber(item.layoutWeight);
     if (panelId && layoutWeight !== null) {
@@ -458,8 +464,8 @@ function minSpanForKind(kind: PanelContentKind) {
   return minGridSpanForKind(kind);
 }
 
-function maxSpanForKind(_kind: PanelContentKind) {
-  return maxGridSpan();
+function maxSpanForKind(kind: PanelContentKind) {
+  return maxGridSpanForKind(kind);
 }
 
 function hasPanelKind(state: TiledPanelState, kind: PanelContentKind): boolean {

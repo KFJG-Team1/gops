@@ -13,6 +13,10 @@ export type PanelContentKind =
   | "chart"
   | "compare"
   | "company"
+  | "companyMulti"
+  | "companyValuation"
+  | "companyProfitability"
+  | "companyStability"
   | "news"
   | "newsList"
   | "watchlistNews"
@@ -23,12 +27,14 @@ export type PanelContentKind =
   | "themeRadar"
   | "ontology"
   | "portfolio"
+  | "portfolioMulti"
   | "portfolioInvestment"
   | "portfolioPerformance"
   | "portfolioInvested"
   | "portfolioDividend"
   | "portfolioDiversification"
   | "portfolioHoldings"
+  | "portfolioHoldingsCards"
   | "orderFlow"
   | "trade";
 
@@ -149,7 +155,9 @@ export const panelLayoutStorageKey = "gops:workspace-grid-layout:v1";
 const epsilon = 0.5;
 const defaultViewport: ViewportSize = { width: 1280, height: 720 };
 
-export const insertablePanelKinds: PanelContentKind[] = panelRegistry.map((entry) => entry.kind);
+export const insertablePanelKinds: PanelContentKind[] = panelRegistry
+  .filter((entry) => entry.insertable !== false)
+  .map((entry) => entry.kind);
 
 export function workspaceBounds(
   viewport: ViewportSize,
@@ -401,7 +409,7 @@ export function normalizeTiledPanelStateToWorkspace(
   const slots = state.slots.map((slot) => {
     const content = state.contents[slot.contentId];
     const kind = content?.kind ?? "news";
-    const gridRect = normalizePanelGridRect(slot.gridRect, minGridSpanForKind(kind));
+    const gridRect = normalizePanelGridRectForKind(slot.gridRect, kind);
     const rect = panelRectForGridRect(gridRect, viewport, layoutMetrics);
     const minSize = minPanelPixelSizeForKind(kind, viewport, layoutMetrics);
     if (!gridRectEquals(gridRect, slot.gridRect) || !rectEquals(rect, slot.rect) || slot.minWidth !== minSize.minWidth || slot.minHeight !== minSize.minHeight) {
@@ -578,6 +586,20 @@ export function minGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, 
   return panelRegistryEntry(kind).minSpan;
 }
 
+export function maxGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
+  return panelRegistryEntry(kind).maxSpan ?? maxGridSpan();
+}
+
+export function normalizePanelGridRectForKind(gridRect: PanelGridRect, kind: PanelContentKind): PanelGridRect {
+  const minSpan = minGridSpanForKind(kind);
+  const maxSpan = maxGridSpanForKind(kind);
+  return normalizePanelGridRect({
+    ...gridRect,
+    colSpan: Math.min(gridRect.colSpan, maxSpan.colSpan),
+    rowSpan: Math.min(gridRect.rowSpan, maxSpan.rowSpan)
+  }, minSpan);
+}
+
 export function maxGridSpan(): Pick<PanelGridRect, "colSpan" | "rowSpan"> {
   return { colSpan: panelGridSpec.cols, rowSpan: panelGridSpec.rows };
 }
@@ -587,7 +609,7 @@ export function defaultGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRe
 }
 
 export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
-  return panelRegistry;
+  return panelRegistry.filter((entry) => entry.insertable !== false);
 }
 
 export function panelPaletteEntryLabel(kind: PanelContentKind): string {
@@ -688,7 +710,7 @@ export function canPlaceGridRect(
   gridRect: PanelGridRect,
   options: { exceptSlotId?: PanelSlotId; kind?: PanelContentKind } = {}
 ): boolean {
-  const normalized = normalizePanelGridRect(gridRect, options.kind ? minGridSpanForKind(options.kind) : undefined);
+  const normalized = options.kind ? normalizePanelGridRectForKind(gridRect, options.kind) : normalizePanelGridRect(gridRect);
   if (!gridRectEquals(normalized, gridRect)) {
     return false;
   }
@@ -709,7 +731,7 @@ export function addPanelSlotAtGridRect(
   viewport: ViewportSize = viewportFromState(state),
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, kind);
   if (!options.allowOverlap && !canPlaceGridRect(state, normalized, { kind })) {
     return state;
   }
@@ -748,7 +770,7 @@ export function movePanelSlotToGridRect(
   if (!slot || !kind) {
     return state;
   }
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, kind);
   if (!canPlaceGridRect(state, normalized, { exceptSlotId: slot.id, kind })) {
     return state;
   }
@@ -785,7 +807,7 @@ export function resolvePanelResizeWithYield(
       reason: "source-not-found"
     };
   }
-  const sourceGridRect = normalizePanelGridRect(desiredGridRect, minGridSpanForKind(kind));
+  const sourceGridRect = normalizePanelGridRectForKind(desiredGridRect, kind);
   if (!gridRectEquals(sourceGridRect, desiredGridRect)) {
     return {
       valid: false,
@@ -1079,7 +1101,7 @@ function createPanelSlot(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): PanelSlot {
-  const normalized = normalizePanelGridRect(gridRect, minGridSpanForKind(content.kind));
+  const normalized = normalizePanelGridRectForKind(gridRect, content.kind);
   return {
     id,
     contentId: content.id,
@@ -1110,15 +1132,16 @@ function preferredGridRectFromPanelRect(
 ): PanelGridRect {
   const metrics = panelGridMetrics(viewport, layoutMetrics);
   const minSpan = minGridSpanForKind(kind);
-  const colSpan = clampInt(Math.round((rect.width + metrics.gutter) / metrics.stepX), minSpan.colSpan, panelGridSpec.cols);
-  const rowSpan = clampInt(Math.round((rect.height + metrics.gutter) / metrics.stepY), minSpan.rowSpan, panelGridSpec.rows);
+  const maxSpan = maxGridSpanForKind(kind);
+  const colSpan = clampInt(Math.round((rect.width + metrics.gutter) / metrics.stepX), minSpan.colSpan, maxSpan.colSpan);
+  const rowSpan = clampInt(Math.round((rect.height + metrics.gutter) / metrics.stepY), minSpan.rowSpan, maxSpan.rowSpan);
   const spanWidth = colSpan * metrics.cellWidth + Math.max(0, colSpan - 1) * metrics.gutter;
   const spanHeight = rowSpan * metrics.cellHeight + Math.max(0, rowSpan - 1) * metrics.gutter;
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
   const col = Math.round((centerX - spanWidth / 2 - metrics.left) / metrics.stepX) + 1;
   const row = Math.round((centerY - spanHeight / 2 - metrics.top) / metrics.stepY) + 1;
-  return normalizePanelGridRect({ col, row, colSpan, rowSpan }, minSpan);
+  return normalizePanelGridRectForKind({ col, row, colSpan, rowSpan }, kind);
 }
 
 function candidateSpans(

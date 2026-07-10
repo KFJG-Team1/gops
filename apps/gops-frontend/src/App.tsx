@@ -98,7 +98,7 @@ type InteractiveAgentContext = {
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
 const agentDebugStorageKey = "gops:agent-debug";
-const appUiScale = 1.2;
+const appUiScale = 1.4;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = { topInset: workspaceTopInset };
 const orderFlowDemoDefaultSymbol = "NVDA";
 

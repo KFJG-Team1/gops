@@ -593,7 +593,7 @@ function createGraphController(
         return source + "|" + target;
       })
       .join("line")
-      .attr("class", (d) => "ofg-link" + (d.kind === "chip" ? " ofg-link-chip" : d.kind === "cross" ? " ofg-link-cross" : ""));
+      .attr("class", (d) => `ofg-link ofg-link-${d.kind}`);
 
     const nodeGroups = nodeLayer
       .selectAll<SVGGElement, SimNode>("g.ofg-node")

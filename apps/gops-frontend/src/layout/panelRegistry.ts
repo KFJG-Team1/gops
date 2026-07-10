@@ -7,7 +7,9 @@ export type PanelRegistryEntry = {
   agentPanelType: AgentLayoutPanelType;
   minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
   defaultSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
+  maxSpan?: Pick<PanelGridRect, "colSpan" | "rowSpan">;
   defaultLayoutWeight: number;
+  insertable?: boolean;
 };
 
 export const panelRegistry: readonly PanelRegistryEntry[] = [
@@ -108,19 +110,61 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "companyMulti",
+    title: "기업 멀티",
+    agentPanelType: "companyMulti",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 72
+  },
+  {
+    kind: "companyValuation",
+    title: "가치평가",
+    agentPanelType: "companyValuation",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
+    kind: "companyProfitability",
+    title: "수익성",
+    agentPanelType: "companyProfitability",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
+    kind: "companyStability",
+    title: "안정성",
+    agentPanelType: "companyStability",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
     kind: "portfolio",
-    title: "Holdings",
-    agentPanelType: "portfolioHoldings",
+    title: "Portfolio Legacy",
+    agentPanelType: "portfolioDashboard",
     minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
-    defaultLayoutWeight: 35
+    defaultLayoutWeight: 35,
+    insertable: false
+  },
+  {
+    kind: "portfolioMulti",
+    title: "Dual Portfolio",
+    agentPanelType: "portfolioMulti",
+    minSpan: { colSpan: 2, rowSpan: 3 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    maxSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 90
   },
   {
     kind: "portfolioInvestment",
     title: "US Portfolio",
     agentPanelType: "portfolioInvestment",
     minSpan: { colSpan: 2, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 6 },
     defaultLayoutWeight: 38
   },
   {
@@ -128,7 +172,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Performance",
     agentPanelType: "portfolioPerformance",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    defaultSpan: { colSpan: 3, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
     defaultLayoutWeight: 42
   },
   {
@@ -136,7 +180,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Invested",
     agentPanelType: "portfolioInvested",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
     defaultLayoutWeight: 36
   },
   {
@@ -144,7 +188,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Dividend",
     agentPanelType: "portfolioDividend",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    defaultSpan: { colSpan: 3, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
     defaultLayoutWeight: 34
   },
   {
@@ -152,16 +196,24 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Diversification",
     agentPanelType: "portfolioDiversification",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
     defaultLayoutWeight: 36
   },
   {
     kind: "portfolioHoldings",
-    title: "Holdings",
+    title: "Holdings 표",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 2, rowSpan: 2 },
     defaultSpan: { colSpan: 5, rowSpan: 3 },
     defaultLayoutWeight: 40
+  },
+  {
+    kind: "portfolioHoldingsCards",
+    title: "Holdings 카드",
+    agentPanelType: "portfolioHoldingsCards",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
+    defaultLayoutWeight: 39
   },
   {
     kind: "orderFlow",
