@@ -882,6 +882,143 @@ button {
   pointer-events: auto;
 }
 
+.simulator-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  border-radius: 999px;
+  padding: 3px;
+  background: color-mix(in srgb, var(--color-background) 92%, var(--color-surface-strong));
+  font-family: var(--font-data-sans);
+}
+
+.simulator-mode-control.is-simulation {
+  border-color: color-mix(in srgb, #ffb14a 60%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ffb14a 9%, transparent);
+}
+
+.simulator-mode-toggle,
+.simulator-run-controls button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.simulator-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 7px;
+  font-family: inherit;
+  font-size: var(--type-micro);
+  font-weight: 820;
+  letter-spacing: .04em;
+}
+
+.simulator-mode-toggle i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #789087;
+}
+
+.is-simulation .simulator-mode-toggle i {
+  background: #ff9e35;
+  box-shadow: 0 0 9px #ff9e35;
+  animation: simulator-live-pulse 1.5s ease-in-out infinite;
+}
+
+.simulator-run-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.simulator-run-controls strong {
+  min-width: 48px;
+  color: #c66e00;
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulator-run-controls button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.simulator-run-controls button:hover {
+  background: var(--color-surface-strong);
+}
+
+@keyframes simulator-live-pulse {
+  50% { opacity: .45; }
+}
+
+.simulator-breaking-toast {
+  position: fixed;
+  z-index: 80;
+  top: calc(var(--top-nav-height) + 14px);
+  left: 50%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 4px 10px;
+  width: min(590px, calc(100vw - 30px));
+  border: 1px solid #d94a41;
+  border-radius: 12px;
+  padding: 11px 11px 11px 15px;
+  background: color-mix(in srgb, var(--color-background) 96%, #c9251b);
+  box-shadow: 0 18px 55px rgb(70 0 0 / 24%);
+  color: var(--color-text);
+  transform: translateX(-50%);
+  animation: simulator-breaking-enter 240ms ease-out both;
+}
+
+.simulator-breaking-kicker {
+  grid-column: 1 / -1;
+  color: #d43f36;
+  font-family: var(--font-data-sans);
+  font-size: var(--type-micro);
+  font-weight: 900;
+  letter-spacing: .09em;
+}
+
+.simulator-breaking-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.simulator-breaking-copy strong { font-size: var(--type-body); }
+.simulator-breaking-copy span { color: var(--color-muted); font-size: var(--type-compact); }
+.simulator-breaking-copy small { color: #c33b33; font-size: var(--type-micro); font-weight: 750; }
+
+.simulator-breaking-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+
+@keyframes simulator-breaking-enter {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+}
+
 .workspace-top-login {
   display: inline-flex;
   align-items: center;
@@ -7109,6 +7246,54 @@ h2 {
 
 .order-ticket-v2 {
   gap: 10px;
+}
+
+.simulation-order-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, #ffad3d 45%, var(--color-border));
+  border-radius: 9px;
+  padding: 8px 9px;
+  background: color-mix(in srgb, #ffad3d 8%, var(--color-background));
+}
+
+.simulation-order-banner > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.simulation-order-banner span {
+  color: #b96d0b;
+  font-size: var(--type-micro);
+  font-weight: 850;
+}
+
+.simulation-order-banner strong {
+  overflow: hidden;
+  font-size: var(--type-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simulation-order-banner button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--color-background);
+  color: var(--color-muted);
+  font-size: var(--type-micro);
+  font-weight: 800;
+}
+
+.simulation-order-banner button.active {
+  border-color: #d78720;
+  background: #d78720;
+  color: #fff;
 }
 
 .order-form-stack {
