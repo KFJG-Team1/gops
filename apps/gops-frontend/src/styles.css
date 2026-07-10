@@ -195,7 +195,7 @@
   --app-logical-height: 100vh;
   --top-nav-height: 48px;
   --bottom-nav-height: 64px;
-  --bottom-control-size: 36px;
+  --bottom-control-size: 50px;
   /* Pull floating tool docks slightly into the bottom command band. The visible workspace
      bottom now tracks the command band height in layout/workspaceMetrics.ts. */
   --tool-dock-drop: 10px;
@@ -1684,6 +1684,165 @@ h2 {
   touch-action: none;
 }
 
+.treemap-hover-panel {
+  position: absolute;
+  z-index: 3;
+  overflow: hidden;
+  border: 1px solid #d9dde3;
+  border-radius: var(--app-glass-radius);
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.24);
+  color: #202733;
+  pointer-events: none;
+}
+
+.treemap-hover-header {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  overflow: hidden;
+  border-bottom: 1px solid #e2e5e9;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #4b5563;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-caption-text-transform);
+  white-space: nowrap;
+}
+
+.treemap-hover-featured {
+  box-sizing: border-box;
+  height: 84px;
+  overflow: hidden;
+  border-bottom: 1px solid rgb(0 0 0 / 0.08);
+  padding: 8px 12px;
+  background: #6f6f6f;
+}
+
+.treemap-hover-featured.is-up {
+  background: var(--color-change-up);
+}
+
+.treemap-hover-featured.is-down {
+  background: var(--color-change-down);
+}
+
+.treemap-hover-featured-summary {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.treemap-hover-featured-symbol,
+.treemap-hover-featured-quote {
+  overflow: hidden;
+  color: var(--color-text);
+  font: var(--type-title-lg);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-title-lg-text-transform);
+  white-space: nowrap;
+}
+
+.treemap-hover-featured-symbol {
+  flex: 0 1 auto;
+}
+
+.treemap-hover-featured-quote {
+  flex: 1 1 auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.treemap-hover-featured-company {
+  overflow: hidden;
+  color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-label-md-text-transform);
+  white-space: nowrap;
+}
+
+.treemap-hover-featured-detail {
+  overflow: hidden;
+  color: rgb(255 255 255 / 0.78);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-body-md-text-transform);
+  white-space: nowrap;
+}
+
+.treemap-hover-rows {
+  background: #ffffff;
+  padding-bottom: 8px;
+}
+
+.treemap-hover-row {
+  display: grid;
+  box-sizing: border-box;
+  height: 28px;
+  grid-template-columns: 54px minmax(0, 1fr) 82px 70px;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid #e7e9ec;
+  padding: 0 12px;
+  color: #202733;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+  transition: background-color 120ms ease;
+}
+
+.treemap-hover-row:nth-child(even) {
+  background: #f6f7f9;
+}
+
+.treemap-hover-row.is-hovered {
+  background: #e9edf2;
+}
+
+.treemap-hover-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treemap-hover-row-symbol {
+  color: #202733;
+}
+
+.treemap-hover-row-company {
+  color: #6b7280;
+}
+
+.treemap-hover-row-price {
+  color: #202733;
+}
+
+.treemap-hover-row-price,
+.treemap-hover-row-change {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.treemap-hover-row-change.is-up {
+  color: var(--color-change-up);
+}
+
+.treemap-hover-row-change.is-down {
+  color: var(--color-change-down);
+}
+
+.treemap-hover-row-change.is-flat {
+  color: #6b7280;
+}
+
 .chart-canvas {
   display: block;
   width: 100%;
@@ -2773,6 +2932,41 @@ h2 {
   transition: top 180ms ease, height 180ms ease, left 180ms ease, width 180ms ease, opacity 120ms ease, transform 120ms ease;
 }
 
+/* Panel content is intentionally one typography step larger than the shared app chrome.
+   The compact index and editorial theme-radar panels keep their established scale. */
+.workspace-panel-frame:not([data-panel-kind="indices"]):not([data-panel-kind="themeRadar"]) {
+  --type-display-lg: 500 48px/1.1 var(--font-data-sans);
+  --type-display-lg-letter-spacing: 0;
+  --type-display-lg-text-transform: none;
+  --type-display-md: 400 40px/1.2 var(--font-data-sans);
+  --type-display-md-letter-spacing: 0;
+  --type-display-md-text-transform: none;
+  --type-title-lg: 400 32px/1.2 var(--font-data-sans);
+  --type-title-lg-letter-spacing: 0;
+  --type-title-lg-text-transform: none;
+  --type-title-md: 400 24px/1.35 var(--font-data-sans);
+  --type-title-md-letter-spacing: 0.12px;
+  --type-title-md-text-transform: none;
+  --type-title-sm: 400 20px/1.5 var(--font-data-sans);
+  --type-title-sm-letter-spacing: 0;
+  --type-title-sm-text-transform: none;
+  --type-label-md: 500 18px/1.4 var(--font-data-sans);
+  --type-label-md-letter-spacing: 0;
+  --type-label-md-text-transform: none;
+  --type-button: 500 18px/1.4 var(--font-data-sans);
+  --type-button-letter-spacing: 0;
+  --type-button-text-transform: none;
+  --type-body-md: 500 16px/1.4 var(--font-data-sans);
+  --type-body-md-letter-spacing: 0;
+  --type-body-md-text-transform: none;
+  --type-caption: 500 16px/1.4 var(--font-data-sans);
+  --type-caption-letter-spacing: 0;
+  --type-caption-text-transform: none;
+  --type-legal: 500 14px/1.35 var(--font-data-sans);
+  --type-legal-letter-spacing: 0.16px;
+  --type-legal-text-transform: none;
+}
+
 .workspace-panel-frame.is-layout-resizing {
   transition: none;
 }
@@ -2863,8 +3057,8 @@ h2 {
   }
 }
 
-/* The panel name is chrome-free: an overlay revealed only on hover or in layout-edit mode,
-   so the content fills the whole panel and the layout (not per-panel title bars) reads. */
+/* The panel name is chrome-free: its overlay appears only in layout-edit mode,
+   so the content fills the whole panel during normal use. */
 .workspace-panel-nav {
   position: absolute;
   z-index: 18;
@@ -2881,7 +3075,6 @@ h2 {
   user-select: none;
 }
 
-.workspace-panel-frame:hover .workspace-panel-nav,
 .workspace-panel-frame.is-layout-editing .workspace-panel-nav {
   opacity: 1;
 }
@@ -4355,26 +4548,29 @@ h2 {
 }
 
 .watchlist-news-panel.is-flip-view .news-card-face {
-  padding: 43px 12px 13px;
+  padding: 48px clamp(24px, 5cqw, 36px) clamp(48px, 12cqh, 72px);
 }
 
 .market-news-panel.is-flip-view .news-card-title {
-  max-width: 42ch;
-  text-transform: var(--type-display-md-text-transform);
-  letter-spacing: var(--type-display-md-letter-spacing);
-  font: var(--type-display-md);
-  white-space: nowrap;
-  -webkit-line-clamp: 1;
+  --type-display-lg: 400 40px/1.2 var(--font-data-sans);
+  --type-display-lg-letter-spacing: 0;
+  --type-display-lg-text-transform: none;
+  max-width: min(42ch, 100%);
+  text-transform: var(--type-display-lg-text-transform);
+  letter-spacing: var(--type-display-lg-letter-spacing);
+  font: var(--type-display-lg);
+  white-space: normal;
+  -webkit-line-clamp: 3;
 }
 
 .watchlist-news-panel.is-flip-view .news-card-pagination {
-  right: 8px;
-  bottom: 5px;
-  left: 8px;
+  right: 18px;
+  bottom: 14px;
+  left: 18px;
 }
 
 .watchlist-news-panel.is-flip-view .news-card-pagination button {
-  height: 2px;
+  height: 3px;
 }
 
 .watchlist-news-panel.is-flip-view .watchlist-selected-company {
@@ -4407,7 +4603,7 @@ h2 {
   overflow: hidden;
   border: 1px solid var(--coinbase-hairline);
   border-radius: inherit;
-  padding: clamp(16px, 5cqh, 34px) clamp(16px, 5cqw, 36px) clamp(34px, 9cqh, 56px);
+  padding: clamp(20px, 5cqh, 32px) clamp(24px, 5cqw, 40px) clamp(48px, 12cqh, 72px);
   background:
     linear-gradient(rgb(var(--framer-ink-rgb) / 0.025) 1px, transparent 1px) 0 0 / 100% 25%,
     var(--coinbase-canvas);
@@ -4478,8 +4674,8 @@ h2 {
 .news-card-shade {
   z-index: 1;
   background:
-    linear-gradient(180deg, rgb(var(--framer-canvas-rgb) / 0.02) 0%, rgb(var(--framer-canvas-rgb) / 0.12) 42%, rgb(var(--framer-canvas-rgb) / 0.72) 100%),
-    linear-gradient(90deg, rgb(var(--framer-canvas-rgb) / 0.28), transparent 72%);
+    linear-gradient(180deg, rgb(var(--framer-canvas-rgb) / 0.04) 0%, rgb(var(--framer-canvas-rgb) / 0.48) 44%, rgb(var(--framer-canvas-rgb) / 0.96) 100%),
+    linear-gradient(90deg, rgb(var(--framer-canvas-rgb) / 0.52), transparent 78%);
 }
 
 .news-card-title {
@@ -4507,9 +4703,9 @@ h2 {
 
 .news-card-pagination {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
+  right: 18px;
+  bottom: 16px;
+  left: 18px;
   z-index: 7;
   display: flex;
   min-width: 0;
@@ -4553,13 +4749,13 @@ h2 {
 }
 
 @keyframes news-card-flip-out {
-  0%, 48% { transform: rotateX(0deg); }
-  50%, 100% { transform: rotateX(-90deg); }
+  0%, 42% { opacity: 1; transform: rotateX(0deg); }
+  50%, 100% { opacity: 0; transform: rotateX(-90deg); }
 }
 
 @keyframes news-card-flip-in {
-  0%, 49% { transform: rotateX(90deg); }
-  52%, 100% { transform: rotateX(0deg); }
+  0%, 50% { opacity: 0; transform: rotateX(90deg); }
+  58%, 100% { opacity: 1; transform: rotateX(0deg); }
 }
 
 @keyframes news-card-progress {
@@ -5737,6 +5933,9 @@ h2 {
 }
 
 .market-news-date {
+  --type-title-md: 400 20px/1.5 var(--font-data-sans);
+  --type-title-md-letter-spacing: 0;
+  --type-title-md-text-transform: none;
   text-transform: var(--type-title-md-text-transform);
   letter-spacing: var(--type-title-md-letter-spacing);
   font: var(--type-title-md);
@@ -8918,6 +9117,12 @@ h2 {
   color: var(--coinbase-on-primary);
 }
 
+.stock-rec-session-toggle button.active {
+  border-color: var(--coinbase-ink);
+  background: var(--coinbase-ink);
+  color: var(--coinbase-canvas);
+}
+
 .icon-button:hover:not(:disabled),
 .chart-compare-range-tabs button:hover,
 .symbol-search > button:hover:not(:disabled),
@@ -9058,6 +9263,18 @@ textarea:focus,
 /* Fixed bottom command surface: this is not part of the customizable panel grid. It stays
    pinned to the canvas and removes card borders/shadows from the input and base controls. */
 .workspace-bottom-nav {
+  --type-label-md: 500 18px/1.4 var(--font-data-sans);
+  --type-label-md-letter-spacing: 0;
+  --type-label-md-text-transform: none;
+  --type-button: 500 18px/1.4 var(--font-data-sans);
+  --type-button-letter-spacing: 0;
+  --type-button-text-transform: none;
+  --type-body-md: 500 16px/1.4 var(--font-data-sans);
+  --type-body-md-letter-spacing: 0;
+  --type-body-md-text-transform: none;
+  --type-caption: 500 16px/1.4 var(--font-data-sans);
+  --type-caption-letter-spacing: 0;
+  --type-caption-text-transform: none;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -9329,32 +9546,32 @@ textarea:focus,
 }
 
 .bottom-command-slot.is-agent {
-  width: clamp(348px, calc(42vw + 48px), 608px);
+  width: clamp(380px, calc(46vw + 56px), 680px);
 }
 
 .agent-dock {
   --agent-bar-stroke: rgb(255 255 255 / 0.24);
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 608px;
+  gap: 10px;
+  max-width: 680px;
 }
 
 .workspace-bottom-nav .agent-box {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 42px;
-  gap: 5px;
+  min-height: 50px;
+  gap: 6px;
   border: 0;
   border-radius: 999px;
-  padding: 4px 5px 4px 13px;
+  padding: 4px 6px 4px 15px;
   background: #1b1b1b;
   color: #ffffff;
   box-shadow: inset 0 0 0 1px var(--agent-bar-stroke);
 }
 
 .workspace-bottom-nav .agent-box input {
-  height: 34px;
+  height: 40px;
   border: 0;
   border-radius: 0;
   padding-inline: 4px 8px;
@@ -9377,9 +9594,9 @@ textarea:focus,
 }
 
 .workspace-bottom-nav .agent-box button {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -9430,7 +9647,7 @@ textarea:focus,
 .workspace-bottom-nav .agent-box button.agent-reference-chip {
   width: auto;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   border: 0;
   padding-inline: 8px;
   background: transparent;
@@ -9442,9 +9659,9 @@ textarea:focus,
   position: relative;
   z-index: 2;
   display: inline-grid;
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
+  flex: 0 0 50px;
+  width: 50px;
+  height: 50px;
   place-items: center;
   padding: 0;
   border: 0;
@@ -9452,6 +9669,12 @@ textarea:focus,
   background: #1b1b1b;
   color: #ffffff;
   box-shadow: inset 0 0 0 1px var(--agent-bar-stroke);
+}
+
+.workspace-bottom-nav .agent-box button svg,
+.workspace-bottom-nav .agent-log-button svg {
+  width: 20px;
+  height: 20px;
 }
 
 .workspace-bottom-nav .agent-log-button:hover,
@@ -9497,13 +9720,13 @@ textarea:focus,
   }
 
   .workspace-bottom-nav .agent-box {
-    min-height: 44px;
+    min-height: 50px;
   }
 
   .workspace-bottom-nav .agent-log-button {
-    flex-basis: 44px;
-    width: 44px;
-    height: 44px;
+    flex-basis: 50px;
+    width: 50px;
+    height: 50px;
   }
 
 }
