@@ -79,9 +79,11 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     spec: [
       {
         kind: "portfolioMulti",
-        gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 3 },
+        gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 5 },
         props: { portfolioLayoutVersion: ASSET_PORTFOLIO_LAYOUT_VERSION }
-      }
+      },
+      { kind: "portfolioHoldings", gridRect: { col: 3, row: 1, colSpan: 4, rowSpan: 5 } },
+      { kind: "trade", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 5 } }
     ]
   }
 };

@@ -2,6 +2,13 @@ import { LoaderCircle, LogIn, Minus, Plus, Search, SendHorizontal } from "lucide
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
+import {
+  fetchSimulatorStatus,
+  requestPortfolioRefresh,
+  simulatorStatusEvent,
+  submitSimulatorBasket,
+  type SimulatorStatus
+} from "../simulator/simulatorApi";
 
 type OrderSide = "buy" | "sell";
 type OrderMarket = "overseas";
@@ -34,6 +41,7 @@ type OrderSnapshot = {
   qty?: string;
   price?: string;
   reason?: string | null;
+  simulation?: boolean;
 };
 
 type OrderEvent = {
@@ -277,6 +285,8 @@ export function OrderTicket({
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | undefined>();
   const [socketState, setSocketState] = useState<"idle" | "open" | "closed">("idle");
+  const [simulationMode, setSimulationMode] = useState(false);
+  const [useDemoBasket, setUseDemoBasket] = useState(true);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -291,6 +301,25 @@ export function OrderTicket({
   useEffect(() => {
     return () => {
       socketRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => void fetchSimulatorStatus()
+      .then((status) => {
+        if (!cancelled) setSimulationMode(status.mode === "simulation");
+      })
+      .catch(() => undefined);
+    const handleStatus = (event: Event) => {
+      const detail = (event as CustomEvent<SimulatorStatus>).detail;
+      setSimulationMode(detail?.mode === "simulation");
+    };
+    refresh();
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(simulatorStatusEvent, handleStatus);
     };
   }, []);
 
@@ -364,7 +393,7 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [currentPrice, form.exchange, form.orderType, form.price, form.symbol]);
+  }, [currentPrice, form.exchange, form.orderType, form.price, form.symbol, simulationMode]);
 
   const selectOrderSymbol = (symbolValue: string) => {
     const symbol = normalizeSupportedSymbol(symbolValue);
@@ -457,6 +486,34 @@ export function OrderTicket({
     setSubmitting(true);
     setError(undefined);
     const idempotencyKey = makeIdempotencyKey();
+    if (simulationMode && useDemoBasket) {
+      try {
+        const payload = await submitSimulatorBasket(form.side, idempotencyKey);
+        const orders = payload.orders;
+        const orderIds = orders.map((item) => String(item.order_id ?? "")).filter(Boolean);
+        setOrder({
+          order_id: orderIds.join(", ") || `sim-basket-${Date.now()}`,
+          request_id: idempotencyKey,
+          client_order_id: idempotencyKey,
+          status: "filled",
+          side: form.side,
+          qty: String(orders.length),
+          simulation: true
+        });
+        setEvents(orders.map((item, index) => ({
+          event_id: String(item.order_id ?? index),
+          status: String(item.status ?? "filled"),
+          reason: `${String(item.symbol ?? "")} ${String(item.qty ?? "")}주 · SIM 체결`
+        })));
+        setSocketState("closed");
+        requestPortfolioRefresh();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "SIM 바스켓 주문에 실패했습니다.");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     if (form.orderType === "current" && currentPrice === undefined) {
       setError("현재가를 확인할 수 없어 주문을 전송할 수 없습니다.");
       setSubmitting(false);
@@ -500,7 +557,13 @@ export function OrderTicket({
       }
       setOrder(payload);
       setEvents([]);
-      connectSocket(payload.order_id);
+      if (payload.simulation) {
+        setSocketState("closed");
+        setEvents([{ status: "filled", reason: `${payload.symbol ?? form.symbol} ${payload.qty ?? form.qty}주 · SIM 체결` }]);
+        requestPortfolioRefresh();
+      } else {
+        connectSocket(payload.order_id);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "주문 요청에 실패했습니다.");
     } finally {
@@ -520,6 +583,24 @@ export function OrderTicket({
           매도
         </button>
       </div>
+
+      {simulationMode && (
+        <div className="simulation-order-banner">
+          <div>
+            <span>SIMULATION · 실제 주문 전송 없음</span>
+            <strong>{form.side === "sell" ? "반도체 5종 전량 매도" : "가용 현금으로 에너지 3종 매수"}</strong>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={useDemoBasket}
+            className={useDemoBasket ? "active" : ""}
+            onClick={() => setUseDemoBasket((current) => !current)}
+          >
+            {useDemoBasket ? "바스켓 ON" : "개별 주문"}
+          </button>
+        </div>
+      )}
 
       <div
         className="order-form-row order-symbol-row"
@@ -675,7 +756,13 @@ export function OrderTicket({
         {authEnabled && !user
           ? <LogIn size={14} />
           : submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
-        {authEnabled && !user ? "로그인" : submitting ? "전송 중" : `${sideLabels[form.side]} 주문 전송`}
+        {authEnabled && !user
+          ? "로그인"
+          : submitting
+            ? "전송 중"
+            : simulationMode && useDemoBasket
+              ? form.side === "sell" ? "반도체 5종 매도" : "에너지 3종 매수"
+              : `${sideLabels[form.side]} 주문 전송`}
       </button>
 
       {error && <div className="order-error">{error}</div>}

@@ -37,8 +37,10 @@ type TreeMapSymbolBounds = {
 
 type TreeMapHoverState = {
   tile: TreeMapTile;
-  x: number;
-  y: number;
+  panelX: number;
+  panelY: number;
+  panelWidth: number;
+  panelHeight: number;
 };
 
 const canvasPadding = 4;
@@ -46,13 +48,18 @@ const labelPadding = 8;
 const tileGap = 0.85;
 const hoverPanelMargin = 10;
 const hoverPanelOffset = 16;
-const hoverPanelHeaderHeight = 28;
-const hoverPanelFeaturedHeight = 64;
-const hoverPanelRowHeight = 24;
+const hoverPanelHeaderHeight = 32;
+const hoverPanelFeaturedHeight = 84;
+const hoverPanelRowHeight = 28;
 const hoverPanelVerticalPadding = 8;
 const hoverPanelMaxRows = 12;
 const categoryHighlightColor = "#ffeb00";
 const categoryDividerLineWidth = tileGap * 2;
+
+type TreeMapHoverPanelModel = {
+  panel: TreeMapRect;
+  rows: TreeMapTile[];
+};
 
 export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -82,6 +89,10 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
     height: Math.max(1, size.height - canvasPadding * 2)
   }), [inputItems, size.height, size.width]);
   const opacityScale = useMemo(() => createTreeMapOpacityScale(inputItems.map((item) => item.changePercent)), [inputItems]);
+  const hoverPanel = useMemo(
+    () => buildHoverPanelModel(hoverState, tiles),
+    [hoverState, tiles]
+  );
 
   useEffect(() => {
     tilesRef.current = tiles;
@@ -132,6 +143,10 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    const panelWidth = event.currentTarget.offsetWidth;
+    const panelHeight = event.currentTarget.offsetHeight;
+    const panelScaleX = panelWidth / Math.max(1, rect.width);
+    const panelScaleY = panelHeight / Math.max(1, rect.height);
     const next = hitTestTreeMapTile(tilesRef.current, x, y) ?? null;
     setHoverState((current) => {
       if (!next) {
@@ -143,7 +158,13 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
       if (current?.tile.id !== next.id) {
         onHoverTileChange?.(next);
       }
-      return { tile: next, x, y };
+      return {
+        tile: next,
+        panelX: x * panelScaleX,
+        panelY: y * panelScaleY,
+        panelWidth,
+        panelHeight
+      };
     });
   };
 
@@ -173,7 +194,53 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
         onPointerLeave={interactive ? clearHover : undefined}
         onClick={interactive ? selectHoveredTile : undefined}
       />
+      {hoverPanel && hoverState ? (
+        <TreeMapHoverPanel model={hoverPanel} hoveredTile={hoverState.tile} />
+      ) : null}
     </section>
+  );
+}
+
+function TreeMapHoverPanel({ model, hoveredTile }: { model: TreeMapHoverPanelModel; hoveredTile: TreeMapTile }) {
+  const detailText = hoverDetailText(hoveredTile);
+  const tone = toneForChange(hoveredTile.changePercent);
+
+  return (
+    <aside
+      className="treemap-hover-panel"
+      style={{
+        left: model.panel.x,
+        top: model.panel.y,
+        width: model.panel.width,
+        height: model.panel.height
+      }}
+      aria-hidden="true"
+    >
+      <div className="treemap-hover-header">{hoverCategoryTitle(hoveredTile)}</div>
+      <div className={`treemap-hover-featured is-${tone}`}>
+        <div className="treemap-hover-featured-summary">
+          <span className="treemap-hover-featured-symbol">{hoveredTile.symbol || hoveredTile.label}</span>
+          <span className="treemap-hover-featured-quote">{formatHoverQuote(hoveredTile)}</span>
+        </div>
+        <div className="treemap-hover-featured-company">{hoveredTile.companyName || ""}</div>
+        {detailText ? <div className="treemap-hover-featured-detail">{detailText}</div> : null}
+      </div>
+      <div className="treemap-hover-rows">
+        {model.rows.map((tile) => (
+          <div
+            key={tile.id}
+            className={`treemap-hover-row${tile.id === hoveredTile.id ? " is-hovered" : ""}`}
+          >
+            <span className="treemap-hover-row-symbol">{tile.symbol || tile.label}</span>
+            <span className="treemap-hover-row-company">{tile.companyName || ""}</span>
+            <span className="treemap-hover-row-price">{formatPrice(tile.lastPrice)}</span>
+            <span className={`treemap-hover-row-change is-${toneForChange(tile.changePercent)}`}>
+              {formatChange(tile.changePercent)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -200,10 +267,7 @@ function drawTreeMap(
   industryTiles.forEach((tile) => drawIndustry(context, tile, theme, opacityScale, symbolTiles));
   sectorTiles.forEach((tile) => drawSector(context, tile, theme));
   if (highlightedIndustry) {
-    drawCategoryHighlight(context, highlightedIndustry, highlightedSymbols);
-  }
-  if (hoverState) {
-    drawHoverPanel(context, size, hoverState, highlightedIndustry, symbolTiles, theme);
+    drawCategoryHighlight(context, highlightedIndustry, highlightedSymbols, categoryHighlightColor);
   }
 }
 
@@ -300,7 +364,8 @@ function categoryBandForTopEdge(
 function drawCategoryHighlight(
   context: CanvasRenderingContext2D,
   industryTile: TreeMapTile,
-  symbolTiles: TreeMapTile[]
+  symbolTiles: TreeMapTile[],
+  highlightColor: string
 ) {
   if (!symbolTiles.length) {
     return;
@@ -313,7 +378,7 @@ function drawCategoryHighlight(
   }
 
   context.save();
-  context.strokeStyle = categoryHighlightColor;
+  context.strokeStyle = highlightColor;
   context.lineCap = "butt";
   context.lineJoin = "miter";
   context.beginPath();
@@ -331,13 +396,12 @@ function drawCategoryHighlight(
   // aligned with the industry band and does not spill into adjacent categories.
   const outlineWidth = clamp(Math.min(rect.width, rect.height) * 0.016, 2.5, 4);
   const outlineInset = outlineWidth / 2;
+  const outlineX = rect.x + outlineInset;
+  const outlineY = rect.y + outlineInset;
+  const outlineWidthPx = Math.max(0, rect.width - outlineWidth);
+  const outlineHeightPx = Math.max(0, rect.height - outlineWidth);
   context.lineWidth = outlineWidth;
-  context.strokeRect(
-    rect.x + outlineInset,
-    rect.y + outlineInset,
-    Math.max(0, rect.width - outlineWidth),
-    Math.max(0, rect.height - outlineWidth)
-  );
+  context.strokeRect(outlineX, outlineY, outlineWidthPx, outlineHeightPx);
   context.restore();
 }
 
@@ -366,144 +430,35 @@ function categoryHighlightBounds(
   };
 }
 
-function drawHoverPanel(
-  context: CanvasRenderingContext2D,
-  size: CanvasSize,
-  hoverState: TreeMapHoverState,
-  industryTile: TreeMapTile | undefined,
-  symbolTiles: TreeMapTile[],
-  theme: TreeMapTheme
-) {
-  const availableWidth = size.width - hoverPanelMargin * 2;
-  const availableHeight = size.height - hoverPanelMargin * 2;
+function buildHoverPanelModel(
+  hoverState: TreeMapHoverState | null,
+  tiles: TreeMapTile[]
+): TreeMapHoverPanelModel | null {
+  if (!hoverState) {
+    return null;
+  }
+  const panelSpace = {
+    width: hoverState.panelWidth,
+    height: hoverState.panelHeight
+  };
+  const availableWidth = panelSpace.width - hoverPanelMargin * 2;
+  const availableHeight = panelSpace.height - hoverPanelMargin * 2;
   if (availableWidth < 180 || availableHeight < 140) {
-    return;
+    return null;
   }
 
+  const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
+  const industryTile = tiles.find((tile) => tile.kind === "industry" && tile.id === hoverState.tile.parentId);
   const categoryTiles = hoverCategorySymbolTiles(symbolTiles, industryTile, hoverState.tile);
   const maxRowsByHeight = Math.floor(
     (availableHeight - hoverPanelHeaderHeight - hoverPanelFeaturedHeight - hoverPanelVerticalPadding) / hoverPanelRowHeight
   );
   const maxRows = Math.max(2, Math.min(hoverPanelMaxRows, maxRowsByHeight));
   const rows = hoverRowsForCategory(categoryTiles, hoverState.tile, maxRows);
-  const panelWidth = Math.min(clamp(size.width * 0.35, 286, 410), availableWidth);
+  const panelWidth = Math.min(clamp(panelSpace.width * 0.35, 320, 440), availableWidth);
   const panelHeight = hoverPanelHeaderHeight + hoverPanelFeaturedHeight + rows.length * hoverPanelRowHeight + hoverPanelVerticalPadding;
-  const panel = positionHoverPanel(size, hoverState.x, hoverState.y, panelWidth, panelHeight);
-  const featuredY = panel.y + hoverPanelHeaderHeight;
-  const rowsY = featuredY + hoverPanelFeaturedHeight;
-
-  context.save();
-  context.shadowColor = "rgba(7, 12, 24, 0.34)";
-  context.shadowBlur = 14;
-  context.shadowOffsetY = 5;
-  context.fillStyle = "rgba(248, 250, 252, 0.98)";
-  fillRoundedRect(context, panel.x, panel.y, panel.width, panel.height, 3);
-  context.restore();
-
-  context.save();
-  roundedRectPath(context, panel.x, panel.y, panel.width, panel.height, 3);
-  context.clip();
-  context.fillStyle = "#ffffff";
-  context.fillRect(panel.x, panel.y, panel.width, hoverPanelHeaderHeight);
-  context.fillStyle = tileFillForChange(hoverState.tile.changePercent, theme.colors);
-  context.fillRect(panel.x, featuredY, panel.width, hoverPanelFeaturedHeight);
-  rows.forEach((tile, index) => {
-    const rowY = rowsY + index * hoverPanelRowHeight;
-    const isHovered = tile.id === hoverState.tile.id;
-    context.fillStyle = isHovered
-      ? "rgba(232, 239, 247, 0.96)"
-      : index % 2 === 0
-        ? "rgba(255, 255, 255, 0.98)"
-        : "rgba(244, 246, 249, 0.98)";
-    context.fillRect(panel.x, rowY, panel.width, hoverPanelRowHeight);
-  });
-  context.restore();
-
-  context.save();
-  context.textAlign = "start";
-  context.textBaseline = "top";
-  applyCanvasTypography(context, "caption", theme.serif);
-  context.fillStyle = "#1f2933";
-  fillFittedText(context, hoverCategoryTitle(hoverState.tile).toUpperCase(), panel.x + 12, panel.y + 8, panel.width - 24);
-
-  drawFeaturedHoverTile(context, panel, featuredY, hoverState.tile, theme);
-  drawHoverRows(context, panel, rowsY, rows, hoverState.tile, theme);
-
-  context.lineWidth = 1.5;
-  context.strokeStyle = "#202733";
-  strokeRoundedRect(context, panel.x + 0.75, panel.y + 0.75, panel.width - 1.5, panel.height - 1.5, 3);
-  context.restore();
-}
-
-function drawFeaturedHoverTile(
-  context: CanvasRenderingContext2D,
-  panel: TreeMapRect,
-  y: number,
-  tile: TreeMapTile,
-  theme: TreeMapTheme
-) {
-  const left = panel.x + 12;
-  const right = panel.x + panel.width - 12;
-  const quoteText = formatHoverQuote(tile);
-  context.textBaseline = "top";
-  applyCanvasTypography(context, "titleMd", theme.serif);
-  context.fillStyle = "#ffffff";
-  fillFittedText(context, tile.symbol || tile.label, left, y + 10, Math.max(72, panel.width * 0.34));
-
-  context.textAlign = "right";
-  applyCanvasTypography(context, "titleLg", theme.serif);
-  fillRightFittedText(context, quoteText, right, y + 12, panel.width * 0.56);
-
-  context.textAlign = "start";
-  applyCanvasTypography(context, "labelMd", theme.serif);
-  context.fillStyle = "rgba(255, 255, 255, 0.9)";
-  fillFittedText(context, tile.companyName || "", left, y + 36, panel.width - 24);
-
-  const detailText = hoverDetailText(tile);
-  if (detailText) {
-    applyCanvasTypography(context, "bodyMd", theme.serif);
-    context.fillStyle = "rgba(255, 255, 255, 0.76)";
-    fillFittedText(context, detailText, left, y + 50, panel.width - 24);
-  }
-}
-
-function drawHoverRows(
-  context: CanvasRenderingContext2D,
-  panel: TreeMapRect,
-  y: number,
-  rows: TreeMapTile[],
-  hoveredTile: TreeMapTile,
-  theme: TreeMapTheme
-) {
-  rows.forEach((tile, index) => {
-    const rowY = y + index * hoverPanelRowHeight;
-    const textY = rowY + 6;
-    context.strokeStyle = "rgba(31, 41, 55, 0.1)";
-    context.lineWidth = 1;
-    context.beginPath();
-    context.moveTo(panel.x, rowY);
-    context.lineTo(panel.x + panel.width, rowY);
-    context.stroke();
-
-    context.textBaseline = "top";
-    context.textAlign = "start";
-    applyCanvasTypography(context, "caption", theme.serif);
-    context.fillStyle = tile.id === hoveredTile.id ? "#111827" : "#202733";
-    fillFittedText(context, tile.symbol || tile.label, panel.x + 12, textY, 54);
-
-    if (panel.width >= 350) {
-      applyCanvasTypography(context, "caption", theme.serif);
-      context.fillStyle = "rgba(31, 41, 55, 0.66)";
-      fillFittedText(context, tile.companyName || "", panel.x + 66, textY + 0.5, panel.width - 214);
-    }
-
-    context.textAlign = "right";
-    applyCanvasTypography(context, "caption", theme.serif);
-    context.fillStyle = "#202733";
-    fillRightFittedText(context, formatPrice(tile.lastPrice), panel.x + panel.width - 82, textY, 78);
-    context.fillStyle = hoverChangeColor(tile.changePercent, theme);
-    fillRightFittedText(context, formatChange(tile.changePercent), panel.x + panel.width - 12, textY, 64);
-  });
+  const panel = positionHoverPanel(panelSpace, hoverState.panelX, hoverState.panelY, panelWidth, panelHeight);
+  return { panel, rows };
 }
 
 function hoverCategorySymbolTiles(
@@ -540,9 +495,9 @@ function positionHoverPanel(
   if (x + width > size.width - hoverPanelMargin) {
     x = pointerX - width - hoverPanelOffset;
   }
-  let y = pointerY - height * 0.42;
+  let y = pointerY + hoverPanelOffset;
   if (y + height > size.height - hoverPanelMargin) {
-    y = size.height - height - hoverPanelMargin;
+    y = pointerY - height - hoverPanelOffset;
   }
   return {
     x: clamp(x, hoverPanelMargin, maxX),
@@ -627,17 +582,6 @@ function formatCompactNumber(value: number): string {
     return `${(value / 1_000).toFixed(1)}K`;
   }
   return Math.round(value).toLocaleString("en-US");
-}
-
-function hoverChangeColor(changePercent: number | undefined, theme: TreeMapTheme): string {
-  const tone = toneForChange(changePercent);
-  if (tone === "down") {
-    return theme.colors.changeDown;
-  }
-  if (tone === "up") {
-    return theme.colors.changeUp;
-  }
-  return "#4b5563";
 }
 
 function drawSymbol(
@@ -760,22 +704,6 @@ function fillFittedText(
   }
 }
 
-function fillRightFittedText(
-  context: CanvasRenderingContext2D,
-  text: string,
-  right: number,
-  y: number,
-  maxWidth: number
-) {
-  if (maxWidth <= 8) {
-    return;
-  }
-  const fitted = fitText(context, text, maxWidth);
-  if (fitted) {
-    context.fillText(fitted, right, y);
-  }
-}
-
 function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (context.measureText(text).width <= maxWidth) {
     return text;
@@ -868,23 +796,6 @@ function roundedRectPath(
   context.arcTo(x, y + height, x, y, radius);
   context.arcTo(x, y, x + width, y, radius);
   context.closePath();
-}
-
-function strokeRoundedRect(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-) {
-  const safeRadius = roundedRadius(width, height, radius);
-  if (safeRadius <= 0.25) {
-    context.strokeRect(x, y, width, height);
-    return;
-  }
-  roundedRectPath(context, x, y, width, height, safeRadius);
-  context.stroke();
 }
 
 function roundedRadius(width: number, height: number, radius: number): number {

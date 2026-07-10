@@ -13,6 +13,7 @@ import { notificationChartSymbol } from "../alerts/alertPresentation";
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
 import type { AuthUser } from "../auth/AuthProvider";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
+import { SimulatorControl } from "../simulator/SimulatorControl";
 
 export type ChatLogEntry = {
   id: string;
@@ -323,6 +324,7 @@ export function BottomCommandBar({
           {topDock}
         </div>
         <div className="workspace-top-actions">
+          <SimulatorControl />
           <button
             type="button"
             className="workspace-top-login"
