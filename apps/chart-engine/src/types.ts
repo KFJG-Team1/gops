@@ -363,6 +363,7 @@ export type ChartRuntimeError = {
 export type ChartRuntimeState = {
   documents: Record<string, ChartDocument>;
   candlesByKey: Record<string, CandleData[]>;
+  candleKeyAccessOrder: string[];
   liveTradesBySymbol?: Record<string, TradeTickData>;
   liveQuotesBySymbol?: Record<string, QuoteTickData>;
   dataStatusByKey: Record<string, ChartDataStatus>;

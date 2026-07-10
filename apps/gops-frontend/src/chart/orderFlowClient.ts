@@ -31,6 +31,9 @@ export type OrderFlowDemoContext = {
 };
 
 let symbolsCache: OrderFlowSymbolsResponse | null = null;
+const intradayCache = new Map<string, { expiresAt: number; promise: Promise<OrderFlowIntradayResponseDto> }>();
+const intradayCacheTtlMs = 5_000;
+const intradayCacheMaxEntries = 32;
 const orderFlowDemoBuildEnabled = typeof import.meta.env !== "undefined" && import.meta.env.DEV === true;
 
 export async function fetchOrderFlowSymbols(signal?: AbortSignal): Promise<OrderFlowSymbolsResponse> {
@@ -74,8 +77,59 @@ export async function fetchOrderFlowIntraday(
     const demo = await import("./orderFlowDemoData");
     return demo.fetchDemoOrderFlowIntraday(symbol, demoAnchor);
   }
-  const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
-  return normalizeIntradayResponse(await fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`, signal));
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const sessionDate = sessionDateFromTimestamp(new Date().toISOString());
+  const cacheKey = `${normalizedSymbol}|${sessionDate}`;
+  const now = Date.now();
+  pruneIntradayCache(now);
+  let entry = intradayCache.get(cacheKey);
+  if (!entry || entry.expiresAt <= now) {
+    const params = new URLSearchParams({ symbol: normalizedSymbol });
+    let promise: Promise<OrderFlowIntradayResponseDto>;
+    promise = fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`)
+      .then(normalizeIntradayResponse)
+      .catch((error) => {
+        if (intradayCache.get(cacheKey)?.promise === promise) {
+          intradayCache.delete(cacheKey);
+        }
+        throw error;
+      });
+    entry = { expiresAt: now + intradayCacheTtlMs, promise };
+    intradayCache.set(cacheKey, entry);
+    while (intradayCache.size > intradayCacheMaxEntries) {
+      const oldest = intradayCache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      intradayCache.delete(oldest);
+    }
+  } else {
+    intradayCache.delete(cacheKey);
+    intradayCache.set(cacheKey, entry);
+  }
+  return withAbortSignal(entry.promise, signal);
+}
+
+function pruneIntradayCache(now: number): void {
+  intradayCache.forEach((entry, key) => {
+    if (entry.expiresAt <= now) {
+      intradayCache.delete(key);
+    }
+  });
+}
+
+function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 export function subscribeOrderFlowDemoTicks(

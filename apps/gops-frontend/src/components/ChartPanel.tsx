@@ -936,9 +936,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       .then((response) => {
         if (
           controller.signal.aborted ||
-          chartRef.current.symbol !== chart.symbol ||
-          chartRef.current.chartType !== "bidask" ||
-          !isBidAskChartInterval(chartRef.current.interval)
+          chartRef.current.symbol !== chart.symbol
         ) {
           return;
         }
@@ -968,7 +966,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       demoCleanup?.();
     };
   }, [
-    chart.interval,
     chart.symbol,
     orderFlowActive,
     orderFlowDemoAnchor?.basePrice,
@@ -1086,15 +1083,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setTransientDrawings(null);
     setBaseIndicatorSeries({});
     setVolumeProfile(null);
+    setExpansionIndicatorSeries({});
+    setComparisonScopeData({});
+    clearSemanticState();
+  }, [chart.interval, chart.symbol, clearSemanticState]);
+
+  useEffect(() => {
     setOrderFlowToday(new Map());
     setOrderFlowTodaySessionDate(null);
     setOrderFlowDataStatus("empty");
     setOrderFlowSupportedSymbols(undefined);
     setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
-    setExpansionIndicatorSeries({});
-    setComparisonScopeData({});
-    clearSemanticState();
-  }, [chart.interval, chart.symbol, clearSemanticState]);
+  }, [chart.symbol]);
 
   const semanticSelectionEnabled = chart.chartType !== "line";
   const semanticDigEnabled = semanticSelectionEnabled && chart.chartType !== "bidask";
@@ -1731,7 +1731,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand]);
 
   return (
-    <section className="chart-panel">
+    <section
+      className="chart-panel"
+      data-order-flow-status={orderFlowActive ? orderFlowDataStatus : undefined}
+      data-order-flow-minute-count={orderFlowActive ? orderFlowToday.size : undefined}
+    >
       {hoverSnapshot?.kind === "candle" && (
         <dl
           className="hover-ohlc hover-ohlc-overlay"

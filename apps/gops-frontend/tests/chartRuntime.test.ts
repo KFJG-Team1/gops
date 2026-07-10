@@ -28,7 +28,12 @@ import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChar
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
-import { chartRuntimeReducer, createInitialChartRuntimeState, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
+import {
+  chartRuntimeReducer,
+  createInitialChartRuntimeState,
+  maxInactiveCandleCacheKeys,
+  type ChartRuntimePanel
+} from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
@@ -65,7 +70,8 @@ import {
   indicatorRequestRangeFromCandles,
   serverIndicatorLayersForLayers
 } from "../src/chart/indicatorLayerPolicy";
-import { stableVolumeProfileRangeKey } from "../src/chart/derivedRequestPolicy";
+import { derivedClientCacheMaxEntries, stableVolumeProfileRangeKey } from "../src/chart/derivedRequestPolicy";
+import { fetchVolumeProfile } from "../src/chart/cdcClient";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
 import {
   olderRangeQueuedRetryDelayMs,
@@ -106,6 +112,7 @@ import {
   type OrderFlowMinuteUpdate
 } from "../src/chart/orderFlow";
 import { chartColumnTier } from "../src/chart/orderFlowRender";
+import { OrderFlowBucketCache } from "../src/chart/orderFlowBucketCache";
 import {
   addPanelSlotAtGridRect,
   applyPanelResizeWithYield,
@@ -1475,6 +1482,37 @@ assert.deepEqual(
 assert.deepEqual(sumOrderFlowBucketLevels(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10), [
   { priceBin: 100, askVolume: 5, bidVolume: 0, unknownVolume: 0 }
 ]);
+const cacheMinutes = new Map(Array.from({ length: 120 }, (_, index) => {
+  const eventMinute = new Date(Date.parse("2026-07-08T13:00:00.000Z") + index * 60_000).toISOString();
+  return [eventMinute, {
+    eventMinute,
+    bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }]
+  }] as const;
+}));
+const bucketComputes: Array<[string, number]> = [];
+const bucketCache = new OrderFlowBucketCache(512, (start, window) => bucketComputes.push([start, window]));
+const oneMinuteStarts = Array.from(cacheMinutes.keys());
+const tenMinuteStarts = oneMinuteStarts.filter((_, index) => index % 10 === 0);
+const oneHourStarts = oneMinuteStarts.filter((_, index) => index % 60 === 0);
+oneMinuteStarts.forEach((start) => bucketCache.get(cacheMinutes, start, 1));
+tenMinuteStarts.forEach((start) => bucketCache.get(cacheMinutes, start, 10));
+oneHourStarts.forEach((start) => bucketCache.get(cacheMinutes, start, 60));
+bucketComputes.length = 0;
+const changedMinute = oneMinuteStarts[35];
+const changedCacheMinutes = new Map(cacheMinutes);
+changedCacheMinutes.set(changedMinute, {
+  eventMinute: changedMinute,
+  bins: [{ priceBin: 100, askVolume: 9, bidVolume: 0, unknownVolume: 0 }]
+});
+oneMinuteStarts.forEach((start) => bucketCache.get(changedCacheMinutes, start, 1));
+tenMinuteStarts.forEach((start) => bucketCache.get(changedCacheMinutes, start, 10));
+oneHourStarts.forEach((start) => bucketCache.get(changedCacheMinutes, start, 60));
+assert.deepEqual(bucketComputes, [
+  [changedMinute, 1],
+  [tenMinuteStarts[3], 10],
+  [oneHourStarts[0], 60]
+]);
+assert.equal(bucketCache.get(changedCacheMinutes, tenMinuteStarts[3], 10).levels[0]?.askVolume, 18);
 const anchoredDemoOrderFlow = fetchDemoOrderFlowIntraday("NVDA", {
   sessionDate: "2026-07-03",
   basePrice: 194.5
@@ -1631,6 +1669,56 @@ assert.equal(
     priceBinSize: "auto"
   })
 );
+assert.notEqual(
+  stableVolumeProfileRangeKey({
+    symbol: "NVDA",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceBinSize: "auto",
+    priceMin: 100,
+    priceMax: 110
+  }),
+  stableVolumeProfileRangeKey({
+    symbol: "NVDA",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceBinSize: "auto",
+    priceMin: 101,
+    priceMax: 111
+  })
+);
+
+let volumeProfileFetchCalls = 0;
+try {
+  globalThis.fetch = (async () => {
+    volumeProfileFetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ symbol: "NVDA", interval: "1m", bins: [] })
+    } as Response;
+  }) as typeof fetch;
+  const queryForIndex = (index: number) => ({
+    symbol: "NVDA",
+    interval: "1m" as const,
+    from: `2026-07-08T13:${String(index).padStart(2, "0")}:00.000Z`,
+    to: `2026-07-08T14:${String(index).padStart(2, "0")}:00.000Z`,
+    targetBins: 10,
+    priceMin: 100 + index,
+    priceMax: 110 + index
+  });
+  for (let index = 0; index <= derivedClientCacheMaxEntries; index += 1) {
+    await fetchVolumeProfile(queryForIndex(index));
+  }
+  await fetchVolumeProfile(queryForIndex(0));
+  assert.equal(volumeProfileFetchCalls, derivedClientCacheMaxEntries + 2);
+} finally {
+  globalThis.fetch = originalFetch;
+}
 assert.equal(
   olderRangeRequestKey("nvda", "1D", "2026-07-02T04:00:00.000Z", 120),
   "NVDA:1D:before:2026-07-02T04:00:00.000Z:120"
@@ -2786,6 +2874,30 @@ assert.equal(sharedCacheRuntime.candlesByKey[candleKey("AAPL", "1m")]?.length, 3
 assert.equal(sharedCacheRuntime.documents["shared-doc-a"]?.viewport.rightOffset, 2);
 assert.equal(sharedCacheRuntime.documents["shared-doc-b"]?.viewport.rightOffset, 0);
 
+const boundedCacheDocument = createChartDocument("bounded-cache-doc", "ACTIVE", "1m");
+let boundedCacheRuntime = {
+  ...createInitialChartRuntimeState(),
+  documents: { [boundedCacheDocument.id]: boundedCacheDocument }
+};
+const cacheFixtureCandle = {
+  ...candleA,
+  timestamp: "2026-07-08T13:30:00.000Z"
+};
+boundedCacheRuntime = chartRuntimeReducer(boundedCacheRuntime, {
+  kind: "chart.snapshot.loaded",
+  snapshot: { symbol: "ACTIVE", interval: "1m", candles: [cacheFixtureCandle] }
+});
+for (let index = 0; index < maxInactiveCandleCacheKeys + 3; index += 1) {
+  boundedCacheRuntime = chartRuntimeReducer(boundedCacheRuntime, {
+    kind: "chart.snapshot.loaded",
+    snapshot: { symbol: `CACHE${index}`, interval: "1m", candles: [cacheFixtureCandle] }
+  });
+}
+assert.ok(boundedCacheRuntime.candlesByKey[candleKey("ACTIVE", "1m")]);
+assert.equal(Object.keys(boundedCacheRuntime.candlesByKey).length, maxInactiveCandleCacheKeys + 1);
+assert.equal(boundedCacheRuntime.candlesByKey[candleKey("CACHE0", "1m")], undefined);
+assert.ok(boundedCacheRuntime.candlesByKey[candleKey(`CACHE${maxInactiveCandleCacheKeys + 2}`, "1m")]);
+
 const chatResult = normalizeAgentChatResponse({
   reply: "Applying chart commands.",
   title: "Chat command",
@@ -2962,6 +3074,8 @@ assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{[\s\S]*minutes: 
 assert.match(chartPanelSource, /chart\.chartType === "bidask" && isBidAskChartInterval\(chart\.interval\)/);
 assert.match(chartPanelSource, /orderFlowDemoContextFromCandles\(chart\.candles, chart\.interval\)/);
 assert.match(chartPanelSource, /fetchOrderFlowIntraday\(chart\.symbol, controller\.signal, orderFlowDemoAnchor\)/);
+assert.doesNotMatch(chartPanelSource, /\}, \[\s*chart\.interval,\s*chart\.symbol,\s*orderFlowActive/);
+assert.doesNotMatch(chartPanelSource, /setInterval\([\s\S]{0,240}fetchCandles/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /semanticSelectionEnabled = chart\.chartType !== "line"/);

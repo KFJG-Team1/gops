@@ -13,12 +13,11 @@ import {
   orderFlowWindowMinutesForInterval,
   rebinLevels,
   sessionDateFromTimestamp,
-  sumOrderFlowBucketLevels,
   visibleScaleMax,
   type OrderFlowLadder,
-  type OrderFlowLevelDto,
   type OrderFlowMinuteDto
 } from "./orderFlow";
+import { OrderFlowBucketCache, type OrderFlowBucket } from "./orderFlowBucketCache";
 import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
@@ -55,13 +54,7 @@ const volumeProfileAlpha = {
   pocLine: 0.34,
   label: 0.84
 } as const;
-type OrderFlowBucket = {
-  key: string;
-  label: string;
-  levels: OrderFlowLevelDto[];
-};
-
-const orderFlowBucketCache = new WeakMap<Map<string, OrderFlowMinuteDto>, Map<string, OrderFlowBucket>>();
+const orderFlowBucketCache = new OrderFlowBucketCache();
 const orderFlowLadderCache = new WeakMap<OrderFlowBucket, Map<number, OrderFlowLadder>>();
 
 export function ChartCanvas({
@@ -132,6 +125,7 @@ export function ChartCanvas({
       ref={canvasRef}
       className="chart-canvas"
       aria-label={`GOPS ${chart.chartType} chart`}
+      data-order-flow-minute-count={chart.orderFlow?.minutes.size}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -829,23 +823,7 @@ function cachedOrderFlowBucket(
   unit: SemanticCandleUnit,
   windowMinutes: number
 ): OrderFlowBucket {
-  let byKey = orderFlowBucketCache.get(minutes);
-  if (!byKey) {
-    byKey = new Map();
-    orderFlowBucketCache.set(minutes, byKey);
-  }
-  const key = `${unit.timestamp}|${windowMinutes}`;
-  const cached = byKey.get(key);
-  if (cached) {
-    return cached;
-  }
-  const bucket = {
-    key,
-    label: unit.timestamp,
-    levels: sumOrderFlowBucketLevels(minutes, unit.timestamp, windowMinutes)
-  };
-  byKey.set(key, bucket);
-  return bucket;
+  return orderFlowBucketCache.get(minutes, unit.timestamp, windowMinutes);
 }
 
 function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number, displayStep: number): OrderFlowLadder {
