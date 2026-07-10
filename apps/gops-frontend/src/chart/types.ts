@@ -1,3 +1,4 @@
+import type { TradeTickData } from "@gops/chart-engine";
 import type { OrderFlowDailyResponseDto, OrderFlowDayDto, OrderFlowMinuteUpdate } from "./orderFlow";
 
 export type ChartInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
@@ -459,6 +460,7 @@ export type ChartState = {
   chartType: ChartType;
   interval: ChartInterval;
   candles: CandleDto[];
+  liveTrade?: TradeTickData;
   status: CandleQueryResponseDto["status"] | "loading";
   message?: string;
   requestedLimit?: number;

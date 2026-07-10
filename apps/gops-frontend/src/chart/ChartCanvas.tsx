@@ -1642,7 +1642,11 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
   if (!latest || !Number.isFinite(latest.close)) {
     return;
   }
-  const y = priceToY(scene, latest.close);
+  const price = currentPriceForScene(scene);
+  if (price === null) {
+    return;
+  }
+  const y = priceToY(scene, price);
   if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
     return;
   }
@@ -1655,8 +1659,17 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
   context.globalAlpha = 1;
   context.setLineDash([]);
-  drawAxisPill(context, latest.close.toFixed(2), scene.width - 8, y, "right", "currentPrice");
+  drawAxisPill(context, price.toFixed(2), scene.width - 8, y, "right", "currentPrice");
   context.restore();
+}
+
+function currentPriceForScene(scene: ChartScene): number | null {
+  const liveTradePrice = scene.chart.streamState === "live" ? scene.chart.liveTrade?.price : undefined;
+  if (typeof liveTradePrice === "number" && Number.isFinite(liveTradePrice)) {
+    return liveTradePrice;
+  }
+  const latestClose = scene.chart.candles.at(-1)?.close;
+  return typeof latestClose === "number" && Number.isFinite(latestClose) ? latestClose : null;
 }
 
 function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {

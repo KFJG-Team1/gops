@@ -95,6 +95,9 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
           companyName: item.companyName,
           marketCap: item.marketCap,
           indexWeight: item.indexWeight,
+          lastPrice: item.lastPrice,
+          volume: item.volume,
+          sessionDollarVolume: item.sessionDollarVolume,
           changePercent: item.changePercent
         });
       });

@@ -36,6 +36,7 @@ import {
   type ChartDocument,
   type ChartRuntimeAction,
   type StreamStatus,
+  type TradeTickData,
   normalizeRealtimeLayerEvent
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
@@ -177,6 +178,7 @@ type ChartPanelProps = {
   dataStatus: ChartDataStatus;
   streamStatus: StreamStatus;
   streamMessage?: string;
+  liveTrade?: TradeTickData;
   symbols: ChartSymbolDto[];
   laneHeight?: number;
   chartDrawingActive?: boolean;
@@ -235,6 +237,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   dataStatus,
   streamStatus,
   streamMessage,
+  liveTrade,
   symbols,
   laneHeight,
   chartDrawingActive = false,
@@ -269,9 +272,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
-  const chart = useMemo(() => (
-    chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage)
-  ), [candles, dataStatus, document, streamMessage, streamStatus]);
+  const chart = useMemo(() => ({
+    ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
+    liveTrade
+  }), [candles, dataStatus, document, liveTrade, streamMessage, streamStatus]);
   const activeIndicatorLayers = useMemo(() => activeServerIndicatorLayers(chart), [
     chart.layers.ma5,
     chart.layers.ma20,
@@ -2524,12 +2528,15 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
   if (!latest || !Number.isFinite(latest.close)) {
     return null;
   }
-  const y = priceToY(scene, latest.close);
+  const tradePrice = scene.chart.streamState === "live" ? liveTradePrice(scene.chart.liveTrade) : null;
+  const price = tradePrice ?? latest.close;
+  const y = priceToY(scene, price);
   if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
     return null;
   }
-  const priceText = priceFormatter.format(latest.close);
-  const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, latest, scene.chart.streamState);
+  const priceText = priceFormatter.format(price);
+  const isClosed = tradePrice === null ? latest.isClosed : false;
+  const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, isClosed, scene.chart.streamState);
   const labelWidth = currentPriceMarkerLabelWidth(priceText, showClock);
   const labelHeight = showClock ? 45 : 31;
   const labelLeft = clampNumber(scene.plot.right - 1, scene.plot.left + 8, scene.width - labelWidth - 4);
@@ -2539,7 +2546,7 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
     timestamp: latest.timestamp,
     interval: scene.chart.interval,
     streamState: scene.chart.streamState,
-    isClosed: latest.isClosed,
+    isClosed,
     lineLeft: scene.plot.left,
     lineRight: Math.max(scene.plot.left, labelLeft - 7),
     labelLeft,
@@ -2593,10 +2600,10 @@ function currentPriceMarkerTimeText(marker: CurrentPriceMarker, nowMs: number): 
 
 function currentPriceMarkerCanShowClock(
   interval: ChartInterval,
-  latest: CandleDto,
+  isClosed: boolean,
   streamState: ChartState["streamState"]
 ): boolean {
-  return streamState === "live" && !latest.isClosed && currentPriceIntervalCanShowClock(interval);
+  return streamState === "live" && !isClosed && currentPriceIntervalCanShowClock(interval);
 }
 
 function currentPriceIntervalCanShowClock(interval: ChartInterval): boolean {
@@ -2666,15 +2673,21 @@ function buildLiveQuote(chart: ChartState, previousClose: number | null): LiveQu
   if (!latest || !Number.isFinite(latest.close)) {
     return unavailableQuote;
   }
-  const change = latest.close - previousClose;
+  const price = liveTradePrice(chart.liveTrade) ?? latest.close;
+  const change = price - previousClose;
   const percent = (change / previousClose) * 100;
   const tone = change > 0 ? "up" : change < 0 ? "down" : "flat";
   return {
-    priceText: priceFormatter.format(latest.close),
+    priceText: priceFormatter.format(price),
     changeText: formatSignedNumber(change),
     percentText: `${formatSignedNumber(percent)}%`,
     tone
   };
+}
+
+function liveTradePrice(liveTrade: TradeTickData | undefined): number | null {
+  const price = liveTrade?.price;
+  return typeof price === "number" && Number.isFinite(price) ? price : null;
 }
 
 function formatSignedNumber(value: number): string {

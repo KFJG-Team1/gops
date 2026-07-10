@@ -82,7 +82,6 @@ import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
-import type { TreeMapTile } from "./treemap/treemapTypes";
 
 
 type ActiveAgentRun = {
@@ -332,7 +331,6 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
-  const [hoveredTreeMapTile, setHoveredTreeMapTile] = useState<TreeMapTile | null>(null);
   const [activeBottomMenu, setActiveBottomMenu] = useState<BottomMenuKey | null>(null);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
@@ -1415,14 +1413,6 @@ export function App() {
 
   return (
     <main className="app-shell" style={workspaceStyle}>
-      {mainView.mode === "treemap" && hoveredTreeMapTile?.symbol && (
-        <div className="treemap-hover-meta" aria-live="polite">
-          <strong>{hoveredTreeMapTile.symbol}</strong>
-          <span>{hoveredTreeMapTile.companyName}</span>
-          <em>{formatTreeMapHoverChange(hoveredTreeMapTile.changePercent)}</em>
-          <small>{hoveredTreeMapTile.sectorLabelKo || hoveredTreeMapTile.sector} / {hoveredTreeMapTile.industry}</small>
-        </div>
-      )}
       <div className="heatmap-background-layer" aria-hidden="true">
         <TreeMapCanvas
           items={treeMapItems}
@@ -1436,7 +1426,6 @@ export function App() {
           <>
             <TreeMapCanvas
               items={treeMapItems}
-              onHoverTileChange={setHoveredTreeMapTile}
               onSelectSymbol={openSymbolPage}
               style={treeMapLaneStyle}
             />
@@ -1815,10 +1804,4 @@ function currentViewportSize(): ViewportSize {
     width: Math.max(1, Math.round(window.innerWidth / appUiScale)),
     height: Math.max(1, Math.round(window.innerHeight / appUiScale))
   };
-}
-
-function formatTreeMapHoverChange(changePercent: number | undefined): string {
-  const numeric = Number.isFinite(changePercent) ? Number(changePercent) : 0;
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}${numeric.toFixed(2)}%`;
 }
