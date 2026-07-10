@@ -34,15 +34,28 @@ type TreeMapSymbolBounds = {
   bottom: number;
 };
 
+type TreeMapHoverState = {
+  tile: TreeMapTile;
+  x: number;
+  y: number;
+};
+
 const canvasPadding = 4;
 const labelPadding = 8;
 const tileGap = 0.85;
+const hoverPanelMargin = 10;
+const hoverPanelOffset = 16;
+const hoverPanelHeaderHeight = 28;
+const hoverPanelFeaturedHeight = 64;
+const hoverPanelRowHeight = 24;
+const hoverPanelVerticalPadding = 8;
+const hoverPanelMaxRows = 12;
 
 export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
-  const [hoveredTile, setHoveredTile] = useState<TreeMapTile | null>(null);
+  const [hoverState, setHoverState] = useState<TreeMapHoverState | null>(null);
 
   const inputItems = useMemo((): TreeMapInputItem[] => items.map((item) => ({
     symbol: item.symbol,
@@ -53,6 +66,9 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
     value: sp500WeightValue(item),
     marketCap: item.layoutMarketCap ?? item.marketCap,
     indexWeight: item.indexWeight,
+    lastPrice: item.lastPrice,
+    volume: item.volume,
+    sessionDollarVolume: item.sessionDollarVolume,
     changePercent: item.changePercent
   })), [items]);
 
@@ -103,8 +119,8 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
       return;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    drawTreeMap(context, size, tiles, hoveredTile, opacityScale);
-  }, [hoveredTile, opacityScale, size, tiles]);
+    drawTreeMap(context, size, tiles, hoverState, opacityScale);
+  }, [hoverState, opacityScale, size, tiles]);
 
   const updateHover = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!interactive) {
@@ -114,23 +130,32 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const next = hitTestTreeMapTile(tilesRef.current, x, y) ?? null;
-    setHoveredTile((current) => {
-      if (current?.id === next?.id) {
-        return current;
+    setHoverState((current) => {
+      if (!next) {
+        if (current) {
+          onHoverTileChange?.(null);
+        }
+        return null;
       }
-      onHoverTileChange?.(next);
-      return next;
+      if (current?.tile.id !== next.id) {
+        onHoverTileChange?.(next);
+      }
+      return { tile: next, x, y };
     });
   };
 
   const clearHover = () => {
-    setHoveredTile(null);
-    onHoverTileChange?.(null);
+    setHoverState((current) => {
+      if (current) {
+        onHoverTileChange?.(null);
+      }
+      return null;
+    });
   };
 
   const selectHoveredTile = () => {
-    if (interactive && hoveredTile?.symbol && onSelectSymbol) {
-      onSelectSymbol(hoveredTile.symbol);
+    if (interactive && hoverState?.tile.symbol && onSelectSymbol) {
+      onSelectSymbol(hoverState.tile.symbol);
     }
   };
 
@@ -139,7 +164,7 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
-        style={{ cursor: interactive && hoveredTile?.symbol ? "pointer" : "default" }}
+        style={{ cursor: interactive && hoverState?.tile.symbol ? "pointer" : "default" }}
         aria-label="S&P 500 TreeMap canvas"
         onPointerMove={interactive ? updateHover : undefined}
         onPointerLeave={interactive ? clearHover : undefined}
@@ -153,7 +178,7 @@ function drawTreeMap(
   context: CanvasRenderingContext2D,
   size: CanvasSize,
   tiles: TreeMapTile[],
-  hoveredTile: TreeMapTile | null,
+  hoverState: TreeMapHoverState | null,
   opacityScale: TreeMapOpacityScale
 ) {
   const theme = readTheme();
@@ -161,10 +186,19 @@ function drawTreeMap(
 
   const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
   const industryTiles = tiles.filter((tile) => tile.kind === "industry");
+  const sectorTiles = tiles.filter((tile) => tile.kind === "sector");
+  const hoveredTile = hoverState?.tile ?? null;
+  const highlightedIndustry = hoveredTile ? industryTiles.find((tile) => tile.id === hoveredTile.parentId) : undefined;
   const symbolBounds = boundsForSymbolTiles(symbolTiles);
   symbolTiles.forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale, symbolBounds));
   industryTiles.forEach((tile) => drawIndustry(context, tile, theme, opacityScale, symbolTiles));
-  tiles.filter((tile) => tile.kind === "sector").forEach((tile) => drawSector(context, tile, theme));
+  sectorTiles.forEach((tile) => drawSector(context, tile, theme));
+  if (highlightedIndustry) {
+    drawCategoryHighlight(context, highlightedIndustry, theme);
+  }
+  if (hoverState) {
+    drawHoverPanel(context, size, hoverState, highlightedIndustry, symbolTiles, theme);
+  }
 }
 
 function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
@@ -251,6 +285,294 @@ function categoryBandForTopEdge(
     width: right - left,
     height: band.height
   };
+}
+
+function drawCategoryHighlight(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
+  const rect = insetRect(tile, 1.5);
+  if (rect.width <= 4 || rect.height <= 4) {
+    return;
+  }
+  context.save();
+  context.shadowColor = "rgba(250, 204, 21, 0.55)";
+  context.shadowBlur = 10;
+  context.lineWidth = clamp(Math.min(rect.width, rect.height) * 0.016, 2.5, 4);
+  context.strokeStyle = theme.colors.caution || "#facc15";
+  strokeRoundedRect(context, rect.x, rect.y, rect.width, rect.height, Math.min(8, theme.radii.tile));
+  context.restore();
+}
+
+function drawHoverPanel(
+  context: CanvasRenderingContext2D,
+  size: CanvasSize,
+  hoverState: TreeMapHoverState,
+  industryTile: TreeMapTile | undefined,
+  symbolTiles: TreeMapTile[],
+  theme: TreeMapTheme
+) {
+  const availableWidth = size.width - hoverPanelMargin * 2;
+  const availableHeight = size.height - hoverPanelMargin * 2;
+  if (availableWidth < 180 || availableHeight < 140) {
+    return;
+  }
+
+  const categoryTiles = hoverCategorySymbolTiles(symbolTiles, industryTile, hoverState.tile);
+  const maxRowsByHeight = Math.floor(
+    (availableHeight - hoverPanelHeaderHeight - hoverPanelFeaturedHeight - hoverPanelVerticalPadding) / hoverPanelRowHeight
+  );
+  const maxRows = Math.max(2, Math.min(hoverPanelMaxRows, maxRowsByHeight));
+  const rows = hoverRowsForCategory(categoryTiles, hoverState.tile, maxRows);
+  const panelWidth = Math.min(clamp(size.width * 0.35, 286, 410), availableWidth);
+  const panelHeight = hoverPanelHeaderHeight + hoverPanelFeaturedHeight + rows.length * hoverPanelRowHeight + hoverPanelVerticalPadding;
+  const panel = positionHoverPanel(size, hoverState.x, hoverState.y, panelWidth, panelHeight);
+  const featuredY = panel.y + hoverPanelHeaderHeight;
+  const rowsY = featuredY + hoverPanelFeaturedHeight;
+
+  context.save();
+  context.shadowColor = "rgba(7, 12, 24, 0.34)";
+  context.shadowBlur = 14;
+  context.shadowOffsetY = 5;
+  context.fillStyle = "rgba(248, 250, 252, 0.98)";
+  fillRoundedRect(context, panel.x, panel.y, panel.width, panel.height, 3);
+  context.restore();
+
+  context.save();
+  roundedRectPath(context, panel.x, panel.y, panel.width, panel.height, 3);
+  context.clip();
+  context.fillStyle = "#ffffff";
+  context.fillRect(panel.x, panel.y, panel.width, hoverPanelHeaderHeight);
+  context.fillStyle = tileFillForChange(hoverState.tile.changePercent, theme.colors);
+  context.fillRect(panel.x, featuredY, panel.width, hoverPanelFeaturedHeight);
+  rows.forEach((tile, index) => {
+    const rowY = rowsY + index * hoverPanelRowHeight;
+    const isHovered = tile.id === hoverState.tile.id;
+    context.fillStyle = isHovered
+      ? "rgba(232, 239, 247, 0.96)"
+      : index % 2 === 0
+        ? "rgba(255, 255, 255, 0.98)"
+        : "rgba(244, 246, 249, 0.98)";
+    context.fillRect(panel.x, rowY, panel.width, hoverPanelRowHeight);
+  });
+  context.restore();
+
+  context.save();
+  context.textAlign = "start";
+  context.textBaseline = "top";
+  context.font = `700 12px ${theme.serif}`;
+  context.fillStyle = "#1f2933";
+  fillFittedText(context, hoverCategoryTitle(hoverState.tile).toUpperCase(), panel.x + 12, panel.y + 8, panel.width - 24);
+
+  drawFeaturedHoverTile(context, panel, featuredY, hoverState.tile, theme);
+  drawHoverRows(context, panel, rowsY, rows, hoverState.tile, theme);
+
+  context.lineWidth = 1.5;
+  context.strokeStyle = "#202733";
+  strokeRoundedRect(context, panel.x + 0.75, panel.y + 0.75, panel.width - 1.5, panel.height - 1.5, 3);
+  context.restore();
+}
+
+function drawFeaturedHoverTile(
+  context: CanvasRenderingContext2D,
+  panel: TreeMapRect,
+  y: number,
+  tile: TreeMapTile,
+  theme: TreeMapTheme
+) {
+  const left = panel.x + 12;
+  const right = panel.x + panel.width - 12;
+  const quoteText = formatHoverQuote(tile);
+  context.textBaseline = "top";
+  context.font = `700 21px ${theme.serif}`;
+  context.fillStyle = "#ffffff";
+  fillFittedText(context, tile.symbol || tile.label, left, y + 10, Math.max(72, panel.width * 0.34));
+
+  context.textAlign = "right";
+  context.font = `700 19px ${theme.serif}`;
+  fillRightFittedText(context, quoteText, right, y + 12, panel.width * 0.56);
+
+  context.textAlign = "start";
+  context.font = `600 11px ${theme.serif}`;
+  context.fillStyle = "rgba(255, 255, 255, 0.9)";
+  fillFittedText(context, tile.companyName || "", left, y + 36, panel.width - 24);
+
+  const detailText = hoverDetailText(tile);
+  if (detailText) {
+    context.font = `600 10px ${theme.serif}`;
+    context.fillStyle = "rgba(255, 255, 255, 0.76)";
+    fillFittedText(context, detailText, left, y + 50, panel.width - 24);
+  }
+}
+
+function drawHoverRows(
+  context: CanvasRenderingContext2D,
+  panel: TreeMapRect,
+  y: number,
+  rows: TreeMapTile[],
+  hoveredTile: TreeMapTile,
+  theme: TreeMapTheme
+) {
+  rows.forEach((tile, index) => {
+    const rowY = y + index * hoverPanelRowHeight;
+    const textY = rowY + 6;
+    context.strokeStyle = "rgba(31, 41, 55, 0.1)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(panel.x, rowY);
+    context.lineTo(panel.x + panel.width, rowY);
+    context.stroke();
+
+    context.textBaseline = "top";
+    context.textAlign = "start";
+    context.font = `700 11px ${theme.serif}`;
+    context.fillStyle = tile.id === hoveredTile.id ? "#111827" : "#202733";
+    fillFittedText(context, tile.symbol || tile.label, panel.x + 12, textY, 54);
+
+    if (panel.width >= 350) {
+      context.font = `600 10px ${theme.serif}`;
+      context.fillStyle = "rgba(31, 41, 55, 0.66)";
+      fillFittedText(context, tile.companyName || "", panel.x + 66, textY + 0.5, panel.width - 214);
+    }
+
+    context.textAlign = "right";
+    context.font = `700 11px ${theme.serif}`;
+    context.fillStyle = "#202733";
+    fillRightFittedText(context, formatPrice(tile.lastPrice), panel.x + panel.width - 82, textY, 78);
+    context.fillStyle = hoverChangeColor(tile.changePercent, theme);
+    fillRightFittedText(context, formatChange(tile.changePercent), panel.x + panel.width - 12, textY, 64);
+  });
+}
+
+function hoverCategorySymbolTiles(
+  symbolTiles: TreeMapTile[],
+  industryTile: TreeMapTile | undefined,
+  hoveredTile: TreeMapTile
+): TreeMapTile[] {
+  const categoryTiles = industryTile ? symbolTiles.filter((tile) => tile.parentId === industryTile.id) : [];
+  return categoryTiles.some((tile) => tile.id === hoveredTile.id) ? categoryTiles : [hoveredTile];
+}
+
+function hoverRowsForCategory(tiles: TreeMapTile[], hoveredTile: TreeMapTile, maxRows: number): TreeMapTile[] {
+  const sorted = [...tiles].sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+  if (sorted.length <= maxRows) {
+    return sorted;
+  }
+  const rows = sorted.slice(0, maxRows);
+  if (!rows.some((tile) => tile.id === hoveredTile.id)) {
+    rows[rows.length - 1] = hoveredTile;
+  }
+  return rows;
+}
+
+function positionHoverPanel(
+  size: CanvasSize,
+  pointerX: number,
+  pointerY: number,
+  width: number,
+  height: number
+): TreeMapRect {
+  const maxX = Math.max(hoverPanelMargin, size.width - width - hoverPanelMargin);
+  const maxY = Math.max(hoverPanelMargin, size.height - height - hoverPanelMargin);
+  let x = pointerX + hoverPanelOffset;
+  if (x + width > size.width - hoverPanelMargin) {
+    x = pointerX - width - hoverPanelOffset;
+  }
+  let y = pointerY - height * 0.42;
+  if (y + height > size.height - hoverPanelMargin) {
+    y = size.height - height - hoverPanelMargin;
+  }
+  return {
+    x: clamp(x, hoverPanelMargin, maxX),
+    y: clamp(y, hoverPanelMargin, maxY),
+    width,
+    height
+  };
+}
+
+function hoverCategoryTitle(tile: TreeMapTile): string {
+  const sector = tile.sectorLabelKo || tile.sector || "Unknown";
+  return `${sector} - ${tile.industry || "Unclassified"}`;
+}
+
+function hoverDetailText(tile: TreeMapTile): string {
+  return [
+    formatMarketCap(tile.marketCap),
+    formatDollarLabel("거래대금", tile.sessionDollarVolume),
+    formatNumberLabel("거래량", tile.volume)
+  ].filter(Boolean).join(" · ");
+}
+
+function formatHoverQuote(tile: TreeMapTile): string {
+  const price = formatPrice(tile.lastPrice);
+  return `${price} ${formatChange(tile.changePercent)}`;
+}
+
+function formatPrice(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) {
+    return "-";
+  }
+  return `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+function formatMarketCap(value: number | null | undefined): string | null {
+  if (!isFiniteNumber(value) || value <= 0) {
+    return null;
+  }
+  return `시총 ${formatCompactDollar(value)}`;
+}
+
+function formatDollarLabel(label: string, value: number | null | undefined): string | null {
+  if (!isFiniteNumber(value) || value <= 0) {
+    return null;
+  }
+  return `${label} ${formatCompactDollar(value)}`;
+}
+
+function formatNumberLabel(label: string, value: number | null | undefined): string | null {
+  if (!isFiniteNumber(value) || value <= 0) {
+    return null;
+  }
+  return `${label} ${formatCompactNumber(value)}`;
+}
+
+function formatCompactDollar(value: number): string {
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000_000) {
+    return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
+  }
+  if (absolute >= 1_000_000_000) {
+    return `$${(value / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (absolute >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(1)}M`;
+  }
+  return `$${Math.round(value).toLocaleString("en-US")}`;
+}
+
+function formatCompactNumber(value: number): string {
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (absolute >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (absolute >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function hoverChangeColor(changePercent: number | undefined, theme: TreeMapTheme): string {
+  const tone = toneForChange(changePercent);
+  if (tone === "down") {
+    return theme.colors.changeDown;
+  }
+  if (tone === "up") {
+    return theme.colors.changeUp;
+  }
+  return "#4b5563";
 }
 
 function drawSymbol(
@@ -369,6 +691,23 @@ function fillFittedText(
   context.fillText(fitted, x, y);
 }
 
+function fillRightFittedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  right: number,
+  y: number,
+  maxWidth: number
+) {
+  if (maxWidth <= 8) {
+    return;
+  }
+  let fitted = text;
+  while (fitted.length > 1 && context.measureText(fitted).width > maxWidth) {
+    fitted = `${fitted.slice(0, Math.max(1, fitted.length - 4))}...`;
+  }
+  context.fillText(fitted, right, y);
+}
+
 function formatChange(value: number | undefined): string {
   if (!Number.isFinite(value)) {
     return "0.00%";
@@ -434,6 +773,23 @@ function roundedRectPath(
   context.closePath();
 }
 
+function strokeRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const safeRadius = roundedRadius(width, height, radius);
+  if (safeRadius <= 0.25) {
+    context.strokeRect(x, y, width, height);
+    return;
+  }
+  roundedRectPath(context, x, y, width, height, safeRadius);
+  context.stroke();
+}
+
 function roundedRadius(width: number, height: number, radius: number): number {
   return clamp(radius, 0, Math.min(width, height) * 0.32);
 }
@@ -451,6 +807,20 @@ function insetTile(tile: TreeMapTile, gap: number) {
     width: Math.max(0, tile.width - inset * 2),
     height: Math.max(0, tile.height - inset * 2)
   };
+}
+
+function insetRect(rect: TreeMapRect, gap: number): TreeMapRect {
+  const inset = Math.min(gap, rect.width / 3, rect.height / 3);
+  return {
+    x: rect.x + inset,
+    y: rect.y + inset,
+    width: Math.max(0, rect.width - inset * 2),
+    height: Math.max(0, rect.height - inset * 2)
+  };
+}
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function clamp(value: number, min: number, max: number): number {

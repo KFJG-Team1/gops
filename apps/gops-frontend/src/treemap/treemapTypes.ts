@@ -14,6 +14,9 @@ export type TreeMapInputItem = {
   value: number;
   marketCap: number;
   indexWeight?: number;
+  lastPrice?: number | null;
+  volume?: number | null;
+  sessionDollarVolume?: number | null;
   changePercent: number;
 };
 
@@ -33,6 +36,9 @@ export type TreeMapTile = TreeMapRect & {
   companyName?: string;
   marketCap?: number;
   indexWeight?: number;
+  lastPrice?: number | null;
+  volume?: number | null;
+  sessionDollarVolume?: number | null;
   changePercent?: number;
   band?: TreeMapRect;
 };
