@@ -2,6 +2,7 @@ export const MIN_VISIBLE_CANDLES = 6;
 export const MAX_VISIBLE_CANDLES = 180;
 export const MIN_READABLE_SLOT_WIDTH = 8;
 const FUTURE_EMPTY_SPACE_RATIO = 2 / 3;
+const LATEST_CANDLE_RIGHT_EMPTY_SPACE_RATIO = 1 / 4;
 const WHEEL_AXIS_EPSILON = 0.5;
 
 export type ViewportClampOptions = {
@@ -76,6 +77,13 @@ export function clampRightOffset(
 
 export function futureEmptySlotCount(visibleCount: number): number {
   return Math.max(0, Math.ceil(Math.max(1, Math.round(visibleCount)) * FUTURE_EMPTY_SPACE_RATIO));
+}
+
+export function latestCandleRightOffset(visibleCount: number): number {
+  return -Math.max(
+    0,
+    Math.floor(Math.max(1, Math.round(visibleCount)) * LATEST_CANDLE_RIGHT_EMPTY_SPACE_RATIO)
+  );
 }
 
 export function dragDeltaToRightOffset(

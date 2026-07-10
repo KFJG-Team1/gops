@@ -5,7 +5,7 @@ import { latestCandleRightOffset, normalizeViewport, type ChartViewport, type Vi
 export type IntervalDirection = "smaller" | "larger";
 
 export type ViewportAnchor = {
-  mode: "right" | "center";
+  mode: "latest" | "right" | "center";
   timestamp?: string;
   visibleCount?: number;
 };
@@ -30,7 +30,10 @@ export function anchoredViewportForCandles(
   options: ViewportNavigationOptions = {}
 ): ChartViewport {
   const preferredVisibleCount = anchor?.visibleCount ?? fallback?.visibleCount ?? defaultVisibleBarsForInterval(interval);
-  const fallbackUsesLatestSpace = !fallback || fallback.rightOffset === latestCandleRightOffset(fallback.visibleCount);
+  const fallbackUsesLatestSpace = !fallback || fallback.rightOffset <= 0;
+  if (anchor?.mode === "latest") {
+    return latestViewportForCandles(preferredVisibleCount, candles.length, plotWidth, options);
+  }
   if (!anchor?.timestamp || candles.length === 0) {
     const visibleViewport = normalizeViewport(
       {
@@ -177,8 +180,11 @@ export function viewportAfterSnapshotCandlesChange(
   if (anchor?.timestamp) {
     return anchoredViewportForCandles(nextCandles, interval, anchor, previousViewport, plotWidth, options);
   }
+  if (anchor?.mode === "latest") {
+    return latestViewportForCandles(anchor.visibleCount ?? previousViewport.visibleCount, nextCandles.length, plotWidth, options);
+  }
   if (!previousCandles.length || previousViewport.rightOffset <= 0) {
-    return normalizeViewport(previousViewport, nextCandles.length, plotWidth, options);
+    return latestViewportForCandles(previousViewport.visibleCount, nextCandles.length, plotWidth, options);
   }
   return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, previousViewport, plotWidth, options);
 }
@@ -193,6 +199,29 @@ export function viewportAfterOlderCandlesLoaded(
 ): ChartViewport {
   const activeViewport = normalizeViewport(currentViewport, previousCandles.length, plotWidth, options);
   return viewportPreservingRightEdgeAfterCandlesChange(previousCandles, nextCandles, activeViewport, plotWidth, options);
+}
+
+function latestViewportForCandles(
+  visibleCount: number,
+  candleCount: number,
+  plotWidth?: number,
+  options: ViewportNavigationOptions = {}
+): ChartViewport {
+  const fitted = normalizeViewport(
+    { visibleCount, rightOffset: 0 },
+    candleCount,
+    plotWidth,
+    options
+  );
+  return normalizeViewport(
+    {
+      visibleCount: fitted.visibleCount,
+      rightOffset: latestCandleRightOffset(fitted.visibleCount)
+    },
+    candleCount,
+    plotWidth,
+    options
+  );
 }
 
 function findCandleIndexAtOrBefore(candles: CandleDto[], timestamp: string): number {

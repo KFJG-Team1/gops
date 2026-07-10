@@ -158,6 +158,7 @@ import {
   clampVisibleCount,
   dragDeltaToRightOffset,
   horizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset,
   normalizeViewport,
   resolveHorizontalWheelDelta,
   resolveViewportVisibleCount,
@@ -168,6 +169,7 @@ import {
   dragDeltaToRightOffset as frontendDragDeltaToRightOffset,
   futureEmptySlotCount as frontendFutureEmptySlotCount,
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset as frontendLatestCandleRightOffset,
   normalizeViewport as frontendNormalizeViewport,
   resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
 } from "../src/chart/viewport";
@@ -2532,6 +2534,10 @@ assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
 assert.ok(Math.abs(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1) - (8 - 32 / 9)) < 0.000001);
 assert.equal(frontendClampRightOffset(-120, 72, 160), -48);
 assert.equal(frontendClampRightOffset(-120, 72, 160, { extraFutureSlots: 14 }), -62);
+assert.equal(latestCandleRightOffset(120), -30);
+assert.equal(latestCandleRightOffset(104), -26);
+assert.equal(latestCandleRightOffset(36), -9);
+assert.equal(frontendLatestCandleRightOffset(6), -1);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120 }, 160, 640, { extraFutureSlots: 14 }), {
   visibleCount: 72,
   rightOffset: -62
@@ -2560,7 +2566,19 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 6, rightOffset: 0 }
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    [],
+    sparseDailyCandles,
+    "1D",
+    { visibleCount: 120, rightOffset: frontendLatestCandleRightOffset(120) },
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
 );
 const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -2576,6 +2594,18 @@ const restoredDailyCandles = [
   ...Array.from({ length: 117 }, (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 80 + index)),
   ...sparseDailyCandles
 ];
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    sparseDailyCandles,
+    restoredDailyCandles,
+    "1D",
+    { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) },
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+);
 assert.deepEqual(
   viewportPreservingRightEdgeAfterCandlesChange(
     sparseDailyCandles,
@@ -2628,6 +2658,26 @@ const cachedMinuteSnapshotCandles = Array.from(
 );
 const tailSnapshotResponseCandles = cachedMinuteSnapshotCandles.slice(-120);
 const detachedSnapshotViewport = { visibleCount: 60, rightOffset: 500 };
+assert.deepEqual(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    { mode: "latest", visibleCount: 60 },
+    detachedSnapshotViewport,
+    640
+  ),
+  { visibleCount: 60, rightOffset: frontendLatestCandleRightOffset(60) }
+);
+assert.deepEqual(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    { mode: "right", timestamp: tailSnapshotResponseCandles[80].timestamp, visibleCount: 60 },
+    detachedSnapshotViewport,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 39 }
+);
 assert.equal(
   anchoredViewportForCandles(
     tailSnapshotResponseCandles,
@@ -2665,7 +2715,7 @@ assert.deepEqual(
     null,
     640
   ),
-  { visibleCount: 60, rightOffset: 0 }
+  { visibleCount: 60, rightOffset: frontendLatestCandleRightOffset(60) }
 );
 assert.deepEqual(
   viewportAfterSnapshotCandlesChange(
@@ -2918,6 +2968,38 @@ assert.deepEqual(zoomViewport({ visibleCount: 180, rightOffset: 120 }, -8, 160, 
   rightOffset: 118
 });
 
+const initializingLiveDocument = createChartDocument("chart-doc-live-initial", "AAPL", "1m");
+const initializingLiveState = {
+  ...createInitialChartRuntimeState(),
+  documents: { [initializingLiveDocument.id]: initializingLiveDocument }
+};
+const firstLiveCandleState = chartRuntimeReducer(initializingLiveState, {
+  kind: "chart.live",
+  event: {
+    type: "LIVE_CANDLE_UPDATE",
+    symbol: "AAPL",
+    interval: "1m",
+    data: candleA
+  }
+});
+assert.deepEqual(firstLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
+  visibleCount: 6,
+  rightOffset: latestCandleRightOffset(6)
+});
+const secondLiveCandleState = chartRuntimeReducer(firstLiveCandleState, {
+  kind: "chart.live",
+  event: {
+    type: "LIVE_CANDLE_UPDATE",
+    symbol: "AAPL",
+    interval: "1m",
+    data: candleB
+  }
+});
+assert.deepEqual(secondLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
+  visibleCount: 6,
+  rightOffset: latestCandleRightOffset(6)
+});
+
 const detachedDocument = createChartDocument("chart-doc-detached", "AAPL", "1m");
 detachedDocument.viewport = { visibleCount: 1, rightOffset: 1 };
 const detachedState = {
@@ -2981,7 +3063,10 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   })
 });
 assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 6, rightOffset: 1 });
-assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: defaultVisibleBarsForInterval("1m"), rightOffset: 0 });
+assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, {
+  visibleCount: defaultVisibleBarsForInterval("1m"),
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
+});
 sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   kind: "chart.live",
   event: {
@@ -2993,7 +3078,10 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
 });
 assert.equal(sharedCacheRuntime.candlesByKey[candleKey("AAPL", "1m")]?.length, 3);
 assert.equal(sharedCacheRuntime.documents["shared-doc-a"]?.viewport.rightOffset, 2);
-assert.equal(sharedCacheRuntime.documents["shared-doc-b"]?.viewport.rightOffset, 0);
+assert.equal(
+  sharedCacheRuntime.documents["shared-doc-b"]?.viewport.rightOffset,
+  latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
+);
 
 const boundedCacheDocument = createChartDocument("bounded-cache-doc", "ACTIVE", "1m");
 let boundedCacheRuntime = {
@@ -3938,7 +4026,10 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
 });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.symbol, "AAPL");
 assert.equal(regressionRuntime.documents[regressionDocBId]?.symbol, "MSFT");
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, {
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m")),
+  visibleCount: defaultVisibleBarsForInterval("1m")
+});
 assert.equal(regressionRuntime.documents[regressionDocAId]?.history.length, 0);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.history.length, 0);
 
@@ -3959,7 +4050,10 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
   kind: "chart.command",
   command: makeChartCommand("chart.undo", "user", target(regressionPanelA.id, regressionDocAId))
 });
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, {
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m")),
+  visibleCount: defaultVisibleBarsForInterval("1m")
+});
 assert.deepEqual(regressionRuntime.documents[regressionDocBId]?.viewport, beforeViewportB);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.future.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.future.length, 0);

@@ -2,17 +2,19 @@ import { defaultVisibleBarsForInterval, normalizeChartInterval, type ChartInterv
 import type { ChartDocument, ChartDocumentSnapshot, DrawingEntity } from "./types";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import { getDefaultChartStyle, normalizeChartStyle } from "./theme";
+import { latestCandleRightOffset } from "./viewport";
 
 export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe: ChartInterval | string = "1m"): ChartDocument {
   const resolvedTimeframe = normalizeChartInterval(timeframe) ?? "1m";
+  const visibleCount = defaultVisibleBarsForInterval(resolvedTimeframe);
   return {
     id,
     symbol,
     chartType: "candle",
     timeframe: resolvedTimeframe,
     viewport: {
-      rightOffset: 0,
-      visibleCount: defaultVisibleBarsForInterval(resolvedTimeframe)
+      rightOffset: latestCandleRightOffset(visibleCount),
+      visibleCount
     },
     panes: [
       { id: "price", heightRatio: 0.74 },

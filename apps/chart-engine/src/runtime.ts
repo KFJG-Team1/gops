@@ -3,6 +3,7 @@ import { createChartDocument, normalizeChartDocument } from "./chartDocuments";
 import { normalizeChartInterval, type ChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import { canonicalTimestamp } from "./time";
+import { clampVisibleCount, latestCandleRightOffset } from "./viewport";
 import {
   executeChartCommand,
   executeChartCommandGroup,
@@ -259,7 +260,13 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
     ...state,
     ...candleCache,
     documents: appendedCount > 0
-      ? freezeDetachedViewports(state.documents, event.symbol, event.interval, appendedCount)
+      ? reconcileViewportsAfterLiveAppend(
+          state.documents,
+          event.symbol,
+          event.interval,
+          current.length,
+          result.candles.length
+        )
       : state.documents,
     dataStatusByKey: {
       ...state.dataStatusByKey,
@@ -311,7 +318,10 @@ function applyRealtimeLayerEvent(state: ChartRuntimeState, event: RealtimeLayerE
   if (event.type === "LIVE_TRADE_UPDATE") {
     const candlePatch = applyTradeTickToLiveCandles(state.candlesByKey, symbol, event.data);
     const documents = candlePatch.appendedIntervals.reduce(
-      (current, interval) => freezeDetachedViewports(current, symbol, interval, 1),
+      (current, interval) => {
+        const previousCount = state.candlesByKey[candleKey(symbol, interval)]?.length ?? 0;
+        return reconcileViewportsAfterLiveAppend(current, symbol, interval, previousCount, previousCount + 1);
+      },
       state.documents
     );
     return {
@@ -487,19 +497,35 @@ function tradeBucketTimestamp(tradeTime: number, interval: ChartInterval): strin
   return bucket.toISOString();
 }
 
-function freezeDetachedViewports(
+function reconcileViewportsAfterLiveAppend(
   documents: ChartRuntimeState["documents"],
   symbol: string,
   interval: string,
-  appendedCount: number
+  previousCandleCount: number,
+  nextCandleCount: number
 ): ChartRuntimeState["documents"] {
+  const appendedCount = Math.max(0, nextCandleCount - previousCandleCount);
+  const initializesViewport = previousCandleCount === 0 && nextCandleCount > 0;
   let changed = false;
   const next: ChartRuntimeState["documents"] = {};
   Object.entries(documents).forEach(([id, document]) => {
     if (
       document.symbol !== symbol ||
-      document.timeframe !== interval ||
-      document.viewport.rightOffset <= 0
+      document.timeframe !== interval
+    ) {
+      next[id] = document;
+      return;
+    }
+    const followsLatest = document.viewport.rightOffset <= 0;
+    const visibleCount = followsLatest && initializesViewport
+      ? clampVisibleCount(document.viewport.visibleCount, nextCandleCount)
+      : document.viewport.visibleCount;
+    const rightOffset = followsLatest
+      ? latestCandleRightOffset(visibleCount)
+      : document.viewport.rightOffset + appendedCount;
+    if (
+      visibleCount === document.viewport.visibleCount &&
+      rightOffset === document.viewport.rightOffset
     ) {
       next[id] = document;
       return;
@@ -508,8 +534,8 @@ function freezeDetachedViewports(
     next[id] = {
       ...document,
       viewport: {
-        ...document.viewport,
-        rightOffset: document.viewport.rightOffset + appendedCount
+        visibleCount,
+        rightOffset
       },
       updatedAt: now()
     };

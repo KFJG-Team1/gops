@@ -4,7 +4,7 @@ import { chartLayerMetadata, layerVisibilityAliases, normalizeChartLayerKey } fr
 import { drawingRegistry, isSupportedDrawing } from "./registries";
 import { riskRewardDirection } from "./drawingGeometry";
 import { normalizeSupportedSymbol } from "./symbols";
-import { clampRightOffset } from "./viewport";
+import { clampRightOffset, latestCandleRightOffset } from "./viewport";
 import type {
   ChartCommand,
   ChartCommandActor,
@@ -252,7 +252,8 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart symbol.";
       }
       document.symbol = symbol;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(document.timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(document.timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
     }
     case "chart.timeframe.set": {
@@ -261,7 +262,8 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
     }
     case "chart.type.set": {

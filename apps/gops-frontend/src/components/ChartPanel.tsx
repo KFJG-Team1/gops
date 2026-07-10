@@ -586,11 +586,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (chart.chartType !== "bidask" || isBidAskChartInterval(document.timeframe)) {
       return;
     }
+    const followsLatest = chart.rightOffset <= 0;
     pendingViewportAnchorRef.current = {
       key: chartMemoryKey(chart.symbol, defaultBidAskInterval),
       anchor: {
-        mode: "right",
-        timestamp: visibleRightAnchorTimestamp(sceneRef.current, chart),
+        mode: followsLatest ? "latest" : "right",
+        timestamp: followsLatest ? undefined : visibleRightAnchorTimestamp(sceneRef.current, chart),
         visibleCount: defaultVisibleBarsForBidAskInterval(defaultBidAskInterval)
       }
     };
@@ -1254,11 +1255,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const nextVisibleCount = current.chartType === "bidask"
       ? defaultVisibleBarsForBidAskInterval(nextInterval)
       : defaultVisibleBarsForInterval(nextInterval);
+    const followsLatest = current.rightOffset <= 0;
     pendingViewportAnchorRef.current = {
       key: chartMemoryKey(current.symbol, nextInterval),
       anchor: {
-        mode: "right",
-        timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
+        mode: followsLatest ? "latest" : "right",
+        timestamp: followsLatest ? undefined : visibleRightAnchorTimestamp(sceneRef.current, current),
         visibleCount: nextVisibleCount
       }
     };
@@ -1277,11 +1279,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const nextInterval = isBidAskChartInterval(current.interval) ? current.interval : defaultBidAskInterval;
       const nextVisibleCount = defaultVisibleBarsForBidAskInterval(nextInterval);
       if (current.interval !== nextInterval) {
+        const followsLatest = current.rightOffset <= 0;
         pendingViewportAnchorRef.current = {
           key: chartMemoryKey(current.symbol, nextInterval),
           anchor: {
-            mode: "right",
-            timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
+            mode: followsLatest ? "latest" : "right",
+            timestamp: followsLatest ? undefined : visibleRightAnchorTimestamp(sceneRef.current, current),
             visibleCount: nextVisibleCount
           }
         };
@@ -1963,6 +1966,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     <section
       className="chart-panel"
       data-chart-visible-count={renderChart.visibleCount}
+      data-chart-right-offset={renderChart.rightOffset}
       data-chart-history-count={document.history.length}
       data-chart-candle-count={renderChart.candles.length}
       data-bidask-session-date={orderFlowActive ? bidAskSessionDate : undefined}
