@@ -3583,6 +3583,11 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*width: 100%;/)
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: nowrap;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
+assert.match(frontendStylesSource, /\.portfolio-holdings-list \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
+assert.match(frontendStylesSource, /\.portfolio-holdings-table-head,[\s\S]*\.portfolio-holding-row \{[\s\S]*display: grid;/);
+assert.match(frontendStylesSource, /\.portfolio-holdings-board \{[\s\S]*grid-auto-flow: column;/);
+assert.match(frontendStylesSource, /\.portfolio-multi-panel \{[\s\S]*display: flex;/);
+assert.match(frontendStylesSource, /Local dark-theme compatibility for the restored dev portfolio panels/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
 assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);
 assert.doesNotMatch(frontendStylesSource, /layout-preset-status-in/);
