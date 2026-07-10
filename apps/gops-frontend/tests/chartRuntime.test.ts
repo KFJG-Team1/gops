@@ -124,6 +124,7 @@ import {
   applyTiledAgentLayoutProposalWithResult,
   buildTiledAgentLayoutContext
 } from "../src/layout/tiledAgentLayout";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, isLikelyPresetLoadPrompt } from "../src/layout/layoutPresets";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
   clampRightOffset,
@@ -2789,7 +2790,11 @@ assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
 assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
+assert.match(appSource, /isLikelyPresetLoadPrompt\(prompt, agentPresetSummaries\)/);
 const agentShortcutIndex = appSource.indexOf("resolveAgentChartShortcut(prompt)");
+const presetShortcutIndex = appSource.indexOf("isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)");
+assert.ok(presetShortcutIndex > -1);
+assert.ok(presetShortcutIndex < agentShortcutIndex);
 assert.ok(agentShortcutIndex >= 0);
 assert.ok(agentShortcutIndex < appSource.indexOf("if (mainView.mode !== \"chart\")", agentShortcutIndex));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
@@ -3016,6 +3021,69 @@ assert.equal(layoutResolve.status, "ui_layout");
 assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const presetSummaries = buildAgentLayoutPresetSummaries([
+  { id: "market", kind: "default", name: "시장분석" },
+  { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) },
+  { id: "custom-preopen", kind: "custom", name: "장전 체크", layout: serializeTiledPanelState(tiledState) }
+]);
+assert.equal(presetSummaries[0]?.id, "market");
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 프리셋"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석창"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 대시보드"));
+assert.equal(presetSummaries[1]?.id, "custom-taste");
+assert.ok(presetSummaries[1]?.aliases.includes("내입맛"));
+assert.equal(presetSummaries[2]?.id, "custom-preopen");
+assert.ok(presetSummaries[2]?.aliases.includes("장전 체크 대시보드"));
+assert.equal(isLikelyPresetLoadPrompt("시장분석 프리셋 띄워줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석창 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("내 입맛 화면으로 바꿔줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("장전 체크 대시보드 열어줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장 분석해줘", presetSummaries), false);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 해줘", presetSummaries), false);
+
+const presetLoadResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_layout",
+  summary: "시장분석 프리셋을 열었습니다.",
+  route: { source: "ui-preset-parser", intentType: "ui-layout", selectedRoles: [] },
+  layoutProposal: {
+    id: "layout-proposal-preset-load",
+    title: "UI preset request",
+    rationale: "시장분석 프리셋을 열었습니다.",
+    autoApply: true,
+    panelPriorities: [],
+    commands: [
+      makeAgentLayoutCommand("layout.load", "llm", { presetId: "market", presetName: "시장분석", presetKind: "default" })
+    ],
+    createdAt: "2026-06-29T00:00:00.000Z"
+  },
+  agentTrace: { uiLayoutFastAck: true }
+});
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.type, "layout.load");
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.payload.presetId, "market");
+const appliedPresetIds: string[] = [];
+assert.equal(
+  applyLayoutLoadProposalToPresets(
+    presetLoadResolve.layoutProposal!,
+    [
+      { id: "market", kind: "default", name: "시장분석" },
+      { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) }
+    ],
+    (id) => appliedPresetIds.push(id)
+  ),
+  "applied"
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.equal(
+  applyLayoutLoadProposalToPresets(presetLoadResolve.layoutProposal!, [{ id: "stock", kind: "default", name: "종목분석" }], () => appliedPresetIds.push("unexpected")),
+  "missing"
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.equal(
+  applyLayoutLoadProposalToPresets(layoutResolve.layoutProposal!, [{ id: "market", kind: "default", name: "시장분석" }], () => appliedPresetIds.push("unexpected")),
+  "none"
+);
 
 const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
   status: "ui_clarify",
