@@ -28,7 +28,7 @@ import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChar
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
-import { chartRuntimeReducer, createInitialChartRuntimeState, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
+import { chartRuntimeReducer, createInitialChartRuntimeState, getLiveTradeForSymbol, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
@@ -1156,6 +1156,7 @@ if (normalizedTrade.type !== "LIVE_TRADE_UPDATE") {
 assert.equal(normalizedTrade.data.price, 197.66);
 const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
 assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
+assert.equal(getLiveTradeForSymbol(tradeLayerRuntime, "nvda")?.price, 197.66);
 
 assert.equal(isChartDataRenderable({
   state: "partial",
@@ -2884,6 +2885,7 @@ assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /Paintbrush/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
+assert.match(chartPanelSource, /liveTradePrice/);
 assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
@@ -2940,6 +2942,7 @@ assert.doesNotMatch(semanticTimelineSource, /kind:\s*"placeholder"\s*\|\s*"foot/
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
+assert.match(chartCanvasSource, /currentPriceForScene/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");

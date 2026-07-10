@@ -136,11 +136,11 @@ export function getStreamMessageForDocument(state: ChartRuntimeState, document: 
 }
 
 export function getLiveTradeForSymbol(state: ChartRuntimeState, symbol: string) {
-  return state.liveTradesBySymbol?.[symbol];
+  return state.liveTradesBySymbol?.[symbol.toUpperCase()] ?? state.liveTradesBySymbol?.[symbol];
 }
 
 export function getLiveQuoteForSymbol(state: ChartRuntimeState, symbol: string) {
-  return state.liveQuotesBySymbol?.[symbol];
+  return state.liveQuotesBySymbol?.[symbol.toUpperCase()] ?? state.liveQuotesBySymbol?.[symbol];
 }
 
 function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
@@ -254,17 +254,18 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
 }
 
 function applyRealtimeLayerEvent(state: ChartRuntimeState, event: RealtimeLayerEvent): ChartRuntimeState {
+  const symbol = event.symbol.toUpperCase();
   if (event.type === "LIVE_TRADE_UPDATE") {
     return {
       ...state,
-      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [event.symbol]: event.data },
-      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${event.symbol} live trade updated.`)
+      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [symbol]: event.data },
+      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${symbol} live trade updated.`)
     };
   }
   return {
     ...state,
-    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [event.symbol]: event.data },
-    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${event.symbol} live quote updated.`)
+    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [symbol]: event.data },
+    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${symbol} live quote updated.`)
   };
 }
 
