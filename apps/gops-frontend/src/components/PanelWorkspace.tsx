@@ -36,8 +36,8 @@ import {
 } from "lucide-react";
 import {
   applyPanelResizeWithYield,
+  applyPanelMoveWithPush,
   addPanelSlotAtGridRect,
-  canPlaceGridRect,
   detectResizablePanelBoundaries,
   expandGridRectForKind,
   gridRectForPanelDrag,
@@ -55,6 +55,7 @@ import {
   replacePanelSlotKind,
   resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
+  resolvePanelMoveWithPush,
   resolvePanelResizeWithYield,
   resizeFreeformBoundary,
   setPanelContentProps,
@@ -300,13 +301,20 @@ export function PanelWorkspace({
       return;
     }
     if (preview.mode === "move" && preview.sourceSlotId) {
-      setPanelState((current) => movePanelSlotToGridRect(
-        current,
-        preview.sourceSlotId!,
-        preview.gridRect,
-        viewportSizeRef.current,
-        layoutMetricsRef.current
-      ));
+      setPanelState((current) => {
+        // Push overlapping panels out of the way; fall back to a plain move if push fails.
+        const pushPlan = resolvePanelMoveWithPush(current, preview.sourceSlotId!, preview.gridRect);
+        if (pushPlan.valid) {
+          return applyPanelMoveWithPush(current, pushPlan, viewportSizeRef.current, layoutMetricsRef.current);
+        }
+        return movePanelSlotToGridRect(
+          current,
+          preview.sourceSlotId!,
+          preview.gridRect,
+          viewportSizeRef.current,
+          layoutMetricsRef.current
+        );
+      });
       return;
     }
     if (preview.mode === "resize" && preview.sourceSlotId) {
@@ -405,12 +413,14 @@ export function PanelWorkspace({
           }
         };
       }
+      const pushPlan = resolvePanelMoveWithPush(state, source.id, gridRect);
       return {
         gridRect,
         kind,
         sourceSlotId: source.id,
         mode: "move",
-        valid: canPlaceGridRect(state, gridRect, { exceptSlotId: source.id, kind }),
+        valid: pushPlan.valid,
+        yieldedSlots: pushPlan.pushedSlots,
         label: sourceTitle
       };
     }

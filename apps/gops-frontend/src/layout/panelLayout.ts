@@ -144,6 +144,15 @@ export type PanelResizeYieldPlan = {
   reason?: string;
 };
 
+export type PanelMovePushPlan = {
+  valid: boolean;
+  sourceSlotId: PanelSlotId;
+  sourceGridRect: PanelGridRect;
+  /** Panels shoved out of the moved panel's footprint, reusing the yield slot shape. */
+  pushedSlots: PanelResizeYieldSlot[];
+  reason?: string;
+};
+
 export type PanelDropGridRectPlan = {
   valid: boolean;
   gridRect: PanelGridRect;
@@ -946,6 +955,181 @@ export function applyPanelResizeWithYield(
       }
       const yielded = yieldedBySlotId.get(slot.id);
       return yielded ? { ...slot, gridRect: yielded } : slot;
+    })
+  }, viewport, layoutMetrics);
+}
+
+/**
+ * Resolves dropping a panel at `targetGridRect` by shoving any overlapping panels
+ * downward ("push"), cascading so displaced panels push whatever sits below them.
+ * The move fails (valid=false) only if a pushed panel would fall off the grid bottom,
+ * so the caller can fall back to blocking the drop. When nothing overlaps, the plan is
+ * still valid with an empty `pushedSlots`, i.e. it also covers plain, unobstructed moves.
+ */
+type PushAxis = "down" | "up" | "right" | "left";
+
+/** Picks the push direction from a panel's displacement: dominant axis wins, sign chooses the way. */
+function pushAxisForMove(from: PanelGridRect, to: PanelGridRect): PushAxis {
+  const dRow = to.row - from.row;
+  const dCol = to.col - from.col;
+  if (Math.abs(dRow) >= Math.abs(dCol)) {
+    return dRow >= 0 ? "down" : "up";
+  }
+  return dCol >= 0 ? "right" : "left";
+}
+
+/** Slides `rect` clear of `mover` along the push axis, keeping it on the same perpendicular line. */
+function pushedGridRectAlongAxis(rect: PanelGridRect, mover: PanelGridRect, axis: PushAxis): PanelGridRect {
+  switch (axis) {
+    case "down":
+      return { ...rect, row: mover.row + mover.rowSpan };
+    case "up":
+      return { ...rect, row: mover.row - rect.rowSpan };
+    case "right":
+      return { ...rect, col: mover.col + mover.colSpan };
+    case "left":
+      return { ...rect, col: mover.col - rect.colSpan };
+  }
+}
+
+function pushOverflowsGrid(rect: PanelGridRect, axis: PushAxis, cols: number, rows: number): boolean {
+  switch (axis) {
+    case "down":
+      return gridRectRowEnd(rect) > rows + 1;
+    case "up":
+      return rect.row < 1;
+    case "right":
+      return gridRectColEnd(rect) > cols + 1;
+    case "left":
+      return rect.col < 1;
+  }
+}
+
+export function resolvePanelMoveWithPush(
+  state: TiledPanelState,
+  slotId: PanelSlotId,
+  targetGridRect: PanelGridRect
+): PanelMovePushPlan {
+  const source = state.slots.find((item) => item.id === slotId);
+  const kind = source ? state.contents[source.contentId]?.kind : null;
+  const fallbackGridRect = normalizePanelGridRect(targetGridRect);
+  if (!source || !kind) {
+    return {
+      valid: false,
+      sourceSlotId: slotId,
+      sourceGridRect: fallbackGridRect,
+      pushedSlots: [],
+      reason: "source-not-found"
+    };
+  }
+  const sourceGridRect = normalizePanelGridRect(targetGridRect, minGridSpanForKind(kind));
+  if (!gridRectEquals(sourceGridRect, targetGridRect)) {
+    return {
+      valid: false,
+      sourceSlotId: source.id,
+      sourceGridRect,
+      pushedSlots: [],
+      reason: "invalid-target-grid-rect"
+    };
+  }
+
+  const cols = panelGridSpec.cols;
+  const rows = panelGridSpec.rows;
+  // Push panels in the direction the dragged panel is travelling: the dominant axis of
+  // its displacement decides vertical vs horizontal, and the sign decides which way.
+  const axis = pushAxisForMove(source.gridRect, sourceGridRect);
+
+  const positions = new Map<PanelSlotId, PanelGridRect>();
+  for (const slot of state.slots) {
+    if (slot.id !== source.id) {
+      positions.set(slot.id, slot.gridRect);
+    }
+  }
+
+  // Each queue entry carries the id of the mover (null for the dragged panel) so a
+  // pushed panel never collides with its own new position while the cascade continues.
+  const queue: Array<{ moverId: PanelSlotId | null; rect: PanelGridRect }> = [
+    { moverId: null, rect: sourceGridRect }
+  ];
+  const maxIterations = state.slots.length * (cols + rows + 4) + 16;
+  let guard = 0;
+  while (queue.length > 0) {
+    if (guard++ > maxIterations) {
+      return {
+        valid: false,
+        sourceSlotId: source.id,
+        sourceGridRect,
+        pushedSlots: [],
+        reason: "push-loop"
+      };
+    }
+    const { moverId, rect: mover } = queue.shift()!;
+    for (const [id, rect] of [...positions]) {
+      if (id === moverId || !gridRectsOverlap(mover, rect)) {
+        continue;
+      }
+      // Overlap guarantees strict movement along the push axis, so the cascade terminates.
+      const pushed = pushedGridRectAlongAxis(rect, mover, axis);
+      if (pushOverflowsGrid(pushed, axis, cols, rows)) {
+        return {
+          valid: false,
+          sourceSlotId: source.id,
+          sourceGridRect,
+          pushedSlots: [],
+          reason: "no-room"
+        };
+      }
+      positions.set(id, pushed);
+      queue.push({ moverId: id, rect: pushed });
+    }
+  }
+
+  const pushedSlots: PanelResizeYieldSlot[] = [];
+  for (const slot of state.slots) {
+    if (slot.id === source.id) {
+      continue;
+    }
+    const next = positions.get(slot.id)!;
+    if (!gridRectEquals(next, slot.gridRect)) {
+      pushedSlots.push({ slotId: slot.id, previousGridRect: slot.gridRect, gridRect: next });
+    }
+  }
+
+  const finalSlots = state.slots.map((slot) => (
+    slot.id === source.id
+      ? { ...slot, gridRect: sourceGridRect }
+      : { ...slot, gridRect: positions.get(slot.id)! }
+  ));
+  if (layoutGridRectsOverlap(finalSlots)) {
+    return {
+      valid: false,
+      sourceSlotId: source.id,
+      sourceGridRect,
+      pushedSlots,
+      reason: "collision"
+    };
+  }
+  return { valid: true, sourceSlotId: source.id, sourceGridRect, pushedSlots };
+}
+
+export function applyPanelMoveWithPush(
+  state: TiledPanelState,
+  plan: PanelMovePushPlan,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  if (!plan.valid) {
+    return state;
+  }
+  const pushedBySlotId = new Map(plan.pushedSlots.map((slot) => [slot.slotId, slot.gridRect]));
+  return normalizeTiledPanelStateToWorkspace({
+    ...state,
+    slots: state.slots.map((slot) => {
+      if (slot.id === plan.sourceSlotId) {
+        return { ...slot, gridRect: plan.sourceGridRect };
+      }
+      const pushed = pushedBySlotId.get(slot.id);
+      return pushed ? { ...slot, gridRect: pushed } : slot;
     })
   }, viewport, layoutMetrics);
 }
