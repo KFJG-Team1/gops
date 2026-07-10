@@ -281,7 +281,6 @@ export function WatchlistNewsPanel({
 
   return (
     <section className={`market-news-panel watchlist-news-panel is-${variant}-view`} aria-label={`관심종목 뉴스 ${variant === "list" ? "목록" : "카드"} 패널`}>
-      {variant === "list" && <h2 className="watchlist-news-heading">관심종목 뉴스 목록</h2>}
       <button
         className="panel-reload-overlay panel-icon-button"
         type="button"

@@ -4647,7 +4647,13 @@ h2 {
 
 .market-news-panel.is-list-view {
   overflow: hidden auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+
+.market-news-panel.is-list-view::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .news-card-widget {
@@ -5808,14 +5814,6 @@ h2 {
 .market-news-main {
   display: grid;
   gap: 5px;
-}
-
-.watchlist-news-heading {
-  margin: 0;
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-  color: var(--color-text);
 }
 
 .market-news-main a {
