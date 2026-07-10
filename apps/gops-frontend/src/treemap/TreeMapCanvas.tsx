@@ -12,7 +12,7 @@ import {
   type TreeMapOpacityScale
 } from "./treemapColors";
 import { readThemeColors, type ThemeColors } from "../theme/colors";
-import { CANVAS_FONT_FAMILY, nearestTypeSize, TYPE_SIZE } from "../theme/typography";
+import { applyCanvasTypography, CANVAS_FONT_FAMILY, nearestTypeRole, TYPE_ROLE } from "../theme/typography";
 
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
@@ -208,27 +208,30 @@ function drawTreeMap(
 }
 
 function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
-  if (tile.width < 92 || tile.height < 34) {
+  const band = tile.band;
+  const minimumHeight = Math.ceil(TYPE_ROLE.labelMd.size * TYPE_ROLE.labelMd.lineHeight);
+  if (!band || band.width < 92 || band.height < minimumHeight) {
     return;
   }
-  const nameFont = `500 ${TYPE_SIZE.body}px ${theme.serif}`;
-  const changeFont = `500 ${TYPE_SIZE.compact}px ${theme.serif}`;
+  context.save();
+  clipRect(context, band);
   const changeText = formatChange(tile.changePercent);
-  context.textBaseline = "top";
-  context.font = changeFont;
+  context.textBaseline = "middle";
+  applyCanvasTypography(context, "caption", theme.serif);
   const changeWidth = context.measureText(changeText).width;
-  const canShowChange = tile.width >= 146;
-  const labelMaxWidth = tile.width - labelPadding * 2 - (canShowChange ? changeWidth + 12 : 0);
-  context.font = nameFont;
+  const canShowChange = band.width >= 146;
+  const labelMaxWidth = band.width - labelPadding * 2 - (canShowChange ? changeWidth + 12 : 0);
+  applyCanvasTypography(context, "labelMd", theme.serif);
   context.fillStyle = theme.colors.text;
-  fillFittedText(context, tile.label, tile.x + labelPadding, tile.y + 7, labelMaxWidth);
+  fillFittedText(context, tile.label, band.x + labelPadding, band.y + band.height / 2, labelMaxWidth);
   if (canShowChange) {
-    context.font = changeFont;
+    applyCanvasTypography(context, "caption", theme.serif);
     context.textAlign = "right";
     context.fillStyle = toneForChange(tile.changePercent) === "down" ? theme.colors.changeDown : theme.colors.changeUp;
-    context.fillText(changeText, tile.x + tile.width - labelPadding, tile.y + 8);
+    context.fillText(changeText, band.x + band.width - labelPadding, band.y + band.height / 2);
     context.textAlign = "start";
   }
+  context.restore();
 }
 
 function drawIndustry(
@@ -250,9 +253,10 @@ function drawIndustry(
   context.globalAlpha = 1;
 
   // Industry name written inside the band when it is tall/wide enough to read.
-  if (band.height >= 8 && band.width >= 26) {
-    const fontSize = TYPE_SIZE.micro;
-    context.font = `500 ${fontSize}px ${theme.serif}`;
+  const minimumHeight = Math.ceil(TYPE_ROLE.caption.size * TYPE_ROLE.caption.lineHeight);
+  if (band.height >= minimumHeight && band.width >= 26) {
+    clipRect(context, band);
+    applyCanvasTypography(context, "caption", theme.serif);
     context.fillStyle = tileTextForOpacity(opacity, theme.colors);
     context.textBaseline = "middle";
     fillFittedText(context, tile.label, band.x + 4, band.y + band.height / 2 + 0.5, band.width - 8);
@@ -418,7 +422,7 @@ function drawHoverPanel(
   context.save();
   context.textAlign = "start";
   context.textBaseline = "top";
-  context.font = `700 12px ${theme.serif}`;
+  applyCanvasTypography(context, "caption", theme.serif);
   context.fillStyle = "#1f2933";
   fillFittedText(context, hoverCategoryTitle(hoverState.tile).toUpperCase(), panel.x + 12, panel.y + 8, panel.width - 24);
 
@@ -442,22 +446,22 @@ function drawFeaturedHoverTile(
   const right = panel.x + panel.width - 12;
   const quoteText = formatHoverQuote(tile);
   context.textBaseline = "top";
-  context.font = `700 21px ${theme.serif}`;
+  applyCanvasTypography(context, "titleMd", theme.serif);
   context.fillStyle = "#ffffff";
   fillFittedText(context, tile.symbol || tile.label, left, y + 10, Math.max(72, panel.width * 0.34));
 
   context.textAlign = "right";
-  context.font = `700 19px ${theme.serif}`;
+  applyCanvasTypography(context, "titleLg", theme.serif);
   fillRightFittedText(context, quoteText, right, y + 12, panel.width * 0.56);
 
   context.textAlign = "start";
-  context.font = `600 11px ${theme.serif}`;
+  applyCanvasTypography(context, "labelMd", theme.serif);
   context.fillStyle = "rgba(255, 255, 255, 0.9)";
   fillFittedText(context, tile.companyName || "", left, y + 36, panel.width - 24);
 
   const detailText = hoverDetailText(tile);
   if (detailText) {
-    context.font = `600 10px ${theme.serif}`;
+    applyCanvasTypography(context, "bodyMd", theme.serif);
     context.fillStyle = "rgba(255, 255, 255, 0.76)";
     fillFittedText(context, detailText, left, y + 50, panel.width - 24);
   }
@@ -483,18 +487,18 @@ function drawHoverRows(
 
     context.textBaseline = "top";
     context.textAlign = "start";
-    context.font = `700 11px ${theme.serif}`;
+    applyCanvasTypography(context, "caption", theme.serif);
     context.fillStyle = tile.id === hoveredTile.id ? "#111827" : "#202733";
     fillFittedText(context, tile.symbol || tile.label, panel.x + 12, textY, 54);
 
     if (panel.width >= 350) {
-      context.font = `600 10px ${theme.serif}`;
+      applyCanvasTypography(context, "caption", theme.serif);
       context.fillStyle = "rgba(31, 41, 55, 0.66)";
       fillFittedText(context, tile.companyName || "", panel.x + 66, textY + 0.5, panel.width - 214);
     }
 
     context.textAlign = "right";
-    context.font = `700 11px ${theme.serif}`;
+    applyCanvasTypography(context, "caption", theme.serif);
     context.fillStyle = "#202733";
     fillRightFittedText(context, formatPrice(tile.lastPrice), panel.x + panel.width - 82, textY, 78);
     context.fillStyle = hoverChangeColor(tile.changePercent, theme);
@@ -668,19 +672,24 @@ function drawSymbol(
   if (rect.width < 38 || rect.height < 27 || labelSpace < 24) {
     return;
   }
-  const symbolSize = nearestTypeSize(Math.min(rect.width / 5.8, rect.height / 3.4), TYPE_SIZE.title);
+  const symbolRole = nearestTypeRole(Math.min(rect.width / 5.8, rect.height / 3.4), "titleMd");
+  const symbolSize = TYPE_ROLE[symbolRole].size;
   const textColor = hovered ? theme.colors.background : tileTextForOpacity(tileOpacity, theme.colors);
-  context.font = `500 ${symbolSize}px ${theme.serif}`;
+  context.save();
+  clipRect(context, rect);
+  applyCanvasTypography(context, symbolRole, theme.serif);
   context.fillStyle = textColor;
   context.textBaseline = "top";
   fillFittedText(context, tile.label, rect.x + 6, rect.y + 6, labelSpace);
 
   if (rect.height < 44) {
+    context.restore();
     return;
   }
-  context.font = `500 ${nearestTypeSize(symbolSize * 0.72, TYPE_SIZE.body)}px ${theme.serif}`;
+  applyCanvasTypography(context, nearestTypeRole(symbolSize * 0.72, "bodyMd"), theme.serif);
   context.fillStyle = hovered ? changeTextColor(tile.changePercent, theme) : textColor;
   fillFittedText(context, formatChange(tile.changePercent), rect.x + 6, rect.y + 8 + symbolSize, labelSpace);
+  context.restore();
 }
 
 function boundsForSymbolTiles(tiles: TreeMapTile[]): TreeMapSymbolBounds | null {
@@ -745,11 +754,10 @@ function fillFittedText(
   if (maxWidth <= 8) {
     return;
   }
-  let fitted = text;
-  while (fitted.length > 1 && context.measureText(fitted).width > maxWidth) {
-    fitted = `${fitted.slice(0, Math.max(1, fitted.length - 4))}...`;
+  const fitted = fitText(context, text, maxWidth);
+  if (fitted) {
+    context.fillText(fitted, x, y);
   }
-  context.fillText(fitted, x, y);
 }
 
 function fillRightFittedText(
@@ -762,11 +770,39 @@ function fillRightFittedText(
   if (maxWidth <= 8) {
     return;
   }
-  let fitted = text;
-  while (fitted.length > 1 && context.measureText(fitted).width > maxWidth) {
-    fitted = `${fitted.slice(0, Math.max(1, fitted.length - 4))}...`;
+  const fitted = fitText(context, text, maxWidth);
+  if (fitted) {
+    context.fillText(fitted, right, y);
   }
-  context.fillText(fitted, right, y);
+}
+
+function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (context.measureText(text).width <= maxWidth) {
+    return text;
+  }
+  const ellipsis = "…";
+  if (context.measureText(ellipsis).width > maxWidth) {
+    return "";
+  }
+  const characters = Array.from(text);
+  let low = 0;
+  let high = characters.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const candidate = `${characters.slice(0, middle).join("")}${ellipsis}`;
+    if (context.measureText(candidate).width <= maxWidth) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return `${characters.slice(0, low).join("")}${ellipsis}`;
+}
+
+function clipRect(context: CanvasRenderingContext2D, rect: TreeMapRect): void {
+  context.beginPath();
+  context.rect(rect.x, rect.y, rect.width, rect.height);
+  context.clip();
 }
 
 function formatChange(value: number | undefined): string {

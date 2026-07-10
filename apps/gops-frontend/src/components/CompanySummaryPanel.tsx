@@ -1,3 +1,4 @@
+import { Building2, ChevronLeft, ChevronRight, CircleDollarSign, ShieldCheck, TrendingUp } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -7,7 +8,17 @@ type CompanySummaryPanelProps = {
   symbol: string;
   item?: Sp500UniverseItem;
   items?: Sp500UniverseItem[];
+  view?: CompanyPanelView | "all";
 };
+
+export type CompanyPanelView = "info" | "valuation" | "profitability" | "stability";
+
+const companyMultiViews = [
+  { id: "info", label: "기업", title: "기업정보", icon: Building2 },
+  { id: "valuation", label: "가치", title: "가치평가", icon: CircleDollarSign },
+  { id: "profitability", label: "수익", title: "수익성", icon: TrendingUp },
+  { id: "stability", label: "안정", title: "안정성", icon: ShieldCheck }
+] as const;
 
 type EarningsMetric = "eps" | "revenue";
 
@@ -49,7 +60,7 @@ type FinancialChartPoint = {
   sharesOutstanding?: number | null;
 };
 
-export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummaryPanelProps) {
+export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
   const [financialSeries, setFinancialSeries] = useState<CompanyFinancialSeriesPoint[] | null>(null);
   const [earningsSeriesFromApi, setEarningsSeriesFromApi] = useState<CompanyEarningsSeriesPoint[] | null>(null);
@@ -109,43 +120,77 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
     ["기업정보 원천", formatCompanySource(item)],
     ["데이터 기준", formatDate(dataAsOf)]
   ] as const;
+
+  const infoSection = (
+    <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
+      <header className="company-info-heading">
+        <strong>
+          <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
+          <span>{companyName}</span>
+        </strong>
+        <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
+      </header>
+      <dl className="company-info-grid">
+        {infoRows.map(([label, value, tone]) => (
+          <div key={label} className="company-info-cell">
+            <dt>{label}</dt>
+            <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+  const valuationSection = (
+    <section className="company-chart-column company-valuation-column" aria-label={`${normalizedSymbol} 가치평가`}>
+      <ValuationGaugePanel metrics={valuationMetrics} />
+      <EarningsPanel
+        metric={earningsMetric}
+        onMetricChange={setEarningsMetric}
+        series={earningsSeries}
+        comparison={comparison}
+      />
+    </section>
+  );
+  const profitabilitySection = (
+    <section className="company-chart-column" aria-label={`${normalizedSymbol} 수익성 재무`}>
+      <ProfitabilityFinanceChart series={profitabilitySeries} />
+    </section>
+  );
+  const stabilitySection = (
+    <section className="company-chart-column" aria-label={`${normalizedSymbol} 안정성`}>
+      <StabilityFinanceChart series={profitabilitySeries} />
+    </section>
+  );
+
+  if (view !== "all") {
+    const activeSection = view === "info"
+      ? infoSection
+      : view === "valuation"
+        ? valuationSection
+        : view === "profitability"
+          ? profitabilitySection
+          : stabilitySection;
+    return (
+      <section className={`company-summary-panel company-single-panel is-${view}`} aria-label={`${normalizedSymbol} ${companyPanelViewLabel(view)}`}>
+        {view === "info" ? activeSection : (
+          <section className="company-fundamental-section company-single-fundamental-section">
+            {activeSection}
+          </section>
+        )}
+        <LogoDevAttribution className="panel-logo-attribution" />
+      </section>
+    );
+  }
+
   return (
     <section className="company-summary-panel" aria-label={`${normalizedSymbol} 기업정보`}>
-      <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
-        <header className="company-info-heading">
-          <strong>
-            <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
-            <span>{companyName}</span>
-          </strong>
-          <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
-        </header>
-        <dl className="company-info-grid">
-          {infoRows.map(([label, value, tone]) => (
-            <div key={label} className="company-info-cell">
-              <dt>{label}</dt>
-              <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      {infoSection}
 
       <section className="company-fundamental-section" aria-label={`${normalizedSymbol} 투자지표와 비교`}>
         <div className="company-fundamental-grid">
-          <section className="company-chart-column company-valuation-column" aria-label={`${normalizedSymbol} 가치평가`}>
-            <ValuationGaugePanel metrics={valuationMetrics} />
-            <EarningsPanel
-              metric={earningsMetric}
-              onMetricChange={setEarningsMetric}
-              series={earningsSeries}
-              comparison={comparison}
-            />
-          </section>
-          <section className="company-chart-column" aria-label={`${normalizedSymbol} 수익성 재무`}>
-            <ProfitabilityFinanceChart series={profitabilitySeries} />
-          </section>
-          <section className="company-chart-column" aria-label={`${normalizedSymbol} 안정성`}>
-            <StabilityFinanceChart series={profitabilitySeries} />
-          </section>
+          {valuationSection}
+          {profitabilitySection}
+          {stabilitySection}
         </div>
       </section>
 
@@ -157,6 +202,80 @@ export function CompanySummaryPanel({ symbol, item, items = [] }: CompanySummary
       <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
+}
+
+export function CompanyInfoPanel(props: CompanySummaryPanelProps) {
+  return <CompanySummaryPanel {...props} view="info" />;
+}
+
+export function CompanyValuationPanel(props: CompanySummaryPanelProps) {
+  return <CompanySummaryPanel {...props} view="valuation" />;
+}
+
+export function CompanyProfitabilityPanel(props: CompanySummaryPanelProps) {
+  return <CompanySummaryPanel {...props} view="profitability" />;
+}
+
+export function CompanyStabilityPanel(props: CompanySummaryPanelProps) {
+  return <CompanySummaryPanel {...props} view="stability" />;
+}
+
+export function CompanyMultiPanel(props: CompanySummaryPanelProps) {
+  const [activeView, setActiveView] = useState<CompanyPanelView>("info");
+  const [direction, setDirection] = useState<"next" | "previous">("next");
+  const activeIndex = companyMultiViews.findIndex((candidate) => candidate.id === activeView);
+  const selectView = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(companyMultiViews.length - 1, index));
+    const nextView = companyMultiViews[nextIndex];
+    if (!nextView || nextView.id === activeView) {
+      return;
+    }
+    setDirection(nextIndex > activeIndex ? "next" : "previous");
+    setActiveView(nextView.id);
+  };
+
+  return (
+    <section className="company-multi-panel" aria-label={`${props.symbol.toUpperCase()} 기업 멀티패널`}>
+      <div className="company-multi-tabs" role="tablist" aria-label="기업 분석 화면">
+        {companyMultiViews.map((candidate, index) => {
+          const Icon = candidate.icon;
+          const selected = candidate.id === activeView;
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={selected ? "active" : ""}
+              title={candidate.title}
+              onClick={() => selectView(index)}
+            >
+              <Icon aria-hidden="true" />
+              <span>{candidate.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="company-multi-stage">
+        <div key={activeView} className={`company-multi-view is-${direction}`} role="tabpanel">
+          <CompanySummaryPanel {...props} view={activeView} />
+        </div>
+        <button type="button" className="company-multi-arrow previous" aria-label="이전 기업 분석" disabled={activeIndex === 0} onClick={() => selectView(activeIndex - 1)}>
+          <ChevronLeft aria-hidden="true" />
+        </button>
+        <button type="button" className="company-multi-arrow next" aria-label="다음 기업 분석" disabled={activeIndex === companyMultiViews.length - 1} onClick={() => selectView(activeIndex + 1)}>
+          <ChevronRight aria-hidden="true" />
+        </button>
+        <div className="company-multi-dots" aria-hidden="true">
+          {companyMultiViews.map((candidate) => <i key={candidate.id} className={candidate.id === activeView ? "active" : ""} />)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function companyPanelViewLabel(view: CompanyPanelView): string {
+  return companyMultiViews.find((candidate) => candidate.id === view)?.title ?? "기업정보";
 }
 
 function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; series: EarningsChartPoint[] }) {
