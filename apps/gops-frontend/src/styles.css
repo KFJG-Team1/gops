@@ -4354,11 +4354,11 @@ h2 {
   padding: 43px 12px 13px;
 }
 
-.watchlist-news-panel.is-flip-view .news-card-title {
+.market-news-panel.is-flip-view .news-card-title {
   max-width: 42ch;
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
+  text-transform: var(--type-display-md-text-transform);
+  letter-spacing: var(--type-display-md-letter-spacing);
+  font: var(--type-display-md);
   white-space: nowrap;
   -webkit-line-clamp: 1;
 }
@@ -4914,6 +4914,12 @@ h2 {
   color: var(--color-muted);
 }
 
+.popular-stock-company-text > span {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
 .popular-stock-money {
   color: var(--color-text);
 }
@@ -5126,9 +5132,9 @@ h2 {
 }
 
 .popular-stocks-panel.is-compact .popular-stock-company-text > span {
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   display: block;
 }
 
@@ -5565,9 +5571,9 @@ h2 {
 .watchlist-company-group-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   white-space: nowrap;
 }
 
@@ -5710,9 +5716,9 @@ h2 {
 }
 
 .market-news-date {
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
+  text-transform: var(--type-title-md-text-transform);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  font: var(--type-title-md);
   color: var(--color-text);
 }
 
