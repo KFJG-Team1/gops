@@ -561,6 +561,10 @@ button {
   box-shadow: inset 0 0 0 1px rgb(var(--coinbase-on-primary-rgb) / 0.28);
 }
 
+.stock-logo.has-image {
+  background: #fff;
+}
+
 .stock-logo-xs {
   width: 22px;
   text-transform: var(--type-caption-text-transform);
