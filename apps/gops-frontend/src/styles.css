@@ -3601,6 +3601,17 @@ h2 {
   cursor: grabbing;
 }
 
+.panel-move-cue {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--color-text) 72%, transparent);
+  pointer-events: none;
+  filter: drop-shadow(0 1px 4px color-mix(in srgb, var(--color-background) 85%, transparent));
+}
+
 .panel-edit-button {
   position: absolute;
   z-index: 2;
@@ -3671,22 +3682,13 @@ h2 {
 }
 
 .panel-delete-button {
-  /* Centered in the panel; press-and-hold anywhere (including near it) moves the
-     panel, a plain click here deletes it. */
-  left: 50%;
-  top: 50%;
-  right: auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  right: 48px;
+  top: 8px;
+  left: auto;
+  width: 40px;
+  height: 40px;
   color: var(--color-danger);
-  cursor: pointer;
-  transform: translate(-50%, -50%);
-}
-
-.panel-delete-button:hover {
-  background: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface));
+  transform: none;
 }
 
 .layout-edit-preview {
@@ -3730,9 +3732,6 @@ h2 {
 }
 
 .panel-layout-ghost {
-  --ghost-ink-strong: color-mix(in srgb, var(--color-text) 58%, transparent);
-  --ghost-ink: color-mix(in srgb, var(--color-text) 36%, transparent);
-  --ghost-ink-faint: color-mix(in srgb, var(--color-text) 18%, transparent);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: clamp(6px, 1.2vw, 12px);
@@ -3764,142 +3763,28 @@ h2 {
   white-space: nowrap;
 }
 
-.panel-layout-ghost-fig {
+.panel-layout-ghost-chart {
   width: 100%;
   height: 100%;
   min-height: 24px;
 }
 
-.panel-layout-ghost .ghost-grid-line {
+.panel-layout-ghost-chart .ghost-grid-line {
   fill: none;
-  stroke: var(--ghost-ink-faint);
+  stroke: color-mix(in srgb, var(--color-text) 16%, transparent);
   stroke-width: 1;
 }
 
-.panel-layout-ghost .gh-stroke {
+.panel-layout-ghost-chart .ghost-series {
   fill: none;
-  stroke: var(--ghost-ink);
-  stroke-width: 2;
+  stroke: var(--color-preview);
+  stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
 
-.panel-layout-ghost .gh-stroke.strong {
-  stroke: var(--ghost-ink-strong);
-  stroke-width: 3;
-}
-
-.panel-layout-ghost .gh-stroke.faint {
-  stroke: var(--ghost-ink-faint);
-}
-
-.panel-layout-ghost .gh-stroke.dashed {
-  stroke-dasharray: 6 5;
-}
-
-.panel-layout-ghost .gh-fill {
-  fill: var(--ghost-ink);
-}
-
-.panel-layout-ghost .gh-fill.strong {
-  fill: var(--ghost-ink-strong);
-}
-
-.panel-layout-ghost .gh-fill.faint {
-  fill: var(--ghost-ink-faint);
-}
-
-.panel-layout-ghost .gh-donut {
-  fill: none;
-  stroke: var(--ghost-ink-faint);
-  stroke-width: 9;
-}
-
-.panel-layout-ghost .gh-donut.strong {
-  stroke: var(--ghost-ink-strong);
-}
-
-.panel-layout-ghost-rows {
-  display: grid;
-  align-content: start;
-  gap: clamp(6px, 1vw, 10px);
-  min-height: 0;
-  overflow: hidden;
-}
-
-.panel-layout-ghost-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-.panel-layout-ghost .gh-line {
-  display: block;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--ghost-ink);
-  min-width: 0;
-}
-
-.panel-layout-ghost .gh-line.faint {
-  background: var(--ghost-ink-faint);
-}
-
-.panel-layout-ghost .gh-dot {
-  display: block;
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--ghost-ink-faint);
-}
-
-.panel-layout-ghost .gh-avatar {
-  display: block;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--ghost-ink);
-}
-
-.panel-layout-ghost .gh-num {
-  flex: none;
-  min-width: 12px;
-  color: var(--ghost-ink-strong);
-  font-family: var(--font-data-sans);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.panel-layout-ghost .gh-button {
-  display: block;
-  flex: 1;
-  height: 16px;
-  border-radius: 5px;
-  background: var(--ghost-ink);
-}
-
-.panel-layout-ghost .gh-button.faint {
-  background: var(--ghost-ink-faint);
-}
-
-.panel-layout-ghost-tiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-content: start;
-  gap: 6px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.panel-layout-ghost-tiles > div {
-  display: grid;
-  gap: 5px;
-  padding: 7px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+.panel-layout-ghost-chart .ghost-series.secondary {
+  stroke: color-mix(in srgb, var(--color-danger) 68%, var(--color-preview));
+  stroke-width: 2;
 }
 
 .panel-layout-ghost-news {

@@ -31,6 +31,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Move,
   Trash2,
   X
 } from "lucide-react";
@@ -159,9 +160,6 @@ type LogicalPointerPoint = {
 const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const paletteDragThreshold = 4;
 const paletteStatusDurationMs = 2400;
-/** Press-and-hold this long (without moving) anywhere on a panel to switch into move mode. */
-const holdToMoveMs = 260;
-const holdToMoveSlopPx = 6;
 
 export function PanelWorkspace({
   panelState,
@@ -475,23 +473,7 @@ export function PanelWorkspace({
     });
   }, [activeSymbol, clearPaletteStatus, setPanelState, showPaletteStatus]);
 
-  const holdToMoveRef = useRef<{
-    slotId: PanelSlotId;
-    clientX: number;
-    clientY: number;
-    timer: number;
-  } | null>(null);
-
-  const cancelHoldToMove = useCallback(() => {
-    const hold = holdToMoveRef.current;
-    if (hold) {
-      window.clearTimeout(hold.timer);
-      holdToMoveRef.current = null;
-    }
-  }, []);
-
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
-    cancelHoldToMove();
     const drag = dragRef.current;
     if (drag && drag.mode !== "boundary" && event) {
       const point = logicalPointFromClientPoint(event.clientX, event.clientY);
@@ -520,7 +502,7 @@ export function PanelWorkspace({
     setMovingSlotId(null);
     setIsLayoutResizing(false);
     setLayoutPreview(null);
-  }, [addPalettePanelAtFirstAvailable, cancelHoldToMove, commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
+  }, [addPalettePanelAtFirstAvailable, commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
 
   const applyLayoutDrag = useCallback((point: LogicalPointerPoint, viewport: ViewportSize) => {
     const drag = dragRef.current;
@@ -548,12 +530,6 @@ export function PanelWorkspace({
       if (!dragRef.current) {
         return;
       }
-      const hold = holdToMoveRef.current;
-      if (hold && Math.hypot(event.clientX - hold.clientX, event.clientY - hold.clientY) > holdToMoveSlopPx) {
-        // The pointer is actually dragging, so the gesture keeps its original meaning
-        // (edge resize) instead of converting to a move.
-        cancelHoldToMove();
-      }
       event.preventDefault();
       applyLayoutDrag(logicalPointFromClientPoint(event.clientX, event.clientY), viewportSizeRef.current);
     };
@@ -563,12 +539,11 @@ export function PanelWorkspace({
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
     return () => {
-      cancelHoldToMove();
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [applyLayoutDrag, cancelHoldToMove, finishLayoutDrag]);
+  }, [applyLayoutDrag, finishLayoutDrag]);
 
   const beginBoundaryResize = (boundary: PanelBoundary) => (event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -610,44 +585,6 @@ export function PanelWorkspace({
         sourceSlotId: slotId,
         direction: resizeDirection,
         startGridRect: slot.gridRect
-      };
-      // Grab-anywhere: holding still on an edge zone converts the gesture into a move,
-      // so every point of the panel supports press-and-hold dragging. Moving the
-      // pointer before the timer keeps the edge's resize meaning.
-      cancelHoldToMove();
-      const holdClientX = event.clientX;
-      const holdClientY = event.clientY;
-      holdToMoveRef.current = {
-        slotId,
-        clientX: holdClientX,
-        clientY: holdClientY,
-        timer: window.setTimeout(() => {
-          holdToMoveRef.current = null;
-          const active = dragRef.current;
-          if (!active || active.mode !== "edit-resize" || active.sourceSlotId !== slotId) {
-            return;
-          }
-          const currentSlot = panelStateRef.current.slots.find((item) => item.id === slotId);
-          if (!currentSlot) {
-            return;
-          }
-          const holdPoint = logicalPointFromClientPoint(holdClientX, holdClientY);
-          const holdCell = panelGridCellFromPointSafe(
-            viewportSizeRef.current,
-            holdPoint.x,
-            holdPoint.y,
-            layoutMetricsRef.current
-          );
-          const moveDrag: LayoutDrag = {
-            mode: "edit-move",
-            sourceSlotId: slotId,
-            offsetCol: holdCell ? Math.max(0, holdCell.col - currentSlot.gridRect.col) : 0,
-            offsetRow: holdCell ? Math.max(0, holdCell.row - currentSlot.gridRect.row) : 0
-          };
-          dragRef.current = moveDrag;
-          setMovingSlotId(slotId);
-          setLayoutPreview(resolveEditDragPreview(moveDrag, holdPoint));
-        }, holdToMoveMs)
       };
     } else {
       const cell = panelGridCellFromPointSafe(viewportSizeRef.current, point.x, point.y, layoutMetricsRef.current);
@@ -820,6 +757,9 @@ export function PanelWorkspace({
     return (
       <div className="panel-edit-overlay" aria-label={`${content.title || "차트"} 편집 컨트롤`}>
         <div className="panel-edit-snapshot-shield" aria-hidden="true" />
+        <div className="panel-move-cue" aria-hidden="true">
+          <Move size={24} strokeWidth={2.2} />
+        </div>
         {resizeDirections.map((direction) => (
           <button
             key={direction}
@@ -1200,214 +1140,43 @@ function PanelLayoutGhost({
         {!valid && <X size={14} aria-hidden="true" />}
         <strong>{label}</strong>
       </div>
-      <PanelGhostFigure variant={variant} />
-    </div>
-  );
-}
-
-type PanelGhostVariant =
-  | "chart" | "compare" | "news" | "list" | "ontology" | "indices" | "ranked"
-  | "radar" | "company" | "donut" | "line" | "bars" | "table" | "orderflow"
-  | "trade" | "cards";
-
-function panelGhostVariant(kind?: PanelContentKind): PanelGhostVariant {
-  switch (kind) {
-    case "chart": return "chart";
-    case "compare": return "compare";
-    case "news": return "news";
-    case "newsList":
-    case "watchlistNews": return "list";
-    case "ontology": return "ontology";
-    case "indices": return "indices";
-    case "popular":
-    case "recommendations": return "ranked";
-    case "themeRadar": return "radar";
-    case "company": return "company";
-    case "portfolio":
-    case "portfolioDiversification": return "donut";
-    case "portfolioInvestment":
-    case "portfolioPerformance": return "line";
-    case "portfolioInvested":
-    case "portfolioDividend": return "bars";
-    case "portfolioHoldings": return "table";
-    case "orderFlow": return "orderflow";
-    case "trade": return "trade";
-    default: return "cards";
-  }
-}
-
-/** Monochrome skeleton per panel kind: gray shapes only, so the ghost reads as a
-    preview of the panel's content without competing with the live workspace. */
-function PanelGhostFigure({ variant }: { variant: PanelGhostVariant }) {
-  if (variant === "chart") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
-        <path className="ghost-grid-line" d="M0 14H120M0 28H120M0 42H120" />
-        <polyline className="gh-stroke faint" points="4,38 26,30 48,34 70,18 92,24 116,10" />
-        <g className="gh-fill">
-          <rect x="10" y="20" width="9" height="16" /><line className="gh-stroke" x1="14.5" y1="14" x2="14.5" y2="42" />
-          <rect x="32" y="12" width="9" height="14" /><line className="gh-stroke" x1="36.5" y1="6" x2="36.5" y2="34" />
-          <rect x="54" y="24" width="9" height="16" /><line className="gh-stroke" x1="58.5" y1="18" x2="58.5" y2="46" />
-          <rect x="76" y="8" width="9" height="14" /><line className="gh-stroke" x1="80.5" y1="4" x2="80.5" y2="30" />
-          <rect x="98" y="16" width="9" height="16" /><line className="gh-stroke" x1="102.5" y1="10" x2="102.5" y2="38" />
-        </g>
-      </svg>
-    );
-  }
-  if (variant === "compare" || variant === "line") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
-        <path className="ghost-grid-line" d="M0 14H120M0 28H120M0 42H120" />
-        <polyline className="gh-stroke strong" points="4,44 26,36 48,40 70,22 92,28 116,10" />
-        {variant === "compare" && (
-          <polyline className="gh-stroke dashed" points="4,32 26,26 48,30 70,34 92,18 116,22" />
-        )}
-      </svg>
-    );
-  }
-  if (variant === "ontology") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <g className="gh-stroke faint">
-          <line x1="34" y1="28" x2="60" y2="14" /><line x1="34" y1="28" x2="62" y2="42" />
-          <line x1="60" y1="14" x2="90" y2="30" /><line x1="62" y1="42" x2="90" y2="30" />
-        </g>
-        <circle className="gh-fill strong" cx="34" cy="28" r="7" />
-        <circle className="gh-fill" cx="60" cy="14" r="5" />
-        <circle className="gh-fill" cx="62" cy="42" r="5" />
-        <circle className="gh-fill" cx="90" cy="30" r="6" />
-      </svg>
-    );
-  }
-  if (variant === "radar") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <polygon className="gh-stroke faint" points="60,4 96,19 84,48 36,48 24,19" fill="none" />
-        <polygon className="gh-fill faint" points="60,14 82,23 75,40 45,40 38,23" />
-        <polygon className="gh-stroke" points="60,14 82,23 75,40 45,40 38,23" fill="none" />
-      </svg>
-    );
-  }
-  if (variant === "donut") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <circle className="gh-donut faint" cx="30" cy="27" r="16" />
-        <circle className="gh-donut strong" cx="30" cy="27" r="16" strokeDasharray="42 100" transform="rotate(-90 30 27)" />
-        <rect className="gh-fill" x="58" y="14" width="48" height="6" rx="3" />
-        <rect className="gh-fill faint" x="58" y="26" width="36" height="6" rx="3" />
-        <rect className="gh-fill faint" x="58" y="38" width="42" height="6" rx="3" />
-      </svg>
-    );
-  }
-  if (variant === "bars") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
-        <g className="gh-fill">
-          <rect x="8" y="30" width="12" height="20" /><rect x="30" y="18" width="12" height="32" />
-          <rect x="52" y="36" width="12" height="14" /><rect x="74" y="10" width="12" height="40" />
-          <rect x="96" y="24" width="12" height="26" />
-        </g>
-      </svg>
-    );
-  }
-  if (variant === "orderflow") {
-    return (
-      <svg className="panel-layout-ghost-fig" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
-        <g className="gh-fill strong">
-          <rect x="0" y="6" width="70" height="8" rx="3" /><rect x="0" y="23" width="46" height="8" rx="3" />
-          <rect x="0" y="40" width="58" height="8" rx="3" />
-        </g>
-        <g className="gh-fill faint">
-          <rect x="74" y="6" width="46" height="8" rx="3" /><rect x="50" y="23" width="70" height="8" rx="3" />
-          <rect x="62" y="40" width="58" height="8" rx="3" />
-        </g>
-      </svg>
-    );
-  }
-  if (variant === "company") {
-    return (
-      <div className="panel-layout-ghost-rows" aria-hidden="true">
-        <div className="panel-layout-ghost-row"><i className="gh-avatar" /><b className="gh-line" style={{ flex: 0.6 }} /></div>
-        <b className="gh-line faint" style={{ width: "90%" }} />
-        <b className="gh-line faint" style={{ width: "70%" }} />
-      </div>
-    );
-  }
-  if (variant === "news") {
-    return (
-      <div className="panel-layout-ghost-news" aria-hidden="true">
-        {[0, 1, 2].map((item) => (
-          <div key={item} className="panel-layout-ghost-news-row">
-            <i />
-            <div><b /><b /></div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (variant === "list") {
-    return (
-      <div className="panel-layout-ghost-rows" aria-hidden="true">
-        {[0.95, 0.75, 0.88].map((width, item) => (
-          <div key={item} className="panel-layout-ghost-row">
-            <i className="gh-dot" /><b className="gh-line" style={{ flex: width }} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (variant === "ranked") {
-    return (
-      <div className="panel-layout-ghost-rows" aria-hidden="true">
-        {[0.9, 0.7, 0.5].map((width, item) => (
-          <div key={item} className="panel-layout-ghost-row">
-            <span className="gh-num">{item + 1}</span><b className="gh-line" style={{ flex: width }} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (variant === "table") {
-    return (
-      <div className="panel-layout-ghost-rows" aria-hidden="true">
-        {[0, 1, 2].map((item) => (
-          <div key={item} className="panel-layout-ghost-row">
-            <b className="gh-line" style={{ flex: 0.5 }} />
-            <b className="gh-line faint" style={{ flex: 0.25 }} />
-            <b className="gh-line faint" style={{ flex: 0.25 }} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (variant === "trade") {
-    return (
-      <div className="panel-layout-ghost-rows" aria-hidden="true">
-        <div className="panel-layout-ghost-row">
-          <i className="gh-button" /><i className="gh-button faint" />
+      {variant === "chart" || variant === "compare" ? (
+        <svg className="panel-layout-ghost-chart" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
+          <path className="ghost-grid-line" d="M0 14H120M0 28H120M0 42H120" />
+          <polyline className="ghost-series primary" points="0,42 18,35 34,38 50,21 68,27 84,14 102,20 120,8" />
+          {variant === "compare" && (
+            <polyline className="ghost-series secondary" points="0,30 18,24 34,28 50,32 68,18 84,23 102,12 120,17" />
+          )}
+        </svg>
+      ) : variant === "news" ? (
+        <div className="panel-layout-ghost-news" aria-hidden="true">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="panel-layout-ghost-news-row">
+              <i />
+              <div><b /><b /></div>
+            </div>
+          ))}
         </div>
-        <b className="gh-line faint" style={{ width: "100%" }} />
-        <b className="gh-line faint" style={{ width: "75%" }} />
-      </div>
-    );
-  }
-  if (variant === "indices") {
-    return (
-      <div className="panel-layout-ghost-tiles" aria-hidden="true">
-        {[0.6, 0.5, 0.65, 0.45].map((width, item) => (
-          <div key={item}>
-            <b className="gh-line" style={{ width: `${width * 100}%` }} />
-            <b className="gh-line faint" style={{ width: "40%" }} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="panel-layout-ghost-cards" aria-hidden="true">
-      <i /><i /><i /><i />
+      ) : (
+        <div className="panel-layout-ghost-cards" aria-hidden="true">
+          <i /><i /><i /><i />
+        </div>
+      )}
     </div>
   );
+}
+
+function panelGhostVariant(kind?: PanelContentKind): "chart" | "compare" | "news" | "cards" {
+  if (kind === "chart" || kind === "orderFlow") {
+    return "chart";
+  }
+  if (kind === "compare") {
+    return "compare";
+  }
+  if (kind === "news" || kind === "newsList" || kind === "watchlistNews") {
+    return "news";
+  }
+  return "cards";
 }
 
 function addPanelAtPreview(
