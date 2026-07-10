@@ -562,7 +562,9 @@ button {
 }
 
 .stock-logo.has-image {
+  border: 0;
   background: #fff;
+  box-shadow: none;
 }
 
 .stock-logo-xs {
@@ -601,7 +603,8 @@ button {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  transform: scale(1.08);
 }
 
 .stock-logo.has-fallback > span {
@@ -614,16 +617,7 @@ button {
 }
 
 .logo-dev-attribution {
-  color: var(--color-muted-soft);
-  text-transform: var(--type-legal-text-transform);
-  letter-spacing: var(--type-legal-letter-spacing);
-  font: var(--type-legal);
-  text-decoration: none;
-}
-
-.logo-dev-attribution:hover {
-  color: var(--color-text);
-  text-decoration: underline;
+  display: none;
 }
 
 .app-shell {
@@ -5163,13 +5157,10 @@ h2 {
   font: var(--type-caption);
   text-align: left;
   cursor: pointer;
-  transform: translateX(0);
-  transform-origin: left center;
   transition:
     background-color 600ms ease,
     opacity 600ms ease,
-    filter 600ms ease,
-    transform 600ms ease;
+    filter 600ms ease;
 }
 
 .popular-stocks-panel.has-ranking-focus .popular-stock-row.is-muted {
@@ -5185,7 +5176,6 @@ h2 {
   opacity: 1;
   filter: none;
   outline: none;
-  transform: translateX(4px);
   background: color-mix(in srgb, var(--color-text) 8%, var(--color-background));
 }
 
@@ -6099,6 +6089,52 @@ h2 {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-signal) 42%, transparent),
     0 0 0 5px color-mix(in srgb, var(--color-signal) 10%, transparent);
+  animation: market-news-timeline-beat 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.market-news-daily-row:first-child .market-news-timeline-dot::after {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 58%, transparent);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+  animation: market-news-timeline-ring 1.8s ease-out infinite;
+}
+
+@keyframes market-news-timeline-beat {
+  0%, 18%, 36%, 100% {
+    transform: scale(1);
+  }
+  10% {
+    transform: scale(1.2);
+  }
+  28% {
+    transform: scale(1.12);
+  }
+}
+
+@keyframes market-news-timeline-ring {
+  0% {
+    opacity: 0.62;
+    transform: scale(0.72);
+  }
+  42%, 100% {
+    opacity: 0;
+    transform: scale(1.65);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-news-daily-row:first-child .market-news-timeline-dot,
+  .market-news-daily-row:first-child .market-news-timeline-dot::after {
+    animation: none;
+  }
+
+  .market-news-daily-row:first-child .market-news-timeline-dot::after {
+    opacity: 0;
+  }
 }
 
 .market-news-daily-content {
