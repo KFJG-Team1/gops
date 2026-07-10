@@ -113,6 +113,10 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
 
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
   await openFixtureLayout(page, tiledDataLayout());
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", /^[1-9]\d*$/);
+  await expect(page.locator(".order-flow-panel")).toHaveAttribute("data-order-flow-status", "ready");
+  await expect(page.locator(".chart-compare-panel")).toHaveAttribute("data-compare-status", "ready");
+  await expect(page.locator(".chart-compare-line")).toHaveCount(2);
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
   await expect(page.locator(".chart-compare-panel")).toBeVisible();

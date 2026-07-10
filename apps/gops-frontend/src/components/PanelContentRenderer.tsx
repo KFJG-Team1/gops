@@ -23,7 +23,13 @@ import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
-import { CompanySummaryPanel } from "./CompanySummaryPanel";
+import {
+  CompanyInfoPanel,
+  CompanyMultiPanel,
+  CompanyProfitabilityPanel,
+  CompanyStabilityPanel,
+  CompanyValuationPanel
+} from "./CompanySummaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
@@ -32,9 +38,11 @@ import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
+  PortfolioHoldingsCardsPanel,
   PortfolioHoldingsOnlyPanel,
   PortfolioInvestedPanel,
   PortfolioInvestmentStatusPanel,
+  PortfolioMultiPanel,
   PortfolioPerformancePanel
 } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
@@ -126,7 +134,23 @@ export function PanelContentRenderer({
   }, [content.id, onChartHandleChange]);
 
   if (content.kind === "company") {
-    return <CompanySummaryPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+    return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyMulti") {
+    return <CompanyMultiPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyValuation") {
+    return <CompanyValuationPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyProfitability") {
+    return <CompanyProfitabilityPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyStability") {
+    return <CompanyStabilityPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
   }
 
   if (content.kind === "compare") {
@@ -247,6 +271,10 @@ export function PanelContentRenderer({
     return <PortfolioInvestmentStatusPanel />;
   }
 
+  if (content.kind === "portfolioMulti") {
+    return <PortfolioMultiPanel />;
+  }
+
   if (content.kind === "portfolioPerformance") {
     return <PortfolioPerformancePanel />;
   }
@@ -266,6 +294,17 @@ export function PanelContentRenderer({
   if (content.kind === "portfolioHoldings") {
     return (
       <PortfolioHoldingsOnlyPanel
+        onSelectSymbol={(nextSymbol) => {
+          onSelectSymbol(nextSymbol);
+          return true;
+        }}
+      />
+    );
+  }
+
+  if (content.kind === "portfolioHoldingsCards") {
+    return (
+      <PortfolioHoldingsCardsPanel
         onSelectSymbol={(nextSymbol) => {
           onSelectSymbol(nextSymbol);
           return true;
@@ -418,7 +457,7 @@ export function PanelContentRenderer({
           <div className="chart-company-toolbar" aria-label="기업정보 컨트롤">
             {companyToggleButton}
           </div>
-          <CompanySummaryPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
+          <CompanyMultiPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
         </div>
       )}
     </div>

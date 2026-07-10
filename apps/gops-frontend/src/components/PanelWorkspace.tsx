@@ -29,41 +29,51 @@ import type { AgentReference } from "../agent/agentReferences";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
+  Check,
+  ChevronLeft,
   ChevronRight,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import {
   applyPanelResizeWithYield,
   addPanelSlotAtGridRect,
+  canPlaceGridRect,
   detectResizablePanelBoundaries,
   expandGridRectForKind,
+  gridRectForPanelDrag,
   movePanelSlotToGridRect,
+  normalizePanelGridRect,
   panelGridMetrics,
   panelGridSpec,
   panelPaletteEntries,
   panelPaletteEntryLabel,
   panelPaletteEntryTitle,
   panelRectForGridRect,
+  readableMinGridSpanForKind,
   panelSlotStyle,
   removePanelSlot,
   replacePanelSlotKind,
+  resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
   resolvePanelResizeWithYield,
   resizeFreeformBoundary,
   setPanelContentProps,
   slotAtGridCell,
   swapPanelContents,
+  workspaceBounds,
   type PanelBoundary,
   type PanelContentInstance,
   type PanelContentKind,
   type PanelGridRect,
   type PanelResizeYieldSlot,
+  type PanelSlot,
   type PanelSlotId,
   type TiledPanelState,
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "../layout/panelLayout";
+import type { WorkspaceLayoutMode } from "../layout/responsivePanelLayout";
+import { workspaceBottomInset } from "../layout/workspaceMetrics";
 import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
@@ -75,7 +85,10 @@ type PanelWorkspaceProps = {
   setPanelState: Dispatch<SetStateAction<TiledPanelState>>;
   viewportSize: ViewportSize;
   layoutMetrics: WorkspaceLayoutMetrics;
+  layoutMode: WorkspaceLayoutMode;
   layoutEditMode: boolean;
+  /** Exits layout-edit mode from the palette dock (the command bar is hidden while editing). */
+  onExitLayoutEdit?: () => void;
   activeSymbol: string;
   symbols: ChartSymbolDto[];
   companyItems: Sp500UniverseItem[];
@@ -121,6 +134,9 @@ type LayoutDrag =
   | {
     mode: "palette";
     kind: PanelContentKind;
+    startX: number;
+    startY: number;
+    hasMoved: boolean;
   };
 
 type LayoutPreview = {
@@ -141,13 +157,17 @@ type LogicalPointerPoint = {
 };
 
 const resizeDirections: ResizeDirection[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+const paletteDragThreshold = 4;
+const paletteStatusDurationMs = 2400;
 
 export function PanelWorkspace({
   panelState,
   setPanelState,
   viewportSize,
   layoutMetrics,
+  layoutMode,
   layoutEditMode,
+  onExitLayoutEdit,
   activeSymbol,
   symbols,
   companyItems,
@@ -169,8 +189,53 @@ export function PanelWorkspace({
   const [hoveredChartSlotId, setHoveredChartSlotId] = useState<PanelSlotId | null>(null);
   const [activeBoundaryId, setActiveBoundaryId] = useState<string | null>(null);
   const [draggingSlotId, setDraggingSlotId] = useState<PanelSlotId | null>(null);
+  const [movingSlotId, setMovingSlotId] = useState<PanelSlotId | null>(null);
   const [isLayoutResizing, setIsLayoutResizing] = useState(false);
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
+  const [paletteStatus, setPaletteStatus] = useState<string | null>(null);
+  const [paletteOverflow, setPaletteOverflow] = useState({ left: false, right: false });
+  const paletteScrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // Track horizontal overflow of the palette scroller so the < > arrows only
+  // appear (and enable) when there is actually somewhere to scroll.
+  useEffect(() => {
+    if (!layoutEditMode) {
+      return undefined;
+    }
+    const scroller = paletteScrollerRef.current;
+    if (!scroller) {
+      return undefined;
+    }
+    const updateOverflow = () => {
+      const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      const left = scroller.scrollLeft > 1;
+      const right = scroller.scrollLeft < maxScrollLeft - 1;
+      setPaletteOverflow((current) => (
+        current.left === left && current.right === right ? current : { left, right }
+      ));
+    };
+    updateOverflow();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateOverflow);
+    resizeObserver?.observe(scroller);
+    scroller.addEventListener("scroll", updateOverflow, { passive: true });
+    window.addEventListener("resize", updateOverflow);
+    return () => {
+      resizeObserver?.disconnect();
+      scroller.removeEventListener("scroll", updateOverflow);
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [layoutEditMode]);
+
+  const scrollPaletteBy = useCallback((direction: -1 | 1) => {
+    const scroller = paletteScrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    scroller.scrollBy({
+      left: direction * Math.max(160, scroller.clientWidth * 0.7),
+      behavior: "smooth"
+    });
+  }, []);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
   const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
@@ -178,6 +243,7 @@ export function PanelWorkspace({
   const panelStateRef = useRef<TiledPanelState>(panelState);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const layoutMetricsRef = useRef<WorkspaceLayoutMetrics>(layoutMetrics);
+  const paletteStatusTimeoutRef = useRef<number | null>(null);
   const companyItemsBySymbol = useMemo(() => (
     new Map(companyItems.map((item) => [item.symbol.toUpperCase(), item]))
   ), [companyItems]);
@@ -194,7 +260,16 @@ export function PanelWorkspace({
     layoutMetricsRef.current = layoutMetrics;
   }, [layoutMetrics]);
 
-  const panelBoundaries = useMemo(() => detectResizablePanelBoundaries(panelState, viewportSize, layoutMetrics), [layoutMetrics, panelState, viewportSize]);
+  useEffect(() => () => {
+    if (paletteStatusTimeoutRef.current !== null) {
+      window.clearTimeout(paletteStatusTimeoutRef.current);
+    }
+  }, []);
+
+  const panelBoundaries = useMemo(
+    () => detectResizablePanelBoundaries(panelState, viewportSize, layoutMetrics),
+    [layoutMetrics, panelState, viewportSize]
+  );
   const activeBoundary = useMemo(() => (
     activeBoundaryId ? panelBoundaries.find((boundary) => boundary.id === activeBoundaryId) ?? null : null
   ), [activeBoundaryId, panelBoundaries]);
@@ -307,33 +382,34 @@ export function PanelWorkspace({
       if (!source || !kind) {
         return null;
       }
+      const sourceTitle = state.contents[source.contentId]?.title ?? "패널";
+      const gridRect = gridRectForPanelDrag(source.gridRect, cell, {
+        col: drag.offsetCol,
+        row: drag.offsetRow
+      });
       const target = slotAtGridCell(state, cell, source.id);
-      if (target) {
+      if (target && panelGridRectsEqual(gridRect, target.gridRect)) {
         return {
           gridRect: target.gridRect,
+          kind,
           sourceSlotId: source.id,
           targetSlotId: target.id,
           mode: "swap",
           valid: true,
-          label: state.contents[source.contentId]?.title ?? "패널",
+          label: sourceTitle,
           secondary: {
             gridRect: source.gridRect,
             label: contentTitleForSlot(state, target.id)
           }
         };
       }
-      const dropPlan = sourceGridRectContainsCell(source.gridRect, cell)
-        ? { valid: true, gridRect: source.gridRect }
-        : resolvePanelDropGridRect(state, kind, cell, {
-          exceptSlotId: source.id,
-          preferredSpan: { colSpan: source.gridRect.colSpan, rowSpan: source.gridRect.rowSpan }
-        });
       return {
-        gridRect: dropPlan.gridRect,
+        gridRect,
+        kind,
         sourceSlotId: source.id,
         mode: "move",
-        valid: dropPlan.valid,
-        label: state.contents[source.contentId]?.title ?? "패널"
+        valid: canPlaceGridRect(state, gridRect, { exceptSlotId: source.id, kind }),
+        label: sourceTitle
       };
     }
     const source = state.slots.find((slot) => slot.id === drag.sourceSlotId);
@@ -341,10 +417,14 @@ export function PanelWorkspace({
     if (!source || !kind) {
       return null;
     }
-    const gridRect = resizeGridRectFromCell(drag.startGridRect, drag.direction, cell);
+    const gridRect = normalizePanelGridRect(
+      resizeGridRectFromCell(drag.startGridRect, drag.direction, cell),
+      readableMinGridSpanForKind(kind)
+    );
     const resizePlan = resolvePanelResizeWithYield(state, source.id, gridRect);
     return {
       gridRect: resizePlan.sourceGridRect,
+      kind,
       sourceSlotId: source.id,
       yieldedSlots: resizePlan.yieldedSlots,
       mode: "resize",
@@ -353,20 +433,73 @@ export function PanelWorkspace({
     };
   }, []);
 
+  const clearPaletteStatus = useCallback(() => {
+    if (paletteStatusTimeoutRef.current !== null) {
+      window.clearTimeout(paletteStatusTimeoutRef.current);
+      paletteStatusTimeoutRef.current = null;
+    }
+    setPaletteStatus(null);
+  }, []);
+
+  const showPaletteStatus = useCallback((message: string) => {
+    if (paletteStatusTimeoutRef.current !== null) {
+      window.clearTimeout(paletteStatusTimeoutRef.current);
+    }
+    setPaletteStatus(message);
+    paletteStatusTimeoutRef.current = window.setTimeout(() => {
+      paletteStatusTimeoutRef.current = null;
+      setPaletteStatus(null);
+    }, paletteStatusDurationMs);
+  }, []);
+
+  const addPalettePanelAtFirstAvailable = useCallback((kind: PanelContentKind) => {
+    const gridRect = resolveFirstAvailableRecommendedGridRect(panelStateRef.current, kind);
+    if (!gridRect) {
+      showPaletteStatus("추천 크기로 배치할 공간이 없습니다");
+      return;
+    }
+    clearPaletteStatus();
+    setPanelState((current) => {
+      const currentGridRect = resolveFirstAvailableRecommendedGridRect(current, kind);
+      if (!currentGridRect) {
+        return current;
+      }
+      return addPanelSlotAtGridRect(current, kind, currentGridRect, {
+        symbol: kind === "chart" || kind === "company" ? activeSymbol : undefined
+      }, viewportSizeRef.current, layoutMetricsRef.current);
+    });
+  }, [activeSymbol, clearPaletteStatus, setPanelState, showPaletteStatus]);
+
   const finishLayoutDrag = useCallback((event?: PointerEvent) => {
     const drag = dragRef.current;
     if (drag && drag.mode !== "boundary" && event) {
-      const preview = layoutPreview ?? resolveEditDragPreview(drag, logicalPointFromClientPoint(event.clientX, event.clientY));
-      if (preview) {
-        commitLayoutPreview(preview);
+      const point = logicalPointFromClientPoint(event.clientX, event.clientY);
+      if (
+        drag.mode === "palette" &&
+        !drag.hasMoved &&
+        Math.hypot(point.x - drag.startX, point.y - drag.startY) < paletteDragThreshold
+      ) {
+        addPalettePanelAtFirstAvailable(drag.kind);
+      } else {
+        if (drag.mode === "palette") {
+          drag.hasMoved = true;
+        }
+        const preview = resolveEditDragPreview(
+          drag,
+          point
+        ) ?? layoutPreview;
+        if (preview) {
+          commitLayoutPreview(preview);
+        }
       }
     }
     dragRef.current = null;
     setActiveBoundaryId(null);
     setDraggingSlotId(null);
+    setMovingSlotId(null);
     setIsLayoutResizing(false);
     setLayoutPreview(null);
-  }, [commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
+  }, [addPalettePanelAtFirstAvailable, commitLayoutPreview, layoutPreview, resolveEditDragPreview]);
 
   const applyLayoutDrag = useCallback((point: LogicalPointerPoint, viewport: ViewportSize) => {
     const drag = dragRef.current;
@@ -374,6 +507,14 @@ export function PanelWorkspace({
       return;
     }
     if (drag.mode !== "boundary") {
+      if (drag.mode === "palette" && !drag.hasMoved) {
+        const distance = Math.hypot(point.x - drag.startX, point.y - drag.startY);
+        if (distance < paletteDragThreshold) {
+          setLayoutPreview(null);
+          return;
+        }
+        drag.hasMoved = true;
+      }
       setLayoutPreview(resolveEditDragPreview(drag, point));
       return;
     }
@@ -452,6 +593,7 @@ export function PanelWorkspace({
       };
     }
     dragRef.current = drag;
+    setMovingSlotId(drag.mode === "edit-move" ? slotId : null);
     setLayoutPreview(resolveEditDragPreview(drag, point));
   };
 
@@ -483,6 +625,7 @@ export function PanelWorkspace({
     event.stopPropagation();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDraggingSlotId(slotId);
+    setMovingSlotId(null);
     const drag: LayoutDrag = {
       mode: "edit-resize",
       sourceSlotId: slotId,
@@ -499,12 +642,18 @@ export function PanelWorkspace({
     }
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    const point = logicalPointFromClientPoint(event.clientX, event.clientY);
     const drag: LayoutDrag = {
       mode: "palette",
-      kind
+      kind,
+      startX: point.x,
+      startY: point.y,
+      hasMoved: false
     };
     dragRef.current = drag;
-    setLayoutPreview(resolveEditDragPreview(drag, logicalPointFromClientPoint(event.clientX, event.clientY)));
+    setMovingSlotId(null);
+    clearPaletteStatus();
+    setLayoutPreview(null);
   };
 
   const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -640,9 +789,104 @@ export function PanelWorkspace({
   const chartAddTarget = chartAddTargetContentId
     ? targetChartForContentId(panelState, chartRuntime, chartAddTargetContentId)
     : null;
+  const scrollBounds = workspaceBounds(viewportSize, layoutMetrics);
+  const scrollExtentStyle: CSSProperties = {
+    width: scrollBounds.width,
+    height: scrollBounds.top + scrollBounds.height + (layoutMetrics.bottomInset ?? workspaceBottomInset)
+  };
+  const renderWorkspacePanel = (slot: PanelSlot) => {
+    const content = panelState.contents[slot.contentId];
+    if (!content) {
+      return null;
+    }
+    const isChart = content.kind === "chart";
+    const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
+    const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
+    const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
+    const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
+    const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
+    const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
+    const chartLiveTrade = chartDocument ? getLiveTradeForSymbol(chartRuntime, chartDocument.symbol) : undefined;
+    const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
+    const previewGridRect = layoutPreview?.mode === "resize"
+      && layoutPreview.valid
+      && layoutPreview.sourceSlotId === slot.id
+      ? layoutPreview.gridRect
+      : null;
+    const effectiveGridRect = previewGridRect ?? slot.gridRect;
+    return (
+      <WorkspacePanelFrame
+        key={slot.id}
+        slot={slot}
+        content={content}
+        style={panelSlotStyle(slot)}
+        className={[
+          isChart && slot.rect.left > 1 ? "has-left-boundary" : "",
+          isChart && slot.rect.left + slot.rect.width < viewportSize.width - 1 ? "has-right-boundary" : "",
+          draggingSlotId === slot.id ? "is-panel-content-dragging" : "",
+          movingSlotId === slot.id ? "is-panel-position-dragging" : "",
+          isLayoutResizing ? "is-layout-resizing" : "",
+          `is-layout-${layoutMode}`,
+          layoutEditMode ? "is-layout-editing" : ""
+        ].filter(Boolean).join(" ")}
+        isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
+        isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
+        showNav={!hidePanelNav}
+        onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
+        onFramePointerMove={layoutEditMode ? updateFrameCursor : undefined}
+        onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
+        onPointerLeave={() => {
+          if (isChart && !dragRef.current) {
+            setChartSlotHover(slot.id, false);
+          }
+        }}
+        editControls={renderPanelEditControls(slot.id, content)}
+      >
+        <PanelContentRenderer
+          slot={slot}
+          content={content}
+          symbol={contentSymbol}
+          symbols={symbols}
+          companyItem={companyItemsBySymbol.get(contentSymbol)}
+          companyItems={companyItems}
+          marketItems={marketItems}
+          laneHeight={Math.max(120, slot.rect.height)}
+          effectiveColSpan={effectiveGridRect.colSpan}
+          effectiveRowSpan={effectiveGridRect.rowSpan}
+          layoutResizeSuspended={Boolean(previewGridRect)}
+          chartHeaderSnapshot={chartHeaders[content.id]}
+          chartDocument={chartDocument}
+          chartCandles={chartCandles}
+          chartDataStatus={chartDataStatus}
+          chartStreamStatus={chartStreamStatus}
+          chartStreamMessage={chartStreamMessage}
+          chartLiveTrade={chartLiveTrade}
+          chartDrawingActive={drawingTargetContentId === content.id}
+          chartAddActive={chartAddTargetContentId === content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          emphasizeChartSelection={emphasizeChartSelection}
+          setSemanticSelection={setSemanticSelection}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          onChartRuntimeAction={onChartRuntimeAction}
+          onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
+          onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
+          onChartHandleChange={onChartHandleChange}
+          onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
+          onChartAddToggle={() => toggleChartAddTarget(content.id)}
+          onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
+          onUpdatePanelProps={updatePanelProps}
+          onChangePanelChartSymbol={changePanelChartSymbol}
+          onSelectSymbol={onSelectSymbol}
+        />
+      </WorkspacePanelFrame>
+    );
+  };
 
   return (
     <>
+      <div className="workspace-scroll-extent" style={scrollExtentStyle} aria-hidden="true" />
       {layoutEditMode && (
         <div className="workspace-edit-grid" aria-hidden="true">
           {workspaceGridCells(viewportSize, layoutMetrics).map((cell) => (
@@ -650,90 +894,7 @@ export function PanelWorkspace({
           ))}
         </div>
       )}
-      {panelState.slots.map((slot) => {
-        const content = panelState.contents[slot.contentId];
-        const isChart = content.kind === "chart";
-        const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
-        const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
-        const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
-        const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
-        const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
-        const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
-        const chartLiveTrade = chartDocument ? getLiveTradeForSymbol(chartRuntime, chartDocument.symbol) : undefined;
-        const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
-        const previewGridRect = layoutPreview?.mode === "resize"
-          && layoutPreview.valid
-          && layoutPreview.sourceSlotId === slot.id
-          ? layoutPreview.gridRect
-          : null;
-        const effectiveGridRect = previewGridRect ?? slot.gridRect;
-        return (
-          <WorkspacePanelFrame
-            key={slot.id}
-            slot={slot}
-            content={content}
-            style={panelSlotStyle(slot)}
-            className={[
-              isChart && slot.rect.left > 1 ? "has-left-boundary" : "",
-              isChart && slot.rect.left + slot.rect.width < viewportSize.width - 1 ? "has-right-boundary" : "",
-              draggingSlotId === slot.id ? "is-panel-content-dragging" : "",
-              isLayoutResizing ? "is-layout-resizing" : "",
-              layoutEditMode ? "is-layout-editing" : ""
-            ].filter(Boolean).join(" ")}
-            isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
-            isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
-            showNav={!hidePanelNav}
-            onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
-            onFramePointerMove={layoutEditMode ? updateFrameCursor : undefined}
-            onPointerEnter={() => isChart && setChartSlotHover(slot.id, true)}
-            onPointerLeave={() => {
-              if (isChart && !dragRef.current) {
-                setChartSlotHover(slot.id, false);
-              }
-            }}
-            editControls={renderPanelEditControls(slot.id, content)}
-          >
-            <PanelContentRenderer
-              slot={slot}
-              content={content}
-              symbol={contentSymbol}
-              symbols={symbols}
-              companyItem={companyItemsBySymbol.get(contentSymbol)}
-              companyItems={companyItems}
-              marketItems={marketItems}
-              laneHeight={Math.max(120, slot.rect.height)}
-              effectiveColSpan={effectiveGridRect.colSpan}
-              effectiveRowSpan={effectiveGridRect.rowSpan}
-              layoutResizeSuspended={Boolean(previewGridRect)}
-              chartHeaderSnapshot={chartHeaders[content.id]}
-              chartDocument={chartDocument}
-              chartCandles={chartCandles}
-              chartDataStatus={chartDataStatus}
-              chartStreamStatus={chartStreamStatus}
-              chartStreamMessage={chartStreamMessage}
-              chartLiveTrade={chartLiveTrade}
-              chartDrawingActive={drawingTargetContentId === content.id}
-              chartAddActive={chartAddTargetContentId === content.id}
-              selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-              emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-              emphasizeChartSelection={emphasizeChartSelection}
-              setSemanticSelection={setSemanticSelection}
-              onAgentReferenceSelect={onAgentReferenceSelect}
-              onAgentAsk={onAgentAsk}
-              onChartRuntimeAction={onChartRuntimeAction}
-              onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
-              onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
-              onChartHandleChange={onChartHandleChange}
-              onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
-              onChartAddToggle={() => toggleChartAddTarget(content.id)}
-              onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
-              onUpdatePanelProps={updatePanelProps}
-              onChangePanelChartSymbol={changePanelChartSymbol}
-              onSelectSymbol={onSelectSymbol}
-            />
-          </WorkspacePanelFrame>
-        );
-      })}
+      {panelState.slots.map((slot) => renderWorkspacePanel(slot))}
       {!layoutEditMode && panelBoundaries.map((boundary) => (
         <div
           key={boundary.id}
@@ -782,10 +943,7 @@ export function PanelWorkspace({
             style={panelRectForGridRect(layoutPreview.gridRect, viewportSize, layoutMetrics)}
             aria-hidden="true"
           >
-            <span>
-              {!layoutPreview.valid && <X size={12} aria-hidden="true" />}
-              {layoutPreview.label}
-            </span>
+            <PanelLayoutGhost label={layoutPreview.label} />
           </div>
           {layoutPreview.valid && layoutPreview.secondary && (
             <div
@@ -793,26 +951,79 @@ export function PanelWorkspace({
               style={panelRectForGridRect(layoutPreview.secondary.gridRect, viewportSize, layoutMetrics)}
               aria-hidden="true"
             >
-              <span>{layoutPreview.secondary.label}</span>
+              <PanelLayoutGhost label={layoutPreview.secondary.label} />
             </div>
           )}
         </>
       )}
       {layoutEditMode && (
         <div className="layout-palette-dock" aria-label="패널 추가 Dock">
-          {panelPaletteEntries().map((entry) => (
-            <button
-              key={entry.kind}
-              type="button"
-              className="layout-palette-button surface-raised"
-              onPointerDown={beginPaletteDrag(entry.kind)}
-              onPointerMove={updateDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
+          {paletteStatus && (
+            <div className="layout-palette-status" role="status" aria-live="polite">
+              {paletteStatus}
+            </div>
+          )}
+          <div className="layout-palette-shell surface-raised">
+            {(paletteOverflow.left || paletteOverflow.right) && (
+              <button
+                type="button"
+                className="layout-palette-arrow"
+                aria-label="이전 패널 보기"
+                disabled={!paletteOverflow.left}
+                onClick={() => scrollPaletteBy(-1)}
+              >
+                <ChevronLeft size={15} aria-hidden="true" />
+              </button>
+            )}
+            <div
+              ref={paletteScrollerRef}
+              className={[
+                "layout-palette-scroller",
+                paletteOverflow.left ? "has-overflow-left" : "",
+                paletteOverflow.right ? "has-overflow-right" : ""
+              ].filter(Boolean).join(" ")}
             >
-              <span>{panelPaletteEntryLabel(entry.kind)}</span>
-            </button>
-          ))}
+              {panelPaletteEntries().map((entry) => (
+                <button
+                  key={entry.kind}
+                  type="button"
+                  className="layout-palette-button"
+                  onPointerDown={beginPaletteDrag(entry.kind)}
+                  onPointerMove={updateDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                >
+                  <span>{panelPaletteEntryLabel(entry.kind)}</span>
+                </button>
+              ))}
+            </div>
+            {(paletteOverflow.left || paletteOverflow.right) && (
+              <button
+                type="button"
+                className="layout-palette-arrow"
+                aria-label="다음 패널 보기"
+                disabled={!paletteOverflow.right}
+                onClick={() => scrollPaletteBy(1)}
+              >
+                <ChevronRight size={15} aria-hidden="true" />
+              </button>
+            )}
+            {onExitLayoutEdit && (
+              <>
+                <span className="toolbar-separator" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="layout-palette-exit"
+                  aria-label="레이아웃 수정모드 종료"
+                  title="레이아웃 수정모드 종료"
+                  onClick={onExitLayoutEdit}
+                >
+                  <Check size={14} aria-hidden="true" />
+                  <span>완료</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
       {!layoutEditMode && (drawingTarget || chartAddTarget) && (
@@ -894,11 +1105,19 @@ function resizeGridRectFromCell(
   };
 }
 
-function sourceGridRectContainsCell(rect: PanelGridRect, cell: { col: number; row: number }): boolean {
-  return cell.col >= rect.col &&
-    cell.col < rect.col + rect.colSpan &&
-    cell.row >= rect.row &&
-    cell.row < rect.row + rect.rowSpan;
+function panelGridRectsEqual(left: PanelGridRect, right: PanelGridRect): boolean {
+  return left.col === right.col &&
+    left.row === right.row &&
+    left.colSpan === right.colSpan &&
+    left.rowSpan === right.rowSpan;
+}
+
+function PanelLayoutGhost({ label }: { label: string }) {
+  return (
+    <div className="panel-layout-ghost">
+      <strong>{label}</strong>
+    </div>
+  );
 }
 
 function addPanelAtPreview(
@@ -1053,9 +1272,11 @@ function readContentSymbol(content: PanelContentInstance): string | null {
 function isPortfolioPanelKind(kind: PanelContentKind): boolean {
   return kind === "portfolio"
     || kind === "portfolioInvestment"
+    || kind === "portfolioMulti"
     || kind === "portfolioPerformance"
     || kind === "portfolioInvested"
     || kind === "portfolioDividend"
     || kind === "portfolioDiversification"
-    || kind === "portfolioHoldings";
+    || kind === "portfolioHoldings"
+    || kind === "portfolioHoldingsCards";
 }

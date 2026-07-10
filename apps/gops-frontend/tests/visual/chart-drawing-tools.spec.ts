@@ -236,7 +236,7 @@ test("range fill is transparent to hit-testing while its outline remains selecta
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.2, 0.25) });
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.75, 0.7) });
   await editor.press("Escape");
-  await canvas.click({ position: await relativeCanvasPoint(canvas, 0.9, 0.86) });
+  await canvas.click({ position: await relativeCanvasPoint(canvas, 0.9, 0.86), force: true });
   await dock.getByRole("button", { name: "Select", exact: true }).click();
 
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.5, 0.48) });

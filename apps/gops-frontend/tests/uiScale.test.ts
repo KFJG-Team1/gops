@@ -5,5 +5,5 @@ import { fileURLToPath } from "node:url";
 const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf-8");
 
 assert.match(appSource, /const appUiScale = 1\.2;/);
-assert.match(appSource, /window\.innerWidth \/ appUiScale/);
-assert.match(appSource, /window\.innerHeight \/ appUiScale/);
+assert.match(appSource, /width \/ appUiScale/);
+assert.match(appSource, /height \/ appUiScale/);

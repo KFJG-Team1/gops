@@ -1,4 +1,5 @@
 import type { TreeMapInputItem, TreeMapRect, TreeMapTile } from "./treemapTypes";
+import { TYPE_ROLE } from "../theme/typography";
 
 type WeightedNode<T> = {
   item: T;
@@ -20,9 +21,9 @@ type Group<T> = {
 };
 
 const minimumLayoutSize = 0.01;
-// The industry band is a thin title strip above each industry's card cluster; it holds the
-// industry name, so it must be tall enough for small text while staying slim.
-const industryBandMaxThickness = 12;
+const sectorHeaderDesiredHeight = Math.ceil(TYPE_ROLE.labelMd.size * TYPE_ROLE.labelMd.lineHeight) + 6;
+const industryBandMaxThickness = Math.ceil(TYPE_ROLE.caption.size * TYPE_ROLE.caption.lineHeight) + 2;
+const industryHeaderDesiredHeight = industryBandMaxThickness + 3;
 const industryBandGap = -1;
 
 export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRect): TreeMapTile[] {
@@ -41,6 +42,7 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
 
   sectorNodes.forEach(({ item: sector, rect }) => {
     const sectorId = `sector:${sector.label}`;
+    const sectorHeader = headerHeight(rect, sectorHeaderDesiredHeight);
     tiles.push({
       ...rect,
       id: sectorId,
@@ -50,16 +52,22 @@ export function layoutSp500TreeMap(items: TreeMapInputItem[], bounds: TreeMapRec
       changePercent: sector.changePercent,
       depth: 0,
       sector: sector.label,
-      sectorLabelKo: sector.displayLabel
+      sectorLabelKo: sector.displayLabel,
+      band: sectorHeader > 0 ? {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: sectorHeader
+      } : undefined
     });
 
-    const sectorInner = contentRect(rect, headerHeight(rect, 22), 2);
+    const sectorInner = contentRect(rect, sectorHeader, 2);
     const industries = groupItems(sector.items, (item) => item.industry);
     const industryNodes = squarify(industries, sectorInner, (industry) => industry.value);
 
     industryNodes.forEach(({ item: industry, rect: industryRect }) => {
       const industryId = `${sectorId}:industry:${industry.label}`;
-      const industryHeader = headerHeight(industryRect, 16);
+      const industryHeader = headerHeight(industryRect, industryHeaderDesiredHeight);
       const symbolInner = contentRect(industryRect, industryHeader, 2);
       const band = industryBandRect(industryRect, symbolInner, industryHeader);
 

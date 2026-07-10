@@ -4,14 +4,14 @@ import {
   firstAvailablePanelGridRect,
   gridRectsOverlap,
   layoutHasGapsOrOverlaps,
-  maxGridSpan,
-  minGridSpanForKind,
+  maxGridSpanForKind,
   movePanelSlotToGridRect,
   normalizeFreeformRectsToGridLayout,
   normalizePanelGridRect,
   normalizeTiledPanelStateToWorkspace,
   panelContentTitle,
   panelGridSpec,
+  readableMinGridSpanForKind,
   removePanelSlot,
   replacePanelSlotKind,
   setPanelContentLayoutWeight,
@@ -28,6 +28,10 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
   compare: "compareChart",
   company: "companyProfile",
+  companyMulti: "companyMulti",
+  companyValuation: "companyValuation",
+  companyProfitability: "companyProfitability",
+  companyStability: "companyStability",
   indices: "marketIndices",
   popular: "popularStocks",
   recommendations: "stockRecommendations",
@@ -37,13 +41,15 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   watchlistNews: "newsFeed",
   watchlistNewsList: "newsFeed",
   ontology: "ontologyGraph",
-  portfolio: "portfolioHoldings",
+  portfolio: "portfolioDashboard",
+  portfolioMulti: "portfolioMulti",
   portfolioInvestment: "portfolioInvestment",
   portfolioPerformance: "portfolioPerformance",
   portfolioInvested: "portfolioInvested",
   portfolioDividend: "portfolioDividend",
   portfolioDiversification: "portfolioDiversification",
   portfolioHoldings: "portfolioHoldings",
+  portfolioHoldingsCards: "portfolioHoldingsCards",
   orderFlow: "orderFlowProfile",
   trade: "orderTicket"
 };
@@ -295,7 +301,11 @@ function addPanelForCommand(
     return state;
   }
   const placement = readPlacement(command.payload.placement);
-  const gridRect = placement ?? firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind);
+  const minimumSpan = readableMinGridSpanForKind(kind);
+  const gridRect = normalizePanelGridRect(
+    placement ?? firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind),
+    minimumSpan
+  );
   return addPanelSlotAtGridRect(state, kind, gridRect, {
     slotId: panelId ?? undefined,
     symbol: symbol ?? undefined,
@@ -367,7 +377,7 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     const slot = panelId ? slotForPanelId(next, panelId) : null;
     const content = slot ? next.contents[slot.contentId] : null;
     if (slot && content && placement?.group === "workspace") {
-      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, minGridSpanForKind(content.kind)));
+      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, readableMinGridSpanForKind(content.kind)));
     }
     const layoutWeight = readNumber(item.layoutWeight);
     if (panelId && layoutWeight !== null) {
@@ -413,7 +423,15 @@ function applyPanelPlacement(
   if (!slot || placement.group !== "workspace") {
     return state;
   }
-  return movePanelSlotToGridRect(state, slot.id, placement, viewport, layoutMetrics);
+  const content = state.contents[slot.contentId];
+  const minimumSpan = readableMinGridSpanForKind(content?.kind ?? "chart");
+  return movePanelSlotToGridRect(
+    state,
+    slot.id,
+    normalizePanelGridRect(placement, minimumSpan),
+    viewport,
+    layoutMetrics
+  );
 }
 
 function applyPanelPropsUpdate(
@@ -455,11 +473,11 @@ function setPanelLayoutWeight(state: TiledPanelState, panelId: string, layoutWei
 }
 
 function minSpanForKind(kind: PanelContentKind) {
-  return minGridSpanForKind(kind);
+  return readableMinGridSpanForKind(kind);
 }
 
-function maxSpanForKind(_kind: PanelContentKind) {
-  return maxGridSpan();
+function maxSpanForKind(kind: PanelContentKind) {
+  return maxGridSpanForKind(kind);
 }
 
 function hasPanelKind(state: TiledPanelState, kind: PanelContentKind): boolean {

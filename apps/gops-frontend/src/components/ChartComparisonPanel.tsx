@@ -51,6 +51,7 @@ export function ChartComparisonPanel({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     const symbolsForRequest = requestKey.split(",").filter(Boolean);
@@ -132,11 +133,29 @@ export function ChartComparisonPanel({
 
   return (
     <div className="chart-compare-container">
-      <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
-      <aside className="chart-compare-sidebar" aria-label="비교 종목 관리">
+      <div
+        className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""} ${sidebarOpen ? "is-sidebar-open" : ""}`}
+        aria-label="비교 차트"
+        data-compare-status={loading ? "loading" : error ? "error" : hasRenderableSeries ? "ready" : "empty"}
+      >
+        <button
+          type="button"
+          className="chart-compare-sidebar-backdrop"
+          aria-label="비교 종목 패널 닫기"
+          onClick={() => setSidebarOpen(false)}
+        />
+        <aside id="chart-compare-sidebar" className="chart-compare-sidebar" aria-label="비교 종목 관리">
         <div className="chart-compare-sidebar-top">
           <span className="chart-compare-brand">GOPS</span>
           <span className="chart-compare-overview">Comparison Overview</span>
+          <button
+            type="button"
+            className="chart-compare-sidebar-close"
+            aria-label="비교 종목 패널 닫기"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X size={15} />
+          </button>
         </div>
         <div className="chart-compare-hero">
           <span>{primaryItem?.symbol ?? symbol.toUpperCase()} · 기준</span>
@@ -201,6 +220,15 @@ export function ChartComparisonPanel({
             <strong>Return graph</strong>
             <span>{hoverSnapshot ? formatHoverTime(hoverSnapshot.timestamp, range) : "first close 기준 수익률"}</span>
           </div>
+          <button
+            type="button"
+            className="chart-compare-sidebar-toggle"
+            aria-controls="chart-compare-sidebar"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            비교 {requestSymbols.length}/{maxCompareSymbols}
+          </button>
           <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
             {compareRanges.map((item) => (
               <button

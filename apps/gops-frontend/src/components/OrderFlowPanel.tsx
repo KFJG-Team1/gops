@@ -442,6 +442,7 @@ export function OrderFlowPanel({
       data-order-flow-symbol={normalizedSymbol}
       data-order-flow-window={windowKey}
       data-order-flow-resolution={resolution}
+      data-order-flow-status={symbolsLoading ? "loading" : ladder ? "ready" : supported ? "empty" : "unsupported"}
     >
       <canvas
         ref={canvasRef}

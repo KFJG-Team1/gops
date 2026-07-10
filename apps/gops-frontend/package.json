@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:chart": "node scripts/run-chart-tests.mjs",
+    "test:layout": "node scripts/run-layout-tests.mjs",
     "test:chart-visual": "playwright test",
     "test:bundle-size": "node scripts/check-bundle-size.mjs"
   },
