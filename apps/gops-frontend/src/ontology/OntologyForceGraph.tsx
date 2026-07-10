@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { nearestTypeSize, TYPE_SIZE } from "../theme/typography";
+import { nearestTypeRole, TYPE_ROLE, type TypeRoleName } from "../theme/typography";
 import type { OntologyGraphData } from "./ontologyTypes";
 
 /**
@@ -56,6 +56,12 @@ type SimNode = d3.SimulationNodeDatum & {
 };
 
 type SimLink = { source: string | SimNode; target: string | SimNode; kind: "chip" | "control" | "cross" };
+
+function tickerTypeRole(node: SimNode): TypeRoleName {
+  if (node.kind === "stock") return nearestTypeRole(node.r * 0.45, "bodyMd");
+  if (node.kind === "company") return "caption";
+  return "caption";
+}
 
 type HullDatum = { theme: string; cx: number; cy: number; r: number };
 
@@ -660,15 +666,12 @@ function createGraphController(
       .select<SVGTextElement>("text.ofg-ticker")
       .attr("y", (d) => (d.kind === "chip" ? -2 : d.kind === "company" ? 0 : 0))
       .attr("dy", (d) => (d.kind === "stock" ? "-0.15em" : d.kind === "company" ? "0.35em" : 0))
-      .style("font-size", (d) => (
-        d.kind === "stock"
-          ? `${nearestTypeSize(d.r * 0.45, TYPE_SIZE.body)}px`
-          : d.kind === "company"
-            ? `${TYPE_SIZE.micro}px`
-            : null
-      ))
+      .style("font-size", (d) => `${TYPE_ROLE[tickerTypeRole(d)].size}px`)
+      .style("font-weight", (d) => `${TYPE_ROLE[tickerTypeRole(d)].weight}`)
+      .style("line-height", (d) => `${TYPE_ROLE[tickerTypeRole(d)].lineHeight}`)
+      .style("letter-spacing", (d) => `${TYPE_ROLE[tickerTypeRole(d)].letterSpacing}px`)
+      .style("text-transform", (d) => TYPE_ROLE[tickerTypeRole(d)].textTransform)
       .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null))
-      .style("font-weight", (d) => (d.kind === "company" ? "800" : null))
       .text((d) => (d.kind === "company" ? "자회사" : d.label.length > 11 ? d.label.slice(0, 10) + "…" : d.label));
     nodeGroups
       .select<SVGTextElement>("text.ofg-pct")
@@ -682,8 +685,11 @@ function createGraphController(
       .select<SVGTextElement>("text.ofg-count")
       .attr("y", (d) => (d.kind === "company" ? d.r + 14 : 12))
       .attr("text-anchor", "middle")
-      .style("font-size", (d) => (d.kind === "company" ? `${TYPE_SIZE.micro}px` : null))
-      .style("font-weight", (d) => (d.kind === "company" ? "700" : null))
+      .style("font-size", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].size}px`)
+      .style("font-weight", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].weight}`)
+      .style("line-height", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].lineHeight}`)
+      .style("letter-spacing", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].letterSpacing}px`)
+      .style("text-transform", (d) => TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].textTransform)
       .style("fill", (d) => (d.kind === "company" ? SUBSIDIARY_TEXT : null))
       .each(function renderCountOrCompanyName(d) {
         const text = d3.select(this);

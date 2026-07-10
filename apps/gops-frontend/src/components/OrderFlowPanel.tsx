@@ -30,7 +30,7 @@ import { drawOrderFlowPanelLadder } from "../chart/orderFlowRender";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { readThemeColors } from "../theme/colors";
 import type { ThemeColors } from "../theme/colors";
-import { CANVAS_FONT_FAMILY, TYPE_SIZE } from "../theme/typography";
+import { applyCanvasTypography } from "../theme/typography";
 import { SymbolSearch } from "./SymbolSearch";
 
 type OrderFlowPanelProps = {
@@ -54,7 +54,6 @@ const defaultWindow: OrderFlowWindow = "10m";
 const defaultResolution: OrderFlowResolutionSelection = "auto";
 const preferredDefaultSymbol = "NVDA";
 const wheelNotchThreshold = 90;
-const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 export function OrderFlowPanel({
   panelId,
@@ -430,7 +429,7 @@ export function OrderFlowPanel({
       context.clearRect(0, 0, rect.width, rect.height);
       if (!state.ladder) {
         context.fillStyle = theme.muted;
-        context.font = `700 ${rect.width < 150 ? TYPE_SIZE.micro : TYPE_SIZE.compact}px ${canvasFontFamily}`;
+        applyCanvasTypography(context, "caption");
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText(emptyPanelMessage(state.loading, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
@@ -621,7 +620,7 @@ function drawPanelCaptions(
     ? formatPriceStep(state.effectiveStep)
     : `bin ${formatPriceStep(state.effectiveStep)}${state.resolution === "auto" ? " auto" : ""}`;
   drawCaptionPill(context, 6, 6, topLabel, theme, small);
-  drawCaptionPill(context, 6, Math.max(6, height - (small ? 22 : 24)), bottomLabel, theme, small);
+  drawCaptionPill(context, 6, Math.max(6, height - (small ? 24 : 28)), bottomLabel, theme, small);
 }
 
 function drawWheelFeedback(
@@ -644,7 +643,7 @@ function drawWheelFeedback(
   }
   const label = `${formatPriceStep(state.effectiveStep)} · ${state.targetRows} rows`;
   context.save();
-  context.font = `800 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
+  applyCanvasTypography(context, "caption");
   const availableWidth = Math.max(48, width - 16);
   const pillWidth = Math.min(availableWidth, Math.max(76, context.measureText(label).width + 18));
   const pillHeight = 24;
@@ -672,9 +671,9 @@ function drawCaptionPill(
   small: boolean
 ): void {
   context.save();
-  context.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(context, "caption");
   const width = Math.ceil(context.measureText(label).width) + (small ? 10 : 12);
-  const height = small ? 16 : 18;
+  const height = small ? 20 : 22;
   context.globalAlpha = 0.7;
   context.fillStyle = theme.surface;
   roundRect(context, x, y, width, height, 5);

@@ -1,5 +1,5 @@
 import type { ThemeColors } from "../theme/colors";
-import { CANVAS_FONT_FAMILY, TYPE_SIZE } from "../theme/typography";
+import { applyCanvasTypography } from "../theme/typography";
 import type { OrderFlowLadder, OrderFlowLadderLevel } from "./orderFlow";
 
 export type OrderFlowLadderRect = {
@@ -31,9 +31,9 @@ export type OrderFlowPanelRenderOptions = {
 };
 
 const minChartRowHeight = 2;
-const chartFooterHeight = 13;
-const panelFooterHeight = 16;
-const canvasFontFamily = CANVAS_FONT_FAMILY;
+const captionLineHeight = 19;
+const chartFooterHeight = 20;
+const panelFooterHeight = 22;
 
 export function chartColumnTier(width: number): ChartColumnTier {
   if (width >= 56) {
@@ -126,7 +126,7 @@ export function drawOrderFlowPanelLadder(
   const rowHeight = Math.max(3, drawHeight / ladder.levels.length);
   const priceLabel = ladder.maxPrice >= 100 ? ladder.maxPrice.toFixed(2) : ladder.maxPrice.toFixed(2);
   ctx.save();
-  ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption");
   const measuredGutter = Math.ceil(ctx.measureText(priceLabel).width) + 18;
   const gutterWidth = clamp(measuredGutter, compact ? 34 : 46, Math.min(compact ? 58 : 78, rect.width * 0.32));
   const centerX = rect.x + rect.width / 2;
@@ -141,7 +141,8 @@ export function drawOrderFlowPanelLadder(
   const quoteBidIndex = nearestLevelIndex(ladder.levels, options.quote?.bidPrice);
   const quoteAskIndex = nearestLevelIndex(ladder.levels, options.quote?.askPrice);
   const lastPriceIndex = nearestLevelIndex(ladder.levels, options.lastPrice);
-  const labelEvery = micro ? Number.POSITIVE_INFINITY : rowHeight >= 13 ? 1 : Math.ceil(13 / rowHeight);
+  const labelEvery = micro ? Number.POSITIVE_INFINITY : rowHeight >= captionLineHeight ? 1 : Math.ceil(captionLineHeight / rowHeight);
+  const showSideLabels = !compact && rowHeight >= captionLineHeight && rect.width >= 220;
 
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.width, rect.height);
@@ -162,13 +163,15 @@ export function drawOrderFlowPanelLadder(
       leftWidth,
       rightWidth,
       maxSideVolume,
-      showText: !compact && rowHeight >= 12 && rect.width >= 220
+      showText: showSideLabels
     }, theme);
     if (!micro && index === quoteBidIndex) {
-      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, compact ? "-" : formatSize(options.quote?.bidSize));
+      const label = compact || rowHeight < captionLineHeight || showSideLabels ? "-" : formatSize(options.quote?.bidSize);
+      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, label);
     }
     if (!micro && index === quoteAskIndex) {
-      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, compact ? "-" : formatSize(options.quote?.askSize));
+      const label = compact || rowHeight < captionLineHeight || showSideLabels ? "-" : formatSize(options.quote?.askSize);
+      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, label);
     }
     const showLabel = index % labelEvery === 0 ||
       level.priceBin === ladder.pocPriceBin ||
@@ -176,7 +179,7 @@ export function drawOrderFlowPanelLadder(
     if (showLabel) {
       ctx.globalAlpha = level.priceBin === ladder.pocPriceBin ? 0.96 : 0.78;
       ctx.fillStyle = level.priceBin === ladder.pocPriceBin ? theme.caution : theme.text;
-      ctx.font = `${level.priceBin === ladder.pocPriceBin ? "800" : "700"} ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+      applyCanvasTypography(ctx, level.priceBin === ladder.pocPriceBin ? "caption" : "caption");
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(formatPrice(level.priceBin), centerX, y + h / 2, gutterWidth - 4);
@@ -204,9 +207,9 @@ export function drawOrderFlowPanelLadder(
 export function drawEstimatedBadge(ctx: CanvasRenderingContext2D, x: number, y: number, theme: ThemeColors): void {
   const label = "estimated";
   ctx.save();
-  ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption");
   const width = Math.ceil(ctx.measureText(label).width) + 14;
-  const height = 16;
+  const height = 20;
   ctx.globalAlpha = 0.82;
   ctx.fillStyle = theme.surface;
   roundRect(ctx, x, y, width, height, 8);
@@ -235,7 +238,7 @@ function drawTwoSidedColumn(
   const centerX = rect.x + rect.width / 2;
   const halfWidth = Math.max(2, rect.width / 2 - 1);
   const rowHeight = chartRowHeightForLevels(visibleLevels, options.priceToY, 15);
-  const showText = options.tier === "full" && rowHeight >= 10.5 && rect.width >= 72;
+  const showText = options.tier === "full" && rowHeight >= captionLineHeight && rect.width >= 80;
   visibleLevels.forEach((level) => {
     const y = options.priceToY(level.priceBin) - rowHeight / 2;
     if (y > rect.y + drawHeight || y + rowHeight < rect.y) {
@@ -337,7 +340,7 @@ function drawColumnFooter(
   const delta = ladder.totals.delta;
   ctx.globalAlpha = tier === "compact" ? 0.72 : 0.86;
   ctx.fillStyle = ladderTone(ladder) === "unknown" ? theme.axis : delta >= 0 ? theme.upSoft : theme.downSoft;
-  ctx.font = `${tier === "full" ? "800" : "700"} ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, tier === "full" ? "caption" : "caption");
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   const fallback = delta >= 0 ? "+" : "-";
@@ -427,7 +430,7 @@ function drawPanelBars(
   if (geometry.showText) {
     ctx.globalAlpha = 0.88;
     ctx.fillStyle = theme.text;
-    ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+    applyCanvasTypography(ctx, "caption");
     ctx.textBaseline = "middle";
     ctx.textAlign = "right";
     ctx.fillText(shortNumber(level.bidVolume), geometry.leftX - 3, geometry.y + geometry.h / 2, geometry.leftWidth - 5);
@@ -470,16 +473,17 @@ function drawPanelFooter(
   if (micro) {
     return;
   }
-  ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption");
   ctx.textBaseline = "bottom";
   ctx.textAlign = "right";
   const poc = ladder.pocPriceBin === null ? "POC -" : `POC ${formatPrice(ladder.pocPriceBin)}`;
   const label = clippedHint ? `${poc} · clipped` : poc;
   if (clippedHint) {
     const pillWidth = Math.min(rect.width * 0.62, ctx.measureText(label).width + 12);
+    const pillHeight = 20;
     ctx.globalAlpha = 0.76;
     ctx.fillStyle = theme.surfaceStrong;
-    roundRect(ctx, rect.x + rect.width - pillWidth - 1, y - 13, pillWidth, 14, 4);
+    roundRect(ctx, rect.x + rect.width - pillWidth - 1, y - pillHeight + 2, pillWidth, pillHeight, 4);
     ctx.fill();
     ctx.globalAlpha = 0.9;
   }
@@ -525,7 +529,7 @@ function drawQuoteWedge(
   ctx.fill();
   if (label !== "-") {
     ctx.globalAlpha = 0.75;
-    ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+    applyCanvasTypography(ctx, "caption");
     ctx.textAlign = direction === "left" ? "right" : "left";
     ctx.textBaseline = "middle";
     ctx.fillText(label, direction === "left" ? x - 8 : x + 8, y, 38);
@@ -565,7 +569,7 @@ function drawLevelText(
 ): void {
   ctx.globalAlpha = 0.88;
   ctx.fillStyle = theme.text;
-  ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption");
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
   ctx.fillText(shortNumber(level.bidVolume), centerX - 3, y, halfWidth - 5);
