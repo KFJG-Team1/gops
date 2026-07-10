@@ -76,7 +76,16 @@ import {
 } from "../src/chart/olderRangeRequestPolicy";
 import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
-import { chartIntervals, type CandleDto, type ChartState, type DrawingEntity } from "../src/chart/types";
+import {
+  bidAskChartIntervals,
+  chartIntervals,
+  defaultBidAskInterval,
+  defaultVisibleBarsForBidAskInterval,
+  isBidAskChartInterval,
+  type CandleDto,
+  type ChartState,
+  type DrawingEntity
+} from "../src/chart/types";
 import { fetchOrderFlowSymbols } from "../src/chart/orderFlowClient";
 import {
   autoOrderFlowTargetRows,
@@ -84,10 +93,13 @@ import {
   buildLadder,
   effectiveOrderFlowPriceStep,
   maxOrderFlowTargetRowsForHeight,
+  orderFlowMinutesForBucket,
+  orderFlowWindowMinutesForInterval,
   rebinLevels,
   replaceOrderFlowMinute,
   resolveOrderFlowTargetRows,
   stepOrderFlowTargetRows,
+  sumOrderFlowBucketLevels,
   sumMinuteWindows,
   visibleScaleMax,
   type OrderFlowMinuteUpdate
@@ -535,7 +547,7 @@ if (bidAskChartTypeResult.ok) {
     "idle"
   );
   assert.equal(frontendBidAskState.chartType, "bidask");
-  assert.equal(frontendBidAskState.interval, "1D");
+  assert.equal(frontendBidAskState.interval, defaultBidAskInterval);
 }
 const legacyIntervalCandleState = chartStateFromDocument(
   { ...documentB, chartType: "candle", timeframe: ["foot", "print"].join("") },
@@ -1398,6 +1410,10 @@ assert.equal(normalizeChartInterval("1H"), "1h");
 assert.equal(normalizeChartInterval("4H"), "4h");
 assert.equal(normalizeChartInterval("bad"), null);
 assert.deepEqual(chartIntervals.slice(0, 5), ["1m", "5m", "10m", "1h", "4h"]);
+assert.deepEqual(bidAskChartIntervals, ["1m", "10m", "1h"]);
+assert.equal(defaultBidAskInterval, "10m");
+assert.equal(isBidAskChartInterval("1D"), false);
+assert.equal(isBidAskChartInterval("10m"), true);
 assert.equal(nextDigTargetInterval("1m"), "1m");
 assert.equal(nextDigTargetInterval("1D"), "1h");
 assert.equal(nextDigTargetInterval("4h"), "1h");
@@ -1410,6 +1426,9 @@ assert.equal(defaultVisibleBarsForInterval("4h"), 120);
 assert.equal(defaultVisibleBarsForInterval("1D"), 120);
 assert.equal(defaultVisibleBarsForInterval("1W"), 104);
 assert.equal(defaultVisibleBarsForInterval("1M"), 36);
+assert.equal(defaultVisibleBarsForBidAskInterval("1m"), 120);
+assert.equal(defaultVisibleBarsForBidAskInterval("10m"), 39);
+assert.equal(defaultVisibleBarsForBidAskInterval("1h"), 7);
 assert.equal(maxRequestBarsForInterval("1m"), 589680);
 assert.equal(maxRequestBarsForInterval("5m"), 117936);
 assert.equal(maxRequestBarsForInterval("10m"), 58968);
@@ -1447,6 +1466,21 @@ assert.deepEqual(sumMinuteWindows(minuteWindowLevels, 2), [
 assert.deepEqual(sumMinuteWindows(minuteWindowLevels, "session"), [
   { priceBin: 101, askVolume: 0, bidVolume: 3, unknownVolume: 0 },
   { priceBin: 100, askVolume: 3, bidVolume: 0, unknownVolume: 0 }
+]);
+const bidAskBucketMinutes = [
+  { eventMinute: "2026-07-08T13:30:00.000Z", bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:39:00.000Z", bins: [{ priceBin: 100, askVolume: 4, bidVolume: 0, unknownVolume: 0 }] },
+  { eventMinute: "2026-07-08T13:40:00.000Z", bins: [{ priceBin: 101, askVolume: 0, bidVolume: 9, unknownVolume: 0 }] }
+];
+assert.equal(orderFlowWindowMinutesForInterval("1m"), 1);
+assert.equal(orderFlowWindowMinutesForInterval("10m"), 10);
+assert.equal(orderFlowWindowMinutesForInterval("1h"), 60);
+assert.deepEqual(
+  orderFlowMinutesForBucket(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10).map((minute) => minute.eventMinute),
+  ["2026-07-08T13:30:00.000Z", "2026-07-08T13:39:00.000Z"]
+);
+assert.deepEqual(sumOrderFlowBucketLevels(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10), [
+  { priceBin: 100, askVolume: 5, bidVolume: 0, unknownVolume: 0 }
 ]);
 
 const ladder = buildLadder([
@@ -2863,7 +2897,9 @@ assert.match(panelContentRendererSource, /content\.kind === "compare"/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 assert.match(panelContentRendererSource, /chart-instance-interval/);
 assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
-assert.match(panelContentRendererSource, /chartIntervals\.map/);
+assert.match(panelContentRendererSource, /bidAskChartIntervals/);
+assert.match(panelContentRendererSource, /chartIntervalOptions\.map/);
+assert.doesNotMatch(panelContentRendererSource, /disabled=\{chartType === "bidask"\}/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
 
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
@@ -2895,7 +2931,9 @@ assert.match(chartPanelSource, /maxComparisonCount/);
 assert.doesNotMatch(chartPanelSource, /onOpenComparisonPanel|placeholder="비교 패널"|chart-comparison-picker/);
 assert.match(chartPanelSource, /comparisons: renderComparisons/);
 assert.match(chartPanelSource, /trendExtensionButtons\.map/);
-assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{ daily: orderFlowDaily, today: orderFlowTodayDay \} : null/);
+assert.doesNotMatch(chartPanelSource, /fetchOrderFlowDaily|orderFlowDaily|visibleOrderFlowRange|orderFlowTodayDay/);
+assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{[\s\S]*minutes: orderFlowToday[\s\S]*\} : null/);
+assert.match(chartPanelSource, /chart\.chartType === "bidask" && isBidAskChartInterval\(chart\.interval\)/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /semanticSelectionEnabled = chart\.chartType !== "line"/);

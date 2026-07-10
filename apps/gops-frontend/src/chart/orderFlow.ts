@@ -194,6 +194,46 @@ export function sumMinuteWindows(minutes: OrderFlowMinuteDto[], windowMinutes: n
     .sort((left, right) => right.priceBin - left.priceBin);
 }
 
+export function orderFlowWindowMinutesForInterval(interval: string): number {
+  if (interval === "1m") {
+    return 1;
+  }
+  if (interval === "1h") {
+    return 60;
+  }
+  return 10;
+}
+
+export function orderFlowMinutesForBucket(
+  minutes: Iterable<OrderFlowMinuteDto> | Map<string, OrderFlowMinuteDto>,
+  bucketStart: string,
+  windowMinutes: number
+): OrderFlowMinuteDto[] {
+  const values = minutes instanceof Map ? Array.from(minutes.values()) : Array.from(minutes);
+  const startMs = Date.parse(bucketStart);
+  const durationMs = Math.max(1, Math.floor(windowMinutes)) * 60_000;
+  if (!Number.isFinite(startMs)) {
+    return values
+      .filter((minute) => minute.eventMinute === bucketStart)
+      .sort((left, right) => compareMinute(left.eventMinute, right.eventMinute));
+  }
+  const endMs = startMs + durationMs;
+  return values
+    .filter((minute) => {
+      const minuteMs = Date.parse(minute.eventMinute);
+      return Number.isFinite(minuteMs) && minuteMs >= startMs && minuteMs < endMs;
+    })
+    .sort((left, right) => compareMinute(left.eventMinute, right.eventMinute));
+}
+
+export function sumOrderFlowBucketLevels(
+  minutes: Iterable<OrderFlowMinuteDto> | Map<string, OrderFlowMinuteDto>,
+  bucketStart: string,
+  windowMinutes: number
+): OrderFlowLevelDto[] {
+  return sumMinuteWindows(orderFlowMinutesForBucket(minutes, bucketStart, windowMinutes), "session");
+}
+
 export function buildLadder(levels: OrderFlowLevelDto[], priceStep: number, label?: string): OrderFlowLadder {
   const aggregated = new Map<number, OrderFlowAccumulator>();
   levels.forEach((level) => {

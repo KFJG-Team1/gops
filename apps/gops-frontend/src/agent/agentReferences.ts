@@ -1,6 +1,12 @@
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartState } from "../chart/types";
-import { buildLadder, sessionDateFromTimestamp, type OrderFlowDayDto } from "../chart/orderFlow";
+import {
+  buildLadder,
+  orderFlowWindowMinutesForInterval,
+  sessionDateFromTimestamp,
+  sumOrderFlowBucketLevels,
+  type OrderFlowDayDto
+} from "../chart/orderFlow";
 
 export type AgentReferenceType =
   | "chart.candle"
@@ -196,17 +202,24 @@ function orderFlowSummaryForSelection(
   chart: ChartState,
   selection: SemanticSelectionSnapshot
 ): { sessionDate: string; totals: OrderFlowDayDto["totals"]; pocPriceBin: number | null } | null {
-  const date = sessionDateFromTimestamp(selection.timestamp ?? selection.from);
-  const dailyDay = chart.orderFlow?.daily?.days.find((day) => day.sessionDate === date) ?? null;
-  const today = chart.orderFlow?.today?.sessionDate === date ? chart.orderFlow.today : null;
-  const day = today ?? dailyDay;
-  if (!day) {
+  const orderFlow = chart.orderFlow;
+  if (!orderFlow) {
     return null;
   }
-  const priceStep = Math.max(0.01, chart.orderFlow?.daily?.priceBinSize ?? 0.01);
+  const bucketStart = selection.timestamp ?? selection.from;
+  const levels = sumOrderFlowBucketLevels(
+    orderFlow.minutes,
+    bucketStart,
+    orderFlowWindowMinutesForInterval(chart.interval)
+  );
+  if (!levels.length) {
+    return null;
+  }
+  const priceStep = Math.max(0.01, orderFlow.priceBinSize);
+  const ladder = buildLadder(levels, priceStep);
   return {
-    sessionDate: day.sessionDate,
-    totals: day.totals,
-    pocPriceBin: buildLadder(day.levels, priceStep).pocPriceBin
+    sessionDate: orderFlow.sessionDate ?? sessionDateFromTimestamp(bucketStart),
+    totals: ladder.totals,
+    pocPriceBin: ladder.pocPriceBin
   };
 }

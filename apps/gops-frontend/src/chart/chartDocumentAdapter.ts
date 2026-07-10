@@ -7,7 +7,7 @@ import {
   type StreamStatus
 } from "@gops/chart-engine";
 import type { PanelContentInstance, TiledPanelState } from "../layout/panelLayout";
-import type { CandleDto, ChartComparisonSeries, ChartInterval, ChartState, ChartType, DrawingEntity } from "./types";
+import { normalizeBidAskChartInterval, type CandleDto, type ChartComparisonSeries, type ChartInterval, type ChartState, type ChartType, type DrawingEntity } from "./types";
 
 const defaultFrontendChartInterval: ChartInterval = "1D";
 
@@ -73,7 +73,7 @@ export function chartStateFromDocument(
   streamMessage?: string
 ): ChartState {
   const chartType = normalizeFrontendChartType(document.chartType);
-  const interval = chartType === "bidask" ? "1D" : normalizeFrontendInterval(document.timeframe);
+  const interval = chartType === "bidask" ? normalizeBidAskChartInterval(document.timeframe) : normalizeFrontendInterval(document.timeframe);
   return {
     symbol: document.symbol.toUpperCase(),
     chartType,

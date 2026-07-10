@@ -1,4 +1,4 @@
-import type { OrderFlowDailyResponseDto, OrderFlowDayDto, OrderFlowMinuteUpdate } from "./orderFlow";
+import type { OrderFlowIntradayResponseDto, OrderFlowMinuteDto, OrderFlowMinuteUpdate } from "./orderFlow";
 
 export type ChartInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
 
@@ -468,8 +468,11 @@ export type ChartState = {
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
   orderFlow?: {
-    daily: OrderFlowDailyResponseDto | null;
-    today: OrderFlowDayDto | null;
+    dataStatus: OrderFlowIntradayResponseDto["dataStatus"];
+    supportedSymbols?: string[];
+    priceBinSize: number;
+    sessionDate: string | null;
+    minutes: Map<string, OrderFlowMinuteDto>;
   } | null;
   panes?: ChartPaneState[];
   volumeRatio: number;
@@ -487,6 +490,10 @@ export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
 
 export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
 
+export const bidAskChartIntervals: ChartInterval[] = ["1m", "10m", "1h"];
+
+export const defaultBidAskInterval: ChartInterval = "10m";
+
 export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
   "1m": 120,
   "5m": 120,
@@ -500,4 +507,22 @@ export const defaultVisibleBarsByInterval: Record<ChartInterval, number> = {
 
 export function defaultVisibleBarsForInterval(interval: ChartInterval): number {
   return defaultVisibleBarsByInterval[interval];
+}
+
+export function isBidAskChartInterval(value: unknown): value is ChartInterval {
+  return value === "1m" || value === "10m" || value === "1h";
+}
+
+export function normalizeBidAskChartInterval(value: unknown): ChartInterval {
+  return isBidAskChartInterval(value) ? value : defaultBidAskInterval;
+}
+
+export function defaultVisibleBarsForBidAskInterval(interval: ChartInterval): number {
+  if (interval === "10m") {
+    return 39;
+  }
+  if (interval === "1h") {
+    return 7;
+  }
+  return defaultVisibleBarsForInterval(interval);
 }
