@@ -86,7 +86,8 @@ import {
   type ChartState,
   type DrawingEntity
 } from "../src/chart/types";
-import { fetchOrderFlowSymbols } from "../src/chart/orderFlowClient";
+import { fetchOrderFlowSymbols, orderFlowDemoContextFromCandles } from "../src/chart/orderFlowClient";
+import { fetchDemoOrderFlowIntraday } from "../src/chart/orderFlowDemoData";
 import {
   autoOrderFlowTargetRows,
   autoPriceStep,
@@ -541,7 +542,7 @@ assert.equal(bidAskChartTypeResult.ok, true);
 if (bidAskChartTypeResult.ok) {
   assert.equal(bidAskChartTypeResult.document.chartType, "bidask");
   const frontendBidAskState = chartStateFromDocument(
-    { ...bidAskChartTypeResult.document, timeframe: ["foot", "print"].join("") },
+    { ...bidAskChartTypeResult.document, timeframe: "unsupported" },
     [],
     { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
     "idle"
@@ -549,14 +550,6 @@ if (bidAskChartTypeResult.ok) {
   assert.equal(frontendBidAskState.chartType, "bidask");
   assert.equal(frontendBidAskState.interval, defaultBidAskInterval);
 }
-const legacyIntervalCandleState = chartStateFromDocument(
-  { ...documentB, chartType: "candle", timeframe: ["foot", "print"].join("") },
-  [],
-  { state: "ready", updatedAt: "2026-06-25T13:31:00.000Z" },
-  "idle"
-);
-assert.equal(legacyIntervalCandleState.chartType, "candle");
-assert.equal(legacyIntervalCandleState.interval, "1m");
 
 const paneRatioResult = executeChartCommand(
   documentB,
@@ -1482,6 +1475,39 @@ assert.deepEqual(
 assert.deepEqual(sumOrderFlowBucketLevels(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10), [
   { priceBin: 100, askVolume: 5, bidVolume: 0, unknownVolume: 0 }
 ]);
+const anchoredDemoOrderFlow = fetchDemoOrderFlowIntraday("NVDA", {
+  sessionDate: "2026-07-03",
+  basePrice: 194.5
+});
+const differentlyAnchoredDemoOrderFlow = fetchDemoOrderFlowIntraday("NVDA", {
+  sessionDate: "2026-07-02",
+  basePrice: 152.4
+});
+const demoContext = orderFlowDemoContextFromCandles([
+  { timestamp: "2026-07-10T05:00:00.000Z", close: 200 },
+  { timestamp: "2026-07-10T05:10:00.000Z", close: 201.5 },
+  { timestamp: "2026-07-10T05:20:00.000Z", close: 203 }
+], "10m");
+const scheduledDemoOrderFlow = fetchDemoOrderFlowIntraday("NVDA", demoContext?.anchor);
+assert.equal(anchoredDemoOrderFlow.sessionDate, "2026-07-03");
+assert.equal(anchoredDemoOrderFlow.minutes[0]?.eventMinute, "2026-07-03T13:30:00.000Z");
+assert.ok(anchoredDemoOrderFlow.minutes[0]?.bins.some((level) => level.priceBin >= 194.45 && level.priceBin <= 194.55));
+assert.equal(differentlyAnchoredDemoOrderFlow.sessionDate, "2026-07-02");
+assert.notDeepEqual(anchoredDemoOrderFlow.minutes[0]?.bins, differentlyAnchoredDemoOrderFlow.minutes[0]?.bins);
+assert.deepEqual(demoContext?.anchor, {
+  sessionDate: "2026-07-10",
+  basePrice: 203,
+  sessionOpenTimestamp: "2026-07-10T05:00:00.000Z",
+  bucketTimestamps: [
+    "2026-07-10T05:00:00.000Z",
+    "2026-07-10T05:10:00.000Z",
+    "2026-07-10T05:20:00.000Z"
+  ],
+  bucketWindowMinutes: 10
+});
+assert.equal(scheduledDemoOrderFlow.minutes.length, 30);
+assert.equal(scheduledDemoOrderFlow.minutes[0]?.eventMinute, "2026-07-10T05:00:00.000Z");
+assert.equal(scheduledDemoOrderFlow.minutes.at(-1)?.eventMinute, "2026-07-10T05:29:00.000Z");
 
 const ladder = buildLadder([
   { priceBin: 102, askVolume: 50, bidVolume: 55, unknownVolume: 0 },
@@ -2934,6 +2960,8 @@ assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.doesNotMatch(chartPanelSource, /fetchOrderFlowDaily|orderFlowDaily|visibleOrderFlowRange|orderFlowTodayDay/);
 assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{[\s\S]*minutes: orderFlowToday[\s\S]*\} : null/);
 assert.match(chartPanelSource, /chart\.chartType === "bidask" && isBidAskChartInterval\(chart\.interval\)/);
+assert.match(chartPanelSource, /orderFlowDemoContextFromCandles\(chart\.candles, chart\.interval\)/);
+assert.match(chartPanelSource, /fetchOrderFlowIntraday\(chart\.symbol, controller\.signal, orderFlowDemoAnchor\)/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /semanticSelectionEnabled = chart\.chartType !== "line"/);

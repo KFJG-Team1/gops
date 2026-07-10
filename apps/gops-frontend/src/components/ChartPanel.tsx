@@ -67,7 +67,12 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
-import { fetchOrderFlowIntraday, subscribeOrderFlowDemoTicks } from "../chart/orderFlowClient";
+import {
+  fetchOrderFlowIntraday,
+  isOrderFlowDemoRuntimeEnabled,
+  orderFlowDemoContextFromCandles,
+  subscribeOrderFlowDemoTicks
+} from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, type OrderFlowMinuteDto } from "../chart/orderFlow";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
@@ -343,6 +348,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     visibleProfileRange?.to
   ]);
   const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
+  const orderFlowDemoContext = useMemo(() => {
+    if (!isOrderFlowDemoRuntimeEnabled()) {
+      return undefined;
+    }
+    return orderFlowDemoContextFromCandles(chart.candles, chart.interval);
+  }, [chart.candles, chart.interval]);
+  const orderFlowDemoAnchor = orderFlowDemoContext?.anchor;
   const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
     chart.candles,
     chart.rightOffset,
@@ -920,7 +932,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
       setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
     };
-    fetchOrderFlowIntraday(chart.symbol, controller.signal)
+    fetchOrderFlowIntraday(chart.symbol, controller.signal, orderFlowDemoAnchor)
       .then((response) => {
         if (
           controller.signal.aborted ||
@@ -945,12 +957,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
         }
       });
-    const demoCleanup = subscribeOrderFlowDemoTicks(chart.symbol, handleOrderFlowEvent, () => undefined);
+    const demoCleanup = subscribeOrderFlowDemoTicks(
+      chart.symbol,
+      handleOrderFlowEvent,
+      () => undefined,
+      orderFlowDemoAnchor
+    );
     return () => {
       controller.abort();
       demoCleanup?.();
     };
-  }, [chart.interval, chart.symbol, orderFlowActive]);
+  }, [
+    chart.interval,
+    chart.symbol,
+    orderFlowActive,
+    orderFlowDemoAnchor?.basePrice,
+    orderFlowDemoAnchor?.sessionDate
+  ]);
 
   useEffect(() => {
     onSemanticSelectionChange?.(selectedSemanticNode);

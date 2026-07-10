@@ -1,16 +1,33 @@
 import { ChartApiError } from "./cdcClient";
-import type {
-  OrderFlowDailyResponseDto,
-  OrderFlowDayDto,
-  OrderFlowIntradayResponseDto,
-  OrderFlowLevelDto,
-  OrderFlowMinuteDto
+import {
+  sessionDateFromTimestamp,
+  type OrderFlowDailyResponseDto,
+  type OrderFlowDayDto,
+  type OrderFlowIntradayResponseDto,
+  type OrderFlowLevelDto,
+  type OrderFlowMinuteDto
 } from "./orderFlow";
-import type { CandleEventDto } from "./types";
+import type {
+  CandleDto,
+  CandleEventDto,
+  ChartInterval
+} from "./types";
 
 type OrderFlowSymbolsResponse = {
   symbols: string[];
   priceBinSize: number;
+};
+
+export type OrderFlowDemoAnchor = {
+  sessionDate?: string;
+  basePrice?: number;
+  sessionOpenTimestamp?: string;
+  bucketTimestamps?: string[];
+  bucketWindowMinutes?: number;
+};
+
+export type OrderFlowDemoContext = {
+  anchor: OrderFlowDemoAnchor;
 };
 
 let symbolsCache: OrderFlowSymbolsResponse | null = null;
@@ -48,10 +65,14 @@ export async function fetchOrderFlowDaily(
   return normalizeDailyResponse(await fetchJson(`/api/charts/order-flow/daily?${params.toString()}`, signal));
 }
 
-export async function fetchOrderFlowIntraday(symbol: string, signal?: AbortSignal): Promise<OrderFlowIntradayResponseDto> {
+export async function fetchOrderFlowIntraday(
+  symbol: string,
+  signal?: AbortSignal,
+  demoAnchor?: OrderFlowDemoAnchor
+): Promise<OrderFlowIntradayResponseDto> {
   if (isOrderFlowDemoRuntimeEnabled()) {
     const demo = await import("./orderFlowDemoData");
-    return demo.fetchDemoOrderFlowIntraday(symbol);
+    return demo.fetchDemoOrderFlowIntraday(symbol, demoAnchor);
   }
   const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
   return normalizeIntradayResponse(await fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`, signal));
@@ -60,7 +81,8 @@ export async function fetchOrderFlowIntraday(symbol: string, signal?: AbortSigna
 export function subscribeOrderFlowDemoTicks(
   symbol: string,
   onEvent: (event: CandleEventDto) => void,
-  onState: (state: "connecting" | "live" | "idle" | "error") => void
+  onState: (state: "connecting" | "live" | "idle" | "error") => void,
+  demoAnchor?: OrderFlowDemoAnchor
 ): (() => void) | null {
   if (!isOrderFlowDemoRuntimeEnabled()) {
     return null;
@@ -72,7 +94,7 @@ export function subscribeOrderFlowDemoTicks(
       if (disposed) {
         return;
       }
-      cleanup = demo.subscribeDemoOrderFlowTicks(symbol, onEvent, onState);
+      cleanup = demo.subscribeDemoOrderFlowTicks(symbol, onEvent, onState, demoAnchor);
     })
     .catch(() => {
       if (!disposed) {
@@ -85,10 +107,36 @@ export function subscribeOrderFlowDemoTicks(
   };
 }
 
-function isOrderFlowDemoRuntimeEnabled(): boolean {
+export function isOrderFlowDemoRuntimeEnabled(): boolean {
   return orderFlowDemoBuildEnabled &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("orderFlowDemo");
+}
+
+export function orderFlowDemoContextFromCandles(
+  candles: ReadonlyArray<Pick<CandleDto, "timestamp" | "close">>,
+  interval: ChartInterval
+): OrderFlowDemoContext | undefined {
+  if (!candles.length) {
+    return undefined;
+  }
+  const visibleBucketCount = interval === "1m" ? 120 : interval === "1h" ? 7 : 39;
+  const bucketWindowMinutes = interval === "1m" ? 1 : interval === "1h" ? 60 : 10;
+  const buckets = candles.slice(-visibleBucketCount);
+  const latestCandle = buckets.at(-1);
+  const firstCandle = buckets[0];
+  if (!latestCandle || !firstCandle || !Number.isFinite(latestCandle.close)) {
+    return undefined;
+  }
+  return {
+    anchor: {
+      sessionDate: sessionDateFromTimestamp(latestCandle.timestamp),
+      basePrice: latestCandle.close,
+      sessionOpenTimestamp: firstCandle.timestamp,
+      bucketTimestamps: buckets.map((candle) => candle.timestamp),
+      bucketWindowMinutes
+    }
+  };
 }
 
 async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {

@@ -113,9 +113,6 @@ function volumeRatioFromDocument(document: ChartDocument): number {
 }
 
 function normalizeFrontendInterval(value: string): ChartInterval {
-  if (value === ["foot", "print"].join("")) {
-    return "1m";
-  }
   return value === "1m" || value === "5m" || value === "10m" || value === "1h" || value === "4h" || value === "1D" || value === "1W" || value === "1M"
     ? value
     : defaultFrontendChartInterval;
