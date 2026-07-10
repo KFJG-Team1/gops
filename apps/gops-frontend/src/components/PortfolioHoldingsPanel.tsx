@@ -1,4 +1,4 @@
-import { ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleDollarSign, Coins, LayoutDashboard, LoaderCircle, PieChart, RefreshCcw } from "lucide-react";
+import { ChartNoAxesCombined, ChevronLeft, ChevronRight, Coins, LayoutDashboard, LoaderCircle, PieChart, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
@@ -8,7 +8,8 @@ import { LogoDevAttribution, StockLogo } from "./StockLogo";
 type SortMode = "custom" | "value" | "return";
 type AllocationMode = "asset" | "symbol" | "sector";
 type PerformanceView = "performance" | "purchase";
-type PortfolioMultiView = "summary" | "performance" | "invested" | "dividend" | "diversification";
+type PortfolioFlowView = "invested" | "dividend";
+type PortfolioMultiView = "summary" | "performance" | "flow" | "diversification";
 type AllocationSlice = {
   key: string;
   label: string;
@@ -35,6 +36,15 @@ type PortfolioDashboard = {
   dividendYield: number | null;
   allocation: Record<AllocationMode, AllocationSlice[]>;
   insights: PortfolioInsight[];
+};
+
+type PortfolioAssetMetric = {
+  key: "stock" | "cash" | "dividend";
+  label: string;
+  value: number | null;
+  weight: number;
+  progress: number;
+  color: string;
 };
 
 type PortfolioHistoryPoint = {
@@ -77,8 +87,7 @@ const activePortfolioRefreshIntervalMs = DEMO_PORTFOLIO_ENABLED ? 1_000 : REFRES
 const portfolioMultiViews = [
   { id: "summary", label: "포트폴리오", title: "US Portfolio", icon: LayoutDashboard },
   { id: "performance", label: "성과", title: "Performance", icon: ChartNoAxesCombined },
-  { id: "invested", label: "원금", title: "Invested", icon: Coins },
-  { id: "dividend", label: "배당", title: "Dividend", icon: CircleDollarSign },
+  { id: "flow", label: "흐름", title: "Investment Flow", icon: Coins },
   { id: "diversification", label: "분산", title: "Diversification", icon: PieChart }
 ] as const;
 
@@ -353,37 +362,8 @@ export function PortfolioInvestmentStatusPanel({
   onPortfolioSymbolsChange?: (symbols: readonly string[]) => void;
 }) {
   const { loading, error, dashboard } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
-  const stockWeight = percentageOf(dashboard.stockValue, dashboard.totalValue);
-  const cashWeight = percentageOf(dashboard.cashValue, dashboard.totalValue);
-  const annualDividendValue = dashboard.annualDividend ?? 0;
-  const dividendWeight = percentageOf(annualDividendValue, dashboard.totalValue);
   const [activeAllocationIndex, setActiveAllocationIndex] = useState(0);
-  const allocationItems = [
-    {
-      key: "stock",
-      label: "주식",
-      value: dashboard.stockValue,
-      progress: stockWeight,
-      displayProgress: stockWeight,
-      color: "var(--investment-bold-blue)"
-    },
-    {
-      key: "cash",
-      label: "현금",
-      value: dashboard.cashValue,
-      progress: cashWeight,
-      displayProgress: cashWeight,
-      color: "var(--investment-cash)"
-    },
-    {
-      key: "dividend",
-      label: "배당",
-      value: annualDividendValue,
-      progress: annualDividendValue > 0 ? Math.max(4, dividendWeight) : 0,
-      displayProgress: dividendWeight,
-      color: "var(--investment-dividend)"
-    }
-  ];
+  const allocationItems = buildPortfolioAssetMetrics(dashboard);
   const statusMessage = loading
     ? "투자현황을 불러오는 중입니다"
     : error || (!dashboard.totalValue ? "표시할 투자현황 데이터가 없습니다" : "");
@@ -434,7 +414,7 @@ export function PortfolioInvestmentStatusPanel({
               <div className="portfolio-investment-budget-meta">
                 <span>
                   <em>{activeAllocation?.label} / 비중</em>
-                  <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")} / {formatPercentPlain(activeAllocation?.displayProgress ?? 0)}</strong>
+                  <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")} / {formatPercentPlain(activeAllocation?.weight ?? 0)}</strong>
                 </span>
               </div>
               <div className="portfolio-investment-wallet-chips">
@@ -496,8 +476,6 @@ export function PortfolioPerformancePanel() {
     <section
       className="portfolio-split-panel portfolio-performance-split-panel portfolio-dashboard-panel"
       aria-label="포트폴리오 성과 패널"
-      onWheelCapture={handlePortfolioSplitPanelWheel}
-      onWheel={handlePortfolioSplitPanelWheel}
     >
       <PortfolioSplitHeader
         title="Performance"
@@ -537,93 +515,78 @@ export function PortfolioPerformancePanel() {
   );
 }
 
-export function PortfolioInvestedPanel() {
+export function PortfolioInvestedPanel({ initialView = "invested" }: { initialView?: PortfolioFlowView } = {}) {
   const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
-  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "투자금 데이터가 없습니다");
+  const [flowView, setFlowView] = useState<PortfolioFlowView>(initialView);
+  const statusMessage = portfolioPanelStatusMessage(
+    loading,
+    error,
+    positions.length,
+    flowView === "invested" ? "투자금 데이터가 없습니다" : "배당 데이터가 없습니다"
+  );
+  const isDividend = flowView === "dividend";
 
   return (
     <section
-      className="portfolio-split-panel portfolio-invested-split-panel portfolio-dashboard-panel"
-      aria-label="포트폴리오 투자금 패널"
+      className="portfolio-split-panel portfolio-flow-split-panel portfolio-dashboard-panel"
+      aria-label="포트폴리오 투자금 및 배당 패널"
       onWheelCapture={handlePortfolioSplitPanelWheel}
       onWheel={handlePortfolioSplitPanelWheel}
     >
       <PortfolioSplitHeader
-        title="Invested"
-        subtitle="Annual invested capital"
+        title="Investment Flow"
+        subtitle={isDividend ? "예상 연간 배당 흐름" : "연도별 투입 원금과 누적 흐름"}
         asOf={payload?.asOf}
         refreshing={loading || refreshing}
         onRefresh={loadHoldings}
       />
-      <div className="portfolio-split-kpi-row">
-        <span>
-          <em>투입 원금</em>
-          <strong>{formatMoney(dashboard.investedValue, "USD")}</strong>
-        </span>
-        <span>
-          <em>현재 평가금</em>
-          <strong>{formatMoney(dashboard.stockValue, "USD")}</strong>
-        </span>
+      <div className="portfolio-flow-tabs portfolio-split-tabs" role="tablist" aria-label="투자금 및 배당 보기">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={flowView === "invested"}
+          className={flowView === "invested" ? "active" : ""}
+          onClick={() => setFlowView("invested")}
+        >
+          Invested
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={flowView === "dividend"}
+          className={flowView === "dividend" ? "active" : ""}
+          onClick={() => setFlowView("dividend")}
+        >
+          Dividend
+        </button>
       </div>
       {statusMessage ? (
         <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
       ) : (
-        <PortfolioAnnualBars dashboard={dashboard} />
+        <section className={`portfolio-standalone-flow-card ${isDividend ? "is-dividend" : "is-invested"}`}>
+          <div className="portfolio-multi-flow-metrics">
+            <span>
+              <em>{isDividend ? "예상 배당" : "투입 원금"}</em>
+              <strong>{isDividend ? formatPanelMoney(dashboard.annualDividend, "USD") : formatCompactMoney(dashboard.investedValue ?? 0, "USD")}</strong>
+            </span>
+            <span>
+              <em>{isDividend ? "Yield" : "현재 평가금"}</em>
+              <strong>{isDividend ? formatRatioPercent(dashboard.dividendYield) : formatCompactMoney(dashboard.stockValue ?? 0, "USD")}</strong>
+            </span>
+          </div>
+          <PortfolioMultiFlowChart
+            points={isDividend ? buildDividendHistoryPoints(positions) : buildAnnualPortfolioPoints(dashboard)}
+            variant={flowView}
+            wide
+          />
+        </section>
       )}
     </section>
   );
 }
 
 export function PortfolioDividendPanel() {
-  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
-  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "배당 데이터가 없습니다");
-
-  return (
-    <section
-      className="portfolio-split-panel portfolio-dividend-split-panel portfolio-dashboard-panel"
-      aria-label="포트폴리오 배당 패널"
-      onWheelCapture={handlePortfolioSplitPanelWheel}
-      onWheel={handlePortfolioSplitPanelWheel}
-    >
-      <PortfolioSplitHeader
-        title="Dividend"
-        subtitle="Expected annual income"
-        asOf={payload?.asOf}
-        refreshing={loading || refreshing}
-        onRefresh={loadHoldings}
-      />
-      <div className="portfolio-split-kpi-row">
-        <span>
-          <em>예상 배당</em>
-          <strong>{formatMoney(dashboard.annualDividend, "USD")}</strong>
-        </span>
-        <span>
-          <em>Yield</em>
-          <strong>{formatRatioPercent(dashboard.dividendYield)}</strong>
-        </span>
-      </div>
-      {statusMessage ? (
-        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
-      ) : (
-        <>
-          <PortfolioDividendHistory positions={positions} />
-          <div className="portfolio-dividend-leaders">
-            {positions
-              .map((position) => ({ position, dividend: annualDividendForPosition(position) ?? 0 }))
-              .filter((item) => item.dividend > 0)
-              .sort((left, right) => right.dividend - left.dividend)
-              .slice(0, 4)
-              .map(({ position, dividend }) => (
-                <span key={position.symbol}>
-                  <b>{position.symbol}</b>
-                  <em>{formatCompactMoney(dividend, "USD")}</em>
-                </span>
-              ))}
-          </div>
-        </>
-      )}
-    </section>
-  );
+  return <PortfolioInvestedPanel initialView="dividend" />;
 }
 
 export function PortfolioDiversificationPanel() {
@@ -751,10 +714,8 @@ export function PortfolioMultiPanel() {
             <PortfolioMultiSummaryView dashboard={dashboard} asOf={payload?.asOf} refreshing={refreshing} onRefresh={loadHoldings} />
           ) : activeView === "performance" ? (
             <PortfolioMultiPerformanceView dashboard={dashboard} positions={positions} />
-          ) : activeView === "invested" ? (
-            <PortfolioMultiInvestedView dashboard={dashboard} />
-          ) : activeView === "dividend" ? (
-            <PortfolioMultiDividendView dashboard={dashboard} positions={positions} />
+          ) : activeView === "flow" ? (
+            <PortfolioMultiFlowView dashboard={dashboard} positions={positions} />
           ) : (
             <PortfolioMultiDiversificationView dashboard={dashboard} />
           )}
@@ -783,7 +744,7 @@ function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; s
 }
 
 function PortfolioMultiSummaryView({ dashboard, asOf, refreshing, onRefresh }: { dashboard: PortfolioDashboard; asOf?: string; refreshing: boolean; onRefresh: () => void }) {
-  const stockWeight = percentageOf(dashboard.stockValue ?? 0, dashboard.totalValue);
+  const allocationItems = buildPortfolioAssetMetrics(dashboard);
   return (
     <article className="portfolio-multi-page portfolio-multi-summary-page">
       <PortfolioMultiPageHeader title="US Portfolio" subtitle={asOf ? formatPortfolioUpdatedAt(asOf) : "미국 주식 계좌"} />
@@ -791,11 +752,27 @@ function PortfolioMultiSummaryView({ dashboard, asOf, refreshing, onRefresh }: {
         {refreshing ? <LoaderCircle className="spin" aria-hidden="true" /> : <RefreshCcw aria-hidden="true" />}
       </button>
       <div className="portfolio-multi-total"><span>총 평가 자산</span><strong>{formatPanelMoney(dashboard.totalValue, "USD")}</strong></div>
-      <div className="portfolio-multi-allocation-meter" style={{ "--portfolio-multi-meter": `${Math.min(100, Math.max(0, stockWeight))}%` } as CSSProperties}><i /></div>
-      <div className="portfolio-multi-allocation-line"><span>주식 <b>{formatCompactMoney(dashboard.stockValue ?? 0, "USD")}</b></span><strong>{formatPercentPlain(stockWeight)}</strong></div>
       <div className="portfolio-multi-summary-metrics">
         <span><em>오늘</em><strong className={directionClass(dashboard.dayPnl ?? dashboard.dayPnlRate)}>{formatSignedPanelMoney(dashboard.dayPnl, "USD")}</strong><b className={directionClass(dashboard.dayPnlRate)}>{formatSignedPercentPlain(dashboard.dayPnlRate)}</b></span>
         <span><em>누적 손익</em><strong className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>{formatSignedPanelMoney(dashboard.totalPnl, "USD")}</strong><b className={directionClass(dashboard.totalPnlRate)}>{formatSignedPercentPlain(dashboard.totalPnlRate)}</b></span>
+      </div>
+      <div className="portfolio-multi-asset-rings" aria-label="포트폴리오 자산 구성">
+        {allocationItems.map((item) => (
+          <div
+            key={item.key}
+            className={`portfolio-multi-asset-ring is-${item.key}`}
+            style={{
+              "--portfolio-asset-ring-progress": `${Math.min(100, Math.max(0, item.progress))}%`,
+              "--portfolio-asset-ring-color": item.color
+            } as CSSProperties}
+          >
+            <div className="portfolio-multi-asset-ring-visual">
+              <strong>{formatCompactMoney(item.value ?? 0, "USD")}</strong>
+            </div>
+            <span>{item.label}</span>
+            <em>{formatPercentPlain(item.weight)}</em>
+          </div>
+        ))}
       </div>
     </article>
   );
@@ -820,24 +797,36 @@ function PortfolioMultiPerformanceView({ dashboard, positions }: { dashboard: Po
   );
 }
 
-function PortfolioMultiInvestedView({ dashboard }: { dashboard: PortfolioDashboard }) {
-  return (
-    <article className="portfolio-multi-page portfolio-multi-invested-page">
-      <PortfolioMultiPageHeader title="Invested" subtitle="연도별 투입 원금과 누적 흐름" aside={formatCompactMoney(dashboard.investedValue ?? 0, "USD")} />
-      <div className="portfolio-multi-kpi-pair"><span><em>투입 원금</em><strong>{formatCompactMoney(dashboard.investedValue ?? 0, "USD")}</strong></span><span><em>현재 평가금</em><strong>{formatCompactMoney(dashboard.stockValue ?? 0, "USD")}</strong></span></div>
-      <PortfolioMultiFlowChart points={buildAnnualPortfolioPoints(dashboard)} variant="invested" />
-    </article>
-  );
-}
-
-function PortfolioMultiDividendView({ dashboard, positions }: { dashboard: PortfolioDashboard; positions: PortfolioPosition[] }) {
+function PortfolioMultiFlowView({ dashboard, positions }: { dashboard: PortfolioDashboard; positions: PortfolioPosition[] }) {
+  const [flowMode, setFlowMode] = useState<"invested" | "dividend">("invested");
   const leaders = positions.map((position) => ({ symbol: position.symbol, dividend: annualDividendForPosition(position) ?? 0 })).filter((item) => item.dividend > 0).sort((left, right) => right.dividend - left.dividend).slice(0, 3);
+  const isDividend = flowMode === "dividend";
   return (
-    <article className="portfolio-multi-page portfolio-multi-dividend-page">
-      <PortfolioMultiPageHeader title="Dividend" subtitle="예상 연간 배당 흐름" aside={formatRatioPercent(dashboard.dividendYield)} />
-      <div className="portfolio-multi-dividend-total"><span>예상 배당</span><strong>{formatPanelMoney(dashboard.annualDividend, "USD")}</strong></div>
-      <PortfolioMultiFlowChart points={buildDividendHistoryPoints(positions)} variant="dividend" />
-      <div className="portfolio-multi-leaders">{leaders.map((leader) => <span key={leader.symbol}><b>{leader.symbol}</b><em>{formatCompactMoney(leader.dividend, "USD")}</em></span>)}</div>
+    <article className="portfolio-multi-page portfolio-multi-flow-page">
+      <div className="portfolio-multi-flow-head">
+        <PortfolioMultiPageHeader title={isDividend ? "Dividend" : "Invested"} subtitle={isDividend ? "예상 연간 배당 흐름" : "연도별 투입 원금과 누적 흐름"} aside={isDividend ? formatRatioPercent(dashboard.dividendYield) : formatCompactMoney(dashboard.investedValue ?? 0, "USD")} />
+        <div className="portfolio-multi-flow-switch" role="tablist" aria-label="흐름 선택">
+          <button type="button" role="tab" aria-selected={!isDividend} className={!isDividend ? "active" : ""} onClick={() => setFlowMode("invested")}>원금</button>
+          <button type="button" role="tab" aria-selected={isDividend} className={isDividend ? "active" : ""} onClick={() => setFlowMode("dividend")}>배당</button>
+        </div>
+      </div>
+      <section className={`portfolio-multi-flow-focus is-${flowMode}`}>
+        <div className="portfolio-multi-flow-metrics">
+          {isDividend ? (
+            <>
+              <span><em>예상 배당</em><strong>{formatPanelMoney(dashboard.annualDividend, "USD")}</strong></span>
+              <span><em>Yield</em><strong>{formatRatioPercent(dashboard.dividendYield)}</strong></span>
+            </>
+          ) : (
+            <>
+              <span><em>투입 원금</em><strong>{formatCompactMoney(dashboard.investedValue ?? 0, "USD")}</strong></span>
+              <span><em>현재 평가금</em><strong>{formatCompactMoney(dashboard.stockValue ?? 0, "USD")}</strong></span>
+            </>
+          )}
+        </div>
+        <PortfolioMultiFlowChart points={isDividend ? buildDividendHistoryPoints(positions) : buildAnnualPortfolioPoints(dashboard)} variant={flowMode} />
+      </section>
+      {isDividend ? <div className="portfolio-multi-leaders">{leaders.map((leader) => <span key={leader.symbol}><b>{leader.symbol}</b><em>{formatCompactMoney(leader.dividend, "USD")}</em></span>)}</div> : null}
     </article>
   );
 }
@@ -854,24 +843,32 @@ function PortfolioMultiDiversificationView({ dashboard }: { dashboard: Portfolio
   );
 }
 
-function PortfolioMultiFlowChart({ points, variant }: { points: AnnualPortfolioPoint[]; variant: "invested" | "dividend" }) {
-  const width = 340;
-  const height = 170;
-  const left = 18;
-  const right = 12;
-  const top = 18;
-  const bottom = 30;
+function PortfolioMultiFlowChart({
+  points,
+  variant,
+  wide = false
+}: {
+  points: AnnualPortfolioPoint[];
+  variant: "invested" | "dividend";
+  wide?: boolean;
+}) {
+  const width = wide ? 720 : 340;
+  const height = wide ? 220 : 170;
+  const left = wide ? 34 : 18;
+  const right = wide ? 20 : 12;
+  const top = wide ? 20 : 18;
+  const bottom = wide ? 34 : 30;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
   const maxValue = Math.max(...points.map((point) => Math.max(point.invested, point.cumulative)), 1);
   const step = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
-  const barWidth = Math.min(28, step * 0.42);
+  const barWidth = Math.min(wide ? 52 : 28, step * 0.42);
   const linePoints = points.map((point, index) => `${left + index * step},${top + plotHeight - (point.cumulative / maxValue) * plotHeight}`).join(" ");
   return (
-    <div className={`portfolio-multi-flow-chart is-${variant}`}>
+    <div className={`portfolio-multi-flow-chart is-${variant}${wide ? " is-wide" : ""}`}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={variant === "invested" ? "투자 원금 누적 차트" : "배당 누적 차트"}>
         {[0, 1, 2, 3].map((line) => { const y = top + (plotHeight / 3) * line; return <line key={line} className="grid" x1={left} x2={width - right} y1={y} y2={y} />; })}
-        {points.map((point, index) => { const x = left + index * step; const barHeight = Math.max(4, (point.invested / maxValue) * plotHeight); return <g key={point.label}><rect className="bar" x={x - barWidth / 2} y={top + plotHeight - barHeight} width={barWidth} height={barHeight} rx="5" /><text x={x} y={height - 9} textAnchor="middle">{point.label.slice(2)}</text></g>; })}
+        {points.map((point, index) => { const x = left + index * step; const barHeight = Math.max(4, (point.invested / maxValue) * plotHeight); return <g key={point.label}><rect className={index === points.length - 1 ? "bar is-current" : "bar"} x={x - barWidth / 2} y={top + plotHeight - barHeight} width={barWidth} height={barHeight} rx="5" /><text x={x} y={height - 9} textAnchor="middle">{point.label.slice(2)}</text></g>; })}
         <polyline className="line" points={linePoints} />
         {points.map((point, index) => { const x = left + index * step; const y = top + plotHeight - (point.cumulative / maxValue) * plotHeight; return <circle key={point.label} className="point" cx={x} cy={y} r="3" />; })}
       </svg>
@@ -1030,9 +1027,9 @@ function PortfolioPerformanceChart({ dashboard }: { dashboard: PortfolioDashboar
   if (!points.length) {
     return <div className="portfolio-chart-empty"><span>성과 데이터 대기</span></div>;
   }
-  const width = 620;
-  const height = 320;
-  const padding = { top: 20, right: 16, bottom: 34, left: 54 };
+  const width = 720;
+  const height = 300;
+  const padding = { top: 18, right: 28, bottom: 36, left: 42 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const values = points.flatMap((point) => [point.invested, point.value, point.gain, 0]);
@@ -1046,7 +1043,7 @@ function PortfolioPerformanceChart({ dashboard }: { dashboard: PortfolioDashboar
 
   return (
     <div className="portfolio-terminal-chart portfolio-performance-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="포트폴리오 성과 추이">
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="포트폴리오 성과 추이">
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const y = padding.top + chartHeight * ratio;
           return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="portfolio-terminal-grid-line" />;
@@ -1075,9 +1072,9 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
     return <div className="portfolio-chart-empty"><span>매수 비교 데이터 대기</span></div>;
   }
   const selectedPoint = points.find((point) => point.symbol === selectedSymbol) ?? points[0];
-  const width = 620;
-  const height = 270;
-  const padding = { top: 16, right: 72, bottom: 30, left: 46 };
+  const width = 720;
+  const height = 300;
+  const padding = { top: 20, right: 126, bottom: 36, left: 64 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const rawValues = points.flatMap((point) => [0, point.returnPercent]);
@@ -1096,7 +1093,7 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
 
   return (
     <div className="portfolio-purchase-compare">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="평균 매수가 대비 현재가 수익률 비교">
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="평균 매수가 대비 현재가 수익률 비교">
         {ticks.map((tick) => {
           const y = yFor(tick);
           return (
@@ -1275,6 +1272,8 @@ function PortfolioHoldingsMatrix({
               key={position.symbol}
               className={`portfolio-holding-row tone-${index % 6}`}
               type="button"
+              title={`${position.symbol} 차트 열기`}
+              aria-label={`${position.symbol} 차트 열기`}
               onClick={() => onSelectSymbol(position.symbol)}
             >
               <span className="portfolio-holding-row-symbol">
@@ -1874,6 +1873,39 @@ function safeDivide(numerator: number | null | undefined, denominator: number | 
 function percentageOf(value: number | null | undefined, total: number | null | undefined): number {
   const ratio = safeDivide(value, total);
   return ratio == null ? 0 : ratio * 100;
+}
+
+function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAssetMetric[] {
+  const stockWeight = percentageOf(dashboard.stockValue, dashboard.totalValue);
+  const cashWeight = percentageOf(dashboard.cashValue, dashboard.totalValue);
+  const dividendValue = dashboard.annualDividend ?? 0;
+  const dividendWeight = percentageOf(dividendValue, dashboard.totalValue);
+  return [
+    {
+      key: "stock",
+      label: "주식",
+      value: dashboard.stockValue,
+      weight: stockWeight,
+      progress: stockWeight,
+      color: "var(--portfolio-soft-signal)"
+    },
+    {
+      key: "cash",
+      label: "현금",
+      value: dashboard.cashValue,
+      weight: cashWeight,
+      progress: cashWeight,
+      color: "var(--portfolio-soft-positive)"
+    },
+    {
+      key: "dividend",
+      label: "배당",
+      value: dividendValue,
+      weight: dividendWeight,
+      progress: dividendValue > 0 ? Math.max(4, dividendWeight) : 0,
+      color: "var(--portfolio-soft-caution)"
+    }
+  ];
 }
 
 function formatRatioPercent(value: number | null | undefined): string {

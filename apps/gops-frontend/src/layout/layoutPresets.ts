@@ -1,5 +1,6 @@
 import {
   createTiledPanelStateFromSpec,
+  normalizeTiledPanelStateToWorkspace,
   panelContentTitle,
   restoreTiledPanelStateSnapshot,
   type PanelLayoutSpecItem,
@@ -36,7 +37,8 @@ export type LayoutLoadPresetResult =
 
 type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecItem[] };
 
-const ASSET_PORTFOLIO_LAYOUT_VERSION = 3;
+const ASSET_PORTFOLIO_LAYOUT_VERSION = 4;
+const PORTFOLIO_FLOW_PANEL_VERSION = 2;
 
 // Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
@@ -79,11 +81,13 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     spec: [
       {
         kind: "portfolioMulti",
-        gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 5 },
+        gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 3 },
         props: { portfolioLayoutVersion: ASSET_PORTFOLIO_LAYOUT_VERSION }
       },
-      { kind: "portfolioHoldings", gridRect: { col: 3, row: 1, colSpan: 4, rowSpan: 5 } },
-      { kind: "trade", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 5 } }
+      {
+        kind: "portfolioHoldings",
+        gridRect: { col: 3, row: 1, colSpan: 6, rowSpan: 3 }
+      }
     ]
   }
 };
@@ -126,9 +130,134 @@ export function ensurePortfolioInvestedPanelState(
   viewport: ViewportSize,
   options: { layoutMetrics?: WorkspaceLayoutMetrics } = {}
 ): TiledPanelState {
-  void viewport;
-  void options;
-  return state;
+  const flowSlots = state.slots
+    .filter((slot) => {
+      const kind = state.contents[slot.contentId]?.kind;
+      return kind === "portfolioInvested" || kind === "portfolioDividend";
+    })
+    .sort((left, right) => left.gridRect.row - right.gridRect.row || left.gridRect.col - right.gridRect.col);
+
+  if (flowSlots.length === 0) {
+    return state;
+  }
+
+  const investedSlot = flowSlots.find((slot) => state.contents[slot.contentId]?.kind === "portfolioInvested");
+  const primarySlot = investedSlot ?? flowSlots[0];
+  const primaryContent = state.contents[primarySlot.contentId];
+  if (!primaryContent) {
+    return state;
+  }
+
+  const initialFlowView = investedSlot ? "invested" : "dividend";
+  const mergedGridRect = flowSlots.reduce((gridRect, slot) => {
+    const candidate = slot.gridRect;
+    const sameGridBand = candidate.row === gridRect.row && candidate.rowSpan === gridRect.rowSpan;
+    const gridRight = gridRect.col + gridRect.colSpan;
+    const candidateRight = candidate.col + candidate.colSpan;
+    const touching = candidate.col <= gridRight && gridRect.col <= candidateRight;
+    if (!sameGridBand || !touching) {
+      return gridRect;
+    }
+    const col = Math.min(gridRect.col, candidate.col);
+    return {
+      ...gridRect,
+      col,
+      colSpan: Math.max(gridRight, candidateRight) - col
+    };
+  }, primarySlot.gridRect);
+
+  let canonicalFlowGridRect = mergedGridRect;
+  let resizedPerformanceSlot: { id: string; gridRect: typeof mergedGridRect } | null = null;
+  const performanceSlot = state.slots.find((slot) => {
+    const content = state.contents[slot.contentId];
+    return content?.kind === "portfolioPerformance"
+      && slot.gridRect.row === mergedGridRect.row
+      && slot.gridRect.rowSpan === mergedGridRect.rowSpan;
+  });
+  if (performanceSlot) {
+    const occupiedBands = [performanceSlot.gridRect, ...flowSlots.map((slot) => slot.gridRect)]
+      .sort((left, right) => left.col - right.col);
+    const isContiguous = occupiedBands.every((gridRect, index) => (
+      index === 0 || gridRect.col <= occupiedBands[index - 1].col + occupiedBands[index - 1].colSpan
+    ));
+    const left = Math.min(performanceSlot.gridRect.col, mergedGridRect.col);
+    const right = Math.max(
+      performanceSlot.gridRect.col + performanceSlot.gridRect.colSpan,
+      mergedGridRect.col + mergedGridRect.colSpan
+    );
+    const totalSpan = right - left;
+    if (isContiguous && totalSpan >= 4) {
+      const leftSpan = Math.max(2, Math.floor(totalSpan / 2));
+      const rightSpan = Math.max(2, totalSpan - leftSpan);
+      if (performanceSlot.gridRect.col <= mergedGridRect.col) {
+        resizedPerformanceSlot = {
+          id: performanceSlot.id,
+          gridRect: { ...performanceSlot.gridRect, col: left, colSpan: leftSpan }
+        };
+        canonicalFlowGridRect = { ...mergedGridRect, col: left + leftSpan, colSpan: rightSpan };
+      } else {
+        canonicalFlowGridRect = { ...mergedGridRect, col: left, colSpan: leftSpan };
+        resizedPerformanceSlot = {
+          id: performanceSlot.id,
+          gridRect: { ...performanceSlot.gridRect, col: left + leftSpan, colSpan: rightSpan }
+        };
+      }
+    }
+  }
+
+  const nextTitle = panelContentTitle("portfolioInvested");
+  const currentVersion = primaryContent.props?.portfolioFlowVersion;
+  const alreadyCanonical = flowSlots.length === 1
+    && primaryContent.kind === "portfolioInvested"
+    && primaryContent.title === nextTitle
+    && currentVersion === PORTFOLIO_FLOW_PANEL_VERSION
+    && primarySlot.gridRect.col === canonicalFlowGridRect.col
+    && primarySlot.gridRect.colSpan === canonicalFlowGridRect.colSpan
+    && (!resizedPerformanceSlot || state.slots.some((slot) => (
+      slot.id === resizedPerformanceSlot.id
+      && slot.gridRect.col === resizedPerformanceSlot.gridRect.col
+      && slot.gridRect.colSpan === resizedPerformanceSlot.gridRect.colSpan
+    )));
+  if (alreadyCanonical) {
+    return state;
+  }
+
+  const removedContentIds = new Set(
+    flowSlots.filter((slot) => slot.id !== primarySlot.id).map((slot) => slot.contentId)
+  );
+  const contents = Object.fromEntries(
+    Object.entries(state.contents)
+      .filter(([contentId]) => !removedContentIds.has(contentId))
+      .map(([contentId, content]) => contentId === primarySlot.contentId
+        ? [contentId, {
+          ...content,
+          kind: "portfolioInvested" as const,
+          title: nextTitle,
+          props: {
+            ...content.props,
+            initialFlowView,
+            portfolioFlowVersion: PORTFOLIO_FLOW_PANEL_VERSION
+          }
+        }]
+        : [contentId, content])
+  );
+  const nextState: TiledPanelState = {
+    ...state,
+    slots: state.slots
+      .filter((slot) => !removedContentIds.has(slot.contentId))
+      .map((slot) => {
+        if (slot.id === primarySlot.id) {
+          return { ...slot, gridRect: canonicalFlowGridRect };
+        }
+        if (resizedPerformanceSlot && slot.id === resizedPerformanceSlot.id) {
+          return { ...slot, gridRect: resizedPerformanceSlot.gridRect };
+        }
+        return slot;
+      }),
+    contents
+  };
+
+  return normalizeTiledPanelStateToWorkspace(nextState, viewport, options.layoutMetrics);
 }
 
 function resetLegacyPortfolioSnapshotIfNeeded(value: StoredTiledPanelState): StoredTiledPanelState {
@@ -193,13 +322,13 @@ export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
 const integratedPortfolioPanelKinds: readonly PanelContentKind[] = [
   "portfolioMulti",
   "portfolioInvestment",
+  "portfolioInvested",
   "portfolioHoldings",
   "portfolioHoldingsCards"
 ];
 
 const retiredSplitPortfolioPanelKinds: readonly PanelContentKind[] = [
   "portfolioPerformance",
-  "portfolioInvested",
   "portfolioDividend",
   "portfolioDiversification"
 ];

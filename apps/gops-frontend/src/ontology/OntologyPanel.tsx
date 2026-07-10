@@ -14,12 +14,56 @@ type OntologyPanelProps = {
 };
 
 type LoadState = "loading" | "ready";
+type IssueSignal = { count: number; score: number };
 
 const QUOTE_REFRESH_MS = 60_000;
 
 function readRawString(item: AgentEvidenceItem, key: string): string {
   const value = item.raw?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function readRawNumber(item: AgentEvidenceItem, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = item.raw?.[key];
+    const numeric = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+    if (Number.isFinite(numeric)) {
+      return numeric > 1 ? Math.min(1, numeric / 100) : Math.max(0, numeric);
+    }
+  }
+  return undefined;
+}
+
+function buildIssueSignals(evidence: readonly AgentEvidenceItem[], primarySymbol: string): Map<string, IssueSignal> {
+  const issueKeys = new Map<string, Map<string, number>>();
+  evidence.forEach((item) => {
+    if (item.status !== "available" || item.provider === "ontology") return;
+    const ticker = (
+      readRawString(item, "ticker") ||
+      readRawString(item, "symbol") ||
+      readRawString(item, "companyTicker") ||
+      primarySymbol
+    ).toUpperCase();
+    const fingerprint = `${item.title || ""}|${item.summary || ""}`.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!fingerprint) return;
+
+    const observedAt = item.observedAt ? Date.parse(item.observedAt) : Number.NaN;
+    const ageHours = Number.isFinite(observedAt) ? Math.max(0, (Date.now() - observedAt) / 3_600_000) : 12;
+    const recency = ageHours <= 6 ? 1 : ageHours <= 24 ? 0.82 : ageHours <= 72 ? 0.5 : 0.28;
+    const explicitScore = readRawNumber(item, ["issueScore", "impactScore", "importance", "severity", "relevanceScore"]);
+    const score = Math.max(0.18, Math.min(1, (explicitScore ?? 0.48) * recency));
+    if (!issueKeys.has(ticker)) issueKeys.set(ticker, new Map());
+    const issues = issueKeys.get(ticker) as Map<string, number>;
+    issues.set(fingerprint, Math.max(issues.get(fingerprint) ?? 0, score));
+  });
+
+  const result = new Map<string, IssueSignal>();
+  issueKeys.forEach((issues, ticker) => {
+    const values = Array.from(issues.values()).sort((a, b) => b - a);
+    const score = 1 - values.slice(0, 5).reduce((remaining, value) => remaining * (1 - value * 0.55), 1);
+    result.set(ticker, { count: issues.size, score: Math.min(1, score) });
+  });
+  return result;
 }
 
 function isSubsidiaryRelationshipNote(value: string): boolean {
@@ -113,20 +157,28 @@ export function OntologyPanel({ symbol, onSelectSymbol }: OntologyPanelProps) {
     () => evidence.filter((item) => item.provider === "ontology" && item.status === "available" && !isSuppressedControlEvidence(item)),
     [evidence]
   );
+  const issueSignals = useMemo(() => buildIssueSignals(evidence, normalizedSymbol), [evidence, normalizedSymbol]);
   const getQuote = useMemo(() => {
     return (ticker: string): OntologyQuote | undefined => {
       const item = quotes.get(ticker.toUpperCase());
-      if (!item) {
+      const issueSignal = issueSignals.get(ticker.toUpperCase());
+      if (!item && !issueSignal) {
         return undefined;
       }
       return {
-        changePercent: item.changePercent ?? undefined,
-        lastPrice: item.lastPrice ?? undefined,
-        marketCap: item.marketCap ?? undefined,
-        companyName: item.companyName ?? undefined
+        changePercent: item?.changePercent ?? undefined,
+        lastPrice: item?.lastPrice ?? undefined,
+        marketCap: item?.marketCap ?? undefined,
+        volume: item?.volume ?? undefined,
+        sessionDollarVolume: item?.sessionDollarVolume ?? undefined,
+        issueCount: issueSignal?.count ?? 0,
+        issueScore: issueSignal?.score ?? 0,
+        companyName: item?.companyName ?? undefined,
+        sector: item?.sector || undefined,
+        industry: item?.industry || undefined
       };
     };
-  }, [quotes]);
+  }, [issueSignals, quotes]);
 
   const isLoading = loadState === "loading";
 

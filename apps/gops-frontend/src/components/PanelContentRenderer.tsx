@@ -282,7 +282,7 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "portfolioInvested") {
-    return <PortfolioInvestedPanel />;
+    return <PortfolioInvestedPanel initialView={content.props?.initialFlowView === "dividend" ? "dividend" : "invested"} />;
   }
 
   if (content.kind === "portfolioDividend") {

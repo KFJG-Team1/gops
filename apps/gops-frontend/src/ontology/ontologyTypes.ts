@@ -29,6 +29,8 @@ export type OntologyGraphEdge = {
   target: string;
   kind: OntologyGraphEdgeKind;
   label?: string;
+  /** GraphDB confidence/relevance normalized to the [0, 1] range. */
+  relationScore?: number;
 };
 
 export type OntologyGraphData = {
