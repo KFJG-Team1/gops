@@ -2385,7 +2385,7 @@ function formatParentSummaryDate(value: string): string {
   }).format(date);
 }
 
-function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" | "footprint" }>) {
+function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" }>) {
   const bounds = unitBoundsX(scene, unit);
   const visibleLeft = Math.max(scene.plot.left, bounds.left);
   const visibleRight = Math.min(scene.plot.right, bounds.right);
