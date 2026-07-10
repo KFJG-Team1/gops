@@ -329,7 +329,8 @@ button {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  transform: scale(1.08);
 }
 
 .stock-logo.has-fallback > span {
@@ -342,17 +343,7 @@ button {
 }
 
 .logo-dev-attribution {
-  color: var(--color-muted-soft);
-  font-family: var(--font-data-sans);
-  font-size: var(--type-micro);
-  font-weight: 700;
-  line-height: 1.2;
-  text-decoration: none;
-}
-
-.logo-dev-attribution:hover {
-  color: var(--color-text);
-  text-decoration: underline;
+  display: none;
 }
 
 .app-shell {
@@ -601,6 +592,144 @@ button {
   align-items: center;
   gap: 8px;
   pointer-events: auto;
+}
+
+.simulator-mode-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  border-radius: 999px;
+  padding: 3px;
+  background: color-mix(in srgb, var(--color-background) 92%, var(--color-surface-strong));
+  font-family: var(--font-data-sans);
+}
+
+.simulator-mode-control.is-simulation {
+  border-color: color-mix(in srgb, var(--color-caution) 60%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-caution) 9%, transparent);
+}
+
+.simulator-mode-toggle,
+.simulator-run-controls button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.simulator-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 7px;
+  font-family: inherit;
+  font-size: var(--type-micro);
+  font-weight: 820;
+  letter-spacing: 0;
+}
+
+.simulator-mode-toggle i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.is-simulation .simulator-mode-toggle i {
+  background: var(--color-caution);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--color-caution) 72%, transparent);
+  animation: simulator-live-pulse 1.5s ease-in-out infinite;
+}
+
+.simulator-run-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.simulator-run-controls strong {
+  min-width: 48px;
+  color: color-mix(in srgb, var(--color-caution) 72%, var(--color-text));
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulator-run-controls button {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.simulator-run-controls button:hover {
+  background: var(--color-surface-strong);
+}
+
+@keyframes simulator-live-pulse {
+  50% { opacity: 0.45; }
+}
+
+.simulator-breaking-toast {
+  position: fixed;
+  top: calc(var(--top-nav-height) + 14px);
+  left: 50%;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 4px 10px;
+  width: min(590px, calc(100vw - 30px));
+  border: 1px solid var(--color-danger);
+  border-radius: 8px;
+  padding: 11px 11px 11px 15px;
+  background: color-mix(in srgb, var(--color-background) 96%, var(--color-danger));
+  box-shadow: var(--surface-floating-depth-shadow);
+  color: var(--color-text);
+  transform: translateX(-50%);
+  animation: simulator-breaking-enter 240ms ease-out both;
+}
+
+.simulator-breaking-kicker {
+  grid-column: 1 / -1;
+  color: var(--color-danger);
+  font-family: var(--font-data-sans);
+  font-size: var(--type-micro);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.simulator-breaking-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.simulator-breaking-copy strong { font-size: var(--type-body); }
+.simulator-breaking-copy span { color: var(--color-muted); font-size: var(--type-compact); }
+.simulator-breaking-copy small { color: var(--color-danger); font-size: var(--type-micro); font-weight: 750; }
+
+.simulator-breaking-close {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+
+@keyframes simulator-breaking-enter {
+  from { opacity: 0; transform: translate(-50%, -12px); }
 }
 
 .workspace-top-action,
@@ -5912,13 +6041,10 @@ h2 {
   font-size: var(--type-compact);
   text-align: left;
   cursor: pointer;
-  transform: translateX(0);
-  transform-origin: left center;
   transition:
     background-color 600ms ease,
     opacity 600ms ease,
-    filter 600ms ease,
-    transform 600ms ease;
+    filter 600ms ease;
 }
 
 .popular-stocks-panel.has-ranking-focus .popular-stock-row.is-muted {
@@ -5934,7 +6060,6 @@ h2 {
   opacity: 1;
   filter: none;
   outline: none;
-  transform: translateX(4px);
   background: color-mix(in srgb, var(--color-text) 8%, var(--color-background));
 }
 
@@ -6959,6 +7084,47 @@ h2 {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-signal) 42%, transparent),
     0 0 0 5px color-mix(in srgb, var(--color-signal) 10%, transparent);
+  animation: market-news-timeline-beat 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.market-news-daily-row:first-child .market-news-timeline-dot::after {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 58%, transparent);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+  animation: market-news-timeline-ring 1.8s ease-out infinite;
+}
+
+@keyframes market-news-timeline-beat {
+  0%, 18%, 36%, 100% { transform: scale(1); }
+  10% { transform: scale(1.2); }
+  28% { transform: scale(1.12); }
+}
+
+@keyframes market-news-timeline-ring {
+  0% {
+    opacity: 0.62;
+    transform: scale(0.72);
+  }
+
+  42%, 100% {
+    opacity: 0;
+    transform: scale(1.65);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-news-daily-row:first-child .market-news-timeline-dot,
+  .market-news-daily-row:first-child .market-news-timeline-dot::after {
+    animation: none;
+  }
+
+  .market-news-daily-row:first-child .market-news-timeline-dot::after {
+    opacity: 0;
+  }
 }
 
 .market-news-daily-content {
@@ -9201,6 +9367,54 @@ h2 {
 
 .order-ticket-v2 {
   gap: 10px;
+}
+
+.simulation-order-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--color-caution) 45%, var(--color-border));
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: color-mix(in srgb, var(--color-caution) 8%, var(--color-background));
+}
+
+.simulation-order-banner > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.simulation-order-banner span {
+  color: color-mix(in srgb, var(--color-caution) 68%, var(--color-text));
+  font-size: var(--type-micro);
+  font-weight: 850;
+}
+
+.simulation-order-banner strong {
+  overflow: hidden;
+  font-size: var(--type-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simulation-order-banner button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--color-background);
+  color: var(--color-muted);
+  font-size: var(--type-micro);
+  font-weight: 800;
+}
+
+.simulation-order-banner button.active {
+  border-color: var(--color-caution);
+  background: var(--color-caution);
+  color: var(--color-background);
 }
 
 .order-form-stack {
@@ -12073,6 +12287,43 @@ textarea:focus,
 
   .workspace-top-login span {
     display: none;
+  }
+
+  .simulator-mode-control {
+    width: 30px;
+    min-height: 30px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .simulator-mode-toggle {
+    width: 30px;
+    min-height: 30px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .simulator-mode-toggle span,
+  .simulator-mode-toggle i {
+    display: none;
+  }
+
+  .simulator-mode-control.is-simulation .simulator-mode-toggle {
+    color: var(--color-caution);
+  }
+
+  .simulator-run-controls {
+    position: absolute;
+    top: 34px;
+    right: 0;
+    min-height: 30px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    padding: 3px;
+    background: var(--color-background);
+    box-shadow: var(--surface-floating-depth-shadow);
   }
 
   .bottom-command-slot.is-agent,
@@ -15599,7 +15850,9 @@ textarea:focus,
 }
 
 .stock-logo.has-image {
+  border: 0;
   background: #fff;
+  box-shadow: none;
 }
 
 .canvas-workspace.view-chart.layout-mode-compact {
