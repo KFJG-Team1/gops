@@ -4,7 +4,7 @@ import {
   firstAvailablePanelGridRect,
   gridRectsOverlap,
   layoutHasGapsOrOverlaps,
-  maxGridSpan,
+  maxGridSpanForKind,
   movePanelSlotToGridRect,
   normalizeFreeformRectsToGridLayout,
   normalizePanelGridRect,
@@ -28,6 +28,10 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
   compare: "compareChart",
   company: "companyProfile",
+  companyMulti: "companyMulti",
+  companyValuation: "companyValuation",
+  companyProfitability: "companyProfitability",
+  companyStability: "companyStability",
   indices: "marketIndices",
   popular: "popularStocks",
   recommendations: "stockRecommendations",
@@ -37,13 +41,15 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   watchlistNews: "newsFeed",
   watchlistNewsList: "newsFeed",
   ontology: "ontologyGraph",
-  portfolio: "portfolioHoldings",
+  portfolio: "portfolioDashboard",
+  portfolioMulti: "portfolioMulti",
   portfolioInvestment: "portfolioInvestment",
   portfolioPerformance: "portfolioPerformance",
   portfolioInvested: "portfolioInvested",
   portfolioDividend: "portfolioDividend",
   portfolioDiversification: "portfolioDiversification",
   portfolioHoldings: "portfolioHoldings",
+  portfolioHoldingsCards: "portfolioHoldingsCards",
   orderFlow: "orderFlowProfile",
   trade: "orderTicket"
 };
@@ -470,8 +476,8 @@ function minSpanForKind(kind: PanelContentKind) {
   return readableMinGridSpanForKind(kind);
 }
 
-function maxSpanForKind(_kind: PanelContentKind) {
-  return maxGridSpan();
+function maxSpanForKind(kind: PanelContentKind) {
+  return maxGridSpanForKind(kind);
 }
 
 function hasPanelKind(state: TiledPanelState, kind: PanelContentKind): boolean {

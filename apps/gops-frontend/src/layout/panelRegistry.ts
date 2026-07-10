@@ -12,7 +12,9 @@ export type PanelRegistryEntry = {
   /** Rendered size target before the panel switches to its compact presentation. */
   minSizePx: { width: number; height: number };
   defaultSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
+  maxSpan?: Pick<PanelGridRect, "colSpan" | "rowSpan">;
   defaultLayoutWeight: number;
+  insertable?: boolean;
 };
 
 export const panelRegistry: readonly PanelRegistryEntry[] = [
@@ -137,14 +139,66 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "companyMulti",
+    title: "기업 멀티",
+    agentPanelType: "companyMulti",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 72
+  },
+  {
+    kind: "companyValuation",
+    title: "가치평가",
+    agentPanelType: "companyValuation",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
+    kind: "companyProfitability",
+    title: "수익성",
+    agentPanelType: "companyProfitability",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
+    kind: "companyStability",
+    title: "안정성",
+    agentPanelType: "companyStability",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    defaultLayoutWeight: 58
+  },
+  {
     kind: "portfolio",
-    title: "Holdings",
-    agentPanelType: "portfolioHoldings",
+    title: "Portfolio Legacy",
+    agentPanelType: "portfolioDashboard",
     minSpan: { colSpan: 1, rowSpan: 1 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
-    defaultLayoutWeight: 35
+    defaultLayoutWeight: 35,
+    insertable: false
+  },
+  {
+    kind: "portfolioMulti",
+    title: "Dual Portfolio",
+    agentPanelType: "portfolioMulti",
+    minSpan: { colSpan: 2, rowSpan: 3 },
+    readableMinSpan: { colSpan: 2, rowSpan: 3 },
+    minSizePx: { width: 320, height: 330 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    maxSpan: { colSpan: 2, rowSpan: 3 },
+    defaultLayoutWeight: 90
   },
   {
     kind: "portfolioInvestment",
@@ -198,13 +252,23 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioHoldings",
-    title: "Holdings",
+    title: "Holdings 표",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 5, rowSpan: 3 },
     defaultLayoutWeight: 40
+  },
+  {
+    kind: "portfolioHoldingsCards",
+    title: "Holdings 카드",
+    agentPanelType: "portfolioHoldingsCards",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
+    defaultLayoutWeight: 39
   },
   {
     kind: "orderFlow",

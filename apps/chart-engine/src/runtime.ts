@@ -31,6 +31,8 @@ import type {
 
 export type { ChartRuntimeState } from "./types";
 
+export const maxInactiveCandleCacheKeys = 8;
+
 export type ChartRuntimePanel = {
   id: string;
   type: string;
@@ -57,6 +59,7 @@ export function createInitialChartRuntimeState(): ChartRuntimeState {
   return {
     documents: {},
     candlesByKey: {},
+    candleKeyAccessOrder: [],
     liveTradesBySymbol: {},
     liveQuotesBySymbol: {},
     dataStatusByKey: {},
@@ -185,9 +188,10 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
   const key = candleKey(snapshot.symbol, snapshot.interval);
   const dataState = snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
   const current = state.candlesByKey[key] ?? [];
+  const candleCache = boundedCandleCache(state, key, applySnapshotToCandles(snapshot, current));
   return {
     ...state,
-    candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot, current) },
+    ...candleCache,
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
@@ -231,10 +235,11 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
   }
 
   const appendedCount = Math.max(0, result.candles.length - current.length);
+  const candleCache = boundedCandleCache(state, key, result.candles);
 
   return {
     ...state,
-    candlesByKey: { ...state.candlesByKey, [key]: result.candles },
+    ...candleCache,
     documents: appendedCount > 0
       ? freezeDetachedViewports(state.documents, event.symbol, event.interval, appendedCount)
       : state.documents,
@@ -253,6 +258,33 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
     },
     streamStatusByKey: { ...state.streamStatusByKey, [key]: "live" },
     journal: addJournal(state.journal, "chart.data.live", "system", "applied", result.message)
+  };
+}
+
+function boundedCandleCache(
+  state: ChartRuntimeState,
+  touchedKey: string,
+  touchedCandles: ChartRuntimeState["candlesByKey"][string]
+): Pick<ChartRuntimeState, "candlesByKey" | "candleKeyAccessOrder"> {
+  const nextCandles = { ...state.candlesByKey, [touchedKey]: touchedCandles };
+  const accessOrder = [
+    ...(state.candleKeyAccessOrder ?? Object.keys(state.candlesByKey)).filter((key) => key !== touchedKey),
+    touchedKey
+  ];
+  const activeKeys = new Set(
+    Object.values(state.documents).map((document) => candleKey(document.symbol, document.timeframe))
+  );
+  const retainedInactive = accessOrder
+    .slice()
+    .reverse()
+    .filter((key) => !activeKeys.has(key) && Object.prototype.hasOwnProperty.call(nextCandles, key))
+    .slice(0, maxInactiveCandleCacheKeys);
+  const retainedKeys = new Set([...activeKeys, ...retainedInactive, touchedKey]);
+  return {
+    candlesByKey: Object.fromEntries(
+      Object.entries(nextCandles).filter(([key]) => retainedKeys.has(key))
+    ),
+    candleKeyAccessOrder: accessOrder.filter((key) => retainedKeys.has(key))
   };
 }
 

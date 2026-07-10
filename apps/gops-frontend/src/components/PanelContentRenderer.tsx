@@ -5,14 +5,31 @@ import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
-import { chartIntervals, chartTypes, type CandleDto, type ChartCompareRange, type ChartInterval, type ChartSymbolDto, type ChartType } from "../chart/types";
+import {
+  bidAskChartIntervals,
+  chartIntervals,
+  chartTypes,
+  defaultBidAskInterval,
+  isBidAskChartInterval,
+  type CandleDto,
+  type ChartCompareRange,
+  type ChartInterval,
+  type ChartSymbolDto,
+  type ChartType
+} from "../chart/types";
 import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
-import { CompanySummaryPanel } from "./CompanySummaryPanel";
+import {
+  CompanyInfoPanel,
+  CompanyMultiPanel,
+  CompanyProfitabilityPanel,
+  CompanyStabilityPanel,
+  CompanyValuationPanel
+} from "./CompanySummaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
@@ -21,9 +38,11 @@ import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
+  PortfolioHoldingsCardsPanel,
   PortfolioHoldingsOnlyPanel,
   PortfolioInvestedPanel,
   PortfolioInvestmentStatusPanel,
+  PortfolioMultiPanel,
   PortfolioPerformancePanel
 } from "./PortfolioHoldingsPanel";
 import { SymbolSearch } from "./SymbolSearch";
@@ -117,7 +136,23 @@ export function PanelContentRenderer({
   }, [content.id, onChartHandleChange]);
 
   if (content.kind === "company") {
-    return <CompanySummaryPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+    return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyMulti") {
+    return <CompanyMultiPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyValuation") {
+    return <CompanyValuationPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyProfitability") {
+    return <CompanyProfitabilityPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyStability") {
+    return <CompanyStabilityPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
   }
 
   if (content.kind === "compare") {
@@ -238,6 +273,10 @@ export function PanelContentRenderer({
     return <PortfolioInvestmentStatusPanel />;
   }
 
+  if (content.kind === "portfolioMulti") {
+    return <PortfolioMultiPanel />;
+  }
+
   if (content.kind === "portfolioPerformance") {
     return <PortfolioPerformancePanel />;
   }
@@ -257,6 +296,17 @@ export function PanelContentRenderer({
   if (content.kind === "portfolioHoldings") {
     return (
       <PortfolioHoldingsOnlyPanel
+        onSelectSymbol={(nextSymbol) => {
+          onSelectSymbol(nextSymbol);
+          return true;
+        }}
+      />
+    );
+  }
+
+  if (content.kind === "portfolioHoldingsCards") {
+    return (
+      <PortfolioHoldingsCardsPanel
         onSelectSymbol={(nextSymbol) => {
           onSelectSymbol(nextSymbol);
           return true;
@@ -305,11 +355,11 @@ export function PanelContentRenderer({
   }
   const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
   const chartType = normalizeChartType(chartDocument.chartType);
-  const chartIntervalValue = chartType === "bidask" ? "1D" : interval;
+  const chartIntervalOptions = chartType === "bidask" ? bidAskChartIntervals : chartIntervals;
+  const chartIntervalValue = chartType === "bidask"
+    ? (isBidAskChartInterval(interval) ? interval : defaultBidAskInterval)
+    : interval;
   const handleChartTypeChange = (nextChartType: ChartType) => {
-    if (nextChartType === "bidask" && interval !== "1D") {
-      chartPanelHandleRef.current?.setInterval("1D");
-    }
     chartPanelHandleRef.current?.setChartType(nextChartType);
   };
   const companyToggleButton = (
@@ -375,11 +425,10 @@ export function PanelContentRenderer({
             className="chart-instance-select chart-instance-interval"
             value={chartIntervalValue}
             aria-label="Interval"
-            disabled={chartType === "bidask"}
             onPointerDown={(event) => event.stopPropagation()}
             onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
           >
-            {chartIntervals.map((nextInterval) => (
+            {chartIntervalOptions.map((nextInterval) => (
               <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
             ))}
           </select>
@@ -414,7 +463,7 @@ export function PanelContentRenderer({
           <div className="chart-company-toolbar" aria-label="기업정보 컨트롤">
             {companyToggleButton}
           </div>
-          <CompanySummaryPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
+          <CompanyMultiPanel symbol={selectedSymbol} item={companyItem} items={companyItems} />
         </div>
       )}
     </div>

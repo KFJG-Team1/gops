@@ -2,7 +2,7 @@ import { normalizeChartInterval } from "./intervals";
 import { canonicalTimestamp } from "./time";
 import type { CandleData, CandleEvent, CandleEventType, CandleSnapshot, ChartCoverage, ChartCoverageState, ChartGapRange, ChartSnapshotDataStatus, QuoteTickData, RealtimeLayerEvent, RepairStatus, TradeTickData } from "./types";
 
-export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "VOLUME_PROFILE_BINS_UPDATE" | "ERROR";
+export type RealtimeControlType = "HEARTBEAT" | "MARKET_STATUS_UPDATE" | "ERROR";
 
 function readNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -152,7 +152,7 @@ export function isRealtimeControlPayload(payload: unknown): payload is Record<st
     return false;
   }
   const type = (payload as Record<string, unknown>).type;
-  return type === "HEARTBEAT" || type === "MARKET_STATUS_UPDATE" || type === "VOLUME_PROFILE_BINS_UPDATE" || type === "ERROR";
+  return type === "HEARTBEAT" || type === "MARKET_STATUS_UPDATE" || type === "ERROR";
 }
 
 export function isRealtimeLayerPayload(payload: unknown): payload is Record<string, unknown> & { type: RealtimeLayerEvent["type"] } {

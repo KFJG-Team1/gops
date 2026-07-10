@@ -1,0 +1,395 @@
+import { expect, test, type Page, type Route } from "@playwright/test";
+
+const layoutStorageKey = "gops:workspace-grid-layout:v1";
+const fixtureSessionDate = "2026-07-08";
+
+test.beforeEach(async ({ page }) => {
+  await page.routeWebSocket("**/ws/charts**", () => undefined);
+  await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
+});
+
+test("chart modes and bidask intervals remain visually stable", async ({ page }) => {
+  let intradayRequestCount = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/charts/order-flow/intraday") {
+      intradayRequestCount += 1;
+    }
+  });
+  await openFixtureLayout(page, chartOnlyLayout());
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+
+  await expect(panel).toHaveScreenshot("chart-candle.png");
+  await page.getByLabel("Chart type").selectOption("line", { force: true });
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  await expect(panel).toHaveScreenshot("chart-line.png");
+
+  await page.getByLabel("Chart type").selectOption("ohlc", { force: true });
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  await expect(panel).toHaveScreenshot("chart-ohlc.png");
+
+  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
+  for (const interval of ["1m", "10m", "1h"] as const) {
+    await page.getByLabel("Interval").selectOption(interval, { force: true });
+    await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-status", "ready");
+    await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
+    await expect(page.locator(".chart-canvas")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
+    await expectNonBlankCanvas(page.locator(".chart-canvas"));
+    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`);
+  }
+  expect(intradayRequestCount).toBe(1);
+});
+
+test("fixed and optional derived layers preserve chart geometry", async ({ page }) => {
+  await openFixtureLayout(page, chartOnlyLayout());
+  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await page.getByTitle("EMA 20").click({ force: true });
+  await page.getByTitle("Volume Profile").click({ force: true });
+  await page.getByTitle("RSI 14").click({ force: true });
+  await page.getByRole("toolbar", { name: "Chart add tools" }).getByLabel("차트 추가 도구 닫기").evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  await expect(panel).toHaveScreenshot("chart-derived-layers.png");
+});
+
+test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
+  await openFixtureLayout(page, tiledDataLayout());
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
+  await expect(page.locator(".chart-compare-panel")).toBeVisible();
+  await assertWorkspaceChromeDoesNotOverlap(page);
+  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
+});
+
+async function openFixtureLayout(page: Page, layout: Record<string, unknown>): Promise<void> {
+  await page.addInitScript(({ storageKey, storedLayout }) => {
+    window.localStorage.clear();
+    window.localStorage.setItem(storageKey, JSON.stringify(storedLayout));
+    window.localStorage.setItem("gops:last-chart-symbol", "NVDA");
+  }, { storageKey: layoutStorageKey, storedLayout: layout });
+  await page.goto("/?symbol=NVDA");
+  await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}" });
+  await expect(page.locator(".canvas-workspace.view-chart")).toBeVisible();
+  await expect(page.locator(".workspace-bottom-nav")).toBeVisible();
+}
+
+function chartOnlyLayout(): Record<string, unknown> {
+  return storedLayout([
+    content("chart", 1, { symbol: "NVDA", timeframe: "1m" }, "visual-chart-document")
+  ], [slot("chart", 1, 1, 1, 8, 6)]);
+}
+
+function tiledDataLayout(): Record<string, unknown> {
+  return storedLayout([
+    content("chart", 1, { symbol: "NVDA", timeframe: "10m" }, "visual-chart-document"),
+    content("orderFlow", 2, { symbol: "NVDA", window: "10m", resolution: "auto" }),
+    content("compare", 3, { baseSymbol: "NVDA", symbols: ["NVDA", "AAPL"], range: "1D" })
+  ], [
+    slot("chart", 1, 1, 1, 6, 6),
+    slot("orderFlow", 2, 7, 1, 2, 3),
+    slot("compare", 3, 7, 4, 2, 3)
+  ]);
+}
+
+function storedLayout(contents: Array<Record<string, unknown>>, slots: Array<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    version: 1,
+    nextInstance: contents.length + 1,
+    contents: Object.fromEntries(contents.map((item) => [item.id, item])),
+    slots
+  };
+}
+
+function content(kind: string, index: number, props: Record<string, unknown>, chartDocumentId?: string): Record<string, unknown> {
+  return {
+    id: `content-${kind}-${index}`,
+    kind,
+    title: `${kind}-${index}`,
+    instanceIndex: index,
+    layoutWeight: kind === "chart" ? 100 : 50,
+    props,
+    ...(chartDocumentId ? { chartDocumentId } : {})
+  };
+}
+
+function slot(kind: string, index: number, col: number, row: number, colSpan: number, rowSpan: number): Record<string, unknown> {
+  return {
+    id: `slot-${kind}-${index}`,
+    contentId: `content-${kind}-${index}`,
+    gridRect: { col, row, colSpan, rowSpan }
+  };
+}
+
+async function fulfillFixtureApi(route: Route): Promise<void> {
+  const request = route.request();
+  const url = new URL(request.url());
+  let payload: unknown = {};
+  if (url.pathname === "/api/auth/me") {
+    payload = { authEnabled: false, user: null };
+  } else if (url.pathname === "/api/charts/symbols") {
+    payload = { symbols: fixtureSymbols() };
+  } else if (url.pathname === "/api/charts/candles") {
+    payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1m");
+  } else if (url.pathname === "/api/charts/indicators") {
+    payload = indicatorPayload(url);
+  } else if (url.pathname === "/api/charts/volume-profile-bins") {
+    payload = volumeProfilePayload(url);
+  } else if (url.pathname === "/api/charts/compare") {
+    payload = comparePayload(url);
+  } else if (url.pathname === "/api/charts/order-flow/symbols") {
+    payload = { symbols: ["NVDA", "AAPL"], priceBinSize: 0.01 };
+  } else if (url.pathname === "/api/charts/order-flow/intraday") {
+    payload = orderFlowIntradayPayload(url.searchParams.get("symbol") ?? "NVDA");
+  } else if (url.pathname === "/api/charts/order-flow/daily") {
+    payload = orderFlowDailyPayload(url.searchParams.get("symbol") ?? "NVDA");
+  } else if (url.pathname === "/api/watchlist") {
+    payload = { symbols: [] };
+  } else if (url.pathname === "/api/market/heatmap") {
+    payload = { items: [] };
+  }
+  await route.fulfill({
+    status: request.method() === "DELETE" ? 204 : 200,
+    contentType: "application/json",
+    body: request.method() === "DELETE" ? "" : JSON.stringify(payload)
+  });
+}
+
+function candlePayload(symbol: string, interval: string): Record<string, unknown> {
+  const candles = fixtureCandles(interval);
+  return {
+    symbol: symbol.toUpperCase(),
+    interval,
+    request: { limit: candles.length },
+    status: "ready",
+    dataStatus: "ready",
+    source: "fixture",
+    feed: "sip",
+    candles,
+    indicators: { ma: [5, 20, 60], volume: true },
+    requestedLimit: candles.length,
+    returnedCount: candles.length,
+    hasMoreBefore: false,
+    hasMoreAfter: false,
+    fill: { status: "not_needed", renderable: true }
+  };
+}
+
+function fixtureCandles(interval: string): Array<Record<string, unknown>> {
+  const stepMinutes = ({ "1m": 1, "5m": 5, "10m": 10, "1h": 60, "4h": 240, "1D": 1440, "1W": 10080, "1M": 43200 } as Record<string, number>)[interval] ?? 1;
+  const count = interval === "1h" ? 28 : interval === "10m" ? 78 : 140;
+  const start = Date.parse("2026-07-08T13:30:00.000Z");
+  return Array.from({ length: count }, (_, index) => {
+    const center = 150 + index * 0.08 + Math.sin(index / 5) * 2.4;
+    const open = center - Math.sin(index / 3) * 0.55;
+    const close = center + Math.cos(index / 4) * 0.62;
+    return {
+      timestamp: new Date(start + index * stepMinutes * 60_000).toISOString(),
+      open,
+      high: Math.max(open, close) + 0.8,
+      low: Math.min(open, close) - 0.75,
+      close,
+      volume: 600_000 + (index % 13) * 75_000,
+      isClosed: true,
+      ma5: center - 0.2,
+      ma20: center - 0.65,
+      ma60: center - 1.25
+    };
+  });
+}
+
+function indicatorPayload(url: URL): Record<string, unknown> {
+  const interval = url.searchParams.get("interval") ?? "1m";
+  const candles = fixtureCandles(interval);
+  const layerIds = (url.searchParams.get("layers") ?? "ema:20").split(",").filter(Boolean);
+  const series = Object.fromEntries(layerIds.map((id) => [id, candles.map((candle, index) => {
+    const timestamp = String(candle.timestamp);
+    const close = Number(candle.close);
+    if (id.startsWith("bollinger")) {
+      return { timestamp, middle: close, upper: close + 2, lower: close - 2 };
+    }
+    if (id.startsWith("stochastic")) {
+      return { timestamp, k: 45 + Math.sin(index / 4) * 20, d: 50 + Math.cos(index / 5) * 15 };
+    }
+    if (id.startsWith("macd")) {
+      return { timestamp, macd: Math.sin(index / 5), signal: Math.cos(index / 6), histogram: Math.sin(index / 5) - Math.cos(index / 6) };
+    }
+    return { timestamp, value: id.startsWith("rsi") ? 50 + Math.sin(index / 6) * 22 : close - 0.35 };
+  })]));
+  return {
+    symbol: "NVDA",
+    interval,
+    calculationVersion: "fixture-v1",
+    dataStatus: "ready",
+    series,
+    indicators: layerIds.map((id) => ({ id, kind: id.split(":")[0], placement: ["rsi", "stochastic", "macd"].some((name) => id.startsWith(name)) ? "below" : "overlay", parameters: {}, points: series[id] })),
+    derived: { state: "ready", source: "redis", requestHash: "fixture-indicators" }
+  };
+}
+
+function volumeProfilePayload(url: URL): Record<string, unknown> {
+  const priceMin = Number(url.searchParams.get("priceMin") ?? 145);
+  const priceMax = Number(url.searchParams.get("priceMax") ?? 165);
+  const count = 10;
+  const width = (priceMax - priceMin) / count;
+  const bins = Array.from({ length: count }, (_, index) => ({
+    index,
+    priceBin: priceMin + (index + 0.5) * width,
+    priceBinSize: width,
+    priceMin: priceMin + index * width,
+    priceMax: priceMin + (index + 1) * width,
+    priceMid: priceMin + (index + 0.5) * width,
+    volume: 1000 + (index <= 5 ? index : 10 - index) * 450,
+    tradeCount: 20 + index,
+    volumePercent: 0.05 + index * 0.01,
+    isPoc: index === 5,
+    inValueArea: index >= 3 && index <= 7
+  }));
+  return {
+    symbol: "NVDA",
+    interval: url.searchParams.get("interval") ?? "1m",
+    sourceInterval: url.searchParams.get("interval") ?? "1m",
+    from: url.searchParams.get("from") ?? "",
+    to: url.searchParams.get("to") ?? "",
+    timeBucket: url.searchParams.get("interval") ?? "1m",
+    targetBins: count,
+    bucketCount: count,
+    priceBinSize: width,
+    sourceBinCount: count,
+    source: "fixture",
+    feed: "sip",
+    calculationVersion: "fixture-v1",
+    sideClassification: "estimated",
+    dataStatus: "ready",
+    priceRange: { min: priceMin, max: priceMax, requestedMin: priceMin, requestedMax: priceMax },
+    totalVolume: bins.reduce((sum, bin) => sum + bin.volume, 0),
+    totalTradeCount: bins.reduce((sum, bin) => sum + bin.tradeCount, 0),
+    bins,
+    derived: { state: "ready", source: "redis", requestHash: "fixture-vp" }
+  };
+}
+
+function comparePayload(url: URL): Record<string, unknown> {
+  const symbols = (url.searchParams.get("symbols") ?? "NVDA,AAPL").split(",");
+  const colors = ["#0052ff", "#05b169", "#cf202f"];
+  return {
+    range: url.searchParams.get("range") ?? "1D",
+    timeframe: "1Min",
+    baseMode: "first_close",
+    session: "regular",
+    adjustment: "split",
+    asOf: "2026-07-08T20:00:00.000Z",
+    warnings: [],
+    items: symbols.map((symbol, symbolIndex) => ({
+      symbol,
+      companyName: symbol === "NVDA" ? "NVIDIA" : "Apple",
+      color: colors[symbolIndex % colors.length],
+      points: Array.from({ length: 60 }, (_, index) => ({
+        time: new Date(Date.parse("2026-07-08T13:30:00.000Z") + index * 60_000).toISOString(),
+        price: 150 + symbolIndex * 20 + index * 0.08,
+        returnPercent: Math.sin(index / 8 + symbolIndex) * 2 + index * 0.025
+      }))
+    }))
+  };
+}
+
+function orderFlowIntradayPayload(symbol: string): Record<string, unknown> {
+  const start = Date.parse(`${fixtureSessionDate}T13:30:00.000Z`);
+  return {
+    symbol: symbol.toUpperCase(),
+    sessionDate: fixtureSessionDate,
+    priceBinSize: 0.01,
+    dataStatus: "ready",
+    supportedSymbols: ["NVDA", "AAPL"],
+    liveQuote: { bidPrice: 159.98, askPrice: 160.02, bidSize: 12, askSize: 10, timestamp: "2026-07-08T19:59:59.000Z" },
+    minutes: Array.from({ length: 390 }, (_, minute) => ({
+      eventMinute: new Date(start + minute * 60_000).toISOString(),
+      bins: Array.from({ length: 9 }, (_, level) => ({
+        priceBin: 156 + minute * 0.01 + level * 0.05,
+        askVolume: 20 + ((minute + level * 3) % 35),
+        bidVolume: 18 + ((minute * 2 + level) % 31),
+        unknownVolume: (minute + level) % 4,
+        askTradeCount: 2 + (level % 4),
+        bidTradeCount: 2 + ((level + 1) % 4)
+      }))
+    }))
+  };
+}
+
+function orderFlowDailyPayload(symbol: string): Record<string, unknown> {
+  const levels = Array.from({ length: 20 }, (_, index) => ({
+    priceBin: 150 + index * 0.5,
+    askVolume: 1_000 + index * 80,
+    bidVolume: 1_200 + (20 - index) * 65,
+    unknownVolume: 20
+  }));
+  return {
+    symbol: symbol.toUpperCase(),
+    priceBinSize: 0.01,
+    classificationVersion: "fixture-v1",
+    from: fixtureSessionDate,
+    to: fixtureSessionDate,
+    dataStatus: "ready",
+    supportedSymbols: ["NVDA", "AAPL"],
+    days: [{
+      sessionDate: fixtureSessionDate,
+      totals: { askVolume: 32_000, bidVolume: 34_000, unknownVolume: 400, delta: -2_000, tradeCount: 2_400, volume: 66_400 },
+      levels
+    }]
+  };
+}
+
+function fixtureSymbols(): Array<Record<string, string>> {
+  return [
+    { symbol: "NVDA", name: "NVIDIA" },
+    { symbol: "AAPL", name: "Apple" },
+    { symbol: "MSFT", name: "Microsoft" }
+  ];
+}
+
+async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promise<void> {
+  await expect(canvas).toBeVisible();
+  await expect.poll(async () => canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement;
+    const context = target.getContext("2d");
+    if (!context || target.width < 10 || target.height < 10) {
+      return 0;
+    }
+    const pixels = context.getImageData(0, 0, target.width, target.height).data;
+    let colored = 0;
+    for (let index = 3; index < pixels.length; index += 16) {
+      if (pixels[index] > 0) {
+        colored += 1;
+      }
+    }
+    return colored;
+  })).toBeGreaterThan(100);
+}
+
+async function assertWorkspaceChromeDoesNotOverlap(page: Page): Promise<void> {
+  const bottom = await page.locator(".workspace-bottom-nav").boundingBox();
+  const preset = await page.locator(".layout-preset-dock").boundingBox();
+  expect(bottom).not.toBeNull();
+  expect(preset).not.toBeNull();
+  const panels = await page.locator(".workspace-panel-frame").evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }));
+  if (bottom) {
+    for (const panel of panels) {
+      expect(panel.bottom).toBeLessThanOrEqual(bottom.y + 4);
+    }
+  }
+  for (let leftIndex = 0; leftIndex < panels.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < panels.length; rightIndex += 1) {
+      const left = panels[leftIndex]!;
+      const right = panels[rightIndex]!;
+      const overlaps = left.left < right.right - 1 && left.right > right.left + 1 && left.top < right.bottom - 1 && left.bottom > right.top + 1;
+      expect(overlaps).toBe(false);
+    }
+  }
+}

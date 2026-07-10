@@ -5,6 +5,8 @@ export const derivedClientCacheTtlMs = {
   volumeProfile: 5_000
 } as const;
 
+export const derivedClientCacheMaxEntries = 64;
+
 export function stableVolumeProfileRangeKey(query: {
   symbol: string;
   interval: ChartInterval;
@@ -12,6 +14,8 @@ export function stableVolumeProfileRangeKey(query: {
   to: string;
   targetBins?: number;
   priceBinSize?: string;
+  priceMin?: number;
+  priceMax?: number;
 }): string {
   return [
     query.symbol.trim().toUpperCase(),
@@ -19,6 +23,12 @@ export function stableVolumeProfileRangeKey(query: {
     query.from,
     query.to,
     query.priceBinSize ?? "auto",
-    Math.max(4, Math.min(48, Math.round(query.targetBins ?? 10)))
+    Math.max(4, Math.min(48, Math.round(query.targetBins ?? 10))),
+    stableOptionalNumber(query.priceMin),
+    stableOptionalNumber(query.priceMax)
   ].join("|");
+}
+
+function stableOptionalNumber(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }

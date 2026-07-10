@@ -1,19 +1,39 @@
 import { ChartApiError } from "./cdcClient";
-import type {
-  OrderFlowDailyResponseDto,
-  OrderFlowDayDto,
-  OrderFlowIntradayResponseDto,
-  OrderFlowLevelDto,
-  OrderFlowMinuteDto
+import {
+  sessionDateFromTimestamp,
+  type OrderFlowDailyResponseDto,
+  type OrderFlowDayDto,
+  type OrderFlowIntradayResponseDto,
+  type OrderFlowLevelDto,
+  type OrderFlowMinuteDto
 } from "./orderFlow";
-import type { CandleEventDto } from "./types";
+import type {
+  CandleDto,
+  CandleEventDto,
+  ChartInterval
+} from "./types";
 
 type OrderFlowSymbolsResponse = {
   symbols: string[];
   priceBinSize: number;
 };
 
+export type OrderFlowDemoAnchor = {
+  sessionDate?: string;
+  basePrice?: number;
+  sessionOpenTimestamp?: string;
+  bucketTimestamps?: string[];
+  bucketWindowMinutes?: number;
+};
+
+export type OrderFlowDemoContext = {
+  anchor: OrderFlowDemoAnchor;
+};
+
 let symbolsCache: OrderFlowSymbolsResponse | null = null;
+const intradayCache = new Map<string, { expiresAt: number; promise: Promise<OrderFlowIntradayResponseDto> }>();
+const intradayCacheTtlMs = 5_000;
+const intradayCacheMaxEntries = 32;
 const orderFlowDemoBuildEnabled = typeof import.meta.env !== "undefined" && import.meta.env.DEV === true;
 
 export async function fetchOrderFlowSymbols(signal?: AbortSignal): Promise<OrderFlowSymbolsResponse> {
@@ -48,19 +68,75 @@ export async function fetchOrderFlowDaily(
   return normalizeDailyResponse(await fetchJson(`/api/charts/order-flow/daily?${params.toString()}`, signal));
 }
 
-export async function fetchOrderFlowIntraday(symbol: string, signal?: AbortSignal): Promise<OrderFlowIntradayResponseDto> {
+export async function fetchOrderFlowIntraday(
+  symbol: string,
+  signal?: AbortSignal,
+  demoAnchor?: OrderFlowDemoAnchor
+): Promise<OrderFlowIntradayResponseDto> {
   if (isOrderFlowDemoRuntimeEnabled()) {
     const demo = await import("./orderFlowDemoData");
-    return demo.fetchDemoOrderFlowIntraday(symbol);
+    return demo.fetchDemoOrderFlowIntraday(symbol, demoAnchor);
   }
-  const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
-  return normalizeIntradayResponse(await fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`, signal));
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const sessionDate = sessionDateFromTimestamp(new Date().toISOString());
+  const cacheKey = `${normalizedSymbol}|${sessionDate}`;
+  const now = Date.now();
+  pruneIntradayCache(now);
+  let entry = intradayCache.get(cacheKey);
+  if (!entry || entry.expiresAt <= now) {
+    const params = new URLSearchParams({ symbol: normalizedSymbol });
+    let promise: Promise<OrderFlowIntradayResponseDto>;
+    promise = fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`)
+      .then(normalizeIntradayResponse)
+      .catch((error) => {
+        if (intradayCache.get(cacheKey)?.promise === promise) {
+          intradayCache.delete(cacheKey);
+        }
+        throw error;
+      });
+    entry = { expiresAt: now + intradayCacheTtlMs, promise };
+    intradayCache.set(cacheKey, entry);
+    while (intradayCache.size > intradayCacheMaxEntries) {
+      const oldest = intradayCache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      intradayCache.delete(oldest);
+    }
+  } else {
+    intradayCache.delete(cacheKey);
+    intradayCache.set(cacheKey, entry);
+  }
+  return withAbortSignal(entry.promise, signal);
+}
+
+function pruneIntradayCache(now: number): void {
+  intradayCache.forEach((entry, key) => {
+    if (entry.expiresAt <= now) {
+      intradayCache.delete(key);
+    }
+  });
+}
+
+function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 export function subscribeOrderFlowDemoTicks(
   symbol: string,
   onEvent: (event: CandleEventDto) => void,
-  onState: (state: "connecting" | "live" | "idle" | "error") => void
+  onState: (state: "connecting" | "live" | "idle" | "error") => void,
+  demoAnchor?: OrderFlowDemoAnchor
 ): (() => void) | null {
   if (!isOrderFlowDemoRuntimeEnabled()) {
     return null;
@@ -72,7 +148,7 @@ export function subscribeOrderFlowDemoTicks(
       if (disposed) {
         return;
       }
-      cleanup = demo.subscribeDemoOrderFlowTicks(symbol, onEvent, onState);
+      cleanup = demo.subscribeDemoOrderFlowTicks(symbol, onEvent, onState, demoAnchor);
     })
     .catch(() => {
       if (!disposed) {
@@ -85,10 +161,36 @@ export function subscribeOrderFlowDemoTicks(
   };
 }
 
-function isOrderFlowDemoRuntimeEnabled(): boolean {
+export function isOrderFlowDemoRuntimeEnabled(): boolean {
   return orderFlowDemoBuildEnabled &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("orderFlowDemo");
+}
+
+export function orderFlowDemoContextFromCandles(
+  candles: ReadonlyArray<Pick<CandleDto, "timestamp" | "close">>,
+  interval: ChartInterval
+): OrderFlowDemoContext | undefined {
+  if (!candles.length) {
+    return undefined;
+  }
+  const visibleBucketCount = interval === "1m" ? 120 : interval === "1h" ? 7 : 39;
+  const bucketWindowMinutes = interval === "1m" ? 1 : interval === "1h" ? 60 : 10;
+  const buckets = candles.slice(-visibleBucketCount);
+  const latestCandle = buckets.at(-1);
+  const firstCandle = buckets[0];
+  if (!latestCandle || !firstCandle || !Number.isFinite(latestCandle.close)) {
+    return undefined;
+  }
+  return {
+    anchor: {
+      sessionDate: sessionDateFromTimestamp(latestCandle.timestamp),
+      basePrice: latestCandle.close,
+      sessionOpenTimestamp: firstCandle.timestamp,
+      bucketTimestamps: buckets.map((candle) => candle.timestamp),
+      bucketWindowMinutes
+    }
+  };
 }
 
 async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {

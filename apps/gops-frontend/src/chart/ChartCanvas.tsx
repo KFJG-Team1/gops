@@ -7,7 +7,17 @@ import { normalizeLineExtension, projectTrendLine } from "./drawings";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
-import { autoPriceStep, buildLadder, rebinLevels, sessionDateFromTimestamp, visibleScaleMax, type OrderFlowDayDto, type OrderFlowLadder } from "./orderFlow";
+import {
+  autoPriceStep,
+  buildLadder,
+  orderFlowWindowMinutesForInterval,
+  rebinLevels,
+  sessionDateFromTimestamp,
+  visibleScaleMax,
+  type OrderFlowLadder,
+  type OrderFlowMinuteDto
+} from "./orderFlow";
+import { OrderFlowBucketCache, type OrderFlowBucket } from "./orderFlowBucketCache";
 import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
@@ -44,7 +54,8 @@ const volumeProfileAlpha = {
   pocLine: 0.34,
   label: 0.84
 } as const;
-const orderFlowLadderCache = new WeakMap<OrderFlowDayDto, Map<number, OrderFlowLadder>>();
+const orderFlowBucketCache = new OrderFlowBucketCache();
+const orderFlowLadderCache = new WeakMap<OrderFlowBucket, Map<number, OrderFlowLadder>>();
 
 export function ChartCanvas({
   chart,
@@ -114,6 +125,7 @@ export function ChartCanvas({
       ref={canvasRef}
       className="chart-canvas"
       aria-label={`GOPS ${chart.chartType} chart`}
+      data-order-flow-minute-count={chart.orderFlow?.minutes.size}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -736,61 +748,59 @@ function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: C
 
 function drawOrderFlowColumns(context: CanvasRenderingContext2D, scene: ChartScene) {
   const orderFlow = scene.chart.orderFlow;
-  const daily = orderFlow?.daily ?? null;
-  const today = orderFlow?.today ?? null;
-  const days = new Map<string, OrderFlowDayDto>();
-  daily?.days.forEach((day) => days.set(day.sessionDate, day));
-  if (today) {
-    days.set(today.sessionDate, today);
-  }
-  if (daily?.dataStatus === "unsupported") {
-    drawOrderFlowState(context, scene, unsupportedOrderFlowMessage(scene.chart.symbol, daily.supportedSymbols));
+  if (!orderFlow) {
+    drawOrderFlowState(context, scene, "오더플로우 데이터를 불러오는 중입니다");
     return;
   }
-  if (!days.size && daily?.dataStatus === "empty") {
+  const minutes = orderFlow.minutes;
+  if (orderFlow.dataStatus === "unsupported") {
+    drawOrderFlowState(context, scene, unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols));
+    return;
+  }
+  if (!minutes.size && orderFlow.dataStatus === "empty") {
     drawOrderFlowState(context, scene, "아직 수집된 오더플로우 데이터가 없어요");
     return;
   }
-  if (!days.size) {
+  if (!minutes.size) {
     drawOrderFlowState(context, scene, "오더플로우 데이터를 불러오는 중입니다");
     return;
   }
 
   const units = candleUnits(scene);
-  const visibleDays = units
-    .map((unit) => days.get(sessionDateFromTimestamp(unit.timestamp)))
-    .filter((day): day is OrderFlowDayDto => Boolean(day?.levels.length));
-  const sourceStep = Math.max(0.01, daily?.priceBinSize ?? 0.01);
-  const displayStep = orderFlowDisplayStep(scene, sourceStep, visibleDays);
+  const windowMinutes = orderFlowWindowMinutesForInterval(scene.chart.interval);
+  const visibleBuckets = units
+    .map((unit) => cachedOrderFlowBucket(minutes, unit, windowMinutes))
+    .filter((bucket) => bucket.levels.length);
+  const sourceStep = Math.max(0.01, orderFlow.priceBinSize);
+  const displayStep = orderFlowDisplayStep(scene, sourceStep, visibleBuckets);
   const rects = new Map<string, { x: number; y: number; width: number; height: number }>();
   units.forEach((unit) => rects.set(unit.id, orderFlowColumnRect(scene, unit)));
-  const tier = chartColumnTier(Math.min(...Array.from(rects.values()).map((rect) => rect.width).filter((width) => width > 0)));
+  const positiveWidths = Array.from(rects.values()).map((rect) => rect.width).filter((width) => width > 0);
+  const tier = chartColumnTier(positiveWidths.length ? Math.min(...positiveWidths) : 0);
   const drawable = units
     .map((unit) => {
-      const sessionDate = sessionDateFromTimestamp(unit.timestamp);
-      const day = days.get(sessionDate);
-      return day?.levels.length
-        ? { unit, day, ladder: cachedOrderFlowLadder(day, sourceStep, displayStep) }
+      const bucket = cachedOrderFlowBucket(minutes, unit, windowMinutes);
+      return bucket.levels.length
+        ? { unit, bucket, ladder: cachedOrderFlowLadder(bucket, sourceStep, displayStep) }
         : null;
     })
-    .filter((item): item is { unit: SemanticCandleUnit; day: OrderFlowDayDto; ladder: OrderFlowLadder } => Boolean(item));
+    .filter((item): item is { unit: SemanticCandleUnit; bucket: OrderFlowBucket; ladder: OrderFlowLadder } => Boolean(item));
   const scaleMax = visibleScaleMax(drawable.map((item) => item.ladder));
   units.forEach((unit) => {
-    const sessionDate = sessionDateFromTimestamp(unit.timestamp);
-    const day = days.get(sessionDate);
-    if (!day?.levels.length) {
+    const bucket = cachedOrderFlowBucket(minutes, unit, windowMinutes);
+    if (!bucket.levels.length) {
       if (tier !== "micro") {
         drawOrderFlowGhostCandle(context, scene, unit);
       }
       return;
     }
     const rect = rects.get(unit.id) ?? orderFlowColumnRect(scene, unit);
-    const ladder = cachedOrderFlowLadder(day, sourceStep, displayStep);
+    const ladder = cachedOrderFlowLadder(bucket, sourceStep, displayStep);
     drawOrderFlowChartColumn(context, rect, ladder, colors, {
       tier,
       scaleMax,
       priceToY: (price) => priceToY(scene, price),
-      isLive: today?.sessionDate === day.sessionDate,
+      isLive: orderFlow.sessionDate === sessionDateFromTimestamp(unit.timestamp),
       selected: scene.selectedNodeId === unit.id
     });
   });
@@ -808,24 +818,32 @@ function orderFlowColumnRect(scene: ChartScene, unit: SemanticCandleUnit): { x: 
   };
 }
 
-function cachedOrderFlowLadder(day: OrderFlowDayDto, sourceStep: number, displayStep: number): OrderFlowLadder {
-  let byStep = orderFlowLadderCache.get(day);
+function cachedOrderFlowBucket(
+  minutes: Map<string, OrderFlowMinuteDto>,
+  unit: SemanticCandleUnit,
+  windowMinutes: number
+): OrderFlowBucket {
+  return orderFlowBucketCache.get(minutes, unit.timestamp, windowMinutes);
+}
+
+function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number, displayStep: number): OrderFlowLadder {
+  let byStep = orderFlowLadderCache.get(bucket);
   if (!byStep) {
     byStep = new Map();
-    orderFlowLadderCache.set(day, byStep);
+    orderFlowLadderCache.set(bucket, byStep);
   }
   const cached = byStep.get(displayStep);
   if (cached) {
     return cached;
   }
-  const levels = rebinLevels(day.levels, sourceStep, displayStep);
-  const ladder = buildLadder(levels, displayStep, day.sessionDate);
+  const levels = rebinLevels(bucket.levels, sourceStep, displayStep);
+  const ladder = buildLadder(levels, displayStep, bucket.label);
   byStep.set(displayStep, ladder);
   return ladder;
 }
 
-function orderFlowDisplayStep(scene: ChartScene, sourceStep: number, days: OrderFlowDayDto[]): number {
-  const visiblePrices = days.flatMap((day) => day.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price)));
+function orderFlowDisplayStep(scene: ChartScene, sourceStep: number, buckets: OrderFlowBucket[]): number {
+  const visiblePrices = buckets.flatMap((bucket) => bucket.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price)));
   const dataPriceRange = visiblePrices.length
     ? Math.max(...visiblePrices) - Math.min(...visiblePrices)
     : 0;
@@ -2358,7 +2376,7 @@ function formatParentSummaryDate(value: string): string {
   }).format(date);
 }
 
-function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" | "footprint" }>) {
+function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: ChartScene, unit: Extract<SemanticRenderUnit, { kind: "placeholder" }>) {
   const bounds = unitBoundsX(scene, unit);
   const visibleLeft = Math.max(scene.plot.left, bounds.left);
   const visibleRight = Math.min(scene.plot.right, bounds.right);

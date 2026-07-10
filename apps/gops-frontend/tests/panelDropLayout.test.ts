@@ -67,7 +67,7 @@ assert.deepEqual(
 );
 assert.equal(resolveFirstAvailableRecommendedGridRect(fullState, "chart"), null);
 assert.equal(panelPaletteEntryLabel("compare"), "비교");
-assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "Holdings");
+assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "Holdings 표");
 
 const committedState = addPanelSlotAtGridRect(
   blockedTargetState,

@@ -66,6 +66,7 @@ type NewsPanelProps = {
   selectedAgentReferenceKeys?: string[];
   emphasizedAgentReferenceKeys?: string[];
   onAgentReferenceSelect?: (reference: AgentReference) => void;
+  onAgentAsk?: () => void;
   variant?: "flip" | "list";
 };
 

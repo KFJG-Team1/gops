@@ -68,8 +68,13 @@ import {
   olderRangeRetryAfterMs,
   shouldRequestOlderRange
 } from "../chart/olderRangeRequestPolicy";
-import { fetchOrderFlowDaily, fetchOrderFlowIntraday, subscribeOrderFlowDemoTicks } from "../chart/orderFlowClient";
-import { orderFlowDayFromMinutes, replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowDailyResponseDto, type OrderFlowMinuteDto } from "../chart/orderFlow";
+import {
+  fetchOrderFlowIntraday,
+  isOrderFlowDemoRuntimeEnabled,
+  orderFlowDemoContextFromCandles,
+  subscribeOrderFlowDemoTicks
+} from "../chart/orderFlowClient";
+import { replaceOrderFlowMinute, type OrderFlowMinuteDto } from "../chart/orderFlow";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
@@ -89,7 +94,13 @@ import {
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
-import { defaultVisibleBarsForInterval } from "../chart/types";
+import {
+  defaultBidAskInterval,
+  defaultVisibleBarsForBidAskInterval,
+  defaultVisibleBarsForInterval,
+  isBidAskChartInterval,
+  normalizeBidAskChartInterval
+} from "../chart/types";
 import {
   dragDeltaToRightOffset,
   horizontalWheelDeltaToRightOffset,
@@ -140,6 +151,8 @@ type ExpansionOverlay = {
   status: string;
 };
 
+type OrderFlowChartDataStatus = "ready" | "empty" | "unsupported";
+
 type ComparisonScopeRequest = {
   key: string;
   symbol: string;
@@ -187,6 +200,7 @@ type ChartPanelProps = {
   onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
+  onAgentAsk?: () => void;
   emphasizeSelection?: boolean;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
@@ -223,7 +237,7 @@ const unavailableQuote: LiveQuote = {
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
-const orderFlowDefaultVisibleDays = 24;
+const defaultOrderFlowPriceBinSize = 0.01;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "Segment"],
   ["ray", "Ray"],
@@ -268,9 +282,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
-  const [orderFlowDaily, setOrderFlowDaily] = useState<OrderFlowDailyResponseDto | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
+  const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("empty");
+  const [orderFlowSupportedSymbols, setOrderFlowSupportedSymbols] = useState<string[] | undefined>();
+  const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const chart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
@@ -336,19 +352,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     visibleProfileRange?.from,
     visibleProfileRange?.to
   ]);
-  const orderFlowActive = chart.chartType === "bidask" && chart.interval === "1D";
-  const visibleOrderFlowRange = useMemo(() => {
-    if (!orderFlowActive || !visibleProfileRange) {
-      return null;
+  const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
+  const orderFlowDemoContext = useMemo(() => {
+    if (!isOrderFlowDemoRuntimeEnabled()) {
+      return undefined;
     }
-    return {
-      from: sessionDateFromTimestamp(visibleProfileRange.from),
-      to: sessionDateFromTimestamp(visibleProfileRange.to)
-    };
-  }, [orderFlowActive, visibleProfileRange?.from, visibleProfileRange?.to]);
-  const visibleOrderFlowRangeKey = visibleOrderFlowRange
-    ? `${chart.symbol}|${visibleOrderFlowRange.from}|${visibleOrderFlowRange.to}`
-    : "";
+    return orderFlowDemoContextFromCandles(chart.candles, chart.interval);
+  }, [chart.candles, chart.interval]);
+  const orderFlowDemoAnchor = orderFlowDemoContext?.anchor;
   const visibleComparisonRange = useMemo(() => visibleCandleRangeForComparison(chart, transientViewport), [
     chart.candles,
     chart.rightOffset,
@@ -425,6 +436,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       command: makeChartCommand(type, actor, commandTarget, payload)
     });
   }, [commandTarget, onChartRuntimeAction]);
+
+  useEffect(() => {
+    if (chart.chartType !== "bidask" || isBidAskChartInterval(document.timeframe)) {
+      return;
+    }
+    pendingViewportAnchorRef.current = {
+      key: chartMemoryKey(chart.symbol, defaultBidAskInterval),
+      anchor: {
+        mode: "right",
+        timestamp: visibleRightAnchorTimestamp(sceneRef.current, chart),
+        visibleCount: defaultVisibleBarsForBidAskInterval(defaultBidAskInterval)
+      }
+    };
+    dispatchDocumentCommand("chart.timeframe.set", { timeframe: defaultBidAskInterval }, "system");
+  }, [
+    chart.candles,
+    chart.chartType,
+    chart.rightOffset,
+    chart.symbol,
+    chart.visibleCount,
+    dispatchDocumentCommand,
+    document.timeframe
+  ]);
 
   const loadOlderCandles = useCallback((
     symbol: string,
@@ -627,6 +661,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         if (isOrderFlowEventDto(event)) {
           if (chartRef.current.chartType === "bidask" && chartRef.current.symbol === event.symbol.toUpperCase()) {
             setOrderFlowTodaySessionDate(event.data.sessionDate);
+            setOrderFlowDataStatus("ready");
+            setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
             setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
           }
           return;
@@ -729,35 +765,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
-    const loadIndicators = (attempt = 0) => {
-      fetchIndicators({
-        symbol: baseIndicatorRequest.symbol,
-        interval: baseIndicatorRequest.interval,
-        from: baseIndicatorRequest.from,
-        to: baseIndicatorRequest.to,
-        limit: baseIndicatorRequest.limit,
-        layers: baseIndicatorRequest.layers
-      }, controller.signal)
-        .then((response) => {
-          if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
-            return;
-          }
-          if (shouldRetryDerived(response, attempt)) {
-            retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
-            return;
-          }
-          setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setBaseIndicatorSeries({});
-          }
-        });
-    };
-    loadIndicators();
+    fetchIndicators({
+      symbol: baseIndicatorRequest.symbol,
+      interval: baseIndicatorRequest.interval,
+      from: baseIndicatorRequest.from,
+      to: baseIndicatorRequest.to,
+      limit: baseIndicatorRequest.limit,
+      layers: baseIndicatorRequest.layers
+    }, controller.signal)
+      .then((response) => {
+        if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
+          return;
+        }
+        setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setBaseIndicatorSeries({});
+        }
+      });
     return () => {
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [baseIndicatorRequest?.key]);
@@ -788,43 +815,33 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
-    const loadExpansionIndicators = (attempt = 0) => {
-      Promise.allSettled(requests.map((request) => (
-        fetchIndicators({
-          symbol: chart.symbol,
-          interval: request.interval,
-          from: request.from,
-          to: request.to,
-          limit: indicatorRequestLimitForInterval(request.interval, request.candleCount),
-          layers: activeIndicatorLayers
-        }, controller.signal).then((response) => ({ request, response }))
-      )))
-        .then((results) => {
-          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
-            return;
-          }
-          const fulfilled = results
-            .filter((result): result is PromiseFulfilledResult<{
-              request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
-              response: Awaited<ReturnType<typeof fetchIndicators>>;
-            }> => result.status === "fulfilled")
-            .map((result) => result.value);
-          const pending = fulfilled.find(({ response }) => shouldRetryDerived(response, attempt));
-          if (pending) {
-            retryTimer = window.setTimeout(() => loadExpansionIndicators(attempt + 1), derivedRetryDelay(pending.response));
-            return;
-          }
-          setExpansionIndicatorSeries(mergeIndicatorSeries(
-            ...fulfilled
-              .filter(({ response }) => response.derived?.state !== "failed")
-              .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
-          ));
-        });
-    };
-    loadExpansionIndicators();
+    Promise.allSettled(requests.map((request) => (
+      fetchIndicators({
+        symbol: chart.symbol,
+        interval: request.interval,
+        from: request.from,
+        to: request.to,
+        limit: indicatorRequestLimitForInterval(request.interval, request.candleCount),
+        layers: activeIndicatorLayers
+      }, controller.signal).then((response) => ({ request, response }))
+    )))
+      .then((results) => {
+        if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+          return;
+        }
+        const fulfilled = results
+          .filter((result): result is PromiseFulfilledResult<{
+            request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
+            response: Awaited<ReturnType<typeof fetchIndicators>>;
+          }> => result.status === "fulfilled")
+          .map((result) => result.value);
+        setExpansionIndicatorSeries(mergeIndicatorSeries(
+          ...fulfilled
+            .filter(({ response }) => response.derived?.state !== "failed")
+            .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
+        ));
+      });
     return () => {
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [
@@ -840,39 +857,30 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      const loadProfile = (attempt = 0) => {
-        fetchVolumeProfile({
-          symbol: chart.symbol,
-          interval: chart.interval,
-          from: visibleProfileRange.from,
-          to: visibleProfileRange.to,
-          targetBins: 10,
-          priceMin: visibleProfileRange.priceMin,
-          priceMax: visibleProfileRange.priceMax
-        }, controller.signal)
-          .then((response) => {
-            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
-              return;
-            }
-            if (shouldRetryDerived(response, attempt)) {
-              retryTimer = window.setTimeout(() => loadProfile(attempt + 1), derivedRetryDelay(response));
-              return;
-            }
-            setVolumeProfile(response.derived?.state === "failed" ? null : response);
-          })
-          .catch(() => {
-            if (!controller.signal.aborted) {
-              setVolumeProfile(null);
-            }
-          });
-      };
-      loadProfile();
+      fetchVolumeProfile({
+        symbol: chart.symbol,
+        interval: chart.interval,
+        from: visibleProfileRange.from,
+        to: visibleProfileRange.to,
+        targetBins: 10,
+        priceMin: visibleProfileRange.priceMin,
+        priceMax: visibleProfileRange.priceMax
+      }, controller.signal)
+        .then((response) => {
+          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          setVolumeProfile(response.derived?.state === "failed" ? null : response);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setVolumeProfile(null);
+          }
+        });
     }, 120);
     return () => {
       window.clearTimeout(timer);
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [
@@ -883,38 +891,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (!orderFlowActive || !visibleOrderFlowRange) {
-      setOrderFlowDaily(null);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      fetchOrderFlowDaily({
-        symbol: chart.symbol,
-        from: visibleOrderFlowRange.from,
-        to: visibleOrderFlowRange.to
-      }, controller.signal)
-        .then((response) => {
-          if (!controller.signal.aborted && chartRef.current.symbol === chart.symbol && chartRef.current.chartType === "bidask") {
-            setOrderFlowDaily(response);
-          }
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setOrderFlowDaily(null);
-          }
-        });
-    }, 120);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [chart.symbol, orderFlowActive, visibleOrderFlowRangeKey]);
-
-  useEffect(() => {
     if (!orderFlowActive) {
       setOrderFlowToday(new Map());
       setOrderFlowTodaySessionDate(null);
+      setOrderFlowDataStatus("empty");
+      setOrderFlowSupportedSymbols(undefined);
+      setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
       return;
     }
     const controller = new AbortController();
@@ -923,28 +905,49 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
       setOrderFlowTodaySessionDate(event.data.sessionDate);
+      setOrderFlowDataStatus("ready");
+      setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
       setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
     };
-    fetchOrderFlowIntraday(chart.symbol, controller.signal)
+    fetchOrderFlowIntraday(chart.symbol, controller.signal, orderFlowDemoAnchor)
       .then((response) => {
-        if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.chartType !== "bidask") {
+        if (
+          controller.signal.aborted ||
+          chartRef.current.symbol !== chart.symbol
+        ) {
           return;
         }
         setOrderFlowTodaySessionDate(response.sessionDate);
+        setOrderFlowDataStatus(response.dataStatus);
+        setOrderFlowSupportedSymbols(response.supportedSymbols);
+        setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(response.priceBinSize));
         setOrderFlowToday(new Map(response.minutes.map((minute) => [minute.eventMinute, minute])));
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setOrderFlowToday(new Map());
           setOrderFlowTodaySessionDate(null);
+          setOrderFlowDataStatus("empty");
+          setOrderFlowSupportedSymbols(undefined);
+          setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
         }
       });
-    const demoCleanup = subscribeOrderFlowDemoTicks(chart.symbol, handleOrderFlowEvent, () => undefined);
+    const demoCleanup = subscribeOrderFlowDemoTicks(
+      chart.symbol,
+      handleOrderFlowEvent,
+      () => undefined,
+      orderFlowDemoAnchor
+    );
     return () => {
       controller.abort();
       demoCleanup?.();
     };
-  }, [chart.symbol, orderFlowActive]);
+  }, [
+    chart.symbol,
+    orderFlowActive,
+    orderFlowDemoAnchor?.basePrice,
+    orderFlowDemoAnchor?.sessionDate
+  ]);
 
   useEffect(() => {
     onSemanticSelectionChange?.(selectedSemanticNode);
@@ -988,17 +991,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       };
     })
   ), [chart.comparisons, chart.interval, comparisonScopeData, comparisonScopeRequests]);
-  const orderFlowTodayDay = useMemo(() => (
-    orderFlowTodaySessionDate
-      ? orderFlowDayFromMinutes(chart.symbol, orderFlowTodaySessionDate, orderFlowToday.values())
-      : null
-  ), [chart.symbol, orderFlowToday, orderFlowTodaySessionDate]);
-
   const renderChart = useMemo(() => ({
     ...chart,
     indicatorSeries,
     volumeProfile,
-    orderFlow: orderFlowActive ? { daily: orderFlowDaily, today: orderFlowTodayDay } : null,
+    orderFlow: orderFlowActive ? {
+      dataStatus: orderFlowDataStatus,
+      supportedSymbols: orderFlowSupportedSymbols,
+      priceBinSize: orderFlowPriceBinSize,
+      sessionDate: orderFlowTodaySessionDate,
+      minutes: orderFlowToday
+    } : null,
     comparisons: renderComparisons,
     visibleCount: transientViewport?.visibleCount ?? chart.visibleCount,
     rightOffset: transientViewport?.rightOffset ?? chart.rightOffset,
@@ -1008,7 +1011,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, indicatorSeries, orderFlowActive, orderFlowDaily, orderFlowTodayDay, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const currentPriceTimeText = useMemo(() => (
@@ -1057,13 +1060,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setTransientDrawings(null);
     setBaseIndicatorSeries({});
     setVolumeProfile(null);
-    setOrderFlowDaily(null);
-    setOrderFlowToday(new Map());
-    setOrderFlowTodaySessionDate(null);
     setExpansionIndicatorSeries({});
     setComparisonScopeData({});
     clearSemanticState();
   }, [chart.interval, chart.symbol, clearSemanticState]);
+
+  useEffect(() => {
+    setOrderFlowToday(new Map());
+    setOrderFlowTodaySessionDate(null);
+    setOrderFlowDataStatus("empty");
+    setOrderFlowSupportedSymbols(undefined);
+    setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
+  }, [chart.symbol]);
 
   const semanticSelectionEnabled = chart.chartType !== "line";
   const semanticDigEnabled = semanticSelectionEnabled && chart.chartType !== "bidask";
@@ -1092,21 +1100,25 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const setInterval = useCallback((interval: ChartInterval) => {
     const current = chartRef.current;
-    if (current.interval === interval) {
+    const nextInterval = current.chartType === "bidask" ? normalizeBidAskChartInterval(interval) : interval;
+    if (current.interval === nextInterval) {
       return;
     }
+    const nextVisibleCount = current.chartType === "bidask"
+      ? defaultVisibleBarsForBidAskInterval(nextInterval)
+      : defaultVisibleBarsForInterval(nextInterval);
     pendingViewportAnchorRef.current = {
-      key: chartMemoryKey(current.symbol, interval),
+      key: chartMemoryKey(current.symbol, nextInterval),
       anchor: {
         mode: "right",
         timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
-        visibleCount: defaultVisibleBarsForInterval(interval)
+        visibleCount: nextVisibleCount
       }
     };
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
     clearSemanticState();
-    dispatchDocumentCommand("chart.timeframe.set", { timeframe: interval });
+    dispatchDocumentCommand("chart.timeframe.set", { timeframe: nextInterval });
   }, [clearSemanticState, dispatchDocumentCommand]);
 
   const setChartType = useCallback((chartType: ChartType) => {
@@ -1114,28 +1126,32 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (current.chartType === chartType) {
       return;
     }
-    if (chartType === "bidask" && current.interval !== "1D") {
-      pendingViewportAnchorRef.current = {
-        key: chartMemoryKey(current.symbol, "1D"),
-        anchor: {
-          mode: "right",
-          timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
-          visibleCount: orderFlowDefaultVisibleDays
-        }
-      };
-      dispatchDocumentCommand("chart.timeframe.set", { timeframe: "1D" });
-    } else if (chartType === "bidask" && current.visibleCount > 40) {
-      const currentScene = sceneRef.current;
-      const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
-      dispatchDocumentCommand("chart.viewport.set", normalizeViewport(
-        {
-          visibleCount: orderFlowDefaultVisibleDays,
-          rightOffset: latestCandleRightOffset(orderFlowDefaultVisibleDays)
-        },
-        current.candles.length,
-        plotWidth,
-        viewportClampOptionsForChart(current, currentScene)
-      ));
+    if (chartType === "bidask") {
+      const nextInterval = isBidAskChartInterval(current.interval) ? current.interval : defaultBidAskInterval;
+      const nextVisibleCount = defaultVisibleBarsForBidAskInterval(nextInterval);
+      if (current.interval !== nextInterval) {
+        pendingViewportAnchorRef.current = {
+          key: chartMemoryKey(current.symbol, nextInterval),
+          anchor: {
+            mode: "right",
+            timestamp: visibleRightAnchorTimestamp(sceneRef.current, current),
+            visibleCount: nextVisibleCount
+          }
+        };
+        dispatchDocumentCommand("chart.timeframe.set", { timeframe: nextInterval });
+      } else if (current.visibleCount > nextVisibleCount) {
+        const currentScene = sceneRef.current;
+        const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
+        dispatchDocumentCommand("chart.viewport.set", normalizeViewport(
+          {
+            visibleCount: nextVisibleCount,
+            rightOffset: latestCandleRightOffset(nextVisibleCount)
+          },
+          current.candles.length,
+          plotWidth,
+          viewportClampOptionsForChart(current, currentScene)
+        ));
+      }
     }
     if (chartType === "line") {
       activeExpansionsRef.current = [];
@@ -1692,7 +1708,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand]);
 
   return (
-    <section className="chart-panel">
+    <section
+      className="chart-panel"
+      data-order-flow-status={orderFlowActive ? orderFlowDataStatus : undefined}
+      data-order-flow-minute-count={orderFlowActive ? orderFlowToday.size : undefined}
+    >
       {hoverSnapshot?.kind === "candle" && (
         <dl
           className="hover-ohlc hover-ohlc-overlay"
@@ -2394,6 +2414,12 @@ function isOrderFlowEventDto(event: CandleEventDto): event is OrderFlowEventDto 
   return event.type === "ORDER_FLOW_BINS_UPDATE";
 }
 
+function normalizeOrderFlowPriceBinSize(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : defaultOrderFlowPriceBinSize;
+}
+
 function normalizeStreamStatus(status: ChartState["streamState"]): StreamStatus {
   return status === "connecting" || status === "idle" || status === "live" || status === "error" ? status : "idle";
 }
@@ -2455,15 +2481,6 @@ function shouldRetryRealtimeSnapshot(response: CandleQueryResponseDto, interval:
     return true;
   }
   return response.status === "partial" && response.candles.length < requestedVisibleSlotsFromResponse(response, interval);
-}
-
-function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
-  return response.derived?.state === "pending" && attempt < 2;
-}
-
-function derivedRetryDelay(response: { derived?: { retryAfterMs?: number } }): number {
-  const delay = response.derived?.retryAfterMs;
-  return typeof delay === "number" && Number.isFinite(delay) ? Math.max(250, Math.min(delay, 3000)) : 1000;
 }
 
 function findBoundaryHit(scene: ChartScene, point: { x: number; y: number }): { type: "price" | "below"; index: number; y: number } | null {

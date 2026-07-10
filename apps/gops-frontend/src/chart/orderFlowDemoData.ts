@@ -1,4 +1,5 @@
 import type { CandleEventDto } from "./types";
+import type { OrderFlowDemoAnchor } from "./orderFlowClient";
 import {
   buildLadder,
   sessionDateFromTimestamp,
@@ -57,12 +58,16 @@ export function fetchDemoOrderFlowDaily(q: { symbol: string; from: string; to: s
   return demoDailyResponse(symbol, from, to, limited.length ? "ready" : "empty", limited);
 }
 
-export function fetchDemoOrderFlowIntraday(symbolInput: string): OrderFlowIntradayResponseDto {
+export function fetchDemoOrderFlowIntraday(
+  symbolInput: string,
+  anchor?: OrderFlowDemoAnchor
+): OrderFlowIntradayResponseDto {
   const symbol = normalizeSymbol(symbolInput);
+  const sessionDate = resolveDemoSessionDate(anchor?.sessionDate);
   if (!isSupportedDemoSymbol(symbol)) {
     return {
       symbol,
-      sessionDate: currentSessionDate(),
+      sessionDate,
       priceBinSize: demoPriceBinSize,
       dataStatus: "unsupported",
       minutes: [],
@@ -70,13 +75,20 @@ export function fetchDemoOrderFlowIntraday(symbolInput: string): OrderFlowIntrad
       supportedSymbols: [...demoSymbols]
     };
   }
-  const cached = intradayCache.get(symbol);
+  const basePrice = resolveDemoBasePrice(anchor?.basePrice, symbolBasePrice[symbol]);
+  const sessionOpenTimestamp = resolveDemoSessionOpenTimestamp(anchor?.sessionOpenTimestamp, sessionDate);
+  const minuteSchedule = demoMinuteSchedule(anchor, sessionDate);
+  const scheduleKey = anchor?.bucketTimestamps?.join(",") ?? sessionOpenTimestamp;
+  const cacheKey = `${symbol}|${sessionDate}|${scheduleKey}|${anchor?.bucketWindowMinutes ?? 1}|${basePrice.toFixed(4)}`;
+  const cached = intradayCache.get(cacheKey);
   if (cached) {
     return cloneIntraday(cached);
   }
-  const sessionDate = currentSessionDate();
-  const minutes = Array.from({ length: 390 }, (_, index) => demoMinute(symbol, sessionDate, index, 1));
-  const lastPrice = symbolBasePrice[symbol] + Math.sin(389 / 24) * 0.72 + 0.38;
+  const minutes = minuteSchedule.map((eventMinute, index) => (
+    demoMinute(symbol, sessionDate, index, 1, basePrice, eventMinute)
+  ));
+  const lastIndex = Math.max(0, minutes.length - 1);
+  const lastPrice = basePrice + Math.sin(lastIndex / 24) * 0.72 + 0.38;
   const response: OrderFlowIntradayResponseDto = {
     symbol,
     sessionDate,
@@ -92,14 +104,15 @@ export function fetchDemoOrderFlowIntraday(symbolInput: string): OrderFlowIntrad
     },
     supportedSymbols: [...demoSymbols]
   };
-  intradayCache.set(symbol, response);
+  intradayCache.set(cacheKey, response);
   return cloneIntraday(response);
 }
 
 export function subscribeDemoOrderFlowTicks(
   symbolInput: string,
   onEvent: (event: CandleEventDto) => void,
-  onState: (state: "connecting" | "live" | "idle" | "error") => void
+  onState: (state: "connecting" | "live" | "idle" | "error") => void,
+  anchor?: OrderFlowDemoAnchor
 ): (() => void) | null {
   if (!isOrderFlowDemoEnabled()) {
     return null;
@@ -109,11 +122,20 @@ export function subscribeDemoOrderFlowTicks(
     onState("idle");
     return () => undefined;
   }
+  const sessionDate = resolveDemoSessionDate(anchor?.sessionDate);
+  const basePrice = resolveDemoBasePrice(anchor?.basePrice, symbolBasePrice[symbol]);
+  const minuteSchedule = demoMinuteSchedule(anchor, sessionDate);
   let tick = 0;
   const emit = () => {
-    const sessionDate = currentSessionDate();
-    const minuteIndex = tick % 390;
-    const minute = demoMinute(symbol, sessionDate, minuteIndex, 1 + (tick % 8) * 0.025);
+    const minuteIndex = tick % minuteSchedule.length;
+    const minute = demoMinute(
+      symbol,
+      sessionDate,
+      minuteIndex,
+      1 + (tick % 8) * 0.025,
+      basePrice,
+      minuteSchedule[minuteIndex]
+    );
     const update: OrderFlowMinuteUpdate = {
       eventMinute: minute.eventMinute,
       sessionDate,
@@ -202,8 +224,15 @@ function demoDailyDay(symbol: string, sessionDate: string, index: number): Order
   };
 }
 
-function demoMinute(symbol: string, sessionDate: string, minuteIndex: number, pulse: number): OrderFlowMinuteDto {
-  const basePrice = symbolBasePrice[symbol] +
+function demoMinute(
+  symbol: string,
+  sessionDate: string,
+  minuteIndex: number,
+  pulse: number,
+  anchorPrice = symbolBasePrice[symbol],
+  eventMinute?: string
+): OrderFlowMinuteDto {
+  const basePrice = anchorPrice +
     Math.sin(minuteIndex / 31) * 0.74 +
     Math.sin(minuteIndex / 113) * 1.18 +
     minuteIndex * 0.0018;
@@ -218,7 +247,7 @@ function demoMinute(symbol: string, sessionDate: string, minuteIndex: number, pu
     )
   ));
   return {
-    eventMinute: marketMinuteIso(sessionDate, minuteIndex),
+    eventMinute: eventMinute ?? marketMinuteIso(sessionDate, minuteIndex),
     bins: bins.sort((left, right) => right.priceBin - left.priceBin)
   };
 }
@@ -260,7 +289,47 @@ function currentSessionDate(): string {
   return sessionDateFromTimestamp(new Date().toISOString());
 }
 
-function marketMinuteIso(sessionDate: string, minuteIndex: number): string {
+function resolveDemoSessionDate(value: string | undefined): string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : currentSessionDate();
+}
+
+function resolveDemoBasePrice(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function resolveDemoSessionOpenTimestamp(value: string | undefined, sessionDate: string): string {
+  const parsed = typeof value === "string" ? new Date(value) : null;
+  return parsed && Number.isFinite(parsed.getTime()) ? parsed.toISOString() : marketMinuteIso(sessionDate, 0);
+}
+
+function demoMinuteSchedule(anchor: OrderFlowDemoAnchor | undefined, sessionDate: string): string[] {
+  const bucketTimestamps = anchor?.bucketTimestamps?.filter((timestamp) => (
+    Number.isFinite(new Date(timestamp).getTime())
+  )) ?? [];
+  const bucketWindowMinutes = Math.max(1, Math.floor(anchor?.bucketWindowMinutes ?? 1));
+  if (bucketTimestamps.length) {
+    const minutes = new Set<string>();
+    bucketTimestamps.forEach((timestamp) => {
+      const bucketStart = new Date(timestamp).getTime();
+      for (let offset = 0; offset < bucketWindowMinutes; offset += 1) {
+        minutes.add(new Date(bucketStart + offset * 60_000).toISOString());
+      }
+    });
+    return Array.from(minutes).sort();
+  }
+  const sessionOpenTimestamp = resolveDemoSessionOpenTimestamp(anchor?.sessionOpenTimestamp, sessionDate);
+  return Array.from({ length: 390 }, (_, index) => marketMinuteIso(sessionDate, index, sessionOpenTimestamp));
+}
+
+function marketMinuteIso(sessionDate: string, minuteIndex: number, sessionOpenTimestamp?: string): string {
+  if (sessionOpenTimestamp) {
+    const sessionOpen = new Date(sessionOpenTimestamp);
+    if (Number.isFinite(sessionOpen.getTime())) {
+      return new Date(sessionOpen.getTime() + minuteIndex * 60_000).toISOString();
+    }
+  }
   const [year, month, day] = sessionDate.split("-").map((part) => Number.parseInt(part, 10));
   return new Date(Date.UTC(year, month - 1, day, 13, 30 + minuteIndex, 0, 0)).toISOString();
 }

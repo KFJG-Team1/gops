@@ -10,7 +10,11 @@ import type {
   VolumeProfileBucketDto,
   VolumeProfileResponseDto
 } from "./types";
-import { derivedClientCacheTtlMs, stableVolumeProfileRangeKey } from "./derivedRequestPolicy";
+import {
+  derivedClientCacheMaxEntries,
+  derivedClientCacheTtlMs,
+  stableVolumeProfileRangeKey
+} from "./derivedRequestPolicy";
 import { indicatorRequestLimitForInterval } from "./indicatorRequestPolicy";
 
 export type CandleQuery = {
@@ -276,16 +280,40 @@ function cachedDerivedRequest<T>(
   load: () => Promise<T>
 ): Promise<T> {
   const now = Date.now();
+  pruneExpiredDerivedEntries(cache, now);
   const cached = cache.get(key);
   if (cached && cached.expiresAt > now) {
+    cache.delete(key);
+    cache.set(key, cached);
     return cached.promise;
   }
   const promise = load().catch((error) => {
-    cache.delete(key);
+    if (cache.get(key)?.promise === promise) {
+      cache.delete(key);
+    }
     throw error;
   });
   cache.set(key, { expiresAt: now + ttlMs, promise });
+  trimDerivedCache(cache);
   return promise;
+}
+
+function pruneExpiredDerivedEntries<T>(cache: Map<string, DerivedClientCacheEntry<T>>, now: number): void {
+  for (const [entryKey, entry] of cache) {
+    if (entry.expiresAt <= now) {
+      cache.delete(entryKey);
+    }
+  }
+}
+
+function trimDerivedCache<T>(cache: Map<string, DerivedClientCacheEntry<T>>): void {
+  while (cache.size > derivedClientCacheMaxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey !== "string") {
+      return;
+    }
+    cache.delete(oldestKey);
+  }
 }
 
 function reconnectDelayMs(attempts: number): number {

@@ -1275,9 +1275,11 @@ function readContentSymbol(content: PanelContentInstance): string | null {
 function isPortfolioPanelKind(kind: PanelContentKind): boolean {
   return kind === "portfolio"
     || kind === "portfolioInvestment"
+    || kind === "portfolioMulti"
     || kind === "portfolioPerformance"
     || kind === "portfolioInvested"
     || kind === "portfolioDividend"
     || kind === "portfolioDiversification"
-    || kind === "portfolioHoldings";
+    || kind === "portfolioHoldings"
+    || kind === "portfolioHoldingsCards";
 }
