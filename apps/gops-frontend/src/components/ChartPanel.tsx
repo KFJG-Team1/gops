@@ -187,6 +187,7 @@ type ChartPanelProps = {
   onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
+  onAgentAsk?: () => void;
   emphasizeSelection?: boolean;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
