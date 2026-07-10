@@ -35,6 +35,7 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import { deleteAllAlerts } from "../src/alerts/alertApi";
 import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
@@ -292,6 +293,21 @@ assert.equal(marketOpenToast.title, "본장 시작");
 assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.");
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
+
+const originalAlertApiFetch = globalThis.fetch;
+try {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(String(input), "/api/alerts");
+    assert.equal(init?.method, "DELETE");
+    return new Response(JSON.stringify({ deleted: 3, projectionStatus: "synced" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  assert.equal(await deleteAllAlerts(), 3);
+} finally {
+  globalThis.fetch = originalAlertApiFetch;
+}
 assert.equal(readMarketOpenReminderEnabled(undefined), true);
 assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:30:06.000Z")), true);
 assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:41:00.000Z")), false);
@@ -2875,6 +2891,11 @@ assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \
 assert.match(bottomCommandBarSource, /onOpenNotificationSymbol=\{\(symbol\) => \{/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
+assert.match(alertMenuSource, /deleteAllAlerts/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제 확인/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제 취소/);
+assert.doesNotMatch(alertMenuSource, /window\.confirm/);
 assert.match(alertMenuSource, /is-form-only/);
 assert.match(alertMenuSource, /notificationChartSymbol/);
 assert.match(alertMenuSource, /onOpenNotificationSymbol\(chartSymbol\)/);

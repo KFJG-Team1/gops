@@ -82,6 +82,11 @@ export async function deleteAlert(alertId: number): Promise<void> {
   await apiJson(`/api/alerts/${alertId}`, { method: "DELETE" });
 }
 
+export async function deleteAllAlerts(): Promise<number> {
+  const payload = await apiJson("/api/alerts", { method: "DELETE" });
+  return asNumber(asRecord(payload).deleted) ?? 0;
+}
+
 export async function fetchNotifications(signal?: AbortSignal): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
   const payload = await apiJson("/api/notifications", { signal });
   const source = asRecord(payload);

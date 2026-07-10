@@ -1620,6 +1620,12 @@ button {
   font-size: var(--type-compact);
 }
 
+.alert-delete-all-confirmation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .alert-list {
   display: grid;
   gap: 7px;
@@ -1679,7 +1685,8 @@ button {
   border-radius: 7px;
 }
 
-.alert-icon-button.danger {
+.alert-icon-button.danger,
+.alert-inline-button.danger {
   color: var(--color-danger);
 }
 
@@ -11095,6 +11102,7 @@ textarea:focus,
 }
 
 .alert-icon-button.danger,
+.alert-inline-button.danger,
 .agent-stop-button,
 .bottom-menu-item.danger,
 .stock-rec-change.down,

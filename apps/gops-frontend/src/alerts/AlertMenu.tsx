@@ -6,6 +6,7 @@ import { SymbolSearch } from "../components/SymbolSearch";
 import {
   createAlert,
   deleteAlert,
+  deleteAllAlerts,
   deleteNotification,
   fetchAlerts,
   fetchNotifications,
@@ -65,6 +66,7 @@ export function AlertMenu({
   const [windowMin, setWindowMin] = useState("5");
   const [repeatMode, setRepeatMode] = useState<AlertRepeatOption>("1");
   const [formOpen, setFormOpen] = useState(false);
+  const [deleteAllConfirmationOpen, setDeleteAllConfirmationOpen] = useState(false);
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
   const targetPriceKorean = useMemo(() => formatKoreanWon(targetPrice), [targetPrice]);
   const selectedSymbolLabel = useMemo(() => formatSelectedSymbolLabel(symbol, symbols), [symbol, symbols]);
@@ -158,6 +160,12 @@ export function AlertMenu({
     [...alerts].sort((left, right) => statusRank(left.status) - statusRank(right.status) || right.id - left.id)
   ), [alerts]);
 
+  useEffect(() => {
+    if (alerts.length === 0) {
+      setDeleteAllConfirmationOpen(false);
+    }
+  }, [alerts.length]);
+
   const submitAlert = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canUseAlerts) {
@@ -210,6 +218,23 @@ export function AlertMenu({
       setAlerts((current) => current.filter((item) => item.id !== alertId));
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : "알림을 삭제하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeAllAlerts = async () => {
+    if (!alerts.length) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteAllAlerts();
+      setAlerts([]);
+      setDeleteAllConfirmationOpen(false);
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "알림을 모두 삭제하지 못했습니다.");
     } finally {
       setSaving(false);
     }
@@ -414,7 +439,47 @@ export function AlertMenu({
           <section className="alert-menu-group">
             <div className="alert-menu-group-title">
               <strong>내 알림</strong>
-              {loading && <LoaderCircle size={13} className="spin" />}
+              {loading ? (
+                <LoaderCircle size={13} className="spin" />
+              ) : visibleAlerts.length > 0 ? (
+                deleteAllConfirmationOpen ? (
+                  <div className="alert-delete-all-confirmation" role="group" aria-label="등록된 알림 전체 삭제 확인">
+                    <button
+                      type="button"
+                      className="alert-inline-button danger"
+                      aria-label="등록된 알림 전체 삭제 확인"
+                      title="등록된 알림 전체 삭제 확인"
+                      disabled={saving}
+                      onClick={() => void removeAllAlerts()}
+                    >
+                      {saving ? <LoaderCircle size={12} className="spin" /> : <Trash2 size={12} />}
+                      <span>삭제 확인</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="alert-icon-button"
+                      aria-label="등록된 알림 전체 삭제 취소"
+                      title="등록된 알림 전체 삭제 취소"
+                      disabled={saving}
+                      onClick={() => setDeleteAllConfirmationOpen(false)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="alert-inline-button danger"
+                    aria-label="등록된 알림 전체 삭제"
+                    title="등록된 알림 전체 삭제"
+                    disabled={saving}
+                    onClick={() => setDeleteAllConfirmationOpen(true)}
+                  >
+                    <Trash2 size={12} />
+                    <span>전체 삭제</span>
+                  </button>
+                )
+              ) : null}
             </div>
             <div className="alert-list">
               {visibleAlerts.map((alert) => (
