@@ -50,6 +50,8 @@ const hoverPanelFeaturedHeight = 64;
 const hoverPanelRowHeight = 24;
 const hoverPanelVerticalPadding = 8;
 const hoverPanelMaxRows = 12;
+const categoryHighlightColor = "#ffeb00";
+const categoryDividerLineWidth = tileGap * 2;
 
 export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style, className, interactive = true }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -189,12 +191,15 @@ function drawTreeMap(
   const sectorTiles = tiles.filter((tile) => tile.kind === "sector");
   const hoveredTile = hoverState?.tile ?? null;
   const highlightedIndustry = hoveredTile ? industryTiles.find((tile) => tile.id === hoveredTile.parentId) : undefined;
+  const highlightedSymbols = highlightedIndustry
+    ? symbolTiles.filter((tile) => tile.parentId === highlightedIndustry.id)
+    : [];
   const symbolBounds = boundsForSymbolTiles(symbolTiles);
   symbolTiles.forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale, symbolBounds));
   industryTiles.forEach((tile) => drawIndustry(context, tile, theme, opacityScale, symbolTiles));
   sectorTiles.forEach((tile) => drawSector(context, tile, theme));
   if (highlightedIndustry) {
-    drawCategoryHighlight(context, highlightedIndustry, theme);
+    drawCategoryHighlight(context, highlightedIndustry, highlightedSymbols);
   }
   if (hoverState) {
     drawHoverPanel(context, size, hoverState, highlightedIndustry, symbolTiles, theme);
@@ -287,18 +292,73 @@ function categoryBandForTopEdge(
   };
 }
 
-function drawCategoryHighlight(context: CanvasRenderingContext2D, tile: TreeMapTile, theme: TreeMapTheme) {
-  const rect = insetRect(tile, 1.5);
-  if (rect.width <= 4 || rect.height <= 4) {
+function drawCategoryHighlight(
+  context: CanvasRenderingContext2D,
+  industryTile: TreeMapTile,
+  symbolTiles: TreeMapTile[]
+) {
+  if (!symbolTiles.length) {
     return;
   }
+
+  const band = categoryBandForTopEdge(industryTile.band, industryTile, symbolTiles);
+  const rect = categoryHighlightBounds(band, symbolTiles);
+  if (!rect || rect.width <= 4 || rect.height <= 4) {
+    return;
+  }
+
   context.save();
-  context.shadowColor = "rgba(250, 204, 21, 0.55)";
-  context.shadowBlur = 10;
-  context.lineWidth = clamp(Math.min(rect.width, rect.height) * 0.016, 2.5, 4);
-  context.strokeStyle = theme.colors.caution || "#facc15";
-  strokeRoundedRect(context, rect.x, rect.y, rect.width, rect.height, Math.min(8, theme.radii.tile));
+  context.strokeStyle = categoryHighlightColor;
+  context.lineCap = "butt";
+  context.lineJoin = "miter";
+  context.beginPath();
+  context.rect(rect.x, rect.y, rect.width, rect.height);
+  context.clip();
+
+  // Raw symbol rectangles share the exact split coordinates. A line as wide as the
+  // normal tile gap fills that gap without shifting either neighboring tile.
+  context.lineWidth = categoryDividerLineWidth;
+  symbolTiles.forEach((tile) => {
+    context.strokeRect(tile.x, tile.y, tile.width, tile.height);
+  });
+
+  // Keep the outer edge inside the category's real painted bounds so it remains
+  // aligned with the industry band and does not spill into adjacent categories.
+  const outlineWidth = clamp(Math.min(rect.width, rect.height) * 0.016, 2.5, 4);
+  const outlineInset = outlineWidth / 2;
+  context.lineWidth = outlineWidth;
+  context.strokeRect(
+    rect.x + outlineInset,
+    rect.y + outlineInset,
+    Math.max(0, rect.width - outlineWidth),
+    Math.max(0, rect.height - outlineWidth)
+  );
   context.restore();
+}
+
+function categoryHighlightBounds(
+  band: TreeMapRect | undefined,
+  symbolTiles: TreeMapTile[]
+): TreeMapRect | null {
+  if (!symbolTiles.length) {
+    return null;
+  }
+  const left = Math.min(...symbolTiles.map((tile) => tile.x), band?.x ?? Number.POSITIVE_INFINITY);
+  const top = Math.min(...symbolTiles.map((tile) => tile.y), band?.y ?? Number.POSITIVE_INFINITY);
+  const right = Math.max(
+    ...symbolTiles.map((tile) => tile.x + tile.width),
+    band ? band.x + band.width : Number.NEGATIVE_INFINITY
+  );
+  const bottom = Math.max(
+    ...symbolTiles.map((tile) => tile.y + tile.height),
+    band ? band.y + band.height : Number.NEGATIVE_INFINITY
+  );
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top)
+  };
 }
 
 function drawHoverPanel(
@@ -806,16 +866,6 @@ function insetTile(tile: TreeMapTile, gap: number) {
     y: tile.y + inset,
     width: Math.max(0, tile.width - inset * 2),
     height: Math.max(0, tile.height - inset * 2)
-  };
-}
-
-function insetRect(rect: TreeMapRect, gap: number): TreeMapRect {
-  const inset = Math.min(gap, rect.width / 3, rect.height / 3);
-  return {
-    x: rect.x + inset,
-    y: rect.y + inset,
-    width: Math.max(0, rect.width - inset * 2),
-    height: Math.max(0, rect.height - inset * 2)
   };
 }
 
