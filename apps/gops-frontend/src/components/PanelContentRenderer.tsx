@@ -23,6 +23,8 @@ import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
+import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
+import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -64,6 +66,8 @@ type PanelContentRendererProps = {
   chartHeaderSnapshot?: ChartHeaderSnapshot;
   chartDocument?: ChartDocument;
   chartCandles: CandleDto[];
+  activeChartDocument?: ChartDocument;
+  activeChartCandles: CandleDto[];
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
@@ -103,6 +107,8 @@ export function PanelContentRenderer({
   chartHeaderSnapshot,
   chartDocument,
   chartCandles,
+  activeChartDocument,
+  activeChartCandles,
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
@@ -339,6 +345,20 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "chartCommentary") {
+    return (
+      <ChartCommentaryPanel
+        symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+        interval={normalizeChartInterval(activeChartDocument?.timeframe)}
+        candles={activeChartCandles}
+      />
+    );
+  }
+
+  if (content.kind === "chartAssetOps") {
+    return <ChartAssetOpsPanel currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()} />;
+  }
+
   if (content.kind !== "chart") {
     return <div className="workspace-panel-placeholder" aria-label={`${content.title} content`} data-panel-slot-id={slot.id}>준비 중입니다</div>;
   }
@@ -466,6 +486,12 @@ export function PanelContentRenderer({
 
 function normalizeChartType(value: string | undefined): ChartType {
   return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
+}
+
+function normalizeChartInterval(value: string | undefined): ChartInterval {
+  return chartIntervals.includes(value as ChartInterval) || bidAskChartIntervals.includes(value as ChartInterval)
+    ? value as ChartInterval
+    : "1D";
 }
 
 function chartTypeLabel(chartType: ChartType): string {

@@ -150,6 +150,14 @@ export function executeChartCommandGroup(
     return { ok: true, document, message: "No chart change.", noOp: true };
   }
 
+  if (commands.every((command) => command.historyScope === "external")) {
+    return {
+      ok: true,
+      document: next,
+      message: label
+    };
+  }
+
   const historyEntry: ChartHistoryEntry = {
     id: `chart-history-${crypto.randomUUID()}`,
     label,

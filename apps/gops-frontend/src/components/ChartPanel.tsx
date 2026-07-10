@@ -42,6 +42,18 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
+import {
+  fetchAnalysisAssets,
+  type AnalysisAssetInterval,
+  type AnalysisAssetsResponse
+} from "../chart/analysisAssetsApi";
+import {
+  analysisAssetApplyCommands,
+  analysisAssetRemovalCommands,
+  analysisLayerToggleCommands,
+  type AnalysisLayerKey,
+  type AnalysisLayerVisibility
+} from "../chart/analysisLayerController";
 import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
@@ -117,6 +129,7 @@ import {
   type ChartViewport,
   type ViewportClampOptions
 } from "../chart/viewport";
+import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
 
 function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
@@ -303,6 +316,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowSupportedSymbols, setOrderFlowSupportedSymbols] = useState<string[] | undefined>();
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
+  const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
+    structure: true,
+    trend: true,
+    agent: true
+  });
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -438,6 +457,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const wheelCommitTimerRef = useRef<number | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
+  const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
+  const appliedAnalysisAssetKeyRef = useRef("");
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -445,6 +466,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     chartRef.current = chart;
   }, [chart]);
+
+  useEffect(() => {
+    analysisLayerVisibilityRef.current = analysisLayerVisibility;
+  }, [analysisLayerVisibility]);
 
   useEffect(() => {
     if (!currentPriceMarker || currentPriceMarker.isClosed || currentPriceMarker.streamState !== "live") {
@@ -486,6 +511,86 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setTransientDrawings(null);
     emitDocumentCommand(type, payload, actor, historyScope);
   }, [emitDocumentCommand]);
+
+  const dispatchExternalCommandGroup = useCallback((commands: ChartCommand[], label: string) => {
+    if (!commands.length) {
+      return;
+    }
+    setDrawingDraft(null);
+    setDrawingDraftError(null);
+    setTransientDrawings(null);
+    onChartRuntimeAction({ kind: "chart.command.group", commands, label });
+  }, [onChartRuntimeAction]);
+
+  useEffect(() => {
+    const requestedSymbol = chart.symbol.trim().toUpperCase();
+    let active = true;
+    setAnalysisAssets((current) => current?.symbol === requestedSymbol ? current : null);
+    appliedAnalysisAssetKeyRef.current = "";
+    fetchAnalysisAssets(requestedSymbol)
+      .then((response) => {
+        if (active && response.symbol === requestedSymbol) {
+          setAnalysisAssets(response);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAnalysisAssets(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [chart.symbol]);
+
+  const activeAnalysisAsset = isAnalysisAssetInterval(chart.interval)
+    && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
+    ? analysisAssets.assets[chart.interval]
+    : null;
+  const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
+
+  useEffect(() => {
+    const interval = chart.interval;
+    const supportedInterval = isAnalysisAssetInterval(interval);
+    const asset = supportedInterval
+      && latestClosedAssetCandleTimestamp
+      && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
+      ? analysisAssets.assets[interval]
+      : null;
+    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none", latestClosedAssetCandleTimestamp ?? "none"].join("|");
+    if (appliedAnalysisAssetKeyRef.current === applyKey) {
+      return;
+    }
+    appliedAnalysisAssetKeyRef.current = applyKey;
+    const commands = analysisAssetApplyCommands(
+      commandTarget,
+      chart.drawings,
+      asset,
+      analysisLayerVisibilityRef.current
+    );
+    dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
+  }, [
+    analysisAssets,
+    chart.interval,
+    chart.symbol,
+    commandTarget,
+    dispatchExternalCommandGroup,
+    latestClosedAssetCandleTimestamp
+  ]);
+
+  const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
+    if (!activeAnalysisAsset) {
+      return;
+    }
+    const visible = !analysisLayerVisibilityRef.current[layer];
+    const next = { ...analysisLayerVisibilityRef.current, [layer]: visible };
+    analysisLayerVisibilityRef.current = next;
+    setAnalysisLayerVisibility(next);
+    dispatchExternalCommandGroup(
+      analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
+      `${visible ? "Show" : "Hide"} chart analysis ${layer}`
+    );
+  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
     if (!drawingSupportsTextEditing(drawing)) {
@@ -1267,8 +1372,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeExpansionsRef.current = [];
     setActiveExpansions([]);
     clearSemanticState();
+    dispatchExternalCommandGroup(
+      analysisAssetRemovalCommands(commandTarget, current.drawings),
+      "Clear chart analysis asset for interval change"
+    );
+    appliedAnalysisAssetKeyRef.current = "";
     dispatchDocumentCommand("chart.timeframe.set", { timeframe: nextInterval });
-  }, [clearSemanticState, dispatchDocumentCommand]);
+  }, [clearSemanticState, commandTarget, dispatchDocumentCommand, dispatchExternalCommandGroup]);
 
   const setChartType = useCallback((chartType: ChartType) => {
     const current = chartRef.current;
@@ -2061,6 +2171,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        <ChartAnalysisLayerToggles
+          visibility={analysisLayerVisibility}
+          disabled={{
+            structure: !activeAnalysisAsset,
+            trend: !activeAnalysisAsset,
+            agent: !activeAnalysisAsset || (activeAnalysisAsset.status === "degraded" && activeAnalysisAsset.layers.agent.drawings.length === 0)
+          }}
+          asOf={activeAnalysisAsset?.asOf}
+          stale={activeAnalysisAsset ? isAssetStale(activeAnalysisAsset.asOf, chart.candles) : false}
+          onToggle={toggleAnalysisLayer}
+        />
         {labelEditor && labelEditorLayout && (
           <input
             key={labelEditor.drawingId}
@@ -2795,6 +2916,29 @@ function chartMemoryKey(symbol: string, interval: ChartInterval): string {
 
 function candleSourceInterval(interval: ChartInterval): ChartInterval {
   return interval;
+}
+
+function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
+  return interval === "1D" || interval === "1W" || interval === "1M";
+}
+
+function latestClosedTimestamp(candles: CandleDto[]): string | null {
+  for (let index = candles.length - 1; index >= 0; index -= 1) {
+    if (candles[index]?.isClosed !== false) {
+      return candles[index]?.timestamp ?? null;
+    }
+  }
+  return null;
+}
+
+function isAssetStale(asOf: string, candles: CandleDto[]): boolean {
+  const asOfTime = Date.parse(asOf);
+  if (!Number.isFinite(asOfTime)) {
+    return false;
+  }
+  return candles.filter((candle) => (
+    candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime
+  )).length >= 2;
 }
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {

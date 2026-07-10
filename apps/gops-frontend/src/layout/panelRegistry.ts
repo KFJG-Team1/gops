@@ -29,6 +29,28 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 100
   },
   {
+    kind: "chartCommentary",
+    title: "차트 해설",
+    agentPanelType: "chartCommentary",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 48,
+    insertable: true
+  },
+  {
+    kind: "chartAssetOps",
+    title: "작도 자산(개발)",
+    agentPanelType: "chartAssetOps",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 35,
+    insertable: true
+  },
+  {
     kind: "compare",
     title: "비교",
     agentPanelType: "compareChart",

@@ -37,6 +37,7 @@ import {
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
+import { isLocalAgentDebugEnabled } from "./localAgentDebug";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
@@ -85,6 +86,7 @@ import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
+import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
 
 
 type ActiveAgentRun = {
@@ -101,7 +103,6 @@ type InteractiveAgentContext = {
 };
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
-const agentDebugStorageKey = "gops:agent-debug";
 const appUiScale = 1.2;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   topInset: workspaceTopInset,
@@ -229,28 +230,6 @@ function chartVisibleRange(chart: ChartState): { from: string; to: string } | nu
   const from = chart.candles[startIndex]?.timestamp;
   const to = chart.candles[endIndex]?.timestamp;
   return from && to ? { from, to } : null;
-}
-
-function isLocalAgentDebugEnabled(): boolean {
-  if (!import.meta.env.DEV || typeof window === "undefined") {
-    return false;
-  }
-  const paramValue = new URLSearchParams(window.location.search).get("agentDebug");
-  if (paramValue !== null) {
-    const normalized = paramValue.trim().toLowerCase();
-    const enabled = normalized === "" || ["1", "true", "yes", "on"].includes(normalized);
-    try {
-      window.localStorage.setItem(agentDebugStorageKey, enabled ? "1" : "0");
-    } catch {
-      // Local debug still works for this request even if storage is disabled.
-    }
-    return enabled;
-  }
-  try {
-    return window.localStorage.getItem(agentDebugStorageKey) === "1";
-  } catch {
-    return false;
-  }
 }
 
 function publishLocalAgentDebugSnapshot(
@@ -1358,6 +1337,7 @@ export function App() {
         onSelectSymbol={openSymbolPage}
         onToggleLayoutEditMode={toggleLayoutEditMode}
       />
+      <GlossaryTooltip />
     </main>
   );
 }

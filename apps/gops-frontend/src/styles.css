@@ -2593,6 +2593,379 @@ h2 {
   overflow: clip;
 }
 
+.chart-analysis-layer-controls {
+  position: absolute;
+  z-index: 4;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  max-width: calc(100% - 20px);
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-analysis-layer-buttons {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--coinbase-panel-strong) 88%, transparent);
+  box-shadow: var(--coinbase-glass-shadow);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.chart-analysis-layer-buttons button {
+  display: inline-flex;
+  min-width: 44px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-analysis-layer-buttons button:last-child {
+  border-right: 0;
+}
+
+.chart-analysis-layer-buttons button.is-active {
+  background: rgb(var(--framer-accent-blue-rgb) / 0.15);
+  color: var(--framer-accent-blue);
+}
+
+.chart-analysis-layer-buttons button:disabled {
+  color: var(--color-muted-soft);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.chart-analysis-asof {
+  overflow: hidden;
+  max-width: 120px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-analysis-asof.is-stale {
+  color: var(--gops-caution);
+}
+
+.chart-commentary-panel {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+  color: var(--color-text);
+}
+
+.chart-commentary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 9px;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-commentary-meta .is-stale {
+  color: var(--gops-caution);
+}
+
+.chart-commentary-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgb(var(--framer-accent-blue-rgb) / 0.38);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgb(var(--framer-accent-blue-rgb) / 0.12);
+  color: var(--framer-accent-blue);
+}
+
+.chart-commentary-badge.is-muted {
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.chart-commentary-badge.is-stale {
+  border-color: rgb(var(--gops-caution-rgb) / 0.4);
+  background: rgb(var(--gops-caution-rgb) / 0.1);
+}
+
+.chart-commentary-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-commentary-text {
+  margin: 16px 0;
+  color: var(--color-text);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  white-space: pre-wrap;
+}
+
+.chart-commentary-levels {
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-commentary-levels h3,
+.chart-commentary-levels p {
+  margin: 0;
+  font: inherit;
+}
+
+.chart-commentary-levels h3 {
+  color: var(--color-text);
+}
+
+.chart-commentary-levels ul {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0;
+  padding-left: 18px;
+}
+
+.chart-commentary-invalidation {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 14px 0 0;
+  color: var(--gops-caution);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-commentary-empty,
+.chart-asset-ops-gated {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--color-muted);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-align: center;
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.chart-commentary-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--framer-accent-blue);
+  border-radius: 50%;
+  animation: chart-commentary-spin 800ms linear infinite;
+}
+
+@keyframes chart-commentary-spin {
+  to { transform: rotate(360deg); }
+}
+
+.glossary-term {
+  border-bottom: 1px dotted var(--color-muted);
+  cursor: help;
+  transition: color 100ms ease;
+}
+
+.glossary-term:hover {
+  color: var(--framer-accent-blue);
+}
+
+.glossary-tooltip {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 280px;
+  gap: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--coinbase-panel-strong) 94%, transparent);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.32);
+  color: var(--color-text);
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.glossary-tooltip strong {
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.glossary-tooltip span {
+  color: var(--color-muted);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.chart-asset-ops-panel {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 12px;
+  color: var(--color-text);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-asset-ops-panel section {
+  border-bottom: 1px solid var(--color-border);
+  padding: 10px 0;
+}
+
+.chart-asset-ops-form {
+  display: grid;
+  gap: 9px;
+}
+
+.chart-asset-ops-check,
+.chart-asset-ops-options,
+.chart-asset-ops-options label,
+.chart-asset-ops-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.chart-asset-ops-symbols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.chart-asset-ops-symbols textarea,
+.chart-asset-ops-options input[type="number"] {
+  box-sizing: border-box;
+  min-height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  background: var(--coinbase-panel-muted);
+  color: var(--color-text);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-asset-ops-symbols textarea {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.chart-asset-ops-options input[type="number"] {
+  width: 68px;
+}
+
+.chart-asset-ops-panel button {
+  min-height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 5px 9px;
+  background: var(--coinbase-panel-muted);
+  color: var(--color-text);
+  cursor: pointer;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-asset-ops-panel button:hover:not(:disabled) {
+  border-color: var(--framer-accent-blue);
+  color: var(--framer-accent-blue);
+}
+
+.chart-asset-ops-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chart-asset-ops-error {
+  margin: 8px 0;
+  color: var(--gops-caution);
+}
+
+.chart-asset-ops-progress > div:first-child,
+.chart-asset-ops-coverage header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chart-asset-ops-progress progress {
+  width: 100%;
+  margin: 8px 0 3px;
+  accent-color: var(--framer-accent-blue);
+}
+
+.chart-asset-ops-progress p {
+  margin: 5px 0;
+}
+
+.chart-asset-ops-log {
+  max-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 7px;
+  background: var(--coinbase-canvas);
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: none;
+  white-space: pre-wrap;
+}
+
+.chart-asset-ops-table-wrap {
+  max-height: 190px;
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.chart-asset-ops-coverage table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.chart-asset-ops-coverage th,
+.chart-asset-ops-coverage td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 6px 5px;
+}
+
 /* TreeMap root: positioned directly (App passes top/left/width/height inline), no extra wrapper. */
 .treemap-panel {
   position: absolute;

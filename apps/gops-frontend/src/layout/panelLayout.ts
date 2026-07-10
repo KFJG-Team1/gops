@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { isLocalAgentDebugEnabled } from "../localAgentDebug";
 import { gridGutter } from "./grid";
 import { almostEqual, clamp, rangesOverlap, rectBottom, rectRight, rectsOverlap, uniqueStrings } from "./panelGeometry";
 import { panelPaletteLabel, panelRegistry, panelRegistryEntry, type PanelRegistryEntry } from "./panelRegistry";
@@ -36,6 +37,8 @@ export type PanelContentKind =
   | "portfolioHoldings"
   | "portfolioHoldingsCards"
   | "orderFlow"
+  | "chartCommentary"
+  | "chartAssetOps"
   | "trade";
 
 export type PanelSlotId = string;
@@ -642,7 +645,9 @@ export function defaultGridSpanForKind(kind: PanelContentKind): Pick<PanelGridRe
 }
 
 export function panelPaletteEntries(): readonly PanelRegistryEntry[] {
-  return panelRegistry.filter((entry) => entry.insertable !== false);
+  return panelRegistry.filter((entry) => (
+    entry.insertable !== false && (entry.kind !== "chartAssetOps" || isLocalAgentDebugEnabled())
+  ));
 }
 
 export function panelPaletteEntryLabel(kind: PanelContentKind): string {

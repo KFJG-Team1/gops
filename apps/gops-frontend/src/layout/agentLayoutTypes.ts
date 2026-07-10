@@ -28,6 +28,8 @@ export type AgentLayoutPanelType =
   | "portfolioDividend"
   | "portfolioDiversification"
   | "orderFlowProfile"
+  | "chartCommentary"
+  | "chartAssetOps"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

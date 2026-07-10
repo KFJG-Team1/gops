@@ -412,8 +412,10 @@ export type DrawingEntity = {
   style: DrawingStyle;
   label?: string;
   parallelLineCount?: number;
+  locked?: boolean;
   visible: boolean;
-  createdBy: "user" | "agent";
+  createdBy: "user" | "agent" | "system" | "llm";
+  sourceProposalId?: string;
   createdAt: string;
   updatedAt: string;
 };
