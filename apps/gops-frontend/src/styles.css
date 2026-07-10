@@ -190,7 +190,7 @@
   --color-purple: var(--coinbase-muted);
   --color-purple-soft: var(--coinbase-muted-soft);
   --layout-gutter: 24px;
-  --app-ui-scale: 0.8;
+  --app-ui-scale: 0.9;
   --app-logical-width: 100vw;
   --app-logical-height: 100vh;
   --top-nav-height: 48px;
@@ -5483,19 +5483,36 @@ h2 {
   gap: 5px;
 }
 
+.watchlist-news-heading {
+  margin: 0;
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+  color: var(--color-text);
+}
+
 .market-news-main a {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   text-decoration: none;
+}
+
+.market-news-main strong {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
 }
 
 .market-news-main p {
   margin: 0;
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   color: var(--color-muted);
 }
 
@@ -5759,9 +5776,9 @@ h2 {
 }
 
 .market-news-price-change {
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   flex: 0 0 auto;
 }
 
@@ -5779,9 +5796,9 @@ h2 {
 
 .market-news-summary {
   margin: 0;
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
   color: var(--color-text);
 }
 
