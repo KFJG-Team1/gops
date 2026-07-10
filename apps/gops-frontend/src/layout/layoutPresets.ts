@@ -29,7 +29,10 @@ export type AgentLayoutPresetSummary = {
   aliases: string[];
 };
 
-export type LayoutLoadPresetResult = "applied" | "missing" | "none";
+export type LayoutLoadPresetResult =
+  | { status: "applied"; presetId: string; presetName: string }
+  | { status: "missing"; presetId: string }
+  | { status: "none" };
 
 type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecItem[] };
 
@@ -353,13 +356,14 @@ export function applyLayoutLoadProposalToPresets(
 ): LayoutLoadPresetResult {
   const presetId = presetIdFromLayoutLoadProposal(proposal);
   if (!presetId) {
-    return "none";
+    return { status: "none" };
   }
-  if (!presets.some((preset) => preset.id === presetId)) {
-    return "missing";
+  const preset = presets.find((item) => item.id === presetId);
+  if (!preset) {
+    return { status: "missing", presetId };
   }
   applyPreset(presetId);
-  return "applied";
+  return { status: "applied", presetId, presetName: preset.name };
 }
 
 export function presetIdFromLayoutLoadProposal(proposal: AgentLayoutProposal): string | null {

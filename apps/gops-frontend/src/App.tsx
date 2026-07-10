@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
 import { PresetDock } from "./components/PresetDock";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migratePortfolioInvestmentSnapshot, type LayoutPreset } from "./layout/layoutPresets";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -797,19 +797,31 @@ export function App() {
     }
   }, []);
 
-  const applyPresetLoadProposal = useCallback((proposal: AgentLayoutProposal): "applied" | "missing" | "none" => {
+  const applyPresetLoadProposal = useCallback((proposal: AgentLayoutProposal): LayoutLoadPresetResult => {
     return applyLayoutLoadProposalToPresets(proposal, presetControls.presets, presetControls.applyPreset);
   }, [presetControls]);
 
+  const handlePresetLoadResult = useCallback((
+    result: LayoutLoadPresetResult,
+    options: { userEntry?: ChatLogEntry } = {}
+  ): LayoutLoadPresetResult["status"] => {
+    if (result.status === "applied") {
+      return "applied";
+    }
+    if (result.status === "missing") {
+      setChatLog((entries) => [
+        ...entries,
+        ...(options.userEntry ? [options.userEntry] : []),
+        createChatLogEntry("system", "프리셋을 찾지 못했습니다.")
+      ]);
+      return "missing";
+    }
+    return "none";
+  }, []);
+
   const applyAgentLayoutProposal = useCallback((proposal: AgentLayoutProposal) => {
     const presetLoadResult = applyPresetLoadProposal(proposal);
-    if (presetLoadResult !== "none") {
-      if (presetLoadResult === "missing") {
-        setChatLog((entries) => [
-          ...entries,
-          createChatLogEntry("system", "프리셋을 찾지 못했습니다.")
-        ]);
-      }
+    if (handlePresetLoadResult(presetLoadResult) !== "none") {
       return;
     }
     const preview = applyTiledAgentLayoutProposalWithResult(panelState, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
@@ -835,7 +847,7 @@ export function App() {
       }
       return next;
     });
-  }, [applyPresetLoadProposal, panelState]);
+  }, [applyPresetLoadProposal, handlePresetLoadResult, panelState]);
 
   const handlePlacementPickSelect = useCallback((candidate: PlacementPickCandidate) => {
     const pick = pendingPlacementPick;
@@ -1017,16 +1029,9 @@ export function App() {
         });
         if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
           const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-          if (presetLoadResult !== "none") {
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              createChatLogEntry(
-                presetLoadResult === "missing" ? "system" : "assistant",
-                presetLoadResult === "missing" ? "프리셋을 찾지 못했습니다." : layoutResolutionMessage(layoutResolution)
-              )
-            ]);
-            return "chat-log";
+          const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+          if (presetLoadStatus !== "none") {
+            return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
           }
         }
         if (layoutResolution?.status === "ui_clarify") {
@@ -1081,16 +1086,9 @@ export function App() {
               throw new Error(`${addSymbol} 차트 패널을 추가할 수 없습니다.`);
             }
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            if (presetLoadResult !== "none") {
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry(
-                  presetLoadResult === "missing" ? "system" : "assistant",
-                  presetLoadResult === "missing" ? "프리셋을 찾지 못했습니다." : layoutResolutionMessage(layoutResolution)
-                )
-              ]);
-              return "chat-log";
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            if (presetLoadStatus !== "none") {
+              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
             }
             const applyResult = applyTiledAgentLayoutProposalWithResult(
               nextPanelState,
@@ -1156,16 +1154,9 @@ export function App() {
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            if (presetLoadResult !== "none") {
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry(
-                  presetLoadResult === "missing" ? "system" : "assistant",
-                  presetLoadResult === "missing" ? "프리셋을 찾지 못했습니다." : layoutResolutionMessage(layoutResolution)
-                )
-              ]);
-              return "chat-log";
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            if (presetLoadStatus !== "none") {
+              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
             }
             const preview = applyTiledAgentLayoutProposalWithResult(
               panelState,
@@ -1291,15 +1282,7 @@ export function App() {
         if (layoutResolution?.status === "ui_layout") {
           if (layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            if (presetLoadResult !== "none") {
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry(
-                  presetLoadResult === "missing" ? "system" : "assistant",
-                  presetLoadResult === "missing" ? "프리셋을 찾지 못했습니다." : layoutResolutionMessage(layoutResolution)
-                )
-              ]);
+            if (handlePresetLoadResult(presetLoadResult, { userEntry }) !== "none") {
               return;
             }
             const preview = applyTiledAgentLayoutProposalWithResult(
@@ -1427,7 +1410,7 @@ export function App() {
 
     void runChartPrompt();
     return "chat-log";
-  }, [agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, viewportSize]);
+  }, [agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, viewportSize]);
 
 
   return (
