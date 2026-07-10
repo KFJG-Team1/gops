@@ -124,7 +124,7 @@ function normalizeDailyResponse(payload: unknown): OrderFlowDailyResponseDto {
     symbol: source.symbol.trim().toUpperCase(),
     priceBinSize: finiteNumber(source.priceBinSize, 0.01),
     sideClassification: "estimated",
-    classificationVersion: source.classificationVersion ?? "orderflow-estimated-v1",
+    classificationVersion: source.classificationVersion ?? "orderflow-estimated-v2",
     from: source.from ?? "",
     to: source.to ?? "",
     dataStatus: normalizeDataStatus(source.dataStatus),

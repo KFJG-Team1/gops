@@ -22,7 +22,7 @@ export type ChatLogEntry = {
   confidence?: number;
   analysisReport?: AgentAnalysisReport | null;
 };
-export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ignored";
+export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ui-action" | "ignored";
 
 type AlertToastQueueState = {
   current: AlertToastQueueItem | null;

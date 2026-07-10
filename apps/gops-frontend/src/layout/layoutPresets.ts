@@ -9,6 +9,7 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./panelLayout";
+import type { AgentLayoutProposal } from "./agentLayoutTypes";
 
 export type DefaultPresetId = "market" | "stock" | "chart" | "compare" | "asset";
 
@@ -21,9 +22,21 @@ export type LayoutPreset = {
   layout?: StoredTiledPanelState;
 };
 
+export type AgentLayoutPresetSummary = {
+  id: string;
+  kind: "default" | "custom";
+  name: string;
+  aliases: string[];
+};
+
+export type LayoutLoadPresetResult =
+  | { status: "applied"; presetId: string; presetName: string }
+  | { status: "missing"; presetId: string }
+  | { status: "none" };
+
 type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecItem[] };
 
-// Sensible starting arrangements built from the existing panels (8 cols x 5 rows).
+// Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
 const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinition> = {
   market: {
@@ -267,4 +280,137 @@ export function nextCustomPresetName(existingNames: readonly string[]): string {
 
 export function createCustomPresetId(): string {
   return `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function buildAgentLayoutPresetSummaries(presets: readonly LayoutPreset[]): AgentLayoutPresetSummary[] {
+  return presets.map((preset) => ({
+    id: preset.id,
+    kind: preset.kind,
+    name: preset.name,
+    aliases: presetAliasesForAgent(preset)
+  }));
+}
+
+const presetLoadPromptSignals = [
+  "프리셋",
+  "preset",
+  "창",
+  "화면",
+  "모드",
+  "레이아웃",
+  "뷰",
+  "대시보드",
+  "페이지",
+  "워크스페이스",
+  "띄워",
+  "띠워",
+  "열어",
+  "보여",
+  "표시",
+  "불러",
+  "적용",
+  "전환",
+  "바꿔",
+  "가줘",
+  "넘겨",
+  "이동",
+  "window",
+  "screen",
+  "mode",
+  "layout",
+  "view",
+  "dashboard",
+  "page",
+  "workspace",
+  "open",
+  "show",
+  "load",
+  "switch"
+];
+
+export function isLikelyPresetLoadPrompt(
+  prompt: string,
+  presets: readonly AgentLayoutPresetSummary[]
+): boolean {
+  const compactPrompt = compactPresetPrompt(prompt);
+  if (!compactPrompt) {
+    return false;
+  }
+  const hasLoadSignal = presetLoadPromptSignals.some((signal) => compactPrompt.includes(compactPresetPrompt(signal)));
+  if (!hasLoadSignal) {
+    return false;
+  }
+  return presets.some((preset) => {
+    const aliases = [preset.name, ...preset.aliases];
+    return aliases.some((alias) => {
+      const compactAlias = compactPresetPrompt(alias);
+      return Boolean(compactAlias) && compactPrompt.includes(compactAlias);
+    });
+  });
+}
+
+export function applyLayoutLoadProposalToPresets(
+  proposal: AgentLayoutProposal,
+  presets: readonly LayoutPreset[],
+  applyPreset: (id: string) => void
+): LayoutLoadPresetResult {
+  const presetId = presetIdFromLayoutLoadProposal(proposal);
+  if (!presetId) {
+    return { status: "none" };
+  }
+  const preset = presets.find((item) => item.id === presetId);
+  if (!preset) {
+    return { status: "missing", presetId };
+  }
+  applyPreset(presetId);
+  return { status: "applied", presetId, presetName: preset.name };
+}
+
+export function presetIdFromLayoutLoadProposal(proposal: AgentLayoutProposal): string | null {
+  const command = proposal.commands.find((item) => item.type === "layout.load");
+  if (!command) {
+    return null;
+  }
+  return readPresetString(command.payload.presetId) ?? readPresetString(command.payload.id);
+}
+
+function presetAliasesForAgent(preset: LayoutPreset): string[] {
+  const base = preset.name.trim();
+  const suffixes = [
+    "프리셋",
+    "창",
+    "화면",
+    "모드",
+    "레이아웃",
+    "뷰",
+    "대시보드",
+    "페이지",
+    "워크스페이스",
+    "preset",
+    "window",
+    "screen",
+    "mode",
+    "layout",
+    "view",
+    "dashboard",
+    "page",
+    "workspace"
+  ];
+  const aliases = [
+    base,
+    base.replace(/\s+/g, ""),
+    ...suffixes.flatMap((suffix) => [`${base} ${suffix}`, `${base}${suffix}`])
+  ];
+  if (preset.kind === "default") {
+    aliases.push(preset.id);
+  }
+  return Array.from(new Set(aliases.map((alias) => alias.trim()).filter(Boolean)));
+}
+
+function readPresetString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function compactPresetPrompt(value: string): string {
+  return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
 }

@@ -1,7 +1,8 @@
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "./candleStore";
 import { createChartDocument } from "./chartDocuments";
-import { normalizeChartInterval } from "./intervals";
+import { normalizeChartInterval, type ChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
+import { canonicalTimestamp } from "./time";
 import {
   executeChartCommand,
   executeChartCommandGroup,
@@ -12,6 +13,7 @@ import {
   validateChartProposal
 } from "./commands";
 import type {
+  CandleData,
   CandleEvent,
   CandleSnapshot,
   ChartCommand,
@@ -23,7 +25,8 @@ import type {
   RealtimeLayerEvent,
   ChartRuntimeError,
   ChartRuntimeState,
-  StreamStatus
+  StreamStatus,
+  TradeTickData
 } from "./types";
 
 export type { ChartRuntimeState } from "./types";
@@ -136,11 +139,11 @@ export function getStreamMessageForDocument(state: ChartRuntimeState, document: 
 }
 
 export function getLiveTradeForSymbol(state: ChartRuntimeState, symbol: string) {
-  return state.liveTradesBySymbol?.[symbol];
+  return state.liveTradesBySymbol?.[symbol.toUpperCase()] ?? state.liveTradesBySymbol?.[symbol];
 }
 
 export function getLiveQuoteForSymbol(state: ChartRuntimeState, symbol: string) {
-  return state.liveQuotesBySymbol?.[symbol];
+  return state.liveQuotesBySymbol?.[symbol.toUpperCase()] ?? state.liveQuotesBySymbol?.[symbol];
 }
 
 function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
@@ -254,18 +257,184 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
 }
 
 function applyRealtimeLayerEvent(state: ChartRuntimeState, event: RealtimeLayerEvent): ChartRuntimeState {
+  const symbol = event.symbol.toUpperCase();
   if (event.type === "LIVE_TRADE_UPDATE") {
+    const candlePatch = applyTradeTickToLiveCandles(state.candlesByKey, symbol, event.data);
+    const documents = candlePatch.appendedIntervals.reduce(
+      (current, interval) => freezeDetachedViewports(current, symbol, interval, 1),
+      state.documents
+    );
     return {
       ...state,
-      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [event.symbol]: event.data },
-      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${event.symbol} live trade updated.`)
+      candlesByKey: candlePatch.changed ? candlePatch.candlesByKey : state.candlesByKey,
+      documents,
+      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [symbol]: event.data },
+      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${symbol} live trade updated.`)
     };
   }
   return {
     ...state,
-    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [event.symbol]: event.data },
-    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${event.symbol} live quote updated.`)
+    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [symbol]: event.data },
+    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${symbol} live quote updated.`)
   };
+}
+
+function applyTradeTickToLiveCandles(
+  candlesByKey: ChartRuntimeState["candlesByKey"],
+  symbol: string,
+  trade: TradeTickData
+): { candlesByKey: ChartRuntimeState["candlesByKey"]; appendedIntervals: string[]; changed: boolean } {
+  const price = trade.price;
+  const tradeTime = trade.timestamp ? Date.parse(trade.timestamp) : Number.NaN;
+  if (typeof price !== "number" || !Number.isFinite(price) || !Number.isFinite(tradeTime)) {
+    return { candlesByKey, appendedIntervals: [], changed: false };
+  }
+
+  const prefix = `${symbol}::`;
+  let changed = false;
+  const appendedIntervals: string[] = [];
+  const nextByKey: ChartRuntimeState["candlesByKey"] = {};
+
+  Object.entries(candlesByKey).forEach(([key, candles]) => {
+    if (!key.startsWith(prefix)) {
+      nextByKey[key] = candles;
+      return;
+    }
+    const interval = normalizeChartInterval(key.slice(prefix.length));
+    if (!interval) {
+      nextByKey[key] = candles;
+      return;
+    }
+    const result = applyTradeTickToCandleSeries(candles, interval, trade, tradeTime, price);
+    nextByKey[key] = result.candles;
+    if (result.changed) {
+      changed = true;
+    }
+    if (result.appended) {
+      appendedIntervals.push(interval);
+    }
+  });
+
+  return {
+    candlesByKey: changed ? nextByKey : candlesByKey,
+    appendedIntervals,
+    changed
+  };
+}
+
+function applyTradeTickToCandleSeries(
+  candles: CandleData[],
+  interval: ChartInterval,
+  trade: TradeTickData,
+  tradeTime: number,
+  price: number
+): { candles: CandleData[]; appended: boolean; changed: boolean } {
+  if (!candles.length) {
+    return { candles, appended: false, changed: false };
+  }
+
+  const bucketTimestamp = tradeBucketTimestamp(tradeTime, interval);
+  const bucketTime = Date.parse(bucketTimestamp);
+  const last = candles[candles.length - 1];
+  const lastTimestamp = canonicalTimestamp(last.timestamp);
+  const lastTime = lastTimestamp ? Date.parse(lastTimestamp) : Number.NaN;
+  if (!lastTimestamp || !Number.isFinite(lastTime)) {
+    return { candles, appended: false, changed: false };
+  }
+
+  if (bucketTimestamp === lastTimestamp) {
+    if (last.isClosed) {
+      return { candles, appended: false, changed: false };
+    }
+    const next = patchLiveCandleWithTrade(last, price, trade);
+    if (
+      next.close === last.close &&
+      next.high === last.high &&
+      next.low === last.low &&
+      next.updatedAt === last.updatedAt
+    ) {
+      return { candles, appended: false, changed: false };
+    }
+    const patched = candles.slice();
+    patched[patched.length - 1] = next;
+    return { candles: patched, appended: false, changed: true };
+  }
+
+  if (bucketTime > lastTime) {
+    return {
+      candles: [...candles, provisionalCandleFromTrade(bucketTimestamp, price, trade)],
+      appended: true,
+      changed: true
+    };
+  }
+
+  return { candles, appended: false, changed: false };
+}
+
+function patchLiveCandleWithTrade(candle: CandleData, price: number, trade: TradeTickData): CandleData {
+  const high = typeof candle.high === "number" && Number.isFinite(candle.high)
+    ? Math.max(candle.high, price)
+    : price;
+  const low = typeof candle.low === "number" && Number.isFinite(candle.low)
+    ? Math.min(candle.low, price)
+    : price;
+  return {
+    ...candle,
+    high,
+    low,
+    close: price,
+    isClosed: false,
+    updatedAt: trade.updatedAt ?? trade.timestamp ?? candle.updatedAt
+  };
+}
+
+function provisionalCandleFromTrade(timestamp: string, price: number, trade: TradeTickData): CandleData {
+  return {
+    timestamp,
+    open: price,
+    high: price,
+    low: price,
+    close: price,
+    volume: 0,
+    isClosed: false,
+    updatedAt: trade.updatedAt ?? trade.timestamp
+  };
+}
+
+function tradeBucketTimestamp(tradeTime: number, interval: ChartInterval): string {
+  const bucket = new Date(tradeTime);
+  bucket.setUTCSeconds(0, 0);
+  switch (interval) {
+    case "1m":
+      break;
+    case "5m":
+      bucket.setUTCMinutes(Math.floor(bucket.getUTCMinutes() / 5) * 5);
+      break;
+    case "10m":
+      bucket.setUTCMinutes(Math.floor(bucket.getUTCMinutes() / 10) * 10);
+      break;
+    case "1h":
+      bucket.setUTCMinutes(0);
+      break;
+    case "4h":
+      bucket.setUTCHours(Math.floor(bucket.getUTCHours() / 4) * 4, 0, 0, 0);
+      break;
+    case "1D":
+      bucket.setUTCHours(0, 0, 0, 0);
+      break;
+    case "1W": {
+      bucket.setUTCHours(0, 0, 0, 0);
+      const day = bucket.getUTCDay();
+      const mondayOffset = day === 0 ? 6 : day - 1;
+      bucket.setUTCDate(bucket.getUTCDate() - mondayOffset);
+      break;
+    }
+    case "1M":
+      bucket.setUTCDate(1);
+      bucket.setUTCHours(0, 0, 0, 0);
+      break;
+  }
+  return bucket.toISOString();
 }
 
 function freezeDetachedViewports(

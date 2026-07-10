@@ -1,6 +1,7 @@
 import {
   getCandlesForDocument,
   getDataStatusForDocument,
+  getLiveTradeForSymbol,
   getStreamMessageForDocument,
   getStreamStatusForDocument,
   makeChartCommand,
@@ -658,6 +659,7 @@ export function PanelWorkspace({
         const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
         const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
+        const chartLiveTrade = chartDocument ? getLiveTradeForSymbol(chartRuntime, chartDocument.symbol) : undefined;
         const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
         const previewGridRect = layoutPreview?.mode === "resize"
           && layoutPreview.valid
@@ -709,6 +711,7 @@ export function PanelWorkspace({
               chartDataStatus={chartDataStatus}
               chartStreamStatus={chartStreamStatus}
               chartStreamMessage={chartStreamMessage}
+              chartLiveTrade={chartLiveTrade}
               chartDrawingActive={drawingTargetContentId === content.id}
               chartAddActive={chartAddTargetContentId === content.id}
               selectedAgentReferenceKeys={selectedAgentReferenceKeys}

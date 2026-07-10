@@ -160,7 +160,7 @@ function demoDailyResponse(
     symbol,
     priceBinSize: demoPriceBinSize,
     sideClassification: "estimated",
-    classificationVersion: "orderflow-estimated-v1",
+    classificationVersion: "orderflow-estimated-v2",
     from,
     to,
     dataStatus,

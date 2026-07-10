@@ -28,7 +28,7 @@ import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChar
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
 import { buildChartAgentContext, buildChartProposalRequest } from "../../chart-engine/src/proposals";
 import { buildRenderScene } from "../../chart-engine/src/renderScene";
-import { chartRuntimeReducer, createInitialChartRuntimeState, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
+import { chartRuntimeReducer, createInitialChartRuntimeState, getLiveTradeForSymbol, type ChartRuntimePanel } from "../../chart-engine/src/runtime";
 import { createCoordinateTransform } from "../../chart-engine/src/scales";
 import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPayload, normalizeSupportedSymbol, normalizeWatchlistPayload } from "../../chart-engine/src/symbols";
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
@@ -124,6 +124,7 @@ import {
   applyTiledAgentLayoutProposalWithResult,
   buildTiledAgentLayoutContext
 } from "../src/layout/tiledAgentLayout";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, isLikelyPresetLoadPrompt } from "../src/layout/layoutPresets";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
   clampRightOffset,
@@ -351,12 +352,12 @@ const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
-assert.equal(fallbackChartStyle.background, "#ffffff");
-assert.equal(fallbackChartStyle.text, "#0a0b0d");
-assert.equal(fallbackChartStyle.grid, "rgba(10, 11, 13, 0.08)");
-assert.equal(fallbackChartStyle.volume, "rgba(10, 11, 13, 0.12)");
-assert.equal(fallbackChartStyle.bullish, "#05b169");
-assert.equal(fallbackChartStyle.bearish, "#cf202f");
+assert.equal(fallbackChartStyle.background, "#090909");
+assert.equal(fallbackChartStyle.text, "#ffffff");
+assert.equal(fallbackChartStyle.grid, "rgba(255, 255, 255, 0.08)");
+assert.equal(fallbackChartStyle.volume, "rgba(255, 255, 255, 0.12)");
+assert.equal(fallbackChartStyle.bullish, "#22c55e");
+assert.equal(fallbackChartStyle.bearish, "#ff5577");
 setDefaultChartStyle({
   background: "#242832",
   bullish: "#05b169",
@@ -1156,6 +1157,33 @@ if (normalizedTrade.type !== "LIVE_TRADE_UPDATE") {
 assert.equal(normalizedTrade.data.price, 197.66);
 const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
 assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
+assert.equal(getLiveTradeForSymbol(tradeLayerRuntime, "nvda")?.price, 197.66);
+const tradePatchedCandles = tradeLayerRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(tradePatchedCandles.length, 2);
+assert.equal(tradePatchedCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(tradePatchedCandles[1]?.open, 197.66);
+assert.equal(tradePatchedCandles[1]?.high, 197.66);
+assert.equal(tradePatchedCandles[1]?.low, 197.66);
+assert.equal(tradePatchedCandles[1]?.close, 197.66);
+assert.equal(tradePatchedCandles[1]?.volume, 0);
+assert.equal(tradePatchedCandles[1]?.isClosed, false);
+const nextTrade = normalizeRealtimeLayerEvent({
+  type: "LIVE_TRADE_UPDATE",
+  symbol: "NVDA",
+  data: { price: "199.10", timestamp: "2026-07-02T14:33:00Z" }
+});
+if (nextTrade.type !== "LIVE_TRADE_UPDATE") {
+  throw new Error("expected next trade payload");
+}
+const nextTradeRuntime = chartRuntimeReducer(tradeLayerRuntime, { kind: "chart.layer.live", event: nextTrade });
+const nextTradeCandles = nextTradeRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(nextTradeCandles.length, 2);
+assert.equal(nextTradeCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(nextTradeCandles[1]?.open, 197.66);
+assert.equal(nextTradeCandles[1]?.high, 199.1);
+assert.equal(nextTradeCandles[1]?.low, 197.66);
+assert.equal(nextTradeCandles[1]?.close, 199.1);
+assert.equal(nextTradeCandles[1]?.volume, 0);
 
 assert.equal(isChartDataRenderable({
   state: "partial",
@@ -1472,9 +1500,9 @@ assert.equal(stepOrderFlowTargetRows(16, -1, 44), 12);
 assert.equal(stepOrderFlowTargetRows(44, 1, 50), 50);
 assert.equal(effectiveOrderFlowPriceStep(1.2, 32, 0.01), 0.05);
 assert.equal(visibleScaleMax([ladder]), 105);
-assert.equal(chartColumnTier(80), "full");
-assert.equal(chartColumnTier(30), "standard");
-assert.equal(chartColumnTier(12), "compact");
+assert.equal(chartColumnTier(56), "full");
+assert.equal(chartColumnTier(20), "standard");
+assert.equal(chartColumnTier(8), "compact");
 assert.equal(chartColumnTier(6), "micro");
 
 const orderFlowUpdateA: OrderFlowMinuteUpdate = {
@@ -1656,7 +1684,7 @@ const defaultChartSlot = tiledState.slots.find((slot) => slot.id === "slot-chart
 const initialNewsSlot = tiledState.slots.find((slot) => slot.id === "slot-news");
 const initialOntologySlot = tiledState.slots.find((slot) => slot.id === "slot-ontology");
 const defaultChartContent = defaultChartSlot ? tiledState.contents[defaultChartSlot.contentId] : undefined;
-const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 3 }, tiledViewport);
+const expectedInitialChartRect = panelRectForGridRect({ col: 1, row: 3, colSpan: 8, rowSpan: 4 }, tiledViewport);
 const expectedInitialNewsRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedInitialOntologyRect = panelRectForGridRect({ col: 5, row: 1, colSpan: 4, rowSpan: 2 }, tiledViewport);
 const expectedChartMinRect = panelRectForGridRect({ col: 1, row: 1, colSpan: 2, rowSpan: 1 }, tiledViewport);
@@ -1683,7 +1711,7 @@ const testSlotsOverlap = (slots: Array<{ rect: { left: number; top: number; widt
   }
   return false;
 };
-assert.deepEqual(panelGridSpec, { cols: 8, rows: 5 });
+assert.deepEqual(panelGridSpec, { cols: 8, rows: 6 });
 assert.deepEqual(
   tiledState.slots.map((slot) => tiledState.contents[slot.contentId]?.kind).sort(),
   ["chart", "news", "ontology"]
@@ -1702,7 +1730,7 @@ assert.ok(defaultChartDocument);
 assert.equal(defaultChartDocument.layers.volume, false);
 assert.equal((defaultChartContent as Record<string, unknown> | undefined)?.isDefaultChart, undefined);
 assert.equal((defaultChartSlot as Record<string, unknown> | undefined)?.required, undefined);
-assert.deepEqual(defaultChartSlot.gridRect, { col: 1, row: 3, colSpan: 8, rowSpan: 3 });
+assert.deepEqual(defaultChartSlot.gridRect, { col: 1, row: 3, colSpan: 8, rowSpan: 4 });
 assert.deepEqual(initialNewsSlot.gridRect, { col: 1, row: 1, colSpan: 4, rowSpan: 2 });
 assert.deepEqual(initialOntologySlot.gridRect, { col: 5, row: 1, colSpan: 4, rowSpan: 2 });
 assert.deepEqual(defaultChartSlot.rect, expectedInitialChartRect);
@@ -1985,21 +2013,25 @@ const ontologySouthYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ont
 assert.equal(ontologySouthYieldPlan.valid, true);
 assert.deepEqual(ontologySouthYieldPlan.yieldedSlots, [{
   slotId: "slot-chart",
-  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 3 },
-  gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 2 }
+  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 4 },
+  gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 3 }
 }]);
 const ontologySouthYieldState = applyPanelResizeWithYield(tiledState, ontologySouthYieldPlan, tiledViewport);
 assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-ontology")?.gridRect, { col: 5, row: 1, colSpan: 4, rowSpan: 3 });
-assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-chart")?.gridRect, { col: 1, row: 4, colSpan: 8, rowSpan: 2 });
+assert.deepEqual(ontologySouthYieldState.slots.find((slot) => slot.id === "slot-chart")?.gridRect, { col: 1, row: 4, colSpan: 8, rowSpan: 3 });
 assert.equal(layoutHasGapsOrOverlaps(ontologySouthYieldState, tiledViewport), false);
-const ontologySouthBlockedPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 5, row: 1, colSpan: 4, rowSpan: 5 });
-assert.equal(ontologySouthBlockedPlan.valid, false);
-assert.equal(ontologySouthBlockedPlan.reason, "minimum-span");
+const ontologySouthCompressedPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 5, row: 1, colSpan: 4, rowSpan: 5 });
+assert.equal(ontologySouthCompressedPlan.valid, true);
+assert.deepEqual(ontologySouthCompressedPlan.yieldedSlots, [{
+  slotId: "slot-chart",
+  previousGridRect: { col: 1, row: 3, colSpan: 8, rowSpan: 4 },
+  gridRect: { col: 1, row: 6, colSpan: 8, rowSpan: 1 }
+}]);
 const ontologyDiagonalYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 4, row: 1, colSpan: 5, rowSpan: 3 });
 assert.equal(ontologyDiagonalYieldPlan.valid, true);
 assert.deepEqual(ontologyDiagonalYieldPlan.yieldedSlots.map((slot) => [slot.slotId, slot.gridRect]), [
   ["slot-news", { col: 1, row: 1, colSpan: 3, rowSpan: 2 }],
-  ["slot-chart", { col: 1, row: 4, colSpan: 8, rowSpan: 2 }]
+  ["slot-chart", { col: 1, row: 4, colSpan: 8, rowSpan: 3 }]
 ]);
 const cornerCollisionContents = {
   "content-source": { id: "content-source", kind: "ontology" as const, title: "온톨로지", instanceIndex: 1 },
@@ -2255,7 +2287,6 @@ assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.props?.sym
 assert.equal(typeof chartAddState.contents[addedChartSlot?.contentId ?? ""]?.chartDocumentId, "string");
 assert.equal(chartAddState.contents[addedChartSlot?.contentId ?? ""]?.layoutWeight, 120);
 assert.deepEqual(addedChartSlot.gridRect, { col: 1, row: 4, colSpan: 4, rowSpan: 2 });
-assert.equal(rectBottom(addedChartSlot.rect), tiledInnerBottom);
 assert.equal(chartAddState.slots.filter((slot) => chartAddState.contents[slot.contentId]?.kind === "chart").length, 2);
 assert.equal(layoutHasGapsOrOverlaps(chartAddState, tiledViewport), false);
 
@@ -2786,7 +2817,13 @@ assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
 assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
+assert.match(appSource, /isLikelyPresetLoadPrompt\(prompt, agentPresetSummaries\)/);
+assert.doesNotMatch(appSource, /showPresetApplyFeedback/);
+assert.match(appSource, /return presetLoadStatus === "applied" \? "ui-action" : "chat-log";/);
 const agentShortcutIndex = appSource.indexOf("resolveAgentChartShortcut(prompt)");
+const presetShortcutIndex = appSource.indexOf("isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)");
+assert.ok(presetShortcutIndex > -1);
+assert.ok(presetShortcutIndex < agentShortcutIndex);
 assert.ok(agentShortcutIndex >= 0);
 assert.ok(agentShortcutIndex < appSource.indexOf("if (mainView.mode !== \"chart\")", agentShortcutIndex));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
@@ -2796,12 +2833,22 @@ assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Ag
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
+assert.match(bottomCommandBarSource, /ui-action/);
+assert.match(bottomCommandBarSource, /result === "chat-log"[\s\S]*setChatPanelOpen\(true\)/);
+assert.doesNotMatch(bottomCommandBarSource, /result === "ui-action"[\s\S]{0,160}setChatPanelOpen\(true\)/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /선택한 자료/);
 assert.match(bottomCommandBarSource, /bottom-chat-message-text/);
 assert.match(bottomCommandBarSource, /bottom-chat-loading-mark/);
 assert.match(bottomCommandBarSource, /bottom-chat-confidence-dot/);
 assert.match(bottomCommandBarSource, /신뢰도 \$\{percent\}%/);
+
+const presetDockSource = readFileSync(fileURLToPath(new URL("../src/components/PresetDock.tsx", import.meta.url)), "utf-8");
+assert.doesNotMatch(presetDockSource, /statusFeedback/);
+assert.doesNotMatch(presetDockSource, /layout-preset-status/);
+assert.doesNotMatch(presetDockSource, /role="status"/);
+assert.doesNotMatch(presetDockSource, /aria-live="polite"/);
+
 assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /export type BottomMenuKey = "II" \| "III" \| "IV" \| "V" \| "VI";/);
@@ -2810,7 +2857,8 @@ assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \[
 assert.match(bottomCommandBarSource, /const sideRailMenuKeys: BottomMenuKey\[\] = sideMenuKeys\.filter\(\(key\) => key !== "IV"\);/);
 assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
 assert.match(bottomCommandBarSource, /aria-label="로그인"/);
-assert.match(bottomCommandBarSource, /Logout\/profile live in Settings/);
+assert.match(bottomCommandBarSource, /case "VI":[\s\S]*<SettingsMenu/);
+assert.match(bottomCommandBarSource, /title="로그인\/프로필"/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
@@ -2880,6 +2928,7 @@ assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /Paintbrush/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
+assert.match(chartPanelSource, /liveTradePrice/);
 assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
@@ -2894,6 +2943,10 @@ assert.match(chartPanelSource, /trendExtensionButtons\.map/);
 assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{ daily: orderFlowDaily, today: orderFlowTodayDay \} : null/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);
 assert.match(chartPanelSource, /hitTestTimeAxisUnit/);
+assert.match(chartPanelSource, /semanticSelectionEnabled = chart\.chartType !== "line"/);
+assert.match(chartPanelSource, /semanticDigEnabled = semanticSelectionEnabled && chart\.chartType !== "bidask"/);
+assert.match(chartPanelSource, /chart\.chartType === "bidask" && previousChartType !== "bidask"/);
+assert.match(chartPanelSource, /semanticDigEnabled\s*\?\s*hitTestTimeAxisUnit/);
 assert.match(chartPanelSource, /action: "dig"/);
 assert.match(chartPanelSource, /action: "agent-select"/);
 assert.match(symbolSearchSource, /createPortal/);
@@ -2905,6 +2958,7 @@ assert.match(orderFlowPanelSource, /onWheel=\{handleCanvasWheel\}/);
 assert.match(orderFlowPanelSource, /stepOrderFlowTargetRows/);
 assert.doesNotMatch(orderFlowPanelSource, /order-flow-control-select|ORDER_FLOW_PRICE_STEPS/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const orderFlowRenderSource = readFileSync(fileURLToPath(new URL("../src/chart/orderFlowRender.ts", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /drawCarryForwardGapCandles\(context, scene, "candle"\)/);
@@ -2920,6 +2974,8 @@ assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[
 assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
 assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
 assert.match(chartCanvasSource, /chartColumnTier/);
+assert.match(orderFlowRenderSource, /orderFlowLevelTone/);
+assert.match(orderFlowRenderSource, /theme\.axis : tone === "ask" \? theme\.upSoft : theme\.downSoft/);
 assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
 assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
@@ -2929,6 +2985,7 @@ assert.doesNotMatch(semanticTimelineSource, /kind:\s*"placeholder"\s*\|\s*"foot/
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
+assert.match(chartCanvasSource, /currentPriceForScene/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");
@@ -3005,6 +3062,69 @@ assert.equal(layoutResolve.status, "ui_layout");
 assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const presetSummaries = buildAgentLayoutPresetSummaries([
+  { id: "market", kind: "default", name: "시장분석" },
+  { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) },
+  { id: "custom-preopen", kind: "custom", name: "장전 체크", layout: serializeTiledPanelState(tiledState) }
+]);
+assert.equal(presetSummaries[0]?.id, "market");
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 프리셋"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석창"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 대시보드"));
+assert.equal(presetSummaries[1]?.id, "custom-taste");
+assert.ok(presetSummaries[1]?.aliases.includes("내입맛"));
+assert.equal(presetSummaries[2]?.id, "custom-preopen");
+assert.ok(presetSummaries[2]?.aliases.includes("장전 체크 대시보드"));
+assert.equal(isLikelyPresetLoadPrompt("시장분석 프리셋 띄워줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석창 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("내 입맛 화면으로 바꿔줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("장전 체크 대시보드 열어줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장 분석해줘", presetSummaries), false);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 해줘", presetSummaries), false);
+
+const presetLoadResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_layout",
+  summary: "시장분석 프리셋을 열었습니다.",
+  route: { source: "ui-preset-parser", intentType: "ui-layout", selectedRoles: [] },
+  layoutProposal: {
+    id: "layout-proposal-preset-load",
+    title: "UI preset request",
+    rationale: "시장분석 프리셋을 열었습니다.",
+    autoApply: true,
+    panelPriorities: [],
+    commands: [
+      makeAgentLayoutCommand("layout.load", "llm", { presetId: "market", presetName: "시장분석", presetKind: "default" })
+    ],
+    createdAt: "2026-06-29T00:00:00.000Z"
+  },
+  agentTrace: { uiLayoutFastAck: true }
+});
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.type, "layout.load");
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.payload.presetId, "market");
+const appliedPresetIds: string[] = [];
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(
+    presetLoadResolve.layoutProposal!,
+    [
+      { id: "market", kind: "default", name: "시장분석" },
+      { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) }
+    ],
+    (id) => appliedPresetIds.push(id)
+  ),
+  { status: "applied", presetId: "market", presetName: "시장분석" }
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(presetLoadResolve.layoutProposal!, [{ id: "stock", kind: "default", name: "종목분석" }], () => appliedPresetIds.push("unexpected")),
+  { status: "missing", presetId: "market" }
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(layoutResolve.layoutProposal!, [{ id: "market", kind: "default", name: "시장분석" }], () => appliedPresetIds.push("unexpected")),
+  { status: "none" }
+);
 
 const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
   status: "ui_clarify",
@@ -3090,12 +3210,12 @@ const expandedAgentLayoutPanels = (buildTiledAgentLayoutContext(expandedAgentLay
 const agentLayoutOrderPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "orderTicket");
 assert.equal(agentLayoutOrderPanel?.title, "주문");
 assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
-assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
+assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
 assert.equal(agentLayoutPortfolioPanel?.title, "Holdings");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 1, rowSpan: 1 });
-assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 5 });
+assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
 
 const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
@@ -3254,7 +3374,10 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: now
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
-assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: calc\(var\(--bottom-control-size\) \* 2 \+ 15px\);/);
+assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);
+assert.doesNotMatch(frontendStylesSource, /layout-preset-status-in/);
+assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: auto;/);
+assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*min-width: 50px;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
 assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
 assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);

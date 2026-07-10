@@ -1,5 +1,5 @@
 import { Newspaper } from "lucide-react";
-import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus } from "@gops/chart-engine";
+import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
 import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
@@ -48,6 +48,7 @@ type PanelContentRendererProps = {
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
+  chartLiveTrade?: TradeTickData;
   chartDrawingActive: boolean;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
@@ -86,6 +87,7 @@ export function PanelContentRenderer({
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
+  chartLiveTrade,
   chartDrawingActive,
   chartAddActive,
   selectedAgentReferenceKeys,
@@ -373,6 +375,7 @@ export function PanelContentRenderer({
           dataStatus={chartDataStatus}
           streamStatus={chartStreamStatus}
           streamMessage={chartStreamMessage}
+          liveTrade={chartLiveTrade}
           symbols={symbols}
           laneHeight={laneHeight}
           chartDrawingActive={chartDrawingActive}
