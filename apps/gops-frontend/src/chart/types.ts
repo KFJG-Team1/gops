@@ -31,16 +31,14 @@ export type IndicatorPointDto = {
   histogram?: number | null;
 };
 
-export type DerivedResponseState = "ready" | "pending" | "failed";
+export type DerivedResponseState = "ready" | "failed";
 
-export type DerivedResponseSource = "redis" | "clickhouse" | "worker" | "queued";
+export type DerivedResponseSource = "api-compute" | "redis";
 
 export type DerivedMetadataDto = {
   state: DerivedResponseState;
   source: DerivedResponseSource;
   requestHash: string;
-  artifactStored?: boolean;
-  retryAfterMs?: number;
   generatedAt?: string;
   error?: string;
 };
@@ -57,7 +55,7 @@ export type IndicatorSeriesResponseDto = {
   symbol: string;
   interval: ChartInterval;
   calculationVersion: string;
-  dataStatus?: "ready" | "empty" | "pending" | "failed";
+  dataStatus?: "ready" | "empty" | "failed";
   indicators: IndicatorLayerDto[];
   series: Record<string, IndicatorPointDto[]>;
   derived?: DerivedMetadataDto;
@@ -122,7 +120,7 @@ export type VolumeProfileResponseDto = {
   classificationVersion?: string;
   sideClassification?: "estimated";
   estimationMethod?: string;
-  dataStatus: "ready" | "empty" | "pending" | "failed";
+  dataStatus: "ready" | "empty" | "failed";
   priceRange: {
     min?: number | null;
     max?: number | null;

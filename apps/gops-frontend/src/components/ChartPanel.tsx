@@ -764,35 +764,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
-    const loadIndicators = (attempt = 0) => {
-      fetchIndicators({
-        symbol: baseIndicatorRequest.symbol,
-        interval: baseIndicatorRequest.interval,
-        from: baseIndicatorRequest.from,
-        to: baseIndicatorRequest.to,
-        limit: baseIndicatorRequest.limit,
-        layers: baseIndicatorRequest.layers
-      }, controller.signal)
-        .then((response) => {
-          if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
-            return;
-          }
-          if (shouldRetryDerived(response, attempt)) {
-            retryTimer = window.setTimeout(() => loadIndicators(attempt + 1), derivedRetryDelay(response));
-            return;
-          }
-          setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setBaseIndicatorSeries({});
-          }
-        });
-    };
-    loadIndicators();
+    fetchIndicators({
+      symbol: baseIndicatorRequest.symbol,
+      interval: baseIndicatorRequest.interval,
+      from: baseIndicatorRequest.from,
+      to: baseIndicatorRequest.to,
+      limit: baseIndicatorRequest.limit,
+      layers: baseIndicatorRequest.layers
+    }, controller.signal)
+      .then((response) => {
+        if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
+          return;
+        }
+        setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setBaseIndicatorSeries({});
+        }
+      });
     return () => {
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [baseIndicatorRequest?.key]);
@@ -823,43 +814,33 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
-    const loadExpansionIndicators = (attempt = 0) => {
-      Promise.allSettled(requests.map((request) => (
-        fetchIndicators({
-          symbol: chart.symbol,
-          interval: request.interval,
-          from: request.from,
-          to: request.to,
-          limit: indicatorRequestLimitForInterval(request.interval, request.candleCount),
-          layers: activeIndicatorLayers
-        }, controller.signal).then((response) => ({ request, response }))
-      )))
-        .then((results) => {
-          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
-            return;
-          }
-          const fulfilled = results
-            .filter((result): result is PromiseFulfilledResult<{
-              request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
-              response: Awaited<ReturnType<typeof fetchIndicators>>;
-            }> => result.status === "fulfilled")
-            .map((result) => result.value);
-          const pending = fulfilled.find(({ response }) => shouldRetryDerived(response, attempt));
-          if (pending) {
-            retryTimer = window.setTimeout(() => loadExpansionIndicators(attempt + 1), derivedRetryDelay(pending.response));
-            return;
-          }
-          setExpansionIndicatorSeries(mergeIndicatorSeries(
-            ...fulfilled
-              .filter(({ response }) => response.derived?.state !== "failed")
-              .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
-          ));
-        });
-    };
-    loadExpansionIndicators();
+    Promise.allSettled(requests.map((request) => (
+      fetchIndicators({
+        symbol: chart.symbol,
+        interval: request.interval,
+        from: request.from,
+        to: request.to,
+        limit: indicatorRequestLimitForInterval(request.interval, request.candleCount),
+        layers: activeIndicatorLayers
+      }, controller.signal).then((response) => ({ request, response }))
+    )))
+      .then((results) => {
+        if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+          return;
+        }
+        const fulfilled = results
+          .filter((result): result is PromiseFulfilledResult<{
+            request: { id: string; interval: ChartInterval; from: string; to: string; candleCount: number };
+            response: Awaited<ReturnType<typeof fetchIndicators>>;
+          }> => result.status === "fulfilled")
+          .map((result) => result.value);
+        setExpansionIndicatorSeries(mergeIndicatorSeries(
+          ...fulfilled
+            .filter(({ response }) => response.derived?.state !== "failed")
+            .map(({ request, response }) => scopeIndicatorSeries(request.interval, response.series))
+        ));
+      });
     return () => {
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [
@@ -875,39 +856,30 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const controller = new AbortController();
-    let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      const loadProfile = (attempt = 0) => {
-        fetchVolumeProfile({
-          symbol: chart.symbol,
-          interval: chart.interval,
-          from: visibleProfileRange.from,
-          to: visibleProfileRange.to,
-          targetBins: 10,
-          priceMin: visibleProfileRange.priceMin,
-          priceMax: visibleProfileRange.priceMax
-        }, controller.signal)
-          .then((response) => {
-            if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
-              return;
-            }
-            if (shouldRetryDerived(response, attempt)) {
-              retryTimer = window.setTimeout(() => loadProfile(attempt + 1), derivedRetryDelay(response));
-              return;
-            }
-            setVolumeProfile(response.derived?.state === "failed" ? null : response);
-          })
-          .catch(() => {
-            if (!controller.signal.aborted) {
-              setVolumeProfile(null);
-            }
-          });
-      };
-      loadProfile();
+      fetchVolumeProfile({
+        symbol: chart.symbol,
+        interval: chart.interval,
+        from: visibleProfileRange.from,
+        to: visibleProfileRange.to,
+        targetBins: 10,
+        priceMin: visibleProfileRange.priceMin,
+        priceMax: visibleProfileRange.priceMax
+      }, controller.signal)
+        .then((response) => {
+          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+            return;
+          }
+          setVolumeProfile(response.derived?.state === "failed" ? null : response);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setVolumeProfile(null);
+          }
+        });
     }, 120);
     return () => {
       window.clearTimeout(timer);
-      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [
@@ -2508,15 +2480,6 @@ function shouldRetryRealtimeSnapshot(response: CandleQueryResponseDto, interval:
     return true;
   }
   return response.status === "partial" && response.candles.length < requestedVisibleSlotsFromResponse(response, interval);
-}
-
-function shouldRetryDerived(response: { derived?: { state?: string; retryAfterMs?: number } }, attempt: number): boolean {
-  return response.derived?.state === "pending" && attempt < 2;
-}
-
-function derivedRetryDelay(response: { derived?: { retryAfterMs?: number } }): number {
-  const delay = response.derived?.retryAfterMs;
-  return typeof delay === "number" && Number.isFinite(delay) ? Math.max(250, Math.min(delay, 3000)) : 1000;
 }
 
 function findBoundaryHit(scene: ChartScene, point: { x: number; y: number }): { type: "price" | "below"; index: number; y: number } | null {
