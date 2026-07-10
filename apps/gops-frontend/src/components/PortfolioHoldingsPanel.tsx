@@ -3,6 +3,7 @@ import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, u
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { LogoDevAttribution } from "./StockLogo";
+import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 
 type SortMode = "custom" | "value" | "return";
 type AllocationMode = "asset" | "symbol" | "sector";
@@ -70,6 +71,7 @@ const purchaseCompareColors = [
 const DEMO_PORTFOLIO_ENABLED =
   import.meta.env.DEV ||
   (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
+const activePortfolioRefreshIntervalMs = DEMO_PORTFOLIO_ENABLED ? 1_000 : REFRESH_INTERVAL_MS;
 
 type PortfolioHoldingsDataState = {
   payload: PortfolioHoldingsResponse | null;
@@ -87,6 +89,7 @@ let portfolioStoreState: PortfolioHoldingsDataState = {
 };
 let portfolioStoreInflight: Promise<void> | null = null;
 let portfolioStoreIntervalId: number | null = null;
+let portfolioStoreRefreshQueued = false;
 
 function setPortfolioStoreState(next: Partial<PortfolioHoldingsDataState>): void {
   portfolioStoreState = { ...portfolioStoreState, ...next };
@@ -95,6 +98,7 @@ function setPortfolioStoreState(next: Partial<PortfolioHoldingsDataState>): void
 
 function loadPortfolioHoldingsStore(showRefreshing = false): Promise<void> {
   if (portfolioStoreInflight) {
+    portfolioStoreRefreshQueued ||= showRefreshing;
     return portfolioStoreInflight;
   }
   setPortfolioStoreState({
@@ -125,8 +129,16 @@ function loadPortfolioHoldingsStore(showRefreshing = false): Promise<void> {
     })
     .finally(() => {
       portfolioStoreInflight = null;
+      if (portfolioStoreRefreshQueued) {
+        portfolioStoreRefreshQueued = false;
+        void loadPortfolioHoldingsStore(true);
+      }
     });
   return portfolioStoreInflight;
+}
+
+function refreshPortfolioHoldingsStore(): void {
+  void loadPortfolioHoldingsStore(true);
 }
 
 function subscribePortfolioHoldingsStore(listener: () => void): () => void {
@@ -136,14 +148,16 @@ function subscribePortfolioHoldingsStore(listener: () => void): () => void {
     if (typeof window !== "undefined") {
       portfolioStoreIntervalId = window.setInterval(() => {
         void loadPortfolioHoldingsStore(true);
-      }, REFRESH_INTERVAL_MS);
+      }, activePortfolioRefreshIntervalMs);
     }
   }
   return () => {
     portfolioStoreListeners.delete(listener);
-    if (portfolioStoreListeners.size === 0 && portfolioStoreIntervalId != null) {
-      window.clearInterval(portfolioStoreIntervalId);
-      portfolioStoreIntervalId = null;
+    if (portfolioStoreListeners.size === 0 && typeof window !== "undefined") {
+      if (portfolioStoreIntervalId != null) {
+        window.clearInterval(portfolioStoreIntervalId);
+        portfolioStoreIntervalId = null;
+      }
     }
   };
 }
@@ -153,6 +167,10 @@ function usePortfolioHoldingsData(onPortfolioSymbolsChange?: (symbols: readonly 
 
   useEffect(() => {
     return subscribePortfolioHoldingsStore(() => setState(portfolioStoreState));
+  }, []);
+
+  useEffect(() => {
+    return subscribePortfolioRefresh(refreshPortfolioHoldingsStore);
   }, []);
 
   useEffect(() => {
