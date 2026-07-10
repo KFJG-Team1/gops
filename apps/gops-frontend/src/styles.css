@@ -473,6 +473,21 @@ button {
   overflow: hidden;
 }
 
+.canvas-workspace.view-chart.layout-mode-compact {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workspace-scroll-extent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .panel {
   position: relative;
   min-width: 0;
@@ -2297,11 +2312,13 @@ h2 {
   position: absolute;
   z-index: 3;
   display: grid;
+  container-name: workspace-panel;
+  container-type: size;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   pointer-events: auto;
-  transition: top 180ms ease, height 180ms ease, left 180ms ease, width 180ms ease;
+  transition: top 180ms ease, height 180ms ease, left 180ms ease, width 180ms ease, opacity 120ms ease, transform 120ms ease;
 }
 
 .workspace-panel-frame.is-layout-resizing {
@@ -2440,6 +2457,22 @@ h2 {
   overflow: hidden;
 }
 
+@container workspace-panel (max-width: 220px) {
+  .workspace-panel-nav {
+    padding: 3px 6px;
+  }
+
+  .workspace-panel-title {
+    font-size: 10px;
+  }
+}
+
+@container workspace-panel (max-height: 145px) {
+  .workspace-panel-body:not(.chart-panel-body) {
+    overflow: auto;
+  }
+}
+
 .workspace-edit-grid {
   position: absolute;
   inset: 0;
@@ -2462,10 +2495,17 @@ h2 {
   cursor: grabbing;
 }
 
+.workspace-panel-frame.is-panel-position-dragging {
+  z-index: 4;
+  opacity: 0.32;
+  transform: scale(0.985);
+  cursor: grabbing;
+}
+
 .workspace-panel-frame.is-layout-editing .workspace-panel-body {
   pointer-events: none;
   filter: saturate(0.55) blur(2px);
-  opacity: 0.55;
+  opacity: 0.9;
 }
 
 .panel-edit-overlay {
@@ -2481,6 +2521,12 @@ h2 {
   background: color-mix(in srgb, var(--color-background) 40%, transparent);
   backdrop-filter: blur(1px);
   pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.workspace-panel-frame.is-panel-position-dragging .panel-edit-snapshot-shield {
+  cursor: grabbing;
 }
 
 .panel-edit-button {
@@ -2553,8 +2599,8 @@ h2 {
 }
 
 .panel-delete-button {
-  left: 50%;
   top: 50%;
+  left: 50%;
   width: 40px;
   height: 40px;
   color: var(--color-danger);
@@ -2585,7 +2631,7 @@ h2 {
   background: color-mix(in srgb, var(--color-preview) 7%, transparent);
 }
 
-.layout-edit-preview span {
+.layout-edit-preview > span {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2597,6 +2643,29 @@ h2 {
   letter-spacing: var(--type-title-sm-letter-spacing);
   font: var(--type-title-sm);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-layout-ghost {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  opacity: 0.68;
+}
+
+.panel-layout-ghost strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(12px, 1.5vw, 17px);
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6939,20 +7008,131 @@ h2 {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--tool-dock-bottom);
+  /* The command bar is hidden in layout-edit mode, so the palette pill sits close
+     to the bottom edge on its own. */
+  bottom: 18px;
   z-index: 44;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* Centered pill container: arrows + scroller + exit, matching the command-bar mood. */
+.layout-palette-shell {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: min(860px, calc(var(--app-logical-width, 100vw) - 2 * var(--layout-gutter)));
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  pointer-events: auto;
+}
+
+.layout-palette-scroller {
+  --palette-dock-fade: 26px;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  /* Centered above the input like the preset dock; `safe` falls back to start-alignment
-     (scrollable) when the buttons overflow the available width. */
-  justify-content: safe center;
-  gap: 6px;
-  box-sizing: border-box;
-  padding: 5px var(--layout-gutter);
+  gap: 4px;
+  min-width: 0;
   overflow-x: auto;
-  scroll-padding-inline: var(--layout-gutter);
-  pointer-events: auto;
+  overscroll-behavior-inline: contain;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.layout-palette-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.layout-palette-scroller.has-overflow-left {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--palette-dock-fade), #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--palette-dock-fade), #000 100%);
+}
+
+.layout-palette-scroller.has-overflow-right {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--palette-dock-fade)), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - var(--palette-dock-fade)), transparent 100%);
+}
+
+.layout-palette-scroller.has-overflow-left.has-overflow-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--palette-dock-fade), #000 calc(100% - var(--palette-dock-fade)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--palette-dock-fade), #000 calc(100% - var(--palette-dock-fade)), transparent 100%);
+}
+
+.layout-palette-arrow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text);
+  transition: color 130ms ease, background 130ms ease, opacity 130ms ease;
+}
+
+.layout-palette-arrow:hover:not(:disabled),
+.layout-palette-arrow:focus-visible {
+  background: var(--coinbase-button-surface);
+  color: var(--coinbase-primary);
+}
+
+.layout-palette-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Exit pill mirrors the white send button in the command bar. */
+.layout-palette-exit {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  font-family: var(--font-data-sans);
+  font-size: 11px;
+  font-weight: 700;
+  transition: opacity 130ms ease, transform 130ms ease;
+}
+
+.layout-palette-exit:hover {
+  opacity: 0.88;
+}
+
+.layout-palette-exit:active {
+  transform: translateY(1px);
+}
+
+.layout-palette-status {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  color: var(--color-danger);
+  box-shadow: var(--surface-floating-depth-shadow);
+  font-family: var(--font-ui-serif);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .layout-palette-button {
@@ -7019,6 +7199,18 @@ h2 {
 
 .layout-preset-active-indicator.is-visible {
   opacity: 1;
+}
+
+/* Keep the active label readable above the sliding white pill: lift the buttons
+   over the indicator and invert the active button's text color. */
+.layout-preset-dock > .layout-preset-button,
+.layout-preset-dock > .layout-preset-input,
+.layout-preset-dock > .layout-preset-add,
+.layout-preset-dock > .toolbar-separator,
+.layout-preset-dock > .layout-preset-dock-tail,
+.layout-preset-dock > .layout-preset-agent {
+  position: relative;
+  z-index: 1;
 }
 
 .layout-preset-dock::-webkit-scrollbar {
@@ -10365,4 +10557,47 @@ textarea:focus,
   .theme-radar-metric i {
     height: 5px;
   }
+}
+
+/* Active preset label reads black on the sliding white pill, in every dock placement
+   and interaction state (hover/press included). */
+.layout-preset-dock .layout-preset-button.is-active,
+.layout-preset-dock .layout-preset-button.is-active:hover:not(:disabled),
+.layout-preset-dock .layout-preset-button.is-active:focus-visible,
+.layout-preset-dock .layout-preset-button.is-active:active:not(:disabled) {
+  color: #000000;
+}
+
+/* Top preset dock: wrapper hosting the < > overflow arrows around the scroller. */
+.layout-preset-dock-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.layout-preset-arrow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text);
+  transition: color 130ms ease, background 130ms ease, opacity 130ms ease;
+}
+
+.layout-preset-arrow:hover:not(:disabled),
+.layout-preset-arrow:focus-visible {
+  background: var(--coinbase-button-surface);
+  color: var(--coinbase-primary);
+}
+
+.layout-preset-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
 }

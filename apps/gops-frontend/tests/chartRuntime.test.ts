@@ -100,6 +100,7 @@ import {
   createInitialTiledPanelState,
   detectResizablePanelBoundaries,
   layoutHasGapsOrOverlaps,
+  gridRectForPanelDrag,
   movePanelSlotToGridRect,
   normalizeFreeformRectsToGridLayout,
   panelGridSpec,
@@ -1923,6 +1924,14 @@ assert.equal(stateWithNewCompany.contents[newCompanySlot.contentId]?.props?.symb
 assert.equal(layoutHasGapsOrOverlaps(stateWithNewCompany, insertionViewport), false);
 const movedCompanyState = movePanelSlotToGridRect(stateWithNewCompany, newCompanySlot.id, { col: 3, row: 1, colSpan: 2, rowSpan: 1 }, insertionViewport);
 assert.deepEqual(movedCompanyState.slots.find((slot) => slot.id === newCompanySlot.id)?.gridRect, { col: 3, row: 1, colSpan: 2, rowSpan: 1 });
+assert.deepEqual(
+  gridRectForPanelDrag(
+    { col: 3, row: 2, colSpan: 3, rowSpan: 2 },
+    { col: 7, row: 4 },
+    { col: 1, row: 1 }
+  ),
+  { col: 6, row: 3, colSpan: 3, rowSpan: 2 }
+);
 const blockedMoveState = movePanelSlotToGridRect(movedCompanyState, newCompanySlot.id, { col: 5, row: 1, colSpan: 2, rowSpan: 1 }, insertionViewport);
 assert.deepEqual(blockedMoveState.slots.find((slot) => slot.id === newCompanySlot.id)?.gridRect, { col: 3, row: 1, colSpan: 2, rowSpan: 1 });
 assert.equal(canPlaceGridRect(movedCompanyState, { col: 5, row: 1, colSpan: 2, rowSpan: 1 }, { kind: "company" }), false);
@@ -1948,11 +1957,9 @@ const movedChartDropPlan = resolvePanelDropGridRect(isolatedDropState, "chart", 
   exceptSlotId: "slot-chart",
   preferredSpan: { colSpan: 4, rowSpan: 2 }
 });
-assert.equal(movedChartDropPlan.valid, true);
-assert.deepEqual(movedChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
-const movedChartDropState = movePanelSlotToGridRect(isolatedDropState, "slot-chart", movedChartDropPlan.gridRect, tiledViewport);
-assert.deepEqual(movedChartDropState.slots.find((slot) => slot.id === "slot-chart")?.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
-assert.equal(testSlotsOverlap(movedChartDropState.slots), false);
+assert.equal(movedChartDropPlan.valid, false);
+assert.equal(movedChartDropPlan.reason, "preferred-span-unavailable");
+assert.deepEqual(movedChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 4, rowSpan: 2 });
 const paletteChartDropPlan = resolvePanelDropGridRect(isolatedDropState, "chart", { col: 1, row: 1 });
 assert.equal(paletteChartDropPlan.valid, true);
 assert.deepEqual(paletteChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
@@ -1992,8 +1999,8 @@ const tooSmallDropState = {
 };
 const tooSmallChartDropPlan = resolvePanelDropGridRect(tooSmallDropState, "chart", { col: 1, row: 1 });
 assert.equal(tooSmallChartDropPlan.valid, false);
-assert.equal(tooSmallChartDropPlan.reason, "minimum-span");
-assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 1 });
+assert.equal(tooSmallChartDropPlan.reason, "preferred-span-unavailable");
+assert.deepEqual(tooSmallChartDropPlan.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
 const ontologyWestYieldPlan = resolvePanelResizeWithYield(tiledState, "slot-ontology", { col: 4, row: 1, colSpan: 5, rowSpan: 2 });
 assert.equal(ontologyWestYieldPlan.valid, true);
 assert.deepEqual(ontologyWestYieldPlan.yieldedSlots, [{

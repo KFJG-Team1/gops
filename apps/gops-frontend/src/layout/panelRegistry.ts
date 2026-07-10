@@ -5,7 +5,12 @@ export type PanelRegistryEntry = {
   kind: PanelContentKind;
   title: string;
   agentPanelType: AgentLayoutPanelType;
+  /** Lowest span accepted by the persisted grid contract. */
   minSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
+  /** Lowest span that still keeps the actual panel UI readable. */
+  readableMinSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
+  /** Rendered size target before the panel switches to its compact presentation. */
+  minSizePx: { width: number; height: number };
   defaultSpan: Pick<PanelGridRect, "colSpan" | "rowSpan">;
   defaultLayoutWeight: number;
 };
@@ -16,6 +21,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "차트",
     agentPanelType: "chart",
     minSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 100
   },
@@ -24,6 +31,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "비교",
     agentPanelType: "compareChart",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 4, rowSpan: 2 },
     defaultLayoutWeight: 80
   },
@@ -32,7 +41,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "뉴스 카드",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 190 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -40,6 +51,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "뉴스 목록",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
@@ -48,7 +61,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "관심종목 뉴스 카드",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -56,6 +71,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "관심종목 뉴스 목록",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 4, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
@@ -64,7 +81,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "온톨로지",
     agentPanelType: "ontologyGraph",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -72,6 +91,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "지수",
     agentPanelType: "marketIndices",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 1, rowSpan: 1 },
+    minSizePx: { width: 150, height: 100 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
@@ -80,7 +101,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "인기종목",
     agentPanelType: "popularStocks",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -88,6 +111,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "추천",
     agentPanelType: "stockRecommendations",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 45
   },
@@ -96,6 +121,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "분야추천",
     agentPanelType: "themeRadar",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 3, rowSpan: 2 },
     defaultLayoutWeight: 58
   },
@@ -104,7 +131,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "기업정보",
     agentPanelType: "companyProfile",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
@@ -112,6 +141,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Holdings",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
   },
@@ -120,6 +151,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "US Portfolio",
     agentPanelType: "portfolioInvestment",
     minSpan: { colSpan: 2, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 210 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 38
   },
@@ -128,6 +161,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Performance",
     agentPanelType: "portfolioPerformance",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 3, rowSpan: 2 },
     defaultLayoutWeight: 42
   },
@@ -136,6 +171,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Invested",
     agentPanelType: "portfolioInvested",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 2, rowSpan: 3 },
     defaultLayoutWeight: 36
   },
@@ -144,6 +181,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Dividend",
     agentPanelType: "portfolioDividend",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 3, rowSpan: 2 },
     defaultLayoutWeight: 34
   },
@@ -152,6 +191,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Diversification",
     agentPanelType: "portfolioDiversification",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 36
   },
@@ -160,6 +201,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "Holdings",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 5, rowSpan: 3 },
     defaultLayoutWeight: 40
   },
@@ -168,7 +211,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "오더플로우",
     agentPanelType: "orderFlowProfile",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    defaultSpan: { colSpan: 1, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 45
   },
   {
@@ -176,6 +221,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "주문",
     agentPanelType: "orderTicket",
     minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 280, height: 220 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
   }
@@ -193,8 +240,5 @@ export function panelKindForAgentType(panelType: AgentLayoutPanelType | string |
 }
 
 export function panelPaletteLabel(entry: PanelRegistryEntry): string {
-  if (entry.kind === "indices") {
-    return entry.title;
-  }
-  return `${entry.title} (${entry.minSpan.rowSpan}x${entry.minSpan.colSpan})`;
+  return entry.title;
 }

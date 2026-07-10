@@ -61,7 +61,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     name: "차트분석",
     spec: [
       { kind: "chart", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 4 } },
-      { kind: "news", gridRect: { col: 1, row: 5, colSpan: 8, rowSpan: 1 } }
+      { kind: "news", gridRect: { col: 1, row: 5, colSpan: 8, rowSpan: 2 } }
     ]
   },
   compare: {

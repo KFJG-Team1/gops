@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Bot, Check, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
+import { Bot, Check, ChevronLeft, ChevronRight, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "../layout/layoutPresets";
 import type { LayoutPresetControls } from "../layout/useLayoutPresets";
 
@@ -105,6 +105,17 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
 
   const stopPointer = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
+  const scrollDockBy = useCallback((direction: -1 | 1) => {
+    const dock = dockRef.current;
+    if (!dock) {
+      return;
+    }
+    dock.scrollBy({
+      left: direction * Math.max(160, dock.clientWidth * 0.7),
+      behavior: "smooth"
+    });
+  }, []);
+
   const commitEditing = () => {
     if (editingId) {
       renamePreset(editingId, draftName);
@@ -190,7 +201,21 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
     )
   );
 
+  const hasDockOverflow = overflowEdges.left || overflowEdges.right;
+
   return (
+    <div className="layout-preset-dock-wrap" onPointerDown={stopPointer}>
+      {hasDockOverflow && (
+        <button
+          type="button"
+          className="layout-preset-arrow"
+          aria-label="이전 프리셋 보기"
+          disabled={!overflowEdges.left}
+          onClick={() => scrollDockBy(-1)}
+        >
+          <ChevronLeft size={14} aria-hidden="true" />
+        </button>
+      )}
     <div
       ref={dockRef}
       className={[
@@ -200,7 +225,6 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
       ].filter(Boolean).join(" ")}
       role="toolbar"
       aria-label="레이아웃 프리셋"
-      onPointerDown={stopPointer}
     >
       <span
         className={`layout-preset-active-indicator ${activeIndicator.visible ? "is-visible" : ""}`}
@@ -260,6 +284,18 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
             <span>Agents</span>
           </button>
         </>
+      )}
+    </div>
+      {hasDockOverflow && (
+        <button
+          type="button"
+          className="layout-preset-arrow"
+          aria-label="다음 프리셋 보기"
+          disabled={!overflowEdges.right}
+          onClick={() => scrollDockBy(1)}
+        >
+          <ChevronRight size={14} aria-hidden="true" />
+        </button>
       )}
     </div>
   );

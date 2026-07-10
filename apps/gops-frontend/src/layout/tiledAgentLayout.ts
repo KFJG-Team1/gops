@@ -5,13 +5,13 @@ import {
   gridRectsOverlap,
   layoutHasGapsOrOverlaps,
   maxGridSpan,
-  minGridSpanForKind,
   movePanelSlotToGridRect,
   normalizeFreeformRectsToGridLayout,
   normalizePanelGridRect,
   normalizeTiledPanelStateToWorkspace,
   panelContentTitle,
   panelGridSpec,
+  readableMinGridSpanForKind,
   removePanelSlot,
   replacePanelSlotKind,
   setPanelContentLayoutWeight,
@@ -295,7 +295,11 @@ function addPanelForCommand(
     return state;
   }
   const placement = readPlacement(command.payload.placement);
-  const gridRect = placement ?? firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind);
+  const minimumSpan = readableMinGridSpanForKind(kind);
+  const gridRect = normalizePanelGridRect(
+    placement ?? firstAvailablePanelGridRect(state, kind) ?? defaultPlacementForKind(kind),
+    minimumSpan
+  );
   return addPanelSlotAtGridRect(state, kind, gridRect, {
     slotId: panelId ?? undefined,
     symbol: symbol ?? undefined,
@@ -367,7 +371,7 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     const slot = panelId ? slotForPanelId(next, panelId) : null;
     const content = slot ? next.contents[slot.contentId] : null;
     if (slot && content && placement?.group === "workspace") {
-      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, minGridSpanForKind(content.kind)));
+      gridRectsBySlotId.set(slot.id, normalizePanelGridRect(placement, readableMinGridSpanForKind(content.kind)));
     }
     const layoutWeight = readNumber(item.layoutWeight);
     if (panelId && layoutWeight !== null) {
@@ -413,7 +417,15 @@ function applyPanelPlacement(
   if (!slot || placement.group !== "workspace") {
     return state;
   }
-  return movePanelSlotToGridRect(state, slot.id, placement, viewport, layoutMetrics);
+  const content = state.contents[slot.contentId];
+  const minimumSpan = readableMinGridSpanForKind(content?.kind ?? "chart");
+  return movePanelSlotToGridRect(
+    state,
+    slot.id,
+    normalizePanelGridRect(placement, minimumSpan),
+    viewport,
+    layoutMetrics
+  );
 }
 
 function applyPanelPropsUpdate(
@@ -455,7 +467,7 @@ function setPanelLayoutWeight(state: TiledPanelState, panelId: string, layoutWei
 }
 
 function minSpanForKind(kind: PanelContentKind) {
-  return minGridSpanForKind(kind);
+  return readableMinGridSpanForKind(kind);
 }
 
 function maxSpanForKind(_kind: PanelContentKind) {
