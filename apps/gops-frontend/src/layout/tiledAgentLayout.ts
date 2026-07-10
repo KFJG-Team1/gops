@@ -16,13 +16,14 @@ import {
   replacePanelSlotKind,
   setPanelContentLayoutWeight,
   setPanelContentProps,
+  setPanelSlotPinned,
   type PanelContentKind,
   type PanelGridRect,
   type TiledPanelState,
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./panelLayout";
-import { panelKindForAgentType, panelRegistryEntry } from "./panelRegistry";
+import { panelKindForAgentType, panelRegistry, panelRegistryEntry } from "./panelRegistry";
 
 const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
@@ -71,7 +72,26 @@ export type PendingPlacementPick = {
 export type ApplyTiledAgentLayoutResult = {
   state: TiledPanelState;
   pendingPlacementPick?: PendingPlacementPick;
+  stateChanged?: boolean;
+  appliedWithChanges?: boolean;
+  reason?: string;
+  requestedSaveName?: string;
 };
+
+export type ApplyTiledAgentLayoutOptions = {
+  undoState?: TiledPanelState;
+  defaultState?: TiledPanelState;
+};
+
+export function agentLayoutApplySucceeded(
+  proposal: AgentLayoutProposal,
+  result: ApplyTiledAgentLayoutResult
+): boolean {
+  return proposal.autoApply !== false
+    && proposal.commands.length > 0
+    && !result.pendingPlacementPick
+    && !result.reason;
+}
 
 export function buildTiledAgentLayoutContext(
   state: TiledPanelState,
@@ -85,6 +105,7 @@ export function buildTiledAgentLayoutContext(
   return {
     version: 2,
     grid: panelGridSpec,
+    panelCatalog: buildAgentPanelCatalog(),
     ...(selectedPanelId ? { selectedPanelId } : {}),
     panels: gridState.slots.map((slot) => {
       const content = gridState.contents[slot.contentId];
@@ -98,7 +119,7 @@ export function buildTiledAgentLayoutContext(
         type: kindToPanelType[kind],
         title: content?.title || panelContentTitle(kind, content?.instanceIndex),
         placement: tiledPlacement(slot.gridRect),
-        layoutPinned: false,
+        layoutPinned: Boolean(slot.layoutPinned),
         layoutWeight: content?.layoutWeight ?? defaultLayoutWeightForKind(kind),
         minSpan: minSpanForKind(kind),
         maxSpan: maxSpanForKind(kind),
@@ -108,20 +129,54 @@ export function buildTiledAgentLayoutContext(
   };
 }
 
+/**
+ * Size/priority constraints for every insertable panel type, sourced from the
+ * panel registry so the agent backend never has to hardcode them. The backend
+ * placement engine (panel_spec_for) prefers this catalog over its mirror table.
+ */
+function buildAgentPanelCatalog() {
+  const seen = new Set<string>();
+  const catalog: Array<{
+    panelType: AgentLayoutPanelType;
+    title: string;
+    minSpan: { colSpan: number; rowSpan: number };
+    defaultSpan: { colSpan: number; rowSpan: number };
+    maxSpan?: { colSpan: number; rowSpan: number };
+    layoutWeight: number;
+  }> = [];
+  for (const entry of panelRegistry) {
+    if (entry.insertable === false || seen.has(entry.agentPanelType)) {
+      continue;
+    }
+    seen.add(entry.agentPanelType);
+    catalog.push({
+      panelType: entry.agentPanelType,
+      title: entry.title,
+      minSpan: { ...entry.readableMinSpan },
+      defaultSpan: { ...entry.defaultSpan },
+      ...(entry.maxSpan ? { maxSpan: { ...entry.maxSpan } } : {}),
+      layoutWeight: entry.defaultLayoutWeight
+    });
+  }
+  return catalog;
+}
+
 export function applyTiledAgentLayoutProposal(
   state: TiledPanelState,
   proposal: AgentLayoutProposal,
   viewport: ViewportSize,
-  layoutMetrics: WorkspaceLayoutMetrics = {}
+  layoutMetrics: WorkspaceLayoutMetrics = {},
+  options: ApplyTiledAgentLayoutOptions = {}
 ): TiledPanelState {
-  return applyTiledAgentLayoutProposalWithResult(state, proposal, viewport, layoutMetrics).state;
+  return applyTiledAgentLayoutProposalWithResult(state, proposal, viewport, layoutMetrics, options).state;
 }
 
 export function applyTiledAgentLayoutProposalWithResult(
   state: TiledPanelState,
   proposal: AgentLayoutProposal,
   viewport: ViewportSize,
-  layoutMetrics: WorkspaceLayoutMetrics = {}
+  layoutMetrics: WorkspaceLayoutMetrics = {},
+  options: ApplyTiledAgentLayoutOptions = {}
 ): ApplyTiledAgentLayoutResult {
   const pendingPlacementPick = readPendingPlacementPick(proposal);
   if (pendingPlacementPick) {
@@ -132,13 +187,51 @@ export function applyTiledAgentLayoutProposalWithResult(
   }
 
   let next = state;
+  let requestedSaveName: string | undefined;
+  const feedbackReasons: string[] = [];
   const hasPlacementCommand = proposal.commands.some((command) =>
     command.type === "layout.panels.arrange" || command.type === "layout.panel.move"
   );
   for (const command of proposal.commands) {
+    if (command.type === "layout.undo") {
+      if (options.undoState) {
+        next = options.undoState;
+      } else {
+        feedbackReasons.push("되돌릴 레이아웃 기록이 없습니다.");
+      }
+      continue;
+    }
+    if (command.type === "layout.default.restore" || command.type === "layout.reset") {
+      if (options.defaultState) {
+        next = options.defaultState;
+      } else {
+        feedbackReasons.push("기본 레이아웃 상태를 불러오지 못했습니다.");
+      }
+      continue;
+    }
+    if (command.type === "layout.save") {
+      requestedSaveName = readString(command.payload.presetName) ?? readString(command.payload.name) ?? undefined;
+      continue;
+    }
     if (command.type === "layout.panel.remove") {
       const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
       next = panelId ? removePanelSlot(next, panelId, viewport, layoutMetrics) : next;
+      continue;
+    }
+    if (command.type === "layout.panel.pin" || command.type === "layout.panel.unpin") {
+      const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
+      next = panelId ? setPanelSlotPinned(next, panelId, command.type === "layout.panel.pin") : next;
+      continue;
+    }
+    if (command.type === "layout.reflow") {
+      continue;
+    }
+    if (command.type === "layout.panels.arrange") {
+      const arrangement = applyArrangement(next, command.payload.placements, viewport, layoutMetrics);
+      next = arrangement.state;
+      if (arrangement.reason) {
+        feedbackReasons.push(arrangement.reason);
+      }
       continue;
     }
     const kind = targetKindForCommand(next, command, proposal);
@@ -164,10 +257,6 @@ export function applyTiledAgentLayoutProposalWithResult(
       next = applyPanelPropsUpdate(next, command);
       continue;
     }
-    if (command.type === "layout.panels.arrange") {
-      next = applyArrangement(next, command.payload.placements, viewport, layoutMetrics);
-      continue;
-    }
     if (command.type === "layout.panel.move") {
       const panelId = readString(command.payload.panelId) ?? readString(command.target?.panelId);
       const placement = readPlacement(command.payload.placement);
@@ -181,7 +270,14 @@ export function applyTiledAgentLayoutProposalWithResult(
       }
     }
   }
-  return { state: normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics) };
+  const normalized = normalizeTiledPanelStateToWorkspace(next, viewport, layoutMetrics);
+  const stateChanged = !samePanelState(state, normalized);
+  return {
+    state: normalized,
+    stateChanged,
+    ...(feedbackReasons.length ? { appliedWithChanges: true, reason: [...new Set(feedbackReasons)].join(" ") } : {}),
+    ...(requestedSaveName ? { requestedSaveName } : {})
+  };
 }
 
 export function applyPlacementPickCandidate(
@@ -362,9 +458,14 @@ export type AgentPanelPlacement = {
   rowSpan: number;
 };
 
-function applyArrangement(state: TiledPanelState, placements: unknown, viewport: ViewportSize, layoutMetrics: WorkspaceLayoutMetrics): TiledPanelState {
+function applyArrangement(
+  state: TiledPanelState,
+  placements: unknown,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics
+): { state: TiledPanelState; reason?: string } {
   if (!Array.isArray(placements)) {
-    return state;
+    return { state, reason: "패널 배치 정보가 올바르지 않아 적용하지 않았습니다." };
   }
   const gridRectsBySlotId = new Map<string, PanelGridRect>();
   let next = state;
@@ -385,8 +486,9 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     }
   }
   if (!gridRectsBySlotId.size) {
-    return next;
+    return { state: next, reason: "적용할 수 있는 패널 배치를 찾지 못했습니다." };
   }
+  const skippedIds = new Set<string>();
   const acceptedSlotIds = new Set(gridRectsBySlotId.keys());
   const arrangedSlots = next.slots.map((slot) => (
     gridRectsBySlotId.has(slot.id) ? { ...slot, gridRect: gridRectsBySlotId.get(slot.id)! } : slot
@@ -398,6 +500,7 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
       if (gridRectsOverlap(left.gridRect, right.gridRect)) {
         const skipId = gridRectsBySlotId.has(right.id) ? right.id : left.id;
         acceptedSlotIds.delete(skipId);
+        skippedIds.add(skipId);
         console.warn(`Skipped conflicting layout arrangement for panel '${skipId}'.`);
       }
     }
@@ -406,10 +509,37 @@ function applyArrangement(state: TiledPanelState, placements: unknown, viewport:
     acceptedSlotIds.has(slot.id) ? { ...slot, gridRect: gridRectsBySlotId.get(slot.id)! } : slot
   ));
   const normalized = normalizeTiledPanelStateToWorkspace({ ...next, slots: nextSlots }, viewport, layoutMetrics);
+  let normalizedAway = false;
+  for (const slotId of acceptedSlotIds) {
+    const requested = gridRectsBySlotId.get(slotId);
+    const applied = normalized.slots.find((slot) => slot.id === slotId)?.gridRect;
+    if (requested && (!applied || !sameGridRect(requested, applied))) {
+      normalizedAway = true;
+      break;
+    }
+  }
   if (layoutHasGapsOrOverlaps(normalized, viewport, 1, layoutMetrics)) {
     console.warn("Applied layout arrangement with residual gaps or overlaps.");
+    normalizedAway = true;
   }
-  return normalized;
+  const reasons = [
+    ...(skippedIds.size ? ["일부 배치는 충돌로 적용되지 않았습니다."] : []),
+    ...(normalizedAway ? ["일부 배치는 화면 제약에 맞게 조정되었습니다."] : [])
+  ];
+  return { state: normalized, ...(reasons.length ? { reason: reasons.join(" ") } : {}) };
+}
+
+
+function sameGridRect(left: PanelGridRect, right: PanelGridRect): boolean {
+  return left.col === right.col
+    && left.row === right.row
+    && left.colSpan === right.colSpan
+    && left.rowSpan === right.rowSpan;
+}
+
+
+function samePanelState(left: TiledPanelState, right: TiledPanelState): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function applyPanelPlacement(

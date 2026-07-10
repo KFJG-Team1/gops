@@ -59,6 +59,7 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
+import { panelKindForAgentType, panelRegistryEntry } from "./layout/panelRegistry";
 import { resolveResponsivePanelLayout } from "./layout/responsivePanelLayout";
 import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
@@ -71,9 +72,11 @@ import {
   type MainViewUrlResolution
 } from "./navigation/mainViewUrl";
 import {
+  agentLayoutApplySucceeded,
   applyPlacementPickCandidate,
   applyTiledAgentLayoutProposalWithResult,
   buildTiledAgentLayoutContext,
+  type ApplyTiledAgentLayoutResult,
   type PlacementPickCandidate,
   type PendingPlacementPick
 } from "./layout/tiledAgentLayout";
@@ -339,6 +342,8 @@ export function App() {
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
+  const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
+  const lastSavedAgentProposalRef = useRef<string | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
@@ -376,6 +381,43 @@ export function App() {
     applyLayout: applyPresetLayout,
     buildLayout: buildPresetLayoutForCurrent
   });
+  const applyAgentLayoutWithHistory = useCallback((
+    state: TiledPanelState,
+    proposal: AgentLayoutProposal,
+    commit = false
+  ) => {
+    const isUndo = proposal.commands.some((command) => command.type === "layout.undo");
+    const undoState = agentLayoutHistoryRef.current.at(-1);
+    const activeChartSymbol = state.slots
+      .map((slot) => state.contents[slot.contentId])
+      .find((content) => content?.kind === "chart")?.props?.symbol;
+    const defaultState = createInitialTiledPanelState(viewportSizeRef.current, {
+      layoutMetrics: panelLayoutMetricsRef.current,
+      symbol: typeof activeChartSymbol === "string" ? activeChartSymbol : undefined
+    });
+    const result = applyTiledAgentLayoutProposalWithResult(
+      state,
+      proposal,
+      viewportSizeRef.current,
+      panelLayoutMetricsRef.current,
+      { undoState, defaultState }
+    );
+    if (commit && result.requestedSaveName && lastSavedAgentProposalRef.current !== proposal.id) {
+      lastSavedAgentProposalRef.current = proposal.id;
+      const presetId = presetControls.createCustomPreset();
+      if (presetId) {
+        presetControls.renamePreset(presetId, result.requestedSaveName);
+      }
+    }
+    if (commit && result.stateChanged) {
+      if (isUndo) {
+        agentLayoutHistoryRef.current.pop();
+      } else {
+        agentLayoutHistoryRef.current = [...agentLayoutHistoryRef.current.slice(-19), state];
+      }
+    }
+    return result;
+  }, [presetControls]);
   const agentPresetSummaries = useMemo(() => buildAgentLayoutPresetSummaries(presetControls.presets), [presetControls.presets]);
   const buildAgentLayoutContext = useCallback((
     state: TiledPanelState,
@@ -387,7 +429,8 @@ export function App() {
   ) => ({
     ...buildTiledAgentLayoutContext(state, viewport, activeSymbol, selectedPanelId, chartDocumentSymbols, layoutMetrics),
     presets: agentPresetSummaries,
-    activePresetId: presetControls.activePresetId
+    activePresetId: presetControls.activePresetId,
+    canUndo: agentLayoutHistoryRef.current.length > 0
   }), [agentPresetSummaries, presetControls.activePresetId]);
   const [emphasizedReferenceKeys, setEmphasizedReferenceKeys] = useState<string[]>([]);
   const selectedAgentReferenceKeys = useMemo(() => (
@@ -657,7 +700,7 @@ export function App() {
     if (handlePresetLoadResult(presetLoadResult) !== "none") {
       return;
     }
-    const preview = applyTiledAgentLayoutProposalWithResult(panelState, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
+    const preview = applyAgentLayoutWithHistory(panelState, proposal);
     if (preview.pendingPlacementPick) {
       setPendingPlacementPick(preview.pendingPlacementPick);
       setChatLog((entries) => [
@@ -667,7 +710,7 @@ export function App() {
       return;
     }
     setPanelState((current) => {
-      const result = applyTiledAgentLayoutProposalWithResult(current, proposal, viewportSizeRef.current, panelLayoutMetricsRef.current);
+      const result = applyAgentLayoutWithHistory(current, proposal, true);
       const next = result.state;
       const commands = chartDocumentCommandsForPanelPropChanges(current, next);
       if (commands.length) {
@@ -680,7 +723,7 @@ export function App() {
       }
       return next;
     });
-  }, [applyPresetLoadProposal, handlePresetLoadResult, panelState]);
+  }, [applyAgentLayoutWithHistory, applyPresetLoadProposal, handlePresetLoadResult, panelState]);
 
   const handlePlacementPickSelect = useCallback((candidate: PlacementPickCandidate) => {
     const pick = pendingPlacementPick;
@@ -701,10 +744,6 @@ export function App() {
       return next;
     });
     setPendingPlacementPick(null);
-    setChatLog((current) => [
-      ...current,
-      createChatLogEntry("assistant", `${candidate.label} 배치로 적용했습니다.`)
-    ]);
   }, [pendingPlacementPick]);
 
   const handlePlacementPickCancel = useCallback(() => {
@@ -863,7 +902,7 @@ export function App() {
           setChatLog((current) => [
             ...current,
             userEntry,
-            createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "프리셋을 적용할 수 없습니다.")
           ]);
           return "chat-log";
         }
@@ -886,6 +925,7 @@ export function App() {
           let nextPanelState = panelState;
           const workingLayoutMetrics = panelLayoutMetricsRef.current;
           const addedSymbols: string[] = [];
+          const layoutProblems: string[] = [];
           for (const addSymbol of shortcutSymbols) {
             if (chartSymbolsForPanelState(nextPanelState, chartDocumentSymbolsByPanelId, primarySymbol).includes(addSymbol)) {
               continue;
@@ -915,12 +955,7 @@ export function App() {
             if (presetLoadStatus !== "none") {
               return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
             }
-            const applyResult = applyTiledAgentLayoutProposalWithResult(
-              nextPanelState,
-              layoutResolution.layoutProposal,
-              viewportSizeRef.current,
-              workingLayoutMetrics
-            );
+            const applyResult = applyAgentLayoutWithHistory(nextPanelState, layoutResolution.layoutProposal, true);
             if (applyResult.pendingPlacementPick) {
               const pick = applyResult.pendingPlacementPick;
               setPendingPlacementPick(pick);
@@ -931,8 +966,14 @@ export function App() {
               ]);
               return "chat-log";
             }
+            const problemMessage = layoutResolutionProblemMessage(layoutResolution, applyResult);
+            if (problemMessage) {
+              layoutProblems.push(problemMessage);
+            }
             nextPanelState = applyResult.state;
-            addedSymbols.push(addSymbol);
+            if (applyResult.stateChanged) {
+              addedSymbols.push(addSymbol);
+            }
           }
           setSemanticSelection(null);
           if (addedSymbols.length) {
@@ -942,9 +983,11 @@ export function App() {
           setChatLog((current) => [
             ...current,
             userEntry,
-            createChatLogEntry("assistant", `${shortcutSymbols.join(", ")} 차트를 같이 표시했습니다.`)
+            ...(layoutProblems.length
+              ? [createChatLogEntry("assistant", [...new Set(layoutProblems)].join(" "))]
+              : [])
           ]);
-          return "chat-log";
+          return layoutProblems.length ? "chat-log" : "ui-action";
         } catch (error: unknown) {
           setChatLog((current) => [
             ...current,
@@ -983,12 +1026,7 @@ export function App() {
             if (presetLoadStatus !== "none") {
               return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
             }
-            const preview = applyTiledAgentLayoutProposalWithResult(
-              panelState,
-              layoutResolution.layoutProposal,
-              viewportSizeRef.current,
-              panelLayoutMetricsRef.current
-            );
+            const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
             if (preview.pendingPlacementPick) {
               setPendingPlacementPick(preview.pendingPlacementPick);
               setChatLog((current) => [
@@ -999,12 +1037,7 @@ export function App() {
               return "chat-log";
             }
             setPanelState((current) => {
-              const result = applyTiledAgentLayoutProposalWithResult(
-                current,
-                layoutResolution.layoutProposal!,
-                viewportSizeRef.current,
-                panelLayoutMetricsRef.current
-              );
+              const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
               const commands = chartDocumentCommandsForPanelPropChanges(current, result.state);
               if (commands.length) {
                 setChartRuntime((runtime) => {
@@ -1016,18 +1049,19 @@ export function App() {
               }
               return result.state;
             });
+            const problemMessage = layoutResolutionProblemMessage(layoutResolution, preview);
             setChatLog((current) => [
               ...current,
               userEntry,
-              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+              ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
             ]);
-            return "chat-log";
+            return problemMessage ? "chat-log" : "ui-action";
           }
           if (layoutResolution?.status === "ui_clarify") {
             setChatLog((current) => [
               ...current,
               userEntry,
-              createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+              createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "차트 패널을 추가할 수 없습니다.")
             ]);
             return "chat-log";
           }
@@ -1086,6 +1120,12 @@ export function App() {
           semanticSelection,
           agentReferences
         );
+        const interactivePanelId = typeof interactiveContext.uiContext.activePanelId === "string"
+          ? interactiveContext.uiContext.activePanelId
+          : undefined;
+        const selectedLayoutPanelId = panelState.slots.find((slot) => (
+          slot.id === interactivePanelId || slot.contentId === interactivePanelId
+        ))?.id;
         const analysisPayload = {
           symbol: mainView.symbol,
           intent: prompt,
@@ -1098,24 +1138,21 @@ export function App() {
             panelState,
             viewportSize,
             mainView.symbol,
-            undefined,
+            selectedLayoutPanelId,
             chartDocumentSymbolsByPanelId,
             panelLayoutMetricsRef.current
           )
         };
         const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
         if (layoutResolution?.status === "ui_layout") {
+          let layoutApplyResult: ApplyTiledAgentLayoutResult | undefined;
           if (layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
             if (handlePresetLoadResult(presetLoadResult, { userEntry }) !== "none") {
               return;
             }
-            const preview = applyTiledAgentLayoutProposalWithResult(
-              panelState,
-              layoutResolution.layoutProposal,
-              viewportSizeRef.current,
-              panelLayoutMetricsRef.current
-            );
+            const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
+            layoutApplyResult = preview;
             if (preview.pendingPlacementPick) {
               setPendingPlacementPick(preview.pendingPlacementPick);
               setChatLog((current) => [
@@ -1126,19 +1163,15 @@ export function App() {
               return;
             }
             setPanelState((current) => {
-              const result = applyTiledAgentLayoutProposalWithResult(
-                current,
-                layoutResolution.layoutProposal!,
-                viewportSizeRef.current,
-                panelLayoutMetricsRef.current
-              );
+              const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
               return result.state;
             });
           }
+          const problemMessage = layoutResolutionProblemMessage(layoutResolution, layoutApplyResult);
           setChatLog((current) => [
             ...current,
             userEntry,
-            createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+            ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
           ]);
           return;
         }
@@ -1146,7 +1179,7 @@ export function App() {
           setChatLog((current) => [
             ...current,
             userEntry,
-            createChatLogEntry("assistant", layoutResolutionMessage(layoutResolution))
+            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "화면 변경 요청을 확인하지 못했습니다.")
           ]);
           return;
         }
@@ -1526,17 +1559,19 @@ function normalizedShortcutSymbols(shortcut: AgentEntityResolveResponse): string
   return symbols;
 }
 
-function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string {
+function layoutResolutionProblemMessage(
+  resolution: AgentLayoutResolveResponse,
+  applyResult?: ApplyTiledAgentLayoutResult
+): string | null {
+  if (applyResult?.reason) {
+    return `일부 배치는 적용되지 않았습니다. ${applyResult.reason}`;
+  }
   if (resolution.status === "ui_clarify") {
     return resolution.summary || "어떤 패널을 어떻게 바꿀지 조금 더 구체적으로 말해 주세요.";
   }
   const proposal = resolution.layoutProposal;
-  const applied = Boolean(proposal && proposal.autoApply !== false && proposal.commands.length > 0);
-  if (applied) {
-    if (proposal?.rationale && !isInternalLayoutRationale(proposal.rationale)) {
-      return proposal.rationale;
-    }
-    return resolution.summary || "변경했습니다.";
+  if (proposal && applyResult && agentLayoutApplySucceeded(proposal, applyResult)) {
+    return null;
   }
   if (proposal?.rationale && !isInternalLayoutRationale(proposal.rationale)) {
     return proposal.rationale;
@@ -1544,11 +1579,13 @@ function layoutResolutionMessage(resolution: AgentLayoutResolveResponse): string
   if (resolution.rationale && !isInternalLayoutRationale(resolution.rationale)) {
     return resolution.rationale;
   }
-  return resolution.summary || "변경할 수 없습니다.";
+  return resolution.summary || "화면 변경이 적용되지 않았습니다.";
 }
 
 function placementPickMessage(pick: PendingPlacementPick): string {
-  const subject = pick.symbol ? `${pick.symbol} 차트` : "차트";
+  const kind = panelKindForAgentType(pick.panelType);
+  const panelTitle = kind ? panelRegistryEntry(kind).title : "패널";
+  const subject = pick.symbol ? `${pick.symbol} ${panelTitle}` : panelTitle;
   const labels = pick.candidates.map((candidate, index) => `${index + 1}. ${candidate.label}`).join(" / ");
   return `${subject}를 배치할 위치를 선택해 주세요. ${labels}`;
 }

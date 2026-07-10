@@ -88,6 +88,7 @@ export type WorkspaceLayoutMetrics = {
 export type PanelSlot = {
   id: PanelSlotId;
   contentId: PanelContentId;
+  layoutPinned?: boolean;
   gridRect: PanelGridRect;
   rect: PanelRect;
   minWidth: number;
@@ -1231,6 +1232,7 @@ export type StoredTiledPanelState = {
   slots: Array<{
     id: PanelSlotId;
     contentId: PanelContentId;
+    layoutPinned?: boolean;
     gridRect: PanelGridRect;
   }>;
 };
@@ -1243,6 +1245,7 @@ export function serializeTiledPanelState(state: TiledPanelState): StoredTiledPan
     slots: state.slots.map((slot) => ({
       id: slot.id,
       contentId: slot.contentId,
+      ...(slot.layoutPinned ? { layoutPinned: true } : {}),
       gridRect: slot.gridRect
     }))
   };
@@ -1297,7 +1300,10 @@ export function restoreTiledPanelStateSnapshot(
     if (!canPlaceGridRect({ slots, contents, nextInstance: 1 }, gridRect, { kind: content.kind })) {
       return null;
     }
-    slots.push(createPanelSlot(id, content, gridRect, viewport, layoutMetrics));
+    slots.push({
+      ...createPanelSlot(id, content, gridRect, viewport, layoutMetrics),
+      ...(rawSlot.layoutPinned === true ? { layoutPinned: true } : {})
+    });
   }
   const nextInstance = typeof value.nextInstance === "number" && Number.isFinite(value.nextInstance)
     ? Math.max(value.nextInstance, slots.length + 1)
@@ -1342,6 +1348,22 @@ function createPanelSlot(
     gridRect: normalized,
     rect: panelRectForGridRect(normalized, viewport, layoutMetrics),
     ...minPanelPixelSizeForKind(content.kind, viewport, layoutMetrics)
+  };
+}
+
+
+export function setPanelSlotPinned(state: TiledPanelState, panelId: string, layoutPinned: boolean): TiledPanelState {
+  const slot = state.slots.find((item) => item.id === panelId || item.contentId === panelId);
+  if (!slot || Boolean(slot.layoutPinned) === layoutPinned) {
+    return state;
+  }
+  return {
+    ...state,
+    slots: state.slots.map((item) => (
+      item.id === slot.id
+        ? { ...item, ...(layoutPinned ? { layoutPinned: true } : { layoutPinned: undefined }) }
+        : item
+    ))
   };
 }
 
