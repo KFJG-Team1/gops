@@ -1,14 +1,21 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const fixtureSessionDate = "2026-07-08";
+let omittedCandleIndex: number | null = null;
+let omittedOrderFlowMinute: number | null = null;
+let alignBidAskFixtures = false;
 
 test.beforeEach(async ({ page }) => {
+  omittedCandleIndex = null;
+  omittedOrderFlowMinute = null;
+  alignBidAskFixtures = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
 });
 
 test("chart modes and bidask intervals remain visually stable", async ({ page }) => {
+  alignBidAskFixtures = true;
   let intradayRequestCount = 0;
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/api/charts/order-flow/intraday") {
@@ -57,6 +64,53 @@ test("fixed and optional derived layers preserve chart geometry", async ({ page 
   await expect(panel).toHaveScreenshot("chart-derived-layers.png");
 });
 
+test("bidask wheel zoom keeps one visual grammar and skips viewport history", async ({ page }) => {
+  alignBidAskFixtures = true;
+  await openFixtureLayout(page, chartOnlyLayout());
+  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
+  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+  await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
+  await page.waitForTimeout(250);
+  const initialVisibleCount = Number(await chartPanel.getAttribute("data-chart-visible-count"));
+  const initialHistoryCount = await chartPanel.getAttribute("data-chart-history-count");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) {
+    throw new Error("Bid/Ask canvas geometry is unavailable");
+  }
+  await dispatchWheelBurst(canvas, 6, 0.55);
+  await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(initialVisibleCount);
+  await expect(chartPanel).toHaveAttribute("data-chart-history-count", initialHistoryCount ?? "0");
+  await expectNonBlankCanvas(canvas);
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-zoomed.png");
+});
+
+test("bidask missing minutes retain candles and unknown delta", async ({ page }) => {
+  alignBidAskFixtures = true;
+  omittedCandleIndex = 82;
+  omittedOrderFlowMinute = 88;
+  await openFixtureLayout(page, chartOnlyLayout());
+  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
+  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  const chartPanel = page.locator(".chart-panel");
+  await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "139");
+  await expect(chartPanel).toHaveAttribute("data-order-flow-minute-count", "389");
+  const canvas = chartPanel.locator(".chart-canvas");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) {
+    throw new Error("Bid/Ask missing-minute canvas geometry is unavailable");
+  }
+  await dispatchWheelBurst(canvas, 5, 0.52);
+  await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(120);
+  await page.waitForTimeout(250);
+  await expectNonBlankCanvas(canvas);
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png");
+});
+
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
   await openFixtureLayout(page, tiledDataLayout());
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
@@ -64,6 +118,81 @@ test("tiled chart, compare, and order-flow panels do not overlap workspace chrom
   await expect(page.locator(".chart-compare-panel")).toBeVisible();
   await assertWorkspaceChromeDoesNotOverlap(page);
   await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
+});
+
+test("order-flow panels stay intraday-only and keep the lower canvas wheelable", async ({ page }) => {
+  let dailyRequestCount = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/charts/order-flow/daily") {
+      dailyRequestCount += 1;
+    }
+  });
+  await openFixtureLayout(page, orderFlowInteractionLayout());
+
+  const firstPanel = page.locator('[data-panel-id="slot-orderFlow-2"]');
+  const secondPanel = page.locator('[data-panel-id="slot-orderFlow-3"]');
+  await expectNonBlankCanvas(firstPanel.locator(".order-flow-canvas"));
+  await expectNonBlankCanvas(secondPanel.locator(".order-flow-canvas"));
+  await expect(firstPanel).toHaveAttribute("data-order-flow-symbol", "NVDA");
+  await expect(secondPanel).toHaveAttribute("data-order-flow-symbol", "NVDA");
+  await expect.poll(() => storedPanelProp(page, "content-orderFlow-2", "symbol")).toBe("NVDA");
+
+  await firstPanel.hover();
+  const controlGeometry = await firstPanel.evaluate((element) => {
+    const panelRect = element.getBoundingClientRect();
+    const overlayRect = element.querySelector(".order-flow-hover-overlay")?.getBoundingClientRect();
+    const buttonRects = Array.from(element.querySelectorAll(".order-flow-window-grid button")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: rect.top, height: rect.height };
+    });
+    return {
+      panelHeight: panelRect.height,
+      overlayHeight: overlayRect?.height ?? panelRect.height,
+      buttonRects
+    };
+  });
+  expect(controlGeometry.overlayHeight).toBeLessThan(controlGeometry.panelHeight);
+  expect(controlGeometry.buttonRects).toHaveLength(4);
+  expect(Math.max(...controlGeometry.buttonRects.map((rect) => rect.top)) - Math.min(...controlGeometry.buttonRects.map((rect) => rect.top))).toBeLessThan(1);
+
+  const windowButtons = firstPanel.locator(".order-flow-window-grid button");
+  expect(await windowButtons.count()).toBe(4);
+  expect(await windowButtons.evaluateAll((buttons) => buttons.filter((button) => (button as HTMLButtonElement).disabled).length)).toBe(0);
+  await firstPanel.getByRole("button", { name: "1h", exact: true }).click();
+  await expect(firstPanel).toHaveAttribute("data-order-flow-window", "1h");
+  await expect(secondPanel).toHaveAttribute("data-order-flow-window", "session");
+
+  const panelBox = await firstPanel.boundingBox();
+  const overlayBox = await firstPanel.locator(".order-flow-hover-overlay").boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(overlayBox).not.toBeNull();
+  if (!panelBox || !overlayBox) {
+    throw new Error("Order-flow panel geometry is unavailable");
+  }
+  await page.mouse.move(panelBox.x + panelBox.width / 2, overlayBox.y + overlayBox.height + 12);
+  await page.mouse.wheel(0, -180);
+  await expect(firstPanel).not.toHaveAttribute("data-order-flow-resolution", "auto");
+  await expect(secondPanel).toHaveAttribute("data-order-flow-resolution", "16");
+  await expect.poll(() => storedPanelProp(page, "content-orderFlow-2", "resolution")).toEqual(expect.any(Number));
+
+  const chartCanvas = page.locator(".chart-canvas");
+  const chartBox = await chartCanvas.boundingBox();
+  expect(chartBox).not.toBeNull();
+  if (!chartBox) {
+    throw new Error("Chart canvas geometry is unavailable");
+  }
+  await chartCanvas.click({ position: { x: chartBox.width * 0.72, y: chartBox.height * 0.45 } });
+  await expect(page.locator(".agent-reference-chip")).toHaveCount(1);
+  expect(dailyRequestCount).toBe(0);
+
+  await firstPanel.hover();
+  const symbolSearch = firstPanel.getByLabel("Symbol search");
+  await symbolSearch.fill("AAPL");
+  await symbolSearch.press("Enter");
+  await expect(firstPanel).toHaveAttribute("data-order-flow-symbol", "AAPL");
+  await expect(secondPanel).toHaveAttribute("data-order-flow-symbol", "NVDA");
+  await expect.poll(() => storedPanelProp(page, "content-orderFlow-2", "symbol")).toBe("AAPL");
+  await expect.poll(() => storedPanelProp(page, "content-orderFlow-3", "symbol")).toBe("NVDA");
 });
 
 async function openFixtureLayout(page: Page, layout: Record<string, unknown>): Promise<void> {
@@ -96,6 +225,18 @@ function tiledDataLayout(): Record<string, unknown> {
   ]);
 }
 
+function orderFlowInteractionLayout(): Record<string, unknown> {
+  return storedLayout([
+    content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "visual-chart-document"),
+    content("orderFlow", 2, { window: "10m", resolution: "auto" }),
+    content("orderFlow", 3, { symbol: "NVDA", window: "session", resolution: 16 })
+  ], [
+    slot("chart", 1, 1, 1, 4, 6),
+    slot("orderFlow", 2, 5, 1, 2, 3),
+    slot("orderFlow", 3, 7, 1, 2, 3)
+  ]);
+}
+
 function storedLayout(contents: Array<Record<string, unknown>>, slots: Array<Record<string, unknown>>): Record<string, unknown> {
   return {
     version: 1,
@@ -123,6 +264,17 @@ function slot(kind: string, index: number, col: number, row: number, colSpan: nu
     contentId: `content-${kind}-${index}`,
     gridRect: { col, row, colSpan, rowSpan }
   };
+}
+
+async function storedPanelProp(page: Page, contentId: string, prop: string): Promise<unknown> {
+  return page.evaluate(({ key, targetContentId, targetProp }) => {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    const stored = JSON.parse(raw) as { contents?: Record<string, { props?: Record<string, unknown> }> };
+    return stored.contents?.[targetContentId]?.props?.[targetProp] ?? null;
+  }, { key: layoutStorageKey, targetContentId: contentId, targetProp: prop });
 }
 
 async function fulfillFixtureApi(route: Route): Promise<void> {
@@ -181,25 +333,37 @@ function candlePayload(symbol: string, interval: string): Record<string, unknown
 
 function fixtureCandles(interval: string): Array<Record<string, unknown>> {
   const stepMinutes = ({ "1m": 1, "5m": 5, "10m": 10, "1h": 60, "4h": 240, "1D": 1440, "1W": 10080, "1M": 43200 } as Record<string, number>)[interval] ?? 1;
-  const count = interval === "1h" ? 28 : interval === "10m" ? 78 : 140;
+  const count = alignBidAskFixtures && interval === "1h" ? 7 : interval === "1h" ? 28 : interval === "10m" ? 78 : 140;
   const start = Date.parse("2026-07-08T13:30:00.000Z");
   return Array.from({ length: count }, (_, index) => {
-    const center = 150 + index * 0.08 + Math.sin(index / 5) * 2.4;
+    const elapsedMinute = index * stepMinutes;
+    const minutePrice = (minute: number) => 150 + minute * 0.08 + Math.sin(minute / 5) * 2.4;
+    const alignedInterval = alignBidAskFixtures && (interval === "1m" || interval === "10m" || interval === "1h");
+    const center = alignedInterval
+      ? minutePrice(elapsedMinute)
+      : 150 + index * 0.08 + Math.sin(index / 5) * 2.4;
+    const end = alignedInterval
+      ? minutePrice(elapsedMinute + stepMinutes - 1)
+      : center;
     const open = center - Math.sin(index / 3) * 0.55;
-    const close = center + Math.cos(index / 4) * 0.62;
+    const close = end + Math.cos(index / 4) * 0.62;
+    const sampled = alignedInterval
+      ? Array.from({ length: stepMinutes }, (_, offset) => minutePrice(elapsedMinute + offset))
+      : [center];
     return {
       timestamp: new Date(start + index * stepMinutes * 60_000).toISOString(),
       open,
-      high: Math.max(open, close) + 0.8,
-      low: Math.min(open, close) - 0.75,
+      high: Math.max(open, close, ...sampled) + 0.8,
+      low: Math.min(open, close, ...sampled) - 0.75,
       close,
       volume: 600_000 + (index % 13) * 75_000,
       isClosed: true,
+      ...(alignedInterval ? { marketSession: elapsedMinute < 390 ? "regular" : "after" } : {}),
       ma5: center - 0.2,
       ma20: center - 0.65,
       ma60: center - 1.25
     };
-  });
+  }).filter((_candle, index) => interval !== "1m" || index !== omittedCandleIndex);
 }
 
 function indicatorPayload(url: URL): Record<string, unknown> {
@@ -309,14 +473,16 @@ function orderFlowIntradayPayload(symbol: string): Record<string, unknown> {
     minutes: Array.from({ length: 390 }, (_, minute) => ({
       eventMinute: new Date(start + minute * 60_000).toISOString(),
       bins: Array.from({ length: 9 }, (_, level) => ({
-        priceBin: 156 + minute * 0.01 + level * 0.05,
+        priceBin: alignBidAskFixtures
+          ? 150 + minute * 0.08 + Math.sin(minute / 5) * 2.4 + (level - 4) * 0.05
+          : 156 + minute * 0.01 + level * 0.05,
         askVolume: 20 + ((minute + level * 3) % 35),
         bidVolume: 18 + ((minute * 2 + level) % 31),
         unknownVolume: (minute + level) % 4,
         askTradeCount: 2 + (level % 4),
         bidTradeCount: 2 + ((level + 1) % 4)
       }))
-    }))
+    })).filter((_minute, minute) => minute !== omittedOrderFlowMinute)
   };
 }
 
@@ -368,6 +534,21 @@ async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promis
     }
     return colored;
   })).toBeGreaterThan(100);
+}
+
+async function dispatchWheelBurst(canvas: Locator, count: number, anchorRatio: number): Promise<void> {
+  await canvas.evaluate((element, input) => {
+    const rect = element.getBoundingClientRect();
+    for (let index = 0; index < input.count; index += 1) {
+      element.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width * input.anchorRatio,
+        clientY: rect.top + rect.height * 0.45,
+        deltaY: -70
+      }));
+    }
+  }, { count, anchorRatio });
 }
 
 async function assertWorkspaceChromeDoesNotOverlap(page: Page): Promise<void> {

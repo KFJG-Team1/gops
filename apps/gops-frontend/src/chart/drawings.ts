@@ -9,28 +9,52 @@ import type {
 } from "./types";
 import type { ChartScene } from "./scene";
 import { createCoordinateTransform } from "./scene";
+import { resolveDrawingRenderItems } from "./drawingProjection";
+import {
+  buildHorizontalParallelLines,
+  buildFibonacciLevelGeometry,
+  buildRiskRewardGeometry,
+  buildTrendParallelLines,
+  buildVerticalParallelLines,
+  normalizeParallelLineCount as normalizeEngineParallelLineCount,
+  parallelBandPolygons,
+  riskRewardDirection,
+  trendParallelBaseLineIndex,
+  type DrawingLine,
+  type DrawingPoint
+} from "@gops/chart-engine";
 
 export type DrawingDraft = {
   type: DrawingType;
-  first: DrawingAnchor;
+  anchors: DrawingAnchor[];
   sourceInterval?: ChartInterval;
 };
+
+export type RangeResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 export type DrawingDrag = {
   drawing: DrawingEntity;
   anchor: DrawingAnchor;
   anchorIndex: number | null;
+  startPoint: DrawingPoint;
+  moved: boolean;
+  rangeHandle?: RangeResizeHandle;
 };
 
 export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; label: string }> = [
   { mode: "select", label: "Select" },
   { mode: "pan", label: "Pan" },
   { mode: "draw-horizontalLine", type: "horizontalLine", label: "H-Line" },
+  { mode: "draw-horizontalParallelLines", type: "horizontalParallelLines", label: "Price Parallel" },
   { mode: "draw-verticalMarker", type: "verticalMarker", label: "Marker" },
+  { mode: "draw-verticalParallelLines", type: "verticalParallelLines", label: "Time Parallel" },
   { mode: "draw-trendLine", type: "trendLine", label: "Trend" },
+  { mode: "draw-trendParallelLines", type: "trendParallelLines", label: "Trend Parallel" },
   { mode: "draw-textLabel", type: "textLabel", label: "Text" },
-  { mode: "draw-pointMarker", type: "pointMarker", label: "Point" },
-  { mode: "draw-rangeBox", type: "rangeBox", label: "Range" }
+  { mode: "draw-flagMarker", type: "flagMarker", label: "Flag" },
+  { mode: "draw-rangeBox", type: "rangeBox", label: "Range" },
+  { mode: "draw-riskRewardBox", type: "riskRewardBox", label: "Risk/Reward" },
+  { mode: "draw-fibonacciRetracement", type: "fibonacciRetracement", label: "Fibonacci" }
 ];
 
 export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null {
@@ -39,7 +63,17 @@ export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null
 }
 
 export function drawingNeedsTwoAnchors(type: DrawingType): boolean {
-  return type === "trendLine" || type === "rangeBox";
+  return drawingRequiredAnchorCount(type) > 1;
+}
+
+export function drawingRequiredAnchorCount(type: DrawingType): number {
+  if (type === "trendParallelLines" || type === "riskRewardBox") {
+    return 3;
+  }
+  if (type === "trendLine" || type === "rangeBox" || type === "horizontalParallelLines" || type === "verticalParallelLines" || type === "fibonacciRetracement") {
+    return 2;
+  }
+  return 1;
 }
 
 export function makeDrawing(
@@ -51,16 +85,19 @@ export function makeDrawing(
     sourceInterval?: ChartInterval;
     style?: DrawingStyle;
     label?: string;
+    parallelLineCount?: number;
   } = {}
 ): DrawingEntity {
   const now = new Date().toISOString();
+  const normalizedAnchors = normalizeDrawingAnchors(type, anchors);
   return {
     id: `drawing-${crypto.randomUUID()}`,
     type,
-    anchors,
+    anchors: normalizedAnchors,
     sourceInterval: options.sourceInterval,
     style: options.style ?? defaultDrawingStyle(type, options.trendLineExtension),
     label: options.label ?? defaultDrawingLabel(type),
+    parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(options.parallelLineCount) : undefined,
     visible: true,
     createdBy: options.createdBy ?? "user",
     createdAt: now,
@@ -68,19 +105,54 @@ export function makeDrawing(
   };
 }
 
-export function buildDraftPreviewDrawing(draft: DrawingDraft, anchor: DrawingAnchor, trendLineExtension: ChartLineExtension): DrawingEntity {
+export function buildDraftPreviewDrawing(
+  draft: DrawingDraft,
+  anchor: DrawingAnchor,
+  trendLineExtension: ChartLineExtension,
+  parallelLineCount = 3
+): DrawingEntity {
+  const anchors = normalizeDrawingAnchors(draft.type, [...draft.anchors, anchor]);
+  const riskValid = draft.type !== "riskRewardBox" || isValidRiskRewardAnchors(anchors);
   return {
     id: "drawing-draft-preview",
     type: draft.type,
-    anchors: [draft.first, anchor],
+    anchors,
     sourceInterval: draft.sourceInterval,
-    style: { ...defaultDrawingStyle(draft.type, trendLineExtension), opacity: 0.58, lineDash: [6, 4] },
+    style: {
+      ...defaultDrawingStyle(draft.type, trendLineExtension),
+      colorToken: riskValid ? defaultDrawingStyle(draft.type, trendLineExtension).colorToken : "down",
+      opacity: 0.58,
+      lineDash: [6, 4]
+    },
     label: defaultDrawingLabel(draft.type),
+    parallelLineCount: draft.type === "trendParallelLines" ? normalizeParallelLineCount(parallelLineCount) : undefined,
     visible: true,
     createdBy: "user",
     createdAt: "draft",
     updatedAt: "draft"
   };
+}
+
+export function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
+  if (type !== "riskRewardBox" || anchors.length < 3) {
+    return anchors;
+  }
+  const [entry, stop, target, ...rest] = anchors;
+  return [
+    entry,
+    stop,
+    { ...target, ...drawingAnchorTime(stop) },
+    ...rest
+  ];
+}
+
+export function isValidRiskRewardAnchors(anchors: DrawingAnchor[]): boolean {
+  if (anchors.length < 3) {
+    return false;
+  }
+  const [entry, stop, target] = anchors;
+  return typeof entry.price === "number" && typeof stop.price === "number" && typeof target.price === "number" &&
+    riskRewardDirection(entry.price, stop.price, target.price) !== null;
 }
 
 export function buildSingleAnchorPreviewDrawing(
@@ -104,8 +176,14 @@ export function buildSingleAnchorPreviewDrawing(
 }
 
 export function defaultDrawingStyle(type: DrawingType, trendLineExtension: ChartLineExtension = "segment"): DrawingStyle {
-  if (type === "rangeBox") {
-    return { colorToken: "preview", fillToken: "preview", fillOpacity: 0.12, lineWidth: 1.0 };
+  if (type === "rangeBox" || type === "fibonacciRetracement") {
+    return { colorToken: "drawing", fillToken: "drawing", fillOpacity: 0.045, lineWidth: 1.0 };
+  }
+  if (type === "riskRewardBox") {
+    return { colorToken: "drawing", fillOpacity: 0.075, lineWidth: 1.0 };
+  }
+  if (type === "horizontalParallelLines" || type === "verticalParallelLines" || type === "trendParallelLines") {
+    return { colorToken: "drawing", fillToken: "drawing", fillOpacity: 0.04, lineWidth: 1.0 };
   }
   if (type === "trendLine") {
     return { colorToken: "drawing", lineWidth: 1.0, extension: trendLineExtension };
@@ -119,15 +197,34 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
       return "기준선";
     case "verticalMarker":
       return "이벤트";
+    case "horizontalParallelLines":
+      return "가격 구간";
+    case "verticalParallelLines":
+      return "시간 구간";
     case "textLabel":
       return "메모";
-    case "pointMarker":
-      return "포인트";
+    case "flagMarker":
+      return "이벤트";
     case "rangeBox":
       return "범위";
     default:
       return undefined;
   }
+}
+
+export function normalizeParallelLineCount(value: unknown): number {
+  return normalizeEngineParallelLineCount(value, 3);
+}
+
+export function drawingSupportsTextEditing(drawing: Pick<DrawingEntity, "type" | "label">): boolean {
+  return drawing.type === "horizontalLine" ||
+    drawing.type === "horizontalParallelLines" ||
+    drawing.type === "verticalMarker" ||
+    drawing.type === "verticalParallelLines" ||
+    drawing.type === "textLabel" ||
+    drawing.type === "flagMarker" ||
+    drawing.type === "rangeBox" ||
+    typeof drawing.label === "string";
 }
 
 export function sourceIntervalForDrawingAnchors(anchors: DrawingAnchor[], fallback?: ChartInterval): ChartInterval | undefined {
@@ -173,21 +270,77 @@ export function projectTrendLine(
   return [sorted[0].point, sorted[sorted.length - 1].point];
 }
 
+export function parallelLinesForDrawing(
+  drawing: Pick<DrawingEntity, "type" | "parallelLineCount">,
+  points: DrawingPoint[],
+  plot: { left: number; right: number; top: number; priceBottom: number }
+): DrawingLine[] {
+  if (drawing.type === "horizontalParallelLines" && points.length >= 2) {
+    return buildHorizontalParallelLines(points[0], points[1], plot);
+  }
+  if (drawing.type === "verticalParallelLines" && points.length >= 2) {
+    return buildVerticalParallelLines(points[0], points[1], plot);
+  }
+  if (drawing.type === "trendParallelLines") {
+    if (points.length >= 3) {
+      return buildTrendParallelLines(points[0], points[1], points[2], plot, normalizeParallelLineCount(drawing.parallelLineCount));
+    }
+    if (points.length >= 2) {
+      return [projectTrendLine(points[0], points[1], plot, "line")];
+    }
+  }
+  return [];
+}
+
+export function parallelBandsForDrawing(
+  drawing: Pick<DrawingEntity, "type" | "parallelLineCount">,
+  points: DrawingPoint[],
+  plot: { left: number; right: number; top: number; priceBottom: number }
+): DrawingPoint[][] {
+  return parallelBandPolygons(parallelLinesForDrawing(drawing, points, plot), plot);
+}
+
+export function rangeResizeHandles(points: DrawingPoint[]): Array<{ handle: RangeResizeHandle; point: DrawingPoint }> {
+  if (points.length < 2) {
+    return [];
+  }
+  const left = Math.min(points[0].x, points[1].x);
+  const right = Math.max(points[0].x, points[1].x);
+  const top = Math.min(points[0].y, points[1].y);
+  const bottom = Math.max(points[0].y, points[1].y);
+  const centerX = (left + right) / 2;
+  const centerY = (top + bottom) / 2;
+  return [
+    { handle: "nw", point: { x: left, y: top } },
+    { handle: "n", point: { x: centerX, y: top } },
+    { handle: "ne", point: { x: right, y: top } },
+    { handle: "e", point: { x: right, y: centerY } },
+    { handle: "se", point: { x: right, y: bottom } },
+    { handle: "s", point: { x: centerX, y: bottom } },
+    { handle: "sw", point: { x: left, y: bottom } },
+    { handle: "w", point: { x: left, y: centerY } }
+  ];
+}
+
 export function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, scene: ChartScene): DrawingAnchor[] {
+  if (drag.drawing.type === "rangeBox" && drag.rangeHandle) {
+    return buildRangeResizedAnchors(drag, anchor, scene);
+  }
+  if (drag.drawing.type === "riskRewardBox" && drag.anchorIndex !== null) {
+    return buildRiskRewardDraggedAnchors(drag, anchor);
+  }
   const timestampIndex = new Map(scene.allCandles.map((candle, index) => [candle.timestamp, index]));
   const dragStartLogical = anchorLogicalIndex(drag.anchor, timestampIndex);
   const dragEndLogical = anchorLogicalIndex(anchor, timestampIndex);
+  const logicalDelta = Math.round(dragEndLogical - dragStartLogical);
   return drag.drawing.anchors.map((item, index) => {
     if (drag.anchorIndex !== null) {
       return index === drag.anchorIndex ? anchor : item;
     }
     const priceDelta = (anchor.price ?? 0) - (drag.anchor.price ?? 0);
-    const logicalDelta = dragEndLogical - dragStartLogical;
     const itemLogical = anchorLogicalIndex(item, timestampIndex);
     const nextLogical = itemLogical + logicalDelta;
-    const nextTimestamp = typeof nextLogical === "number"
-      ? scene.allCandles[Math.max(0, Math.min(scene.allCandles.length - 1, Math.round(nextLogical)))]?.timestamp ?? item.timestamp
-      : item.timestamp;
+    const nextTimestamp = timestampAtDrawingLogicalIndex(scene, nextLogical) ?? item.timestamp;
     return {
       ...item,
       logicalIndex: nextLogical,
@@ -195,6 +348,89 @@ export function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, sc
       price: typeof item.price === "number" ? item.price + priceDelta : item.price
     };
   });
+}
+
+function buildRiskRewardDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor): DrawingAnchor[] {
+  const source = drag.drawing.anchors.slice(0, 3);
+  const [entry, stop, target] = source;
+  if (!entry || !stop || !target || typeof entry.price !== "number" || typeof stop.price !== "number" || typeof target.price !== "number") {
+    return drag.drawing.anchors;
+  }
+  const originalDirection = riskRewardDirection(entry.price, stop.price, target.price);
+  if (!originalDirection) {
+    return drag.drawing.anchors;
+  }
+  if (drag.anchorIndex === 0) {
+    if (typeof anchor.price !== "number" || riskRewardDirection(anchor.price, stop.price, target.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    return [{ ...entry, ...drawingAnchorTime(anchor), price: anchor.price }, stop, target];
+  }
+  if (drag.anchorIndex === 1) {
+    if (typeof anchor.price !== "number" || riskRewardDirection(entry.price, anchor.price, target.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    const nextStop = { ...stop, ...drawingAnchorTime(anchor), price: anchor.price };
+    return [entry, nextStop, { ...target, ...drawingAnchorTime(nextStop) }];
+  }
+  if (drag.anchorIndex === 2) {
+    if (typeof anchor.price !== "number" || riskRewardDirection(entry.price, stop.price, anchor.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    return [entry, stop, { ...target, price: anchor.price, ...drawingAnchorTime(stop) }];
+  }
+  return drag.drawing.anchors;
+}
+
+function timestampAtDrawingLogicalIndex(scene: ChartScene, logicalIndex: number): string | undefined {
+  const roundedIndex = Math.round(logicalIndex);
+  const candle = scene.allCandles[roundedIndex];
+  if (candle) {
+    return candle.timestamp;
+  }
+  const boundaryIndex = roundedIndex < 0 ? 0 : scene.allCandles.length - 1;
+  const boundaryTime = Date.parse(scene.allCandles[boundaryIndex]?.timestamp ?? "");
+  if (!Number.isFinite(boundaryTime)) {
+    return undefined;
+  }
+  const step = intervalMilliseconds(scene.chart.interval);
+  return new Date(boundaryTime + (roundedIndex - boundaryIndex) * step).toISOString();
+}
+
+function buildRangeResizedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, scene: ChartScene): DrawingAnchor[] {
+  const transform = createCoordinateTransform(scene);
+  const source = drag.drawing.anchors.slice(0, 2);
+  const points = source.map((item) => transform.anchorToPoint(item));
+  if (source.length < 2 || !points[0] || !points[1]) {
+    return drag.drawing.anchors;
+  }
+  const leftIndex = points[0].x <= points[1].x ? 0 : 1;
+  const rightIndex = leftIndex === 0 ? 1 : 0;
+  const topIndex = (source[0].price ?? 0) >= (source[1].price ?? 0) ? 0 : 1;
+  const bottomIndex = topIndex === 0 ? 1 : 0;
+  const handle = drag.rangeHandle;
+  if (!handle) {
+    return drag.drawing.anchors;
+  }
+  return source.map((item, index) => {
+    const movesTime = (handle.includes("w") && index === leftIndex) || (handle.includes("e") && index === rightIndex);
+    const movesPrice = (handle.includes("n") && index === topIndex) || (handle.includes("s") && index === bottomIndex);
+    return {
+      ...item,
+      ...(movesTime ? drawingAnchorTime(anchor) : {}),
+      price: movesPrice ? anchor.price ?? item.price : item.price
+    };
+  });
+}
+
+function drawingAnchorTime(anchor: DrawingAnchor): Pick<DrawingAnchor, "timestamp" | "logicalIndex" | "interval" | "symbol" | "paneId"> {
+  return {
+    timestamp: anchor.timestamp,
+    logicalIndex: anchor.logicalIndex,
+    interval: anchor.interval,
+    symbol: anchor.symbol,
+    paneId: anchor.paneId ?? "price"
+  };
 }
 
 function anchorLogicalIndex(anchor: DrawingAnchor, timestampIndex: Map<string, number>): number {
@@ -232,16 +468,134 @@ function intervalGranularityRank(interval: ChartInterval): number {
   }
 }
 
-export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawing: DrawingEntity; anchorIndex: number | null } | null {
+function intervalMilliseconds(interval: ChartInterval): number {
+  return intervalGranularityRank(interval) * 60_000;
+}
+
+export type DrawingHit = {
+  drawing: DrawingEntity;
+  anchorIndex: number | null;
+  rangeHandle?: RangeResizeHandle;
+};
+
+export type DrawingLabelLayout = {
+  label: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  textX: number;
+  baseline: number;
+  boxStyle: "plain" | "tag";
+};
+
+export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, labelOverride?: string): DrawingLabelLayout | null {
+  const transform = createCoordinateTransform(scene);
+  const points = drawing.anchors
+    .map((anchor) => transform.anchorToPoint(anchor))
+    .filter((point): point is DrawingPoint => Boolean(point));
+  if (!points.length) {
+    return null;
+  }
+  const label = (labelOverride ?? drawing.label)?.trim() || defaultDrawingLabel(drawing.type) || "";
+  if (!label) {
+    return null;
+  }
+  const fontSize = drawing.style.fontSize ?? 12;
+  const estimatedTextWidth = Array.from(label).reduce((width, character) => (
+    width + (/^[\x00-\x7F]$/.test(character) ? fontSize * 0.58 : fontSize)
+  ), 0);
+  const boxStyle: DrawingLabelLayout["boxStyle"] = drawing.type === "flagMarker" || drawing.type === "verticalParallelLines" ? "tag" : "plain";
+  const height = boxStyle === "tag" ? 22 : Math.max(18, fontSize + 6);
+  const width = boxStyle === "tag"
+    ? Math.max(44, Math.min(150, estimatedTextWidth + 18))
+    : Math.max(34, Math.min(180, estimatedTextWidth + 8));
+  const makeLayout = (preferredLeft: number, preferredTop: number): DrawingLabelLayout => {
+    const left = Math.max(scene.plot.left + 3, Math.min(scene.plot.right - width - 3, preferredLeft));
+    const top = Math.max(scene.plot.top + 3, Math.min(scene.plot.priceBottom - height - 3, preferredTop));
+    return {
+      label,
+      left,
+      top,
+      width,
+      height,
+      textX: left + (boxStyle === "tag" ? 9 : 4),
+      baseline: top + height / 2 + 0.5,
+      boxStyle
+    };
+  };
+  if (drawing.type === "horizontalLine") {
+    return makeLayout(scene.plot.right - width - 4, points[0].y - height / 2);
+  }
+  if (drawing.type === "verticalMarker") {
+    return makeLayout(points[0].x + 5, scene.plot.top + 3);
+  }
+  if (drawing.type === "horizontalParallelLines" && points.length >= 2) {
+    const upper = Math.min(points[0].y, points[1].y);
+    const lower = Math.max(points[0].y, points[1].y);
+    const preferredTop = lower - upper >= height + 12 ? upper + 8 : (upper + lower - height) / 2;
+    return makeLayout(scene.plot.left + 8, preferredTop);
+  }
+  if (drawing.type === "verticalParallelLines" && points.length >= 2) {
+    const centerX = (points[0].x + points[1].x) / 2;
+    return makeLayout(centerX - width / 2, scene.plot.priceBottom - height - 4);
+  }
+  if (drawing.type === "trendParallelLines" && points.length >= 3) {
+    const projected = timeWarpedParallelItem(scene, drawing);
+    if (projected) {
+      const labelLine = projected.lines[trendParallelBaseLineIndex(drawing.parallelLineCount ?? 3)];
+      const labelPoint = labelLine?.[Math.floor((labelLine.length - 1) / 2)];
+      return labelPoint ? makeLayout(labelPoint.x + 5, labelPoint.y - height / 2) : null;
+    }
+    const labelLine = parallelLinesForDrawing(drawing, points, scene.plot)[trendParallelBaseLineIndex(drawing.parallelLineCount ?? 3)];
+    if (labelLine) {
+      return makeLayout(
+        (labelLine[0].x + labelLine[1].x) / 2 + 5,
+        (labelLine[0].y + labelLine[1].y) / 2 - height / 2
+      );
+    }
+  }
+  if (drawing.type === "rangeBox" && points.length >= 2) {
+    return makeLayout(Math.min(points[0].x, points[1].x) + 5, Math.min(points[0].y, points[1].y) + 4);
+  }
+  if (drawing.type === "flagMarker") {
+    return makeLayout(points[0].x + 8, scene.plot.top + 3);
+  }
+  if (drawing.type === "textLabel") {
+    return makeLayout(points[0].x + 7, points[0].y - height / 2);
+  }
+  if (drawing.label && points.length >= 2) {
+    return makeLayout((points[0].x + points[1].x) / 2, (points[0].y + points[1].y) / 2 - height / 2);
+  }
+  return null;
+}
+
+export function drawingLabelPosition(scene: ChartScene, drawing: DrawingEntity): DrawingPoint | null {
+  const layout = drawingLabelLayout(scene, drawing);
+  return layout ? { x: layout.textX, y: layout.baseline } : null;
+}
+
+export function hitTestDrawing(scene: ChartScene, x: number, y: number): DrawingHit | null {
   const transform = createCoordinateTransform(scene);
   for (const drawing of [...scene.chart.drawings].reverse()) {
     if (drawing.visible === false) {
       continue;
     }
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
-    const anchorIndex = points.findIndex((point) => distance(point.x, point.y, x, y) <= 8);
+    const projectedParallel = drawing.type === "trendParallelLines" ? timeWarpedParallelItem(scene, drawing) : null;
+    if (drawing.type === "rangeBox" && scene.chart.selectedDrawingId === drawing.id) {
+      const rangeHandle = rangeResizeHandles(points).find((item) => distance(item.point.x, item.point.y, x, y) <= 9);
+      if (rangeHandle) {
+        return { drawing, anchorIndex: null, rangeHandle: rangeHandle.handle };
+      }
+    }
+    const anchorPoints = projectedParallel?.handles ?? points;
+    const anchorIndex = drawing.type === "rangeBox" ? -1 : anchorPoints.findIndex((point) => distance(point.x, point.y, x, y) <= 8);
     if (anchorIndex >= 0) {
       return { drawing, anchorIndex };
+    }
+    if ((drawing.label || drawing.type === "flagMarker") && drawingLabelHit(scene, drawing, x, y)) {
+      return { drawing, anchorIndex: null };
     }
     if (drawing.type === "horizontalLine" && points[0] && Math.abs(points[0].y - y) <= 6 && x >= scene.plot.left && x <= scene.plot.right) {
       return { drawing, anchorIndex: null };
@@ -255,20 +609,114 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): { drawi
         return { drawing, anchorIndex: null };
       }
     }
+    if (
+      (drawing.type === "horizontalParallelLines" || drawing.type === "verticalParallelLines" || drawing.type === "trendParallelLines") &&
+      points.length >= 2
+    ) {
+      if (projectedParallel) {
+        const lineHit = projectedParallel.lines.some((linePoints) => linePoints.some((point, index) => (
+          index > 0 && distanceToSegment(x, y, linePoints[index - 1], point) <= 7
+        )));
+        if (lineHit) {
+          return { drawing, anchorIndex: null };
+        }
+        continue;
+      }
+      const lines = parallelLinesForDrawing(drawing, points, scene.plot);
+      if (lines.some(([start, end]) => distanceToSegment(x, y, start, end) <= 7)) {
+        return { drawing, anchorIndex: null };
+      }
+    }
     if (drawing.type === "rangeBox" && points.length >= 2) {
       const left = Math.min(points[0].x, points[1].x);
       const right = Math.max(points[0].x, points[1].x);
       const top = Math.min(points[0].y, points[1].y);
       const bottom = Math.max(points[0].y, points[1].y);
-      if (x >= left && x <= right && y >= top && y <= bottom) {
+      const edgeDistance = Math.min(
+        distanceToSegment(x, y, { x: left, y: top }, { x: right, y: top }),
+        distanceToSegment(x, y, { x: right, y: top }, { x: right, y: bottom }),
+        distanceToSegment(x, y, { x: right, y: bottom }, { x: left, y: bottom }),
+        distanceToSegment(x, y, { x: left, y: bottom }, { x: left, y: top })
+      );
+      if (edgeDistance <= 7) {
         return { drawing, anchorIndex: null };
       }
     }
-    if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0] && distance(points[0].x, points[0].y, x, y) <= 12) {
+    if (drawing.type === "riskRewardBox" && points.length >= 3) {
+      const direction = riskRewardDirection(
+        drawing.anchors[0].price ?? Number.NaN,
+        drawing.anchors[1].price ?? Number.NaN,
+        drawing.anchors[2].price ?? Number.NaN
+      );
+      if (direction) {
+        const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+        const lines: DrawingLine[] = [
+          [{ x: geometry.left, y: geometry.entryY }, { x: geometry.right, y: geometry.entryY }],
+          [{ x: geometry.left, y: geometry.stopY }, { x: geometry.right, y: geometry.stopY }],
+          [{ x: geometry.left, y: geometry.targetY }, { x: geometry.right, y: geometry.targetY }],
+          [{ x: geometry.left, y: Math.min(geometry.stopY, geometry.targetY) }, { x: geometry.left, y: Math.max(geometry.stopY, geometry.targetY) }],
+          [{ x: geometry.right, y: Math.min(geometry.stopY, geometry.targetY) }, { x: geometry.right, y: Math.max(geometry.stopY, geometry.targetY) }]
+        ];
+        if (lines.some(([start, end]) => distanceToSegment(x, y, start, end) <= 7)) {
+          return { drawing, anchorIndex: null };
+        }
+      }
+    }
+    if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
+      const levels = buildFibonacciLevelGeometry(points[0], points[1]);
+      if (
+        levels.some(({ line: [start, end] }) => distanceToSegment(x, y, start, end) <= 7) ||
+        distanceToSegment(x, y, points[0], points[1]) <= 7
+      ) {
+        return { drawing, anchorIndex: null };
+      }
+    }
+    if (drawing.type === "textLabel" && points[0] && distance(points[0].x, points[0].y, x, y) <= 12) {
+      return { drawing, anchorIndex: null };
+    }
+    if (
+      drawing.type === "flagMarker" &&
+      points[0] &&
+      (distance(points[0].x, points[0].y, x, y) <= 12 || (
+        Math.abs(points[0].x - x) <= 7 && y >= scene.plot.top && y <= points[0].y
+      ))
+    ) {
       return { drawing, anchorIndex: null };
     }
   }
   return null;
+}
+
+function timeWarpedParallelItem(scene: ChartScene, drawing: DrawingEntity) {
+  return resolveDrawingRenderItems(scene, [drawing]).find((item) => item.kind === "timeWarpedParallelLines");
+}
+
+function drawingLabelHit(scene: ChartScene, drawing: DrawingEntity, x: number, y: number): boolean {
+  const layout = drawingLabelLayout(scene, drawing);
+  return Boolean(layout && x >= layout.left && x <= layout.left + layout.width && y >= layout.top && y <= layout.top + layout.height);
+}
+
+export function flagTagLayout(
+  scene: Pick<ChartScene, "plot">,
+  drawing: Pick<DrawingEntity, "label" | "style">,
+  anchorX: number
+): { label: string; left: number; top: number; width: number; height: number; centerY: number } {
+  const label = drawing.label?.trim() || "이벤트";
+  const fontSize = drawing.style.fontSize ?? 12;
+  const estimatedTextWidth = Array.from(label).reduce((width, character) => (
+    width + (/^[\x00-\x7F]$/.test(character) ? fontSize * 0.58 : fontSize)
+  ), 0);
+  const width = Math.max(44, Math.min(150, estimatedTextWidth + 18));
+  const height = 22;
+  const centerY = scene.plot.top + 14;
+  return {
+    label,
+    left: Math.max(scene.plot.left + 3, Math.min(scene.plot.right - width - 3, anchorX + 8)),
+    top: centerY - height / 2,
+    width,
+    height,
+    centerY
+  };
 }
 
 function linePlotIntersections(

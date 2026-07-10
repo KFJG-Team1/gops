@@ -13,6 +13,7 @@ export type CandleDto = {
   close: number;
   volume: number;
   isClosed: boolean;
+  marketSession?: string;
   ma5?: number;
   ma20?: number;
   ma60?: number;
@@ -353,19 +354,29 @@ export type ChartToolMode =
   | "select"
   | "pan"
   | "draw-horizontalLine"
+  | "draw-horizontalParallelLines"
   | "draw-trendLine"
+  | "draw-trendParallelLines"
   | "draw-verticalMarker"
+  | "draw-verticalParallelLines"
   | "draw-textLabel"
-  | "draw-pointMarker"
-  | "draw-rangeBox";
+  | "draw-flagMarker"
+  | "draw-rangeBox"
+  | "draw-riskRewardBox"
+  | "draw-fibonacciRetracement";
 
 export type DrawingType =
   | "horizontalLine"
+  | "horizontalParallelLines"
   | "trendLine"
+  | "trendParallelLines"
   | "verticalMarker"
+  | "verticalParallelLines"
   | "textLabel"
-  | "pointMarker"
-  | "rangeBox";
+  | "flagMarker"
+  | "rangeBox"
+  | "riskRewardBox"
+  | "fibonacciRetracement";
 
 export type DrawingAnchor = {
   timestamp?: string;
@@ -400,6 +411,7 @@ export type DrawingEntity = {
   sourceInterval?: ChartInterval;
   style: DrawingStyle;
   label?: string;
+  parallelLineCount?: number;
   visible: boolean;
   createdBy: "user" | "agent";
   createdAt: string;
@@ -448,7 +460,7 @@ export type ChartAction =
   | { type: "setVolumeRatio"; ratio: number }
   | { type: "setViewport"; visibleCount: number; rightOffset: number }
   | { type: "addDrawing"; drawing: DrawingEntity }
-  | { type: "updateDrawing"; drawingId: string; patch: Partial<Pick<DrawingEntity, "anchors" | "style" | "label" | "visible">> }
+  | { type: "updateDrawing"; drawingId: string; patch: Partial<Pick<DrawingEntity, "anchors" | "style" | "label" | "parallelLineCount" | "visible">> }
   | { type: "deleteDrawing"; drawingId: string }
   | { type: "selectDrawing"; drawingId?: string }
   | { type: "clearDrawings" };
@@ -480,6 +492,7 @@ export type ChartState = {
   rightOffset: number;
   toolMode: ChartToolMode;
   trendLineExtension: ChartLineExtension;
+  parallelLineCount: number;
   drawings: DrawingEntity[];
   comparisons: ChartComparisonSeries[];
   selectedDrawingId?: string;

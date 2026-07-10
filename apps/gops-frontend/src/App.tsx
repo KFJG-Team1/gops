@@ -1254,7 +1254,6 @@ export function App() {
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
-            semanticSelection={semanticSelection}
             setSemanticSelection={setSemanticSelection}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onAgentAsk={handleAgentAsk}

@@ -157,9 +157,8 @@ export function createCoordinateTransform(scene: Pick<RenderScene, "allCandles" 
     percentScale,
     volumeScale,
     anchorToPoint: (anchor: DrawingAnchor) => {
-      const anchoredX = typeof anchor.logicalIndex === "number"
-        ? timeScale.logicalToX(anchor.logicalIndex)
-        : anchor.timestamp ? timeScale.timestampToX(anchor.timestamp) : null;
+      const timestampX = anchor.timestamp ? timeScale.timestampToX(anchor.timestamp) : null;
+      const anchoredX = timestampX ?? (typeof anchor.logicalIndex === "number" ? timeScale.logicalToX(anchor.logicalIndex) : null);
       const value = typeof anchor.price === "number" ? anchor.price : anchor.value;
       if (typeof value !== "number") {
         return null;

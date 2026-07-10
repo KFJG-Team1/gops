@@ -1,7 +1,7 @@
 import {
   ChartNoAxesCombined,
-  CircleDot,
   Eraser,
+  Flag,
   Hand,
   MousePointer2,
   Palette,
@@ -31,6 +31,7 @@ import {
   type CandleSnapshot,
   type ChartCommand,
   type ChartCommandActor,
+  type ChartCommandHistoryScope,
   type ChartCommandType,
   type ChartDataStatus,
   type ChartDocument,
@@ -48,11 +49,15 @@ import {
   buildDraggedAnchors,
   defaultDrawingLabel,
   defaultDrawingStyle,
-  drawingNeedsTwoAnchors,
+  drawingLabelLayout,
+  drawingRequiredAnchorCount,
+  drawingSupportsTextEditing,
   drawingTools,
   drawingTypeFromToolMode,
   hitTestDrawing,
+  isValidRiskRewardAnchors,
   makeDrawing,
+  normalizeParallelLineCount,
   sourceIntervalForDrawingAnchors,
   type DrawingDraft,
   type DrawingDrag
@@ -74,7 +79,7 @@ import {
   orderFlowDemoContextFromCandles,
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
-import { replaceOrderFlowMinute, type OrderFlowMinuteDto } from "../chart/orderFlow";
+import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
@@ -118,6 +123,13 @@ function iconButtonClass(active = false): string {
 }
 
 const realtimeSnapshotRetryDelayMs = 6500;
+const marketClockFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23"
+});
 
 type DragAnchor = {
   x: number;
@@ -276,6 +288,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
+  const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
+  const [postCreateFocusDrawingId, setPostCreateFocusDrawingId] = useState<string | null>(null);
+  const [labelEditor, setLabelEditor] = useState<{ drawingId: string; value: string; originalValue: string } | null>(null);
   const [transientViewport, setTransientViewport] = useState<ChartViewport | null>(null);
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
   const [transientPaneRatios, setTransientPaneRatios] = useState<Record<string, number> | null>(null);
@@ -288,11 +303,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowSupportedSymbols, setOrderFlowSupportedSymbols] = useState<string[] | undefined>();
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
-  const chart = useMemo(() => ({
+  const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
   }), [candles, dataStatus, document, liveTrade, streamMessage, streamStatus]);
-  const activeIndicatorLayers = useMemo(() => activeServerIndicatorLayers(chart), [
+  const bidAskSessionDate = useMemo(() => {
+    if (orderFlowTodaySessionDate) {
+      return orderFlowTodaySessionDate;
+    }
+    if (isOrderFlowDemoRuntimeEnabled()) {
+      return sourceChart.candles.length
+        ? sessionDateFromTimestamp(sourceChart.candles[sourceChart.candles.length - 1].timestamp)
+        : sessionDateFromTimestamp(new Date().toISOString());
+    }
+    return sessionDateFromTimestamp(new Date().toISOString());
+  }, [orderFlowTodaySessionDate, sourceChart.candles]);
+  const chart = useMemo(() => (
+    sourceChart.chartType === "bidask"
+      ? { ...sourceChart, candles: bidAskCandlesForSession(sourceChart.candles, bidAskSessionDate) }
+      : sourceChart
+  ), [bidAskSessionDate, sourceChart]);
+  const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
+  const activeIndicatorLayers = useMemo(() => orderFlowActive ? [] : activeServerIndicatorLayers(chart), [
+    orderFlowActive,
     chart.layers.ma5,
     chart.layers.ma20,
     chart.layers.ma60,
@@ -352,7 +385,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     visibleProfileRange?.from,
     visibleProfileRange?.to
   ]);
-  const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
   const orderFlowDemoContext = useMemo(() => {
     if (!isOrderFlowDemoRuntimeEnabled()) {
       return undefined;
@@ -367,18 +399,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     transientViewport
   ]);
   const comparisonScopeRequests = useMemo(() => (
-    buildComparisonScopeRequests(chart, visibleComparisonRange, activeExpansions)
+    orderFlowActive ? [] : buildComparisonScopeRequests(chart, visibleComparisonRange, activeExpansions)
   ), [
     activeExpansions,
     chart.comparisons,
     chart.interval,
     chart.symbol,
+    orderFlowActive,
     visibleComparisonRange
   ]);
   const comparisonScopeRequestKey = useMemo(() => (
     comparisonScopeRequests.map((request) => request.key).join("|")
   ), [comparisonScopeRequests]);
   const activeBelowPaneOrder = useMemo(() => activeBelowPaneIds(chart), [
+    chart.chartType,
     chart.layers.volume,
     chart.layers["rsi:14"],
     chart.layers["stochastic:14:3:3"],
@@ -395,8 +429,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
+  const labelEditorInputRef = useRef<HTMLInputElement | null>(null);
+  const cancelLabelEditRef = useRef(false);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
+  const wheelViewportRef = useRef<ChartViewport | null>(null);
+  const wheelRenderFrameRef = useRef<number | null>(null);
+  const wheelCommitTimerRef = useRef<number | null>(null);
   const transientPaneRatiosRef = useRef<Record<string, number> | null>(null);
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const indicatorSeries = useMemo(() => (
@@ -424,18 +463,124 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chartDocumentId: document.id
   }), [document.id, panelId]);
 
+  const emitDocumentCommand = useCallback((
+    type: ChartCommandType,
+    payload: Record<string, unknown> = {},
+    actor: ChartCommandActor = "user",
+    historyScope?: ChartCommandHistoryScope
+  ) => {
+    onChartRuntimeAction({
+      kind: "chart.command",
+      command: makeChartCommand(type, actor, commandTarget, payload, undefined, historyScope)
+    });
+  }, [commandTarget, onChartRuntimeAction]);
+
   const dispatchDocumentCommand = useCallback((
     type: ChartCommandType,
     payload: Record<string, unknown> = {},
-    actor: ChartCommandActor = "user"
+    actor: ChartCommandActor = "user",
+    historyScope?: ChartCommandHistoryScope
   ) => {
     setDrawingDraft(null);
+    setDrawingDraftError(null);
     setTransientDrawings(null);
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand(type, actor, commandTarget, payload)
+    emitDocumentCommand(type, payload, actor, historyScope);
+  }, [emitDocumentCommand]);
+
+  const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
+    if (!drawingSupportsTextEditing(drawing)) {
+      return;
+    }
+    const value = drawing.label ?? "";
+    cancelLabelEditRef.current = false;
+    setLabelEditor({ drawingId: drawing.id, value, originalValue: value });
+  }, []);
+
+  const commitLabelEdit = useCallback(() => {
+    if (!labelEditor) {
+      return;
+    }
+    if (cancelLabelEditRef.current) {
+      cancelLabelEditRef.current = false;
+      setLabelEditor(null);
+      return;
+    }
+    if (labelEditor.value !== labelEditor.originalValue) {
+      dispatchDocumentCommand("chart.drawing.update", {
+        drawingId: labelEditor.drawingId,
+        drawingPatch: { label: labelEditor.value }
+      });
+    }
+    setLabelEditor(null);
+  }, [dispatchDocumentCommand, labelEditor]);
+
+  useEffect(() => {
+    if (!labelEditor) {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      labelEditorInputRef.current?.focus();
+      labelEditorInputRef.current?.select();
     });
-  }, [commandTarget, onChartRuntimeAction]);
+    return () => window.cancelAnimationFrame(frame);
+  }, [labelEditor?.drawingId]);
+
+  useEffect(() => {
+    if (chart.toolMode !== "select") {
+      setPostCreateFocusDrawingId(null);
+      setLabelEditor(null);
+    }
+    const activeDrawingType = drawingTypeFromToolMode(chart.toolMode);
+    setDrawingDraft((current) => current && current.type === activeDrawingType ? current : null);
+    setDrawingDraftError((current) => drawingDraft?.type === activeDrawingType ? current : null);
+  }, [chart.toolMode, drawingDraft?.type]);
+
+  useEffect(() => {
+    if (chart.toolMode === "select" && labelEditor && !chart.drawings.some((drawing) => drawing.id === labelEditor.drawingId)) {
+      setLabelEditor(null);
+    }
+    if (chart.toolMode === "select" && postCreateFocusDrawingId && !chart.drawings.some((drawing) => drawing.id === postCreateFocusDrawingId)) {
+      setPostCreateFocusDrawingId(null);
+    }
+  }, [chart.drawings, labelEditor, postCreateFocusDrawingId]);
+
+  useEffect(() => {
+    const handleParallelLineCountKey = (event: KeyboardEvent) => {
+      // Only the chart that owns the visible drawing dock may consume the
+      // global shortcut. Multiple ChartPanel instances mount this effect.
+      if (!chartDrawingActive) {
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft") {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
+      const delta = event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1;
+      if (chart.toolMode === "draw-trendParallelLines") {
+        event.preventDefault();
+        emitDocumentCommand("chart.drawing.clearSelection", {
+          mode: chart.toolMode,
+          parallelLineCount: normalizeParallelLineCount(chart.parallelLineCount + delta)
+        });
+        return;
+      }
+      const selectedDrawing = chart.drawings.find((drawing) => drawing.id === chart.selectedDrawingId);
+      if (chart.toolMode === "select" && selectedDrawing?.type === "trendParallelLines") {
+        event.preventDefault();
+        emitDocumentCommand("chart.drawing.update", {
+          drawingId: selectedDrawing.id,
+          drawingPatch: {
+            parallelLineCount: normalizeParallelLineCount((selectedDrawing.parallelLineCount ?? chart.parallelLineCount) + delta)
+          }
+        });
+      }
+    };
+    window.addEventListener("keydown", handleParallelLineCountKey);
+    return () => window.removeEventListener("keydown", handleParallelLineCountKey);
+  }, [chart.drawings, chart.parallelLineCount, chart.selectedDrawingId, chart.toolMode, chartDrawingActive, emitDocumentCommand]);
 
   useEffect(() => {
     if (chart.chartType !== "bidask" || isBidAskChartInterval(document.timeframe)) {
@@ -510,7 +655,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           { minimumVisibleSlots: Math.max(current.visibleCount, requestedVisibleSlotsFromResponse(response, interval)) }
         );
         onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, interval) });
-        dispatchDocumentCommand("chart.viewport.set", nextViewport);
+        dispatchDocumentCommand("chart.viewport.set", nextViewport, "system", "external");
       })
       .catch(() => {
         olderRangeRetryAfterRef.current.set(requestKey, Date.now() + olderRangeQueuedRetryDelayMs);
@@ -558,7 +703,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       );
       onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, requestedInterval) });
       setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
-      dispatchDocumentCommand("chart.viewport.set", nextViewport);
+      dispatchDocumentCommand("chart.viewport.set", nextViewport, "system", "external");
       if (pendingViewportAnchorRef.current?.key === requestKey) {
         pendingViewportAnchorRef.current = null;
       }
@@ -852,7 +997,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (!chart.layers["volume-profile"] || !visibleProfileRange) {
+    if (orderFlowActive || !chart.layers["volume-profile"] || !visibleProfileRange) {
       setVolumeProfile(null);
       return;
     }
@@ -887,6 +1032,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.interval,
     chart.layers["volume-profile"],
     chart.symbol,
+    orderFlowActive,
     visibleProfileRangeKey,
   ]);
 
@@ -1057,6 +1203,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setActiveExpansions([]);
     pendingViewportAnchorRef.current = null;
     setDrawingDraft(null);
+    setDrawingDraftError(null);
     setTransientDrawings(null);
     setBaseIndicatorSeries({});
     setVolumeProfile(null);
@@ -1163,7 +1310,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.type.set", { chartType });
   }, [dispatchDocumentCommand]);
 
-  const applyViewport = useCallback((viewport: ChartViewport) => {
+  const applyViewport = useCallback((viewport: ChartViewport, historyScope?: ChartCommandHistoryScope) => {
     const currentChart = chartRef.current;
     const currentScene = sceneRef.current;
     const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
@@ -1184,7 +1331,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (nextViewport.visibleCount === currentChart.visibleCount && nextViewport.rightOffset === currentChart.rightOffset) {
       return;
     }
-    dispatchDocumentCommand("chart.viewport.set", nextViewport);
+    dispatchDocumentCommand("chart.viewport.set", nextViewport, "user", historyScope);
   }, [dispatchDocumentCommand, loadOlderCandles]);
 
   const handleScene = useCallback((scene: ChartScene) => {
@@ -1288,20 +1435,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     void loadExpansionCandles(expansion, unit.symbol);
   }, [loadExpansionCandles]);
 
-  const zoomBy = useCallback((delta: number) => {
-    const current = chartRef.current;
-    const currentScene = sceneRef.current;
-    const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
-    const nextViewport = zoomViewport(
-      { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
-      delta,
-      current.candles.length,
-      plotWidth,
-      viewportClampOptionsForChart(current, currentScene)
-    );
-    applyViewport(nextViewport);
-  }, [applyViewport]);
-
   useImperativeHandle(ref, () => ({
     getSnapshot: () => chartRef.current,
     setInterval,
@@ -1311,6 +1444,45 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     clearSemanticSelection: () => setSelectedSemanticNode(null)
   }), [setChartType, setInterval]);
 
+  const queueWheelViewport = useCallback((viewport: ChartViewport) => {
+    wheelViewportRef.current = viewport;
+    transientViewportRef.current = viewport;
+    if (wheelRenderFrameRef.current === null) {
+      wheelRenderFrameRef.current = window.requestAnimationFrame(() => {
+        wheelRenderFrameRef.current = null;
+        const nextViewport = wheelViewportRef.current;
+        if (nextViewport) {
+          setTransientViewport(nextViewport);
+        }
+      });
+    }
+    if (wheelCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelCommitTimerRef.current);
+    }
+    wheelCommitTimerRef.current = window.setTimeout(() => {
+      wheelCommitTimerRef.current = null;
+      const finalViewport = wheelViewportRef.current;
+      wheelViewportRef.current = null;
+      transientViewportRef.current = null;
+      if (finalViewport) {
+        applyViewport(finalViewport, "external");
+      }
+      setTransientViewport(null);
+    }, 100);
+  }, [applyViewport]);
+
+  useEffect(() => () => {
+    if (wheelRenderFrameRef.current !== null) {
+      window.cancelAnimationFrame(wheelRenderFrameRef.current);
+      wheelRenderFrameRef.current = null;
+    }
+    if (wheelCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelCommitTimerRef.current);
+      wheelCommitTimerRef.current = null;
+    }
+    wheelViewportRef.current = null;
+  }, [chart.chartType, chart.interval, chart.symbol]);
+
   const handleWheel = (event: ReactWheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     onChartHoverChange?.(true);
@@ -1319,15 +1491,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const deltaMode = event.deltaMode;
     const resolvedHorizontalDelta = resolveHorizontalWheelDelta(horizontalDelta, verticalDelta, event.shiftKey);
     const scene = sceneRef.current;
+    const current = chartRef.current;
+    const plotWidth = scene ? Math.max(1, scene.plot.right - scene.plot.left) : undefined;
+    const currentViewport = wheelViewportRef.current ?? normalizeViewport(
+      { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+      current.candles.length,
+      plotWidth,
+      viewportClampOptionsForChart(current, scene)
+    );
     if (resolvedHorizontalDelta !== null) {
-      const plotWidth = scene ? Math.max(1, scene.plot.right - scene.plot.left) : undefined;
-      const current = chartRef.current;
-      const currentViewport = normalizeViewport(
-        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
-        current.candles.length,
-        plotWidth,
-        viewportClampOptionsForChart(current, scene)
-      );
       const slotWidth = scene
         ? scene.scales.slotWidth
         : Math.max(1, (plotWidth ?? currentViewport.visibleCount) / Math.max(1, currentViewport.visibleCount));
@@ -1341,7 +1513,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         plotWidth,
         viewportClampOptionsForChart(current, scene)
       );
-      applyViewport({
+      queueWheelViewport({
         visibleCount: currentViewport.visibleCount,
         rightOffset: nextRightOffset
       });
@@ -1350,27 +1522,31 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (verticalDelta === 0) {
       return;
     }
-    const effectiveVisibleCount = scene?.visibleSlotCount ?? chart.visibleCount;
+    const effectiveVisibleCount = currentViewport.visibleCount;
     const step = Math.max(3, Math.round(effectiveVisibleCount * 0.12));
     const delta = verticalDelta > 0 ? step : -step;
     if (!scene) {
-      zoomBy(delta);
+      queueWheelViewport(zoomViewport(
+        currentViewport,
+        delta,
+        current.candles.length,
+        plotWidth,
+        viewportClampOptionsForChart(current, scene)
+      ));
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const plotWidth = Math.max(1, scene.plot.right - scene.plot.left);
     const anchorRatio = viewportAnchorRatioAtX(scene, x);
-    const current = chartRef.current;
     const nextViewport = zoomViewportAt(
-      { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+      currentViewport,
       delta,
       current.candles.length,
       anchorRatio,
       plotWidth,
       viewportClampOptionsForChart(current, scene)
     );
-    applyViewport(nextViewport);
+    queueWheelViewport(nextViewport);
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1385,8 +1561,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const drawingHit = chart.toolMode === "select" ? hitTestDrawing(scene, point.x, point.y) : null;
+
+    // A canvas pointer-down can unmount the absolute editor before the browser
+    // emits blur. Commit explicitly when moving away from the edited drawing;
+    // queued React updates then allow a different drawing editor to open in
+    // the same interaction without losing the prior value.
+    if (labelEditor && drawingHit?.drawing.id !== labelEditor.drawingId) {
+      commitLabelEdit();
+    }
     const boundary = findBoundaryHit(scene, point);
-    if (boundary) {
+    // While a freshly-created drawing owns the temporary Select focus, every
+    // click outside that drawing must dismiss to Pan—even over a pane divider.
+    // Let drawing hit-testing below win when the focused drawing overlaps one.
+    if (boundary && !postCreateFocusDrawingId) {
       const allActivePaneIds = ["price", ...activeBelowPaneIds(chart)];
       const startRatios = allActivePaneIds.map((id) => getPaneRatio(chart, id));
       const startHeights = [
@@ -1411,7 +1599,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
 
     // Time-axis digging: a click on the bottom time axis opens (digs) the bar above the cursor.
-    if ((chart.toolMode === "select" || chart.toolMode === "pan") && semanticDigEnabled) {
+    if ((chart.toolMode === "select" || chart.toolMode === "pan") && semanticDigEnabled && !postCreateFocusDrawingId) {
       const axisUnit = hitTestTimeAxisUnit(scene, point.x, point.y);
       if (axisUnit && axisUnit.kind === "candle") {
         pendingSemanticClickRef.current = { unit: axisUnit, action: "dig", x: event.clientX, y: event.clientY };
@@ -1420,7 +1608,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
 
     if (chart.toolMode === "select") {
-      const hit = hitTestDrawing(scene, point.x, point.y);
+      const hit = drawingHit;
+      if (postCreateFocusDrawingId && hit?.drawing.id !== postCreateFocusDrawingId) {
+        drawingDragRef.current = null;
+        setPostCreateFocusDrawingId(null);
+        setLabelEditor(null);
+        dispatchDocumentCommand("chart.drawing.clearSelection", { mode: "pan" });
+        return;
+      }
       if (!hit) {
         if (semanticHit && semanticSelectionEnabled) {
           toggleAgentSemanticUnitSelection(semanticHit);
@@ -1431,9 +1626,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       const anchor = transform.pointToAnchor(point.x, point.y, chart.symbol);
       if (anchor) {
-        drawingDragRef.current = { drawing: hit.drawing, anchor, anchorIndex: hit.anchorIndex };
+        drawingDragRef.current = {
+          drawing: hit.drawing,
+          anchor,
+          anchorIndex: hit.anchorIndex,
+          startPoint: point,
+          moved: false,
+          rangeHandle: hit.rangeHandle
+        };
       }
       dispatchDocumentCommand("chart.drawing.select", { drawingId: hit.drawing.id });
+      if (labelEditor?.drawingId !== hit.drawing.id) {
+        beginLabelEdit(hit.drawing);
+      }
       return;
     }
 
@@ -1443,25 +1648,51 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (!anchor) {
         return;
       }
-      if (!drawingNeedsTwoAnchors(drawingType)) {
+      const requiredAnchors = drawingRequiredAnchorCount(drawingType);
+      if (requiredAnchors === 1) {
         const drawing = makeDrawing(drawingType, [anchor], {
           trendLineExtension: chart.trendLineExtension,
-          sourceInterval: sourceIntervalForDrawingAnchors([anchor], chart.interval)
+          sourceInterval: sourceIntervalForDrawingAnchors([anchor], chart.interval),
+          parallelLineCount: chart.parallelLineCount
         });
+        setPostCreateFocusDrawingId(drawing.id);
+        beginLabelEdit(drawing);
         dispatchDocumentCommand("chart.drawing.add", { drawing });
         return;
       }
-      if (drawingDraft?.type === drawingType) {
-        const anchors = [drawingDraft.first, anchor];
+      const anchors = drawingDraft?.type === drawingType ? [...drawingDraft.anchors, anchor] : [anchor];
+      if (anchors.length >= requiredAnchors) {
+        if (drawingType === "riskRewardBox" && !isValidRiskRewardAnchors(anchors)) {
+          setDrawingDraftError("Target은 Entry의 Stop 반대편에 지정하세요");
+          setTransientDrawings([
+            ...chart.drawings,
+            buildDraftPreviewDrawing(
+              { type: drawingType, anchors: anchors.slice(0, 2), sourceInterval: chart.interval },
+              anchor,
+              chart.trendLineExtension,
+              chart.parallelLineCount
+            )
+          ]);
+          return;
+        }
         const drawing = makeDrawing(drawingType, anchors, {
           trendLineExtension: chart.trendLineExtension,
-          sourceInterval: sourceIntervalForDrawingAnchors(anchors, chart.interval)
+          sourceInterval: sourceIntervalForDrawingAnchors(anchors, chart.interval),
+          parallelLineCount: chart.parallelLineCount
         });
         setDrawingDraft(null);
+        setDrawingDraftError(null);
         setTransientDrawings(null);
+        setPostCreateFocusDrawingId(drawing.id);
+        beginLabelEdit(drawing);
         dispatchDocumentCommand("chart.drawing.add", { drawing });
       } else {
-        setDrawingDraft({ type: drawingType, first: anchor, sourceInterval: sourceIntervalForDrawingAnchors([anchor], chart.interval) });
+        setDrawingDraftError(null);
+        setDrawingDraft({
+          type: drawingType,
+          anchors,
+          sourceInterval: sourceIntervalForDrawingAnchors(anchors, chart.interval)
+        });
         setTransientDrawings(null);
       }
       return;
@@ -1551,6 +1782,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
     const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
+      if (!drawingDrag.moved && Math.hypot(point.x - drawingDrag.startPoint.x, point.y - drawingDrag.startPoint.y) < 3) {
+        return;
+      }
+      drawingDrag.moved = true;
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         return;
@@ -1563,7 +1798,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
 
     const activeDrawingType = drawingTypeFromToolMode(chart.toolMode);
-    if (activeDrawingType && !drawingNeedsTwoAnchors(activeDrawingType)) {
+    if (activeDrawingType && drawingRequiredAnchorCount(activeDrawingType) === 1) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         setTransientDrawings(null);
@@ -1576,7 +1811,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
 
-    if (drawingDraft && chart.toolMode === `draw-${drawingDraft.type}`) {
+    if (drawingDraft && drawingTypeFromToolMode(chart.toolMode) === drawingDraft.type) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
         setTransientDrawings(null);
@@ -1584,7 +1819,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       setTransientDrawings([
         ...chart.drawings,
-        buildDraftPreviewDrawing(drawingDraft, anchor, chart.trendLineExtension)
+        buildDraftPreviewDrawing(drawingDraft, anchor, chart.trendLineExtension, chart.parallelLineCount)
       ]);
       return;
     }
@@ -1630,6 +1865,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       // Pointer capture can be released by the browser before this handler runs.
     }
     if (drawingDrag) {
+      if (!drawingDrag.moved) {
+        return;
+      }
       const scene = sceneRef.current;
       const rect = event.currentTarget.getBoundingClientRect();
       const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -1707,9 +1945,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.comparison.remove", { comparisonId });
   }, [dispatchDocumentCommand]);
 
+  const labelEditorDrawing = labelEditor
+    ? chart.drawings.find((drawing) => drawing.id === labelEditor.drawingId)
+    : undefined;
+  const labelEditorScene = sceneRef.current;
+  const labelEditorLayout = labelEditorDrawing && labelEditorScene
+    ? drawingLabelLayout(labelEditorScene, labelEditorDrawing, labelEditor?.value)
+    : null;
+  const labelEditorPositionStyle = labelEditorLayout && labelEditorScene ? {
+    left: `clamp(${labelEditorScene.plot.left + 3}px, ${labelEditorLayout.left}px, calc(100% - ${labelEditorScene.width - labelEditorScene.plot.right + labelEditorLayout.width + 3}px))`,
+    top: `clamp(${labelEditorScene.plot.top + 3}px, ${labelEditorLayout.top}px, calc(100% - ${labelEditorScene.height - labelEditorScene.plot.priceBottom + labelEditorLayout.height + 3}px))`,
+    width: labelEditorLayout.width,
+    height: labelEditorLayout.height
+  } : undefined;
+
   return (
     <section
       className="chart-panel"
+      data-chart-visible-count={renderChart.visibleCount}
+      data-chart-history-count={document.history.length}
+      data-chart-candle-count={renderChart.candles.length}
+      data-bidask-session-date={orderFlowActive ? bidAskSessionDate : undefined}
       data-order-flow-status={orderFlowActive ? orderFlowDataStatus : undefined}
       data-order-flow-minute-count={orderFlowActive ? orderFlowToday.size : undefined}
     >
@@ -1762,7 +2018,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           >
             <RotateCcw size={15} aria-hidden="true" />
           </button>
-          {drawingDraft && <span className="draft-pill">{defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} 2nd point</span>}
+          {drawingDraft && (
+            <span className={`draft-pill ${drawingDraftError ? "is-error" : ""}`}>
+              {drawingDraftError ?? `${defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} ${drawingDraft.anchors.length + 1}/${drawingRequiredAnchorCount(drawingDraft.type)}`}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1775,6 +2035,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           selectedNodeId={selectedSemanticNode?.nodeId}
           emphasizeSelectedNode={emphasizeSelection}
           crosshair={crosshair}
+          editingDrawingId={labelEditor?.drawingId}
           onScene={handleScene}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
@@ -1796,6 +2057,32 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {labelEditor && labelEditorLayout && (
+          <input
+            key={labelEditor.drawingId}
+            ref={labelEditorInputRef}
+            className={`chart-drawing-label-editor is-${labelEditorLayout.boxStyle}`}
+            aria-label="Drawing label editor"
+            data-drawing-id={labelEditor.drawingId}
+            style={labelEditorPositionStyle}
+            value={labelEditor.value}
+            placeholder="텍스트 입력"
+            onChange={(event) => setLabelEditor((current) => current ? { ...current, value: event.target.value } : current)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onBlur={commitLabelEdit}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                cancelLabelEditRef.current = true;
+                setLabelEditor(null);
+              }
+            }}
+          />
+        )}
         {renderComparisons.length > 0 && (
           <div className="chart-comparison-legend" aria-label="Comparison overlays">
             {renderComparisons.map((comparison, index) => (
@@ -1886,6 +2173,20 @@ export function ChartDrawingDock({
   const setTrendLineExtension = (extension: ChartLineExtension) => {
     dispatchCommand("chart.drawing.clearSelection", { mode: "draw-trendLine", trendLineExtension: extension });
   };
+  const setParallelLineCount = (lineCount: number) => {
+    const normalized = normalizeParallelLineCount(lineCount);
+    if (selectedDrawing?.type === "trendParallelLines") {
+      dispatchCommand("chart.drawing.update", {
+        drawingId: selectedDrawing.id,
+        drawingPatch: { parallelLineCount: normalized }
+      });
+      return;
+    }
+    dispatchCommand("chart.drawing.clearSelection", {
+      mode: "draw-trendParallelLines",
+      parallelLineCount: normalized
+    });
+  };
   const closeDock = () => {
     dispatchCommand("chart.drawing.clearSelection", { mode: "pan" });
     onClose();
@@ -1932,6 +2233,33 @@ export function ChartDrawingDock({
               <TrendExtensionIcon extension={extension} />
             </button>
           ))
+          : tool.mode === "draw-trendParallelLines"
+            ? [
+              <button
+                key={tool.mode}
+                type="button"
+                className={iconButtonClass(document.interactionState.mode === tool.mode)}
+                aria-label={tool.label}
+                title={tool.label}
+                onClick={() => setToolMode(tool.mode)}
+              >
+                <ToolIcon toolMode={tool.mode} />
+              </button>,
+              <select
+                key={`${tool.mode}-line-count`}
+                className="chart-parallel-line-count"
+                aria-label="Parallel line count"
+                title="평행선 개수"
+                value={selectedDrawing?.type === "trendParallelLines"
+                  ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
+                  : normalizeParallelLineCount(document.interactionState.parallelLineCount)}
+                onChange={(event) => setParallelLineCount(Number(event.target.value))}
+              >
+                {Array.from({ length: 9 }, (_, index) => index + 2).map((count) => (
+                  <option key={count} value={count}>{count}</option>
+                ))}
+              </select>
+            ]
           : [(
             <button
               key={tool.mode}
@@ -2732,6 +3060,28 @@ function formatHoverTimestamp(value: string): string {
   }).format(date);
 }
 
+function bidAskCandlesForSession(candles: CandleDto[], sessionDate: string): CandleDto[] {
+  return candles.filter((candle) => (
+    sessionDateFromTimestamp(candle.timestamp) === sessionDate && isRegularSessionCandle(candle)
+  ));
+}
+
+function isRegularSessionCandle(candle: CandleDto): boolean {
+  if (candle.marketSession) {
+    return candle.marketSession.toLowerCase() === "regular";
+  }
+  const date = new Date(candle.timestamp);
+  if (!Number.isFinite(date.getTime())) {
+    return false;
+  }
+  const parts = Object.fromEntries(marketClockFormatter.formatToParts(date).map((part) => [part.type, part.value]));
+  if (parts.weekday === "Sat" || parts.weekday === "Sun") {
+    return false;
+  }
+  const minutes = Number(parts.hour) * 60 + Number(parts.minute);
+  return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
 function TrendExtensionIcon({ extension }: { extension: ChartLineExtension }) {
   switch (extension) {
     case "segment":
@@ -2769,16 +3119,40 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
       return <Hand size={16} />;
     case "draw-horizontalLine":
       return <span className="tool-glyph horizontal-line" aria-hidden="true" />;
+    case "draw-horizontalParallelLines":
+      return <span className="tool-glyph horizontal-parallel-lines" aria-hidden="true" />;
     case "draw-trendLine":
       return <span className="tool-glyph diagonal-line" aria-hidden="true" />;
+    case "draw-trendParallelLines":
+      return <span className="tool-glyph diagonal-parallel-lines" aria-hidden="true" />;
     case "draw-verticalMarker":
       return <span className="tool-glyph vertical-line" aria-hidden="true" />;
+    case "draw-verticalParallelLines":
+      return <span className="tool-glyph vertical-parallel-lines" aria-hidden="true" />;
     case "draw-textLabel":
       return <Type size={16} />;
-    case "draw-pointMarker":
-      return <CircleDot size={16} />;
+    case "draw-flagMarker":
+      return <Flag size={16} />;
     case "draw-rangeBox":
       return <Square size={16} />;
+    case "draw-riskRewardBox":
+      return (
+        <svg className="drawing-tool-svg" viewBox="0 0 18 18" aria-hidden="true">
+          <rect x="3" y="3" width="12" height="12" rx="1" />
+          <line x1="3" y1="9" x2="15" y2="9" />
+          <path className="risk-reward-up" d="M4 4h10v4H4z" />
+          <path className="risk-reward-down" d="M4 10h10v4H4z" />
+        </svg>
+      );
+    case "draw-fibonacciRetracement":
+      return (
+        <svg className="drawing-tool-svg fibonacci-tool-icon" viewBox="0 0 18 18" aria-hidden="true">
+          <line x1="3" y1="3" x2="15" y2="15" />
+          <line x1="3" y1="5" x2="15" y2="5" />
+          <line x1="3" y1="9" x2="15" y2="9" />
+          <line x1="3" y1="13" x2="15" y2="13" />
+        </svg>
+      );
     default:
       return <MousePointer2 size={16} />;
   }

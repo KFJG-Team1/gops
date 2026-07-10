@@ -2337,6 +2337,46 @@ h2 {
   height: 15px;
 }
 
+.tool-glyph.horizontal-parallel-lines::before {
+  width: 13px;
+  height: 1px;
+  transform: translateY(-3px);
+  box-shadow: 0 6px currentColor;
+}
+
+.tool-glyph.diagonal-parallel-lines::before {
+  width: 13px;
+  height: 1px;
+  box-shadow: 0 -4px currentColor, 0 4px currentColor;
+  transform: rotate(-42deg);
+}
+
+.tool-glyph.vertical-parallel-lines::before {
+  width: 1px;
+  height: 15px;
+  transform: translateX(-3px);
+  box-shadow: 6px 0 currentColor;
+}
+
+.drawing-tool-svg {
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+
+.drawing-tool-svg .risk-reward-up {
+  fill: color-mix(in srgb, var(--color-up) 28%, transparent);
+  stroke: none;
+}
+
+.drawing-tool-svg .risk-reward-down {
+  fill: color-mix(in srgb, var(--color-down) 28%, transparent);
+  stroke: none;
+}
+
 .trend-extension-icon {
   width: 16px;
   height: 16px;
@@ -2368,12 +2408,17 @@ h2 {
   font-weight: 700;
 }
 
+.draft-pill.is-error {
+  color: var(--color-down);
+}
+
 .chart-wrap {
   position: absolute;
   inset: 0;
   z-index: 1;
   min-height: 0;
   padding: 0;
+  overflow: clip;
 }
 
 /* TreeMap root: positioned directly (App passes top/left/width/height inline), no extra wrapper. */
@@ -2493,6 +2538,38 @@ h2 {
   border-radius: 0;
   cursor: crosshair;
   touch-action: none;
+}
+
+.chart-drawing-label-editor {
+  position: absolute;
+  z-index: 8;
+  box-sizing: border-box;
+  min-width: 34px;
+  min-height: 18px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--color-drawing, #fff) 70%, transparent);
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+  font-size: var(--type-compact);
+  outline: none;
+  line-height: 1;
+}
+
+.chart-drawing-label-editor.is-tag {
+  min-width: 44px;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-surface-strong) 96%, transparent);
+  font-weight: 700;
+}
+
+.chart-drawing-label-editor:focus {
+  border-color: var(--color-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text) 18%, transparent);
 }
 
 .chart-comparison-legend {
@@ -3892,14 +3969,16 @@ h2 {
 .order-flow-hover-overlay {
   position: absolute;
   z-index: 12;
-  inset: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  box-sizing: border-box;
   display: grid;
-  grid-template-rows: 32px minmax(0, 1fr);
-  gap: 6px;
+  grid-template-rows: 26px 22px;
+  gap: 3px;
   min-width: 0;
-  min-height: 0;
-  padding: 8px;
-  border-radius: inherit;
+  padding: 4px;
+  border-radius: 8px;
   background:
     linear-gradient(90deg, transparent, var(--coinbase-glass-edge), transparent) top / 100% 1px no-repeat,
     linear-gradient(180deg, var(--coinbase-glass-edge), transparent, var(--coinbase-glass-edge-soft)) left / 1px 100% no-repeat,
@@ -3911,7 +3990,8 @@ h2 {
   transition: opacity 120ms ease;
 }
 
-.order-flow-hover-overlay.is-visible {
+.order-flow-panel:hover .order-flow-hover-overlay,
+.order-flow-panel:focus-within .order-flow-hover-overlay {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3919,31 +3999,31 @@ h2 {
 .order-flow-symbol-search {
   z-index: 3;
   width: 100%;
-  height: 32px;
+  height: 26px;
   min-width: 0;
 }
 
 .order-flow-symbol-search input {
-  height: 32px;
+  height: 26px;
+  padding-inline: 9px 5px;
 }
 
 .order-flow-symbol-search > button {
-  width: 26px;
-  height: 24px;
+  width: 24px;
+  height: 22px;
+  margin-right: 2px;
 }
 
 .order-flow-symbol-search .symbol-search-menu {
-  top: 38px;
   max-height: min(190px, calc(100vh - 120px));
 }
 
 .order-flow-window-grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   min-width: 0;
-  min-height: 0;
+  height: 22px;
   overflow: hidden;
   border: 1px solid var(--coinbase-hairline);
   border-radius: 8px;
@@ -3953,51 +4033,26 @@ h2 {
 .order-flow-window-grid button {
   min-width: 0;
   min-height: 0;
-  padding: 0 4px;
+  padding: 0 2px;
   border: 0;
   border-right: 1px solid var(--coinbase-hairline);
-  border-bottom: 1px solid var(--coinbase-hairline);
   border-radius: 0;
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-ui-serif);
-  font-size: var(--type-compact);
+  font-size: var(--type-micro);
   font-weight: 780;
   line-height: 1;
   letter-spacing: 0;
 }
 
-.order-flow-window-grid button:nth-of-type(2n) {
+.order-flow-window-grid button:last-child {
   border-right: 0;
-}
-
-.order-flow-window-grid button:nth-of-type(n + 3) {
-  border-bottom: 0;
 }
 
 .order-flow-window-grid button.active {
   background: var(--coinbase-primary);
   color: var(--coinbase-on-primary);
-}
-
-.order-flow-window-grid button:disabled {
-  color: var(--coinbase-muted);
-}
-
-.order-flow-window-badge {
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 0 8px;
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
-  color: var(--color-muted);
-  font-size: var(--type-compact);
-  font-weight: 800;
-  line-height: 1;
-  text-align: center;
-  pointer-events: none;
 }
 
 :where(
@@ -9629,14 +9684,17 @@ h2 {
   bottom: var(--tool-dock-bottom);
   z-index: 42;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  max-width: min(820px, calc(100vw - 28px));
+  box-sizing: border-box;
+  max-width: calc(100vw - 28px);
   padding: 5px 7px;
   background: transparent;
   box-shadow: none;
   transform: translateX(50%);
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .chart-tool-dock-row {
@@ -9645,9 +9703,12 @@ h2 {
   bottom: var(--tool-dock-bottom);
   z-index: 42;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  align-content: flex-end;
   justify-content: center;
-  gap: 16px;
+  gap: 6px 16px;
+  width: calc(100vw - 28px);
   max-width: calc(100vw - 28px);
   background: transparent;
   box-shadow: none;
@@ -9902,19 +9963,34 @@ h2 {
 
 .chart-tool-dock-row .chart-drawing-dock {
   position: static;
+  flex: 0 0 auto;
   right: auto;
   bottom: auto;
-  max-width: min(820px, calc((100vw - 52px) / 2));
+  max-width: calc(100vw - 28px);
   transform: none;
   pointer-events: auto;
 }
 
 .chart-tool-dock-row .chart-drawing-dock:only-child {
-  max-width: min(820px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
 }
 
 .chart-drawing-dock .icon-button {
   flex: 0 0 auto;
+}
+
+.chart-parallel-line-count {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-raised-surface);
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+  font-size: var(--type-micro);
+  font-weight: 700;
 }
 
 .chart-drawing-dock-close {

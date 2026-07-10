@@ -3,22 +3,37 @@ import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
 import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
-import { normalizeLineExtension, projectTrendLine } from "./drawings";
+import {
+  drawingLabelLayout,
+  normalizeLineExtension,
+  parallelBandsForDrawing,
+  parallelLinesForDrawing,
+  projectTrendLine,
+  rangeResizeHandles
+} from "./drawings";
+import {
+  buildFibonacciLevelGeometry,
+  buildRiskRewardGeometry,
+  fibonacciBandPolygons,
+  riskRewardDirection,
+  trendParallelBaseLineIndex
+} from "@gops/chart-engine";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
 import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandleWidth, expansionSummaryVisibleBounds } from "./expansionLayout";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import {
-  autoPriceStep,
   buildLadder,
   orderFlowWindowMinutesForInterval,
-  rebinLevels,
-  sessionDateFromTimestamp,
-  visibleScaleMax,
   type OrderFlowLadder,
   type OrderFlowMinuteDto
 } from "./orderFlow";
 import { OrderFlowBucketCache, type OrderFlowBucket } from "./orderFlowBucketCache";
-import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
+import {
+  drawEstimatedBadge,
+  drawOrderFlowChartColumn,
+  orderFlowChartRowScaleMax,
+  projectOrderFlowChartRows
+} from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
 import { CANVAS_FONT_FAMILY, nearestTypeSize, TYPE_SIZE } from "../theme/typography";
@@ -32,6 +47,7 @@ type ChartCanvasProps = {
   selectedNodeId?: string;
   emphasizeSelectedNode?: boolean;
   crosshair?: { x: number; y: number };
+  editingDrawingId?: string;
   onScene?: (scene: ChartScene) => void;
   onWheel?: WheelEventHandler<HTMLCanvasElement>;
   onPointerDown?: PointerEventHandler<HTMLCanvasElement>;
@@ -56,7 +72,7 @@ const volumeProfileAlpha = {
   label: 0.84
 } as const;
 const orderFlowBucketCache = new OrderFlowBucketCache();
-const orderFlowLadderCache = new WeakMap<OrderFlowBucket, Map<number, OrderFlowLadder>>();
+const orderFlowLadderCache = new WeakMap<OrderFlowBucket, OrderFlowLadder>();
 
 export function ChartCanvas({
   chart,
@@ -67,6 +83,7 @@ export function ChartCanvas({
   selectedNodeId,
   emphasizeSelectedNode = false,
   crosshair,
+  editingDrawingId,
   onScene,
   onWheel,
   onPointerDown,
@@ -77,6 +94,31 @@ export function ChartCanvas({
   onLostPointerCapture
 }: ChartCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scheduleDrawRef = useRef<() => void>(() => undefined);
+  const renderInputRef = useRef({
+    chart,
+    expansions,
+    previewDrawings,
+    agentVisualOverlays,
+    hoveredNodeId,
+    selectedNodeId,
+    emphasizeSelectedNode,
+    crosshair,
+    editingDrawingId,
+    onScene
+  });
+  renderInputRef.current = {
+    chart,
+    expansions,
+    previewDrawings,
+    agentVisualOverlays,
+    hoveredNodeId,
+    selectedNodeId,
+    emphasizeSelectedNode,
+    crosshair,
+    editingDrawingId,
+    onScene
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -88,16 +130,28 @@ export function ChartCanvas({
     const draw = () => {
       const rect = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.floor(rect.width * ratio));
-      canvas.height = Math.max(1, Math.floor(rect.height * ratio));
+      const pixelWidth = Math.max(1, Math.floor(rect.width * ratio));
+      const pixelHeight = Math.max(1, Math.floor(rect.height * ratio));
+      if (canvas.width !== pixelWidth) {
+        canvas.width = pixelWidth;
+      }
+      if (canvas.height !== pixelHeight) {
+        canvas.height = pixelHeight;
+      }
       const context = canvas.getContext("2d");
       if (!context) {
         return;
       }
+      const input = renderInputRef.current;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const scene = buildChartScene(chart, rect.width, rect.height, { expansions, hoveredNodeId, selectedNodeId, emphasizeSelectedNode });
-      onScene?.(scene);
-      drawChart(context, scene, crosshair, previewDrawings, agentVisualOverlays);
+      const scene = buildChartScene(input.chart, rect.width, rect.height, {
+        expansions: input.expansions,
+        hoveredNodeId: input.hoveredNodeId,
+        selectedNodeId: input.selectedNodeId,
+        emphasizeSelectedNode: input.emphasizeSelectedNode
+      });
+      input.onScene?.(scene);
+      drawChart(context, scene, input.crosshair, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId);
     };
 
     const scheduleDraw = () => {
@@ -111,20 +165,29 @@ export function ChartCanvas({
     };
 
     const observer = new ResizeObserver(scheduleDraw);
+    scheduleDrawRef.current = scheduleDraw;
     observer.observe(canvas);
+    window.addEventListener("resize", scheduleDraw);
     scheduleDraw();
     return () => {
       observer.disconnect();
+      window.removeEventListener("resize", scheduleDraw);
+      scheduleDrawRef.current = () => undefined;
       if (animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [agentVisualOverlays, chart, crosshair, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
+  }, []);
+
+  useEffect(() => {
+    scheduleDrawRef.current();
+  }, [agentVisualOverlays, chart, crosshair, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
 
   return (
     <canvas
       ref={canvasRef}
       className="chart-canvas"
+      tabIndex={0}
       aria-label={`GOPS ${chart.chartType} chart`}
       data-order-flow-minute-count={chart.orderFlow?.minutes.size}
       onWheel={onWheel}
@@ -143,7 +206,8 @@ function drawChart(
   scene: ChartScene,
   crosshair?: { x: number; y: number },
   previewDrawings: DrawingEntity[] = [],
-  agentVisualOverlays: AgentVisualOverlay[] = []
+  agentVisualOverlays: AgentVisualOverlay[] = [],
+  editingDrawingId?: string
 ) {
   colors = readThemeColors();
   context.clearRect(0, 0, scene.width, scene.height);
@@ -153,23 +217,26 @@ function drawChart(
     return;
   }
 
+  const standardLayersVisible = scene.chart.chartType !== "bidask";
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene, Boolean(crosshair)),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
+    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, scene.chart.drawings, false)),
+    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawings, true)),
     () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
-    () => hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
-    () => drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
-    () => drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
-    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
-    () => drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
-    () => drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
+    () => standardLayersVisible && hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
     () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
-    () => drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
-    () => drawBelowIndicatorPanes(context, scene),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
+    () => standardLayersVisible && drawBelowIndicatorPanes(context, scene),
     () => drawExpansionParentSummaries(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
@@ -179,7 +246,7 @@ function drawChart(
     () => drawCrosshair(context, scene, crosshair),
     () => drawLineHoverDot(context, scene, crosshair),
     () => drawTimeAxisDigHover(context, scene, crosshair),
-    () => drawDrawings(context, scene, scene.chart.drawings, false),
+    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId),
     () => drawDrawings(context, scene, previewDrawings, true)
   ];
   layers.forEach((drawLayer) => drawLayer());
@@ -402,6 +469,20 @@ function drawPlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, d
   context.save();
   context.beginPath();
   context.rect(scene.plot.left, 0, Math.max(1, scene.plot.right - scene.plot.left), scene.height);
+  context.clip();
+  draw();
+  context.restore();
+}
+
+function drawPricePlotClipped(context: CanvasRenderingContext2D, scene: ChartScene, draw: () => void) {
+  context.save();
+  context.beginPath();
+  context.rect(
+    scene.plot.left,
+    scene.plot.top,
+    Math.max(1, scene.plot.right - scene.plot.left),
+    Math.max(1, scene.plot.priceBottom - scene.plot.top)
+  );
   context.clip();
   draw();
   context.restore();
@@ -749,62 +830,37 @@ function drawSelectedCandleHighlight(context: CanvasRenderingContext2D, scene: C
 
 function drawOrderFlowColumns(context: CanvasRenderingContext2D, scene: ChartScene) {
   const orderFlow = scene.chart.orderFlow;
-  if (!orderFlow) {
-    drawOrderFlowState(context, scene, "오더플로우 데이터를 불러오는 중입니다");
-    return;
-  }
-  const minutes = orderFlow.minutes;
-  if (orderFlow.dataStatus === "unsupported") {
-    drawOrderFlowState(context, scene, unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols));
-    return;
-  }
-  if (!minutes.size && orderFlow.dataStatus === "empty") {
-    drawOrderFlowState(context, scene, "아직 수집된 오더플로우 데이터가 없어요");
-    return;
-  }
-  if (!minutes.size) {
-    drawOrderFlowState(context, scene, "오더플로우 데이터를 불러오는 중입니다");
-    return;
-  }
-
+  const minutes = orderFlow?.minutes ?? new Map<string, OrderFlowMinuteDto>();
   const units = candleUnits(scene);
   const windowMinutes = orderFlowWindowMinutesForInterval(scene.chart.interval);
-  const visibleBuckets = units
-    .map((unit) => cachedOrderFlowBucket(minutes, unit, windowMinutes))
-    .filter((bucket) => bucket.levels.length);
-  const sourceStep = Math.max(0.01, orderFlow.priceBinSize);
-  const displayStep = orderFlowDisplayStep(scene, sourceStep, visibleBuckets);
+  const sourceStep = Math.max(0.01, orderFlow?.priceBinSize ?? 0.01);
   const rects = new Map<string, { x: number; y: number; width: number; height: number }>();
   units.forEach((unit) => rects.set(unit.id, orderFlowColumnRect(scene, unit)));
-  const positiveWidths = Array.from(rects.values()).map((rect) => rect.width).filter((width) => width > 0);
-  const tier = chartColumnTier(positiveWidths.length ? Math.min(...positiveWidths) : 0);
   const drawable = units
     .map((unit) => {
       const bucket = cachedOrderFlowBucket(minutes, unit, windowMinutes);
-      return bucket.levels.length
-        ? { unit, bucket, ladder: cachedOrderFlowLadder(bucket, sourceStep, displayStep) }
-        : null;
-    })
-    .filter((item): item is { unit: SemanticCandleUnit; bucket: OrderFlowBucket; ladder: OrderFlowLadder } => Boolean(item));
-  const scaleMax = visibleScaleMax(drawable.map((item) => item.ladder));
-  units.forEach((unit) => {
-    const bucket = cachedOrderFlowBucket(minutes, unit, windowMinutes);
-    if (!bucket.levels.length) {
-      if (tier !== "micro") {
-        drawOrderFlowGhostCandle(context, scene, unit);
-      }
-      return;
-    }
-    const rect = rects.get(unit.id) ?? orderFlowColumnRect(scene, unit);
-    const ladder = cachedOrderFlowLadder(bucket, sourceStep, displayStep);
+      const ladder = bucket.levels.length ? cachedOrderFlowLadder(bucket, sourceStep) : null;
+      const rect = rects.get(unit.id) ?? orderFlowColumnRect(scene, unit);
+      const rows = ladder
+        ? projectOrderFlowChartRows(ladder, (price) => priceToY(scene, price), rect.y, rect.y + rect.height - 13)
+        : [];
+      return { unit, ladder, rect, rows };
+    });
+  const scaleMax = orderFlowChartRowScaleMax(drawable.map((item) => item.rows));
+  drawable.forEach(({ unit, ladder, rect, rows }) => {
     drawOrderFlowChartColumn(context, rect, ladder, colors, {
-      tier,
       scaleMax,
       priceToY: (price) => priceToY(scene, price),
-      isLive: orderFlow.sessionDate === sessionDateFromTimestamp(unit.timestamp),
+      candle: unit.candle,
+      rows,
       selected: scene.selectedNodeId === unit.id
     });
   });
+  drawOrderFlowGapColumns(context, scene);
+  const stateMessage = orderFlowStateMessage(scene, orderFlow);
+  if (stateMessage) {
+    drawOrderFlowStateMessage(context, scene, stateMessage);
+  }
   drawEstimatedBadge(context, scene.plot.left + 7, scene.plot.top + 6, colors);
 }
 
@@ -827,43 +883,40 @@ function cachedOrderFlowBucket(
   return orderFlowBucketCache.get(minutes, unit.timestamp, windowMinutes);
 }
 
-function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number, displayStep: number): OrderFlowLadder {
-  let byStep = orderFlowLadderCache.get(bucket);
-  if (!byStep) {
-    byStep = new Map();
-    orderFlowLadderCache.set(bucket, byStep);
-  }
-  const cached = byStep.get(displayStep);
+function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number): OrderFlowLadder {
+  const cached = orderFlowLadderCache.get(bucket);
   if (cached) {
     return cached;
   }
-  const levels = rebinLevels(bucket.levels, sourceStep, displayStep);
-  const ladder = buildLadder(levels, displayStep, bucket.label);
-  byStep.set(displayStep, ladder);
+  const ladder = buildLadder(bucket.levels, sourceStep, bucket.label);
+  orderFlowLadderCache.set(bucket, ladder);
   return ladder;
 }
 
-function orderFlowDisplayStep(scene: ChartScene, sourceStep: number, buckets: OrderFlowBucket[]): number {
-  const visiblePrices = buckets.flatMap((bucket) => bucket.levels.map((level) => level.priceBin).filter((price) => Number.isFinite(price)));
-  const dataPriceRange = visiblePrices.length
-    ? Math.max(...visiblePrices) - Math.min(...visiblePrices)
-    : 0;
-  const priceRange = Math.max(0.01, dataPriceRange || scene.scales.maxPrice - scene.scales.minPrice);
-  const rowBudget = Math.max(12, Math.min(64, Math.floor((scene.plot.priceBottom - scene.plot.top) / 6)));
-  return Math.max(sourceStep, autoPriceStep(priceRange, rowBudget));
+function orderFlowStateMessage(scene: ChartScene, orderFlow: ChartState["orderFlow"]): string | null {
+  if (!orderFlow) {
+    return "오더플로우 데이터를 불러오는 중입니다";
+  }
+  if (orderFlow.dataStatus === "unsupported") {
+    return unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols);
+  }
+  if (!orderFlow.minutes.size && orderFlow.dataStatus === "empty") {
+    return "아직 수집된 오더플로우 데이터가 없어요";
+  }
+  if (!orderFlow.minutes.size) {
+    return "오더플로우 데이터를 불러오는 중입니다";
+  }
+  return null;
 }
 
-function drawOrderFlowState(context: CanvasRenderingContext2D, scene: ChartScene, message: string) {
+function drawOrderFlowStateMessage(context: CanvasRenderingContext2D, scene: ChartScene, message: string) {
   context.save();
-  context.globalAlpha = 0.22;
-  drawCandles(context, scene);
   context.globalAlpha = 0.88;
   context.fillStyle = colors.muted;
   context.font = `700 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(message, (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 30, Math.max(120, scene.plot.right - scene.plot.left - 18));
-  drawEstimatedBadge(context, scene.plot.left + 7, scene.plot.top + 6, colors);
   context.restore();
 }
 
@@ -872,12 +925,25 @@ function unsupportedOrderFlowMessage(symbol: string, supportedSymbols: string[] 
   return `Order Flow는 아직 ${symbol.toUpperCase()}을 지원하지 않아요${supported}`;
 }
 
-function drawOrderFlowGhostCandle(context: CanvasRenderingContext2D, scene: ChartScene, unit: SemanticCandleUnit) {
-  context.save();
-  context.globalAlpha = 0.28;
-  const center = unitCenterX(scene, unit);
-  line(context, center, priceToY(scene, unit.candle.high), center, priceToY(scene, unit.candle.low));
-  context.restore();
+function drawOrderFlowGapColumns(context: CanvasRenderingContext2D, scene: ChartScene) {
+  timeGapUnits(scene).forEach((unit) => {
+    carryForwardGapBars(scene, unit).forEach((bar) => {
+      if (bar.right < scene.plot.left || bar.left > scene.plot.right || bar.width <= 0.4) {
+        return;
+      }
+      const price = unit.carryPrice;
+      drawOrderFlowChartColumn(context, {
+        x: bar.left + 1,
+        y: scene.plot.top + 4,
+        width: Math.max(1, bar.width - 2),
+        height: Math.max(16, scene.plot.priceBottom - scene.plot.top - 8)
+      }, null, colors, {
+        scaleMax: 1,
+        priceToY: (value) => priceToY(scene, value),
+        candle: { open: price, high: price, low: price, close: price }
+      });
+    });
+  });
 }
 
 function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -1298,7 +1364,135 @@ function drawMacdHistogram(
   });
 }
 
-function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
+function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
+  const transform = createCoordinateTransform(scene);
+  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
+  const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
+  drawings
+    .filter((drawing) => drawing.visible !== false && fullDrawingIds.has(drawing.id))
+    .forEach((drawing) => {
+      const points = drawing.anchors
+        .map((anchor) => transform.anchorToPoint(anchor))
+        .filter((point): point is { x: number; y: number } => Boolean(point));
+      const style = drawing.style ?? {};
+      const fill = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
+      const baseOpacity = style.fillOpacity ?? (drawing.type === "rangeBox" ? 0.045 : 0.04);
+      context.save();
+      context.fillStyle = fill;
+      context.beginPath();
+      context.rect(
+        scene.plot.left,
+        scene.plot.top,
+        Math.max(1, scene.plot.right - scene.plot.left),
+        Math.max(1, scene.plot.priceBottom - scene.plot.top)
+      );
+      context.clip();
+      if (drawing.type === "rangeBox" && points.length >= 2) {
+        context.globalAlpha = (previewLayer ? 0.72 : 1) * baseOpacity;
+        context.fillRect(
+          Math.min(points[0].x, points[1].x),
+          Math.min(points[0].y, points[1].y),
+          Math.abs(points[1].x - points[0].x),
+          Math.abs(points[1].y - points[0].y)
+        );
+      } else if (drawing.type === "riskRewardBox" && points.length === 2) {
+        context.globalAlpha = (previewLayer ? 0.72 : 1) * Math.min(style.fillOpacity ?? 0.075, 0.045);
+        context.fillStyle = fill;
+        context.fillRect(
+          Math.min(points[0].x, points[1].x),
+          Math.min(points[0].y, points[1].y),
+          Math.abs(points[1].x - points[0].x),
+          Math.abs(points[1].y - points[0].y)
+        );
+      } else if (drawing.type === "riskRewardBox" && points.length >= 3) {
+        const direction = riskRewardDirection(
+          drawing.anchors[0].price ?? Number.NaN,
+          drawing.anchors[1].price ?? Number.NaN,
+          drawing.anchors[2].price ?? Number.NaN
+        );
+        if (direction) {
+          const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+          context.globalAlpha = (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.075);
+          context.fillStyle = colors.upSoft;
+          fillDrawingPolygon(context, geometry.rewardPolygon);
+          context.fillStyle = colors.downSoft;
+          fillDrawingPolygon(context, geometry.riskPolygon);
+        }
+      } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
+        const levels = buildFibonacciLevelGeometry(points[0], points[1]);
+        context.fillStyle = fill;
+        fibonacciBandPolygons(levels).forEach((polygon, index) => {
+          context.globalAlpha = (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.035) * (index % 2 === 0 ? 1 : 0.55);
+          fillDrawingPolygon(context, polygon);
+        });
+      } else if (
+        drawing.type === "horizontalParallelLines" ||
+        drawing.type === "verticalParallelLines" ||
+        drawing.type === "trendParallelLines"
+      ) {
+        parallelBandsForDrawing(drawing, points, scene.plot).forEach((polygon, index) => {
+          if (polygon.length < 3) {
+            return;
+          }
+          context.globalAlpha = (previewLayer ? 0.72 : 1) * baseOpacity * (index % 2 === 0 ? 1 : 0.58);
+          context.beginPath();
+          polygon.forEach((point, pointIndex) => {
+            if (pointIndex === 0) {
+              context.moveTo(point.x, point.y);
+            } else {
+              context.lineTo(point.x, point.y);
+            }
+          });
+          context.closePath();
+          context.fill();
+        });
+      }
+      context.restore();
+    });
+
+  renderItems.forEach((item) => {
+    const style = item.drawing.style ?? {};
+    if (item.kind === "timeWarpedParallelLines") {
+      context.save();
+      context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
+      drawPricePlotClipped(context, scene, () => {
+        item.bands.forEach((band, index) => {
+          if (band.length < 3) {
+            return;
+          }
+          context.globalAlpha = (style.fillOpacity ?? 0.04) * (previewLayer ? 0.72 : 1) * (index % 2 === 0 ? 1 : 0.58);
+          context.beginPath();
+          band.forEach((point, pointIndex) => {
+            if (pointIndex === 0) {
+              context.moveTo(point.x, point.y);
+            } else {
+              context.lineTo(point.x, point.y);
+            }
+          });
+          context.closePath();
+          context.fill();
+        });
+      });
+      context.restore();
+    } else if (item.kind === "expansionProjection") {
+      context.save();
+      context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
+      context.globalAlpha = (style.fillOpacity ?? 0.045) * (previewLayer ? 0.72 : 1);
+      drawPricePlotClipped(context, scene, () => {
+        context.fillRect(item.left, item.top, Math.max(0, item.right - item.left), Math.max(0, item.bottom - item.top));
+      });
+      context.restore();
+    }
+  });
+}
+
+function drawDrawings(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawings: DrawingEntity[],
+  previewLayer: boolean,
+  editingDrawingId?: string
+) {
   const transform = createCoordinateTransform(scene);
   const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
   const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
@@ -1317,37 +1511,59 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
     context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
 
     if (drawing.type === "horizontalLine" && points[0]) {
-      line(context, scene.plot.left, points[0].y, horizontalGuideRight(scene), points[0].y);
-      drawDrawingLabel(context, drawing.label, scene.plot.right - 54, points[0].y - 8, drawing);
+      drawPricePlotClipped(context, scene, () => line(context, scene.plot.left, points[0].y, horizontalGuideRight(scene), points[0].y));
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "verticalMarker" && points[0]) {
-      line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom);
-      drawDrawingLabel(context, drawing.label, points[0].x + 5, scene.plot.top + 12, drawing);
+      drawPricePlotClipped(context, scene, () => line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom));
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "trendLine" && points.length >= 2) {
       const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
-      line(context, start.x, start.y, end.x, end.y);
+      drawPricePlotClipped(context, scene, () => line(context, start.x, start.y, end.x, end.y));
       drawDrawingLabel(context, drawing.label ?? lineMetricLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+    } else if (
+      drawing.type === "horizontalParallelLines" ||
+      drawing.type === "verticalParallelLines" ||
+      drawing.type === "trendParallelLines"
+    ) {
+      drawPricePlotClipped(context, scene, () => {
+        parallelLinesForDrawing(drawing, points, scene.plot).forEach(([start, end]) => {
+          line(context, start.x, start.y, end.x, end.y);
+        });
+      });
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "rangeBox" && points.length >= 2) {
       const x = Math.min(points[0].x, points[1].x);
       const y = Math.min(points[0].y, points[1].y);
       const width = Math.abs(points[1].x - points[0].x);
       const height = Math.abs(points[1].y - points[0].y);
-      const previousAlpha = context.globalAlpha;
-      context.globalAlpha = previousAlpha * (style.fillOpacity ?? (preview ? 0.22 : 0.14));
-      context.fillRect(x, y, width, height);
-      context.globalAlpha = previousAlpha;
-      context.strokeRect(x, y, width, height);
-      drawDrawingLabel(context, drawing.label, x + 5, y + 13, drawing);
-    } else if ((drawing.type === "pointMarker" || drawing.type === "textLabel") && points[0]) {
-      circle(context, points[0].x, points[0].y, drawing.type === "pointMarker" ? 4 : 3);
+      drawPricePlotClipped(context, scene, () => context.strokeRect(x, y, width, height));
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+    } else if (drawing.type === "riskRewardBox" && points.length >= 2) {
+      drawRiskRewardForeground(context, scene, drawing, points);
+    } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
+      drawFibonacciForeground(context, scene, drawing, points);
+    } else if (drawing.type === "textLabel" && points[0]) {
+      circle(context, points[0].x, points[0].y, 3);
       context.fill();
-      drawDrawingLabel(context, drawing.label ?? (drawing.type === "textLabel" ? "메모" : ""), points[0].x + 7, points[0].y - 7, drawing);
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+    } else if (drawing.type === "flagMarker" && points[0]) {
+      context.save();
+      context.lineWidth = Math.max(0.75, style.lineWidth ?? 1);
+      context.setLineDash([2, 4]);
+      line(context, points[0].x, points[0].y, points[0].x, scene.plot.top + 7);
+      context.setLineDash([]);
+      circle(context, points[0].x, points[0].y, 3.5);
+      context.fill();
+      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+      context.restore();
     }
 
     if (selected && points.length) {
       context.setLineDash([]);
       context.fillStyle = colors.surface;
       context.strokeStyle = colors.drawing;
-      points.forEach((point) => {
+      const handles = drawing.type === "rangeBox" ? rangeResizeHandles(points).map((item) => item.point) : points;
+      handles.forEach((point) => {
         circle(context, point.x, point.y, 4);
         context.fill();
         context.stroke();
@@ -1359,6 +1575,8 @@ function drawDrawings(context: CanvasRenderingContext2D, scene: ChartScene, draw
   renderItems.forEach((item) => {
     if (item.kind === "timeWarpedLine") {
       drawTimeWarpedLine(context, scene, item, previewLayer);
+    } else if (item.kind === "timeWarpedParallelLines") {
+      drawTimeWarpedParallelLines(context, scene, item, previewLayer);
     } else if (item.kind === "expansionProjection") {
       drawExpansionProjectionDrawing(context, scene, item, previewLayer);
     } else if (item.kind === "collapsed") {
@@ -1386,17 +1604,19 @@ function drawTimeWarpedLine(
   context.fillStyle = context.strokeStyle;
   context.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
   context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
-  context.beginPath();
-  item.points.forEach((point, index) => {
-    const x = Math.round(point.x) + 0.5;
-    const y = Math.round(point.y) + 0.5;
-    if (index === 0) {
-      context.moveTo(x, y);
-    } else {
-      context.lineTo(x, y);
-    }
+  drawPricePlotClipped(context, scene, () => {
+    context.beginPath();
+    item.points.forEach((point, index) => {
+      const x = Math.round(point.x) + 0.5;
+      const y = Math.round(point.y) + 0.5;
+      if (index === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    });
+    context.stroke();
   });
-  context.stroke();
   const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
   if (midpoint) {
     drawDrawingLabel(context, item.label ?? lineMetricLabel(drawing), midpoint.x + 5, midpoint.y - 8, drawing);
@@ -1406,6 +1626,57 @@ function drawTimeWarpedLine(
     context.fillStyle = colors.surface;
     context.strokeStyle = colors.drawing;
     [item.points[0], item.points[item.points.length - 1]].forEach((point) => {
+      circle(context, point.x, point.y, 4);
+      context.fill();
+      context.stroke();
+    });
+  }
+  context.restore();
+}
+
+function drawTimeWarpedParallelLines(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  item: Extract<DrawingRenderItem, { kind: "timeWarpedParallelLines" }>,
+  previewLayer: boolean
+) {
+  if (!item.lines.length || item.lines.some((linePoints) => linePoints.length < 2)) {
+    return;
+  }
+  const drawing = item.drawing;
+  const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
+  const preview = previewLayer || drawing.id === "drawing-draft-preview";
+  const style = drawing.style ?? {};
+  context.save();
+  context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+  context.fillStyle = context.strokeStyle;
+  context.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1) : style.lineWidth ?? 1;
+  context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
+  drawPricePlotClipped(context, scene, () => {
+    item.lines.forEach((linePoints) => {
+      context.beginPath();
+      linePoints.forEach((point, index) => {
+        if (index === 0) {
+          context.moveTo(Math.round(point.x) + 0.5, Math.round(point.y) + 0.5);
+        } else {
+          context.lineTo(Math.round(point.x) + 0.5, Math.round(point.y) + 0.5);
+        }
+      });
+      context.stroke();
+    });
+  });
+
+  const labelLine = item.lines[trendParallelBaseLineIndex(drawing.parallelLineCount ?? 3)];
+  const labelPoint = labelLine[Math.floor((labelLine.length - 1) / 2)];
+  if (labelPoint) {
+    drawDrawingLabel(context, item.label, labelPoint.x + 5, labelPoint.y - 8, drawing);
+  }
+  if (selected) {
+    context.setLineDash([]);
+    context.fillStyle = colors.surface;
+    context.strokeStyle = colors.drawing;
+    item.handles.forEach((point) => {
       circle(context, point.x, point.y, 4);
       context.fill();
       context.stroke();
@@ -1433,13 +1704,9 @@ function drawExpansionProjectionDrawing(
 
   context.save();
   context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
-  context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
   context.lineWidth = style.lineWidth ?? 1.4;
   context.setLineDash(style.lineDash ?? [5, 3]);
-  const previousAlpha = context.globalAlpha;
-  context.globalAlpha = previousAlpha * (style.fillOpacity ?? 0.1);
-  context.fillRect(left, top, width, height);
-  context.globalAlpha = previousAlpha * (style.opacity ?? 1) * 0.82;
+  context.globalAlpha = (style.opacity ?? 1) * 0.82;
   context.strokeRect(left, top, width, height);
   context.setLineDash([]);
   drawDrawingLabel(context, item.label, left + 5, top + 13, item.drawing);
@@ -1467,6 +1734,118 @@ function drawCollapsedDrawing(
   context.fill();
   context.stroke();
   drawDrawingLabel(context, item.label, x + 7, y - 7, item.drawing);
+  context.restore();
+}
+
+function drawDrawingEntityLabel(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  editingDrawingId?: string
+) {
+  if (drawing.id === editingDrawingId) {
+    return;
+  }
+  const layout = drawingLabelLayout(scene, drawing);
+  if (!layout) {
+    return;
+  }
+  const style = drawing.style ?? {};
+  context.save();
+  context.font = `${layout.boxStyle === "tag" ? "700 " : ""}${nearestTypeSize(style.fontSize ?? TYPE_SIZE.compact)}px ${canvasFontFamily}`;
+  if (layout.boxStyle === "tag") {
+    context.fillStyle = colors.surfaceStrong;
+    context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", "drawing");
+    context.lineWidth = 1;
+    context.setLineDash([]);
+    roundedRect(context, layout.left, layout.top, layout.width, layout.height, 5);
+    context.fill();
+    context.stroke();
+  }
+  context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillText(layout.label, layout.textX, layout.baseline, layout.width - (layout.boxStyle === "tag" ? 14 : 4));
+  context.restore();
+}
+
+function drawRiskRewardForeground(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  points: Array<{ x: number; y: number }>
+) {
+  if (points.length === 2) {
+    const left = Math.min(points[0].x, points[1].x);
+    const top = Math.min(points[0].y, points[1].y);
+    const width = Math.abs(points[1].x - points[0].x);
+    const height = Math.abs(points[1].y - points[0].y);
+    drawPricePlotClipped(context, scene, () => context.strokeRect(left, top, width, height));
+    return;
+  }
+  const [entryAnchor, stopAnchor, targetAnchor] = drawing.anchors;
+  const entryPrice = entryAnchor?.price;
+  const stopPrice = stopAnchor?.price;
+  const targetPrice = targetAnchor?.price;
+  if (typeof entryPrice !== "number" || typeof stopPrice !== "number" || typeof targetPrice !== "number") {
+    return;
+  }
+  const direction = riskRewardDirection(entryPrice, stopPrice, targetPrice);
+  if (!direction) {
+    const left = Math.min(points[0].x, points[1].x);
+    const right = Math.max(points[0].x, points[1].x);
+    const top = Math.min(points[0].y, points[1].y, points[2].y);
+    const bottom = Math.max(points[0].y, points[1].y, points[2].y);
+    drawPricePlotClipped(context, scene, () => {
+      points.forEach((point) => line(context, left, point.y, right, point.y));
+      line(context, left, top, left, bottom);
+      line(context, right, top, right, bottom);
+    });
+    return;
+  }
+  const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+  drawPricePlotClipped(context, scene, () => {
+    line(context, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
+    line(context, geometry.left, geometry.stopY, geometry.right, geometry.stopY);
+    line(context, geometry.left, geometry.targetY, geometry.right, geometry.targetY);
+    line(context, geometry.left, Math.min(geometry.stopY, geometry.targetY), geometry.left, Math.max(geometry.stopY, geometry.targetY));
+    line(context, geometry.right, Math.min(geometry.stopY, geometry.targetY), geometry.right, Math.max(geometry.stopY, geometry.targetY));
+  });
+  const targetPercent = ((targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice))) * 100;
+  const stopPercent = ((stopPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice))) * 100;
+  const ratio = Math.abs(targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice - stopPrice));
+  drawDrawingLabel(context, `Entry ${entryPrice.toFixed(2)}`, geometry.left + 5, geometry.entryY - 9, drawing);
+  drawDrawingLabel(context, `Target ${targetPercent >= 0 ? "+" : ""}${targetPercent.toFixed(2)}%`, geometry.left + 5, geometry.targetY - 9, drawing);
+  drawDrawingLabel(context, `Stop ${stopPercent >= 0 ? "+" : ""}${stopPercent.toFixed(2)}%`, geometry.left + 5, geometry.stopY + 9, drawing);
+  drawDrawingLabel(context, `R:R 1:${ratio.toFixed(2)}`, geometry.right - 72, geometry.entryY + 9, drawing);
+}
+
+function drawFibonacciForeground(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  points: Array<{ x: number; y: number }>
+) {
+  const firstPrice = drawing.anchors[0]?.price;
+  const secondPrice = drawing.anchors[1]?.price;
+  if (typeof firstPrice !== "number" || typeof secondPrice !== "number") {
+    return;
+  }
+  const levels = buildFibonacciLevelGeometry(points[0], points[1]);
+  drawPricePlotClipped(context, scene, () => {
+    line(context, points[0].x, points[0].y, points[1].x, points[1].y);
+    levels.forEach(({ line: [start, end] }) => line(context, start.x, start.y, end.x, end.y));
+  });
+  context.save();
+  context.fillStyle = resolveDrawingColor(drawing.style ?? {}, "textToken", "textColor", "drawing");
+  context.font = `${nearestTypeSize(drawing.style.fontSize ?? TYPE_SIZE.micro)}px ${canvasFontFamily}`;
+  context.textAlign = "right";
+  context.textBaseline = "bottom";
+  levels.forEach(({ level, y, line: [, end] }) => {
+    const price = firstPrice + (secondPrice - firstPrice) * level;
+    const percentage = Number.isInteger(level * 100) ? (level * 100).toFixed(0) : (level * 100).toFixed(1);
+    context.fillText(`${percentage}% · ${price.toFixed(2)}`, Math.min(scene.plot.right - 4, end.x - 3), y - 3);
+  });
   context.restore();
 }
 
@@ -1636,22 +2015,23 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
       return;
     }
 
-    if (drawing.type === "horizontalLine" && typeof anchor.price === "number") {
-      const pt = transform.anchorToPoint(anchor);
-      if (pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
-        const text = anchor.price.toFixed(2);
-        drawDarkAxisPill(context, text, scene.width - 8, pt.y, "right");
-      }
-    } else if (drawing.type === "verticalMarker") {
-      const pt = transform.anchorToPoint(anchor);
-      if (pt && pt.x >= scene.plot.left && pt.x <= scene.plot.right) {
-        const label = anchor.timestamp
-          ? formatSemanticTimestamp(anchor.timestamp, scene.chart.interval)
-          : "";
-        if (label) {
+    if (drawing.type === "horizontalLine" || drawing.type === "horizontalParallelLines") {
+      const anchors = drawing.type === "horizontalLine" ? [anchor] : drawing.anchors.slice(0, 2);
+      anchors.forEach((lineAnchor) => {
+        const pt = transform.anchorToPoint(lineAnchor);
+        if (typeof lineAnchor.price === "number" && pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
+          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), scene.width - 8, pt.y, "right");
+        }
+      });
+    } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
+      const anchors = drawing.type === "verticalMarker" ? [anchor] : drawing.anchors.slice(0, 2);
+      anchors.forEach((lineAnchor) => {
+        const pt = transform.anchorToPoint(lineAnchor);
+        const label = lineAnchor.timestamp ? formatSemanticTimestamp(lineAnchor.timestamp, scene.chart.interval) : "";
+        if (pt && pt.x >= scene.plot.left && pt.x <= scene.plot.right && label) {
           drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center");
         }
-      }
+      });
     }
   });
 }
@@ -2227,6 +2607,22 @@ function line(context: CanvasRenderingContext2D, x1: number, y1: number, x2: num
   context.moveTo(Math.round(x1) + 0.5, Math.round(y1) + 0.5);
   context.lineTo(Math.round(x2) + 0.5, Math.round(y2) + 0.5);
   context.stroke();
+}
+
+function fillDrawingPolygon(context: CanvasRenderingContext2D, polygon: Array<{ x: number; y: number }>) {
+  if (polygon.length < 3) {
+    return;
+  }
+  context.beginPath();
+  polygon.forEach((point, index) => {
+    if (index === 0) {
+      context.moveTo(point.x, point.y);
+    } else {
+      context.lineTo(point.x, point.y);
+    }
+  });
+  context.closePath();
+  context.fill();
 }
 
 function horizontalGuideRight(scene: ChartScene): number {

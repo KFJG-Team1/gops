@@ -84,7 +84,6 @@ type PanelWorkspaceProps = {
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
-  semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onAgentAsk: () => void;
@@ -157,7 +156,6 @@ export function PanelWorkspace({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
-  semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onAgentAsk,
@@ -719,7 +717,6 @@ export function PanelWorkspace({
               selectedAgentReferenceKeys={selectedAgentReferenceKeys}
               emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
               emphasizeChartSelection={emphasizeChartSelection}
-              semanticSelection={semanticSelection}
               setSemanticSelection={setSemanticSelection}
               onAgentReferenceSelect={onAgentReferenceSelect}
               onAgentAsk={onAgentAsk}

@@ -1,5 +1,5 @@
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "./candleStore";
-import { createChartDocument } from "./chartDocuments";
+import { createChartDocument, normalizeChartDocument } from "./chartDocuments";
 import { normalizeChartInterval, type ChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import { canonicalTimestamp } from "./time";
@@ -114,7 +114,10 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
 
 export function getChartDocumentForPanel(state: ChartRuntimeState, panel: ChartRuntimePanel): ChartDocument {
   const chartDocumentId = getChartDocumentId(panel);
-  return state.documents[chartDocumentId] ?? createChartDocument(chartDocumentId, readPanelSymbol(panel), readPanelTimeframe(panel));
+  const document = state.documents[chartDocumentId];
+  return document
+    ? normalizeChartDocument(document)
+    : createChartDocument(chartDocumentId, readPanelSymbol(panel), readPanelTimeframe(panel));
 }
 
 export function getChartDocumentId(panel: ChartRuntimePanel): string {
@@ -157,22 +160,37 @@ function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePane
 
   for (const panel of chartPanels) {
     const id = getChartDocumentId(panel);
-    const document = state.documents[id] ?? createChartDocument(id, readPanelSymbol(panel), readPanelTimeframe(panel));
+    const current = state.documents[id];
+    const document = current
+      ? normalizeChartDocument(current)
+      : createChartDocument(id, readPanelSymbol(panel), readPanelTimeframe(panel));
     documents[id] = document;
-    if (!state.documents[id]) {
+    if (!current || document !== current) {
       changed = true;
     }
   }
 
   const pendingPreviewByDocumentId = Object.fromEntries(
-    Object.entries(state.pendingPreviewByDocumentId).filter(([documentId]) => activeDocumentIds.has(documentId))
+    Object.entries(state.pendingPreviewByDocumentId)
+      .filter(([documentId]) => activeDocumentIds.has(documentId))
+      .map(([documentId, preview]): [string, ChartPendingPreview] => [documentId, sanitizeRemovedPointPreview(preview)])
+      .filter(([, preview]) => preview.drawings.length > 0 || preview.comparisons.length > 0)
   );
-  if (Object.keys(pendingPreviewByDocumentId).length !== Object.keys(state.pendingPreviewByDocumentId).length) {
+  if (
+    Object.keys(pendingPreviewByDocumentId).length !== Object.keys(state.pendingPreviewByDocumentId).length ||
+    Object.entries(pendingPreviewByDocumentId).some(([documentId, preview]) => preview !== state.pendingPreviewByDocumentId[documentId])
+  ) {
     changed = true;
   }
 
-  const pendingProposals = state.pendingProposals.filter((proposal) => activeDocumentIds.has(proposal.target.chartDocumentId));
-  if (pendingProposals.length !== state.pendingProposals.length) {
+  const pendingProposals = state.pendingProposals
+    .filter((proposal) => activeDocumentIds.has(proposal.target.chartDocumentId))
+    .map(sanitizeRemovedPointProposal)
+    .filter((proposal): proposal is ChartProposal => Boolean(proposal));
+  if (
+    pendingProposals.length !== state.pendingProposals.length ||
+    pendingProposals.some((proposal, index) => proposal !== state.pendingProposals[index])
+  ) {
     changed = true;
   }
 
@@ -563,6 +581,11 @@ function applyCommandGroup(
 }
 
 function receiveProposal(state: ChartRuntimeState, proposal: ChartProposal, autoApply: boolean): ChartRuntimeState {
+  const sanitizedProposal = sanitizeRemovedPointProposal(proposal);
+  if (!sanitizedProposal) {
+    return fail(state, "Chart proposal did not include any supported commands.", proposal.target.chartDocumentId);
+  }
+  proposal = sanitizedProposal;
   const validation = validateChartProposal(proposal);
   if (validation) {
     return fail(state, validation, proposal.target.chartDocumentId);
@@ -581,6 +604,48 @@ function receiveProposal(state: ChartRuntimeState, proposal: ChartProposal, auto
   }
 
   return applyProposal(state, proposal, "applied");
+}
+
+function sanitizeRemovedPointPreview(preview: ChartPendingPreview): ChartPendingPreview {
+  const drawings = preview.drawings.filter((drawing) => (drawing as { type?: unknown }).type !== "pointMarker");
+  return drawings.length === preview.drawings.length ? preview : { ...preview, drawings };
+}
+
+function sanitizeRemovedPointProposal(proposal: ChartProposal): ChartProposal | null {
+  const commands = proposal.commands
+    .map(sanitizeRemovedPointCommand)
+    .filter((command): command is ChartCommand => Boolean(command));
+  if (!commands.length) {
+    return null;
+  }
+  return commands.length === proposal.commands.length ? proposal : { ...proposal, commands };
+}
+
+function sanitizeRemovedPointCommand(command: ChartCommand): ChartCommand | null {
+  const payload = command.payload;
+  if (payload.drawingType === "pointMarker") {
+    return null;
+  }
+  const drawing = payload.drawing;
+  if (drawing && typeof drawing === "object" && !Array.isArray(drawing) && (drawing as { type?: unknown }).type === "pointMarker") {
+    return null;
+  }
+  const preview = payload.preview;
+  if (preview && typeof preview === "object" && !Array.isArray(preview)) {
+    const previewRecord = preview as { drawings?: unknown; comparisons?: unknown };
+    const previewDrawings = previewRecord.drawings;
+    if (Array.isArray(previewDrawings)) {
+      const drawings = previewDrawings.filter((item) => !item || typeof item !== "object" || (item as { type?: unknown }).type !== "pointMarker");
+      if (drawings.length !== previewDrawings.length) {
+        const comparisons = Array.isArray(previewRecord.comparisons) ? previewRecord.comparisons : [];
+        if (!drawings.length && !comparisons.length) {
+          return null;
+        }
+        return { ...command, payload: { ...payload, preview: { ...preview, drawings } } };
+      }
+    }
+  }
+  return command;
 }
 
 function acceptProposal(state: ChartRuntimeState, proposalId: string): ChartRuntimeState {
