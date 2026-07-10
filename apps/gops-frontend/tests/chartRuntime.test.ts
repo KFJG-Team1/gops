@@ -31,6 +31,7 @@ import { buildRenderScene } from "../../chart-engine/src/renderScene";
 import {
   chartRuntimeReducer,
   createInitialChartRuntimeState,
+  getLiveTradeForSymbol,
   maxInactiveCandleCacheKeys,
   type ChartRuntimePanel
 } from "../../chart-engine/src/runtime";
@@ -144,6 +145,7 @@ import {
   applyTiledAgentLayoutProposalWithResult,
   buildTiledAgentLayoutContext
 } from "../src/layout/tiledAgentLayout";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, isLikelyPresetLoadPrompt } from "../src/layout/layoutPresets";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
 import {
   clampRightOffset,
@@ -1168,6 +1170,33 @@ if (normalizedTrade.type !== "LIVE_TRADE_UPDATE") {
 assert.equal(normalizedTrade.data.price, 197.66);
 const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
 assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
+assert.equal(getLiveTradeForSymbol(tradeLayerRuntime, "nvda")?.price, 197.66);
+const tradePatchedCandles = tradeLayerRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(tradePatchedCandles.length, 2);
+assert.equal(tradePatchedCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(tradePatchedCandles[1]?.open, 197.66);
+assert.equal(tradePatchedCandles[1]?.high, 197.66);
+assert.equal(tradePatchedCandles[1]?.low, 197.66);
+assert.equal(tradePatchedCandles[1]?.close, 197.66);
+assert.equal(tradePatchedCandles[1]?.volume, 0);
+assert.equal(tradePatchedCandles[1]?.isClosed, false);
+const nextTrade = normalizeRealtimeLayerEvent({
+  type: "LIVE_TRADE_UPDATE",
+  symbol: "NVDA",
+  data: { price: "199.10", timestamp: "2026-07-02T14:33:00Z" }
+});
+if (nextTrade.type !== "LIVE_TRADE_UPDATE") {
+  throw new Error("expected next trade payload");
+}
+const nextTradeRuntime = chartRuntimeReducer(tradeLayerRuntime, { kind: "chart.layer.live", event: nextTrade });
+const nextTradeCandles = nextTradeRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(nextTradeCandles.length, 2);
+assert.equal(nextTradeCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(nextTradeCandles[1]?.open, 197.66);
+assert.equal(nextTradeCandles[1]?.high, 199.1);
+assert.equal(nextTradeCandles[1]?.low, 197.66);
+assert.equal(nextTradeCandles[1]?.close, 199.1);
+assert.equal(nextTradeCandles[1]?.volume, 0);
 
 assert.equal(isChartDataRenderable({
   state: "partial",
@@ -2961,7 +2990,13 @@ assert.match(appSource, /chartAction === "add"/);
 assert.match(appSource, /chartTargetSymbol/);
 assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
+assert.match(appSource, /isLikelyPresetLoadPrompt\(prompt, agentPresetSummaries\)/);
+assert.doesNotMatch(appSource, /showPresetApplyFeedback/);
+assert.match(appSource, /return presetLoadStatus === "applied" \? "ui-action" : "chat-log";/);
 const agentShortcutIndex = appSource.indexOf("resolveAgentChartShortcut(prompt)");
+const presetShortcutIndex = appSource.indexOf("isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)");
+assert.ok(presetShortcutIndex > -1);
+assert.ok(presetShortcutIndex < agentShortcutIndex);
 assert.ok(agentShortcutIndex >= 0);
 assert.ok(agentShortcutIndex < appSource.indexOf("if (mainView.mode !== \"chart\")", agentShortcutIndex));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
@@ -2971,12 +3006,22 @@ assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Ag
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(bottomCommandBarSource, /AgentSubmitResult/);
 assert.match(bottomCommandBarSource, /chart-shortcut/);
+assert.match(bottomCommandBarSource, /ui-action/);
+assert.match(bottomCommandBarSource, /result === "chat-log"[\s\S]*setChatPanelOpen\(true\)/);
+assert.doesNotMatch(bottomCommandBarSource, /result === "ui-action"[\s\S]{0,160}setChatPanelOpen\(true\)/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /선택한 자료/);
 assert.match(bottomCommandBarSource, /bottom-chat-message-text/);
 assert.match(bottomCommandBarSource, /bottom-chat-loading-mark/);
 assert.match(bottomCommandBarSource, /bottom-chat-confidence-dot/);
 assert.match(bottomCommandBarSource, /신뢰도 \$\{percent\}%/);
+
+const presetDockSource = readFileSync(fileURLToPath(new URL("../src/components/PresetDock.tsx", import.meta.url)), "utf-8");
+assert.doesNotMatch(presetDockSource, /statusFeedback/);
+assert.doesNotMatch(presetDockSource, /layout-preset-status/);
+assert.doesNotMatch(presetDockSource, /role="status"/);
+assert.doesNotMatch(presetDockSource, /aria-live="polite"/);
+
 assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.match(bottomCommandBarSource, /export type BottomMenuKey = "II" \| "III" \| "IV" \| "V" \| "VI";/);
@@ -3058,6 +3103,7 @@ assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /Paintbrush/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
+assert.match(chartPanelSource, /liveTradePrice/);
 assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
@@ -3120,6 +3166,7 @@ assert.doesNotMatch(semanticTimelineSource, /kind:\s*"placeholder"\s*\|\s*"foot/
 assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
+assert.match(chartCanvasSource, /currentPriceForScene/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");
@@ -3196,6 +3243,69 @@ assert.equal(layoutResolve.status, "ui_layout");
 assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
+
+const presetSummaries = buildAgentLayoutPresetSummaries([
+  { id: "market", kind: "default", name: "시장분석" },
+  { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) },
+  { id: "custom-preopen", kind: "custom", name: "장전 체크", layout: serializeTiledPanelState(tiledState) }
+]);
+assert.equal(presetSummaries[0]?.id, "market");
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 프리셋"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석창"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석 대시보드"));
+assert.equal(presetSummaries[1]?.id, "custom-taste");
+assert.ok(presetSummaries[1]?.aliases.includes("내입맛"));
+assert.equal(presetSummaries[2]?.id, "custom-preopen");
+assert.ok(presetSummaries[2]?.aliases.includes("장전 체크 대시보드"));
+assert.equal(isLikelyPresetLoadPrompt("시장분석 프리셋 띄워줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장분석창 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("내 입맛 화면으로 바꿔줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("장전 체크 대시보드 열어줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("시장 분석해줘", presetSummaries), false);
+assert.equal(isLikelyPresetLoadPrompt("시장분석 해줘", presetSummaries), false);
+
+const presetLoadResolve = normalizeAgentLayoutResolveResponse({
+  status: "ui_layout",
+  summary: "시장분석 프리셋을 열었습니다.",
+  route: { source: "ui-preset-parser", intentType: "ui-layout", selectedRoles: [] },
+  layoutProposal: {
+    id: "layout-proposal-preset-load",
+    title: "UI preset request",
+    rationale: "시장분석 프리셋을 열었습니다.",
+    autoApply: true,
+    panelPriorities: [],
+    commands: [
+      makeAgentLayoutCommand("layout.load", "llm", { presetId: "market", presetName: "시장분석", presetKind: "default" })
+    ],
+    createdAt: "2026-06-29T00:00:00.000Z"
+  },
+  agentTrace: { uiLayoutFastAck: true }
+});
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.type, "layout.load");
+assert.equal(presetLoadResolve.layoutProposal?.commands[0]?.payload.presetId, "market");
+const appliedPresetIds: string[] = [];
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(
+    presetLoadResolve.layoutProposal!,
+    [
+      { id: "market", kind: "default", name: "시장분석" },
+      { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) }
+    ],
+    (id) => appliedPresetIds.push(id)
+  ),
+  { status: "applied", presetId: "market", presetName: "시장분석" }
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(presetLoadResolve.layoutProposal!, [{ id: "stock", kind: "default", name: "종목분석" }], () => appliedPresetIds.push("unexpected")),
+  { status: "missing", presetId: "market" }
+);
+assert.deepEqual(appliedPresetIds, ["market"]);
+assert.deepEqual(
+  applyLayoutLoadProposalToPresets(layoutResolve.layoutProposal!, [{ id: "market", kind: "default", name: "시장분석" }], () => appliedPresetIds.push("unexpected")),
+  { status: "none" }
+);
 
 const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
   status: "ui_clarify",
@@ -3445,6 +3555,8 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*flex-wrap: now
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0;/);
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
+assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);
+assert.doesNotMatch(frontendStylesSource, /layout-preset-status-in/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: auto;/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*min-width: 50px;/);
 const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
