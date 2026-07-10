@@ -3577,7 +3577,7 @@ h2 {
 .workspace-panel-frame.is-layout-editing .workspace-panel-body {
   pointer-events: none;
   filter: saturate(0.55) blur(2px);
-  opacity: 0.55;
+  opacity: 0.9;
 }
 
 .panel-edit-overlay {
@@ -3599,17 +3599,6 @@ h2 {
 
 .workspace-panel-frame.is-panel-position-dragging .panel-edit-snapshot-shield {
   cursor: grabbing;
-}
-
-.panel-move-cue {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: color-mix(in srgb, var(--color-text) 72%, transparent);
-  pointer-events: none;
-  filter: drop-shadow(0 1px 4px color-mix(in srgb, var(--color-background) 85%, transparent));
 }
 
 .panel-edit-button {
@@ -3682,13 +3671,12 @@ h2 {
 }
 
 .panel-delete-button {
-  right: 48px;
-  top: 8px;
-  left: auto;
+  top: 50%;
+  left: 50%;
   width: 40px;
   height: 40px;
   color: var(--color-danger);
-  transform: none;
+  transform: translate(-50%, -50%);
 }
 
 .layout-edit-preview {
@@ -3733,107 +3721,25 @@ h2 {
 
 .panel-layout-ghost {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: clamp(6px, 1.2vw, 12px);
+  place-items: center;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: clamp(9px, 1.4vw, 18px);
+  padding: 12px;
   overflow: hidden;
   border-radius: inherit;
   background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   opacity: 0.68;
 }
 
-.panel-layout-ghost-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--color-text);
-  font-family: var(--font-ui-serif);
-}
-
-.panel-layout-ghost-header strong {
+.panel-layout-ghost strong {
+  max-width: 100%;
   overflow: hidden;
   font-size: clamp(12px, 1.5vw, 17px);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.panel-layout-ghost-chart {
-  width: 100%;
-  height: 100%;
-  min-height: 24px;
-}
-
-.panel-layout-ghost-chart .ghost-grid-line {
-  fill: none;
-  stroke: color-mix(in srgb, var(--color-text) 16%, transparent);
-  stroke-width: 1;
-}
-
-.panel-layout-ghost-chart .ghost-series {
-  fill: none;
-  stroke: var(--color-preview);
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.panel-layout-ghost-chart .ghost-series.secondary {
-  stroke: color-mix(in srgb, var(--color-danger) 68%, var(--color-preview));
-  stroke-width: 2;
-}
-
-.panel-layout-ghost-news {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.panel-layout-ghost-news-row {
-  display: grid;
-  grid-template-columns: minmax(18px, 26%) minmax(0, 1fr);
-  gap: 7px;
-  min-height: 0;
-}
-
-.panel-layout-ghost-news-row > i,
-.panel-layout-ghost-news-row b,
-.panel-layout-ghost-cards i {
-  display: block;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-text) 19%, transparent);
-}
-
-.panel-layout-ghost-news-row > i {
-  min-height: 24px;
-}
-
-.panel-layout-ghost-news-row div {
-  display: grid;
-  align-content: center;
-  gap: 5px;
-}
-
-.panel-layout-ghost-news-row b {
-  height: 5px;
-}
-
-.panel-layout-ghost-news-row b:last-child {
-  width: 68%;
-}
-
-.panel-layout-ghost-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(12px, 1fr));
-  gap: 7px;
-  min-height: 0;
 }
 
 .chart-panel-body {

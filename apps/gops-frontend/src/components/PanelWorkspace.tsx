@@ -31,9 +31,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Move,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import {
   applyPanelResizeWithYield,
@@ -149,7 +147,7 @@ type LayoutPreview = {
   mode: "move" | "resize" | "add" | "replace" | "swap";
   valid: boolean;
   label: string;
-  secondary?: { gridRect: PanelGridRect; kind?: PanelContentKind; label: string };
+  secondary?: { gridRect: PanelGridRect; label: string };
 };
 
 type LogicalPointerPoint = {
@@ -390,7 +388,6 @@ export function PanelWorkspace({
       });
       const target = slotAtGridCell(state, cell, source.id);
       if (target && panelGridRectsEqual(gridRect, target.gridRect)) {
-        const targetKind = state.contents[target.contentId]?.kind;
         return {
           gridRect: target.gridRect,
           kind,
@@ -401,7 +398,6 @@ export function PanelWorkspace({
           label: sourceTitle,
           secondary: {
             gridRect: source.gridRect,
-            kind: targetKind,
             label: contentTitleForSlot(state, target.id)
           }
         };
@@ -757,9 +753,6 @@ export function PanelWorkspace({
     return (
       <div className="panel-edit-overlay" aria-label={`${content.title || "차트"} 편집 컨트롤`}>
         <div className="panel-edit-snapshot-shield" aria-hidden="true" />
-        <div className="panel-move-cue" aria-hidden="true">
-          <Move size={24} strokeWidth={2.2} />
-        </div>
         {resizeDirections.map((direction) => (
           <button
             key={direction}
@@ -947,11 +940,7 @@ export function PanelWorkspace({
             style={panelRectForGridRect(layoutPreview.gridRect, viewportSize, layoutMetrics)}
             aria-hidden="true"
           >
-            <PanelLayoutGhost
-              kind={layoutPreview.kind}
-              label={layoutPreview.label}
-              valid={layoutPreview.valid}
-            />
+            <PanelLayoutGhost label={layoutPreview.label} />
           </div>
           {layoutPreview.valid && layoutPreview.secondary && (
             <div
@@ -959,11 +948,7 @@ export function PanelWorkspace({
               style={panelRectForGridRect(layoutPreview.secondary.gridRect, viewportSize, layoutMetrics)}
               aria-hidden="true"
             >
-              <PanelLayoutGhost
-                kind={layoutPreview.secondary.kind}
-                label={layoutPreview.secondary.label}
-                valid
-              />
+              <PanelLayoutGhost label={layoutPreview.secondary.label} />
             </div>
           )}
         </>
@@ -1124,59 +1109,12 @@ function panelGridRectsEqual(left: PanelGridRect, right: PanelGridRect): boolean
     left.rowSpan === right.rowSpan;
 }
 
-function PanelLayoutGhost({
-  kind,
-  label,
-  valid
-}: {
-  kind?: PanelContentKind;
-  label: string;
-  valid: boolean;
-}) {
-  const variant = panelGhostVariant(kind);
+function PanelLayoutGhost({ label }: { label: string }) {
   return (
-    <div className={`panel-layout-ghost variant-${variant}`}>
-      <div className="panel-layout-ghost-header">
-        {!valid && <X size={14} aria-hidden="true" />}
-        <strong>{label}</strong>
-      </div>
-      {variant === "chart" || variant === "compare" ? (
-        <svg className="panel-layout-ghost-chart" viewBox="0 0 120 54" preserveAspectRatio="none" aria-hidden="true">
-          <path className="ghost-grid-line" d="M0 14H120M0 28H120M0 42H120" />
-          <polyline className="ghost-series primary" points="0,42 18,35 34,38 50,21 68,27 84,14 102,20 120,8" />
-          {variant === "compare" && (
-            <polyline className="ghost-series secondary" points="0,30 18,24 34,28 50,32 68,18 84,23 102,12 120,17" />
-          )}
-        </svg>
-      ) : variant === "news" ? (
-        <div className="panel-layout-ghost-news" aria-hidden="true">
-          {[0, 1, 2].map((item) => (
-            <div key={item} className="panel-layout-ghost-news-row">
-              <i />
-              <div><b /><b /></div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="panel-layout-ghost-cards" aria-hidden="true">
-          <i /><i /><i /><i />
-        </div>
-      )}
+    <div className="panel-layout-ghost">
+      <strong>{label}</strong>
     </div>
   );
-}
-
-function panelGhostVariant(kind?: PanelContentKind): "chart" | "compare" | "news" | "cards" {
-  if (kind === "chart" || kind === "orderFlow") {
-    return "chart";
-  }
-  if (kind === "compare") {
-    return "compare";
-  }
-  if (kind === "news" || kind === "newsList" || kind === "watchlistNews") {
-    return "news";
-  }
-  return "cards";
 }
 
 function addPanelAtPreview(
