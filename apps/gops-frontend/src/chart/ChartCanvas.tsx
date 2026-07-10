@@ -11,6 +11,7 @@ import { autoPriceStep, buildLadder, rebinLevels, sessionDateFromTimestamp, visi
 import { chartColumnTier, drawEstimatedBadge, drawOrderFlowChartColumn } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
+import { CANVAS_FONT_FAMILY, nearestTypeSize, TYPE_SIZE } from "../theme/typography";
 
 type ChartCanvasProps = {
   chart: ChartState;
@@ -32,7 +33,7 @@ type ChartCanvasProps = {
 };
 
 let colors: ThemeColors;
-const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 const bollingerFillAlpha = 0.1;
 const volumeProfileAlpha = {
@@ -265,7 +266,7 @@ function drawComparisons(context: CanvasRenderingContext2D, scene: ChartScene) {
       const y = Math.max(scene.plot.top + 12, Math.min(scene.plot.priceBottom - 5, comparisonPercentToY(scene, lastPoint.percent, percentRange) - 7));
       context.globalAlpha = 0.98;
       context.fillStyle = text;
-      context.font = "700 11px Inter, system-ui, sans-serif";
+      context.font = `700 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
       context.textAlign = "right";
       context.textBaseline = "middle";
       const label = `${item.comparison.label ?? item.comparison.symbol} ${lastPoint.percent >= 0 ? "+" : ""}${lastPoint.percent.toFixed(2)}%`;
@@ -840,7 +841,7 @@ function drawOrderFlowState(context: CanvasRenderingContext2D, scene: ChartScene
   drawCandles(context, scene);
   context.globalAlpha = 0.88;
   context.fillStyle = colors.muted;
-  context.font = `700 11px ${canvasFontFamily}`;
+  context.font = `700 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(message, (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 30, Math.max(120, scene.plot.right - scene.plot.left - 18));
@@ -1078,7 +1079,7 @@ function drawVolumeProfile(context: CanvasRenderingContext2D, scene: ChartScene)
   }
   context.globalAlpha = volumeProfileAlpha.label;
   context.fillStyle = colors.muted;
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   context.textAlign = "left";
   context.textBaseline = "top";
   context.fillText(profile.sideClassification === "estimated" ? "Estimated VP" : "VP", profileLeft, scene.plot.top + 6);
@@ -1210,7 +1211,7 @@ function drawPaneGuide(
 
 function drawPaneLabel(context: CanvasRenderingContext2D, pane: ChartScene["plot"]["belowPanes"][number], label: string) {
   context.save();
-  context.font = "700 9px var(--font-data-sans)";
+  context.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   context.fillStyle = colors.axis;
   context.textAlign = "right";
   context.textBaseline = "top";
@@ -1457,7 +1458,7 @@ function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | und
   }
   const style = drawing.style ?? {};
   context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
-  context.font = `${style.fontSize ?? 11}px Inter, system-ui, sans-serif`;
+  context.font = `${nearestTypeSize(style.fontSize ?? TYPE_SIZE.compact)}px ${canvasFontFamily}`;
   context.textAlign = "left";
   context.textBaseline = "middle";
   context.fillText(label, x, y);
@@ -1581,7 +1582,7 @@ function drawDarkAxisPill(
   align: "center" | "left" | "right"
 ) {
   context.save();
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   const metrics = context.measureText(text);
   const width = metrics.width + 10;
   const height = 17;
@@ -1692,10 +1693,10 @@ function drawAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
     context.textAlign = "center";
     if (tick.isDivider) {
       context.fillStyle = colors.text;
-      context.font = "bold 10px Inter, system-ui, sans-serif";
+      context.font = `bold ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
     } else {
       context.fillStyle = tick.parentExpansionId ? colors.axis : colors.muted;
-      context.font = "10px Inter, system-ui, sans-serif";
+      context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
     }
     context.fillText(tick.label, x, y);
     context.restore();
@@ -1922,7 +1923,7 @@ function timeAxisY(scene: ChartScene): number {
 
 function drawPriceAxis(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.save();
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   context.fillStyle = colors.muted;
   context.textAlign = "right";
   context.textBaseline = "middle";
@@ -1938,7 +1939,7 @@ function drawVolumeAxisLabels(context: CanvasRenderingContext2D, scene: ChartSce
     return;
   }
   context.save();
-  context.font = "9px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   context.fillStyle = colors.axis;
   context.textAlign = "right";
   context.textBaseline = "middle";
@@ -2068,7 +2069,7 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
 
 function drawDigDarkTag(context: CanvasRenderingContext2D, text: string, cx: number, cy: number) {
   context.save();
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   const metrics = context.measureText(text);
   const width = metrics.width + 10;
   const height = 17;
@@ -2177,7 +2178,7 @@ function drawAxisPill(
   align: "center" | "left" | "right",
   variant: "default" | "currentPrice" = "default"
 ) {
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   const metrics = context.measureText(text);
   const width = metrics.width + 10;
   const height = 17;
@@ -2197,7 +2198,7 @@ function drawAxisPill(
 
 function drawEmpty(context: CanvasRenderingContext2D, width: number, height: number, message: string) {
   context.fillStyle = colors.text;
-  context.font = "12px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.compact}px ${canvasFontFamily}`;
   context.textAlign = "center";
   context.fillText(message, width / 2, height / 2);
   context.textAlign = "start";
@@ -2300,7 +2301,7 @@ function drawExpansionParentSummaries(context: CanvasRenderingContext2D, scene: 
     line(context, candleCenter, bodyBottom, candleCenter, low);
     context.fillRect(bodyLeft, bodyTop, candleWidth, bodyHeight);
     context.fillStyle = colors.text;
-    context.font = "10px Inter, system-ui, sans-serif";
+    context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
     context.textAlign = "left";
     context.textBaseline = "middle";
     const textLeft = candleCenter + 12;
@@ -2370,7 +2371,7 @@ function drawSemanticPlaceholder(context: CanvasRenderingContext2D, scene: Chart
   const y = scene.plot.top + (scene.plot.priceBottom - scene.plot.top) / 2;
   context.save();
   context.fillStyle = colors.muted;
-  context.font = "10px Inter, system-ui, sans-serif";
+  context.font = `${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(unit.message, x, y, Math.max(24, visibleWidth - 8));

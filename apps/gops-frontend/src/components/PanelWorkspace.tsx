@@ -87,6 +87,7 @@ type PanelWorkspaceProps = {
   semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
+  onAgentAsk: () => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSyncPageSymbolFromChart: (contentId: string) => void;
@@ -159,6 +160,7 @@ export function PanelWorkspace({
   semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
+  onAgentAsk,
   onChartRuntimeAction,
   onChartHandleChange,
   onSyncPageSymbolFromChart,
@@ -720,6 +722,7 @@ export function PanelWorkspace({
               semanticSelection={semanticSelection}
               setSemanticSelection={setSemanticSelection}
               onAgentReferenceSelect={onAgentReferenceSelect}
+              onAgentAsk={onAgentAsk}
               onChartRuntimeAction={onChartRuntimeAction}
               onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
               onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}

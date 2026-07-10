@@ -320,6 +320,7 @@ export function App() {
   const [pendingPlacementPick, setPendingPlacementPick] = useState<PendingPlacementPick | null>(null);
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
+  const [agentComposerRequest, setAgentComposerRequest] = useState(0);
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
@@ -775,18 +776,15 @@ export function App() {
     });
   }, []);
 
+  const handleAgentAsk = useCallback(() => {
+    setAgentComposerRequest((current) => current + 1);
+  }, []);
+
   // The chart owns its candle-highlight state internally, so clearing the App-level
   // selection is not enough — tell every chart panel to drop its selected candle too.
   const clearChartSemanticSelections = useCallback(() => {
     chartPanelHandlesRef.current.forEach((handle) => handle.clearSemanticSelection());
   }, []);
-
-  const clearAgentReferences = useCallback(() => {
-    setAgentReferences([]);
-    setSemanticSelection(null);
-    setEmphasizedReferenceKeys([]);
-    clearChartSemanticSelections();
-  }, [clearChartSemanticSelections]);
 
   const removeAgentReference = useCallback((key: string) => {
     if (key === SEMANTIC_SELECTION_REFERENCE_KEY) {
@@ -1259,6 +1257,7 @@ export function App() {
             semanticSelection={semanticSelection}
             setSemanticSelection={setSemanticSelection}
             onAgentReferenceSelect={handleAgentReferenceSelect}
+            onAgentAsk={handleAgentAsk}
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSyncPageSymbolFromChart={syncPageSymbolFromChart}
@@ -1278,6 +1277,7 @@ export function App() {
       <BottomCommandBar
         agentBusy={agentBusy}
         agentInput={agentInput}
+        agentComposerRequest={agentComposerRequest}
         chatLog={chatLog}
         authEnabled={authEnabled}
         authLoading={authLoading}
@@ -1295,7 +1295,6 @@ export function App() {
         ) : null}
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
-        onAgentReferencesClear={clearAgentReferences}
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}

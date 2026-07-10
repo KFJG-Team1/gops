@@ -35,6 +35,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   news: "newsFeed",
   newsList: "newsFeed",
   watchlistNews: "newsFeed",
+  watchlistNewsList: "newsFeed",
   ontology: "ontologyGraph",
   portfolio: "portfolioHoldings",
   portfolioInvestment: "portfolioInvestment",

@@ -1,11 +1,11 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchMarketIndices } from "../market/indicesApi";
 import { sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
-import { useVerticalOverflow } from "../hooks/useVerticalOverflow";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 const popularStockLimit = 10;
+const rankingSpotlightIntervalMs = 3_600;
 const krwPerWonUnit = 100_000_000;
 const krwPerTrillionWonUnit = 1_000_000_000_000;
 
@@ -16,6 +16,10 @@ type PopularStocksPanelProps = {
 
 export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanelProps) {
   const [krwRate, setKrwRate] = useState<number | null>(null);
+  const [spotlightIndex, setSpotlightIndex] = useState(0);
+  const [interactionSymbol, setInteractionSymbol] = useState<string | null>(null);
+  const [isCompact, setIsCompact] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -35,67 +39,109 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
 
   const popularItems = useMemo(() => rankPopularItems(items), [items]);
 
+  useEffect(() => {
+    setSpotlightIndex((current) => (popularItems.length > 0 ? current % popularItems.length : 0));
+    if (popularItems.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(() => {
+      setSpotlightIndex((current) => (current + 1) % popularItems.length);
+    }, rankingSpotlightIntervalMs);
+    return () => window.clearInterval(intervalId);
+  }, [popularItems.length]);
+
+  useEffect(() => {
+    if (interactionSymbol && !popularItems.some((item) => item.symbol === interactionSymbol)) {
+      setInteractionSymbol(null);
+    }
+  }, [interactionSymbol, popularItems]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) {
+      return undefined;
+    }
+    const updateMode = () => {
+      setIsCompact(panel.clientHeight <= 360);
+    };
+    updateMode();
+    const observer = new ResizeObserver(updateMode);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+
+  const spotlightSymbol = interactionSymbol ?? popularItems[spotlightIndex]?.symbol ?? null;
+  const spotlightItemIndex = Math.max(
+    0,
+    popularItems.findIndex((item) => item.symbol === spotlightSymbol)
+  );
+
   const selectSymbol = (symbol: string) => {
     onSelectSymbol(symbol);
   };
 
-  const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, symbol: string) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    selectSymbol(symbol);
-  };
-
-  const tableWrapRef = useRef<HTMLDivElement>(null);
-  const scrolls = useVerticalOverflow(tableWrapRef);
-
   return (
-    <section className={`popular-stocks-panel ${scrolls ? "has-scroll-rule" : ""}`} aria-label="인기종목 패널">
+    <section
+      className={`popular-stocks-panel has-ranking-focus ${isCompact ? "is-compact" : ""}`}
+      ref={panelRef}
+      aria-label="인기종목 패널"
+    >
       {popularItems.length === 0 ? (
         <div className="panel-empty-row">표시할 인기종목 데이터가 없습니다</div>
       ) : (
-        <div className="popular-stocks-table-wrap" ref={tableWrapRef}>
-          <table className="popular-stocks-table">
-            <colgroup>
-              <col className="popular-stock-company-col" />
-              <col className="popular-stock-money-col" />
-              <col className="popular-stock-money-col" />
-              <col className="popular-stock-industry-col" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th scope="col">회사명</th>
-                <th scope="col">거래대금</th>
-                <th scope="col">시가총액</th>
-                <th scope="col">섹터</th>
-              </tr>
-            </thead>
-            <tbody>
-              {popularItems.map((item) => (
-                <tr
-                  key={item.symbol}
-                  className="popular-stock-row"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${item.symbol} ${item.companyName} 열기`}
-                  onClick={() => selectSymbol(item.symbol)}
-                  onKeyDown={(event) => handleRowKeyDown(event, item.symbol)}
-                >
-                  <td className="popular-stock-company">
-                    <StockLogo symbol={item.symbol} companyName={item.companyName} size="xs" />
-                    <span className="popular-stock-company-text">
-                      <strong>{item.symbol}</strong>
-                      <span>{item.companyName}</span>
-                    </span>
-                  </td>
-                  <td className="popular-stock-money">{formatKrwAmount(item.sessionDollarVolume, krwRate)}</td>
-                  <td className="popular-stock-money">{formatKrwAmount(item.marketCap, krwRate)}</td>
-                  <td className="popular-stock-industry">{formatSectorLabel(item)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div
+          className="popular-stocks-ranking-list"
+          role="group"
+          aria-label="거래대금 상위 10개 기업"
+          style={{ gridTemplateRows: `repeat(${popularItems.length}, minmax(0, 1fr))` }}
+        >
+          {popularItems.map((item, index) => {
+            const rank = index + 1;
+            const isFocused = item.symbol === spotlightSymbol;
+            const previousIndex = (spotlightItemIndex - 1 + popularItems.length) % popularItems.length;
+            const nextIndex = (spotlightItemIndex + 1) % popularItems.length;
+            let positionClass = index < spotlightItemIndex ? "is-before" : "is-after";
+            if (isFocused) {
+              positionClass = "is-focused";
+            } else if (index === previousIndex) {
+              positionClass = "is-previous";
+            } else if (index === nextIndex) {
+              positionClass = "is-next";
+            }
+            return (
+              <button
+                key={item.symbol}
+                className={`popular-stock-row ${isFocused ? "is-focused" : "is-muted"} ${positionClass}`}
+                type="button"
+                aria-label={`${rank}위 ${item.symbol} ${item.companyName} 열기`}
+                onClick={() => selectSymbol(item.symbol)}
+                onPointerEnter={() => setInteractionSymbol(item.symbol)}
+                onPointerLeave={(event) => {
+                  if (!event.currentTarget.matches(":focus")) {
+                    setInteractionSymbol(null);
+                  }
+                }}
+                onFocus={() => setInteractionSymbol(item.symbol)}
+                onBlur={() => setInteractionSymbol(null)}
+              >
+                <span className="popular-stock-rank">{String(rank).padStart(2, "0")}</span>
+                <span className="popular-stock-company">
+                  <StockLogo symbol={item.symbol} companyName={item.companyName} size="xs" />
+                  <span className="popular-stock-company-text">
+                    <strong>{item.symbol}</strong>
+                    <span>{item.companyName}</span>
+                  </span>
+                </span>
+                <span className="popular-stock-money popular-stock-volume" data-label="거래대금">
+                  {formatKrwAmount(item.sessionDollarVolume, krwRate)}
+                </span>
+                <span className="popular-stock-money popular-stock-market-cap" data-label="시가총액">
+                  {formatKrwAmount(item.marketCap, krwRate)}
+                </span>
+                <span className="popular-stock-industry">{formatSectorLabel(item)}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       <LogoDevAttribution className="panel-logo-attribution" />

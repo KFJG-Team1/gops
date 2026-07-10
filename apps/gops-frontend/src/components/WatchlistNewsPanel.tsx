@@ -1,4 +1,5 @@
-import { LoaderCircle, RefreshCcw, X } from "lucide-react";
+import { ExternalLink, LoaderCircle, RefreshCcw, X } from "lucide-react";
+import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   agentReferenceKey,
@@ -51,13 +52,15 @@ type WatchlistNewsPanelProps = {
   selectedAgentReferenceKeys?: string[];
   emphasizedAgentReferenceKeys?: string[];
   onAgentReferenceSelect?: (reference: AgentReference) => void;
+  variant?: "flip" | "list";
 };
 
 export function WatchlistNewsPanel({
   sourcePanelId,
   selectedAgentReferenceKeys = [],
   emphasizedAgentReferenceKeys = [],
-  onAgentReferenceSelect
+  onAgentReferenceSelect,
+  variant = "flip"
 }: WatchlistNewsPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const localDemoEnabled = isLocalWatchlistNewsDemoHost();
@@ -220,6 +223,13 @@ export function WatchlistNewsPanel({
   const selectReference = useCallback((reference: AgentReference) => {
     onAgentReferenceSelect?.(reference);
   }, [onAgentReferenceSelect]);
+  const handleReferenceKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, reference: AgentReference) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    selectReference(reference);
+  }, [selectReference]);
   const payload = payloadsByMode[mode];
   const items = selectedCompany ? companyPayload?.items ?? [] : payload?.items ?? [];
   const symbols = payload?.symbols ?? [];
@@ -269,7 +279,7 @@ export function WatchlistNewsPanel({
   }), [emphasizedAgentReferenceKeys, items, selectedAgentReferenceKeys, selectedCompany?.symbol, sourcePanelId]);
 
   return (
-    <section className="market-news-panel watchlist-news-panel" aria-label="관심종목 뉴스 패널">
+    <section className={`market-news-panel watchlist-news-panel is-${variant}-view`} aria-label={`관심종목 뉴스 ${variant === "list" ? "목록" : "카드"} 패널`}>
       <button
         className="panel-reload-overlay panel-icon-button"
         type="button"
@@ -355,12 +365,70 @@ export function WatchlistNewsPanel({
       {!loginRequired && !activeLoading && !panelAuthLoading && !activeError && items.length === 0 && (
         <div className="panel-empty-row">{activeEmptyMessage}</div>
       )}
-      {!loginRequired && !activeLoading && !panelAuthLoading && !activeError && items.length > 0 && (
+      {!loginRequired && !activeLoading && !panelAuthLoading && !activeError && variant === "flip" && items.length > 0 && (
         <NewsFlipCard
           items={flipItems}
           ariaLabel={`${activeModeLabel} 뉴스 카드`}
           onSelect={selectReference}
         />
+      )}
+      {!loginRequired && !activeLoading && !panelAuthLoading && !activeError && variant === "list" && items.length > 0 && (
+        <div className="market-news-list">
+          {items.map((item, index) => {
+            const reference = newsArticleReference(item, sourcePanelId);
+            const referenceKey = agentReferenceKey(reference);
+            const selected = selectedAgentReferenceKeys.includes(referenceKey);
+            const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
+            const rowMatches = selectedCompany ? [selectedCompany] : item.matches;
+            return (
+              <article
+                key={`${item.articleId ?? item.url ?? item.title}-${index}`}
+                className={`market-news-row watchlist-news-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selected}
+                onClick={() => selectReference(reference)}
+                onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
+              >
+                <div className="market-news-main">
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                      <span className="market-news-text-highlight">{item.title}</span>
+                      <ExternalLink size={12} aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <strong><span className="market-news-text-highlight">{item.title}</span></strong>
+                  )}
+                  {item.summary && <p><span>{item.summary}</span></p>}
+                </div>
+                {rowMatches.length > 0 && (
+                  <div className="watchlist-news-badges" aria-label="관련 종목">
+                    {rowMatches.map((match) => (
+                      <button
+                        key={match.symbol}
+                        type="button"
+                        className="watchlist-news-badge"
+                        title={companyTitle(match)}
+                        aria-label={`${companyTitle(match)} 뉴스 보기`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleCompanySelect(match);
+                        }}
+                      >
+                        <StockLogo symbol={match.symbol} companyName={match.companyName} size="xs" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="market-news-meta">
+                  <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+                  <span>{item.source ?? "news"}</span>
+                  {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
       <LogoDevAttribution className="panel-logo-attribution" />
     </section>
@@ -650,6 +718,34 @@ const localDemoItemsByMode: Record<WatchlistNewsMode, WatchlistNewsItem[]> = {
     )
   ]
 };
+
+function impactDirectionText(value: string | null | undefined) {
+  switch (value) {
+    case "positive":
+      return "긍정";
+    case "negative":
+      return "부정";
+    case "mixed":
+      return "혼재";
+    case "neutral":
+      return "중립";
+    default:
+      return "영향 미정";
+  }
+}
+
+function relativeTimeText(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value.slice(0, 10);
+  }
+  const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (diffMinutes < 60) {
+    return `${diffMinutes}분 전`;
+  }
+  const diffHours = Math.round(diffMinutes / 60);
+  return diffHours < 24 ? `${diffHours}시간 전` : `${Math.round(diffHours / 24)}일 전`;
+}
 
 function readObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;

@@ -57,6 +57,7 @@ type PanelContentRendererProps = {
   semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
+  onAgentAsk: () => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHoverChange: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
@@ -96,6 +97,7 @@ export function PanelContentRenderer({
   semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
+  onAgentAsk,
   onChartRuntimeAction,
   onChartHoverChange,
   onHeaderChange,
@@ -148,6 +150,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
         variant="flip"
       />
     );
@@ -162,6 +165,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
         variant="list"
       />
     );
@@ -174,6 +178,21 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
+        variant="flip"
+      />
+    );
+  }
+
+  if (content.kind === "watchlistNewsList") {
+    return (
+      <WatchlistNewsPanel
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
+        variant="list"
       />
     );
   }
@@ -384,6 +403,7 @@ export function PanelContentRenderer({
           onChartDrawingToggle={onChartDrawingToggle}
           onChartAddToggle={onChartAddToggle}
           onSemanticSelectionChange={setSemanticSelection}
+          onAgentAsk={onAgentAsk}
           emphasizeSelection={emphasizeChartSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}

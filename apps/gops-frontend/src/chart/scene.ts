@@ -30,7 +30,7 @@ function priceAxisWidthForChart(chart: ChartState): number {
   // Inflate slightly so a top tick that rounds up to an extra digit (e.g. 995 -> 1,000)
   // still fits without overlapping the plot.
   const label = Math.round(maxPrice * 1.06).toLocaleString("en-US");
-  // ~5.9px per glyph at 10px Inter + 8px right margin + 5px breathing gap.
+  // ~5.9px per glyph at the 10px micro type token + 8px right margin + 5px breathing gap.
   const estimated = 8 + label.length * 5.9 + 5;
   return Math.round(Math.min(64, Math.max(32, estimated)));
 }

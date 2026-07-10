@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
+import { nearestTypeSize, TYPE_SIZE } from "../theme/typography";
 import type { OntologyGraphData } from "./ontologyTypes";
 
 /**
@@ -659,7 +660,13 @@ function createGraphController(
       .select<SVGTextElement>("text.ofg-ticker")
       .attr("y", (d) => (d.kind === "chip" ? -2 : d.kind === "company" ? 0 : 0))
       .attr("dy", (d) => (d.kind === "stock" ? "-0.15em" : d.kind === "company" ? "0.35em" : 0))
-      .style("font-size", (d) => (d.kind === "stock" ? Math.max(10, d.r * 0.45) + "px" : d.kind === "company" ? "8px" : null))
+      .style("font-size", (d) => (
+        d.kind === "stock"
+          ? `${nearestTypeSize(d.r * 0.45, TYPE_SIZE.body)}px`
+          : d.kind === "company"
+            ? `${TYPE_SIZE.micro}px`
+            : null
+      ))
       .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null))
       .style("font-weight", (d) => (d.kind === "company" ? "800" : null))
       .text((d) => (d.kind === "company" ? "자회사" : d.label.length > 11 ? d.label.slice(0, 10) + "…" : d.label));
@@ -675,7 +682,7 @@ function createGraphController(
       .select<SVGTextElement>("text.ofg-count")
       .attr("y", (d) => (d.kind === "company" ? d.r + 14 : 12))
       .attr("text-anchor", "middle")
-      .style("font-size", (d) => (d.kind === "company" ? "8px" : null))
+      .style("font-size", (d) => (d.kind === "company" ? `${TYPE_SIZE.micro}px` : null))
       .style("font-weight", (d) => (d.kind === "company" ? "700" : null))
       .style("fill", (d) => (d.kind === "company" ? SUBSIDIARY_TEXT : null))
       .each(function renderCountOrCompanyName(d) {
