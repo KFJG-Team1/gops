@@ -131,7 +131,8 @@ export function ChartComparisonPanel({
   }
 
   return (
-    <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
+    <div className="chart-compare-container">
+      <div className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""}`} aria-label="비교 차트">
       <aside className="chart-compare-sidebar" aria-label="비교 종목 관리">
         <div className="chart-compare-sidebar-top">
           <span className="chart-compare-brand">GOPS</span>
@@ -296,7 +297,8 @@ export function ChartComparisonPanel({
             ))}
           </div>
         )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

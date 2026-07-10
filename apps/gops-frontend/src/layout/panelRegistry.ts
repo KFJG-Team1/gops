@@ -29,18 +29,34 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "news",
-    title: "뉴스",
+    title: "뉴스 카드",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 1 },
     defaultLayoutWeight: 50
   },
   {
+    kind: "newsList",
+    title: "뉴스 목록",
+    agentPanelType: "newsFeed",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 50
+  },
+  {
     kind: "watchlistNews",
-    title: "관심종목 뉴스",
+    title: "관심종목 뉴스 카드",
     agentPanelType: "newsFeed",
     minSpan: { colSpan: 1, rowSpan: 1 },
     defaultSpan: { colSpan: 2, rowSpan: 1 },
+    defaultLayoutWeight: 50
+  },
+  {
+    kind: "watchlistNewsList",
+    title: "관심종목 뉴스 목록",
+    agentPanelType: "newsFeed",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {

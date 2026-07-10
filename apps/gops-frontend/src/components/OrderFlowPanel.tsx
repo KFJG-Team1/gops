@@ -30,6 +30,7 @@ import { drawOrderFlowPanelLadder } from "../chart/orderFlowRender";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import { readThemeColors } from "../theme/colors";
 import type { ThemeColors } from "../theme/colors";
+import { CANVAS_FONT_FAMILY, TYPE_SIZE } from "../theme/typography";
 import { SymbolSearch } from "./SymbolSearch";
 
 type OrderFlowPanelProps = {
@@ -53,7 +54,7 @@ const defaultWindow: OrderFlowWindow = "10m";
 const defaultResolution: OrderFlowResolutionSelection = "auto";
 const preferredDefaultSymbol = "NVDA";
 const wheelNotchThreshold = 90;
-const canvasFontFamily = "'Coinbase Sans', Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 export function OrderFlowPanel({
   panelId,
@@ -429,7 +430,7 @@ export function OrderFlowPanel({
       context.clearRect(0, 0, rect.width, rect.height);
       if (!state.ladder) {
         context.fillStyle = theme.muted;
-        context.font = `700 ${rect.width < 150 ? 10 : 12}px ${canvasFontFamily}`;
+        context.font = `700 ${rect.width < 150 ? TYPE_SIZE.micro : TYPE_SIZE.compact}px ${canvasFontFamily}`;
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText(emptyPanelMessage(state.loading, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
@@ -643,7 +644,7 @@ function drawWheelFeedback(
   }
   const label = `${formatPriceStep(state.effectiveStep)} · ${state.targetRows} rows`;
   context.save();
-  context.font = `800 11px ${canvasFontFamily}`;
+  context.font = `800 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
   const availableWidth = Math.max(48, width - 16);
   const pillWidth = Math.min(availableWidth, Math.max(76, context.measureText(label).width + 18));
   const pillHeight = 24;
@@ -671,7 +672,7 @@ function drawCaptionPill(
   small: boolean
 ): void {
   context.save();
-  context.font = `800 ${small ? 9 : 10}px ${canvasFontFamily}`;
+  context.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
   const width = Math.ceil(context.measureText(label).width) + (small ? 10 : 12);
   const height = small ? 16 : 18;
   context.globalAlpha = 0.7;

@@ -4,6 +4,20 @@ import type { CandleData, DrawingEntity, RenderScene } from "./types";
 import { resolveChartStyleColor } from "./theme";
 
 const chartCandleRadius = 3;
+const canvasFontFamily = '"Asta Sans", Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const canvasTypeSize = {
+  micro: 10,
+  compact: 12,
+  body: 14,
+  title: 18,
+  display: 32
+} as const;
+
+function nearestCanvasTypeSize(value: number): number {
+  return Object.values(canvasTypeSize).reduce((nearest, size) => (
+    Math.abs(size - value) <= Math.abs(nearest - value) ? size : nearest
+  ), canvasTypeSize.micro);
+}
 
 export function drawChartScene(
   canvas: HTMLCanvasElement,
@@ -48,7 +62,7 @@ export function drawChartScene(
 
 function drawState(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   ctx.fillStyle = scene.document.style.text;
-  ctx.font = "12px Inter, system-ui, sans-serif";
+  ctx.font = `${canvasTypeSize.compact}px ${canvasFontFamily}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const lines = wrapCanvasText(ctx, scene.message ?? scene.state, Math.max(120, scene.width - 72));
@@ -205,7 +219,7 @@ function drawComparisons(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const last = series.points[series.points.length - 1];
     if (last) {
       ctx.fillStyle = resolveDrawingColor(scene, series.comparison.style, "textToken", "textColor", defaultToken);
-      ctx.font = "11px Inter, system-ui, sans-serif";
+      ctx.font = `${canvasTypeSize.compact}px ${canvasFontFamily}`;
       ctx.textAlign = "right";
       ctx.fillText(`${series.comparison.label ?? series.comparison.symbol} ${last.percent >= 0 ? "+" : ""}${last.percent.toFixed(2)}%`, scene.plot.right, last.y - 8);
     }
@@ -233,7 +247,7 @@ function drawPreviewComparisons(ctx: CanvasRenderingContext2D, scene: RenderScen
   }
   ctx.save();
   ctx.fillStyle = colorWithAlpha(scene.document.style.text, 0.74);
-  ctx.font = "11px Inter, system-ui, sans-serif";
+  ctx.font = `${canvasTypeSize.compact}px ${canvasFontFamily}`;
   ctx.textAlign = "left";
   previewComparisons.forEach((comparison, index) => {
     ctx.fillText(`비교 미리보기: ${comparison.label ?? comparison.symbol}`, scene.plot.left, scene.plot.top + 16 + index * 15);
@@ -301,7 +315,7 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, scene: RenderScene, lab
   }
   const style = drawing.style ?? {};
   ctx.fillStyle = resolveDrawingColor(scene, style, "textToken", "textColor", "drawing");
-  ctx.font = `${style.fontSize ?? 12}px Inter, system-ui, sans-serif`;
+  ctx.font = `${nearestCanvasTypeSize(style.fontSize ?? canvasTypeSize.compact)}px ${canvasFontFamily}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(label, x, y);
@@ -345,7 +359,7 @@ function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   const { top, priceBottom, bottom } = scene.plot;
   const priceLabelX = scene.width - 6;
   ctx.fillStyle = scene.document.style.text;
-  ctx.font = "11px Inter, system-ui, sans-serif";
+  ctx.font = `${canvasTypeSize.micro}px ${canvasFontFamily}`;
   ctx.textBaseline = "middle";
 
   ctx.textAlign = "right";
@@ -380,7 +394,7 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, scene: RenderScene) {
   const candle = crosshair.candle;
   const isUp = candle.close >= candle.open;
   const text = `${formatTime(candle, scene.document.timeframe)} O ${candle.open.toFixed(2)} H ${candle.high.toFixed(2)} L ${candle.low.toFixed(2)} C ${candle.close.toFixed(2)}`;
-  ctx.font = "11px Inter, system-ui, sans-serif";
+  ctx.font = `${canvasTypeSize.micro}px ${canvasFontFamily}`;
   const textWidth = Math.min(scene.plot.right - scene.plot.left - 12, ctx.measureText(text).width + 12);
   const boxX = Math.min(scene.plot.right - textWidth, Math.max(scene.plot.left, crosshair.x + 8));
   const boxY = scene.plot.top + 8;

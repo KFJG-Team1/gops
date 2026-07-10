@@ -12,6 +12,7 @@ import {
   type TreeMapOpacityScale
 } from "./treemapColors";
 import { readThemeColors, type ThemeColors } from "../theme/colors";
+import { CANVAS_FONT_FAMILY, nearestTypeSize, TYPE_SIZE } from "../theme/typography";
 
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
@@ -210,8 +211,8 @@ function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme:
   if (tile.width < 92 || tile.height < 34) {
     return;
   }
-  const nameFont = `500 14px ${theme.serif}`;
-  const changeFont = `500 12px ${theme.serif}`;
+  const nameFont = `500 ${TYPE_SIZE.body}px ${theme.serif}`;
+  const changeFont = `500 ${TYPE_SIZE.compact}px ${theme.serif}`;
   const changeText = formatChange(tile.changePercent);
   context.textBaseline = "top";
   context.font = changeFont;
@@ -250,7 +251,7 @@ function drawIndustry(
 
   // Industry name written inside the band when it is tall/wide enough to read.
   if (band.height >= 8 && band.width >= 26) {
-    const fontSize = clamp(band.height - 3, 7, 10);
+    const fontSize = TYPE_SIZE.micro;
     context.font = `500 ${fontSize}px ${theme.serif}`;
     context.fillStyle = tileTextForOpacity(opacity, theme.colors);
     context.textBaseline = "middle";
@@ -667,7 +668,7 @@ function drawSymbol(
   if (rect.width < 38 || rect.height < 27 || labelSpace < 24) {
     return;
   }
-  const symbolSize = clamp(Math.min(rect.width / 5.8, rect.height / 3.4), 11, 25);
+  const symbolSize = nearestTypeSize(Math.min(rect.width / 5.8, rect.height / 3.4), TYPE_SIZE.title);
   const textColor = hovered ? theme.colors.background : tileTextForOpacity(tileOpacity, theme.colors);
   context.font = `500 ${symbolSize}px ${theme.serif}`;
   context.fillStyle = textColor;
@@ -677,7 +678,7 @@ function drawSymbol(
   if (rect.height < 44) {
     return;
   }
-  context.font = `500 ${Math.max(10, symbolSize * 0.72)}px ${theme.serif}`;
+  context.font = `500 ${nearestTypeSize(symbolSize * 0.72, TYPE_SIZE.body)}px ${theme.serif}`;
   context.fillStyle = hovered ? changeTextColor(tile.changePercent, theme) : textColor;
   fillFittedText(context, formatChange(tile.changePercent), rect.x + 6, rect.y + 8 + symbolSize, labelSpace);
 }
@@ -790,7 +791,7 @@ function readTheme(): TreeMapTheme {
   const root = getComputedStyle(document.documentElement);
   const surfaceRadius = readCssPixelNumber(root, "--surface-radius", 16);
   return {
-    serif: root.getPropertyValue("--font-ui-serif").trim() || "\"Times New Roman\", Times, Georgia, serif",
+    serif: root.getPropertyValue("--font-ui-serif").trim() || CANVAS_FONT_FAMILY,
     colors: readThemeColors(),
     radii: {
       tile: readCssPixelNumber(root, "--heatmap-cell-radius", surfaceRadius),

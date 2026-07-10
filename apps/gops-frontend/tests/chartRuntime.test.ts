@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import "./contextualAgentProps.test";
+import "./uiScale.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -40,6 +42,7 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import { deleteAllAlerts } from "../src/alerts/alertApi";
 import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
@@ -312,6 +315,21 @@ assert.equal(marketOpenToast.title, "본장 시작");
 assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.");
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
+
+const originalAlertApiFetch = globalThis.fetch;
+try {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(String(input), "/api/alerts");
+    assert.equal(init?.method, "DELETE");
+    return new Response(JSON.stringify({ deleted: 3, projectionStatus: "synced" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  assert.equal(await deleteAllAlerts(), 3);
+} finally {
+  globalThis.fetch = originalAlertApiFetch;
+}
 assert.equal(readMarketOpenReminderEnabled(undefined), true);
 assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:30:06.000Z")), true);
 assert.equal(shouldShowMarketOpenReminder("2026-07-07T13:30:00.000Z", Date.parse("2026-07-07T13:41:00.000Z")), false);
@@ -2969,7 +2987,8 @@ assert.match(appSource, /resolveAgentLayoutCommand/);
 assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionMessage/);
 assert.doesNotMatch(appSource, /hasChartCommandTarget/);
-assert.match(appSource, /login\(\)/);
+assert.match(appSource, /onLogin=\{login\}/);
+assert.match(appSource, /onLogout=\{\(\) => void logout\(\)\}/);
 assert.match(appSource, /openSymbolPage/);
 assert.match(appSource, /syncPageSymbolFromChart/);
 assert.doesNotMatch(appSource, /chartCommandTargetContentId/);
@@ -3022,31 +3041,33 @@ assert.doesNotMatch(presetDockSource, /layout-preset-status/);
 assert.doesNotMatch(presetDockSource, /role="status"/);
 assert.doesNotMatch(presetDockSource, /aria-live="polite"/);
 
-assert.match(bottomCommandBarSource, /aria-hidden="true">\/<\/span>/);
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
-assert.match(bottomCommandBarSource, /export type BottomMenuKey = "II" \| "III" \| "IV" \| "V" \| "VI";/);
-assert.match(bottomCommandBarSource, /const leftMenuKeys: BottomMenuKey\[\] = \[\];/);
-assert.match(bottomCommandBarSource, /const sideMenuKeys: BottomMenuKey\[\] = \["IV", "II", "III", "V", "VI"\];/);
-assert.match(bottomCommandBarSource, /const sideRailMenuKeys: BottomMenuKey\[\] = sideMenuKeys\.filter\(\(key\) => key !== "IV"\);/);
-assert.match(bottomCommandBarSource, /const rightMenuKeys: BottomMenuKey\[\] = \[\];/);
-assert.match(bottomCommandBarSource, /aria-label="로그인"/);
-assert.match(bottomCommandBarSource, /case "VI":[\s\S]*<SettingsMenu/);
-assert.match(bottomCommandBarSource, /title="로그인\/프로필"/);
+assert.doesNotMatch(bottomCommandBarSource, /BottomMenuKey|leftMenuKeys|sideMenuKeys|rightMenuKeys/);
+assert.match(bottomCommandBarSource, /className="workspace-top-nav"/);
+assert.match(bottomCommandBarSource, /className="workspace-bottom-nav"/);
+assert.match(bottomCommandBarSource, /className="workspace-top-center"[\s\S]*\{topDock\}/);
+assert.match(bottomCommandBarSource, /className="workspace-top-login"/);
+assert.match(bottomCommandBarSource, /onClick=\{authUser \? onLogout : onLogin\}/);
+assert.match(bottomCommandBarSource, /topLoginLabel\(authEnabled, authLoading, authUser\)/);
 assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
-assert.match(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel/);
-assert.match(bottomCommandBarSource, /PortfolioInvestmentStatusPanel/);
-assert.match(bottomCommandBarSource, /알림설정/);
+assert.doesNotMatch(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel|PortfolioInvestmentStatusPanel|SettingsMenu/);
 assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
 assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
 assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
-assert.match(bottomCommandBarSource, /bottom-menu-panel, \.bottom-nav-actions, \.bottom-chat-panel, \.agent-dock, \.index-side-rail, \.symbol-search-menu/);
-assert.match(bottomCommandBarSource, /onOpenNotificationSymbol=\{\(symbol\) => \{/);
+assert.match(bottomCommandBarSource, /\.bottom-chat-panel, \.agent-dock, \.symbol-search-menu, \.workspace-top-nav/);
+assert.match(bottomCommandBarSource, /onOpenChart=\{openAlertToastChart\}/);
+assert.match(bottomCommandBarSource, /onSelectSymbol\(symbol\)/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
 assert.match(alertMenuSource, /본장 시작 알림/);
+assert.match(alertMenuSource, /deleteAllAlerts/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제 확인/);
+assert.match(alertMenuSource, /등록된 알림 전체 삭제 취소/);
+assert.doesNotMatch(alertMenuSource, /window\.confirm/);
 assert.match(alertMenuSource, /is-form-only/);
 assert.match(alertMenuSource, /notificationChartSymbol/);
 assert.match(alertMenuSource, /onOpenNotificationSymbol\(chartSymbol\)/);
