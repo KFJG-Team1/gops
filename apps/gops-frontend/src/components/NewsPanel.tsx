@@ -1,12 +1,13 @@
 import { ExternalLink, LoaderCircle, RefreshCcw } from "lucide-react";
 import type { KeyboardEvent, SyntheticEvent } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   agentReferenceKey,
   newsArticleReference,
   newsDailySummaryReference,
   type AgentReference
 } from "../agent/agentReferences";
+import { NewsFlipCard, type NewsFlipCardItem } from "./NewsFlipCard";
 
 type NewsItem = {
   symbol: string;
@@ -65,10 +66,11 @@ type NewsPanelProps = {
   selectedAgentReferenceKeys?: string[];
   emphasizedAgentReferenceKeys?: string[];
   onAgentReferenceSelect?: (reference: AgentReference) => void;
+  variant?: "flip" | "list";
 };
 
-export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect }: NewsPanelProps) {
-  const normalizedInitialPayload = normalizeNewsResponse(initialPayload, symbol);
+export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect, variant = "flip" }: NewsPanelProps) {
+  const normalizedInitialPayload = normalizeNewsResponse(initialPayload, symbol) ?? localNewsDemoResponse(symbol);
   const [payload, setPayload] = useState<NewsResponse | null>(normalizedInitialPayload);
   const [loading, setLoading] = useState(!normalizedInitialPayload);
   const [refreshing, setRefreshing] = useState(false);
@@ -104,7 +106,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   }, [symbol]);
 
   useEffect(() => {
-    const nextPayload = normalizeNewsResponse(initialPayload, symbol);
+    const nextPayload = normalizeNewsResponse(initialPayload, symbol) ?? localNewsDemoResponse(symbol);
     if (nextPayload) {
       setPayload(nextPayload);
       setLoading(false);
@@ -129,8 +131,38 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
     event.preventDefault();
     selectReference(reference);
   }, [selectReference]);
+  const flipItems = useMemo<NewsFlipCardItem[]>(() => {
+    if (dailyMode) {
+      return dailySummaries.map((item) => {
+        const reference = newsDailySummaryReference(item, symbol, sourcePanelId);
+        const referenceKey = agentReferenceKey(reference);
+        return {
+          key: `${item.symbol ?? symbol}-${item.date}`,
+          symbol: item.symbol ?? symbol,
+          title: item.sources[0]?.title ?? summaryHeadline(item.summary),
+          url: item.sources[0]?.url,
+          reference,
+          selected: selectedAgentReferenceKeys.includes(referenceKey),
+          emphasized: emphasizedAgentReferenceKeys.includes(referenceKey)
+        };
+      });
+    }
+    return items.map((item, index) => {
+      const reference = newsArticleReference(item, sourcePanelId);
+      const referenceKey = agentReferenceKey(reference);
+      return {
+        key: `${item.url ?? item.title}-${index}`,
+        symbol: item.symbol || symbol,
+        title: item.title,
+        url: item.url,
+        reference,
+        selected: selectedAgentReferenceKeys.includes(referenceKey),
+        emphasized: emphasizedAgentReferenceKeys.includes(referenceKey)
+      };
+    });
+  }, [dailyMode, dailySummaries, emphasizedAgentReferenceKeys, items, selectedAgentReferenceKeys, sourcePanelId, symbol]);
   return (
-    <section className="market-news-panel" aria-label={`${symbol} 뉴스 패널`}>
+    <section className={`market-news-panel is-${variant}-view`} aria-label={`${symbol} ${variant === "list" ? "뉴스 목록" : "뉴스 카드"} 패널`}>
       <button
         className="panel-reload-overlay panel-icon-button"
         type="button"
@@ -150,7 +182,14 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
       {!loading && !error && (dailyMode ? dailySummaries.length === 0 : items.length === 0) && (
         <div className="panel-empty-row">{symbol} 관련 저장 뉴스가 없습니다</div>
       )}
-      {!loading && !error && dailyMode && dailySummaries.length > 0 && (
+      {!loading && !error && variant === "flip" && flipItems.length > 0 && (
+        <NewsFlipCard
+          items={flipItems}
+          ariaLabel={`${symbol} 뉴스 카드`}
+          onSelect={selectReference}
+        />
+      )}
+      {!loading && !error && variant === "list" && dailyMode && dailySummaries.length > 0 && (
         <div className="market-news-list market-news-daily-list">
           {dailySummaries.map((item) => {
             const reference = newsDailySummaryReference(item, symbol, sourcePanelId);
@@ -158,52 +197,55 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
             const selected = selectedAgentReferenceKeys.includes(referenceKey);
             const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
             return (
-            <article
-              key={`${item.symbol ?? symbol}-${item.date}`}
-              className={`market-news-row market-news-daily-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selected}
-              onClick={() => selectReference(reference)}
-              onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
-            >
-              <div className="market-news-date-row">
-                <div className="market-news-date">{formatNewsDate(item.date)}</div>
-                {item.priceChange && (
-                  <span className={`market-news-price-change ${priceChangeClass(item.priceChange.change)}`} title={priceChangeTitle(item.priceChange)}>
-                    {formatPriceChange(item.priceChange.change)}
-                  </span>
-                )}
-              </div>
-              <p className="market-news-summary"><span>{item.summary}</span></p>
-              {item.sources.length > 0 && (
-                <div className="market-news-source-row">
-                  <span>출처</span>
-                  <div className="market-news-source-links" aria-label={`${item.date} 출처`}>
-                    {item.sources.map((source, index) => (
-                      <a
-                        key={`${source.url}-${index}`}
-                        className="market-news-source-icon"
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`${source.name ?? sourceHost(source.url)} · ${source.title}`}
-                        aria-label={`출처: ${source.title}`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <img src={sourceIconUrl(source.url)} alt="" loading="lazy" onError={hideBrokenImage} />
-                        <ExternalLink size={11} aria-hidden="true" />
-                      </a>
-                    ))}
+              <article
+                key={`${item.symbol ?? symbol}-${item.date}`}
+                className={`market-news-row market-news-daily-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selected}
+                onClick={() => selectReference(reference)}
+                onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
+              >
+                <span className="market-news-timeline-dot" aria-hidden="true" />
+                <div className="market-news-daily-content">
+                  <div className="market-news-date-row">
+                    <span className="market-news-date">{formatNewsDate(item.date)}</span>
+                    {item.priceChange && (
+                      <span className={`market-news-price-change ${priceChangeClass(item.priceChange.change)}`} title={priceChangeTitle(item.priceChange)}>
+                        {formatDailyPriceChange(item.priceChange)}
+                      </span>
+                    )}
                   </div>
+                  <p className="market-news-summary"><span>{item.summary}</span></p>
+                  {item.sources.length > 0 && (
+                    <div className="market-news-source-row">
+                      <span>출처</span>
+                      <div className="market-news-source-links" aria-label={`${item.date} 출처`}>
+                        {item.sources.map((source, index) => (
+                          <a
+                            key={`${source.url}-${index}`}
+                            className="market-news-source-icon"
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`${source.name ?? sourceHost(source.url)} · ${source.title}`}
+                            aria-label={`출처: ${source.title}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <img src={sourceIconUrl(source.url)} alt="" loading="lazy" onError={hideBrokenImage} />
+                            <ExternalLink size={11} aria-hidden="true" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </article>
-          );
+              </article>
+            );
           })}
         </div>
       )}
-      {!loading && !error && !dailyMode && items.length > 0 && (
+      {!loading && !error && variant === "list" && !dailyMode && items.length > 0 && (
         <div className="market-news-list">
           {items.map((item, index) => {
             const reference = newsArticleReference(item, sourcePanelId);
@@ -211,33 +253,33 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
             const selected = selectedAgentReferenceKeys.includes(referenceKey);
             const emphasized = emphasizedAgentReferenceKeys.includes(referenceKey);
             return (
-            <article
-              key={`${item.url ?? item.title}-${index}`}
-              className={`market-news-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selected}
-              onClick={() => selectReference(reference)}
-              onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
-            >
-              <div className="market-news-main">
-                {item.url ? (
-                  <a href={item.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                    <span className="market-news-text-highlight">{item.title}</span>
-                    <ExternalLink size={12} aria-hidden="true" />
-                  </a>
-                ) : (
-                  <strong><span className="market-news-text-highlight">{item.title}</span></strong>
-                )}
-                {item.summary && <p><span>{item.summary}</span></p>}
-              </div>
-              <div className="market-news-meta">
-                <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
-                <span>{item.source ?? "news"}</span>
-                {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
-              </div>
-            </article>
-          );
+              <article
+                key={`${item.url ?? item.title}-${index}`}
+                className={`market-news-row ${selected ? "is-agent-reference-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selected}
+                onClick={() => selectReference(reference)}
+                onKeyDown={(event) => handleReferenceKeyDown(event, reference)}
+              >
+                <div className="market-news-main">
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                      <span className="market-news-text-highlight">{item.title}</span>
+                      <ExternalLink size={12} aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <strong><span className="market-news-text-highlight">{item.title}</span></strong>
+                  )}
+                  {item.summary && <p><span>{item.summary}</span></p>}
+                </div>
+                <div className="market-news-meta">
+                  <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>
+                  <span>{item.source ?? "news"}</span>
+                  {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
+                </div>
+              </article>
+            );
           })}
         </div>
       )}
@@ -350,6 +392,148 @@ function emptyNewsResponse(symbol: string): NewsResponse {
   };
 }
 
+function localNewsDemoResponse(symbol: string): NewsResponse | null {
+  if (!isLocalNewsDemoHost()) {
+    return null;
+  }
+  const normalizedSymbol = symbol.trim().toUpperCase() || "GOOGL";
+  return {
+    symbol: normalizedSymbol,
+    displayMode: "dailySummary",
+    items: [],
+    dailySummaries: [
+      {
+        date: "2026-07-09",
+        symbol: normalizedSymbol,
+        summary: `${normalizedSymbol} closed modestly lower as broad risk-off trading weighed on mega-cap technology, while AI and cloud demand remained the main positive company-specific thread. Search traffic momentum, enterprise AI partnerships, and cloud revenue growth kept analysts focused on durable advertising and infrastructure demand despite softer index sentiment.`,
+        keyPoints: [],
+        impactDirection: "mixed",
+        sentiment: "mixed",
+        articleIds: ["demo-news-2026-07-09-a", "demo-news-2026-07-09-b", "demo-news-2026-07-09-c"],
+        articleCount: 6,
+        mentionCount: 9,
+        status: "demo",
+        generatedAt: "2026-07-09T21:53:00-04:00",
+        sources: [
+          {
+            articleId: "demo-news-2026-07-09-a",
+            title: "AI partnerships keep cloud demand in focus",
+            name: "CNBC",
+            url: "https://www.cnbc.com/",
+            publishedAt: "2026-07-09T21:53:00-04:00"
+          },
+          {
+            articleId: "demo-news-2026-07-09-b",
+            title: "Analysts weigh valuation after mixed technology session",
+            name: "Reuters",
+            url: "https://www.reuters.com/",
+            publishedAt: "2026-07-09T18:22:00-04:00"
+          },
+          {
+            articleId: "demo-news-2026-07-09-c",
+            title: "Cloud growth remains a core bull case",
+            name: "MarketWatch",
+            url: "https://www.marketwatch.com/",
+            publishedAt: "2026-07-09T16:35:00-04:00"
+          }
+        ],
+        priceChange: {
+          date: "2026-07-09",
+          previousClose: 358.71,
+          close: 356.24,
+          change: -2.47,
+          changePercent: -0.69
+        }
+      },
+      {
+        date: "2026-07-08",
+        symbol: normalizedSymbol,
+        summary: `${normalizedSymbol} declined as investors reduced exposure to long-duration growth stocks before macro data and Federal Reserve commentary. Company news was more constructive than the tape, with AI product adoption and cloud bookings still cited as support for medium-term earnings expectations.`,
+        keyPoints: [],
+        impactDirection: "negative",
+        sentiment: "neutral",
+        articleIds: ["demo-news-2026-07-08-a", "demo-news-2026-07-08-b"],
+        articleCount: 4,
+        mentionCount: 6,
+        status: "demo",
+        generatedAt: "2026-07-08T16:15:00-04:00",
+        sources: [
+          {
+            articleId: "demo-news-2026-07-08-a",
+            title: "Mega-cap technology shares slip with rates in focus",
+            name: "Bloomberg",
+            url: "https://www.bloomberg.com/",
+            publishedAt: "2026-07-08T16:15:00-04:00"
+          },
+          {
+            articleId: "demo-news-2026-07-08-b",
+            title: "Cloud and AI demand offsets weaker market tone",
+            name: "The Motley Fool",
+            url: "https://www.fool.com/",
+            publishedAt: "2026-07-08T14:40:00-04:00"
+          }
+        ],
+        priceChange: {
+          date: "2026-07-08",
+          previousClose: 363.62,
+          close: 358.71,
+          change: -4.91,
+          changePercent: -1.35
+        }
+      },
+      {
+        date: "2026-07-07",
+        symbol: normalizedSymbol,
+        summary: `${normalizedSymbol} finished higher after buyers returned to large-cap software and internet names. The session was led by renewed interest in AI monetization, advertising efficiency, and operating leverage from cloud infrastructure investments.`,
+        keyPoints: [],
+        impactDirection: "positive",
+        sentiment: "positive",
+        articleIds: ["demo-news-2026-07-07-a", "demo-news-2026-07-07-b"],
+        articleCount: 5,
+        mentionCount: 7,
+        status: "demo",
+        generatedAt: "2026-07-07T16:08:00-04:00",
+        sources: [
+          {
+            articleId: "demo-news-2026-07-07-a",
+            title: "AI monetization narrative lifts large-cap tech",
+            name: "Seeking Alpha",
+            url: "https://seekingalpha.com/",
+            publishedAt: "2026-07-07T16:08:00-04:00"
+          },
+          {
+            articleId: "demo-news-2026-07-07-b",
+            title: "Advertising and cloud margins remain in focus",
+            name: "Yahoo Finance",
+            url: "https://finance.yahoo.com/",
+            publishedAt: "2026-07-07T13:25:00-04:00"
+          }
+        ],
+        priceChange: {
+          date: "2026-07-07",
+          previousClose: 358.11,
+          close: 363.62,
+          change: 5.51,
+          changePercent: 1.54
+        }
+      }
+    ]
+  };
+}
+
+function isLocalNewsDemoHost() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.location.port === "5173" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function summaryHeadline(summary: string) {
+  const firstSentence = summary.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
+  const headline = firstSentence || summary;
+  return headline.length > 120 ? `${headline.slice(0, 117).trimEnd()}…` : headline;
+}
+
 function impactDirectionText(value: string | null | undefined) {
   switch (value) {
     case "positive":
@@ -370,16 +554,12 @@ function relativeTimeText(value: string) {
   if (!Number.isFinite(timestamp)) {
     return value.slice(0, 10);
   }
-  const diffMs = Date.now() - timestamp;
-  const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+  const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
   if (diffMinutes < 60) {
     return `${diffMinutes}분 전`;
   }
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `${diffHours}시간 전`;
-  }
-  return `${Math.round(diffHours / 24)}일 전`;
+  return diffHours < 24 ? `${diffHours}시간 전` : `${Math.round(diffHours / 24)}일 전`;
 }
 
 function formatNewsDate(value: string) {
@@ -387,26 +567,21 @@ function formatNewsDate(value: string) {
   if (!Number.isFinite(timestamp)) {
     return value;
   }
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "long",
-    day: "numeric"
-  }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(timestamp));
 }
 
 function formatPriceChange(value: number) {
   const normalized = Math.abs(value) < 0.005 ? 0 : value;
-  const prefix = normalized > 0 ? "+" : "";
-  return `${prefix}${normalized.toFixed(2)}`;
+  return `${normalized > 0 ? "+" : ""}${normalized.toFixed(2)}`;
+}
+
+function formatDailyPriceChange(value: NewsPriceChange) {
+  const percent = `${value.changePercent > 0 ? "+" : ""}${value.changePercent.toFixed(2)}%`;
+  return `${formatPriceChange(value.change)} (${percent})`;
 }
 
 function priceChangeClass(value: number) {
-  if (value > 0) {
-    return "positive";
-  }
-  if (value < 0) {
-    return "negative";
-  }
-  return "flat";
+  return value > 0 ? "positive" : value < 0 ? "negative" : "flat";
 }
 
 function priceChangeTitle(value: NewsPriceChange) {

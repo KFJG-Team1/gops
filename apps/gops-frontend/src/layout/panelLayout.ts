@@ -14,6 +14,7 @@ export type PanelContentKind =
   | "compare"
   | "company"
   | "news"
+  | "newsList"
   | "watchlistNews"
   | "indices"
   | "popular"

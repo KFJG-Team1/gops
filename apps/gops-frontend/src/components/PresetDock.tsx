@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bot, Check, LayoutPanelTop, Plus, Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "../layout/layoutPresets";
 import type { LayoutPresetControls } from "../layout/useLayoutPresets";
@@ -18,13 +18,38 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
   const [draftName, setDraftName] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const [overflowEdges, setOverflowEdges] = useState({ left: false, right: false });
+  const [activeIndicator, setActiveIndicator] = useState({ left: 0, width: 0, visible: false });
   const dockRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const savedTimerRef = useRef<number | null>(null);
+  const presetButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const defaults = presets.filter((preset) => preset.kind === "default");
   const customs = presets.filter((preset) => preset.kind === "custom");
   const activePreset = presets.find((preset) => preset.id === activePresetId) ?? null;
+  const activePresetKey = isHome ? "__home__" : activePresetId;
+
+  const updateActiveIndicator = useCallback(() => {
+    const button = activePresetKey ? presetButtonRefs.current.get(activePresetKey) : null;
+    if (!button) {
+      setActiveIndicator((current) => current.visible ? { ...current, visible: false } : current);
+      return;
+    }
+    const next = { left: button.offsetLeft, width: button.offsetWidth, visible: true };
+    setActiveIndicator((current) => (
+      current.left === next.left && current.width === next.width && current.visible
+        ? current
+        : next
+    ));
+  }, [activePresetKey]);
+
+  const setPresetButtonRef = (key: string, node: HTMLButtonElement | null) => {
+    if (node) {
+      presetButtonRefs.current.set(key, node);
+    } else {
+      presetButtonRefs.current.delete(key);
+    }
+  };
 
   useEffect(() => {
     if (editingId && inputRef.current) {
@@ -38,6 +63,10 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
       window.clearTimeout(savedTimerRef.current);
     }
   }, []);
+
+  useLayoutEffect(() => {
+    updateActiveIndicator();
+  }, [editingId, presets.length, updateActiveIndicator]);
 
   useEffect(() => {
     const dock = dockRef.current;
@@ -54,17 +83,25 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
           : { left, right }
       ));
     };
-    updateOverflowEdges();
-    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateOverflowEdges);
+    const updateDockMetrics = () => {
+      updateOverflowEdges();
+      updateActiveIndicator();
+    };
+    updateDockMetrics();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateDockMetrics);
     resizeObserver?.observe(dock);
+    const activeButton = activePresetKey ? presetButtonRefs.current.get(activePresetKey) : null;
+    if (activeButton) {
+      resizeObserver?.observe(activeButton);
+    }
     dock.addEventListener("scroll", updateOverflowEdges, { passive: true });
-    window.addEventListener("resize", updateOverflowEdges);
+    window.addEventListener("resize", updateDockMetrics);
     return () => {
       resizeObserver?.disconnect();
       dock.removeEventListener("scroll", updateOverflowEdges);
-      window.removeEventListener("resize", updateOverflowEdges);
+      window.removeEventListener("resize", updateDockMetrics);
     };
-  }, [activePresetId, customs.length, defaults.length, editingId]);
+  }, [activePresetId, activePresetKey, customs.length, defaults.length, editingId, updateActiveIndicator]);
 
   const stopPointer = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
@@ -139,6 +176,7 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
         return (
           <button
             key={preset.id}
+            ref={(node) => setPresetButtonRef(preset.id, node)}
             type="button"
             className={`layout-preset-button ${isActive ? "is-active" : ""}`}
             aria-pressed={isActive}
@@ -164,7 +202,13 @@ export function PresetDock({ controls, onShowHome, onShowAgent, onEnterLayoutEdi
       aria-label="레이아웃 프리셋"
       onPointerDown={stopPointer}
     >
+      <span
+        className={`layout-preset-active-indicator ${activeIndicator.visible ? "is-visible" : ""}`}
+        style={{ width: `${activeIndicator.width}px`, transform: `translateX(${activeIndicator.left}px)` }}
+        aria-hidden="true"
+      />
       <button
+        ref={(node) => setPresetButtonRef("__home__", node)}
         type="button"
         className={`layout-preset-button preset-home ${isHome ? "is-active" : ""}`}
         aria-pressed={isHome}

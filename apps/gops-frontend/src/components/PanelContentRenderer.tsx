@@ -146,6 +146,21 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onAgentReferenceSelect={onAgentReferenceSelect}
+        variant="flip"
+      />
+    );
+  }
+
+  if (content.kind === "newsList") {
+    return (
+      <NewsPanel
+        symbol={symbol.toUpperCase()}
+        initialPayload={content.props}
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+        variant="list"
       />
     );
   }
