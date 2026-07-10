@@ -1157,6 +1157,32 @@ assert.equal(normalizedTrade.data.price, 197.66);
 const tradeLayerRuntime = chartRuntimeReducer(liveRuntime, { kind: "chart.layer.live", event: normalizedTrade });
 assert.equal(tradeLayerRuntime.liveTradesBySymbol?.NVDA?.price, 197.66);
 assert.equal(getLiveTradeForSymbol(tradeLayerRuntime, "nvda")?.price, 197.66);
+const tradePatchedCandles = tradeLayerRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(tradePatchedCandles.length, 2);
+assert.equal(tradePatchedCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(tradePatchedCandles[1]?.open, 197.66);
+assert.equal(tradePatchedCandles[1]?.high, 197.66);
+assert.equal(tradePatchedCandles[1]?.low, 197.66);
+assert.equal(tradePatchedCandles[1]?.close, 197.66);
+assert.equal(tradePatchedCandles[1]?.volume, 0);
+assert.equal(tradePatchedCandles[1]?.isClosed, false);
+const nextTrade = normalizeRealtimeLayerEvent({
+  type: "LIVE_TRADE_UPDATE",
+  symbol: "NVDA",
+  data: { price: "199.10", timestamp: "2026-07-02T14:33:00Z" }
+});
+if (nextTrade.type !== "LIVE_TRADE_UPDATE") {
+  throw new Error("expected next trade payload");
+}
+const nextTradeRuntime = chartRuntimeReducer(tradeLayerRuntime, { kind: "chart.layer.live", event: nextTrade });
+const nextTradeCandles = nextTradeRuntime.candlesByKey[candleKey("NVDA", "5m")] ?? [];
+assert.equal(nextTradeCandles.length, 2);
+assert.equal(nextTradeCandles[1]?.timestamp, "2026-07-02T14:30:00.000Z");
+assert.equal(nextTradeCandles[1]?.open, 197.66);
+assert.equal(nextTradeCandles[1]?.high, 199.1);
+assert.equal(nextTradeCandles[1]?.low, 197.66);
+assert.equal(nextTradeCandles[1]?.close, 199.1);
+assert.equal(nextTradeCandles[1]?.volume, 0);
 
 assert.equal(isChartDataRenderable({
   state: "partial",
