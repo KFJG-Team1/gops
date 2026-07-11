@@ -9,12 +9,30 @@ import {
   type ChartAssetBuildStatus,
   type ChartAssetCoverageItem
 } from "../chart/assetBuildApi";
-import { invalidateAnalysisAssets, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import { analysisAssetPresentationDiagnostics } from "../chart/analysisAssetPresentation";
+import {
+  fetchAnalysisAssets,
+  invalidateAnalysisAssets,
+  subscribeAnalysisAssetsInvalidation,
+  type AnalysisAssetInterval,
+  type AnalysisAssetsResponse
+} from "../chart/analysisAssetsApi";
+import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
 const allIntervals: AnalysisAssetInterval[] = ["1D", "1W", "1M"];
 
-export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string }) {
+export function ChartAssetOpsPanel({
+  currentSymbol,
+  currentInterval,
+  currentCandles,
+  currentDrawingIds
+}: {
+  currentSymbol: string;
+  currentInterval: ChartInterval;
+  currentCandles: CandleDto[];
+  currentDrawingIds: string[];
+}) {
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
   const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
@@ -27,7 +45,10 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [currentAssets, setCurrentAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [assetRevision, setAssetRevision] = useState(0);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
 
   const loadCoverage = useCallback(async () => {
     setCoverageLoading(true);
@@ -43,6 +64,28 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   useEffect(() => {
     void loadCoverage();
   }, [loadCoverage]);
+
+  useEffect(() => subscribeAnalysisAssetsInvalidation((symbol) => {
+    if (!symbol || symbol === normalizedCurrentSymbol) {
+      setCurrentAssets(null);
+      setAssetRevision((current) => current + 1);
+    }
+  }), [normalizedCurrentSymbol]);
+
+  useEffect(() => {
+    let active = true;
+    setCurrentAssets((current) => current?.symbol === normalizedCurrentSymbol ? current : null);
+    fetchAnalysisAssets(normalizedCurrentSymbol)
+      .then((response) => {
+        if (active) setCurrentAssets(response);
+      })
+      .catch(() => {
+        if (active) setCurrentAssets(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assetRevision, normalizedCurrentSymbol]);
 
   useEffect(() => {
     const node = logRef.current;
@@ -120,6 +163,13 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
 
   const running = job?.status === "queued" || job?.status === "running";
   const failedSymbols = [...new Set((job?.failedItems ?? job?.recentItems ?? []).filter((item) => item.status === "failed").map((item) => item.symbol))];
+  const currentAsset = isAnalysisAssetInterval(currentInterval)
+    && currentAssets?.symbol === normalizedCurrentSymbol
+    ? currentAssets.assets[currentInterval]
+    : null;
+  const currentDiagnostics = currentAsset
+    ? analysisAssetPresentationDiagnostics(currentAsset, currentCandles, currentDrawingIds)
+    : null;
 
   const runBuild = async (retrySymbols?: string[]) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
@@ -211,12 +261,32 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
-            <p>데이터 점검 {job.repair.checkedSymbols} · 복구 {job.repair.repairedSymbols} · 결측 {job.repair.missingBarsBefore}→{job.repair.missingBarsAfter} · 적재 {job.repair.materializedRows}</p>
+            <p>
+              데이터 점검 {job.repair.checkedSymbols} · 복구 {job.repair.repairedSymbols} · 결측 {job.repair.missingBarsBefore}→{job.repair.missingBarsAfter} · 적재 {job.repair.materializedRows}
+              {job.repair.reasonCodes && Object.keys(job.repair.reasonCodes).length > 0
+                ? ` · 사유 ${Object.entries(job.repair.reasonCodes).map(([reason, count]) => `${reason} ${count}`).join(", ")}`
+                : ""}
+            </p>
           )}
           <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{(job.logs ?? []).slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
           {failedSymbols.length > 0 && <p>실패: {failedSymbols.join(", ")}</p>}
         </section>
       )}
+
+      <section className="chart-asset-ops-current">
+        <header><strong>현재 차트</strong><span>{normalizedCurrentSymbol} {currentInterval}</span></header>
+        {currentDiagnostics ? (
+          <>
+            <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
+            <p>판정 {currentDiagnostics.state}</p>
+            {Object.keys(currentDiagnostics.rejectionReasons).length > 0 && (
+              <p>제외 사유 {Object.entries(currentDiagnostics.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>
+            )}
+          </>
+        ) : (
+          <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 저장 자산이 없습니다." : "일/주/월봉에서 진단할 수 있습니다."}</p>
+        )}
+      </section>
 
       <section className="chart-asset-ops-coverage">
         <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
@@ -229,7 +299,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
                 <td>{item.symbol}</td>
                 <td>{item.interval}</td>
                 <td>{coverageStatus(item)}</td>
-                <td>{item.drawingCount ?? "-"}</td>
+                <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
                 <td>{formatGeneratedAt(item.generatedAt)}</td>
                 <td><button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button></td>
               </tr>;
@@ -256,6 +326,10 @@ function formatGeneratedAt(value: string): string {
 
 function coverageStatus(item: ChartAssetCoverageItem): string {
   const quality = item.qualityState ? ` · ${item.qualityState}` : "";
-  const empty = item.drawingCount === 0 ? " · 작도 없음" : "";
+  const empty = (item.storedDrawingCount ?? item.drawingCount) === 0 ? " · 작도 없음" : "";
   return `${item.status}${quality}${empty}`;
+}
+
+function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
+  return interval === "1D" || interval === "1W" || interval === "1M";
 }

@@ -1,6 +1,12 @@
 import type { CandleDto, ChartInterval, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
-import { orderFlowMinutesForBucket, orderFlowWindowMinutesForInterval } from "./orderFlow";
+import {
+  buildBidAskPriceGrid,
+  ORDER_FLOW_CHART_FOOTER_HEIGHT,
+  orderFlowMinutesForBucket,
+  orderFlowWindowMinutesForInterval,
+  type BidAskPriceGrid
+} from "./orderFlow";
 import { normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
 import {
   buildSemanticTimeline,
@@ -30,7 +36,9 @@ function priceAxisWidthForChart(chart: ChartState): number {
   }
   // Inflate slightly so a top tick that rounds up to an extra digit (e.g. 995 -> 1,000)
   // still fits without overlapping the plot.
-  const label = Math.round(maxPrice * 1.06).toLocaleString("en-US");
+  const label = chart.chartType === "bidask"
+    ? (maxPrice * 1.006).toFixed(2)
+    : Math.round(maxPrice * 1.06).toLocaleString("en-US");
   // ~5.9px per glyph at the 10px micro type token + 8px right margin + 5px breathing gap.
   const estimated = 8 + label.length * 5.9 + 5;
   return Math.round(Math.min(64, Math.max(32, estimated)));
@@ -76,6 +84,8 @@ export type ChartScene = {
     volumeTicks: number[];
     slotWidth: number;
     candleWidth: number;
+    priceBottomInset?: number;
+    bidAskPriceGrid?: BidAskPriceGrid;
   };
 };
 
@@ -222,7 +232,11 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const { viewportEndIndex, viewportStartIndex, visibleStartIndex, visibleEndIndex, semanticBase } = frame;
   const candleUnits = semanticBase.units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
   const candles = candleUnits.map((unit) => unit.candle);
-  const priceRange = priceDomain(semanticBase.units, chart);
+  const priceRange = priceDomain(
+    semanticBase.units,
+    chart,
+    Math.max(1, plot.priceBottom - plot.top - (chart.chartType === "bidask" ? ORDER_FLOW_CHART_FOOTER_HEIGHT : 0))
+  );
   const maxVolume = Math.max(1, ...candles.map((candle) => candle.volume));
   const volumeRange = volumeDomain(maxVolume);
   const slotWidth = plotWidth / Math.max(1, semanticBase.totalSlots);
@@ -260,7 +274,9 @@ export function buildChartScene(chart: ChartState, width: number, height: number
       maxVolume: volumeRange.max,
       volumeTicks: volumeRange.ticks,
       slotWidth,
-      candleWidth
+      candleWidth,
+      priceBottomInset: chart.chartType === "bidask" ? ORDER_FLOW_CHART_FOOTER_HEIGHT : 0,
+      ...(priceRange.bidAskPriceGrid ? { bidAskPriceGrid: priceRange.bidAskPriceGrid } : {})
     }
   };
 }
@@ -312,7 +328,7 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
   const anchorPriceToY = (price: number) => priceToY(scene, price);
   const yToPrice = (y: number) => {
     const range = Math.max(0.0001, scene.scales.maxPrice - scene.scales.minPrice);
-    return scene.scales.maxPrice - ((y - scene.plot.top) / Math.max(1, scene.plot.priceBottom - scene.plot.top)) * range;
+    return scene.scales.maxPrice - ((y - scene.plot.top) / Math.max(1, priceContentBottom(scene) - scene.plot.top)) * range;
   };
   const logicalToX = (logicalIndex: number) => {
     const semanticSlot = scene.semantic.logicalIndexToSlot.get(logicalIndex);
@@ -473,7 +489,11 @@ export function timestampAtUnitX(scene: ChartScene, unit: SemanticRenderUnit, x:
 
 export function priceToY(scene: Pick<ChartScene, "plot" | "scales">, value: number): number {
   const range = Math.max(0.0001, scene.scales.maxPrice - scene.scales.minPrice);
-  return scene.plot.top + ((scene.scales.maxPrice - value) / range) * Math.max(1, scene.plot.priceBottom - scene.plot.top);
+  return scene.plot.top + ((scene.scales.maxPrice - value) / range) * Math.max(1, priceContentBottom(scene) - scene.plot.top);
+}
+
+function priceContentBottom(scene: Pick<ChartScene, "plot" | "scales">): number {
+  return Math.max(scene.plot.top + 1, scene.plot.priceBottom - Math.max(0, scene.scales.priceBottomInset ?? 0));
 }
 
 export function topPriceGridY(scene: Pick<ChartScene, "plot" | "scales">): number {
@@ -553,7 +573,14 @@ export function hitTestTimeAxisUnit(scene: ChartScene, x: number, y: number): Se
   return best;
 }
 
-function priceDomain(units: SemanticRenderUnit[], chart: ChartState): { min: number; max: number; ticks: number[] } {
+type PriceDomain = {
+  min: number;
+  max: number;
+  ticks: number[];
+  bidAskPriceGrid?: BidAskPriceGrid;
+};
+
+function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight: number): PriceDomain {
   const candleUnits = units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
   const carryPrices = units
     .map((unit) => unit.kind === "time-gap" ? unit.carryPrice : undefined)
@@ -566,10 +593,17 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState): { min: num
           .flatMap((minute) => minute.bins.map((level) => level.priceBin))
       ))
       : [];
-    return priceDomainFromValues(candleUnits.flatMap((unit) => [
+    const values = candleUnits.flatMap((unit) => [
       unit.candle.high,
       unit.candle.low
-    ]).concat(carryPrices, orderFlowPrices));
+    ]).concat(carryPrices, orderFlowPrices);
+    const bidAskPriceGrid = buildBidAskPriceGrid(values, chart.orderFlow?.priceBinSize ?? 0.01, plotHeight);
+    return {
+      min: bidAskPriceGrid.domainMin,
+      max: bidAskPriceGrid.domainMax,
+      ticks: bidAskPriceGrid.axisTicks,
+      bidAskPriceGrid
+    };
   }
   const values = candleUnits.flatMap((unit) => [
     unit.candle.high,
