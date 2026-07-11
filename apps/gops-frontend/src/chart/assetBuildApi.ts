@@ -30,6 +30,15 @@ export type ChartAssetBuildStatus = {
   jobId: string;
   status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
+  repair?: {
+    checkedSymbols: number;
+    attemptedSymbols: number;
+    repairedSymbols: number;
+    unavailableSymbols: number;
+    missingBarsBefore: number;
+    missingBarsAfter: number;
+    materializedRows: number;
+  };
   recentItems: ChartAssetBuildItem[];
   failedItems?: ChartAssetBuildItem[];
   logs?: string[];
