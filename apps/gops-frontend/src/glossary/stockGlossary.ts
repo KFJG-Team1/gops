@@ -23,7 +23,9 @@ export type RequiredGlossaryId =
   | "bullish_candle" | "bearish_candle"
   | "long_bullish_candle" | "long_bearish_candle"
   | "volatility" | "regime" | "trend" | "uptrend" | "downtrend" | "invalidation"
-  | "confidence" | "liquidity";
+  | "confidence" | "liquidity"
+  | "touch_episode" | "consensus" | "current_relevance" | "failed_breakout"
+  | "confirmation_condition" | "timeframe_alignment" | "counter_evidence" | "data_coverage";
 
 const entry = (
   id: RequiredGlossaryId,
@@ -74,6 +76,14 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
   week_52_high: entry("week_52_high", "52주 신고가", ["52주 신고가", "52-week high", "52 week high"], "최근 52주 중 가장 높은 가격을 새로 기록한 상태로, 장기 범위 돌파 여부를 봅니다.", "structure"),
   week_52_low: entry("week_52_low", "52주 신저가", ["52주 신저가", "52-week low", "52 week low"], "최근 52주 중 가장 낮은 가격을 새로 기록한 상태로, 장기 범위 이탈 여부를 봅니다.", "structure"),
   reversal: entry("reversal", "추세 전환", ["추세 전환", "반전", "reversal", "trend reversal"], "기존 가격 방향이 반대로 바뀌는 과정으로, 구조·거래량·확정봉을 함께 확인합니다.", "structure"),
+  touch_episode: entry("touch_episode", "접점", ["접점", "touch episode"], "가격이 선이나 구간에 닿은 연속 구간을 한 번의 독립 반응으로 묶은 근거입니다.", "structure"),
+  consensus: entry("consensus", "컨센서스", ["컨센서스", "consensus"], "서로 다른 여러 기준점이 같은 구조를 지지하는 정도입니다.", "structure"),
+  current_relevance: entry("current_relevance", "현재 관련성", ["현재 관련성", "current relevance"], "과거 구조가 현재 가격이나 최근 사건과 충분히 가까워 지금도 관찰 가치가 있는지를 뜻합니다.", "structure"),
+  failed_breakout: entry("failed_breakout", "실패한 돌파", ["실패한 돌파", "failed breakout"], "경계를 넘었지만 후속 종가가 유지되지 못하고 다시 구조 안으로 돌아온 상태입니다.", "structure"),
+  confirmation_condition: entry("confirmation_condition", "확인 조건", ["확인 조건", "confirmation condition"], "현재 해석이 강화됐다고 판단하기 위해 다음 확정봉에서 관찰할 객관적 조건입니다.", "general"),
+  timeframe_alignment: entry("timeframe_alignment", "상위 주기 정합", ["상위 주기 정합", "timeframe alignment"], "일봉·주봉·월봉처럼 서로 다른 주기의 구조가 같은 방향의 근거를 보이는 상태입니다.", "general"),
+  counter_evidence: entry("counter_evidence", "반대 근거", ["반대 근거", "counter evidence"], "주요 해석과 반대되는 가격·모멘텀·거래 참여 증거입니다.", "general"),
+  data_coverage: entry("data_coverage", "데이터 커버리지", ["데이터 커버리지", "data coverage"], "분석에 필요한 확정봉 중 실제로 연속 확보된 비율과 결측 정도입니다.", "general"),
 
   volume: entry("volume", "거래량", ["거래량", "volume", "trading volume"], "일정 기간 체결된 수량으로, 가격 움직임에 참여가 얼마나 실렸는지 살필 때 봅니다.", "volume"),
   dollar_volume: entry("dollar_volume", "거래대금", ["거래대금", "dollar volume", "traded value"], "체결 가격과 수량을 곱한 규모로, 실제 거래 활동과 유동성 수준을 비교할 때 봅니다.", "volume"),

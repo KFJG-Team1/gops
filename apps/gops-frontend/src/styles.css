@@ -2722,6 +2722,47 @@ h2 {
   white-space: pre-wrap;
 }
 
+.chart-commentary-headline,
+.chart-commentary-focus h3 {
+  margin: 0;
+  color: var(--color-text);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.chart-commentary-focus ol {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chart-commentary-focus button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 7px;
+  background: var(--coinbase-panel-muted);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.chart-commentary-focus button:hover:not(:disabled) {
+  border-color: var(--framer-accent-blue);
+}
+
+.chart-commentary-focus button span {
+  color: var(--color-muted);
+}
+
 .chart-commentary-levels {
   border-top: 1px solid var(--color-border);
   padding-top: 12px;
@@ -2847,6 +2888,17 @@ h2 {
 .chart-asset-ops-form {
   display: grid;
   gap: 9px;
+}
+
+.chart-asset-ops-universe-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.chart-asset-ops-universe-row > span {
+  color: var(--color-muted);
 }
 
 .chart-asset-ops-check,

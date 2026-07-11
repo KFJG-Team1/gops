@@ -1,6 +1,6 @@
 import { makeChartCommand, type ChartCommand } from "@gops/chart-engine";
 import type { ChartAnalysisAsset } from "./analysisAssetsApi";
-import type { DrawingEntity } from "./types";
+import type { ChartToolMode, DrawingEntity } from "./types";
 
 export const chartAssetSourcePrefix = "chart-asset:";
 
@@ -20,7 +20,8 @@ export function analysisAssetApplyCommands(
   target: ChartCommandTarget,
   currentDrawings: DrawingEntity[],
   asset: ChartAnalysisAsset | null,
-  visibility: AnalysisLayerVisibility
+  visibility: AnalysisLayerVisibility,
+  interaction: { mode: ChartToolMode; selectedDrawingId?: string }
 ): ChartCommand[] {
   const commands = removalCommands(target, currentDrawings);
   if (!asset) {
@@ -40,6 +41,18 @@ export function analysisAssetApplyCommands(
   [...new Set(layers)].forEach((layer) => {
     commands.push(externalSystemCommand(target, "chart.layer.visibility.set", { layer, visible: true }));
   });
+  if (commands.some((command) => command.type === "chart.drawing.add")) {
+    commands.push(externalSystemCommand(target, "chart.drawing.clearSelection", { mode: interaction.mode }));
+    const retainedSelection = interaction.mode === "select"
+      && interaction.selectedDrawingId
+      && (
+        currentDrawings.some((drawing) => drawing.id === interaction.selectedDrawingId && !isChartAssetDrawing(drawing))
+        || Object.values(asset.layers).some((layer) => layer.drawings.some((drawing) => drawing.id === interaction.selectedDrawingId))
+      );
+    if (retainedSelection) {
+      commands.push(externalSystemCommand(target, "chart.drawing.select", { drawingId: interaction.selectedDrawingId }));
+    }
+  }
   return commands;
 }
 

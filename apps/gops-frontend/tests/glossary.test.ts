@@ -39,3 +39,9 @@ assert.deepEqual(
 );
 assert.equal(annotateGlossaryTerms("가봉된 문서").some((segment) => segment.glossaryId === "candlestick"), false);
 assert.equal(annotateGlossaryTerms("무효성 검사").some((segment) => segment.glossaryId === "invalidation"), false);
+assert.deepEqual(
+  annotateGlossaryTerms("현재 관련성, 실패한 돌파, 확인 조건과 반대 근거를 봅니다.")
+    .filter((segment) => segment.glossaryId)
+    .map((segment) => segment.glossaryId),
+  ["current_relevance", "failed_breakout", "confirmation_condition", "counter_evidence"]
+);

@@ -57,7 +57,13 @@ export function ChartCommentaryPanel({ symbol, interval, candles }: ChartComment
     return <CommentaryEmpty text="분석 자산이 준비되지 않았습니다" />;
   }
 
-  const stale = isAnalysisAssetStale(asset.asOf, candles);
+  const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion);
+  const focusItems = asset.commentary.focusItems ?? [];
+  const focusDrawing = (drawingIds: string[]) => {
+    window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
+      detail: { symbol: normalizedSymbol, interval, drawingIds }
+    }));
+  };
   return (
     <article className="chart-commentary-panel" data-enrichment-state={panelState}>
       <header className="chart-commentary-meta">
@@ -68,9 +74,25 @@ export function ChartCommentaryPanel({ symbol, interval, candles }: ChartComment
           신뢰도 {Math.round(asset.commentary.confidence * 100)}%
         </span>
         {asset.status === "degraded" && <span className="chart-commentary-badge is-muted">자동 생성(축약)</span>}
-        {stale && <span className="chart-commentary-badge is-stale">오래됨</span>}
+        {stale && <span className="chart-commentary-badge is-stale">분석 자산 갱신 필요</span>}
       </header>
-      <p className="chart-commentary-text"><GlossaryText text={asset.commentary.text} /></p>
+      {asset.commentary.headline && <h3 className="chart-commentary-headline"><GlossaryText text={asset.commentary.headline} /></h3>}
+      {asset.commentary.regimeSummary && <p className="chart-commentary-text"><GlossaryText text={asset.commentary.regimeSummary} /></p>}
+      {focusItems.length > 0 && (
+        <section className="chart-commentary-focus" aria-label="주요 관찰">
+          <h3>주요 관찰</h3>
+          <ol>{focusItems.map((item, index) => (
+            <li key={`${item.candidateId ?? index}-${item.drawingIds.join("-")}`}>
+              <button type="button" onClick={() => focusDrawing(item.drawingIds)} disabled={!item.drawingIds.length}>
+                <strong><GlossaryText text={item.whatItShows} /></strong>
+                <span><GlossaryText text={item.whyItMatters} /></span>
+                <span><GlossaryText text={item.whatToWatch} /></span>
+              </button>
+            </li>
+          ))}</ol>
+        </section>
+      )}
+      {!focusItems.length && <p className="chart-commentary-text"><GlossaryText text={asset.commentary.text} /></p>}
       <section className="chart-commentary-levels" aria-label="핵심 레벨">
         <h3>핵심 레벨</h3>
         {asset.commentary.keyLevels.length ? (

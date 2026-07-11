@@ -42,7 +42,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { isAnalysisAssetStale } from "../chart/analysisAssetPresentation";
+import { isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   type AnalysisAssetInterval,
@@ -545,21 +545,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
   }, [chart.symbol]);
 
-  const activeAnalysisAsset = isAnalysisAssetInterval(chart.interval)
+  const rawActiveAnalysisAsset = isAnalysisAssetInterval(chart.interval)
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
     : null;
+  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
-    const asset = supportedInterval
+    const rawAsset = supportedInterval
       && latestClosedAssetCandleTimestamp
       && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
       ? analysisAssets.assets[interval]
       : null;
-    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none"].join("|");
+    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
+    const asset = resolvedAsset && !isAnalysisAssetStale(resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion)
+      ? resolvedAsset
+      : null;
+    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none", chart.candles[0]?.timestamp ?? "empty", chart.candles.length].join("|");
     if (appliedAnalysisAssetKeyRef.current === applyKey) {
       return;
     }
@@ -568,13 +573,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       commandTarget,
       chart.drawings,
       asset,
-      analysisLayerVisibilityRef.current
+      analysisLayerVisibilityRef.current,
+      { mode: chart.toolMode, selectedDrawingId: chart.selectedDrawingId }
     );
     dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
   }, [
     analysisAssets,
+    chart.candles,
     chart.interval,
+    chart.selectedDrawingId,
     chart.symbol,
+    chart.toolMode,
     commandTarget,
     dispatchExternalCommandGroup,
     latestClosedAssetCandleTimestamp
@@ -593,6 +602,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
   }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+
+  useEffect(() => {
+    const handleFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ symbol?: string; interval?: string; drawingIds?: string[] }>).detail;
+      if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
+      const drawingId = detail.drawingIds?.find((id) => chartRef.current.drawings.some((drawing) => drawing.id === id));
+      if (!drawingId) return;
+      dispatchExternalCommandGroup([
+        makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
+        makeChartCommand("chart.drawing.select", "system", commandTarget, { drawingId }, undefined, "external")
+      ], "Focus chart analysis drawing");
+    };
+    window.addEventListener("gops:chart-asset-focus", handleFocus);
+    return () => window.removeEventListener("gops:chart-asset-focus", handleFocus);
+  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
     if (!drawingSupportsTextEditing(drawing)) {
@@ -2181,7 +2205,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             agent: !activeAnalysisAsset?.layers.agent.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAsset ? isAnalysisAssetStale(activeAnalysisAsset.asOf, chart.candles) : false}
+          stale={activeAnalysisAsset ? isAnalysisAssetStale(activeAnalysisAsset.asOf, chart.candles, activeAnalysisAsset.assetVersion) : false}
           onToggle={toggleAnalysisLayer}
         />
         {labelEditor && labelEditorLayout && (

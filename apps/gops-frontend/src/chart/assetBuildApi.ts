@@ -5,6 +5,7 @@ export type ChartAssetBuildRequest = {
   intervals: AnalysisAssetInterval[];
   llmEnabled: boolean;
   skipFreshHours: number;
+  force?: boolean;
 };
 
 export type ChartAssetBuildAccepted = {
@@ -17,16 +18,18 @@ export type ChartAssetBuildAccepted = {
 export type ChartAssetBuildItem = {
   symbol: string;
   interval: AnalysisAssetInterval;
-  status: "saved" | "failed" | "skipped";
+  status: "saved" | "saved_with_warning" | "unchanged" | "failed" | "skipped";
   stage: string;
   error: string | null;
   elapsedMs: number;
+  warning?: string;
+  reason?: string;
 };
 
 export type ChartAssetBuildStatus = {
   jobId: string;
-  status: "queued" | "running" | "completed" | "completed_with_errors" | "failed" | "canceled";
-  progress: { total: number; done: number; failed: number; skipped: number; current: string | null };
+  status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
+  progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
   recentItems: ChartAssetBuildItem[];
   failedItems?: ChartAssetBuildItem[];
   logs: string[];
@@ -40,6 +43,11 @@ export type ChartAssetCoverageItem = {
   interval: AnalysisAssetInterval;
   generatedAt: string;
   status: AnalysisAssetStatus;
+  assetVersion?: "v1" | "v2";
+  qualityState?: string | null;
+  payloadBytes?: number;
+  freshness?: "current" | "stale" | "unknown";
+  staleByBars?: number | null;
 };
 
 export async function submitChartAssetBuild(request: ChartAssetBuildRequest): Promise<ChartAssetBuildAccepted> {

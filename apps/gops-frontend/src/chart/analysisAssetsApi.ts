@@ -4,6 +4,14 @@ export type AnalysisAssetInterval = "1D" | "1W" | "1M";
 export type AnalysisAssetStatus = "ready" | "degraded";
 
 export type AnalysisAssetCommentary = {
+  headline?: string;
+  regimeSummary?: string;
+  focusItems?: AnalysisAssetFocusItem[];
+  keyLevelsV2?: Array<{ drawingId?: string; role: string; price: number; reason: string }>;
+  higherTimeframeContext?: string;
+  counterEvidence?: string[];
+  dataCaveats?: string[];
+  confidenceV2?: { selection?: { score: number; reasons: string[]; penalties: string[] } };
   text: string;
   keyLevels: string[];
   invalidation: string;
@@ -11,19 +19,29 @@ export type AnalysisAssetCommentary = {
   enrichment: null;
 };
 
+export type AnalysisAssetFocusItem = {
+  drawingIds: string[];
+  candidateId?: string | null;
+  featureIds?: string[];
+  whatItShows: string;
+  whyItMatters: string;
+  whatToWatch: string;
+  confirmation?: string | null;
+  invalidation?: string | null;
+  horizon?: string;
+};
+
 export type AnalysisAssetLayer = {
   drawings: DrawingEntity[];
+  selected?: Array<Record<string, unknown>>;
+  emptyReason?: string | null;
   meta?: Record<string, unknown>;
 };
 
-export type AnalysisAssetAgentLayer = AnalysisAssetLayer & {
-  degraded: boolean;
-  rationale: string;
-  model: string | null;
-};
+export type AnalysisAssetAgentLayer = AnalysisAssetLayer & Partial<{ degraded: boolean; rationale: string; model: string | null }>;
 
 export type ChartAnalysisAsset = {
-  assetVersion: "v1";
+  assetVersion: "v1" | "v2";
   symbol: string;
   interval: AnalysisAssetInterval;
   asOf: string;
@@ -43,6 +61,8 @@ export type ChartAnalysisAsset = {
     }>;
   };
   commentary: AnalysisAssetCommentary;
+  coverage?: { lastActualClosedAt?: string | null; qualityFlags?: string[]; renderable?: boolean };
+  quality?: { state?: "eligible" | "insufficient_data" | "stale_input" | "contract_error"; score?: number };
 };
 
 export type AnalysisAssetsResponse = {
@@ -112,7 +132,7 @@ export function invalidateAnalysisAssets(symbol?: string): void {
   globalGeneration += 1;
 }
 
-function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: string): AnalysisAssetsResponse {
+export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: string): AnalysisAssetsResponse {
   const source = asRecord(value);
   const rawAssets = asRecord(source.assets);
   return {
@@ -131,10 +151,26 @@ function normalizeAsset(value: unknown, interval: AnalysisAssetInterval): ChartA
     return null;
   }
   const source = value as ChartAnalysisAsset;
-  if (source.interval !== interval || !source.layers || !source.chartSetup || !source.commentary) {
+  if ((source.assetVersion !== "v1" && source.assetVersion !== "v2") || source.interval !== interval || !source.layers || !source.chartSetup || !source.commentary) {
     return null;
   }
+  if (source.assetVersion === "v2") {
+    (["structure", "trend", "agent"] as const).forEach((layer) => {
+      source.layers[layer].drawings = source.layers[layer].drawings.map(normalizeV2AutomaticLabel);
+    });
+  }
   return source;
+}
+
+function normalizeV2AutomaticLabel(drawing: DrawingEntity): DrawingEntity {
+  if (drawing.type !== "horizontalLine" || !drawing.label || drawing.anchors[0]?.price === undefined) {
+    return drawing;
+  }
+  const price = Number(drawing.anchors[0].price);
+  const tokens = new Set([String(price), price.toFixed(2), price.toLocaleString("en-US", { maximumFractionDigits: 8 })]);
+  const label = [...tokens].sort((left, right) => right.length - left.length).reduce((text, token) => text.replaceAll(token, ""), drawing.label)
+    .replace(/\s*[·,:()-]\s*$/g, "").replace(/\s{2,}/g, " ").trim();
+  return { ...drawing, label };
 }
 
 function asRecord(value: unknown): Record<string, any> {

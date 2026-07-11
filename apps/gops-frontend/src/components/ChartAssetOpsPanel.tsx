@@ -10,7 +10,7 @@ import {
 } from "../chart/assetBuildApi";
 import { invalidateAnalysisAssets, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 
-const terminalStatuses = new Set(["completed", "completed_with_errors", "failed", "canceled"]);
+const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
 const allIntervals: AnalysisAssetInterval[] = ["1D", "1W", "1M"];
 
 export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string }) {
@@ -116,7 +116,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
     }
     if (llmEnabled) {
       const symbolCount = retrySymbols?.length ?? (useSp500 ? 500 : symbols.length);
-      const estimatedCalls = symbolCount * intervals.length;
+      const estimatedCalls = symbolCount;
       if (!window.confirm(`LLM 호출은 최대 약 ${estimatedCalls}회입니다. 계속할까요?`)) {
         return;
       }
@@ -141,7 +141,10 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   return (
     <div className="chart-asset-ops-panel">
       <section className="chart-asset-ops-form">
-        <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
+        <div className="chart-asset-ops-universe-row">
+          <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
+          <span>콤마로 구분</span>
+        </div>
         <div className="chart-asset-ops-symbols">
           <textarea aria-label="빌드 심볼" value={symbolsText} disabled={useSp500} onChange={(event) => setSymbolsText(event.target.value)} />
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
@@ -151,7 +154,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
           <label><input type="checkbox" checked={llmEnabled} onChange={(event) => setLlmEnabled(event.target.checked)} />LLM 포함</label>
-          <label>신선 자산 스킵(시간)<input type="number" min="0" value={skipFreshHours} onChange={(event) => {
+          <label>갱신 스킵(시간)<input type="number" min="0" value={skipFreshHours} onChange={(event) => {
             const value = Number(event.target.value);
             setSkipFreshHours(Number.isFinite(value) ? value : 0);
           }} /></label>
@@ -166,7 +169,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
       {error && <p className="chart-asset-ops-error" role="alert">{error}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{job.logs.slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
