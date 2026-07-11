@@ -74,6 +74,7 @@ export type AnalysisAssetsResponse = {
 const responseCache = new Map<string, AnalysisAssetsResponse>();
 const inFlight = new Map<string, Promise<AnalysisAssetsResponse>>();
 const symbolGenerations = new Map<string, number>();
+const invalidationListeners = new Set<(symbol?: string) => void>();
 let globalGeneration = 0;
 
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
@@ -124,12 +125,19 @@ export function invalidateAnalysisAssets(symbol?: string): void {
     responseCache.delete(normalized);
     inFlight.delete(normalized);
     symbolGenerations.set(normalized, (symbolGenerations.get(normalized) ?? 0) + 1);
+    invalidationListeners.forEach((listener) => listener(normalized));
     return;
   }
   responseCache.clear();
   inFlight.clear();
   symbolGenerations.clear();
   globalGeneration += 1;
+  invalidationListeners.forEach((listener) => listener());
+}
+
+export function subscribeAnalysisAssetsInvalidation(listener: (symbol?: string) => void): () => void {
+  invalidationListeners.add(listener);
+  return () => invalidationListeners.delete(listener);
 }
 
 export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: string): AnalysisAssetsResponse {

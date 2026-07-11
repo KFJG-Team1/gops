@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   fetchAnalysisAssets,
+  subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval
 } from "../chart/analysisAssetsApi";
 import { formatAnalysisAssetAsOf, isAnalysisAssetStale } from "../chart/analysisAssetPresentation";
@@ -17,9 +18,17 @@ type ChartCommentaryPanelProps = {
 
 export function ChartCommentaryPanel({ symbol, interval, candles }: ChartCommentaryPanelProps) {
   const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
+  const [assetsRevision, setAssetsRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [panelState] = useState<CommentaryPanelState>("base");
   const normalizedSymbol = symbol.trim().toUpperCase();
+
+  useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
+    if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
+      setAssets(null);
+      setAssetsRevision((current) => current + 1);
+    }
+  }), [normalizedSymbol]);
 
   useEffect(() => {
     let active = true;
@@ -44,7 +53,7 @@ export function ChartCommentaryPanel({ symbol, interval, candles }: ChartComment
     return () => {
       active = false;
     };
-  }, [normalizedSymbol]);
+  }, [assetsRevision, normalizedSymbol]);
 
   if (!isAnalysisAssetInterval(interval)) {
     return <CommentaryEmpty text="일/주/월봉에서 제공됩니다" />;

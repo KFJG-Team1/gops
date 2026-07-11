@@ -2968,6 +2968,11 @@ h2 {
   color: var(--gops-caution);
 }
 
+.chart-asset-ops-notice {
+  margin: 8px 0;
+  color: var(--framer-accent-blue);
+}
+
 .chart-asset-ops-progress > div:first-child,
 .chart-asset-ops-coverage header {
   display: flex;

@@ -46,8 +46,15 @@ export type ChartAssetCoverageItem = {
   assetVersion?: "v1" | "v2";
   qualityState?: string | null;
   payloadBytes?: number;
+  drawingCount?: number;
   freshness?: "current" | "stale" | "unknown";
   staleByBars?: number | null;
+};
+
+export type ChartAssetDeleteResult = {
+  symbols: string[];
+  intervals: AnalysisAssetInterval[];
+  deleted: number;
 };
 
 export async function submitChartAssetBuild(request: ChartAssetBuildRequest): Promise<ChartAssetBuildAccepted> {
@@ -70,6 +77,11 @@ export async function fetchChartAssetCoverage(symbols?: string[]): Promise<Chart
   const query = symbols?.length ? `?${new URLSearchParams({ symbols: symbols.join(",") }).toString()}` : "";
   const response = await apiJson<{ items?: ChartAssetCoverageItem[] }>(`/api/charts/analysis-assets/coverage${query}`);
   return Array.isArray(response.items) ? response.items : [];
+}
+
+export async function deleteChartAssets(symbols: string[], intervals: AnalysisAssetInterval[]): Promise<ChartAssetDeleteResult> {
+  const query = new URLSearchParams({ symbols: symbols.join(","), intervals: intervals.join(",") });
+  return apiJson(`/api/charts/analysis-assets?${query.toString()}`, { method: "DELETE" });
 }
 
 async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {

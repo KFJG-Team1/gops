@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fetchAnalysisAssets, invalidateAnalysisAssets } from "../src/chart/analysisAssetsApi";
+import { fetchAnalysisAssets, invalidateAnalysisAssets, subscribeAnalysisAssetsInvalidation } from "../src/chart/analysisAssetsApi";
 
 
 const originalFetch = globalThis.fetch;
@@ -24,6 +24,13 @@ try {
   assert.equal(fetchCalls, 2);
   assert.equal(cached.meta?.servedAt, "fresh");
   assert.equal(fresh.meta?.servedAt, "fresh");
+
+  const invalidations: Array<string | undefined> = [];
+  const unsubscribe = subscribeAnalysisAssetsInvalidation((symbol) => invalidations.push(symbol));
+  invalidateAnalysisAssets("NVDA");
+  invalidateAnalysisAssets();
+  unsubscribe();
+  assert.deepEqual(invalidations, ["NVDA", undefined]);
 } finally {
   invalidateAnalysisAssets("CACHE-RACE");
   globalThis.fetch = originalFetch;

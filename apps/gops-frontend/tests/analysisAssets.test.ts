@@ -100,6 +100,9 @@ assert.match(opsSource, /갱신 스킵\(시간\)/);
 assert.match(opsSource, /콤마로 구분/);
 assert.doesNotMatch(opsSource, /신선 자산 스킵\(시간\)/);
 assert.match(opsSource, /const estimatedCalls = symbolCount;/);
+assert.match(opsSource, /deleteChartAssets/);
+assert.match(opsSource, /작도 자산 삭제/);
+assert.match(opsSource, /작도 없음/);
 
 const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDrawing], asset, {
   structure: true,

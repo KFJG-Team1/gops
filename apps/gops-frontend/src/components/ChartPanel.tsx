@@ -45,6 +45,7 @@ import { ChartCanvas } from "../chart/ChartCanvas";
 import { isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
+  subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
@@ -319,6 +320,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
     structure: true,
     trend: true,
@@ -465,6 +467,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
 
+  useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
+    const activeSymbol = chart.symbol.trim().toUpperCase();
+    if (!invalidatedSymbol || invalidatedSymbol === activeSymbol) {
+      setAnalysisAssets(null);
+      appliedAnalysisAssetKeyRef.current = "";
+      setAnalysisAssetsRevision((current) => current + 1);
+    }
+  }), [chart.symbol]);
+
   useEffect(() => {
     chartRef.current = chart;
   }, [chart]);
@@ -543,7 +554,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     return () => {
       active = false;
     };
-  }, [chart.symbol]);
+  }, [analysisAssetsRevision, chart.symbol]);
 
   const rawActiveAnalysisAsset = isAnalysisAssetInterval(chart.interval)
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()

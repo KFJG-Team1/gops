@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelChartAssetBuild,
+  deleteChartAssets,
   fetchChartAssetBuildStatus,
   fetchChartAssetCoverage,
   submitChartAssetBuild,
@@ -24,6 +25,8 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
   const [error, setError] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<ChartAssetCoverageItem[]>([]);
   const [coverageLoading, setCoverageLoading] = useState(false);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const loadCoverage = useCallback(async () => {
@@ -138,6 +141,26 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
     }
   };
 
+  const removeAsset = async (item: ChartAssetCoverageItem) => {
+    const key = `${item.symbol}-${item.interval}`;
+    if (!window.confirm(`${item.symbol} ${item.interval} 작도 자산의 모든 저장 이력을 삭제할까요?`)) {
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setDeletingKey(key);
+    try {
+      const result = await deleteChartAssets([item.symbol], [item.interval]);
+      invalidateAnalysisAssets(item.symbol);
+      setNotice(`${item.symbol} ${item.interval} 자산 ${result.deleted}건을 삭제했습니다.`);
+      await loadCoverage();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "작도 자산을 삭제하지 못했습니다.");
+    } finally {
+      setDeletingKey(null);
+    }
+  };
+
   return (
     <div className="chart-asset-ops-panel">
       <section className="chart-asset-ops-form">
@@ -167,6 +190,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
       </section>
 
       {error && <p className="chart-asset-ops-error" role="alert">{error}</p>}
+      {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
           <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
@@ -181,8 +205,18 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
         <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
         <div className="chart-asset-ops-table-wrap">
           <table>
-            <thead><tr><th>심볼</th><th>주기</th><th>상태</th><th>생성</th></tr></thead>
-            <tbody>{coverage.map((item) => <tr key={`${item.symbol}-${item.interval}`}><td>{item.symbol}</td><td>{item.interval}</td><td>{item.status}</td><td>{formatGeneratedAt(item.generatedAt)}</td></tr>)}</tbody>
+            <thead><tr><th>심볼</th><th>주기</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
+            <tbody>{coverage.map((item) => {
+              const key = `${item.symbol}-${item.interval}`;
+              return <tr key={key}>
+                <td>{item.symbol}</td>
+                <td>{item.interval}</td>
+                <td>{coverageStatus(item)}</td>
+                <td>{item.drawingCount ?? "-"}</td>
+                <td>{formatGeneratedAt(item.generatedAt)}</td>
+                <td><button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button></td>
+              </tr>;
+            })}</tbody>
           </table>
         </div>
       </section>
@@ -201,4 +235,10 @@ function mergeSymbol(value: string, symbol: string): string {
 function formatGeneratedAt(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function coverageStatus(item: ChartAssetCoverageItem): string {
+  const quality = item.qualityState ? ` · ${item.qualityState}` : "";
+  const empty = item.drawingCount === 0 ? " · 작도 없음" : "";
+  return `${item.status}${quality}${empty}`;
 }
