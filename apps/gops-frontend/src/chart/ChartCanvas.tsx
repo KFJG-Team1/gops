@@ -23,7 +23,9 @@ import { expansionMetadataTop, expansionParentCandleHeight, expansionParentCandl
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import {
   buildLadder,
+  ORDER_FLOW_CHART_FOOTER_HEIGHT,
   orderFlowWindowMinutesForInterval,
+  rebinLevels,
   type OrderFlowLadder,
   type OrderFlowMinuteDto
 } from "./orderFlow";
@@ -77,7 +79,7 @@ const volumeProfileAlpha = {
   label: 0.84
 } as const;
 const orderFlowBucketCache = new OrderFlowBucketCache();
-const orderFlowLadderCache = new WeakMap<OrderFlowBucket, OrderFlowLadder>();
+const orderFlowLadderCache = new WeakMap<OrderFlowBucket, Map<string, OrderFlowLadder>>();
 
 export function ChartCanvas({
   chart,
@@ -839,15 +841,23 @@ function drawOrderFlowColumns(context: CanvasRenderingContext2D, scene: ChartSce
   const units = candleUnits(scene);
   const windowMinutes = orderFlowWindowMinutesForInterval(scene.chart.interval);
   const sourceStep = Math.max(0.01, orderFlow?.priceBinSize ?? 0.01);
+  const priceGrid = scene.scales.bidAskPriceGrid;
+  const renderedStep = Math.max(sourceStep, priceGrid?.priceStep ?? sourceStep);
   const rects = new Map<string, { x: number; y: number; width: number; height: number }>();
   units.forEach((unit) => rects.set(unit.id, orderFlowColumnRect(scene, unit)));
   const drawable = units
     .map((unit) => {
       const bucket = cachedOrderFlowBucket(minutes, unit, windowMinutes);
-      const ladder = bucket.levels.length ? cachedOrderFlowLadder(bucket, sourceStep) : null;
+      const ladder = bucket.levels.length ? cachedOrderFlowLadder(bucket, sourceStep, renderedStep) : null;
       const rect = rects.get(unit.id) ?? orderFlowColumnRect(scene, unit);
       const rows = ladder
-        ? projectOrderFlowChartRows(ladder, (price) => priceToY(scene, price), rect.y, rect.y + rect.height - 13)
+        ? projectOrderFlowChartRows(
+          ladder,
+          (price) => priceToY(scene, price),
+          rect.y,
+          rect.y + rect.height - ORDER_FLOW_CHART_FOOTER_HEIGHT,
+          priceGrid?.rowPrices
+        )
         : [];
       return { unit, ladder, rect, rows };
     });
@@ -888,13 +898,17 @@ function cachedOrderFlowBucket(
   return orderFlowBucketCache.get(minutes, unit.timestamp, windowMinutes);
 }
 
-function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number): OrderFlowLadder {
-  const cached = orderFlowLadderCache.get(bucket);
+function cachedOrderFlowLadder(bucket: OrderFlowBucket, sourceStep: number, renderedStep: number): OrderFlowLadder {
+  const cacheKey = `${sourceStep}:${renderedStep}`;
+  const ladders = orderFlowLadderCache.get(bucket);
+  const cached = ladders?.get(cacheKey);
   if (cached) {
     return cached;
   }
-  const ladder = buildLadder(bucket.levels, sourceStep, bucket.label);
-  orderFlowLadderCache.set(bucket, ladder);
+  const ladder = buildLadder(rebinLevels(bucket.levels, sourceStep, renderedStep), renderedStep, bucket.label);
+  const nextLadders = ladders ?? new Map<string, OrderFlowLadder>();
+  nextLadders.set(cacheKey, ladder);
+  orderFlowLadderCache.set(bucket, nextLadders);
   return ladder;
 }
 
@@ -2345,7 +2359,11 @@ function drawPriceAxis(context: CanvasRenderingContext2D, scene: ChartScene) {
   context.textAlign = "right";
   context.textBaseline = "middle";
   scene.scales.priceTicks.forEach((price) => {
-    context.fillText(formatPriceAxisValue(price), scene.width - 8, priceToY(scene, price));
+    context.fillText(
+      formatPriceAxisValue(price, scene.scales.bidAskPriceGrid?.decimalPlaces ?? 0),
+      scene.width - 8,
+      priceToY(scene, price)
+    );
   });
   drawVolumeAxisLabels(context, scene);
   context.restore();
@@ -2383,11 +2401,14 @@ function formatCompactVolumeNumber(value: number): string {
   return value.toFixed(fractionDigits).replace(/\.0$/, "");
 }
 
-function formatPriceAxisValue(value: number): string {
+function formatPriceAxisValue(value: number, decimalPlaces = 0): string {
   if (!Number.isFinite(value)) {
     return "-";
   }
-  return Math.round(value).toLocaleString("en-US");
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces
+  });
 }
 
 function hasVolumePane(scene: ChartScene): boolean {
