@@ -240,14 +240,14 @@ function drawChart(
     () => drawExpansionParentSummaries(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
+    () => drawOpenedDigMarkers(context, scene),
+    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId),
+    () => drawDrawings(context, scene, previewDrawings, true),
     () => drawDrawingLabelsOnAxes(context, scene),
     () => drawCurrentPriceMarker(context, scene),
-    () => drawOpenedDigMarkers(context, scene),
     () => drawCrosshair(context, scene, crosshair),
     () => drawLineHoverDot(context, scene, crosshair),
-    () => drawTimeAxisDigHover(context, scene, crosshair),
-    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId),
-    () => drawDrawings(context, scene, previewDrawings, true)
+    () => drawTimeAxisDigHover(context, scene, crosshair)
   ];
   layers.forEach((drawLayer) => drawLayer());
 }
@@ -1763,9 +1763,9 @@ function drawDrawingEntityLabel(
     context.stroke();
   }
   context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
-  context.textAlign = "left";
+  context.textAlign = layout.textAlign;
   context.textBaseline = "middle";
-  context.fillText(layout.label, layout.textX, layout.baseline, layout.width - (layout.boxStyle === "tag" ? 14 : 4));
+  context.fillText(layout.label, layout.textX, layout.baseline, layout.width - (layout.boxStyle === "tag" ? 14 : 8));
   context.restore();
 }
 

@@ -3374,9 +3374,11 @@ assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
 assert.match(chartCanvasSource, /currentPriceForScene/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
+const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, scene.chart.drawings");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");
 const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, scene, crosshair)");
-assert.ok(drawingLabelLayerIndex >= 0 && currentPriceLayerIndex > drawingLabelLayerIndex);
+assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
+assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
