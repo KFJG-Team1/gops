@@ -125,9 +125,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "인기종목",
     agentPanelType: "popularStocks",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    readableMinSpan: { colSpan: 2, rowSpan: 2 },
-    minSizePx: { width: 300, height: 200 },
-    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 1, rowSpan: 2 },
+    minSizePx: { width: 150, height: 200 },
+    defaultSpan: { colSpan: 1, rowSpan: 2 },
     defaultLayoutWeight: 50
   },
   {
