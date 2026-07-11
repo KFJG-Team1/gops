@@ -133,6 +133,9 @@ class SimulatorRollbackService:
             raise SimulationRollbackUnavailable("최근 시뮬레이션 실행 기록을 찾을 수 없습니다")
         tombstone = self._read_json(self.keys.simulation_rollback(run_id))
         if tombstone and tombstone.get("rollbackState") == "completed":
+            clear_simulation_feed_override(self.redis, run_id, self.keys)
+            self._delete_clickhouse_rows(run_id)
+            self._delete_redis_rows(record)
             return tombstone
         if record.get("state") not in {"completed", "live"}:
             raise SimulationRollbackUnavailable("시뮬레이션 실행 중에는 원복할 수 없습니다")

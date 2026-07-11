@@ -851,6 +851,8 @@ def normalize_processor_topics(topics):
 
 
 def publish_closed_candle(producer, redis_client, redis_keys, state, topics, candle, log_every_n=500):
+    if simulation_run_rolled_back(redis_client, candle.get("simulationRunId"), redis_keys):
+        return False
     topics = normalize_processor_topics(topics)
     candle = state.ma_state.attach_ma(candle)
     publish_processed(producer, candle_topic(topics["closed_candles"], candle["interval"]), {**candle, "layer": "candles", "state": "closed"}, log_every_n)
@@ -1023,6 +1025,8 @@ def write_live_candle_to_redis(redis_client, redis_keys, candle):
 
 
 def publish_live_candle(producer, redis_client, redis_keys, topics, candle, feed="unknown", log_every_n=500, throttle=None):
+    if simulation_run_rolled_back(redis_client, candle.get("simulationRunId"), redis_keys):
+        return False
     if throttle is not None and not throttle.should_publish(candle):
         return False
     if not write_live_candle_to_redis(redis_client, redis_keys, candle):
