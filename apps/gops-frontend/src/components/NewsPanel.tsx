@@ -71,7 +71,7 @@ type NewsPanelProps = {
 };
 
 export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect, variant = "flip" }: NewsPanelProps) {
-  const normalizedInitialPayload = normalizeNewsResponse(initialPayload, symbol) ?? localNewsDemoResponse(symbol);
+  const normalizedInitialPayload = initialNewsResponse(initialPayload, symbol);
   const [payload, setPayload] = useState<NewsResponse | null>(normalizedInitialPayload);
   const [loading, setLoading] = useState(!normalizedInitialPayload);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,7 +107,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   }, [symbol]);
 
   useEffect(() => {
-    const nextPayload = normalizeNewsResponse(initialPayload, symbol) ?? localNewsDemoResponse(symbol);
+    const nextPayload = initialNewsResponse(initialPayload, symbol);
     if (nextPayload) {
       setPayload(nextPayload);
       setLoading(false);
@@ -393,6 +393,14 @@ function emptyNewsResponse(symbol: string): NewsResponse {
   };
 }
 
+function initialNewsResponse(payload: unknown, symbol: string): NewsResponse | null {
+  const normalized = normalizeNewsResponse(payload, symbol);
+  if ((normalized?.items.length ?? 0) > 0 || (normalized?.dailySummaries.length ?? 0) > 0) {
+    return normalized;
+  }
+  return localNewsDemoResponse(symbol) ?? normalized;
+}
+
 function localNewsDemoResponse(symbol: string): NewsResponse | null {
   if (!isLocalNewsDemoHost()) {
     return null;
@@ -526,7 +534,7 @@ function isLocalNewsDemoHost() {
   if (typeof window === "undefined") {
     return false;
   }
-  return window.location.port === "5173" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
 function summaryHeadline(summary: string) {

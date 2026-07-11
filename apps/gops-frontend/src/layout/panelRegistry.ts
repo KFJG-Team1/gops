@@ -141,6 +141,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "recommendationsList",
+    title: "추천 목록",
+    agentPanelType: "stockRecommendations",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 200 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 45
+  },
+  {
     kind: "themeRadar",
     title: "분야추천",
     agentPanelType: "themeRadar",

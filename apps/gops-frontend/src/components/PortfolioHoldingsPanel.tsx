@@ -72,12 +72,12 @@ const REFRESH_INTERVAL_MS = 60_000;
 const portfolioSectorBySymbol = new Map(sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.sector]));
 const allocationTones = ["green-deep", "green", "red", "red-soft", "neutral", "brass", "green-soft", "clay"];
 const purchaseCompareColors = [
-  "var(--portfolio-soft-signal)",
-  "var(--portfolio-soft-negative)",
-  "var(--portfolio-soft-caution)",
-  "var(--portfolio-soft-positive)",
-  "var(--portfolio-soft-purple)",
-  "var(--portfolio-soft-muted)"
+  "var(--color-point-yellow)",
+  "var(--color-point-orange)",
+  "var(--color-point-purple)",
+  "var(--color-up)",
+  "var(--color-down)",
+  "var(--color-signal)"
 ];
 const DEMO_PORTFOLIO_ENABLED =
   import.meta.env.DEV ||
@@ -785,9 +785,9 @@ function PortfolioMultiPerformanceView({ dashboard, positions }: { dashboard: Po
     <article className="portfolio-multi-page portfolio-multi-performance-page">
       <PortfolioMultiPageHeader title="Performance" subtitle="평균 매수가 대비 현재 수익률" aside={formatSignedPercentPlain(dashboard.totalPnlRate)} />
       <div className="portfolio-multi-return-list">
-        {points.slice(0, 5).map((point) => (
-          <div key={point.symbol}>
-            <span><i style={{ background: point.color }} /><strong>{point.symbol}</strong><em>{point.name}</em></span>
+        {points.slice(0, 6).map((point) => (
+          <div key={point.symbol} style={{ "--portfolio-performance-point": point.color } as CSSProperties}>
+            <span><i /><strong>{point.symbol}</strong><em>{point.name}</em></span>
             <b className={directionClass(point.returnPercent)}>{formatSignedPercentPlain(point.returnPercent)}</b>
             <div className={directionClass(point.returnPercent)}><i style={{ width: `${Math.max(5, (Math.abs(point.returnPercent) / maxReturn) * 100)}%` }} /></div>
           </div>
@@ -1052,6 +1052,11 @@ function PortfolioPerformanceChart({ dashboard }: { dashboard: PortfolioDashboar
         <path d={pathFor("invested")} className="portfolio-terminal-line invested" />
         <path d={pathFor("value")} className="portfolio-terminal-line value" />
         <path d={pathFor("gain")} className="portfolio-terminal-line gain" />
+        {points.flatMap((point, index) => ([
+          <circle key={`${point.label}-invested`} cx={xFor(index)} cy={yFor(point.invested)} r="3.4" className="portfolio-terminal-point invested" />,
+          <circle key={`${point.label}-value`} cx={xFor(index)} cy={yFor(point.value)} r="3.4" className="portfolio-terminal-point value" />,
+          <circle key={`${point.label}-gain`} cx={xFor(index)} cy={yFor(point.gain)} r="3.4" className="portfolio-terminal-point gain" />
+        ]))}
         {points.map((point, index) => index % 2 === 0 || index === points.length - 1 ? (
           <text key={point.label} x={xFor(index)} y={height - 10} textAnchor="middle" className="portfolio-terminal-axis-label">{point.label}</text>
         ) : null)}

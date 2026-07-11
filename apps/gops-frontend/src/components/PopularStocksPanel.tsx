@@ -93,7 +93,7 @@ export function PopularStocksPanel({ items, onSelectSymbol }: PopularStocksPanel
           className="popular-stocks-ranking-list"
           role="group"
           aria-label="거래대금 상위 10개 기업"
-          style={{ gridTemplateRows: `repeat(${popularItems.length}, minmax(0, 1fr))` }}
+          style={{ gridTemplateRows: `repeat(${popularItems.length}, minmax(min-content, 1fr))` }}
         >
           {popularItems.map((item, index) => {
             const rank = index + 1;

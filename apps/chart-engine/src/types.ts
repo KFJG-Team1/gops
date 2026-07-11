@@ -281,6 +281,9 @@ export type ChartDocument = {
     signal: string;
     caution: string;
     purple: string;
+    pointYellow: string;
+    pointOrange: string;
+    pointPurple: string;
   };
   interactionState: {
     mode: ChartToolMode;

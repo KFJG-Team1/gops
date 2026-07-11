@@ -32,7 +32,10 @@ export const fallbackChartStyle: ChartDocumentStyle = {
   preview: ink,
   signal: "#0099ff",
   caution: "#ff7a3d",
-  purple: "#8c939f"
+  purple: "#8c939f",
+  pointYellow: "#fff436",
+  pointOrange: "#ff490a",
+  pointPurple: "#9c3dff"
 };
 
 // Compatibility drop-list only: these old defaults are normalized away, not used as the active palette.

@@ -254,6 +254,10 @@ export function PanelContentRenderer({
     return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
 
+  if (content.kind === "recommendationsList") {
+    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} variant="list" />;
+  }
+
   if (content.kind === "themeRadar") {
     return <ThemeRadarPanel items={marketItems} activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
