@@ -15,9 +15,16 @@ type CanvasStrokeRectCall = {
   height: number;
 };
 
+type CanvasTextCall = {
+  text: string;
+  x: number;
+  y: number;
+};
+
 type CanvasTrackingWindow = Window & {
   __gopsDrawingArcCalls?: CanvasArcCall[];
   __gopsDrawingStrokeRectCalls?: CanvasStrokeRectCall[];
+  __gopsDrawingTextCalls?: CanvasTextCall[];
 };
 
 test.beforeEach(async ({ page }) => {
@@ -257,6 +264,25 @@ test("inline label editor replaces the label and remains clipped to the price pl
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.72, 0.45) });
   const editor = page.getByRole("textbox", { name: "Drawing label editor" });
   await expect(editor).toBeFocused();
+  await editor.fill("편집 위치 확인");
+  await resetCanvasTextCalls(page);
+  await editor.press("Enter");
+  await expect.poll(async () => latestCanvasTextCall(page, "편집 위치 확인")).not.toBeNull();
+  const labelText = await latestCanvasTextCall(page, "편집 위치 확인");
+  expect(labelText).not.toBeNull();
+  await canvas.click({ position: { x: labelText?.x ?? 0, y: labelText?.y ?? 0 } });
+  await expect(editor).toBeFocused();
+  const initialEditorBox = await editor.boundingBox();
+  const initialCanvasBox = await canvas.boundingBox();
+  expect(initialEditorBox).not.toBeNull();
+  expect(initialCanvasBox).not.toBeNull();
+  expect(Math.abs((initialEditorBox?.x ?? 0) - (initialCanvasBox?.x ?? 0) + 4 - (labelText?.x ?? 0))).toBeLessThanOrEqual(1);
+  expect(Math.abs((initialEditorBox?.y ?? 0) - (initialCanvasBox?.y ?? 0) + (initialEditorBox?.height ?? 0) / 2 + 0.5 - (labelText?.y ?? 0))).toBeLessThanOrEqual(1);
+  const editorMetrics = await editor.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderLeftWidth: style.borderLeftWidth, paddingLeft: style.paddingLeft, fontSize: style.fontSize };
+  });
+  expect(editorMetrics).toEqual({ borderLeftWidth: "0px", paddingLeft: "4px", fontSize: "12px" });
   await editor.fill("오른쪽 경계에서도 차트 폭을 바꾸지 않는 설명");
   const editorBox = await editor.boundingBox();
   const canvasBox = await canvas.boundingBox();
@@ -531,6 +557,7 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
     const trackedWindow = window as CanvasTrackingWindow;
     trackedWindow.__gopsDrawingArcCalls = [];
     trackedWindow.__gopsDrawingStrokeRectCalls = [];
+    trackedWindow.__gopsDrawingTextCalls = [];
     const originalArc = CanvasRenderingContext2D.prototype.arc;
     CanvasRenderingContext2D.prototype.arc = function trackedArc(
       x: number,
@@ -557,7 +584,36 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
       }
       originalStrokeRect.call(this, x, y, width, height);
     };
+    const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function trackedFillText(
+      text: string,
+      x: number,
+      y: number,
+      maxWidth?: number
+    ): void {
+      if (this.canvas.classList.contains("chart-canvas")) {
+        trackedWindow.__gopsDrawingTextCalls?.push({ text, x, y });
+      }
+      if (maxWidth === undefined) {
+        originalFillText.call(this, text, x, y);
+      } else {
+        originalFillText.call(this, text, x, y, maxWidth);
+      }
+    };
   });
+}
+
+async function resetCanvasTextCalls(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as CanvasTrackingWindow).__gopsDrawingTextCalls = [];
+  });
+}
+
+async function latestCanvasTextCall(page: Page, text: string): Promise<CanvasTextCall | null> {
+  return page.evaluate((targetText) => {
+    const calls = (window as CanvasTrackingWindow).__gopsDrawingTextCalls ?? [];
+    return [...calls].reverse().find((call) => call.text === targetText) ?? null;
+  }, text);
 }
 
 async function resetCanvasArcCalls(page: Page): Promise<void> {

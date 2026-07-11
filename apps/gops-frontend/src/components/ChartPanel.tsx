@@ -443,6 +443,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.panes
   ]);
   const sceneRef = useRef<ChartScene | null>(null);
+  const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
@@ -2102,11 +2103,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const labelEditorLayout = labelEditorDrawing && labelEditorScene
     ? drawingLabelLayout(labelEditorScene, labelEditorDrawing, labelEditor?.value)
     : null;
-  const labelEditorPositionStyle = labelEditorLayout && labelEditorScene ? {
-    left: `clamp(${labelEditorScene.plot.left + 3}px, ${labelEditorLayout.left}px, calc(100% - ${labelEditorScene.width - labelEditorScene.plot.right + labelEditorLayout.width + 3}px))`,
-    top: `clamp(${labelEditorScene.plot.top + 3}px, ${labelEditorLayout.top}px, calc(100% - ${labelEditorScene.height - labelEditorScene.plot.priceBottom + labelEditorLayout.height + 3}px))`,
+  const labelEditorScaleX = labelEditorScene && chartWrapRef.current?.clientWidth
+    ? chartWrapRef.current.clientWidth / labelEditorScene.width
+    : 1;
+  const labelEditorScaleY = labelEditorScene && chartWrapRef.current?.clientHeight
+    ? chartWrapRef.current.clientHeight / labelEditorScene.height
+    : 1;
+  const labelEditorPositionStyle = labelEditorLayout ? {
+    left: labelEditorLayout.left * labelEditorScaleX,
+    top: labelEditorLayout.top * labelEditorScaleY,
     width: labelEditorLayout.width,
-    height: labelEditorLayout.height
+    height: labelEditorLayout.height,
+    fontSize: labelEditorLayout.fontSize,
+    lineHeight: `${labelEditorLayout.height}px`,
+    textAlign: labelEditorLayout.textAlign,
+    transform: `scale(${labelEditorScaleX}, ${labelEditorScaleY})`
   } : undefined;
 
   return (
@@ -2177,7 +2188,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </div>
       </div>
 
-      <div className="chart-wrap">
+      <div className="chart-wrap" ref={chartWrapRef}>
         <ChartCanvas
           chart={renderChart}
           expansions={renderExpansions}
