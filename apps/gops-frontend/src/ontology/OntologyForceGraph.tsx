@@ -4,33 +4,69 @@ import { nearestTypeRole, TYPE_ROLE, type TypeRoleName } from "../theme/typograp
 import type { OntologyGraphData } from "./ontologyTypes";
 
 /**
- * 온톨로지 관계 force 그래프 (라이트 페이퍼 테마).
+ * 관계의 의미를 공간과 색으로 함께 보여주는 온톨로지 force graph.
  *
- * - 테마 = 잉크 점선 컨테이너 원. 비멤버는 물리적으로 밖으로 밀려나 "원 안 = 진짜 소속"이 보장됨
- * - 등락 = 색 농도: 상승은 초록, 하락은 빨강, 폭이 클수록 진해짐 (시세 없으면 잉크 회색)
- * - 원 크기 = 시가총액 (히트맵 API), 없으면 관계 수 기반
- * - 점진 확장: 시작은 분석 종목 하나, 클릭할수록 테마 칩/자회사/교차지배가 펼쳐짐
- * - 외곽 점선 드래그 = 테마 그룹째 이동, 노드 드래그 = 해당 위치 고정
+ * - 중심 기업: 차콜, 그래프 중심에 고정
+ * - 동일 산업 연관 기업: 청록 계열
+ * - 다른 산업 연관 기업: 하늘색 계열
+ * - 산업군: 구성 기업을 감싸는 반투명 유기형 hull
+ * - 관련도: 중심까지의 거리와 노드 크기에 동시에 반영
  */
 
-const LOGICAL_WIDTH = 640;
-const LOGICAL_HEIGHT = 420;
+const LOGICAL_WIDTH = 520;
+const LOGICAL_HEIGHT = 520;
+const FOCAL_X = 260;
+const FOCAL_Y = 250;
+// 바깥으로 갈수록 간격이 넓어져 관계 밀도와 분포를 함께 읽을 수 있다.
+const ORBIT_RADII = [72, 104, 144, 196, 260] as const;
 
-// 프론트 공통 팔레트 (styles.css :root 토큰과 동일 계열)
-const INK = "#1a1a0e";
-const PAPER = "#efefe8";
-const UP_COLOR = "#1b6a29";
-const DOWN_COLOR = "#b31a0f";
-const NEUTRAL_FILL = "#d9d9d0";
-const SUBSIDIARY_FILL = "#f1dfc8";
-const SUBSIDIARY_STROKE = "#9b6b3d";
-const SUBSIDIARY_TEXT = "#64411f";
+const INK = "#171a1f";
+const PAPER = "#f7fafc";
+const FOCAL_CHARCOAL = "#20242a";
+const FOCAL_CHARCOAL_STROKE = "#dce2e8";
+const RELATED_TEAL = "#116c75";
+const RELATED_TEAL_SOFT = "#78d0d8";
+const EXTERNAL_BLUE = "#269ed5";
+const EXTERNAL_BLUE_PALETTES = [
+  { soft: "#b7dcf2", strong: "#269ed5", stroke: "#1d7daf" },
+  { soft: "#c3d9f0", strong: "#4a91c5", stroke: "#3979a8" },
+  { soft: "#b9e1ed", strong: "#2e9ab6", stroke: "#237a91" },
+  { soft: "#c9dced", strong: "#6489b6", stroke: "#4d6f98" }
+] as const;
+const MUTED_TEAL = "#5eb9c2";
+const MUTED_BLUE = "#84c5e6";
+const CHANGE_UP = "#1b6a29";
+const CHANGE_DOWN = "#b31a0f";
+
+function externalBluePaletteForIndustry(industryKey: string, externalKeys: readonly string[]) {
+  const index = Math.max(0, externalKeys.indexOf(industryKey));
+  return EXTERNAL_BLUE_PALETTES[index % EXTERNAL_BLUE_PALETTES.length];
+}
+
+const INDUSTRY_LABELS_KO: Readonly<Record<string, string>> = {
+  semiconductors: "반도체",
+  "semiconductor equipment": "반도체 장비",
+  "systems software": "시스템 소프트웨어",
+  "broadline retail": "종합 유통",
+  "interactive media & services": "인터랙티브 미디어",
+  "internet content & information": "인터넷 콘텐츠"
+};
+
+function industryDisplayLabel(label: string): string {
+  return INDUSTRY_LABELS_KO[label.trim().toLowerCase()] ?? label;
+}
 
 export type OntologyQuote = {
   changePercent?: number;
   lastPrice?: number;
   marketCap?: number;
+  volume?: number;
+  sessionDollarVolume?: number;
+  issueCount?: number;
+  issueScore?: number;
   companyName?: string;
+  sector?: string;
+  industry?: string;
 };
 
 type QuoteLookup = (ticker: string) => OntologyQuote | undefined;
@@ -41,7 +77,8 @@ type OntologyModel = {
   themes: ReadonlyMap<string, readonly string[]>;
   themesOf: ReadonlyMap<string, readonly string[]>;
   companies: ReadonlyMap<string, string>;
-  crossLinks: readonly { a: string; b: string; label?: string }[];
+  crossLinks: readonly { a: string; b: string; label?: string; relationScore: number }[];
+  relationScores: ReadonlyMap<string, number>;
 };
 
 type SimNode = d3.SimulationNodeDatum & {
@@ -49,13 +86,18 @@ type SimNode = d3.SimulationNodeDatum & {
   kind: "stock" | "chip" | "company";
   label: string;
   r: number;
+  role: "focal" | "related" | "external";
+  relevance: number;
+  tradeHeat: number;
+  issueScore: number;
+  issueCount: number;
+  industry?: string;
   count?: number;
   __wasPinned?: boolean;
   __moved?: boolean;
-  __sized?: boolean;
 };
 
-type SimLink = { source: string | SimNode; target: string | SimNode; kind: "chip" | "control" | "cross" };
+type SimLink = { source: string | SimNode; target: string | SimNode; kind: "related" | "industry" | "branch" | "chip" | "control" | "cross" };
 
 function tickerTypeRole(node: SimNode): TypeRoleName {
   if (node.kind === "stock") return nearestTypeRole(node.r * 0.45, "bodyMd");
@@ -63,26 +105,22 @@ function tickerTypeRole(node: SimNode): TypeRoleName {
   return "caption";
 }
 
-type HullDatum = { theme: string; cx: number; cy: number; r: number };
+type HullDatum = {
+  key: string;
+  tone: "primary" | "external";
+  members: SimNode[];
+};
+
+type MembraneLink = {
+  key: string;
+  source: SimNode;
+  target: SimNode;
+};
 
 type GraphController = {
   refreshQuotes: () => void;
   destroy: () => void;
 };
-
-function wrapSubsidiaryName(label: string, maxChars: number): string[] {
-  const words = label.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-  const lines: string[] = [];
-  for (const word of words) {
-    const current = lines.at(-1);
-    if (!current || current.length + word.length + 1 > maxChars) {
-      lines.push(word);
-    } else {
-      lines[lines.length - 1] = `${current} ${word}`;
-    }
-  }
-  return lines.length ? lines : [label];
-}
 
 function isSubsidiaryRelationshipNote(label: string): boolean {
   const normalized = label.replace(/\s+/g, " ").trim().toLowerCase();
@@ -96,10 +134,6 @@ function isSubsidiaryRelationshipNote(label: string): boolean {
     normalized.includes(" owns ") ||
     normalized === "legal entity name"
   );
-}
-
-function subsidiaryDisplayLines(label: string): string[] {
-  return wrapSubsidiaryName(label, 23);
 }
 
 function subsidiaryDetailLabel(label: string): string {
@@ -123,8 +157,9 @@ function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): O
   }
 
   const themeMembers = new Map<string, Set<string>>();
+  const themeScores = new Map<string, Map<string, number>>();
   const companies = new Map<string, string>();
-  const crossLinks: { a: string; b: string; label?: string }[] = [];
+  const crossLinks: { a: string; b: string; label?: string; relationScore: number }[] = [];
 
   for (const edge of graph.edges) {
     const source = nodeById.get(edge.source);
@@ -140,6 +175,11 @@ function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): O
           themeMembers.set(themeNode.label, new Set());
         }
         themeMembers.get(themeNode.label)?.add(symbolNode.label);
+        if (!themeScores.has(themeNode.label)) {
+          themeScores.set(themeNode.label, new Map());
+        }
+        const scores = themeScores.get(themeNode.label) as Map<string, number>;
+        scores.set(symbolNode.label, Math.max(scores.get(symbolNode.label) ?? 0, edge.relationScore ?? 0.58));
       }
     } else if (edge.kind === "control") {
       if (source.kind === "symbol" && target.kind === "company" && !isSubsidiaryRelationshipNote(target.label)) {
@@ -147,7 +187,7 @@ function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): O
       }
     } else if (edge.kind === "cross-control") {
       if (source.kind === "symbol" && target.kind === "symbol") {
-        crossLinks.push({ a: source.label, b: target.label, label: edge.label });
+        crossLinks.push({ a: source.label, b: target.label, label: edge.label, relationScore: edge.relationScore ?? 0.95 });
       }
     }
   }
@@ -170,11 +210,25 @@ function buildModel(graph: OntologyGraphData, preferredSymbol: string | null): O
     (graph.symbol && stockSet.has(graph.symbol) && graph.symbol) ||
     Array.from(stockSet)[0];
 
-  return { focal, stocks: Array.from(stockSet), themes, themesOf, companies, crossLinks };
-}
+  // GraphDB 관계 점수만 중심 반경에 사용한다. 값이 없는 테마 소속은
+  // '관계 확인됨'이라는 최소 점수로만 처리하고 시세 지표를 섞지 않는다.
+  const relationScores = new Map<string, number>([[focal, 1]]);
+  themes.forEach((members, theme) => {
+    if (!members.includes(focal)) return;
+    const scores = themeScores.get(theme);
+    const focalScore = scores?.get(focal) ?? 0.72;
+    members.forEach((ticker) => {
+      if (ticker === focal) return;
+      const score = Math.sqrt(focalScore * (scores?.get(ticker) ?? 0.58));
+      relationScores.set(ticker, Math.max(relationScores.get(ticker) ?? 0, score));
+    });
+  });
+  crossLinks.forEach((link) => {
+    if (link.a === focal) relationScores.set(link.b, Math.max(relationScores.get(link.b) ?? 0, link.relationScore));
+    if (link.b === focal) relationScores.set(link.a, Math.max(relationScores.get(link.a) ?? 0, link.relationScore));
+  });
 
-function changeIntensity(change: number): number {
-  return Math.min(1, Math.abs(change) / 3) * 0.75 + 0.25;
+  return { focal, stocks: Array.from(stockSet), themes, themesOf, companies, crossLinks, relationScores };
 }
 
 // 문자열 -> [0,1) 결정적 해시. 같은 id는 항상 같은 초기 위치를 갖는다.
@@ -205,27 +259,129 @@ function createGraphController(
   };
   const crossPartnersOf = (ticker: string): string[] =>
     model.crossLinks.filter((link) => link.a === ticker || link.b === ticker).map((link) => (link.a === ticker ? link.b : link.a));
+  const isDirectFocalRelation = (ticker: string): boolean =>
+    ticker !== model.focal && crossPartnersOf(model.focal).includes(ticker);
+
+  const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+  const normalizedIndustry = (ticker: string): string => getQuote(ticker)?.industry?.trim().toLowerCase() ?? "";
+  const normalizedSector = (ticker: string): string => getQuote(ticker)?.sector?.trim().toLowerCase() ?? "";
+  const focalIndustry = (): string => normalizedIndustry(model.focal);
+  const industryGroupKey = (ticker: string): string =>
+    normalizedIndustry(ticker) || normalizedSector(ticker) || "unclassified";
+  const focalIndustryKey = (): string => industryGroupKey(model.focal);
+  const externalIndustryKeys = (): string[] => Array.from(
+    new Set(model.stocks.map(industryGroupKey).filter((key) => key !== focalIndustryKey()))
+  ).sort();
+  const externalBluePaletteOf = (ticker: string) =>
+    externalBluePaletteForIndustry(industryGroupKey(ticker), externalIndustryKeys());
+
+  const relationProfile = (ticker: string): Pick<SimNode, "role" | "relevance" | "industry"> => {
+    if (ticker === model.focal) {
+      return { role: "focal", relevance: 1, industry: getQuote(ticker)?.industry };
+    }
+
+    const industry = normalizedIndustry(ticker);
+    const sameIndustry = Boolean(industry && focalIndustry() && industry === focalIndustry());
+    const relevance = model.relationScores.get(ticker) ?? 0.5;
+    const metadataAvailable = Boolean(industry && focalIndustry());
+    return {
+      role: metadataAvailable && !sameIndustry ? "external" : "related",
+      relevance: Math.max(0.25, relevance),
+      industry: getQuote(ticker)?.industry
+    };
+  };
+
+  function percentileRank(ticker: string, selector: (quote: OntologyQuote) => number | undefined): number {
+    const current = getQuote(ticker);
+    const currentValue = current ? selector(current) : undefined;
+    if (!(typeof currentValue === "number" && Number.isFinite(currentValue) && currentValue > 0)) return 0;
+    const values = model.stocks
+      .map((symbol) => {
+        const quote = getQuote(symbol);
+        return quote ? selector(quote) : undefined;
+      })
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b);
+    if (values.length <= 1) return 0.62;
+    const lower = values.filter((value) => value < currentValue).length;
+    const equal = values.filter((value) => value === currentValue).length;
+    return clamp01((lower + Math.max(1, equal) * 0.5) / values.length);
+  }
+
+  const dollarVolumeOf = (quote: OntologyQuote): number | undefined => {
+    if (typeof quote.sessionDollarVolume === "number" && quote.sessionDollarVolume > 0) return quote.sessionDollarVolume;
+    if (typeof quote.volume === "number" && quote.volume > 0 && typeof quote.lastPrice === "number" && quote.lastPrice > 0) {
+      return quote.volume * quote.lastPrice;
+    }
+    return undefined;
+  };
+
+  const marketCapRank = (ticker: string): number => percentileRank(ticker, (quote) => quote.marketCap);
+  const tradingHeat = (ticker: string): number => {
+    const absoluteRank = percentileRank(ticker, dollarVolumeOf);
+    const turnoverRank = percentileRank(ticker, (quote) => {
+      const dollarVolume = dollarVolumeOf(quote);
+      return dollarVolume && quote.marketCap ? dollarVolume / quote.marketCap : undefined;
+    });
+    if (absoluteRank === 0 && turnoverRank === 0) return 0;
+    return clamp01(absoluteRank * 0.58 + turnoverRank * 0.42);
+  };
+
+  const issueSignal = (ticker: string): { count: number; score: number } => ({
+    count: Math.max(0, Math.round(getQuote(ticker)?.issueCount ?? 0)),
+    score: clamp01(getQuote(ticker)?.issueScore ?? 0)
+  });
 
   const stockRadius = (ticker: string): number => {
-    const cap = getQuote(ticker)?.marketCap;
-    if (typeof cap === "number" && cap > 0) {
-      return 13 + Math.min(20, Math.sqrt(cap) / 60000);
+    const profile = relationProfile(ticker);
+    if (profile.role === "focal") {
+      return 58;
     }
-    const degree = themesOf(ticker).length + childrenOf(ticker).length + crossPartnersOf(ticker).length;
-    return (ticker === model.focal ? 19 : 15) + Math.min(9, degree * 2);
+    // 원의 면적은 이 GraphDB 관련 기업군 안에서의 시가총액 순위로만 결정한다.
+    return Math.min(50, 14 + Math.pow(marketCapRank(ticker), 0.72) * 34);
+  };
+
+  const membranePadding = (node: SimNode): number => {
+    // 외곽 막의 두께는 거래대금 순위와 시총 대비 회전율만 반영한다.
+    return 5 + node.tradeHeat * 15 + (node.role === "focal" ? 2 : 0);
   };
 
   const fillOfStock = (ticker: string): string => {
-    const change = getQuote(ticker)?.changePercent;
-    if (typeof change !== "number" || Math.abs(change) < 0.3) {
-      return NEUTRAL_FILL;
+    const profile = relationProfile(ticker);
+    if (profile.role === "focal") {
+      return FOCAL_CHARCOAL;
     }
-    return d3.interpolateRgb(NEUTRAL_FILL, change > 0 ? UP_COLOR : DOWN_COLOR)(changeIntensity(change));
+    const issue = issueSignal(ticker);
+    const issueImpact = clamp01(issue.score * 0.76 + Math.min(issue.count, 5) / 5 * 0.24);
+    // 색 진하기는 오늘 이슈 수와 중요도만 사용한다.
+    // 이슈가 없어도 산업군의 청록/하늘색 계열은 읽혀야 하므로 최소 채도를 남긴다.
+    const intensity = 0.4 + Math.pow(issueImpact, 0.72) * 0.6;
+    if (profile.role === "external") {
+      const palette = externalBluePaletteOf(ticker);
+      return d3.interpolateRgb(palette.soft, palette.strong)(intensity);
+    }
+    return d3.interpolateRgb(RELATED_TEAL_SOFT, RELATED_TEAL)(intensity);
   };
 
-  const isDeepFill = (ticker: string): boolean => {
-    const change = getQuote(ticker)?.changePercent;
-    return typeof change === "number" && Math.abs(change) >= 0.3 && changeIntensity(change) > 0.55;
+  const textFillOfStock = (ticker: string): string => {
+    const profile = relationProfile(ticker);
+    const lightness = d3.lab(fillOfStock(ticker)).l;
+    return profile.role === "focal" || lightness < 58 ? PAPER : INK;
+  };
+
+  const fillOfAuxiliaryNode = (node: SimNode): string =>
+    node.role === "external" ? MUTED_BLUE : MUTED_TEAL;
+
+  const membraneColor = (node: SimNode): string => {
+    if (node.role === "focal") return "#303740";
+    const base = d3.color(fillOfStock(node.label));
+    return base?.brighter(0.34).formatHex() ?? fillOfStock(node.label);
+  };
+
+  const strokeOfNode = (node: SimNode): string => {
+    if (node.role === "focal") return FOCAL_CHARCOAL_STROKE;
+    if (node.role !== "external") return RELATED_TEAL;
+    return node.kind === "stock" ? externalBluePaletteOf(node.label).stroke : EXTERNAL_BLUE;
   };
 
   const pctText = (ticker: string): string => {
@@ -236,6 +392,53 @@ function createGraphController(
     const arrow = change >= 0.3 ? "▲" : change <= -0.3 ? "▼" : change >= 0 ? "+" : "-";
     return arrow + Math.abs(change).toFixed(1) + "%";
   };
+
+  const targetDistance = (node: SimNode): number => {
+    if (node.role === "focal") {
+      return 0;
+    }
+    return relationshipOrbitRadius(node) + (node.kind === "company" ? 18 : node.kind === "chip" ? 28 : 0);
+  };
+
+  function industryAngle(key: string): number {
+    const externalKeys = externalIndustryKeys();
+    const index = externalKeys.indexOf(key);
+    const count = Math.max(1, externalKeys.length);
+    const progress = index < 0 || count === 1 ? 0.5 : index / (count - 1);
+    return -Math.PI * 0.88 + progress * Math.PI * 1.76;
+  }
+
+  function nodeIndustryKey(node: SimNode): string {
+    if (node.kind === "stock") return industryGroupKey(node.label);
+    return node.industry?.trim().toLowerCase() || focalIndustryKey();
+  }
+
+  function relationshipOrbitRadius(node: SimNode): number {
+    const directBoost = node.kind === "stock" && isDirectFocalRelation(node.label) ? 0.18 : 0;
+    const affinity = clamp01(node.relevance + directBoost);
+    const position = Math.pow(1 - affinity, 1.16) * (ORBIT_RADII.length - 1);
+    const lower = Math.floor(position);
+    const upper = Math.min(ORBIT_RADII.length - 1, lower + 1);
+    const lowerRadius = ORBIT_RADII[lower] ?? ORBIT_RADII[0];
+    const upperRadius = ORBIT_RADII[upper] ?? lowerRadius;
+    return lowerRadius + (upperRadius - lowerRadius) * (position - lower);
+  }
+
+  function targetPoint(node: SimNode): { x: number; y: number } {
+    if (node.role === "focal") {
+      return { x: FOCAL_X, y: FOCAL_Y };
+    }
+
+    const groupKey = nodeIndustryKey(node);
+    const localAngle = hash01(`${node.id}:angle`) * Math.PI * 2 - Math.PI / 2;
+    const localOffset = (hash01(`${node.id}:industry-offset`) - 0.5) * (node.kind === "stock" ? 1.72 : 0.7);
+    const angle = groupKey === focalIndustryKey() ? localAngle : industryAngle(groupKey) + localOffset;
+    const distance = relationshipOrbitRadius(node) + (node.kind === "company" ? 18 : node.kind === "chip" ? 28 : 0);
+    return {
+      x: FOCAL_X + Math.cos(angle) * distance,
+      y: FOCAL_Y + Math.sin(angle) * distance * 0.84
+    };
+  }
 
   // ---------- 상태 ----------
   const visibleStocks = new Set<string>([model.focal]);
@@ -261,33 +464,51 @@ function createGraphController(
       root.attr("transform", event.transform.toString());
     });
   svg.call(zoomBehavior);
+  const orbitLayer = root.append("g").attr("class", "ofg-orbits");
+  const relationMembraneLayer = root.append("g").attr("class", "ofg-cross-membrane");
   const hullLayer = root.append("g");
-  const linkLayer = root.append("g");
   const nodeLayer = root.append("g");
+
+  orbitLayer
+    .selectAll("circle")
+    .data(ORBIT_RADII)
+    .join("circle")
+    .attr("class", "ofg-orbit")
+    .attr("cx", FOCAL_X)
+    .attr("cy", FOCAL_Y)
+    .attr("r", (radius) => radius);
 
   // ---------- 시뮬레이션 ----------
   const simulation = d3
     .forceSimulation<SimNode>()
-    .velocityDecay(0.6)
-    .alphaDecay(0.055)
-    .force("charge", d3.forceManyBody<SimNode>().strength(-110))
-    .force("collide", d3.forceCollide<SimNode>().radius((d) => (d.kind === "company" ? 82 : d.r + 14)).strength(0.9))
-    .force("x", d3.forceX<SimNode>(LOGICAL_WIDTH / 2).strength(0.03))
-    .force("y", d3.forceY<SimNode>(LOGICAL_HEIGHT / 2).strength(0.03))
+    .velocityDecay(0.58)
+    .alphaDecay(0.048)
+    .force("charge", d3.forceManyBody<SimNode>().strength((d) => d.role === "focal" ? -115 : -44 - d.r * 0.65))
+    .force(
+      "collide",
+      d3.forceCollide<SimNode>()
+        .radius((d) => {
+          if (d.kind === "company") return d.r + 22;
+          if (d.kind === "stock") return d.r + membranePadding(d) + 3;
+          return d.r + 4;
+        })
+        .strength(0.95)
+    )
+    .force("position", positionForce)
     .force("cluster", clusterForce)
     .on("tick", ticked);
 
-  function hullGeometry(theme: string, byId: Map<string, SimNode>): { cx: number; cy: number; r: number; members: SimNode[] } | null {
-    const members = (model.themes.get(theme) ?? [])
-      .filter((ticker) => byId.has("s:" + ticker))
-      .map((ticker) => byId.get("s:" + ticker) as SimNode);
-    if (!members.length) {
-      return null;
-    }
-    const cx = d3.mean(members, (m) => m.x ?? 0) ?? 0;
-    const cy = d3.mean(members, (m) => m.y ?? 0) ?? 0;
-    const r = Math.max(36, (d3.max(members, (m) => Math.hypot((m.x ?? 0) - cx, (m.y ?? 0) - cy) + m.r) ?? 0) + 14);
-    return { cx, cy, r, members };
+  function positionForce(alpha: number): void {
+    simulation.nodes().forEach((node) => {
+      if (node.role === "focal") return;
+      const target = targetPoint(node);
+      const direct = node.kind === "stock" && isDirectFocalRelation(node.label);
+      const strength = node.kind === "stock"
+        ? (direct ? 0.07 : 0.11) + (1 - node.relevance) * 0.04
+        : 0.14;
+      node.vx = (node.vx ?? 0) + (target.x - (node.x ?? target.x)) * strength * alpha;
+      node.vy = (node.vy ?? 0) + (target.y - (node.y ?? target.y)) * strength * alpha;
+    });
   }
 
   // 내용물 경계에 맞춰 자동 줌 — 노드가 적을 땐 확대, 펼쳐지면 축소.
@@ -299,30 +520,26 @@ function createGraphController(
     if (!nodes.length) {
       return;
     }
-    const byId = new Map(nodes.map((node) => [node.id, node]));
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const node of nodes) {
-      minX = Math.min(minX, (node.x ?? 0) - node.r);
-      maxX = Math.max(maxX, (node.x ?? 0) + node.r);
-      minY = Math.min(minY, (node.y ?? 0) - node.r);
-      maxY = Math.max(maxY, (node.y ?? 0) + node.r);
+      const extent = node.r + (node.kind === "stock" ? membranePadding(node) : 4);
+      minX = Math.min(minX, (node.x ?? 0) - extent);
+      maxX = Math.max(maxX, (node.x ?? 0) + extent);
+      minY = Math.min(minY, (node.y ?? 0) - extent);
+      maxY = Math.max(maxY, (node.y ?? 0) + extent);
     }
-    for (const theme of expandedThemes) {
-      const geom = hullGeometry(theme, byId);
-      if (geom) {
-        minX = Math.min(minX, geom.cx - geom.r);
-        maxX = Math.max(maxX, geom.cx + geom.r);
-        minY = Math.min(minY, geom.cy - geom.r - 20);
-        maxY = Math.max(maxY, geom.cy + geom.r);
-      }
-    }
-    const pad = 26;
+    const outerOrbit = ORBIT_RADII.at(-1) ?? 0;
+    minX = Math.min(minX, FOCAL_X - outerOrbit);
+    maxX = Math.max(maxX, FOCAL_X + outerOrbit);
+    minY = Math.min(minY, FOCAL_Y - outerOrbit);
+    maxY = Math.max(maxY, FOCAL_Y + outerOrbit);
+    const pad = 8;
     const width = Math.max(1, maxX - minX + pad * 2);
     const height = Math.max(1, maxY - minY + pad * 2);
-    const scale = Math.max(0.4, Math.min(2.2, Math.min(LOGICAL_WIDTH / width, LOGICAL_HEIGHT / height)));
+    const scale = Math.max(0.5, Math.min(1.12, Math.min(LOGICAL_WIDTH / width, LOGICAL_HEIGHT / height)));
     const tx = LOGICAL_WIDTH / 2 - (scale * (minX + maxX)) / 2;
     const ty = LOGICAL_HEIGHT / 2 - (scale * (minY + maxY)) / 2;
     svg.transition().duration(immediate ? 0 : 420).call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
@@ -339,44 +556,19 @@ function createGraphController(
     }, immediate ? 80 : 650);
   }
 
-  function themeMemberNodes(theme: string): SimNode[] {
-    const byId = new Map(simulation.nodes().map((node) => [node.id, node]));
-    return (model.themes.get(theme) ?? [])
-      .filter((ticker) => byId.has("s:" + ticker))
-      .map((ticker) => byId.get("s:" + ticker) as SimNode);
-  }
-
   function clusterForce(alpha: number): void {
     const nodes = simulation.nodes();
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    for (const theme of expandedThemes) {
-      const geom = hullGeometry(theme, byId);
-      if (!geom) {
-        continue;
-      }
-      const memberSet = new Set(model.themes.get(theme) ?? []);
-      if (geom.members.length >= 2) {
-        for (const member of geom.members) {
-          member.vx = (member.vx ?? 0) + (geom.cx - (member.x ?? 0)) * 0.14 * alpha;
-          member.vy = (member.vy ?? 0) + (geom.cy - (member.y ?? 0)) * 0.14 * alpha;
-        }
-      }
-      // 비멤버는 테마 원 밖으로 밀어냄 — "원 안에 있음 = 진짜 소속"을 보장
-      for (const node of nodes) {
-        if (node.kind === "stock" && memberSet.has(node.label)) {
-          continue;
-        }
-        const dx = (node.x ?? 0) - geom.cx;
-        const dy = (node.y ?? 0) - geom.cy;
-        const dist = Math.hypot(dx, dy) || 1;
-        const wanted = geom.r + node.r + 12;
-        if (dist < wanted) {
-          const push = ((wanted - dist) / dist) * 0.35 * alpha;
-          node.vx = (node.vx ?? 0) + dx * push;
-          node.vy = (node.vy ?? 0) + dy * push;
-        }
-      }
-    }
+    const groups = d3.group(nodes.filter((node) => node.role !== "focal"), nodeIndustryKey);
+    groups.forEach((members) => {
+      if (members.length < 2) return;
+      const centroidX = d3.mean(members, (member) => member.x ?? FOCAL_X) ?? FOCAL_X;
+      const centroidY = d3.mean(members, (member) => member.y ?? FOCAL_Y) ?? FOCAL_Y;
+      const strength = Math.min(0.06, 0.024 + members.length * 0.009);
+      members.forEach((member) => {
+        member.vx = (member.vx ?? 0) + (centroidX - (member.x ?? centroidX)) * strength * alpha;
+        member.vy = (member.vy ?? 0) + (centroidY - (member.y ?? centroidY)) * strength * alpha;
+      });
+    });
   }
 
   function getNode(id: string, init: Partial<SimNode>): SimNode {
@@ -386,6 +578,11 @@ function createGraphController(
         kind: "stock",
         label: "",
         r: 10,
+        role: "related",
+        relevance: 0.4,
+        tradeHeat: 0,
+        issueScore: 0,
+        issueCount: 0,
         x: LOGICAL_WIDTH / 2 + Math.cos(hash01(id) * Math.PI * 2) * 24,
         y: LOGICAL_HEIGHT / 2 + Math.sin(hash01(id) * Math.PI * 2) * 24,
         ...init
@@ -402,19 +599,19 @@ function createGraphController(
     const otherMembers = members.filter((ticker) => ticker !== model.focal);
     const focalNode = getNode("s:" + model.focal, {});
     if (themeCount === 1 && otherMembers.length > 0 && !focalNode.__moved && !focalNode.__wasPinned) {
-      focalNode.x = LOGICAL_WIDTH / 2;
-      focalNode.y = LOGICAL_HEIGHT / 2 + 74;
+      focalNode.x = FOCAL_X;
+      focalNode.y = FOCAL_Y;
     }
 
     const clusterAngle = themeCount <= 1 ? -Math.PI / 2 : (themeIndex / themeCount) * Math.PI * 2 - Math.PI / 2;
-    const originX = LOGICAL_WIDTH / 2 + (themeCount <= 1 ? 0 : Math.cos(clusterAngle) * 92);
-    const originY = LOGICAL_HEIGHT / 2 + (themeCount <= 1 ? -58 : Math.sin(clusterAngle) * 70);
+    const originX = FOCAL_X + (themeCount <= 1 ? -12 : Math.cos(clusterAngle) * 72);
+    const originY = FOCAL_Y + (themeCount <= 1 ? -48 : Math.sin(clusterAngle) * 62);
     otherMembers.forEach((ticker, index) => {
       visibleStocks.add(ticker);
       const node = getNode("s:" + ticker, {});
       if (!node.__moved && !node.__wasPinned) {
         const angle = (index / Math.max(1, otherMembers.length)) * Math.PI * 2 - Math.PI / 2;
-        const radius = otherMembers.length <= 2 ? 46 : 72;
+        const radius = otherMembers.length <= 2 ? 42 : 62;
         node.x = originX + Math.cos(angle) * radius;
         node.y = originY + Math.sin(angle) * Math.max(42, radius * 0.76);
       }
@@ -423,25 +620,69 @@ function createGraphController(
 
   const initialThemes = themesOf(model.focal);
   initialThemes.forEach((theme, index) => revealInitialTheme(theme, index, initialThemes.length));
+  crossPartnersOf(model.focal).forEach((ticker) => visibleStocks.add(ticker));
+  childrenOf(model.focal).slice(0, 8).forEach((company) => visibleCompanies.add(company));
 
   function buildGraph(): { nodes: SimNode[]; links: SimLink[] } {
     const nodes: SimNode[] = [];
     const links: SimLink[] = [];
+    const stockPairs = new Set<string>();
+    const addStockLink = (source: string, target: string, kind: SimLink["kind"]): void => {
+      if (source === target) return;
+      const pair = [source, target].sort().join("|");
+      if (stockPairs.has(pair)) return;
+      stockPairs.add(pair);
+      links.push({ source, target, kind });
+    };
     for (const ticker of visibleStocks) {
-      const node = getNode("s:" + ticker, { kind: "stock", label: ticker });
-      if (!node.__sized) {
-        node.r = stockRadius(ticker);
-        node.__sized = true;
-      }
-      if (ticker === model.focal && visibleStocks.size === 1) {
-        node.fx = LOGICAL_WIDTH / 2;
-        node.fy = LOGICAL_HEIGHT / 2;
+      const profile = relationProfile(ticker);
+      const issues = issueSignal(ticker);
+      const node = getNode("s:" + ticker, {
+        kind: "stock",
+        label: ticker,
+        r: stockRadius(ticker),
+        role: profile.role,
+        relevance: profile.relevance,
+        tradeHeat: tradingHeat(ticker),
+        issueScore: issues.score,
+        issueCount: issues.count,
+        industry: profile.industry
+      });
+      if (ticker === model.focal) {
+        node.fx = FOCAL_X;
+        node.fy = FOCAL_Y;
       } else if (!node.__moved && !node.__wasPinned) {
         node.fx = null;
         node.fy = null;
       }
       nodes.push(node);
     }
+
+    // 직접 연관 기업은 산업군과 무관하게 중심 기업에 우선 연결한다.
+    // 산업군 링크는 군집을 보조할 뿐, 서로 관련된 기업을 멀리 밀어내지 않는다.
+    crossPartnersOf(model.focal)
+      .filter((ticker) => visibleStocks.has(ticker))
+      .forEach((ticker) => addStockLink(`s:${model.focal}`, `s:${ticker}`, "cross"));
+
+    const visibleIndustryGroups = d3.group(
+      Array.from(visibleStocks),
+      industryGroupKey
+    );
+    visibleIndustryGroups.forEach((tickers, groupKey) => {
+      if (!tickers.length) return;
+      const sorted = tickers.slice().sort((a, b) => {
+        if (a === model.focal) return -1;
+        if (b === model.focal) return 1;
+        return relationProfile(b).relevance - relationProfile(a).relevance;
+      });
+      const anchor = sorted[0];
+      if (groupKey !== focalIndustryKey()) {
+        addStockLink(`s:${model.focal}`, `s:${anchor}`, "branch");
+      }
+      sorted.slice(1).forEach((ticker) => {
+        addStockLink(`s:${anchor}`, `s:${ticker}`, "industry");
+      });
+    });
     const chipsByAnchor = new Map<string, string[]>();
     for (const [theme, anchor] of chips) {
       if (!visibleStocks.has(anchor)) {
@@ -457,7 +698,19 @@ function createGraphController(
       const anchorNode = nodeCache.get("s:" + anchor);
       chipThemes.forEach((theme, index) => {
         const isNew = !nodeCache.has("t:" + theme);
-        const node = getNode("t:" + theme, { kind: "chip", label: theme, count: (model.themes.get(theme) ?? []).length, r: 26 });
+        const anchorProfile = relationProfile(anchor);
+        const node = getNode("t:" + theme, {
+          kind: "chip",
+          label: theme,
+          count: (model.themes.get(theme) ?? []).length,
+          r: 22,
+          role: anchorProfile.role === "external" ? "external" : "related",
+          relevance: Math.max(0.34, anchorProfile.relevance * 0.78),
+          tradeHeat: 0,
+          issueScore: 0,
+          issueCount: 0,
+          industry: anchorProfile.industry
+        });
         if (isNew && anchorNode) {
           // 칩은 항상 기준 종목의 "위쪽" 부채꼴에 이름순으로 생성
           const angle = -Math.PI / 2 + (index - (chipThemes.length - 1) / 2) * 0.55;
@@ -483,7 +736,18 @@ function createGraphController(
       const parentNode = nodeCache.get("s:" + parent);
       companyNames.forEach((company, index) => {
         const isNew = !nodeCache.has("c:" + company);
-        const node = getNode("c:" + company, { kind: "company", label: company, r: 12 });
+        const parentProfile = relationProfile(parent);
+        const node = getNode("c:" + company, {
+          kind: "company",
+          label: company,
+          r: 10 + parentProfile.relevance * 5,
+          role: parentProfile.role === "external" ? "external" : "related",
+          relevance: Math.max(0.3, parentProfile.relevance * 0.72),
+          tradeHeat: 0,
+          issueScore: 0,
+          issueCount: 0,
+          industry: parentProfile.industry
+        });
         if (isNew && parentNode) {
           // 자회사는 항상 모회사의 "아래쪽" 부채꼴에 이름순으로 생성
           const angle = Math.PI / 2 + (index - (companyNames.length - 1) / 2) * 0.5;
@@ -496,7 +760,7 @@ function createGraphController(
     });
     for (const cross of model.crossLinks) {
       if (visibleStocks.has(cross.a) && visibleStocks.has(cross.b)) {
-        links.push({ source: "s:" + cross.a, target: "s:" + cross.b, kind: "cross" });
+        addStockLink("s:" + cross.a, "s:" + cross.b, "cross");
       }
     }
     return { nodes, links };
@@ -517,31 +781,6 @@ function createGraphController(
       node.y = (origin.y ?? LOGICAL_HEIGHT / 2) + Math.sin(angle) * 75;
     });
     update(0.45);
-  }
-
-  function collapseTheme(theme: string): void {
-    expandedThemes.delete(theme);
-    const selectedTicker = selectedId?.startsWith("s:") ? selectedId.slice(2) : null;
-    for (const ticker of model.themes.get(theme) ?? []) {
-      if (ticker === model.focal || ticker === selectedTicker) {
-        continue;
-      }
-      const stillNeeded = themesOf(ticker).some((other) => other !== theme && expandedThemes.has(other));
-      if (!stillNeeded) {
-        visibleStocks.delete(ticker);
-        for (const [chipTheme, anchor] of chips) {
-          if (anchor === ticker) {
-            chips.delete(chipTheme);
-          }
-        }
-        childrenOf(ticker).forEach((company) => visibleCompanies.delete(company));
-      }
-    }
-    const anchor = (model.themes.get(theme) ?? []).find((ticker) => visibleStocks.has(ticker));
-    if (anchor) {
-      chips.set(theme, anchor);
-    }
-    update(0.4);
   }
 
   function expandStock(id: string): void {
@@ -579,8 +818,29 @@ function createGraphController(
       d3
         .forceLink<SimNode, d3.SimulationLinkDatum<SimNode>>(links as d3.SimulationLinkDatum<SimNode>[])
         .id((d) => (d as SimNode).id)
-        .distance((link) => ((link as unknown as SimLink).kind === "chip" ? 95 : (link as unknown as SimLink).kind === "control" ? 118 : 70))
-        .strength(0.5)
+        .distance((link) => {
+          const relation = link as unknown as SimLink;
+          if (relation.kind === "chip") return 92;
+          if (relation.kind === "control") return 86;
+          const source = typeof relation.source === "string" ? nodeCache.get(relation.source) : relation.source;
+          const target = typeof relation.target === "string" ? nodeCache.get(relation.target) : relation.target;
+          if (relation.kind === "cross" && source && target) {
+            return source.r + target.r + 10;
+          }
+          const outer = source?.role === "focal" ? target : target?.role === "focal" ? source : target;
+          if (relation.kind === "industry" && source && target) {
+            return source.r + membranePadding(source) + target.r + membranePadding(target) + 6;
+          }
+          return outer ? targetDistance(outer) : 92;
+        })
+        .strength((link) => {
+          const relation = link as unknown as SimLink;
+          const target = typeof relation.target === "string" ? nodeCache.get(relation.target) : relation.target;
+          if (relation.kind === "cross") return 0.72;
+          if (relation.kind === "industry") return 0.68;
+          if (relation.kind === "branch") return 0.52;
+          return 0.32 + (target?.relevance ?? 0.4) * 0.32;
+        })
     );
     simulation.alpha(alpha).restart();
     // 노드 구성이 실제로 바뀐 경우에만 auto-fit — 선택/시세 갱신으로는 배율이 출렁이지 않게
@@ -591,22 +851,13 @@ function createGraphController(
       scheduleFit(firstFit);
     }
 
-    linkLayer
-      .selectAll<SVGLineElement, SimLink>("line")
-      .data(links, (d) => {
-        const source = typeof d.source === "string" ? d.source : d.source.id;
-        const target = typeof d.target === "string" ? d.target : d.target.id;
-        return source + "|" + target;
-      })
-      .join("line")
-      .attr("class", (d) => `ofg-link ofg-link-${d.kind}`);
-
     const nodeGroups = nodeLayer
       .selectAll<SVGGElement, SimNode>("g.ofg-node")
       .data(nodes, (d) => d.id)
       .join((enter) => {
         const group = enter.append("g").attr("class", (d) => "ofg-node ofg-node-" + d.kind);
         const scaleGroup = group.append("g").attr("class", "ofg-node-scale");
+        scaleGroup.append("circle").attr("class", "ofg-halo");
         scaleGroup.append("circle").attr("class", "ofg-body");
         scaleGroup.append("circle").attr("class", "ofg-selected-ring").attr("display", "none");
         scaleGroup.append("text").attr("class", "ofg-ticker");
@@ -650,14 +901,21 @@ function createGraphController(
             })
         );
         return group;
-      });
+      })
+      .attr("class", (d) => `ofg-node ofg-node-${d.kind} ofg-node-role-${d.role}`)
+      .attr("data-relevance", (d) => d.relevance.toFixed(2));
+
+    nodeGroups
+      .select<SVGCircleElement>("circle.ofg-halo")
+      .attr("r", (d) => d.r + (d.role === "focal" ? 12 : 5))
+      .attr("display", (d) => d.role === "focal" ? null : "none");
 
     nodeGroups
       .select<SVGCircleElement>("circle.ofg-body")
       .attr("r", (d) => d.r)
-      .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : d.kind === "company" ? SUBSIDIARY_FILL : null))
-      .attr("stroke", (d) => (d.kind === "stock" ? "rgba(26,26,14,.4)" : d.kind === "company" ? SUBSIDIARY_STROKE : null))
-      .attr("stroke-width", (d) => (d.kind === "company" ? 1.8 : null));
+      .attr("fill", (d) => d.kind === "stock" ? fillOfStock(d.label) : fillOfAuxiliaryNode(d))
+      .attr("stroke", (d) => strokeOfNode(d))
+      .attr("stroke-width", (d) => d.role === "focal" ? 2.4 : 1.4);
     nodeGroups
       .select<SVGCircleElement>("circle.ofg-selected-ring")
       .attr("r", (d) => d.r + 5)
@@ -666,19 +924,28 @@ function createGraphController(
       .select<SVGTextElement>("text.ofg-ticker")
       .attr("y", (d) => (d.kind === "chip" ? -2 : d.kind === "company" ? 0 : 0))
       .attr("dy", (d) => (d.kind === "stock" ? "-0.15em" : d.kind === "company" ? "0.35em" : 0))
-      .style("font-size", (d) => `${TYPE_ROLE[tickerTypeRole(d)].size}px`)
+      .style("font-size", (d) => {
+        const baseSize = TYPE_ROLE[tickerTypeRole(d)].size;
+        if (d.kind !== "stock") return `${baseSize}px`;
+        const fittedSize = (d.r * 2.2) / Math.max(3, d.label.length);
+        return `${Math.max(7, Math.min(baseSize, fittedSize))}px`;
+      })
       .style("font-weight", (d) => `${TYPE_ROLE[tickerTypeRole(d)].weight}`)
       .style("line-height", (d) => `${TYPE_ROLE[tickerTypeRole(d)].lineHeight}`)
       .style("letter-spacing", (d) => `${TYPE_ROLE[tickerTypeRole(d)].letterSpacing}px`)
       .style("text-transform", (d) => TYPE_ROLE[tickerTypeRole(d)].textTransform)
-      .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null))
-      .text((d) => (d.kind === "company" ? "자회사" : d.label.length > 11 ? d.label.slice(0, 10) + "…" : d.label));
+      .style("fill", (d) => d.kind === "stock" ? textFillOfStock(d.label) : INK)
+      .text((d) => {
+        if (d.kind === "company") return "계열";
+        if (d.kind === "chip") return d.label.length > 5 ? d.label.slice(0, 4) + "…" : d.label;
+        return d.label.length > 6 ? d.label.slice(0, 5) + "…" : d.label;
+      });
     nodeGroups
       .select<SVGTextElement>("text.ofg-pct")
       .attr("y", 3)
       .attr("dy", "0.85em")
       .attr("fill", (d) =>
-        d.kind === "stock" ? (isDeepFill(d.label) ? "rgba(239,239,232,.9)" : "rgba(26,26,14,.72)") : "rgba(26,26,14,.6)"
+        d.kind === "stock" ? (textFillOfStock(d.label) === PAPER ? "rgba(255,249,243,.86)" : "rgba(26,26,14,.7)") : "rgba(26,26,14,.6)"
       )
       .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
     nodeGroups
@@ -690,7 +957,7 @@ function createGraphController(
       .style("line-height", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].lineHeight}`)
       .style("letter-spacing", (d) => `${TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].letterSpacing}px`)
       .style("text-transform", (d) => TYPE_ROLE[d.kind === "company" ? "caption" : "caption"].textTransform)
-      .style("fill", (d) => (d.kind === "company" ? SUBSIDIARY_TEXT : null))
+      .style("fill", INK)
       .each(function renderCountOrCompanyName(d) {
         const text = d3.select(this);
         text.selectAll("tspan").remove();
@@ -699,10 +966,7 @@ function createGraphController(
           return;
         }
         if (d.kind === "company") {
-          text.text(null);
-          subsidiaryDisplayLines(d.label).forEach((line, index) => {
-            text.append("tspan").attr("x", 0).attr("dy", index === 0 ? 0 : "1.12em").text(line);
-          });
+          text.text("");
           return;
         }
         text.text("");
@@ -711,7 +975,9 @@ function createGraphController(
       if (d.kind === "stock") {
         const quote = getQuote(d.label);
         const price = typeof quote?.lastPrice === "number" ? ` · ${quote.lastPrice.toFixed(2)}` : "";
-        return `${d.label}${price} · 테마: ${themesOf(d.label).join(", ") || "없음"}`;
+        const industry = quote?.industry ? ` · ${quote.industry}` : "";
+        const issues = d.issueCount > 0 ? ` · 오늘 이슈 ${d.issueCount}건` : "";
+        return `${d.label}${price}${industry} · 관련도 ${Math.round(d.relevance * 100)}% · 거래 열기 ${Math.round(d.tradeHeat * 100)}%${issues} · 테마: ${themesOf(d.label).join(", ") || "없음"}`;
       }
       if (d.kind === "chip") {
         return `테마 "${d.label}" 펼치기 (${d.count ?? 0}종목)`;
@@ -720,85 +986,193 @@ function createGraphController(
     });
   }
 
+  function industryHulls(nodes: SimNode[]): HullDatum[] {
+    const groups = new Map<string, { tone: "primary" | "external"; members: SimNode[] }>();
+    nodes.filter((node) => node.kind === "stock").forEach((node) => {
+      const industryKey = nodeIndustryKey(node);
+      const tone = industryKey === focalIndustryKey() ? "primary" : "external";
+      const key = `${tone}:${industryKey}`;
+      if (!groups.has(key)) groups.set(key, { tone, members: [] });
+      groups.get(key)?.members.push(node);
+    });
+    const result: HullDatum[] = [];
+    groups.forEach((group, key) => {
+      if (!group.members.length) return;
+      result.push({
+        key,
+        tone: group.tone,
+        members: group.members
+      });
+    });
+    return result;
+  }
+
+  function membraneLinks(members: SimNode[]): MembraneLink[] {
+    if (members.length < 2) return [];
+    const connected = new Set<SimNode>([members[0]]);
+    const remaining = new Set(members.slice(1));
+    const links: MembraneLink[] = [];
+    while (remaining.size) {
+      let bestSource: SimNode | null = null;
+      let bestTarget: SimNode | null = null;
+      let bestDistance = Infinity;
+      for (const source of connected) {
+        for (const target of remaining) {
+          const distance = Math.hypot((source.x ?? 0) - (target.x ?? 0), (source.y ?? 0) - (target.y ?? 0));
+          if (distance < bestDistance) {
+            bestSource = source;
+            bestTarget = target;
+            bestDistance = distance;
+          }
+        }
+      }
+      if (!bestSource || !bestTarget) break;
+      const sourceOuterRadius = bestSource.r + membranePadding(bestSource);
+      const targetOuterRadius = bestTarget.r + membranePadding(bestTarget);
+      const tradeHeat = Math.max(bestSource.tradeHeat, bestTarget.tradeHeat);
+      const maximumBridge = (sourceOuterRadius + targetOuterRadius) * (1.34 + tradeHeat * 0.2);
+      if (bestDistance <= maximumBridge) {
+        links.push({ key: `${bestSource.id}|${bestTarget.id}`, source: bestSource, target: bestTarget });
+      }
+      connected.add(bestTarget);
+      remaining.delete(bestTarget);
+    }
+    return links;
+  }
+
+  function crossIndustryMembraneLinks(nodes: SimNode[]): MembraneLink[] {
+    const stocksByTicker = new Map(nodes.filter((node) => node.kind === "stock").map((node) => [node.label, node]));
+    const seen = new Set<string>();
+    const links: MembraneLink[] = [];
+    model.crossLinks.forEach((cross) => {
+      const source = stocksByTicker.get(cross.a);
+      const target = stocksByTicker.get(cross.b);
+      if (!source || !target || nodeIndustryKey(source) === nodeIndustryKey(target)) return;
+      const key = [source.id, target.id].sort().join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      links.push({ key: `cross:${key}`, source, target });
+    });
+    return links;
+  }
+
+  type CircleGeometry = { x: number; y: number; r: number };
+
+  function pointOnCircle(
+    circle: { x: number; y: number; r?: number },
+    angle: number,
+    distance = circle.r ?? 0
+  ): { x: number; y: number } {
+    return {
+      x: circle.x + Math.cos(angle) * distance,
+      y: circle.y + Math.sin(angle) * distance
+    };
+  }
+
+  function metaballBridgePath(
+    first: CircleGeometry,
+    second: CircleGeometry,
+    curvature = 0.52,
+    handleRate = 2.25
+  ): string | null {
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    const distance = Math.hypot(dx, dy);
+    if (!Number.isFinite(distance) || distance <= Math.abs(first.r - second.r) + 0.1) return null;
+    if (distance > (first.r + second.r) * 1.58) return null;
+
+    const direction = Math.atan2(dy, dx);
+    let overlapAngleFirst = 0;
+    let overlapAngleSecond = 0;
+    if (distance < first.r + second.r) {
+      overlapAngleFirst = Math.acos(
+        Math.max(-1, Math.min(1, (first.r * first.r + distance * distance - second.r * second.r) / (2 * first.r * distance)))
+      );
+      overlapAngleSecond = Math.acos(
+        Math.max(-1, Math.min(1, (second.r * second.r + distance * distance - first.r * first.r) / (2 * second.r * distance)))
+      );
+    }
+
+    const spread = Math.acos(Math.max(-1, Math.min(1, (first.r - second.r) / distance)));
+    const angleFirstTop = direction + overlapAngleFirst + (spread - overlapAngleFirst) * curvature;
+    const angleFirstBottom = direction - overlapAngleFirst - (spread - overlapAngleFirst) * curvature;
+    const angleSecondTop = direction + Math.PI - overlapAngleSecond - (Math.PI - overlapAngleSecond - spread) * curvature;
+    const angleSecondBottom = direction - Math.PI + overlapAngleSecond + (Math.PI - overlapAngleSecond - spread) * curvature;
+
+    const firstTop = pointOnCircle(first, angleFirstTop);
+    const firstBottom = pointOnCircle(first, angleFirstBottom);
+    const secondTop = pointOnCircle(second, angleSecondTop);
+    const secondBottom = pointOnCircle(second, angleSecondBottom);
+    const bridgeLength = Math.hypot(firstTop.x - secondTop.x, firstTop.y - secondTop.y);
+    const handleFactor = Math.min(curvature * handleRate, bridgeLength / Math.max(1, first.r + second.r));
+    const firstHandle = first.r * handleFactor;
+    const secondHandle = second.r * handleFactor;
+    const firstTopControl = pointOnCircle(firstTop, angleFirstTop - Math.PI / 2, firstHandle);
+    const secondTopControl = pointOnCircle(secondTop, angleSecondTop + Math.PI / 2, secondHandle);
+    const secondBottomControl = pointOnCircle(secondBottom, angleSecondBottom - Math.PI / 2, secondHandle);
+    const firstBottomControl = pointOnCircle(firstBottom, angleFirstBottom + Math.PI / 2, firstHandle);
+
+    return [
+      `M${firstTop.x},${firstTop.y}`,
+      `C${firstTopControl.x},${firstTopControl.y} ${secondTopControl.x},${secondTopControl.y} ${secondTop.x},${secondTop.y}`,
+      `A${second.r},${second.r} 0 0 1 ${secondBottom.x},${secondBottom.y}`,
+      `C${secondBottomControl.x},${secondBottomControl.y} ${firstBottomControl.x},${firstBottomControl.y} ${firstBottom.x},${firstBottom.y}`,
+      `A${first.r},${first.r} 0 0 1 ${firstTop.x},${firstTop.y}`,
+      "Z"
+    ].join(" ");
+  }
+
+  function outerCircle(node: SimNode): CircleGeometry {
+    return {
+      x: node.x ?? 0,
+      y: node.y ?? 0,
+      r: node.r + membranePadding(node)
+    };
+  }
+
   function ticked(): void {
-    linkLayer
-      .selectAll<SVGLineElement, SimLink>("line")
-      .attr("x1", (d) => (typeof d.source === "string" ? 0 : d.source.x ?? 0))
-      .attr("y1", (d) => (typeof d.source === "string" ? 0 : d.source.y ?? 0))
-      .attr("x2", (d) => (typeof d.target === "string" ? 0 : d.target.x ?? 0))
-      .attr("y2", (d) => (typeof d.target === "string" ? 0 : d.target.y ?? 0));
     nodeLayer.selectAll<SVGGElement, SimNode>("g.ofg-node").attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
 
-    const byId = new Map(simulation.nodes().map((node) => [node.id, node]));
-    const hulls: HullDatum[] = [];
-    for (const theme of expandedThemes) {
-      const geom = hullGeometry(theme, byId);
-      if (geom) {
-        hulls.push({ theme, cx: geom.cx, cy: geom.cy, r: geom.r });
-      }
-    }
+    const hulls = industryHulls(simulation.nodes());
+    relationMembraneLayer
+      .selectAll<SVGPathElement, MembraneLink>("path.ofg-cross-metaball-bridge")
+      .data(crossIndustryMembraneLinks(simulation.nodes()), (link) => link.key)
+      .join("path")
+      .attr("class", "ofg-cross-metaball-bridge")
+      .attr("fill", (link) => d3.interpolateRgb(membraneColor(link.source), membraneColor(link.target))(0.5))
+      .attr("d", (link) => metaballBridgePath(outerCircle(link.source), outerCircle(link.target), 0.44, 1.9) ?? "");
 
     const hullGroups = hullLayer
       .selectAll<SVGGElement, HullDatum>("g.ofg-hull")
-      .data(hulls, (d) => d.theme)
+      .data(hulls, (d) => d.key)
       .join((enter) => {
         const group = enter.append("g").attr("class", "ofg-hull");
-        group.append("circle").attr("class", "ofg-hull-circle");
-        const grab = group.append("circle").attr("class", "ofg-hull-grab");
-        grab.append("title").text("점선을 끌면 테마 전체가 이동");
-        grab.call(
-          d3
-            .drag<SVGCircleElement, HullDatum>()
-            .on("start", (_event, d) => {
-              simulation.alphaTarget(0.15).restart();
-              for (const member of themeMemberNodes(d.theme)) {
-                member.__wasPinned = member.fx != null;
-                member.fx = member.x;
-                member.fy = member.y;
-              }
-            })
-            .on("drag", (event, d) => {
-              for (const member of themeMemberNodes(d.theme)) {
-                member.fx = (member.fx ?? 0) + event.dx;
-                member.fy = (member.fy ?? 0) + event.dy;
-              }
-            })
-            .on("end", (_event, d) => {
-              simulation.alphaTarget(0);
-              for (const member of themeMemberNodes(d.theme)) {
-                if (!member.__wasPinned) {
-                  member.fx = null;
-                  member.fy = null;
-                }
-              }
-            })
-        );
-        const label = group.append("text").attr("class", "ofg-hull-label");
-        label.append("tspan").attr("class", "ofg-hull-name");
-        label.append("tspan").attr("class", "ofg-hull-close").attr("dx", 6).text("접기 ✕");
-        label.on("click", (event: MouseEvent, d) => {
-          event.stopPropagation();
-          collapseTheme(d.theme);
-        });
+        group.append("g").attr("class", "ofg-membrane");
         return group;
-      });
+      })
+      .attr("class", (d) => `ofg-hull is-${d.tone}`);
 
     hullGroups
-      .select<SVGCircleElement>("circle.ofg-hull-circle")
-      .attr("cx", (d) => d.cx)
-      .attr("cy", (d) => d.cy)
-      .attr("r", (d) => d.r);
-    hullGroups
-      .select<SVGCircleElement>("circle.ofg-hull-grab")
-      .attr("cx", (d) => d.cx)
-      .attr("cy", (d) => d.cy)
-      .attr("r", (d) => d.r);
-    hullGroups
-      .select<SVGTextElement>("text.ofg-hull-label")
-      .attr("x", (d) => d.cx)
-      .attr("y", (d) => d.cy - d.r - 8)
-      .attr("text-anchor", "middle");
-    hullGroups.select<SVGTSpanElement>("tspan.ofg-hull-name").text((d) => d.theme);
+      .select<SVGGElement>("g.ofg-membrane")
+      .each(function renderMembrane(datum) {
+        const membrane = d3.select(this);
+        membrane
+          .selectAll<SVGPathElement, MembraneLink>("path.ofg-metaball-bridge")
+          .data(membraneLinks(datum.members), (link) => link.key)
+          .join("path")
+          .attr("class", "ofg-metaball-bridge")
+          .attr("fill", (link) => d3.interpolateRgb(membraneColor(link.source), membraneColor(link.target))(0.5))
+          .attr("d", (link) => metaballBridgePath(outerCircle(link.source), outerCircle(link.target)) ?? "");
+        membrane
+          .selectAll<SVGCircleElement, SimNode>("circle.ofg-membrane-circle")
+          .data(datum.members, (node) => node.id)
+          .join("circle")
+          .attr("class", (node) => `ofg-membrane-circle${node.tradeHeat >= 0.72 ? " is-hot" : ""}`)
+          .attr("fill", membraneColor)
+          .attr("cx", (node) => node.x ?? 0)
+          .attr("cy", (node) => node.y ?? 0)
+          .attr("r", (node) => node.r + membranePadding(node));
+      });
   }
 
   svg.on("click", () => {
@@ -811,19 +1185,8 @@ function createGraphController(
 
   return {
     refreshQuotes(): void {
-      const nodeGroups = nodeLayer.selectAll<SVGGElement, SimNode>("g.ofg-node");
-      nodeGroups
-        .select<SVGCircleElement>("circle.ofg-body")
-        .attr("fill", (d) => (d.kind === "stock" ? fillOfStock(d.label) : d.kind === "company" ? SUBSIDIARY_FILL : null));
-      nodeGroups
-        .select<SVGTextElement>("text.ofg-ticker")
-        .style("fill", (d) => (d.kind === "stock" ? (isDeepFill(d.label) ? PAPER : INK) : d.kind === "company" ? SUBSIDIARY_TEXT : null));
-      nodeGroups
-        .select<SVGTextElement>("text.ofg-pct")
-        .attr("fill", (d) =>
-          d.kind === "stock" ? (isDeepFill(d.label) ? "rgba(239,239,232,.9)" : "rgba(26,26,14,.72)") : "rgba(26,26,14,.6)"
-        )
-        .text((d) => (d.kind === "stock" ? pctText(d.label) : ""));
+      update(0.2);
+      scheduleFit(false);
     },
     destroy(): void {
       if (fitTimer !== undefined) {
@@ -878,7 +1241,34 @@ export function OntologyForceGraph({
   }
 
   const selectedQuote = selectedTicker ? getQuote(selectedTicker) : undefined;
+  const focalQuote = getQuote(model.focal);
+  const focalIndustry = (focalQuote?.industry || focalQuote?.sector || "산업 미분류").trim();
+  const industryGroups = new Map<string, { label: string; count: number; primary: boolean }>();
+  model.stocks.forEach((ticker) => {
+    const quote = getQuote(ticker);
+    const rawLabel = (quote?.industry || quote?.sector || "산업 미분류").trim();
+    const key = rawLabel.toLowerCase();
+    const existing = industryGroups.get(key);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    industryGroups.set(key, {
+      label: industryDisplayLabel(rawLabel),
+      count: 1,
+      primary: key === focalIndustry.toLowerCase()
+    });
+  });
+  const industryLegend = Array.from(industryGroups.entries())
+    .map(([key, group]) => ({ key, ...group }))
+    .sort((a, b) => Number(b.primary) - Number(a.primary) || b.count - a.count || a.label.localeCompare(b.label));
+  const legendExternalKeys = industryLegend.filter((industry) => !industry.primary).map((industry) => industry.key).sort();
   const selectedThemes = selectedTicker ? model.themesOf.get(selectedTicker) ?? [] : [];
+  const selectedRoleLabel = selectedTicker === model.focal
+    ? "중심 기업"
+    : selectedQuote?.industry && focalQuote?.industry && selectedQuote.industry !== focalQuote.industry
+      ? "타 산업 연관 기업"
+      : "동일 산업 연관 기업";
   const selectedChildren: string[] = [];
   if (selectedTicker) {
     model.companies.forEach((parent, company) => {
@@ -894,16 +1284,21 @@ export function OntologyForceGraph({
       {selectedTicker && (
         <div className="ofg-detail">
           <strong>{selectedTicker}</strong>
+          <span className="ofg-detail-role">{selectedRoleLabel}</span>
           {selectedQuote?.companyName && <span className="ofg-detail-name">{selectedQuote.companyName}</span>}
           {typeof selectedQuote?.changePercent === "number" && (
             <span
               className="ofg-detail-chg"
-              style={{ color: selectedQuote.changePercent >= 0.3 ? UP_COLOR : selectedQuote.changePercent <= -0.3 ? DOWN_COLOR : undefined }}
+              style={{ color: selectedQuote.changePercent >= 0.3 ? CHANGE_UP : selectedQuote.changePercent <= -0.3 ? CHANGE_DOWN : undefined }}
             >
               {(selectedQuote.changePercent >= 0 ? "+" : "") + selectedQuote.changePercent.toFixed(2)}%
             </span>
           )}
           {typeof selectedQuote?.lastPrice === "number" && <span className="ofg-detail-price">{selectedQuote.lastPrice.toFixed(2)}</span>}
+          {selectedQuote?.industry && <span className="ofg-detail-industry">{selectedQuote.industry}</span>}
+          {typeof selectedQuote?.issueCount === "number" && selectedQuote.issueCount > 0 && (
+            <span className="ofg-detail-industry">오늘 이슈 {selectedQuote.issueCount}건</span>
+          )}
           {selectedThemes.length > 0 && <div className="ofg-detail-tags">{selectedThemes.map((theme) => <em key={theme}>{theme}</em>)}</div>}
           {selectedChildren.length > 0 && (
             <div className="ofg-detail-tags">
@@ -920,13 +1315,32 @@ export function OntologyForceGraph({
           </button>
         </div>
       )}
+      <div className="ofg-industry-legend" aria-label="현재 온톨로지 산업군">
+        {industryLegend.map((industry) => (
+          <span key={industry.key} title={`${industry.label} · ${industry.count}개 기업`}>
+            <i
+              aria-hidden="true"
+              style={{
+                backgroundColor: industry.primary
+                  ? RELATED_TEAL
+                  : externalBluePaletteForIndustry(industry.key, legendExternalKeys).strong
+              }}
+            />
+            <em>{industry.label}</em>
+            <small>{industry.count}</small>
+          </span>
+        ))}
+      </div>
       <div className="ofg-legend-hint" tabIndex={0} aria-label="범례">
         ⓘ
         <div className="ofg-legend-pop" role="tooltip">
-          <div>초록 = 상승 · 빨강 = 하락, 진할수록 등락 폭 큼</div>
-          <div>원 크기 = 시가총액</div>
-          <div>점선 원 = 테마, 점선을 드래그하면 그룹째 이동</div>
-          <div>칩 클릭 = 테마 펼치기 · 종목 클릭 = 관계 확장</div>
+          <div><b>차콜</b> 중심 기업</div>
+          <div><b>청록</b> 동일 산업 연관 기업</div>
+          <div><b>하늘색</b> 다른 산업의 연관 기업</div>
+          <div>하늘색 색조 = 산업군, 진하기 = 관계 관련도</div>
+          <div>동심원 = 중심 기업에서의 관계 반경</div>
+          <div>연결된 외곽 막 = 동일 산업군</div>
+          <div>종목 클릭 = 관계 확장</div>
         </div>
       </div>
     </div>

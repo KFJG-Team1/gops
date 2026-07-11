@@ -20,6 +20,16 @@ function readSymbolArray(value: unknown): string[] {
     .map((item) => item.trim().toUpperCase());
 }
 
+function readRelationScore(raw: Record<string, unknown>): number | undefined {
+  for (const key of ["relationScore", "relevanceScore", "confidence"]) {
+    const value = raw[key];
+    const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+    if (!Number.isFinite(numeric)) continue;
+    return Math.max(0, Math.min(1, numeric > 1 ? numeric / 100 : numeric));
+  }
+  return undefined;
+}
+
 function isRelationshipNote(value: string): boolean {
   const normalized = value.replace(/\s+/g, " ").trim().toLowerCase();
   return Boolean(normalized) && (
@@ -49,10 +59,13 @@ export function buildOntologyGraphFromEvidence(
   const ensureSymbolNode = (ticker: string) => ensureNode(`symbol:${ticker.toUpperCase()}`, ticker.toUpperCase(), "symbol");
   const ensureThemeNode = (theme: string) => ensureNode(`theme:${theme}`, theme, "theme");
   const ensureCompanyNode = (name: string) => ensureNode(`company:${name}`, name, "company");
-  const addEdge = (source: string, target: string, kind: OntologyGraphEdgeKind, label?: string) => {
+  const addEdge = (source: string, target: string, kind: OntologyGraphEdgeKind, label?: string, relationScore?: number) => {
     const id = `${kind}:${source}->${target}`;
-    if (!edges.has(id)) {
-      edges.set(id, { id, source, target, kind, label });
+    const existing = edges.get(id);
+    if (!existing) {
+      edges.set(id, { id, source, target, kind, label, relationScore });
+    } else if ((relationScore ?? 0) > (existing.relationScore ?? 0)) {
+      existing.relationScore = relationScore;
     }
   };
 
@@ -62,12 +75,13 @@ export function buildOntologyGraphFromEvidence(
     }
     const raw = item.raw ?? {};
     const relationType = readNonEmptyString(raw.relationType);
+    const relationScore = readRelationScore(raw);
 
     if (relationType === "theme" || relationType === "theme-company") {
       const ticker = readNonEmptyString(raw.ticker)?.toUpperCase() ?? symbol;
       const theme = readNonEmptyString(raw.themeName);
       if (theme) {
-        addEdge(ensureSymbolNode(ticker), ensureThemeNode(theme), "theme");
+        addEdge(ensureSymbolNode(ticker), ensureThemeNode(theme), "theme", undefined, relationScore ?? 0.72);
         matched = true;
       }
       continue;
@@ -77,7 +91,7 @@ export function buildOntologyGraphFromEvidence(
       const ticker = readNonEmptyString(raw.ticker)?.toUpperCase() ?? symbol;
       const controlled = readNonEmptyString(raw.controlledName);
       if (controlled && !isRelationshipNote(controlled)) {
-        addEdge(ensureSymbolNode(ticker), ensureCompanyNode(controlled), "control");
+        addEdge(ensureSymbolNode(ticker), ensureCompanyNode(controlled), "control", undefined, relationScore ?? 0.92);
         matched = true;
       }
       continue;
@@ -88,7 +102,7 @@ export function buildOntologyGraphFromEvidence(
       const symbols = readSymbolArray(raw.symbols);
       if (theme && symbols.length >= 2) {
         const themeId = ensureThemeNode(theme);
-        symbols.forEach((ticker) => addEdge(ensureSymbolNode(ticker), themeId, "shared-theme"));
+        symbols.forEach((ticker) => addEdge(ensureSymbolNode(ticker), themeId, "shared-theme", undefined, relationScore ?? 0.66));
         matched = true;
       }
       continue;
@@ -102,7 +116,8 @@ export function buildOntologyGraphFromEvidence(
           ensureSymbolNode(controller),
           ensureSymbolNode(controlled),
           "cross-control",
-          readNonEmptyString(raw.controlledName)
+          readNonEmptyString(raw.controlledName),
+          relationScore ?? 0.95
         );
         matched = true;
       }

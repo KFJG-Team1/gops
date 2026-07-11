@@ -244,12 +244,12 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioInvested",
-    title: "Invested",
+    title: "Investment Flow",
     agentPanelType: "portfolioInvested",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 320, height: 220 },
-    defaultSpan: { colSpan: 2, rowSpan: 3 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
     defaultLayoutWeight: 36
   },
   {
@@ -260,7 +260,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 3, rowSpan: 2 },
-    defaultLayoutWeight: 34
+    defaultLayoutWeight: 34,
+    insertable: false
   },
   {
     kind: "portfolioDiversification",

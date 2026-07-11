@@ -673,7 +673,10 @@ function EarningsPanel({
 function ValuationGaugePanel({ metrics }: { metrics: ValuationMetric[] }) {
   return (
     <section className="company-valuation-panel" aria-label="가치평가">
-      <h3>가치평가</h3>
+      <div className="company-section-heading">
+        <h3>가치평가</h3>
+        <span>가격 · 재무 기준 핵심 배수</span>
+      </div>
       <div className="company-valuation-gauge-grid">
         {metrics.map((metric) => (
           <ValuationCard key={metric.label} metric={metric} />

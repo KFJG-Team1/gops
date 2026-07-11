@@ -1218,10 +1218,13 @@ export function setPrimaryChartSymbol(
       timeframe: "1D"
     });
   }
-  const defaultChartRect = { col: 1, row: 3, colSpan: 8, rowSpan: 3 };
-  const gridRect = canPlaceGridRect(state, defaultChartRect, { kind: "chart" })
-    ? defaultChartRect
-    : firstAvailableGridRect(state, "chart");
+  const preferredChartRects = [
+    { col: 1, row: 4, colSpan: 8, rowSpan: 3 },
+    { col: 1, row: 3, colSpan: 8, rowSpan: 3 }
+  ];
+  const gridRect = preferredChartRects.find((candidate) => (
+    canPlaceGridRect(state, candidate, { kind: "chart" })
+  )) ?? firstAvailableGridRect(state, "chart");
   return gridRect
     ? addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics)
     : state;
