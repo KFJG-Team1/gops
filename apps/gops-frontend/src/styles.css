@@ -16936,3 +16936,60 @@ textarea:focus,
   color: #fff;
   box-shadow: none;
 }
+
+/* Pre-trade risk verdict box in the order ticket. */
+.order-risk-box {
+  display: grid;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--color-surface);
+  font: var(--type-body-md);
+  color: var(--color-text);
+  border-left: 3px solid var(--color-muted);
+}
+
+.order-risk-box.order-risk-allow {
+  border-left-color: var(--color-up);
+}
+
+.order-risk-box.order-risk-resize {
+  border-left-color: var(--coinbase-yellow60, #b58a00);
+}
+
+.order-risk-box.order-risk-block {
+  border-left-color: var(--color-danger);
+}
+
+.order-risk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.order-risk-block .order-risk-header strong {
+  color: var(--color-danger);
+}
+
+.order-risk-apply {
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: var(--color-text);
+  font: var(--type-button);
+  color: var(--color-background);
+  cursor: pointer;
+}
+
+.order-risk-rules {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  color: var(--color-muted);
+}
+
+.order-risk-rules li[data-risk-action="block"] {
+  color: var(--color-danger);
+}
