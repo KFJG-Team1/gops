@@ -2987,7 +2987,7 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1D" || interval === "1W" || interval === "1M";
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W" || interval === "1M";
 }
 
 function latestClosedTimestamp(candles: CandleDto[]): string | null {
