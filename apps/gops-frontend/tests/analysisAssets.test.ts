@@ -103,6 +103,8 @@ assert.match(opsSource, /const estimatedCalls = symbolCount;/);
 assert.match(opsSource, /deleteChartAssets/);
 assert.match(opsSource, /작도 자산 삭제/);
 assert.match(opsSource, /작도 없음/);
+assert.match(opsSource, /addEventListener\("log"/);
+assert.match(opsSource, /createdEntities/);
 
 const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDrawing], asset, {
   structure: true,

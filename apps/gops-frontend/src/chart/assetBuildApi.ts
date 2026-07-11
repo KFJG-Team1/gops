@@ -32,7 +32,8 @@ export type ChartAssetBuildStatus = {
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
   recentItems: ChartAssetBuildItem[];
   failedItems?: ChartAssetBuildItem[];
-  logs: string[];
+  logs?: string[];
+  createdEntities?: number;
   cancelRequested: boolean;
   startedAt: string | null;
   finishedAt: string | null;
