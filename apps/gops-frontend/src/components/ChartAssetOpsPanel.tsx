@@ -49,7 +49,7 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [job?.logs]);
+  }, [job?.logs?.length]);
 
   useEffect(() => {
     if (!accepted) {
@@ -58,10 +58,14 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
     let active = true;
     let pollingTimer: number | null = null;
     let source: EventSource | null = null;
+    let streamedLogs: string[] = [];
 
     const applyStatus = (next: ChartAssetBuildStatus) => {
       if (!active) return;
-      setJob(next);
+      setJob((current) => ({
+        ...next,
+        logs: streamedLogs.length ? streamedLogs : current?.jobId === next.jobId ? current.logs ?? [] : []
+      }));
       if (terminalStatuses.has(next.status)) {
         invalidateAnalysisAssets();
         source?.close();
@@ -93,6 +97,16 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
         }
       };
       source.addEventListener("status", handleStatus as EventListener);
+      source.addEventListener("log", ((event: MessageEvent) => {
+        try {
+          const payload = JSON.parse(event.data) as { message?: unknown };
+          if (typeof payload.message !== "string" || !payload.message) return;
+          streamedLogs = [...streamedLogs, payload.message].slice(-200);
+          setJob((current) => current ? { ...current, logs: streamedLogs } : current);
+        } catch {
+          // Ephemeral logs may be dropped; status polling remains authoritative.
+        }
+      }) as EventListener);
       source.onerror = startPolling;
     } catch {
       startPolling();
@@ -193,10 +207,10 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
-          <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{job.logs.slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
+          <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{(job.logs ?? []).slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
           {failedSymbols.length > 0 && <p>실패: {failedSymbols.join(", ")}</p>}
         </section>
       )}
