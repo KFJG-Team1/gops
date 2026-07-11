@@ -98,7 +98,6 @@ type PanelWorkspaceProps = {
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
-  semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onAgentAsk: () => void;
@@ -178,7 +177,6 @@ export function PanelWorkspace({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
-  semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onAgentAsk,
@@ -806,6 +804,15 @@ export function PanelWorkspace({
     width: scrollBounds.width,
     height: scrollBounds.top + scrollBounds.height + (layoutMetrics.bottomInset ?? workspaceBottomInset)
   };
+  const primaryChartContent = panelState.slots
+    .map((slot) => panelState.contents[slot.contentId])
+    .find((content) => content?.kind === "chart");
+  const primaryChartDocument = primaryChartContent
+    ? chartRuntime.documents[chartDocumentIdForContent(primaryChartContent)]
+    : undefined;
+  const primaryChartCandles = primaryChartDocument
+    ? getCandlesForDocument(chartRuntime, primaryChartDocument) as CandleDto[]
+    : [];
   const renderWorkspacePanel = (slot: PanelSlot) => {
     const content = panelState.contents[slot.contentId];
     if (!content) {
@@ -869,6 +876,8 @@ export function PanelWorkspace({
           chartHeaderSnapshot={chartHeaders[content.id]}
           chartDocument={chartDocument}
           chartCandles={chartCandles}
+          activeChartDocument={primaryChartDocument}
+          activeChartCandles={primaryChartCandles}
           chartDataStatus={chartDataStatus}
           chartStreamStatus={chartStreamStatus}
           chartStreamMessage={chartStreamMessage}
@@ -878,7 +887,6 @@ export function PanelWorkspace({
           selectedAgentReferenceKeys={selectedAgentReferenceKeys}
           emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
           emphasizeChartSelection={emphasizeChartSelection}
-          semanticSelection={semanticSelection}
           setSemanticSelection={setSemanticSelection}
           onAgentReferenceSelect={onAgentReferenceSelect}
           onAgentAsk={onAgentAsk}

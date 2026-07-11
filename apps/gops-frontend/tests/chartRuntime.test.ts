@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import "./contextualAgentProps.test";
+import "./drawingTools.test";
 import "./uiScale.test";
+import "./glossary.test";
+import "./analysisAssets.test";
+import "./analysisAssetsCache.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -84,7 +88,7 @@ import {
   olderRangeTerminalRetryDelayMs,
   shouldRequestOlderRange
 } from "../src/chart/olderRangeRequestPolicy";
-import { sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
+import { drawingLabelLayout, drawingLabelPosition, hitTestDrawing, sourceIntervalForDrawingAnchors } from "../src/chart/drawings";
 import { chartStateFromDocument, ensureFrontendChartDocuments } from "../src/chart/chartDocumentAdapter";
 import {
   bidAskChartIntervals,
@@ -115,7 +119,7 @@ import {
   visibleScaleMax,
   type OrderFlowMinuteUpdate
 } from "../src/chart/orderFlow";
-import { chartColumnTier } from "../src/chart/orderFlowRender";
+import { orderFlowChartRowScaleMax, projectOrderFlowChartRows } from "../src/chart/orderFlowRender";
 import { OrderFlowBucketCache } from "../src/chart/orderFlowBucketCache";
 import {
   addPanelSlotAtGridRect,
@@ -157,6 +161,7 @@ import {
   clampVisibleCount,
   dragDeltaToRightOffset,
   horizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset,
   normalizeViewport,
   resolveHorizontalWheelDelta,
   resolveViewportVisibleCount,
@@ -167,6 +172,7 @@ import {
   dragDeltaToRightOffset as frontendDragDeltaToRightOffset,
   futureEmptySlotCount as frontendFutureEmptySlotCount,
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
+  latestCandleRightOffset as frontendLatestCandleRightOffset,
   normalizeViewport as frontendNormalizeViewport,
   resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
 } from "../src/chart/viewport";
@@ -1619,10 +1625,11 @@ assert.equal(stepOrderFlowTargetRows(16, -1, 44), 12);
 assert.equal(stepOrderFlowTargetRows(44, 1, 50), 50);
 assert.equal(effectiveOrderFlowPriceStep(1.2, 32, 0.01), 0.05);
 assert.equal(visibleScaleMax([ladder]), 105);
-assert.equal(chartColumnTier(56), "full");
-assert.equal(chartColumnTier(20), "standard");
-assert.equal(chartColumnTier(8), "compact");
-assert.equal(chartColumnTier(6), "micro");
+const projectedOrderFlowRows = projectOrderFlowChartRows(ladder, (price) => (102 - price) * 0.4, 0, 2);
+assert.equal(projectedOrderFlowRows.length, 2);
+assert.equal(projectedOrderFlowRows[0]?.bidVolume, 80);
+assert.equal(projectedOrderFlowRows[1]?.askVolume, 120);
+assert.equal(orderFlowChartRowScaleMax([projectedOrderFlowRows]), 120);
 
 const orderFlowUpdateA: OrderFlowMinuteUpdate = {
   eventMinute: "2026-07-08T13:31:00.000Z",
@@ -2530,6 +2537,10 @@ assert.equal(horizontalWheelDeltaToRightOffset(8, -27, 9, 72, 160), 11);
 assert.ok(Math.abs(horizontalWheelDeltaToRightOffset(8, 2, 9, 72, 160, 1) - (8 - 32 / 9)) < 0.000001);
 assert.equal(frontendClampRightOffset(-120, 72, 160), -48);
 assert.equal(frontendClampRightOffset(-120, 72, 160, { extraFutureSlots: 14 }), -62);
+assert.equal(latestCandleRightOffset(120), -30);
+assert.equal(latestCandleRightOffset(104), -26);
+assert.equal(latestCandleRightOffset(36), -9);
+assert.equal(frontendLatestCandleRightOffset(6), -1);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120 }, 160, 640, { extraFutureSlots: 14 }), {
   visibleCount: 72,
   rightOffset: -62
@@ -2558,7 +2569,19 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 6, rightOffset: 0 }
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+);
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    [],
+    sparseDailyCandles,
+    "1D",
+    { visibleCount: 120, rightOffset: frontendLatestCandleRightOffset(120) },
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
 );
 const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -2574,6 +2597,18 @@ const restoredDailyCandles = [
   ...Array.from({ length: 117 }, (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 80 + index)),
   ...sparseDailyCandles
 ];
+assert.deepEqual(
+  viewportAfterSnapshotCandlesChange(
+    sparseDailyCandles,
+    restoredDailyCandles,
+    "1D",
+    { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) },
+    null,
+    640,
+    { minimumVisibleSlots: 120 }
+  ),
+  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+);
 assert.deepEqual(
   viewportPreservingRightEdgeAfterCandlesChange(
     sparseDailyCandles,
@@ -2626,6 +2661,26 @@ const cachedMinuteSnapshotCandles = Array.from(
 );
 const tailSnapshotResponseCandles = cachedMinuteSnapshotCandles.slice(-120);
 const detachedSnapshotViewport = { visibleCount: 60, rightOffset: 500 };
+assert.deepEqual(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    { mode: "latest", visibleCount: 60 },
+    detachedSnapshotViewport,
+    640
+  ),
+  { visibleCount: 60, rightOffset: frontendLatestCandleRightOffset(60) }
+);
+assert.deepEqual(
+  anchoredViewportForCandles(
+    tailSnapshotResponseCandles,
+    "1m",
+    { mode: "right", timestamp: tailSnapshotResponseCandles[80].timestamp, visibleCount: 60 },
+    detachedSnapshotViewport,
+    640
+  ),
+  { visibleCount: 60, rightOffset: 39 }
+);
 assert.equal(
   anchoredViewportForCandles(
     tailSnapshotResponseCandles,
@@ -2663,7 +2718,7 @@ assert.deepEqual(
     null,
     640
   ),
-  { visibleCount: 60, rightOffset: 0 }
+  { visibleCount: 60, rightOffset: frontendLatestCandleRightOffset(60) }
 );
 assert.deepEqual(
   viewportAfterSnapshotCandlesChange(
@@ -2729,26 +2784,31 @@ const continuousAnchorBounds = {
   left: continuousAnchorBaseScene.plot.left + continuousAnchorUnit.slotStart * continuousAnchorBaseScene.scales.slotWidth,
   right: continuousAnchorBaseScene.plot.left + continuousAnchorUnit.slotEnd * continuousAnchorBaseScene.scales.slotWidth
 };
-const continuousAnchorX = continuousAnchorBounds.left + (continuousAnchorBounds.right - continuousAnchorBounds.left) * 0.75;
-const continuousAnchor = createFrontendCoordinateTransform(continuousAnchorBaseScene).pointToAnchor(
-  continuousAnchorX,
+const snappedAnchorX = continuousAnchorBounds.left + (continuousAnchorBounds.right - continuousAnchorBounds.left) * 0.75;
+const snappedAnchor = createFrontendCoordinateTransform(continuousAnchorBaseScene).pointToAnchor(
+  snappedAnchorX,
   continuousAnchorBaseScene.plot.top + 20,
   "AAPL"
 );
-assert.ok(continuousAnchor?.timestamp);
-assert.notEqual(continuousAnchor?.timestamp, "2026-06-25T13:30:00Z");
-const continuousAnchorExpandedScene = buildFrontendChartScene(frontendChartState({
+const snappedAnchorFromOtherSide = createFrontendCoordinateTransform(continuousAnchorBaseScene).pointToAnchor(
+  continuousAnchorBounds.left + (continuousAnchorBounds.right - continuousAnchorBounds.left) * 0.25,
+  continuousAnchorBaseScene.plot.top + 20,
+  "AAPL"
+);
+assert.equal(snappedAnchor?.timestamp, "2026-06-25T13:30:00Z");
+assert.equal(snappedAnchorFromOtherSide?.timestamp, snappedAnchor?.timestamp);
+assert.equal(snappedAnchorFromOtherSide?.logicalIndex, snappedAnchor?.logicalIndex);
+const snappedAnchorExpandedScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [testCandle("2026-06-25T13:30:00Z", 100)],
   visibleCount: 80
 }), 720, 360, { expansions: [readyExpansion] });
-const continuousAnchorPoint = continuousAnchor ? createFrontendCoordinateTransform(continuousAnchorExpandedScene).anchorToPoint(continuousAnchor) : null;
-const continuousAnchorExpansionRange = continuousAnchorExpandedScene.semantic.expansionRanges[0];
-assert.ok(continuousAnchorPoint);
-assert.equal(
-  Math.round(continuousAnchorPoint?.x ?? -1),
-  Math.round((continuousAnchorExpansionRange?.left ?? 0) + ((continuousAnchorExpansionRange?.right ?? 0) - (continuousAnchorExpansionRange?.left ?? 0)) * 0.75)
-);
+const snappedAnchorPoint = snappedAnchor ? createFrontendCoordinateTransform(snappedAnchorExpandedScene).anchorToPoint(snappedAnchor) : null;
+const snappedAnchorOtherPoint = snappedAnchorFromOtherSide
+  ? createFrontendCoordinateTransform(snappedAnchorExpandedScene).anchorToPoint(snappedAnchorFromOtherSide)
+  : null;
+assert.ok(snappedAnchorPoint);
+assert.equal(Math.round(snappedAnchorPoint?.x ?? -1), Math.round(snappedAnchorOtherPoint?.x ?? -2));
 assert.equal(
   sourceIntervalForDrawingAnchors([
     { timestamp: "2026-06-25T13:40:00Z", interval: "10m", price: 101 },
@@ -2815,6 +2875,65 @@ assert.equal(dailyLineItems.some((item) => item.kind === "full" && item.drawing.
 assert.equal(Math.round(dailyWarpedLine.points[0]?.x ?? -1), Math.round(dailyLineRange?.left ?? -2));
 assert.equal(Math.round(dailyWarpedLine.points[dailyWarpedLine.points.length - 1]?.x ?? -1), Math.round(dailyLineRange?.right ?? -2));
 
+const dailyParallelDrawing = testDrawing({
+  id: "drawing-daily-parallel",
+  type: "trendParallelLines",
+  sourceInterval: "1D",
+  parallelLineCount: 4,
+  anchors: [
+    { timestamp: "2026-06-25T13:30:00Z", price: 100, paneId: "price", symbol: "AAPL" },
+    { timestamp: "2026-06-26T13:30:00Z", price: 110, paneId: "price", symbol: "AAPL" },
+    { timestamp: "2026-06-25T19:30:00Z", price: 107.5, paneId: "price", symbol: "AAPL" }
+  ],
+  label: "Daily channel"
+});
+const dailyParallelScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
+  visibleCount: 20,
+  drawings: [dailyParallelDrawing],
+  selectedDrawingId: dailyParallelDrawing.id
+}), 720, 360, { expansions: [readyExpansion] });
+const dailyParallelItems = resolveDrawingRenderItems(dailyParallelScene, dailyParallelScene.chart.drawings);
+const dailyWarpedParallel = dailyParallelItems.find((item) => item.kind === "timeWarpedParallelLines");
+assert.ok(dailyWarpedParallel);
+assert.equal(dailyParallelItems.some((item) => item.kind === "full" && item.drawing.id === dailyParallelDrawing.id), false);
+assert.equal(dailyWarpedParallel.lines.length, 4);
+assert.equal(dailyWarpedParallel.bands.length, 3);
+assert.equal(dailyWarpedParallel.handles.length, 3);
+assert.equal(dailyWarpedParallel.priceOffset, 5);
+const projectedParallelLabel = drawingLabelPosition(dailyParallelScene, dailyParallelDrawing);
+const projectedParallelLayout = drawingLabelLayout(dailyParallelScene, dailyParallelDrawing);
+assert.ok(projectedParallelLabel && projectedParallelLayout);
+assert.equal(projectedParallelLabel.x, projectedParallelLayout.textX);
+assert.equal(projectedParallelLabel.y, projectedParallelLayout.baseline);
+assert.ok(projectedParallelLayout.left >= dailyParallelScene.plot.left);
+assert.ok(projectedParallelLayout.left + projectedParallelLayout.width <= dailyParallelScene.plot.right);
+const dailyParallelStart = Date.parse("2026-06-25T13:30:00Z");
+const dailyParallelSpan = Date.parse("2026-06-26T13:30:00Z") - dailyParallelStart;
+dailyWarpedParallel.lines.forEach((linePoints, lineIndex) => {
+  linePoints.forEach((point) => {
+    const expectedPrice = 100 + 10 * ((point.time - dailyParallelStart) / dailyParallelSpan) + 5 * (lineIndex - 1);
+    assert.ok(Math.abs(point.price - expectedPrice) < 0.000001, "expanded channel must retain its price/time slope and price offset");
+  });
+});
+assert.ok(dailyWarpedParallel.bands.every((band) => band.length === dailyWarpedParallel.lines[0].length * 2));
+const spacingLinePoint = dailyWarpedParallel.lines[2].find((point) => point.time === Date.parse("2026-06-25T19:30:00Z"));
+assert.ok(spacingLinePoint);
+assert.ok(Math.abs(spacingLinePoint.x - dailyWarpedParallel.handles[2].x) < 0.000001);
+assert.ok(Math.abs(spacingLinePoint.y - dailyWarpedParallel.handles[2].y) < 0.000001);
+const projectedBasePoint = dailyWarpedParallel.lines[1].find((point) => point.time === Date.parse("2026-06-25T19:30:00Z"));
+assert.ok(projectedBasePoint);
+assert.equal(hitTestDrawing(dailyParallelScene, projectedBasePoint.x, projectedBasePoint.y)?.drawing.id, dailyParallelDrawing.id);
+const ordinaryParallelScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
+  drawings: [dailyParallelDrawing]
+}), 720, 360);
+const ordinaryParallelItems = resolveDrawingRenderItems(ordinaryParallelScene, ordinaryParallelScene.chart.drawings);
+assert.equal(ordinaryParallelItems.some((item) => item.kind === "full" && item.drawing.id === dailyParallelDrawing.id), true);
+assert.equal(ordinaryParallelItems.some((item) => item.kind === "timeWarpedParallelLines"), false);
+
 const intradayDrawingScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [testCandle("2026-06-25T13:30:00Z", 100), testCandle("2026-06-26T13:30:00Z", 104)],
@@ -2850,6 +2969,38 @@ assert.deepEqual(zoomViewport({ visibleCount: 180, rightOffset: 0 }, -8, 160, 40
 assert.deepEqual(zoomViewport({ visibleCount: 180, rightOffset: 120 }, -8, 160, 400), {
   visibleCount: 42,
   rightOffset: 118
+});
+
+const initializingLiveDocument = createChartDocument("chart-doc-live-initial", "AAPL", "1m");
+const initializingLiveState = {
+  ...createInitialChartRuntimeState(),
+  documents: { [initializingLiveDocument.id]: initializingLiveDocument }
+};
+const firstLiveCandleState = chartRuntimeReducer(initializingLiveState, {
+  kind: "chart.live",
+  event: {
+    type: "LIVE_CANDLE_UPDATE",
+    symbol: "AAPL",
+    interval: "1m",
+    data: candleA
+  }
+});
+assert.deepEqual(firstLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
+  visibleCount: 6,
+  rightOffset: latestCandleRightOffset(6)
+});
+const secondLiveCandleState = chartRuntimeReducer(firstLiveCandleState, {
+  kind: "chart.live",
+  event: {
+    type: "LIVE_CANDLE_UPDATE",
+    symbol: "AAPL",
+    interval: "1m",
+    data: candleB
+  }
+});
+assert.deepEqual(secondLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
+  visibleCount: 6,
+  rightOffset: latestCandleRightOffset(6)
 });
 
 const detachedDocument = createChartDocument("chart-doc-detached", "AAPL", "1m");
@@ -2915,7 +3066,10 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   })
 });
 assert.deepEqual(sharedCacheRuntime.documents["shared-doc-a"]?.viewport, { visibleCount: 6, rightOffset: 1 });
-assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, { visibleCount: defaultVisibleBarsForInterval("1m"), rightOffset: 0 });
+assert.deepEqual(sharedCacheRuntime.documents["shared-doc-b"]?.viewport, {
+  visibleCount: defaultVisibleBarsForInterval("1m"),
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
+});
 sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
   kind: "chart.live",
   event: {
@@ -2927,7 +3081,10 @@ sharedCacheRuntime = chartRuntimeReducer(sharedCacheRuntime, {
 });
 assert.equal(sharedCacheRuntime.candlesByKey[candleKey("AAPL", "1m")]?.length, 3);
 assert.equal(sharedCacheRuntime.documents["shared-doc-a"]?.viewport.rightOffset, 2);
-assert.equal(sharedCacheRuntime.documents["shared-doc-b"]?.viewport.rightOffset, 0);
+assert.equal(
+  sharedCacheRuntime.documents["shared-doc-b"]?.viewport.rightOffset,
+  latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
+);
 
 const boundedCacheDocument = createChartDocument("bounded-cache-doc", "ACTIVE", "1m");
 let boundedCacheRuntime = {
@@ -3169,7 +3326,16 @@ assert.match(symbolSearchSource, /portalMenu/);
 assert.match(orderFlowPanelSource, /order-flow-hover-overlay/);
 assert.match(orderFlowPanelSource, /onWheel=\{handleCanvasWheel\}/);
 assert.match(orderFlowPanelSource, /stepOrderFlowTargetRows/);
+assert.match(orderFlowPanelSource, /data-order-flow-symbol=\{normalizedSymbol\}/);
+assert.match(orderFlowPanelSource, /data-order-flow-resolution=\{resolution\}/);
+assert.doesNotMatch(orderFlowPanelSource, /fetchOrderFlowDaily|semanticSelection|selectedDay|fallbackDay|dailyMode|disabledWindowBadge|overlayVisible|overlayIntentRef/);
 assert.doesNotMatch(orderFlowPanelSource, /order-flow-control-select|ORDER_FLOW_PRICE_STEPS/);
+const orderFlowRendererBlock = panelContentRendererSource.slice(
+  panelContentRendererSource.indexOf('if (content.kind === "orderFlow")'),
+  panelContentRendererSource.indexOf('if (content.kind === "trade")')
+);
+assert.match(orderFlowRendererBlock, /symbol=\{readOrderFlowSymbol\(content\)\}/);
+assert.doesNotMatch(orderFlowRendererBlock, /semanticSelection|defaultToPinnedSymbol|readPanelSymbol/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 const orderFlowRenderSource = readFileSync(fileURLToPath(new URL("../src/chart/orderFlowRender.ts", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
@@ -3186,9 +3352,16 @@ assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
 assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
 assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
-assert.match(chartCanvasSource, /chartColumnTier/);
-assert.match(orderFlowRenderSource, /orderFlowLevelTone/);
-assert.match(orderFlowRenderSource, /theme\.axis : tone === "ask" \? theme\.upSoft : theme\.downSoft/);
+assert.match(chartCanvasSource, /candle: unit\.candle/);
+assert.match(chartCanvasSource, /drawOrderFlowGapColumns/);
+assert.match(chartCanvasSource, /if \(canvas\.width !== pixelWidth\)/);
+assert.match(chartCanvasSource, /if \(canvas\.height !== pixelHeight\)/);
+assert.match(orderFlowRenderSource, /projectOrderFlowChartRows/);
+assert.match(orderFlowRenderSource, /drawChartCandle/);
+assert.doesNotMatch(orderFlowRenderSource, /ChartColumnTier|packedChartPriceMapper|isLive/);
+assert.match(chartPanelSource, /wheelViewportRef\.current \?\? normalizeViewport/);
+assert.match(chartPanelSource, /applyViewport\(finalViewport, "external"\)/);
+assert.match(chartPanelSource, /window\.requestAnimationFrame/);
 assert.match(chartCanvasSource, /type DrawSeriesLineOptions = \{[\s\S]*connectAcrossMissing\?: boolean/);
 assert.match(chartCanvasSource, /if \(!options\.connectAcrossMissing && started\)/);
 assert.match(chartCanvasSource, /pointForUnit\(unit\)\?\.upper[\s\S]*connectAcrossMissing: true/);
@@ -3213,6 +3386,7 @@ assert.doesNotMatch(panelLayoutSource, /insertPanelAtBoundary|canInsertPanelAtBo
 assert.match(panelLayoutSource, /detectResizablePanelBoundaries/);
 assert.match(panelLayoutSource, /resizeFreeformBoundary/);
 assert.match(panelLayoutSource, /normalizeFreeformRectsToGridLayout/);
+assert.match(panelLayoutSource, /const inheritsSymbol = item\.kind === "chart" \|\| item\.kind === "company" \|\| item\.kind === "compare";/);
 const panelWorkspaceSource = readFileSync(fileURLToPath(new URL("../src/components/PanelWorkspace.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelWorkspaceSource, /panel-boundary-add|panel-add-menu|insertPanelAtBoundary|canInsertPanelAtBoundary|beginPanelSwap|hitTestSwappableSlot|boundaryAddMenuPosition/);
 const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/components/WorkspacePanelFrame.tsx", import.meta.url)), "utf-8");
@@ -3556,7 +3730,10 @@ assert.ok(finalAnswerIndex >= 0 && detailEvidenceIndex > finalAnswerIndex);
 assert.match(finalAnswerFirstMessage, /세부 근거/);
 assert.match(finalAnswerFirstMessage, /뉴스 독립 답변/);
 
-const frontendStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
+const frontendStylesSource = [
+  readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8"),
+  readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
+].join("\n");
 const bottomCommandBarSourceForAgentAnalysis = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
 assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);
@@ -3576,6 +3753,9 @@ assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.a
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #ffffff;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*position: absolute;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*overflow: hidden;/);
+assert.match(frontendStylesSource, /\.order-flow-hover-overlay \{[\s\S]*grid-template-rows: 26px 22px;/);
+assert.match(frontendStylesSource, /\.order-flow-panel:hover \.order-flow-hover-overlay,[\s\S]*\.order-flow-panel:focus-within \.order-flow-hover-overlay/);
+assert.match(frontendStylesSource, /\.order-flow-window-grid \{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*left: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*right: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: center;/);
@@ -3855,7 +4035,10 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
 });
 assert.equal(regressionRuntime.documents[regressionDocAId]?.symbol, "AAPL");
 assert.equal(regressionRuntime.documents[regressionDocBId]?.symbol, "MSFT");
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, {
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m")),
+  visibleCount: defaultVisibleBarsForInterval("1m")
+});
 assert.equal(regressionRuntime.documents[regressionDocAId]?.history.length, 0);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.history.length, 0);
 
@@ -3876,7 +4059,10 @@ regressionRuntime = chartRuntimeReducer(regressionRuntime, {
   kind: "chart.command",
   command: makeChartCommand("chart.undo", "user", target(regressionPanelA.id, regressionDocAId))
 });
-assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval("1m") });
+assert.deepEqual(regressionRuntime.documents[regressionDocAId]?.viewport, {
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m")),
+  visibleCount: defaultVisibleBarsForInterval("1m")
+});
 assert.deepEqual(regressionRuntime.documents[regressionDocBId]?.viewport, beforeViewportB);
 assert.equal(regressionRuntime.documents[regressionDocAId]?.future.length, 1);
 assert.equal(regressionRuntime.documents[regressionDocBId]?.future.length, 0);

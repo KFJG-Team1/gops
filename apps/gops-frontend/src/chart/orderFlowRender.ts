@@ -1,5 +1,5 @@
 import type { ThemeColors } from "../theme/colors";
-import { applyCanvasTypography } from "../theme/typography";
+import { applyCanvasTypography, CANVAS_FONT_FAMILY } from "../theme/typography";
 import type { OrderFlowLadder, OrderFlowLadderLevel } from "./orderFlow";
 
 export type OrderFlowLadderRect = {
@@ -9,13 +9,30 @@ export type OrderFlowLadderRect = {
   height: number;
 };
 
-export type ChartColumnTier = "full" | "standard" | "compact" | "micro";
+export type OrderFlowChartCandle = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export type OrderFlowChartRow = {
+  y: number;
+  bidVolume: number;
+  askVolume: number;
+  unknownVolume: number;
+  totalVolume: number;
+  delta: number;
+  askImbalance: boolean;
+  bidImbalance: boolean;
+  isPoc: boolean;
+};
 
 export type OrderFlowChartColumnOptions = {
-  tier: ChartColumnTier;
   scaleMax: number;
   priceToY: (price: number) => number;
-  isLive?: boolean;
+  candle: OrderFlowChartCandle;
+  rows?: OrderFlowChartRow[];
   selected?: boolean;
 };
 
@@ -31,43 +48,24 @@ export type OrderFlowPanelRenderOptions = {
 };
 
 const minChartRowHeight = 2;
-const captionLineHeight = 19;
-const chartFooterHeight = 20;
-const panelFooterHeight = 22;
-
-export function chartColumnTier(width: number): ChartColumnTier {
-  if (width >= 56) {
-    return "full";
-  }
-  if (width >= 20) {
-    return "standard";
-  }
-  if (width >= 8) {
-    return "compact";
-  }
-  return "micro";
-}
+const chartFooterHeight = 13;
+const panelFooterHeight = 16;
+const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 export function drawOrderFlowChartColumn(
   ctx: CanvasRenderingContext2D,
   rect: OrderFlowLadderRect,
-  ladder: OrderFlowLadder,
+  ladder: OrderFlowLadder | null,
   theme: ThemeColors,
   options: OrderFlowChartColumnOptions
 ): void {
-  if (!ladder.levels.length || rect.width <= 0 || rect.height <= 0) {
+  if (rect.width <= 0 || rect.height <= 0) {
     return;
   }
-  const drawHeight = Math.max(1, rect.height - (options.tier === "micro" ? 0 : chartFooterHeight));
-  const visibleLevels = ladder.levels.filter((level) => {
-    const y = options.priceToY(level.priceBin);
-    return y >= rect.y - 8 && y <= rect.y + drawHeight + 8;
-  });
-  if (!visibleLevels.length) {
-    return;
-  }
-  const priceToY = packedChartPriceMapper(rect, drawHeight, visibleLevels, options.priceToY, options.tier);
-  const renderOptions = { ...options, priceToY };
+  const drawHeight = Math.max(1, rect.height - chartFooterHeight);
+  const rows = options.rows ?? (ladder
+    ? projectOrderFlowChartRows(ladder, options.priceToY, rect.y, rect.y + drawHeight)
+    : []);
 
   ctx.save();
   ctx.beginPath();
@@ -79,27 +77,11 @@ export function drawOrderFlowChartColumn(
     ctx.fillStyle = theme.caution;
     ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
   }
-  if (options.isLive) {
-    ctx.globalAlpha = 0.72;
-    ctx.strokeStyle = theme.signal;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(rect.x + 1, rect.y + 1);
-    ctx.lineTo(rect.x + rect.width - 1, rect.y + 1);
-    ctx.stroke();
+  if (ladder && rows.length) {
+    drawTwoSidedColumn(ctx, rect, drawHeight, rows, theme, options);
   }
-
-  if (options.tier === "micro") {
-    drawMicroColumn(ctx, rect, visibleLevels, theme, renderOptions);
-  } else if (options.tier === "compact") {
-    drawCompactColumn(ctx, rect, drawHeight, visibleLevels, ladder, theme, renderOptions);
-  } else {
-    drawTwoSidedColumn(ctx, rect, drawHeight, visibleLevels, ladder, theme, renderOptions);
-  }
-
-  if (options.tier !== "micro") {
-    drawColumnFooter(ctx, rect, ladder, theme, options.tier);
-  }
+  drawChartCandle(ctx, rect, drawHeight, options.candle, theme, options.priceToY, options.selected);
+  drawColumnFooter(ctx, rect, ladder, theme);
   if (options.selected) {
     ctx.globalAlpha = 0.82;
     ctx.strokeStyle = theme.caution;
@@ -107,6 +89,50 @@ export function drawOrderFlowChartColumn(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, Math.max(1, rect.width - 1), Math.max(1, rect.height - 1));
   }
   ctx.restore();
+}
+
+export function projectOrderFlowChartRows(
+  ladder: OrderFlowLadder,
+  priceToY: (price: number) => number,
+  top: number,
+  bottom: number
+): OrderFlowChartRow[] {
+  const rows = new Map<number, OrderFlowChartRow>();
+  ladder.levels.forEach((level) => {
+    const nativeY = priceToY(level.priceBin);
+    if (!Number.isFinite(nativeY) || nativeY < top - 2 || nativeY > bottom + 2) {
+      return;
+    }
+    const pixelY = Math.round(nativeY);
+    const current = rows.get(pixelY) ?? {
+      y: pixelY + 0.5,
+      bidVolume: 0,
+      askVolume: 0,
+      unknownVolume: 0,
+      totalVolume: 0,
+      delta: 0,
+      askImbalance: false,
+      bidImbalance: false,
+      isPoc: false
+    };
+    current.bidVolume += Math.max(0, level.bidVolume);
+    current.askVolume += Math.max(0, level.askVolume);
+    current.unknownVolume += Math.max(0, level.unknownVolume);
+    current.totalVolume += Math.max(0, level.totalVolume);
+    current.delta += level.delta;
+    current.askImbalance ||= level.askImbalance;
+    current.bidImbalance ||= level.bidImbalance;
+    current.isPoc ||= ladder.pocPriceBin === level.priceBin;
+    rows.set(pixelY, current);
+  });
+  return Array.from(rows.values()).sort((left, right) => left.y - right.y);
+}
+
+export function orderFlowChartRowScaleMax(rowSets: OrderFlowChartRow[][]): number {
+  return Math.max(
+    1,
+    ...rowSets.flatMap((rows) => rows.map((row) => Math.max(row.bidVolume, row.askVolume, row.unknownVolume)))
+  );
 }
 
 export function drawOrderFlowPanelLadder(
@@ -126,7 +152,7 @@ export function drawOrderFlowPanelLadder(
   const rowHeight = Math.max(3, drawHeight / ladder.levels.length);
   const priceLabel = ladder.maxPrice >= 100 ? ladder.maxPrice.toFixed(2) : ladder.maxPrice.toFixed(2);
   ctx.save();
-  applyCanvasTypography(ctx, "caption");
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   const measuredGutter = Math.ceil(ctx.measureText(priceLabel).width) + 18;
   const gutterWidth = clamp(measuredGutter, compact ? 34 : 46, Math.min(compact ? 58 : 78, rect.width * 0.32));
   const centerX = rect.x + rect.width / 2;
@@ -141,8 +167,7 @@ export function drawOrderFlowPanelLadder(
   const quoteBidIndex = nearestLevelIndex(ladder.levels, options.quote?.bidPrice);
   const quoteAskIndex = nearestLevelIndex(ladder.levels, options.quote?.askPrice);
   const lastPriceIndex = nearestLevelIndex(ladder.levels, options.lastPrice);
-  const labelEvery = micro ? Number.POSITIVE_INFINITY : rowHeight >= captionLineHeight ? 1 : Math.ceil(captionLineHeight / rowHeight);
-  const showSideLabels = !compact && rowHeight >= captionLineHeight && rect.width >= 220;
+  const labelEvery = micro ? Number.POSITIVE_INFINITY : rowHeight >= 13 ? 1 : Math.ceil(13 / rowHeight);
 
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.width, rect.height);
@@ -163,15 +188,13 @@ export function drawOrderFlowPanelLadder(
       leftWidth,
       rightWidth,
       maxSideVolume,
-      showText: showSideLabels
+      showText: !compact && rowHeight >= 12 && rect.width >= 220
     }, theme);
     if (!micro && index === quoteBidIndex) {
-      const label = compact || rowHeight < captionLineHeight || showSideLabels ? "-" : formatSize(options.quote?.bidSize);
-      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, label);
+      drawQuoteWedge(ctx, gutterLeft - 3, y + h / 2, "left", theme.down, compact ? "-" : formatSize(options.quote?.bidSize));
     }
     if (!micro && index === quoteAskIndex) {
-      const label = compact || rowHeight < captionLineHeight || showSideLabels ? "-" : formatSize(options.quote?.askSize);
-      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, label);
+      drawQuoteWedge(ctx, gutterRight + 3, y + h / 2, "right", theme.up, compact ? "-" : formatSize(options.quote?.askSize));
     }
     const showLabel = index % labelEvery === 0 ||
       level.priceBin === ladder.pocPriceBin ||
@@ -179,7 +202,7 @@ export function drawOrderFlowPanelLadder(
     if (showLabel) {
       ctx.globalAlpha = level.priceBin === ladder.pocPriceBin ? 0.96 : 0.78;
       ctx.fillStyle = level.priceBin === ladder.pocPriceBin ? theme.caution : theme.text;
-      applyCanvasTypography(ctx, level.priceBin === ladder.pocPriceBin ? "caption" : "caption");
+      applyCanvasTypography(ctx, "caption", canvasFontFamily);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(formatPrice(level.priceBin), centerX, y + h / 2, gutterWidth - 4);
@@ -207,9 +230,9 @@ export function drawOrderFlowPanelLadder(
 export function drawEstimatedBadge(ctx: CanvasRenderingContext2D, x: number, y: number, theme: ThemeColors): void {
   const label = "estimated";
   ctx.save();
-  applyCanvasTypography(ctx, "caption");
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   const width = Math.ceil(ctx.measureText(label).width) + 14;
-  const height = 20;
+  const height = 16;
   ctx.globalAlpha = 0.82;
   ctx.fillStyle = theme.surface;
   roundRect(ctx, x, y, width, height, 8);
@@ -230,132 +253,110 @@ function drawTwoSidedColumn(
   ctx: CanvasRenderingContext2D,
   rect: OrderFlowLadderRect,
   drawHeight: number,
-  visibleLevels: OrderFlowLadderLevel[],
-  ladder: OrderFlowLadder,
+  rows: OrderFlowChartRow[],
   theme: ThemeColors,
   options: OrderFlowChartColumnOptions
 ): void {
   const centerX = rect.x + rect.width / 2;
-  const halfWidth = Math.max(2, rect.width / 2 - 1);
-  const rowHeight = chartRowHeightForLevels(visibleLevels, options.priceToY, 15);
-  const showText = options.tier === "full" && rowHeight >= captionLineHeight && rect.width >= 80;
-  visibleLevels.forEach((level) => {
-    const y = options.priceToY(level.priceBin) - rowHeight / 2;
+  const candleGutter = clamp(rect.width * 0.14, 1, 8);
+  const gutterLeft = centerX - candleGutter / 2;
+  const gutterRight = centerX + candleGutter / 2;
+  const leftWidth = Math.max(0, gutterLeft - rect.x - 1);
+  const rightWidth = Math.max(0, rect.x + rect.width - gutterRight - 1);
+  const rowHeight = chartRowHeightForRows(rows, 12);
+  const showText = rowHeight >= 10.5 && rect.width >= 72;
+  rows.forEach((row) => {
+    const y = row.y - rowHeight / 2;
     if (y > rect.y + drawHeight || y + rowHeight < rect.y) {
       return;
     }
-    const minRowHeight = options.tier === "full" || options.tier === "standard" ? 4 : minChartRowHeight;
-    const h = Math.max(minRowHeight, rowHeight - 1);
-    const bidWidth = sideWidth(level.bidVolume, options.scaleMax, halfWidth);
-    const askWidth = sideWidth(level.askVolume, options.scaleMax, halfWidth);
-    const unknownWidth = sideWidth(level.unknownVolume, options.scaleMax, Math.max(2, rect.width - 2));
-    const intensity = clamp(Math.abs(level.delta) / Math.max(1, options.scaleMax), 0.04, 0.38);
-    const tone = orderFlowLevelTone(level);
-    ctx.globalAlpha = ladder.pocPriceBin === level.priceBin ? 0.2 : tone === "unknown" ? 0.16 : intensity;
-    ctx.fillStyle = tone === "unknown" ? theme.axis : tone === "ask" ? theme.upSoft : theme.downSoft;
-    ctx.fillRect(rect.x + 1, y, rect.width - 2, h);
+    const h = Math.max(minChartRowHeight, rowHeight - 1);
+    const bidWidth = sideWidth(row.bidVolume, options.scaleMax, leftWidth);
+    const askWidth = sideWidth(row.askVolume, options.scaleMax, rightWidth);
+    const unknownWidth = sideWidth(row.unknownVolume, options.scaleMax, Math.max(0, rect.width - candleGutter - 2));
+    const tone = orderFlowRowTone(row);
     if (unknownWidth > 0.5) {
       ctx.globalAlpha = tone === "unknown" ? 0.48 : 0.28;
       ctx.fillStyle = theme.axis;
-      ctx.fillRect(centerX - unknownWidth / 2, y + Math.max(1, h * 0.5 - 1), unknownWidth, Math.max(1, Math.min(2, h - 1)));
+      ctx.fillRect(centerX - unknownWidth / 2, y + h / 2 - 0.5, unknownWidth, 1);
     }
-    ctx.globalAlpha = options.tier === "standard" && (level.askImbalance || level.bidImbalance) ? 0.95 : 0.64;
+    ctx.globalAlpha = 0.68;
     ctx.fillStyle = theme.downSoft;
-    ctx.fillRect(centerX - bidWidth, y + 1, bidWidth, Math.max(1, h - 2));
+    ctx.fillRect(gutterLeft - bidWidth, y, bidWidth, h);
     ctx.fillStyle = theme.upSoft;
-    ctx.fillRect(centerX, y + 1, askWidth, Math.max(1, h - 2));
-    if (options.tier === "full") {
-      drawImbalanceOutlines(ctx, centerX, y, h, bidWidth, askWidth, level, theme);
+    ctx.fillRect(gutterRight, y, askWidth, h);
+    if (rect.width >= 20) {
+      drawImbalanceOutlines(ctx, gutterLeft, gutterRight, y, h, bidWidth, askWidth, row, theme);
     }
     if (showText) {
-      drawLevelText(ctx, centerX, y + h / 2, halfWidth, level, theme);
+      drawLevelText(ctx, gutterLeft, gutterRight, y + h / 2, Math.min(leftWidth, rightWidth), row, theme);
     }
   });
-  if (ladder.pocPriceBin !== null) {
-    drawPocLine(ctx, rect, options.priceToY(ladder.pocPriceBin), drawHeight, theme);
+  const pocRow = rows.find((row) => row.isPoc);
+  if (pocRow) {
+    drawPocLine(ctx, rect, pocRow.y, drawHeight, theme);
   }
 }
 
-function drawCompactColumn(
+function drawChartCandle(
   ctx: CanvasRenderingContext2D,
   rect: OrderFlowLadderRect,
   drawHeight: number,
-  visibleLevels: OrderFlowLadderLevel[],
-  ladder: OrderFlowLadder,
+  candle: OrderFlowChartCandle,
   theme: ThemeColors,
-  options: OrderFlowChartColumnOptions
+  priceToY: (price: number) => number,
+  selected = false
 ): void {
-  const maxWidth = Math.max(2, rect.width - 2);
-  const rowHeight = chartRowHeightForLevels(visibleLevels, options.priceToY, 12);
-  visibleLevels.forEach((level) => {
-    const y = options.priceToY(level.priceBin) - rowHeight / 2;
-    const h = Math.max(2, rowHeight - 1);
-    const width = sideWidth(level.totalVolume, options.scaleMax, maxWidth);
-    const tone = orderFlowLevelTone(level);
-    ctx.globalAlpha = tone === "unknown" ? 0.46 : 0.32 + 0.45 * clamp(Math.abs(level.delta) / Math.max(1, level.totalVolume), 0, 1);
-    ctx.fillStyle = tone === "unknown" ? theme.axis : tone === "ask" ? theme.upSoft : theme.downSoft;
-    ctx.fillRect(rect.x + 1, y, width, h);
-    if (tone !== "unknown" && level.unknownVolume > 0) {
-      const unknownWidth = sideWidth(level.unknownVolume, options.scaleMax, maxWidth);
-      ctx.globalAlpha = 0.28;
-      ctx.fillStyle = theme.axis;
-      ctx.fillRect(rect.x + 1, y + Math.max(1, h - 2), unknownWidth, Math.max(1, Math.min(2, h - 1)));
-    }
-  });
-  if (ladder.pocPriceBin !== null) {
-    drawPocLine(ctx, rect, options.priceToY(ladder.pocPriceBin), drawHeight, theme);
-  }
-}
-
-function drawMicroColumn(
-  ctx: CanvasRenderingContext2D,
-  rect: OrderFlowLadderRect,
-  visibleLevels: OrderFlowLadderLevel[],
-  theme: ThemeColors,
-  options: OrderFlowChartColumnOptions
-): void {
-  const totalDelta = visibleLevels.reduce((sum, level) => sum + level.delta, 0);
-  const totalVolume = visibleLevels.reduce((sum, level) => sum + level.totalVolume, 0);
-  const totalUnknown = visibleLevels.reduce((sum, level) => sum + level.unknownVolume, 0);
-  const unknownDominant = totalUnknown > 0 && totalUnknown >= totalVolume - totalUnknown;
-  const yValues = visibleLevels.map((level) => options.priceToY(level.priceBin));
-  const top = clamp(Math.min(...yValues), rect.y, rect.y + rect.height);
-  const bottom = clamp(Math.max(...yValues), rect.y, rect.y + rect.height);
-  ctx.globalAlpha = 0.28 + 0.5 * clamp(totalVolume / Math.max(1, options.scaleMax * visibleLevels.length), 0, 1);
-  ctx.strokeStyle = unknownDominant ? theme.axis : totalDelta >= 0 ? theme.upSoft : theme.downSoft;
-  ctx.lineWidth = Math.max(2, rect.width * 0.6);
+  const centerX = rect.x + rect.width / 2;
+  const top = rect.y;
+  const bottom = rect.y + drawHeight;
+  const open = clamp(priceToY(candle.open), top, bottom);
+  const close = clamp(priceToY(candle.close), top, bottom);
+  const high = clamp(priceToY(candle.high), top, bottom);
+  const low = clamp(priceToY(candle.low), top, bottom);
+  const up = candle.close >= candle.open;
+  const color = selected ? theme.caution : up ? theme.upSoft : theme.downSoft;
+  const bodyWidth = Math.max(1, Math.min(7, rect.width * 0.16));
+  const bodyTop = Math.min(open, close);
+  const bodyHeight = Math.max(2, Math.abs(close - open));
+  const bodyBottom = Math.min(bottom, bodyTop + bodyHeight);
+  ctx.globalAlpha = 0.96;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = selected ? 1.8 : 1.15;
   ctx.beginPath();
-  ctx.moveTo(rect.x + rect.width / 2, top);
-  ctx.lineTo(rect.x + rect.width / 2, Math.max(top + 2, bottom));
+  ctx.moveTo(centerX, high);
+  ctx.lineTo(centerX, bodyTop);
+  ctx.moveTo(centerX, bodyBottom);
+  ctx.lineTo(centerX, low);
   ctx.stroke();
+  ctx.fillRect(centerX - bodyWidth / 2, bodyTop, bodyWidth, Math.max(1, bodyBottom - bodyTop));
 }
 
 function drawColumnFooter(
   ctx: CanvasRenderingContext2D,
   rect: OrderFlowLadderRect,
-  ladder: OrderFlowLadder,
-  theme: ThemeColors,
-  tier: ChartColumnTier
+  ladder: OrderFlowLadder | null,
+  theme: ThemeColors
 ): void {
-  const delta = ladder.totals.delta;
-  ctx.globalAlpha = tier === "compact" ? 0.72 : 0.86;
-  ctx.fillStyle = ladderTone(ladder) === "unknown" ? theme.axis : delta >= 0 ? theme.upSoft : theme.downSoft;
-  applyCanvasTypography(ctx, tier === "full" ? "caption" : "caption");
+  const delta = ladder?.totals.delta;
+  ctx.globalAlpha = 0.84;
+  ctx.fillStyle = !ladder ? theme.muted : ladderTone(ladder) === "unknown" ? theme.axis : (delta ?? 0) >= 0 ? theme.upSoft : theme.downSoft;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  const fallback = delta >= 0 ? "+" : "-";
-  const preferred = tier === "compact" ? fallback : `Δ${shortSignedNumber(delta)}`;
+  const fallback = !ladder ? "—" : (delta ?? 0) >= 0 ? "+" : "-";
+  const preferred = !ladder ? "Δ—" : `Δ${shortSignedNumber(delta ?? 0)}`;
   const label = ctx.measureText(preferred).width <= rect.width - 4 ? preferred : fallback;
   ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height - 3);
 }
 
-function orderFlowLevelTone(level: OrderFlowLadderLevel): "ask" | "bid" | "unknown" {
-  const unknown = Math.max(0, level.unknownVolume);
-  const directional = Math.max(0, level.askVolume) + Math.max(0, level.bidVolume);
-  if (unknown > 0 && unknown >= directional) {
+function orderFlowRowTone(row: OrderFlowChartRow): "ask" | "bid" | "unknown" {
+  const directional = Math.max(0, row.askVolume) + Math.max(0, row.bidVolume);
+  if (row.unknownVolume > 0 && row.unknownVolume >= directional) {
     return "unknown";
   }
-  return level.delta >= 0 ? "ask" : "bid";
+  return row.delta >= 0 ? "ask" : "bid";
 }
 
 function ladderTone(ladder: OrderFlowLadder): "ask" | "bid" | "unknown" {
@@ -430,7 +431,7 @@ function drawPanelBars(
   if (geometry.showText) {
     ctx.globalAlpha = 0.88;
     ctx.fillStyle = theme.text;
-    applyCanvasTypography(ctx, "caption");
+    applyCanvasTypography(ctx, "caption", canvasFontFamily);
     ctx.textBaseline = "middle";
     ctx.textAlign = "right";
     ctx.fillText(shortNumber(level.bidVolume), geometry.leftX - 3, geometry.y + geometry.h / 2, geometry.leftWidth - 5);
@@ -473,17 +474,16 @@ function drawPanelFooter(
   if (micro) {
     return;
   }
-  applyCanvasTypography(ctx, "caption");
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textBaseline = "bottom";
   ctx.textAlign = "right";
   const poc = ladder.pocPriceBin === null ? "POC -" : `POC ${formatPrice(ladder.pocPriceBin)}`;
   const label = clippedHint ? `${poc} · clipped` : poc;
   if (clippedHint) {
     const pillWidth = Math.min(rect.width * 0.62, ctx.measureText(label).width + 12);
-    const pillHeight = 20;
     ctx.globalAlpha = 0.76;
     ctx.fillStyle = theme.surfaceStrong;
-    roundRect(ctx, rect.x + rect.width - pillWidth - 1, y - pillHeight + 2, pillWidth, pillHeight, 4);
+    roundRect(ctx, rect.x + rect.width - pillWidth - 1, y - 13, pillWidth, 14, 4);
     ctx.fill();
     ctx.globalAlpha = 0.9;
   }
@@ -529,7 +529,7 @@ function drawQuoteWedge(
   ctx.fill();
   if (label !== "-") {
     ctx.globalAlpha = 0.75;
-    applyCanvasTypography(ctx, "caption");
+    applyCanvasTypography(ctx, "caption", canvasFontFamily);
     ctx.textAlign = direction === "left" ? "right" : "left";
     ctx.textBaseline = "middle";
     ctx.fillText(label, direction === "left" ? x - 8 : x + 8, y, 38);
@@ -539,91 +539,61 @@ function drawQuoteWedge(
 
 function drawImbalanceOutlines(
   ctx: CanvasRenderingContext2D,
-  centerX: number,
+  gutterLeft: number,
+  gutterRight: number,
   y: number,
   h: number,
   bidWidth: number,
   askWidth: number,
-  level: OrderFlowLadderLevel,
+  level: Pick<OrderFlowChartRow, "askImbalance" | "bidImbalance">,
   theme: ThemeColors
 ): void {
   ctx.globalAlpha = 0.9;
   ctx.lineWidth = 1;
   if (level.bidImbalance && bidWidth > 0.5) {
     ctx.strokeStyle = theme.down;
-    ctx.strokeRect(centerX - bidWidth, y + 0.5, bidWidth, Math.max(1, h - 1));
+    ctx.strokeRect(gutterLeft - bidWidth, y + 0.5, bidWidth, Math.max(1, h - 1));
   }
   if (level.askImbalance && askWidth > 0.5) {
     ctx.strokeStyle = theme.up;
-    ctx.strokeRect(centerX, y + 0.5, askWidth, Math.max(1, h - 1));
+    ctx.strokeRect(gutterRight, y + 0.5, askWidth, Math.max(1, h - 1));
   }
 }
 
 function drawLevelText(
   ctx: CanvasRenderingContext2D,
-  centerX: number,
+  gutterLeft: number,
+  gutterRight: number,
   y: number,
   halfWidth: number,
-  level: OrderFlowLadderLevel,
+  level: Pick<OrderFlowChartRow, "askVolume" | "bidVolume">,
   theme: ThemeColors
 ): void {
   ctx.globalAlpha = 0.88;
   ctx.fillStyle = theme.text;
-  applyCanvasTypography(ctx, "caption");
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
-  ctx.fillText(shortNumber(level.bidVolume), centerX - 3, y, halfWidth - 5);
+  ctx.fillText(shortNumber(level.bidVolume), gutterLeft - 3, y, halfWidth - 5);
   ctx.textAlign = "left";
-  ctx.fillText(shortNumber(level.askVolume), centerX + 3, y, halfWidth - 5);
+  ctx.fillText(shortNumber(level.askVolume), gutterRight + 3, y, halfWidth - 5);
 }
 
-function packedChartPriceMapper(
-  rect: OrderFlowLadderRect,
-  drawHeight: number,
-  levels: OrderFlowLadderLevel[],
-  nativePriceToY: (price: number) => number,
-  tier: ChartColumnTier
-): (price: number) => number {
-  if (levels.length <= 1 || tier === "micro") {
-    return nativePriceToY;
-  }
-  const nativeY = levels.map((level) => nativePriceToY(level.priceBin));
-  const nativeTop = Math.min(...nativeY);
-  const nativeBottom = Math.max(...nativeY);
-  const nativeSpan = nativeBottom - nativeTop;
-  const minSpan = tier === "full" ? 112 : tier === "standard" ? 84 : 42;
-  if (nativeSpan >= minSpan) {
-    return nativePriceToY;
-  }
-  const topLimit = rect.y + 3;
-  const bottomLimit = rect.y + drawHeight - 3;
-  const span = Math.min(minSpan, Math.max(12, bottomLimit - topLimit));
-  const midpoint = clamp((nativeTop + nativeBottom) / 2, topLimit + span / 2, bottomLimit - span / 2);
-  const start = midpoint - span / 2;
-  const end = midpoint + span / 2;
-  const packed = new Map<number, number>();
-  levels.forEach((level, index) => {
-    const ratio = levels.length <= 1 ? 0.5 : index / (levels.length - 1);
-    packed.set(level.priceBin, start + (end - start) * ratio);
-  });
-  return (price: number) => packed.get(price) ?? nativePriceToY(price);
-}
-
-function chartRowHeightForLevels(levels: OrderFlowLadderLevel[], priceToY: (price: number) => number, cap: number): number {
-  if (levels.length <= 1) {
+function chartRowHeightForRows(rows: OrderFlowChartRow[], cap: number): number {
+  if (rows.length <= 1) {
     return Math.max(minChartRowHeight, Math.min(cap, cap * 0.8));
   }
-  const distances = levels
-    .map((level) => priceToY(level.priceBin))
+  const distances = rows
+    .map((row) => row.y)
     .slice(1)
-    .map((y, index, values) => Math.abs(y - (index === 0 ? priceToY(levels[0].priceBin) : values[index - 1])))
+    .map((y, index) => Math.abs(y - rows[index].y))
     .filter((distance) => Number.isFinite(distance) && distance > 0);
   const stepY = distances.length ? distances.reduce((sum, value) => sum + value, 0) / distances.length : minChartRowHeight;
   return Math.max(minChartRowHeight, Math.min(cap, stepY * 0.86));
 }
 
 function sideWidth(volume: number, maxVolume: number, maxWidth: number): number {
-  return Math.max(0, maxWidth * Math.sqrt(Math.max(0, volume) / Math.max(1, maxVolume)));
+  return Math.max(0, maxWidth * Math.sqrt(clamp(Math.max(0, volume) / Math.max(1, maxVolume), 0, 1)));
 }
 
 function nearestLevelIndex(levels: OrderFlowLadderLevel[], price: number | undefined | null): number | null {

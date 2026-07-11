@@ -1,5 +1,13 @@
+import { normalizeParallelLineCount, spatialTrendParallelOffsets } from "@gops/chart-engine";
 import type { ChartInterval, DrawingEntity } from "./types";
 import { createCoordinateTransform, priceToY, slotCenterToX, type ChartScene } from "./scene";
+
+export type TimeWarpedParallelPoint = {
+  x: number;
+  y: number;
+  time: number;
+  price: number;
+};
 
 export type DrawingRenderItem =
   | { kind: "full"; drawing: DrawingEntity }
@@ -7,6 +15,15 @@ export type DrawingRenderItem =
     kind: "timeWarpedLine";
     drawing: DrawingEntity;
     points: Array<{ x: number; y: number }>;
+    label?: string;
+  }
+  | {
+    kind: "timeWarpedParallelLines";
+    drawing: DrawingEntity;
+    lines: TimeWarpedParallelPoint[][];
+    bands: Array<Array<{ x: number; y: number }>>;
+    handles: Array<{ x: number; y: number }>;
+    priceOffset: number;
     label?: string;
   }
   | {
@@ -65,6 +82,12 @@ export function resolveDrawingRenderItems(
       return;
     }
 
+    const warpedParallelLines = timeWarpedParallelLinesItem(scene, drawing, timeRange);
+    if (warpedParallelLines) {
+      items.push(warpedParallelLines);
+      return;
+    }
+
     items.push({ kind: "full", drawing });
     items.push(...expansionProjectionItems(scene, drawing, timeRange));
   });
@@ -120,6 +143,104 @@ function timeWarpedLineItem(scene: ChartScene, drawing: DrawingEntity, timeRange
 
 function isLineLikeDrawing(drawing: DrawingEntity): boolean {
   return drawing.type === "trendLine";
+}
+
+function timeWarpedParallelLinesItem(
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  timeRange: TimeRange | null
+): Extract<DrawingRenderItem, { kind: "timeWarpedParallelLines" }> | null {
+  if (drawing.type !== "trendParallelLines" || !timeRange || drawing.anchors.length < 3) {
+    return null;
+  }
+  const [baseStartAnchor, baseEndAnchor, spacingAnchor] = drawing.anchors;
+  const times = [baseStartAnchor.timestamp, baseEndAnchor.timestamp, spacingAnchor.timestamp]
+    .map((timestamp) => timestamp ? Date.parse(timestamp) : Number.NaN);
+  const prices = [baseStartAnchor.price, baseEndAnchor.price, spacingAnchor.price];
+  if (
+    times.some((time) => !Number.isFinite(time)) ||
+    prices.some((price) => typeof price !== "number" || !Number.isFinite(price)) ||
+    times[0] === times[1]
+  ) {
+    return null;
+  }
+
+  const overlapRanges = scene.semantic.expansionRanges
+    .map((range) => ({ range, timeRange: isoRange(range.from, range.to) }))
+    .filter((range) => intervalsOverlap(timeRange, range.timeRange));
+  if (!overlapRanges.length) {
+    return null;
+  }
+
+  const [baseStartTime, baseEndTime, spacingTime] = times;
+  const [baseStartPrice, baseEndPrice, spacingPrice] = prices as number[];
+  const pricePerMillisecond = (baseEndPrice - baseStartPrice) / (baseEndTime - baseStartTime);
+  const basePriceAtSpacingTime = baseStartPrice + pricePerMillisecond * (spacingTime - baseStartTime);
+  const priceOffset = spacingPrice - basePriceAtSpacingTime;
+  const projectionStart = Math.min(...times);
+  const projectionEnd = Math.max(...times);
+  const breakpoints = new Set<number>(times);
+  const anchorTimestampByTime = new Map(times.map((time, index) => [time, drawing.anchors[index].timestamp]));
+  overlapRanges.forEach(({ timeRange: range }) => {
+    breakpoints.add(Math.max(projectionStart, range.start));
+    breakpoints.add(Math.min(projectionEnd, range.end));
+  });
+  const samples = [...breakpoints]
+    .filter((time) => Number.isFinite(time) && time >= projectionStart && time <= projectionEnd)
+    .sort((left, right) => left - right)
+    .map((time) => {
+      const x = xForProjectedParallelTime(scene, time, overlapRanges, anchorTimestampByTime.get(time));
+      return x === null ? null : { time, x };
+    })
+    .filter((sample): sample is { time: number; x: number } => Boolean(sample));
+  if (samples.length < 2) {
+    return null;
+  }
+
+  const offsets = spatialTrendParallelOffsets(normalizeParallelLineCount(drawing.parallelLineCount));
+  const lines = offsets.map((offset) => (
+    samples.map(({ time, x }) => {
+      const price = baseStartPrice + pricePerMillisecond * (time - baseStartTime) + priceOffset * offset;
+      return { x, y: priceToY(scene, price), time, price };
+    })
+  ));
+  const bands = lines.slice(0, -1).map((line, index) => [
+    ...line.map(({ x, y }) => ({ x, y })),
+    ...lines[index + 1].slice().reverse().map(({ x, y }) => ({ x, y }))
+  ]);
+  const transform = createCoordinateTransform(scene);
+  const handles = drawing.anchors.slice(0, 3)
+    .map((anchor) => transform.anchorToPoint(anchor))
+    .filter((point): point is { x: number; y: number } => Boolean(point));
+
+  return {
+    kind: "timeWarpedParallelLines",
+    drawing,
+    lines,
+    bands,
+    handles,
+    priceOffset,
+    label: drawing.label
+  };
+}
+
+function xForProjectedParallelTime(
+  scene: ChartScene,
+  time: number,
+  expansionRanges: Array<{ range: ChartScene["semantic"]["expansionRanges"][number]; timeRange: TimeRange }>,
+  preferredTimestamp?: string
+): number | null {
+  if (preferredTimestamp) {
+    const preferredX = createCoordinateTransform(scene).timestampToX(preferredTimestamp);
+    if (preferredX !== null) {
+      return preferredX;
+    }
+  }
+  const exactUnit = scene.semantic.units.find((unit) => {
+    const timestamp = unit.kind === "candle" ? unit.timestamp : unit.from;
+    return Date.parse(timestamp) === time;
+  });
+  return exactUnit ? slotCenterToX(scene, exactUnit.slotCenter) : xForTime(scene, time, expansionRanges);
 }
 
 function expansionProjectionItems(scene: ChartScene, drawing: DrawingEntity, timeRange: TimeRange | null): DrawingRenderItem[] {

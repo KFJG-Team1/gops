@@ -85,6 +85,7 @@ import { fetchMarketHeatmap } from "./market/heatmapApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
+import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
 
 
 type ActiveAgentRun = {
@@ -1311,7 +1312,6 @@ export function App() {
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
-            semanticSelection={semanticSelection}
             setSemanticSelection={setSemanticSelection}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onAgentAsk={handleAgentAsk}
@@ -1359,6 +1359,7 @@ export function App() {
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
       />
+      <GlossaryTooltip />
     </main>
   );
 }

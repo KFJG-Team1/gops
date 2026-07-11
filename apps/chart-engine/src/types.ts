@@ -285,6 +285,7 @@ export type ChartDocument = {
   interactionState: {
     mode: ChartToolMode;
     trendLineExtension: ChartLineExtension;
+    parallelLineCount: number;
   };
   drawings: DrawingEntity[];
   comparisons: ComparisonSeries[];
@@ -379,18 +380,26 @@ export type ChartToolMode =
   | "select"
   | "pan"
   | "draw-horizontalLine"
+  | "draw-horizontalParallelLines"
   | "draw-trendLine"
+  | "draw-trendParallelLines"
   | "draw-verticalMarker"
+  | "draw-verticalParallelLines"
   | "draw-textLabel"
-  | "draw-pointMarker"
-  | "draw-rangeBox";
+  | "draw-flagMarker"
+  | "draw-rangeBox"
+  | "draw-riskRewardBox"
+  | "draw-fibonacciRetracement";
 
 export type DrawingType =
   | "horizontalLine"
+  | "horizontalParallelLines"
   | "trendLine"
+  | "trendParallelLines"
   | "verticalMarker"
+  | "verticalParallelLines"
   | "textLabel"
-  | "pointMarker"
+  | "flagMarker"
   | "rangeBox"
   | "ellipse"
   | "riskRewardBox"
@@ -403,6 +412,7 @@ export type DrawingAnchor = {
   symbol?: string;
   logicalIndex?: number;
   value?: number;
+  interval?: string;
 };
 
 export type ChartLineExtension = "segment" | "ray" | "line";
@@ -414,6 +424,7 @@ export type DrawingStyle = {
   lineDash?: number[];
   fillColor?: string;
   fillToken?: string;
+  fillOpacity?: number;
   textColor?: string;
   textToken?: string;
   fontSize?: number;
@@ -425,8 +436,10 @@ export type DrawingEntity = {
   id: string;
   type: DrawingType;
   anchors: DrawingAnchor[];
+  sourceInterval?: string;
   style: DrawingStyle;
   label?: string;
+  parallelLineCount?: number;
   locked?: boolean;
   visible: boolean;
   createdBy: ChartCommandActor;

@@ -23,6 +23,8 @@ import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
+import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
+import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -64,6 +66,8 @@ type PanelContentRendererProps = {
   chartHeaderSnapshot?: ChartHeaderSnapshot;
   chartDocument?: ChartDocument;
   chartCandles: CandleDto[];
+  activeChartDocument?: ChartDocument;
+  activeChartCandles: CandleDto[];
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
@@ -73,7 +77,6 @@ type PanelContentRendererProps = {
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
-  semanticSelection: SemanticSelectionSnapshot | null;
   setSemanticSelection: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentReferenceSelect: (reference: AgentReference) => void;
   onAgentAsk: () => void;
@@ -104,6 +107,8 @@ export function PanelContentRenderer({
   chartHeaderSnapshot,
   chartDocument,
   chartCandles,
+  activeChartDocument,
+  activeChartCandles,
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
@@ -113,7 +118,6 @@ export function PanelContentRenderer({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
-  semanticSelection,
   setSemanticSelection,
   onAgentReferenceSelect,
   onAgentAsk,
@@ -316,16 +320,12 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "orderFlow") {
-    const panelSymbol = readPanelSymbol(content, symbol);
-    const hasExplicitSymbol = hasPanelSymbol(content);
     return (
       <OrderFlowPanel
         panelId={slot.id}
-        symbol={panelSymbol}
-        defaultToPinnedSymbol={!hasExplicitSymbol}
+        symbol={readOrderFlowSymbol(content)}
         savedWindow={readOrderFlowWindow(content)}
         savedResolution={readOrderFlowResolution(content)}
-        semanticSelection={semanticSelection}
         onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
         onWindowChange={(nextWindow) => onUpdatePanelProps(content.id, { window: nextWindow })}
         onResolutionChange={(nextResolution) => onUpdatePanelProps(content.id, { resolution: nextResolution })}
@@ -343,6 +343,20 @@ export function PanelContentRenderer({
         onSymbolOptionsRequest={() => undefined}
       />
     );
+  }
+
+  if (content.kind === "chartCommentary") {
+    return (
+      <ChartCommentaryPanel
+        symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+        interval={normalizeChartInterval(activeChartDocument?.timeframe)}
+        candles={activeChartCandles}
+      />
+    );
+  }
+
+  if (content.kind === "chartAssetOps") {
+    return <ChartAssetOpsPanel currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()} />;
   }
 
   if (content.kind !== "chart") {
@@ -474,6 +488,12 @@ function normalizeChartType(value: string | undefined): ChartType {
   return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
 }
 
+function normalizeChartInterval(value: string | undefined): ChartInterval {
+  return chartIntervals.includes(value as ChartInterval) || bidAskChartIntervals.includes(value as ChartInterval)
+    ? value as ChartInterval
+    : "1D";
+}
+
 function chartTypeLabel(chartType: ChartType): string {
   if (chartType === "bidask") {
     return "Bid/Ask";
@@ -500,14 +520,9 @@ function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: st
   return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
 }
 
-function readPanelSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+function readOrderFlowSymbol(content: PanelContentInstance): string {
   const raw = content.props?.symbol;
-  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
-}
-
-function hasPanelSymbol(content: PanelContentInstance): boolean {
-  const raw = content.props?.symbol;
-  return typeof raw === "string" && Boolean(raw.trim());
+  return typeof raw === "string" ? raw.trim().toUpperCase() : "";
 }
 
 function readOrderFlowWindow(content: PanelContentInstance): OrderFlowWindow {

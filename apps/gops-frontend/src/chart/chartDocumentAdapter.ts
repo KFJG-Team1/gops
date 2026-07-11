@@ -91,6 +91,7 @@ export function chartStateFromDocument(
     rightOffset: document.viewport.rightOffset,
     toolMode: document.interactionState.mode,
     trendLineExtension: document.interactionState.trendLineExtension,
+    parallelLineCount: document.interactionState.parallelLineCount ?? 3,
     drawings: document.drawings as unknown as DrawingEntity[],
     comparisons: document.comparisons.map((comparison): ChartComparisonSeries => ({
       id: comparison.id,

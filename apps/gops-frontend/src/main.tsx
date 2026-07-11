@@ -5,6 +5,7 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { AuthProvider } from "./auth/AuthProvider";
 import { syncChartEngineThemeFromCss } from "./theme/colors";
 import "./styles.css";
+import "./chart-features.css";
 
 syncChartEngineThemeFromCss();
 

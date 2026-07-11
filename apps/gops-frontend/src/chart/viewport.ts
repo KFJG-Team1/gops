@@ -1,8 +1,9 @@
+import { latestCandleRightOffset as engineLatestCandleRightOffset } from "@gops/chart-engine";
+
 const MIN_VISIBLE_CANDLES = 6;
 const MAX_VISIBLE_CANDLES = 500;
 const MIN_READABLE_SLOT_WIDTH = 4;
 const FUTURE_EMPTY_SPACE_RATIO = 2 / 3;
-const INITIAL_RIGHT_EMPTY_SPACE_RATIO = 1 / 3;
 const WHEEL_AXIS_EPSILON = 0.5;
 
 export type ChartViewport = {
@@ -163,5 +164,5 @@ export function futureEmptySlotCount(visibleCount: number): number {
 }
 
 export function latestCandleRightOffset(visibleCount: number): number {
-  return -Math.max(0, Math.ceil(Math.max(1, Math.round(visibleCount)) * INITIAL_RIGHT_EMPTY_SPACE_RATIO));
+  return engineLatestCandleRightOffset(visibleCount);
 }

@@ -1,5 +1,6 @@
-import type { CandleDto, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
+import type { CandleDto, ChartInterval, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
 import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
+import { orderFlowMinutesForBucket, orderFlowWindowMinutesForInterval } from "./orderFlow";
 import { normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
 import {
   buildSemanticTimeline,
@@ -281,6 +282,9 @@ const belowLayerPaneIds: Record<string, string> = {
 };
 
 export function activeBelowPaneIds(chart: ChartState): string[] {
+  if (chart.chartType === "bidask") {
+    return [];
+  }
   const visiblePaneIds = Object.entries(belowLayerPaneIds)
     .filter(([layer]) => Boolean(chart.layers[layer as ChartLayerKey]))
     .map(([, paneId]) => paneId);
@@ -356,8 +360,8 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
       const semanticHit = hitTestSemanticNode(scene, x, y);
       if (semanticHit?.kind === "candle") {
         return {
-          timestamp: timestampAtUnitX(scene, semanticHit, x),
-          logicalIndex: semanticHit.sourceIndex,
+          timestamp: semanticHit.timestamp,
+          logicalIndex: semanticHit.sourceIndex ?? Math.max(0, Math.round(xToLogical(x))),
           price: yToPrice(y),
           paneId: "price",
           symbol,
@@ -365,9 +369,18 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
         };
       }
       if (semanticHit?.kind === "time-gap") {
+        const bounds = unitBoundsX(scene, semanticHit);
+        const ratio = Math.max(0, Math.min(0.999999, (x - bounds.left) / Math.max(0.0001, bounds.right - bounds.left)));
+        const missingIndex = Math.min(
+          semanticHit.missingSlots - 1,
+          Math.max(0, Math.floor(ratio * semanticHit.missingSlots))
+        );
+        const gapStart = Date.parse(semanticHit.from);
+        const snappedTimestamp = Number.isFinite(gapStart)
+          ? new Date(gapStart + missingIndex * drawingIntervalMilliseconds(semanticHit.interval)).toISOString()
+          : semanticHit.from;
         return {
-          timestamp: timestampAtUnitX(scene, semanticHit, x),
-          logicalIndex: Math.max(0, Math.round(xToLogical(x))),
+          timestamp: snappedTimestamp,
           price: yToPrice(y),
           paneId: "price",
           symbol,
@@ -380,7 +393,7 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
         return null;
       }
       return {
-        timestamp: candle?.timestamp,
+        timestamp: candle?.timestamp ?? extrapolatedDrawingTimestamp(scene.allCandles, logicalIndex, scene.chart.interval),
         logicalIndex,
         price: yToPrice(y),
         paneId: "price",
@@ -389,6 +402,29 @@ export function createCoordinateTransform(scene: ChartScene): CoordinateTransfor
       };
     }
   };
+}
+
+function extrapolatedDrawingTimestamp(candles: CandleDto[], logicalIndex: number, interval: ChartInterval): string | undefined {
+  const lastIndex = candles.length - 1;
+  const lastTime = Date.parse(candles[lastIndex]?.timestamp ?? "");
+  if (!Number.isFinite(lastTime) || logicalIndex <= lastIndex) {
+    return candles[logicalIndex]?.timestamp;
+  }
+  const step = drawingIntervalMilliseconds(interval);
+  return new Date(lastTime + (logicalIndex - lastIndex) * step).toISOString();
+}
+
+function drawingIntervalMilliseconds(interval: ChartInterval): number {
+  switch (interval) {
+    case "1m": return 60_000;
+    case "5m": return 5 * 60_000;
+    case "10m": return 10 * 60_000;
+    case "1h": return 60 * 60_000;
+    case "4h": return 4 * 60 * 60_000;
+    case "1D": return 24 * 60 * 60_000;
+    case "1W": return 7 * 24 * 60 * 60_000;
+    case "1M": return 30 * 24 * 60 * 60_000;
+  }
 }
 
 function continuousTimestampToX(scene: ChartScene, timestamp: string): number | null {
@@ -522,6 +558,19 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState): { min: num
   const carryPrices = units
     .map((unit) => unit.kind === "time-gap" ? unit.carryPrice : undefined)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (chart.chartType === "bidask") {
+    const windowMinutes = orderFlowWindowMinutesForInterval(chart.interval);
+    const orderFlowPrices = chart.orderFlow
+      ? candleUnits.flatMap((unit) => (
+        orderFlowMinutesForBucket(chart.orderFlow?.minutes ?? [], unit.timestamp, windowMinutes)
+          .flatMap((minute) => minute.bins.map((level) => level.priceBin))
+      ))
+      : [];
+    return priceDomainFromValues(candleUnits.flatMap((unit) => [
+      unit.candle.high,
+      unit.candle.low
+    ]).concat(carryPrices, orderFlowPrices));
+  }
   const values = candleUnits.flatMap((unit) => [
     unit.candle.high,
     unit.candle.low,
@@ -537,6 +586,11 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState): { min: num
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return priceDomainFromValues(values);
+}
+
+function priceDomainFromValues(source: Array<number | undefined>): { min: number; max: number; ticks: number[] } {
+  const values = source.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }

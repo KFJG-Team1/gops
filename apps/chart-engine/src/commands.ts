@@ -2,8 +2,9 @@ import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
 import { chartLayerMetadata, layerVisibilityAliases, normalizeChartLayerKey } from "./layers";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
+import { riskRewardDirection } from "./drawingGeometry";
 import { normalizeSupportedSymbol } from "./symbols";
-import { clampRightOffset } from "./viewport";
+import { clampRightOffset, latestCandleRightOffset } from "./viewport";
 import type {
   ChartCommand,
   ChartCommandActor,
@@ -149,6 +150,14 @@ export function executeChartCommandGroup(
     return { ok: true, document, message: "No chart change.", noOp: true };
   }
 
+  if (commands.every((command) => command.historyScope === "external")) {
+    return {
+      ok: true,
+      document: next,
+      message: label
+    };
+  }
+
   const historyEntry: ChartHistoryEntry = {
     id: `chart-history-${crypto.randomUUID()}`,
     label,
@@ -251,7 +260,8 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart symbol.";
       }
       document.symbol = symbol;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(document.timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(document.timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
     }
     case "chart.timeframe.set": {
@@ -260,7 +270,8 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
     }
     case "chart.type.set": {
@@ -322,6 +333,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       }
       document.drawings = [...document.drawings.filter((item) => item.id !== drawing.id), drawing];
       document.selectedDrawingId = drawing.id;
+      document.interactionState = { ...document.interactionState, mode: "select" };
       return null;
     }
     case "chart.drawing.update": {
@@ -339,7 +351,6 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid drawing update.";
       }
       document.drawings = document.drawings.map((drawing) => drawing.id === drawingId ? next : drawing);
-      document.selectedDrawingId = drawingId;
       return null;
     }
     case "chart.drawing.remove": {
@@ -371,6 +382,10 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       }
       if (isLineExtension(command.payload.trendLineExtension)) {
         document.interactionState = { ...document.interactionState, trendLineExtension: command.payload.trendLineExtension };
+      }
+      const parallelLineCount = readNumber(command.payload.parallelLineCount);
+      if (parallelLineCount !== null) {
+        document.interactionState = { ...document.interactionState, parallelLineCount: normalizeParallelLineCount(parallelLineCount) };
       }
       return null;
     case "chart.comparison.add": {
@@ -593,11 +608,16 @@ function isToolMode(value: unknown): value is ChartDocument["interactionState"][
   return value === "select" ||
     value === "pan" ||
     value === "draw-horizontalLine" ||
+    value === "draw-horizontalParallelLines" ||
     value === "draw-trendLine" ||
+    value === "draw-trendParallelLines" ||
     value === "draw-verticalMarker" ||
+    value === "draw-verticalParallelLines" ||
     value === "draw-textLabel" ||
-    value === "draw-pointMarker" ||
-    value === "draw-rangeBox";
+    value === "draw-flagMarker" ||
+    value === "draw-rangeBox" ||
+    value === "draw-riskRewardBox" ||
+    value === "draw-fibonacciRetracement";
 }
 
 function isLineExtension(value: unknown): value is ChartLineExtension {
@@ -634,7 +654,8 @@ function readAnchor(value: unknown): DrawingAnchor | null {
     paneId: readString(source.paneId) ?? "price",
     symbol: readString(source.symbol) ?? undefined,
     logicalIndex: logicalIndex ?? undefined,
-    value: anchorValue ?? undefined
+    value: anchorValue ?? undefined,
+    interval: readString(source.interval) ?? undefined
   };
 }
 
@@ -658,6 +679,7 @@ function readStyle(value: unknown): DrawingStyle {
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
     fillColor: fillColor ?? undefined,
     fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),
+    fillOpacity: readNumber(source.fillOpacity) ?? undefined,
     textColor: textColor ?? color ?? undefined,
     textToken: readString(source.textToken) ?? (textColor || color ? undefined : "drawing"),
     fontSize: readNumber(source.fontSize) ?? 12,
@@ -666,13 +688,41 @@ function readStyle(value: unknown): DrawingStyle {
   };
 }
 
+function readStylePatch(value: unknown): DrawingStyle {
+  const source = readObject(value);
+  if (!source) {
+    return {};
+  }
+  const patch: DrawingStyle = {};
+  for (const key of ["color", "colorToken", "fillColor", "fillToken", "textColor", "textToken"] as const) {
+    if (key in source) {
+      patch[key] = readString(source[key]) ?? undefined;
+    }
+  }
+  for (const key of ["lineWidth", "fillOpacity", "fontSize", "opacity"] as const) {
+    if (key in source) {
+      patch[key] = readNumber(source[key]) ?? undefined;
+    }
+  }
+  if ("lineDash" in source) {
+    patch.lineDash = Array.isArray(source.lineDash)
+      ? source.lineDash.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+      : undefined;
+  }
+  if ("extension" in source) {
+    patch.extension = isLineExtension(source.extension) ? source.extension : undefined;
+  }
+  return patch;
+}
+
 function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: string): DrawingEntity | null {
   const source = readObject(value);
   if (!source) {
     return null;
   }
   const type = readDrawingType(source.type);
-  const anchors = readAnchors(source.anchors);
+  const rawAnchors = readAnchors(source.anchors);
+  const anchors = type && rawAnchors ? normalizeDrawingAnchors(type, rawAnchors) : rawAnchors;
   if (!type || !anchors || !anchorsMatchDrawingType(type, anchors)) {
     return null;
   }
@@ -681,8 +731,10 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     id: readString(source.id) ?? `drawing-${crypto.randomUUID()}`,
     type,
     anchors,
+    sourceInterval: readString(source.sourceInterval) ?? undefined,
     style: readStyle(source.style),
     label: readString(source.label) ?? undefined,
+    parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(readNumber(source.parallelLineCount) ?? 3) : undefined,
     locked: typeof source.locked === "boolean" ? source.locked : undefined,
     visible: typeof source.visible === "boolean" ? source.visible : true,
     createdBy: source.createdBy === "llm" || source.createdBy === "system" || source.createdBy === "user" ? source.createdBy : actor,
@@ -694,7 +746,8 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
 
 function makeDrawingFromPayload(payload: Record<string, unknown>, actor: ChartCommandActor, proposalId?: string, forcedType?: DrawingType): DrawingEntity | null {
   const type = forcedType ?? readDrawingType(payload.drawingType);
-  const anchors = readAnchors(payload.anchors);
+  const rawAnchors = readAnchors(payload.anchors);
+  const anchors = type && rawAnchors ? normalizeDrawingAnchors(type, rawAnchors) : rawAnchors;
   if (!type || !anchors || !anchorsMatchDrawingType(type, anchors)) {
     return null;
   }
@@ -703,8 +756,10 @@ function makeDrawingFromPayload(payload: Record<string, unknown>, actor: ChartCo
     id: readString(payload.drawingId) ?? `drawing-${crypto.randomUUID()}`,
     type,
     anchors,
+    sourceInterval: readString(payload.sourceInterval) ?? undefined,
     style: readStyle(payload.style),
     label: readString(payload.label) ?? undefined,
+    parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(readNumber(payload.parallelLineCount) ?? 3) : undefined,
     visible: true,
     createdBy: actor,
     sourceProposalId: proposalId,
@@ -723,11 +778,19 @@ function anchorsMatchDrawingType(type: DrawingType, anchors: DrawingAnchor[]): b
   if (type === "verticalMarker") {
     return hasAnchorTime(anchors[0]);
   }
-  if (type === "pointMarker" || type === "textLabel") {
+  if (type === "textLabel" || type === "flagMarker") {
     return hasAnchorTime(anchors[0]) && hasAnchorValue(anchors[0]);
   }
   const needed = drawingRegistry[type]?.minAnchors ?? 2;
-  return anchors.length >= needed && anchors.slice(0, needed).every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor));
+  if (anchors.length < needed || !anchors.slice(0, needed).every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor))) {
+    return false;
+  }
+  if (type === "riskRewardBox") {
+    const prices = anchors.slice(0, 3).map((anchor) => anchor.price ?? anchor.value);
+    return prices.every((price): price is number => typeof price === "number") &&
+      riskRewardDirection(prices[0], prices[1], prices[2]) !== null;
+  }
+  return true;
 }
 
 function hasAnchorTime(anchor: DrawingAnchor): boolean {
@@ -739,16 +802,38 @@ function hasAnchorValue(anchor: DrawingAnchor): boolean {
 }
 
 function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown>): DrawingEntity {
-  const anchors = readAnchors(patch.anchors);
+  const rawAnchors = readAnchors(patch.anchors);
+  const anchors = rawAnchors ? normalizeDrawingAnchors(current.type, rawAnchors) : null;
+  const parallelLineCount = readNumber(patch.parallelLineCount);
   return {
     ...current,
     anchors: anchors ?? current.anchors,
-    style: { ...current.style, ...readStyle(patch.style) },
+    style: { ...current.style, ...readStylePatch(patch.style) },
     label: typeof patch.label === "string" ? patch.label : current.label,
+    parallelLineCount: parallelLineCount === null ? current.parallelLineCount : normalizeParallelLineCount(parallelLineCount),
     visible: typeof patch.visible === "boolean" ? patch.visible : current.visible,
     locked: typeof patch.locked === "boolean" ? patch.locked : current.locked,
     updatedAt: new Date().toISOString()
   };
+}
+
+function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
+  if (type !== "riskRewardBox" || anchors.length < 3) {
+    return anchors;
+  }
+  const [entry, stop, target, ...rest] = anchors;
+  return [entry, stop, {
+    ...target,
+    timestamp: stop.timestamp,
+    logicalIndex: stop.logicalIndex,
+    interval: stop.interval,
+    symbol: stop.symbol,
+    paneId: stop.paneId
+  }, ...rest];
+}
+
+function normalizeParallelLineCount(value: number): number {
+  return Math.max(2, Math.min(10, Math.round(value)));
 }
 
 function readComparison(value: unknown): ComparisonSeries | null {

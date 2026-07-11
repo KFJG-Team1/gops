@@ -136,6 +136,7 @@ export function ChartComparisonPanel({
       <div
         className={`chart-compare-panel ${hoverSnapshot ? "is-hovering" : ""} ${listScrolls ? "has-scroll-rule" : ""} ${sidebarOpen ? "is-sidebar-open" : ""}`}
         aria-label="비교 차트"
+        data-compare-status={loading ? "loading" : error ? "error" : hasRenderableSeries ? "ready" : "empty"}
       >
         <button
           type="button"

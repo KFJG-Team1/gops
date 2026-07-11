@@ -134,14 +134,46 @@ export const chartCapabilities: ChartCapability[] = [
       "chart.drawing.select",
       "chart.drawing.clearSelection"
     ],
-    payloadSchema: { type: "object", properties: { drawingType: { type: "string" }, anchors: { type: "array" } } },
+    payloadSchema: {
+      type: "object",
+      properties: {
+        drawingType: {
+          type: "string",
+          enum: [
+            "horizontalLine",
+            "horizontalParallelLines",
+            "trendLine",
+            "trendParallelLines",
+            "verticalMarker",
+            "verticalParallelLines",
+            "textLabel",
+            "flagMarker",
+            "rangeBox",
+            "riskRewardBox",
+            "fibonacciRetracement"
+          ]
+        },
+        anchors: { type: "array" },
+        sourceInterval: { type: "string" },
+        parallelLineCount: { type: "integer", minimum: 2, maximum: 10 },
+        label: { type: "string" },
+        style: { type: "object" }
+      }
+    },
     requiredContext: ["chartDocumentId", "visibleRange", "coordinateTransform"],
     previewable: true,
     autoApplyEligible: false,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-preview", "chart-comparison"],
-    validationRules: ["drawing anchors must use timestamp/price/pane/symbol data coordinates", "pixel coordinates are rejected"]
+    validationRules: [
+      "drawing anchors must use canonical timestamp/price/pane/symbol data coordinates",
+      "trendParallelLines requires three anchors and parallelLineCount from 2 through 10",
+      "horizontalParallelLines and verticalParallelLines require two anchors",
+      "riskRewardBox requires entry, stop, and target anchors in that order",
+      "fibonacciRetracement requires two anchors",
+      "pixel coordinates are rejected"
+    ]
   },
   {
     id: "chart-preview",
