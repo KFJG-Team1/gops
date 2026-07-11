@@ -37,16 +37,11 @@ const chartIntervals = new Set<ChartInterval>(["1m", "5m", "10m", "1h", "4h", "1
 const chartLayers = new Set<ChartLayerKey>(["candles", "volume", "ma5", "ma20", "ma60"]);
 const drawingTypes = new Set<DrawingType>([
   "horizontalLine",
-  "horizontalParallelLines",
   "trendLine",
-  "trendParallelLines",
   "verticalMarker",
-  "verticalParallelLines",
   "textLabel",
-  "flagMarker",
-  "rangeBox",
-  "riskRewardBox",
-  "fibonacciRetracement"
+  "pointMarker",
+  "rangeBox"
 ]);
 
 export async function requestChartAgentActions(request: ChartAgentRequest): Promise<ChartAgentResponse> {
@@ -165,12 +160,8 @@ function commandToAction(command: unknown): ChartAction | null {
 
 function drawingCommandToAction(payload: Record<string, unknown>, fallbackType: DrawingType | null): ChartAction | null {
   const type = fallbackType ?? normalizeDrawingType(payload.drawingType);
-  const rawAnchors = normalizeAnchors(payload.anchors);
-  if (!type) {
-    return null;
-  }
-  const anchors = normalizeDrawingAnchors(type, rawAnchors);
-  if (!drawingAnchorsAreValid(type, anchors)) {
+  const anchors = normalizeAnchors(payload.anchors);
+  if (!type || anchors.length === 0) {
     return null;
   }
   const now = new Date().toISOString();
@@ -180,12 +171,8 @@ function drawingCommandToAction(payload: Record<string, unknown>, fallbackType: 
       id: readString(payload.id) ?? `agent-drawing-${crypto.randomUUID()}`,
       type,
       anchors,
-      sourceInterval: normalizeInterval(payload.sourceInterval) ?? undefined,
       style: normalizeDrawingStyle(payload.style),
       label: readString(payload.label) ?? undefined,
-      parallelLineCount: type === "trendParallelLines"
-        ? Math.max(2, Math.min(10, Math.round(readNumber(payload.parallelLineCount) ?? 3)))
-        : undefined,
       visible: true,
       createdBy: "agent",
       createdAt: now,
@@ -215,44 +202,12 @@ function isDrawingEntity(value: unknown): value is DrawingEntity {
   const drawing = value as DrawingEntity;
   return (
     typeof drawing.id === "string" &&
-    drawingTypes.has(drawing.type) &&
+    typeof drawing.type === "string" &&
     Array.isArray(drawing.anchors) &&
-    drawingAnchorsAreValid(drawing.type, drawing.anchors) &&
     typeof drawing.style === "object" &&
     typeof drawing.createdAt === "string" &&
     typeof drawing.updatedAt === "string"
   );
-}
-
-function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
-  if (type !== "riskRewardBox" || anchors.length !== 3) {
-    return anchors;
-  }
-  const [entry, stop, target] = anchors;
-  return [entry, stop, {
-    ...target,
-    timestamp: stop.timestamp,
-    logicalIndex: stop.logicalIndex,
-    interval: stop.interval,
-    symbol: stop.symbol,
-    paneId: stop.paneId
-  }];
-}
-
-function drawingAnchorsAreValid(type: DrawingType, anchors: DrawingAnchor[]): boolean {
-  const required = type === "trendParallelLines" || type === "riskRewardBox"
-    ? 3
-    : type === "trendLine" || type === "rangeBox" || type === "horizontalParallelLines" || type === "verticalParallelLines" || type === "fibonacciRetracement"
-      ? 2
-      : 1;
-  if (anchors.length !== required || anchors.some((anchor) => typeof anchor.price !== "number" && type !== "verticalMarker")) {
-    return false;
-  }
-  if (type !== "riskRewardBox") {
-    return true;
-  }
-  const [entry, stop, target] = anchors.map((anchor) => anchor.price as number);
-  return (stop < entry && entry < target) || (target < entry && entry < stop);
 }
 
 function normalizeInterval(value: unknown): ChartInterval | null {
@@ -285,8 +240,7 @@ function normalizeAnchors(value: unknown): DrawingAnchor[] {
       logicalIndex: readNumber(anchor.logicalIndex) ?? undefined,
       price: readNumber(anchor.price) ?? readNumber(anchor.value) ?? undefined,
       paneId: anchor.paneId === "volume" ? "volume" : "price",
-      symbol: readString(anchor.symbol) ?? undefined,
-      interval: normalizeInterval(anchor.interval) ?? undefined
+      symbol: readString(anchor.symbol) ?? undefined
     });
     return anchors;
   }, []);
@@ -299,16 +253,9 @@ function normalizeDrawingStyle(value: unknown): DrawingStyle {
   const source = value as Record<string, unknown>;
   return {
     color: readString(source.color) ?? undefined,
-    colorToken: readString(source.colorToken) ?? undefined,
     fillColor: readString(source.fillColor) ?? undefined,
-    fillToken: readString(source.fillToken) ?? undefined,
-    fillOpacity: readNumber(source.fillOpacity) ?? undefined,
     lineWidth: readNumber(source.lineWidth) ?? undefined,
     textColor: readString(source.textColor) ?? undefined,
-    textToken: readString(source.textToken) ?? undefined,
-    fontSize: readNumber(source.fontSize) ?? undefined,
-    opacity: readNumber(source.opacity) ?? undefined,
-    extension: source.extension === "ray" || source.extension === "line" || source.extension === "segment" ? source.extension : undefined,
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined
   };
 }

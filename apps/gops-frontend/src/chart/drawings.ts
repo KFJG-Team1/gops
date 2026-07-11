@@ -10,7 +10,7 @@ import type {
 import type { ChartScene } from "./scene";
 import { createCoordinateTransform } from "./scene";
 import { resolveDrawingRenderItems } from "./drawingProjection";
-import { nearestTypeSize, TYPE_SIZE } from "../theme/typography";
+import { nearestTypeRole, TYPE_ROLE } from "../theme/typography";
 import {
   buildHorizontalParallelLines,
   buildFibonacciLevelGeometry,
@@ -504,7 +504,9 @@ export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, la
   if (!label) {
     return null;
   }
-  const fontSize = nearestTypeSize(drawing.style.fontSize ?? TYPE_SIZE.compact);
+  const fontSize = TYPE_ROLE[
+    nearestTypeRole(drawing.style.fontSize ?? TYPE_ROLE.bodyMd.size, "displayMd")
+  ].size;
   const estimatedTextWidth = Array.from(label).reduce((width, character) => (
     width + (/^[\x00-\x7F]$/.test(character) ? fontSize * 0.58 : fontSize)
   ), 0);

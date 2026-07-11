@@ -3732,7 +3732,10 @@ assert.ok(finalAnswerIndex >= 0 && detailEvidenceIndex > finalAnswerIndex);
 assert.match(finalAnswerFirstMessage, /세부 근거/);
 assert.match(finalAnswerFirstMessage, /뉴스 독립 답변/);
 
-const frontendStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
+const frontendStylesSource = [
+  readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8"),
+  readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
+].join("\n");
 const bottomCommandBarSourceForAgentAnalysis = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
 assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);

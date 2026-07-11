@@ -44,9 +44,13 @@ export function resolveResponsivePanelLayout(
   return {
     mode,
     renderedCellSize,
-    // Compact mode changes panel presentation without widening the workspace past
-    // the viewport. The grid remains the layout contract; panels adapt internally.
-    metrics: naturalMetrics
+    metrics: mode === "compact"
+      ? {
+        ...naturalMetrics,
+        minCellWidthPx: compactGridCellFloorPx.width,
+        minCellHeightPx: compactGridCellFloorPx.height
+      }
+      : naturalMetrics
   };
 }
 

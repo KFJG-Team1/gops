@@ -29,6 +29,7 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   await openFixtureLayout(page, chartOnlyLayout());
   const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
   const chartPanel = page.locator(".chart-panel");
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", /^[1-9]\d*$/);
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expectLatestQuarterGap(chartPanel);
 
@@ -144,6 +145,17 @@ test("tiled chart, compare, and order-flow panels do not overlap workspace chrom
   await expect(page.locator(".chart-compare-panel")).toBeVisible();
   await assertWorkspaceChromeDoesNotOverlap(page);
   await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
+});
+
+test("layout edit hides the command bar and exposes chart asset panels", async ({ page }) => {
+  await openFixtureLayout(page, chartOnlyLayout());
+  await page.getByRole("button", { name: "레이아웃 수정모드 시작" }).click();
+
+  await expect(page.locator(".workspace-bottom-nav")).toHaveCount(0);
+  await expect(page.locator(".layout-palette-dock")).toBeVisible();
+  await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
 });
 
 test("order-flow panels stay intraday-only and keep the lower canvas wheelable", async ({ page }) => {

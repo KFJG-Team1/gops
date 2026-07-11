@@ -37,7 +37,6 @@ import {
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
-import { isLocalAgentDebugEnabled } from "./localAgentDebug";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar, type AgentSubmitResult, type ChatLogEntry } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
@@ -103,7 +102,8 @@ type InteractiveAgentContext = {
 };
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
-const appUiScale = 1.2;
+const agentDebugStorageKey = "gops:agent-debug";
+const appUiScale = 0.8;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   topInset: workspaceTopInset,
   uiScale: appUiScale
@@ -230,6 +230,28 @@ function chartVisibleRange(chart: ChartState): { from: string; to: string } | nu
   const from = chart.candles[startIndex]?.timestamp;
   const to = chart.candles[endIndex]?.timestamp;
   return from && to ? { from, to } : null;
+}
+
+function isLocalAgentDebugEnabled(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+  const paramValue = new URLSearchParams(window.location.search).get("agentDebug");
+  if (paramValue !== null) {
+    const normalized = paramValue.trim().toLowerCase();
+    const enabled = normalized === "" || ["1", "true", "yes", "on"].includes(normalized);
+    try {
+      window.localStorage.setItem(agentDebugStorageKey, enabled ? "1" : "0");
+    } catch {
+      // Local debug still works for this request even if storage is disabled.
+    }
+    return enabled;
+  }
+  try {
+    return window.localStorage.getItem(agentDebugStorageKey) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function publishLocalAgentDebugSnapshot(
@@ -1281,6 +1303,7 @@ export function App() {
             layoutMetrics={panelLayoutMetrics}
             layoutMode={responsivePanelLayout.mode}
             layoutEditMode={layoutEditMode}
+            onExitLayoutEdit={toggleLayoutEditMode}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
             companyItems={treeMapItems}
@@ -1335,7 +1358,6 @@ export function App() {
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
-        onToggleLayoutEditMode={toggleLayoutEditMode}
       />
       <GlossaryTooltip />
     </main>

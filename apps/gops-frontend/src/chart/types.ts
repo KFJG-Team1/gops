@@ -373,6 +373,7 @@ export type DrawingType =
   | "verticalMarker"
   | "verticalParallelLines"
   | "textLabel"
+  | "pointMarker"
   | "flagMarker"
   | "rangeBox"
   | "riskRewardBox"

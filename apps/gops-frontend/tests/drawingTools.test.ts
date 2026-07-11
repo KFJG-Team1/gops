@@ -560,7 +560,7 @@ const priceLayout = drawingLabelLayout(labelScene, priceParallelDrawing);
 const timeLayout = drawingLabelLayout(labelScene, timeParallelDrawing);
 assert.ok(priceLayout && timeLayout);
 assert.equal(priceLayout.boxStyle, "plain");
-assert.equal(priceLayout.fontSize, 12);
+assert.equal(priceLayout.fontSize, 14);
 assert.equal(priceLayout.left, labelScene.plot.left + 8);
 assert.equal(timeLayout.boxStyle, "tag");
 assert.ok(timeLayout.top + timeLayout.height <= labelScene.plot.priceBottom - 3);

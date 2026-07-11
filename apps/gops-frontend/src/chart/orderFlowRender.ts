@@ -1,5 +1,5 @@
 import type { ThemeColors } from "../theme/colors";
-import { CANVAS_FONT_FAMILY, TYPE_SIZE } from "../theme/typography";
+import { applyCanvasTypography, CANVAS_FONT_FAMILY } from "../theme/typography";
 import type { OrderFlowLadder, OrderFlowLadderLevel } from "./orderFlow";
 
 export type OrderFlowLadderRect = {
@@ -152,7 +152,7 @@ export function drawOrderFlowPanelLadder(
   const rowHeight = Math.max(3, drawHeight / ladder.levels.length);
   const priceLabel = ladder.maxPrice >= 100 ? ladder.maxPrice.toFixed(2) : ladder.maxPrice.toFixed(2);
   ctx.save();
-  ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   const measuredGutter = Math.ceil(ctx.measureText(priceLabel).width) + 18;
   const gutterWidth = clamp(measuredGutter, compact ? 34 : 46, Math.min(compact ? 58 : 78, rect.width * 0.32));
   const centerX = rect.x + rect.width / 2;
@@ -202,7 +202,7 @@ export function drawOrderFlowPanelLadder(
     if (showLabel) {
       ctx.globalAlpha = level.priceBin === ladder.pocPriceBin ? 0.96 : 0.78;
       ctx.fillStyle = level.priceBin === ladder.pocPriceBin ? theme.caution : theme.text;
-      ctx.font = `${level.priceBin === ladder.pocPriceBin ? "800" : "700"} ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+      applyCanvasTypography(ctx, "caption", canvasFontFamily);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(formatPrice(level.priceBin), centerX, y + h / 2, gutterWidth - 4);
@@ -230,7 +230,7 @@ export function drawOrderFlowPanelLadder(
 export function drawEstimatedBadge(ctx: CanvasRenderingContext2D, x: number, y: number, theme: ThemeColors): void {
   const label = "estimated";
   ctx.save();
-  ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   const width = Math.ceil(ctx.measureText(label).width) + 14;
   const height = 16;
   ctx.globalAlpha = 0.82;
@@ -342,7 +342,7 @@ function drawColumnFooter(
   const delta = ladder?.totals.delta;
   ctx.globalAlpha = 0.84;
   ctx.fillStyle = !ladder ? theme.muted : ladderTone(ladder) === "unknown" ? theme.axis : (delta ?? 0) >= 0 ? theme.upSoft : theme.downSoft;
-  ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   const fallback = !ladder ? "—" : (delta ?? 0) >= 0 ? "+" : "-";
@@ -431,7 +431,7 @@ function drawPanelBars(
   if (geometry.showText) {
     ctx.globalAlpha = 0.88;
     ctx.fillStyle = theme.text;
-    ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+    applyCanvasTypography(ctx, "caption", canvasFontFamily);
     ctx.textBaseline = "middle";
     ctx.textAlign = "right";
     ctx.fillText(shortNumber(level.bidVolume), geometry.leftX - 3, geometry.y + geometry.h / 2, geometry.leftWidth - 5);
@@ -474,7 +474,7 @@ function drawPanelFooter(
   if (micro) {
     return;
   }
-  ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textBaseline = "bottom";
   ctx.textAlign = "right";
   const poc = ladder.pocPriceBin === null ? "POC -" : `POC ${formatPrice(ladder.pocPriceBin)}`;
@@ -529,7 +529,7 @@ function drawQuoteWedge(
   ctx.fill();
   if (label !== "-") {
     ctx.globalAlpha = 0.75;
-    ctx.font = `700 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+    applyCanvasTypography(ctx, "caption", canvasFontFamily);
     ctx.textAlign = direction === "left" ? "right" : "left";
     ctx.textBaseline = "middle";
     ctx.fillText(label, direction === "left" ? x - 8 : x + 8, y, 38);
@@ -571,7 +571,7 @@ function drawLevelText(
 ): void {
   ctx.globalAlpha = 0.88;
   ctx.fillStyle = theme.text;
-  ctx.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(ctx, "caption", canvasFontFamily);
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
   ctx.fillText(shortNumber(level.bidVolume), gutterLeft - 3, y, halfWidth - 5);

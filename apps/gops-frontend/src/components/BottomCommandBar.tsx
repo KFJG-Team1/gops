@@ -55,7 +55,6 @@ type BottomCommandBarProps = {
   onLogin: () => void;
   onLogout: () => void;
   onSelectSymbol: (symbol: string) => void;
-  onToggleLayoutEditMode: () => void;
 };
 
 const alertToastAdvanceMs = 6000;
@@ -82,8 +81,7 @@ export function BottomCommandBar({
   onAgentSubmit,
   onLogin,
   onLogout,
-  onSelectSymbol,
-  onToggleLayoutEditMode
+  onSelectSymbol
 }: BottomCommandBarProps) {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
@@ -340,7 +338,9 @@ export function BottomCommandBar({
           </button>
         </div>
       </nav>
-      <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
+      {/* The command bar is hidden while editing the layout; the palette dock owns
+          the bottom band and provides its own 완료 (exit) button. */}
+      {!layoutEditMode && <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <div className="bottom-command-slot is-agent">
           <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
             <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Agent log" aria-hidden={!chatPanelOpen}>
@@ -398,17 +398,6 @@ export function BottomCommandBar({
               >
                 {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
               </button>
-              {layoutEditMode && (
-                <button
-                  type="button"
-                  className="layout-exit-button agent-layout-exit-button"
-                  aria-label="레이아웃 수정모드 종료"
-                  title="레이아웃 수정모드 종료"
-                  onClick={onToggleLayoutEditMode}
-                >
-                  Leave
-                </button>
-              )}
             </form>
             <button
               type="button"
@@ -422,7 +411,7 @@ export function BottomCommandBar({
             </button>
           </div>
         </div>
-      </nav>
+      </nav>}
     </>
   );
 }

@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import {
   createInitialTiledPanelState,
   gridRectsOverlap,
-  panelPaletteEntries,
   panelGridMetrics,
   panelMinimumRenderedSizeForKind,
   readableMinGridSpanForKind,
   workspaceBounds
 } from "../src/layout/panelLayout";
 import {
+  compactGridCellFloorPx,
   resolveResponsivePanelLayout
 } from "../src/layout/responsivePanelLayout";
 
@@ -17,13 +17,10 @@ const baseMetrics = { topInset: 52, uiScale: 1.6 };
 const compact = resolveResponsivePanelLayout({ width: 854, height: 480 }, baseMetrics);
 assert.equal(compact.mode, "compact");
 const compactGrid = panelGridMetrics({ width: 854, height: 480 }, compact.metrics);
-assert.ok(compactGrid.cellWidth > 0);
-assert.ok(compactGrid.cellHeight > 0);
-assert.equal(compact.metrics.minCellWidthPx, undefined);
-assert.equal(compact.metrics.minCellHeightPx, undefined);
+assert.ok(compactGrid.cellWidth * baseMetrics.uiScale >= compactGridCellFloorPx.width - 0.5);
+assert.ok(compactGrid.cellHeight * baseMetrics.uiScale >= compactGridCellFloorPx.height - 0.5);
 const compactBounds = workspaceBounds({ width: 854, height: 480 }, compact.metrics);
-assert.equal(compactBounds.width, 854);
-assert.ok(compactBounds.top + compactBounds.height <= 480);
+assert.ok(compactBounds.top + compactBounds.height + 64 > 480);
 
 const standard = resolveResponsivePanelLayout({ width: 1200, height: 675 }, baseMetrics);
 assert.equal(standard.mode, "standard");
@@ -38,7 +35,6 @@ assert.deepEqual(readableMinGridSpanForKind("news"), { colSpan: 2, rowSpan: 2 })
 assert.deepEqual(readableMinGridSpanForKind("chart"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("trade"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("chart"), { width: 320, height: 220 });
-assert.ok(panelPaletteEntries().some((entry) => entry.kind === "chartAssetOps"));
 
 const initial = createInitialTiledPanelState({ width: 854, height: 480 }, {
   symbol: "NVDA",

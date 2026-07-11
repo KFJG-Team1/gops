@@ -17,17 +17,7 @@ export const TYPE_ROLE = {
 
 export type TypeRoleName = keyof typeof TYPE_ROLE;
 
-export const TYPE_SIZE = {
-  micro: 10,
-  compact: 12,
-  body: 14,
-  title: 18,
-  display: 32
-} as const;
-
 export const CANVAS_FONT_FAMILY = '"Asta Sans", Arial, ui-sans-serif, system-ui, sans-serif';
-
-const typeSizeValues = Object.values(TYPE_SIZE);
 
 const fittedRoleOrder: TypeRoleName[] = [
   "bodyMd",
@@ -47,13 +37,6 @@ export function nearestTypeRole(value: number, maxRole: TypeRoleName = "displayX
   return candidates.reduce((nearest, role) => (
     Math.abs(TYPE_ROLE[role].size - value) <= Math.abs(TYPE_ROLE[nearest].size - value) ? role : nearest
   ), candidates[0] ?? "bodyMd");
-}
-
-export function nearestTypeSize(value: number, maxSize: number = TYPE_SIZE.display): number {
-  const candidates = typeSizeValues.filter((size) => size <= maxSize);
-  return candidates.reduce((nearest, size) => (
-    Math.abs(size - value) <= Math.abs(nearest - value) ? size : nearest
-  ), candidates[0] ?? TYPE_SIZE.micro);
 }
 
 export function applyCanvasTypography(

@@ -26,7 +26,7 @@ import {
 import { drawOrderFlowPanelLadder } from "../chart/orderFlowRender";
 import { readThemeColors } from "../theme/colors";
 import type { ThemeColors } from "../theme/colors";
-import { CANVAS_FONT_FAMILY, TYPE_SIZE } from "../theme/typography";
+import { applyCanvasTypography, CANVAS_FONT_FAMILY } from "../theme/typography";
 import { SymbolSearch } from "./SymbolSearch";
 
 type OrderFlowPanelProps = {
@@ -347,7 +347,7 @@ export function OrderFlowPanel({
       context.clearRect(0, 0, rect.width, rect.height);
       if (!state.ladder) {
         context.fillStyle = theme.muted;
-        context.font = `700 ${rect.width < 150 ? TYPE_SIZE.micro : TYPE_SIZE.compact}px ${canvasFontFamily}`;
+        applyCanvasTypography(context, "bodyMd", canvasFontFamily);
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText(emptyPanelMessage(state.loading, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
@@ -524,7 +524,7 @@ function drawWheelFeedback(
   }
   const label = `${formatPriceStep(state.effectiveStep)} · ${state.targetRows} rows`;
   context.save();
-  context.font = `800 ${TYPE_SIZE.compact}px ${canvasFontFamily}`;
+  applyCanvasTypography(context, "labelMd", canvasFontFamily);
   const availableWidth = Math.max(48, width - 16);
   const pillWidth = Math.min(availableWidth, Math.max(76, context.measureText(label).width + 18));
   const pillHeight = 24;
@@ -552,7 +552,7 @@ function drawCaptionPill(
   small: boolean
 ): void {
   context.save();
-  context.font = `800 ${TYPE_SIZE.micro}px ${canvasFontFamily}`;
+  applyCanvasTypography(context, "caption", canvasFontFamily);
   const width = Math.ceil(context.measureText(label).width) + (small ? 10 : 12);
   const height = small ? 16 : 18;
   context.globalAlpha = 0.7;

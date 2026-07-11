@@ -210,6 +210,9 @@ export function ChartAssetOpsPanel({ currentSymbol }: { currentSymbol: string })
           <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
+          {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
+            <p>데이터 점검 {job.repair.checkedSymbols} · 복구 {job.repair.repairedSymbols} · 결측 {job.repair.missingBarsBefore}→{job.repair.missingBarsAfter} · 적재 {job.repair.materializedRows}</p>
+          )}
           <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{(job.logs ?? []).slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
           {failedSymbols.length > 0 && <p>실패: {failedSymbols.join(", ")}</p>}
         </section>
