@@ -14,7 +14,7 @@ from alfaka.realtime import feed_control
 from alfaka.common.redis_keys import RedisKeyBuilder
 from alfaka.storage.clickhouse_loader import candle_to_clickhouse_row, load_payload_batch, trade_to_clickhouse_row
 from alfaka.storage.candle_validation import invalid_candle_reason
-from alfaka.streaming.processor import process_raw_envelope
+from alfaka.streaming.processor import process_raw_envelope, publish_closed_candle
 from alfaka.streaming.transforms import CandleAggregator, LiveCandleBuilder, normalize_trade
 
 
@@ -132,6 +132,24 @@ class SimulationReplayTombstoneTests(unittest.TestCase):
 
         self.assertEqual(processor_result, "simulation_rolled_back")
         self.assertEqual(inserted, 0)
+
+    def test_delayed_in_memory_candle_flush_is_blocked_after_rollback(self):
+        keys = RedisKeyBuilder(prefix="test")
+        redis_client = self.Redis({
+            keys.simulation_rollback("sim-run-1"): json.dumps({"rollbackState": "completed"})
+        })
+        candle = {
+            "eventType": "CANDLE",
+            "symbol": "NVDA",
+            "interval": "1m",
+            "timestamp": "2026-07-11T09:21:00.000Z",
+            "simulationRunId": "sim-run-1",
+        }
+
+        result = publish_closed_candle(None, redis_client, keys, None, {}, candle)
+
+        self.assertFalse(result)
+        self.assertIsNone(redis_client.get(keys.latest_closed_candle("NVDA", "1m")))
 
 
 if __name__ == "__main__":

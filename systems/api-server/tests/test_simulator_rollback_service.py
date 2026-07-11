@@ -169,6 +169,9 @@ class SimulatorRollbackServiceTest(unittest.TestCase):
         self.redis.set(self.keys.simulation_feed_override(), json.dumps({"runId": run_id, "selectedFeedProfile": "sip"}))
 
         result = self.service.rollback_latest("demo-user")
+        self.redis.sorted_sets[series_key][simulated] = 2
+        self.redis.set(self.keys.latest_closed_candle(symbol, interval), simulated)
+        self.redis.set(self.keys.live_candle(symbol, interval), simulated)
         repeated = self.service.rollback_latest("demo-user")
 
         self.assertEqual(result["rollbackState"], "completed")
@@ -183,7 +186,7 @@ class SimulatorRollbackServiceTest(unittest.TestCase):
         self.assertEqual(self.redis.get(self.keys.closed_candle_watermark(symbol, interval)), "2026-07-10T19:59:00Z")
         self.assertIsNone(self.redis.get(self.keys.simulation_feed_override()))
         self.assertTrue(self.redis.get(self.keys.simulation_rollback(run_id)))
-        self.assertEqual(len(self.clickhouse.executed), 2)
+        self.assertEqual(len(self.clickhouse.executed), 4)
         self.assertTrue(any("SIMULATION_ROLLED_BACK" in payload for _, payload in self.redis.published))
 
     def test_rollback_rehydrates_latest_normal_candle_from_clickhouse_when_cache_is_empty(self):
