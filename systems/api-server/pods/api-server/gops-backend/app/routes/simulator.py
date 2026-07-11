@@ -8,6 +8,10 @@ from pydantic import BaseModel
 from app.auth.dependencies import require_current_user
 from app.auth.models import AuthenticatedUser
 from app.services.simulator_gateway import SimulatorGateway, SimulatorUnavailable
+from app.services.simulator_rollback import (
+    SimulationRollbackUnavailable,
+    create_simulator_rollback_service,
+)
 
 
 router = APIRouter(prefix="/api/simulator", tags=["simulator"])
@@ -29,7 +33,11 @@ class SimulatorBasketOrderRequest(BaseModel):
 @router.get("/status")
 def simulator_status(request: Request) -> dict[str, Any]:
     try:
-        return {"available": True, **simulator_gateway_from_app(request.app).status()}
+        status_payload = simulator_gateway_from_app(request.app).status()
+        rollback_service = simulator_rollback_service_from_app(request.app)
+        enrich_status = getattr(rollback_service, "enrich_status", None)
+        enriched = enrich_status(status_payload) if callable(enrich_status) else status_payload
+        return {"available": True, **enriched}
     except SimulatorUnavailable as exc:
         return {
             "available": False,
@@ -46,12 +54,68 @@ def simulator_status(request: Request) -> dict[str, Any]:
 
 @router.put("/mode")
 def simulator_mode(payload: SimulatorModeRequest, request: Request) -> dict[str, Any]:
-    return _call_simulator(lambda gateway: gateway.set_mode(payload.mode), request)
+    gateway = simulator_gateway_from_app(request.app)
+    rollback_service = simulator_rollback_service_from_app(request.app)
+    try:
+        before = gateway.status()
+        result = gateway.set_mode(payload.mode)
+        if payload.mode == "simulation":
+            start_run = getattr(rollback_service, "start_run", None)
+            if not callable(start_run):
+                return result
+            try:
+                return start_run(result)
+            except Exception as exc:
+                try:
+                    gateway.set_mode("live")
+                except SimulatorUnavailable:
+                    pass
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"시뮬레이션 데이터 경로 전환 실패: {exc}",
+                ) from exc
+        finish_run = getattr(rollback_service, "finish_run", None)
+        if callable(finish_run):
+            finish_run(before)
+        enrich_status = getattr(rollback_service, "enrich_status", None)
+        return enrich_status(result) if callable(enrich_status) else result
+    except SimulatorUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.post("/action")
 def simulator_action(payload: SimulatorActionRequest, request: Request) -> dict[str, Any]:
-    return _call_simulator(lambda gateway: gateway.action(payload.action), request)
+    gateway = simulator_gateway_from_app(request.app)
+    rollback_service = simulator_rollback_service_from_app(request.app)
+    try:
+        before = gateway.status()
+        result = gateway.action(payload.action)
+        if payload.action == "restart":
+            finish_run = getattr(rollback_service, "finish_run", None)
+            if callable(finish_run):
+                finish_run(before)
+            start_run = getattr(rollback_service, "start_run", None)
+            return start_run(result) if callable(start_run) else result
+        enrich_status = getattr(rollback_service, "enrich_status", None)
+        return enrich_status(result) if callable(enrich_status) else result
+    except SimulatorUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/rollback")
+def simulator_rollback(
+    request: Request,
+    current_user: AuthenticatedUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    try:
+        current = simulator_gateway_from_app(request.app).status()
+        if current.get("mode") == "simulation" and current.get("state") in {"running", "paused"}:
+            raise HTTPException(status_code=409, detail="시뮬레이션 실행 중에는 원복할 수 없습니다")
+        return simulator_rollback_service_from_app(request.app).rollback_latest(current_user.sub)
+    except SimulationRollbackUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SimulatorUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.get("/news")
@@ -93,6 +157,15 @@ def simulator_gateway_from_app(app: Any) -> SimulatorGateway:
     gateway = SimulatorGateway()
     app.state.simulator_gateway = gateway
     return gateway
+
+
+def simulator_rollback_service_from_app(app: Any):
+    existing = getattr(app.state, "simulator_rollback_service", None)
+    if existing is not None:
+        return existing
+    service = create_simulator_rollback_service(simulator_gateway_from_app(app))
+    app.state.simulator_rollback_service = service
+    return service
 
 
 def simulator_mode_active(app: Any) -> bool:

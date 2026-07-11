@@ -44,6 +44,7 @@ from alfaka.orderflow.redis_model import (
     order_flow_minute_score,
     parse_order_flow_minute_blob,
 )
+from alfaka.realtime.feed_control import simulation_run_rolled_back
 from alfaka.serving.dto import market_status_event, order_flow_event, websocket_event
 from alfaka.serving.closed_watermark import (
     candle_at_or_before_watermark,
@@ -544,6 +545,9 @@ def flush_reference_time(state, now=None, allow_wall_clock=False):
 def process_raw_envelope(envelope, producer, redis_client, redis_keys, state, topics, log_every_n=500):
     topics = normalize_processor_topics(topics)
     channel = envelope.get("channel")
+    if simulation_run_rolled_back(redis_client, envelope.get("simulationRunId"), redis_keys):
+        write_processor_health(redis_client, redis_keys, envelope, result="simulation_rolled_back", state=state)
+        return "simulation_rolled_back"
     feed_guard_result = enforce_active_feed(redis_client, redis_keys, envelope, cache=getattr(state, "active_feed_cache", None))
     if feed_guard_result != "accepted":
         write_processor_health(redis_client, redis_keys, envelope, result=feed_guard_result, state=state)
@@ -939,6 +943,8 @@ def write_trade_to_redis(redis_client, redis_keys, trade, state=None):
         "feed": trade.get("feed") or "unknown",
         "feedProfile": trade.get("feedProfile") or trade.get("feed") or "unknown",
         "marketSession": trade.get("marketSession") or "unknown",
+        "simulationRunId": trade.get("simulationRunId") or "",
+        "simulationScenarioId": trade.get("simulationScenarioId") or "",
     }, live_trade_ttl_seconds())
     return True
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 역할: dev EKS의 backend/SIP 수집기를 live 경로로 복구하고 시뮬레이터 Pod를 0개로 내립니다.
+# 역할: dev EKS의 Redis feed override를 제거하고 시뮬레이터 Pod를 0개로 내립니다.
 set -euo pipefail
 
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-993099901407}"
@@ -30,18 +30,9 @@ require_command aws
 require_command kubectl
 configure_cluster
 
-kubectl set env deployment/alfaka-alpaca-ingestor-sip -n "${K8S_NAMESPACE}" \
-  ALPACA_STREAM_BASE_URL- \
-  ALPACA_COLLECTION_SYMBOLS- \
-  ALPACA_CHANNELS- \
-  ALPACA_ACTIVE_CHANNELS=bars,updatedBars,dailyBars,trades,quotes \
-  ALPACA_MAX_TRADE_SYMBOLS- \
-  ALPACA_ENFORCE_FEED_SESSION_WINDOW-
-
-kubectl set env deployment/gops-backend -n "${K8S_NAMESPACE}" GOPS_SIMULATOR_URL-
-
-kubectl rollout status deployment/alfaka-alpaca-ingestor-sip -n "${K8S_NAMESPACE}" --timeout=300s
-kubectl rollout status deployment/gops-backend -n "${K8S_NAMESPACE}" --timeout=300s
+REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-gops:market:on-demand:v1}"
+kubectl exec redis-0 -n "${K8S_NAMESPACE}" -- \
+  redis-cli DEL "${REDIS_KEY_PREFIX}:simulation:feed-override" >/dev/null
 kubectl scale deployment/gops-simulator --replicas=0 -n "${K8S_NAMESPACE}"
 
-printf 'Live Alpaca SIP path restored; EKS simulator replicas are now 0.\n'
+printf 'Runtime feed override removed; ingestors return to the real Alpaca session policy and simulator replicas are now 0.\n'

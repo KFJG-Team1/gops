@@ -21,6 +21,11 @@ from alfaka.common.runtime_health import write_component_health
 from alfaka.common.runtime_config import validate_required_values
 from alfaka.common.secrets import load_alpaca_credentials, resolve_alpaca_credential_source
 from alfaka.realtime.subscription_cohorts import ORDER_FLOW_SOURCE
+from alfaka.realtime.feed_control import (
+    read_simulation_feed_override,
+    simulation_override_for_profile,
+    simulation_websocket_url,
+)
 
 
 _PUBLISH_STOP = object()
@@ -32,11 +37,11 @@ async def main():
     credential_source = resolve_alpaca_credential_source()
     feed_profile = resolve_feed_profile()
     alpaca_feed = feed_profile.feed
-    symbols, channels = load_symbols_and_channels()
+    normal_symbols, normal_channels = load_symbols_and_channels()
     request_config = load_request_config()
-    active_channels = parse_csv(os.getenv("ALPACA_ACTIVE_CHANNELS", ",".join(request_config.get("activeChartChannels", ["trades"]))))
-    validate_channels(active_channels, request_config)
-    active_channels = [channel for channel in active_channels if channel not in channels]
+    normal_active_channels = parse_csv(os.getenv("ALPACA_ACTIVE_CHANNELS", ",".join(request_config.get("activeChartChannels", ["trades"]))))
+    validate_channels(normal_active_channels, request_config)
+    normal_active_channels = [channel for channel in normal_active_channels if channel not in normal_channels]
     active_poll_seconds = parse_positive_float(os.getenv("ALPACA_ACTIVE_POLL_SECONDS", "5"), default=5.0)
     enforce_session_window = parse_bool(os.getenv("ALPACA_ENFORCE_FEED_SESSION_WINDOW", "true"), default=True)
     session_idle_poll_seconds = parse_positive_float(os.getenv("ALPACA_SESSION_IDLE_POLL_SECONDS", "60"), default=60.0)
@@ -52,9 +57,7 @@ async def main():
         "raw_topic_prefix": raw_topic_prefix,
     })
 
-    alpaca_url = feed_profile.websocket_url
     producer = create_json_producer(kafka_servers, kafka_client_id)
-    subscribe_request = build_subscription_request(symbols, channels)
     redis_client = create_active_subscription_redis()
     reconnect_backoff = parse_positive_float(os.getenv("ALPACA_RECONNECT_BACKOFF_SECONDS", "2"), default=2.0)
     reconnect_backoff_max = parse_positive_float(os.getenv("ALPACA_RECONNECT_BACKOFF_MAX_SECONDS", "60"), default=60.0)
@@ -64,9 +67,9 @@ async def main():
         feed_profile,
         status="starting",
         alpacaFeed=alpaca_feed,
-        websocketUrl=alpaca_url,
-        channels=channels,
-        symbolCount=len(symbols),
+        websocketUrl=feed_profile.websocket_url,
+        channels=normal_channels,
+        symbolCount=len(normal_symbols),
     )
 
     print(f"Alpaca profile: {feed_profile.profile_id} feed={alpaca_feed} sessions={','.join(feed_profile.sessions)}", flush=True)
@@ -76,10 +79,10 @@ async def main():
         "refresh=before-connect",
         flush=True,
     )
-    print(f"Alpaca 연결: {alpaca_url}", flush=True)
-    print(f"요청 종목: count={len(symbols)} sample={symbols[:8]}", flush=True)
-    print(f"요청 채널: {channels}", flush=True)
-    print(f"활성 차트 tick 채널: {active_channels or 'disabled'}", flush=True)
+    print(f"Alpaca 기본 연결: {feed_profile.websocket_url}", flush=True)
+    print(f"기본 요청 종목: count={len(normal_symbols)} sample={normal_symbols[:8]}", flush=True)
+    print(f"기본 요청 채널: {normal_channels}", flush=True)
+    print(f"기본 활성 차트 tick 채널: {normal_active_channels or 'disabled'}", flush=True)
     print(f"Kafka Input Topic Prefix: {raw_topic_prefix}", flush=True)
 
     delay = reconnect_backoff
@@ -91,8 +94,28 @@ async def main():
         delay = reconnect_backoff
 
     while True:
+        override = simulation_override_for_profile(
+            read_simulation_feed_override(redis_client),
+            feed_profile.profile_id,
+        )
+        if override:
+            alpaca_url = simulation_websocket_url(feed_profile, str(override["websocketBaseUrl"]))
+            symbols = [str(symbol).upper() for symbol in override.get("symbols") or []]
+            channels = [str(channel) for channel in override.get("channels") or ["trades"]]
+            validate_channels(channels, request_config)
+            active_channels = []
+            runtime_enforce_session_window = False
+            simulation_override_run_id = str(override["runId"])
+        else:
+            alpaca_url = feed_profile.websocket_url
+            symbols = list(normal_symbols)
+            channels = list(normal_channels)
+            active_channels = list(normal_active_channels)
+            runtime_enforce_session_window = enforce_session_window
+            simulation_override_run_id = None
+        subscribe_request = build_subscription_request(symbols, channels)
         current_session = market_session_for_now()
-        if enforce_session_window and not feed_profile_active_for_session(feed_profile, current_session):
+        if runtime_enforce_session_window and not feed_profile_active_for_session(feed_profile, current_session):
             write_ingestor_health(
                 redis_client,
                 feed_profile,
@@ -106,7 +129,9 @@ async def main():
                 f"currentSession={current_session}, supportedSessions={','.join(feed_profile.sessions)}",
                 flush=True,
             )
-            await asyncio.sleep(session_idle_poll_seconds)
+            # 휴장 중에도 Redis simulation override를 빠르게 감지해야 하므로
+            # 긴 session idle 주기 대신 active poll 주기마다 outer loop를 다시 확인합니다.
+            await asyncio.sleep(min(session_idle_poll_seconds, active_poll_seconds))
             continue
 
         alpaca_key, alpaca_secret = load_alpaca_credentials(credential_source)
@@ -130,6 +155,11 @@ async def main():
             continue
 
         try:
+            print(
+                f"Alpaca 연결: {alpaca_url} simulationRunId={simulation_override_run_id or 'none'} "
+                f"symbols={len(symbols)} channels={channels}",
+                flush=True,
+            )
             await run_stream_session(
                 alpaca_url=alpaca_url,
                 alpaca_key=alpaca_key,
@@ -142,7 +172,8 @@ async def main():
                 active_channels=active_channels,
                 active_poll_seconds=active_poll_seconds,
                 raw_topic_prefix=raw_topic_prefix,
-                enforce_session_window=enforce_session_window,
+                enforce_session_window=runtime_enforce_session_window,
+                simulation_override_run_id=simulation_override_run_id,
                 raw_log_every_n=raw_log_every_n,
                 ws_ping_interval=ws_ping_interval,
                 ws_ping_timeout=ws_ping_timeout,
@@ -179,6 +210,7 @@ async def run_stream_session(
     active_poll_seconds,
     raw_topic_prefix,
     enforce_session_window,
+    simulation_override_run_id=None,
     raw_log_every_n=0,
     ws_ping_interval=30.0,
     ws_ping_timeout=60.0,
@@ -209,6 +241,13 @@ async def run_stream_session(
             await ws.send(json.dumps({"action": "auth", "key": alpaca_key, "secret": alpaca_secret}))
 
             while True:
+                if simulation_override_changed(redis_client, feed_profile.profile_id, simulation_override_run_id):
+                    print(
+                        f"Alpaca runtime override changed: profile={feed_profile.profile_id} "
+                        f"previousRunId={simulation_override_run_id or 'none'}",
+                        flush=True,
+                    )
+                    return
                 current_session = market_session_for_now()
                 if enforce_session_window and not feed_profile_active_for_session(feed_profile, current_session):
                     write_ingestor_health(
@@ -645,6 +684,17 @@ def read_symbol_set(redis_client, key):
         return {symbol for symbol in redis_client.smembers(key) if isinstance(symbol, str)}
     except Exception:
         return set()
+
+
+def simulation_override_changed(redis_client, profile_id, expected_run_id):
+    """현재 세션이 시작될 때의 override와 Redis의 최신 override가 달라졌는지 확인합니다."""
+    current = simulation_override_for_profile(
+        read_simulation_feed_override(redis_client),
+        profile_id,
+    )
+    current_run_id = str(current.get("runId")) if current else None
+    expected = str(expected_run_id) if expected_run_id else None
+    return current_run_id != expected
 
 
 def parse_positive_float(value, default):

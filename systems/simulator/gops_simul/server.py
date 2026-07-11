@@ -31,6 +31,11 @@ class ActionRequest(BaseModel):
     action: str
 
 
+class RunContextRequest(BaseModel):
+    runId: str
+    selectedFeedProfile: str
+
+
 class BasketOrderRequest(BaseModel):
     userId: str = "demo-user"
     basket: str
@@ -107,6 +112,13 @@ def create_app(
             raise ValueError("action must be pause, resume, or restart")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/control/run-context")
+    def set_demo_run_context(payload: RunContextRequest) -> dict[str, object]:
+        try:
+            return require_demo_controller().set_run_context(payload.runId, payload.selectedFeedProfile)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/control/account")
     def demo_account(userId: str = Query(default="demo-user")) -> dict[str, object]:

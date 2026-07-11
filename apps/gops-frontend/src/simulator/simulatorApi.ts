@@ -12,6 +12,13 @@ export type SimulatorStatus = {
   mode: SimulatorMode;
   state: "idle" | "running" | "paused" | "completed";
   runId?: string | null;
+  lastRunId?: string | null;
+  lastRunStartedAt?: string | null;
+  lastRunEndedAt?: string | null;
+  lastRunSymbols?: string[];
+  selectedFeedProfile?: "sip" | "boats" | null;
+  rollbackState?: "available" | "running" | "completed" | "failed" | null;
+  rollbackDetail?: string | null;
   phase?: string;
   elapsedSeconds: number;
   durationSeconds: number;
@@ -19,6 +26,14 @@ export type SimulatorStatus = {
   breakingNewsReleased: boolean;
   symbols: SimulatorSymbolStatus[];
   detail?: string;
+};
+
+export type SimulatorRollbackResult = Pick<
+  SimulatorStatus,
+  "lastRunId" | "selectedFeedProfile" | "rollbackState" | "rollbackDetail"
+> & {
+  runId: string;
+  rolledBackAt?: string;
 };
 
 export type SimulatorNewsArticle = {
@@ -31,7 +46,9 @@ export type SimulatorNewsArticle = {
 };
 
 export const simulatorStatusEvent = "gops:simulator-status";
+export const simulatorRollbackEvent = "gops:simulation-rolled-back";
 const portfolioRefreshListeners = new Set<() => void>();
+const chartRefreshListeners = new Set<() => void>();
 
 export function subscribePortfolioRefresh(listener: () => void): () => void {
   portfolioRefreshListeners.add(listener);
@@ -40,6 +57,16 @@ export function subscribePortfolioRefresh(listener: () => void): () => void {
 
 export function requestPortfolioRefresh(): void {
   portfolioRefreshListeners.forEach((listener) => listener());
+}
+
+export function subscribeSimulationRollback(listener: () => void): () => void {
+  chartRefreshListeners.add(listener);
+  return () => chartRefreshListeners.delete(listener);
+}
+
+export function requestChartRefreshAfterRollback(): void {
+  chartRefreshListeners.forEach((listener) => listener());
+  window.dispatchEvent(new CustomEvent(simulatorRollbackEvent));
 }
 
 export function basketForOrderSide(side: "buy" | "sell"): "energy" | "semiconductor" {
@@ -69,6 +96,13 @@ export async function runSimulatorAction(action: "pause" | "resume" | "restart")
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action })
   });
+}
+
+export async function rollbackLatestSimulation(): Promise<SimulatorRollbackResult> {
+  const result = await requestJson<SimulatorRollbackResult>("/api/simulator/rollback", {
+    method: "POST"
+  });
+  return { ...result, lastRunId: result.runId };
 }
 
 export async function fetchSimulatorNews(): Promise<SimulatorNewsArticle | null> {

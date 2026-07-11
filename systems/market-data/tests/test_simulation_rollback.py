@@ -11,7 +11,9 @@ if str(MARKET_SHARED) not in sys.path:
 
 from alfaka.common.market_messages import build_raw_envelope
 from alfaka.realtime import feed_control
-from alfaka.storage.clickhouse_loader import candle_to_clickhouse_row, trade_to_clickhouse_row
+from alfaka.common.redis_keys import RedisKeyBuilder
+from alfaka.storage.clickhouse_loader import candle_to_clickhouse_row, load_payload_batch, trade_to_clickhouse_row
+from alfaka.streaming.processor import process_raw_envelope
 from alfaka.streaming.transforms import CandleAggregator, LiveCandleBuilder, normalize_trade
 
 
@@ -75,6 +77,50 @@ class SimulationMetadataPropagationTests(unittest.TestCase):
         live = LiveCandleBuilder().update(trade)
 
         self.assertEqual(json.loads(json.dumps(live))["simulationRunId"], "sim-run-1")
+
+
+class SimulationReplayTombstoneTests(unittest.TestCase):
+    class Redis:
+        def __init__(self, values):
+            self.values = values
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value, **_kwargs):
+            self.values[key] = value
+
+    class State:
+        health_write_state = {}
+
+    class ClickHouse:
+        def insert_json_each_row(self, *_args, **_kwargs):
+            raise AssertionError("rolled-back rows must not be inserted")
+
+    def test_processor_and_loader_ignore_replayed_rolled_back_run(self):
+        keys = RedisKeyBuilder(prefix="test")
+        redis_client = self.Redis({
+            keys.simulation_rollback("sim-run-1"): json.dumps({"rollbackState": "completed"})
+        })
+        envelope = build_raw_envelope(SIMULATOR_PAYLOAD, "sip", feed_profile="sip", market_session="closed")
+
+        processor_result = process_raw_envelope(
+            envelope,
+            producer=None,
+            redis_client=redis_client,
+            redis_keys=keys,
+            state=self.State(),
+            topics={},
+        )
+        inserted = load_payload_batch(
+            self.ClickHouse(),
+            [{**normalize_trade(envelope), "eventType": "TRADE"}],
+            load_trades=True,
+            rolled_back_run_checker=lambda run_id: run_id == "sim-run-1",
+        )
+
+        self.assertEqual(processor_result, "simulation_rolled_back")
+        self.assertEqual(inserted, 0)
 
 
 if __name__ == "__main__":

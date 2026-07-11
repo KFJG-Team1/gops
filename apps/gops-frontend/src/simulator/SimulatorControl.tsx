@@ -5,7 +5,9 @@ import {
   fetchSimulatorStatus,
   formatSimulatorClock,
   publishSimulatorStatus,
+  requestChartRefreshAfterRollback,
   requestPortfolioRefresh,
+  rollbackLatestSimulation,
   runSimulatorAction,
   setSimulatorMode,
   type SimulatorNewsArticle,
@@ -27,6 +29,7 @@ const initialStatus: SimulatorStatus = {
 export function SimulatorControl() {
   const [status, setStatus] = useState<SimulatorStatus>(initialStatus);
   const [busy, setBusy] = useState(false);
+  const [rollbackBusy, setRollbackBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [article, setArticle] = useState<SimulatorNewsArticle | null>(null);
   const announcedRunRef = useRef<string | null>(null);
@@ -99,7 +102,42 @@ export function SimulatorControl() {
     }
   };
 
+  const rollbackRun = async () => {
+    if (rollbackBusy || status.rollbackState === "completed") return;
+    setRollbackBusy(true);
+    setError(undefined);
+    setStatus((current) => ({
+      ...current,
+      rollbackState: "running",
+      rollbackDetail: "원복 중"
+    }));
+    try {
+      const result = await rollbackLatestSimulation();
+      setStatus((current) => {
+        const next = { ...current, ...result };
+        publishSimulatorStatus(next);
+        return next;
+      });
+      requestPortfolioRefresh();
+      requestChartRefreshAfterRollback();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "원복 실패";
+      setStatus((current) => ({
+        ...current,
+        rollbackState: "failed",
+        rollbackDetail: message
+      }));
+      setError(message);
+    } finally {
+      setRollbackBusy(false);
+    }
+  };
+
   const simulation = status.mode === "simulation";
+  const rollbackVisible = Boolean(status.lastRunId)
+    && (status.state === "completed" || !simulation || status.rollbackState !== "available");
+  const rollbackRunning = rollbackBusy || status.rollbackState === "running";
+  const rollbackCompleted = status.rollbackState === "completed";
   return (
     <>
       <div className={`simulator-mode-control ${simulation ? "is-simulation" : ""}`} title={error || status.detail}>
@@ -128,6 +166,18 @@ export function SimulatorControl() {
               <RotateCcw size={11} />
             </button>
           </div>
+        )}
+        {rollbackVisible && (
+          <button
+            type="button"
+            className={`simulator-rollback-button is-${status.rollbackState ?? "available"}`}
+            disabled={rollbackRunning || rollbackCompleted || (simulation && status.state !== "completed")}
+            onClick={() => void rollbackRun()}
+            title={status.rollbackDetail ?? "시뮬레이션에서 생성한 틱과 봉을 원복합니다"}
+          >
+            {rollbackRunning ? <LoaderCircle size={11} className="spin" /> : <RotateCcw size={11} />}
+            <span>{rollbackRunning ? "원복 중" : rollbackCompleted ? "원복 완료" : "봉 되돌리기"}</span>
+          </button>
         )}
       </div>
       {article && (

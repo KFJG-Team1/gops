@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 역할: dev EKS에서 시뮬레이터를 켜고 backend와 SIP 수집기만 시연 경로로 전환합니다.
+# 역할: dev EKS에서 scale-to-zero 상태의 시뮬레이터 Pod만 켭니다.
 set -Eeuo pipefail
 
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-993099901407}"
@@ -45,15 +45,7 @@ restore_live_path() {
   trap - ERR
   set +e
 
-  printf 'Simulator start failed; restoring the live SIP path.\n' >&2
-  kubectl set env deployment/alfaka-alpaca-ingestor-sip -n "${K8S_NAMESPACE}" \
-    ALPACA_STREAM_BASE_URL- \
-    ALPACA_COLLECTION_SYMBOLS- \
-    ALPACA_CHANNELS- \
-    ALPACA_ACTIVE_CHANNELS=bars,updatedBars,dailyBars,trades,quotes \
-    ALPACA_MAX_TRADE_SYMBOLS- \
-    ALPACA_ENFORCE_FEED_SESSION_WINDOW-
-  kubectl set env deployment/gops-backend -n "${K8S_NAMESPACE}" GOPS_SIMULATOR_URL-
+  printf 'Simulator start failed; scaling the optional Pod back to zero.\n' >&2
   kubectl scale deployment/gops-simulator --replicas=0 -n "${K8S_NAMESPACE}"
   exit "${exit_code}"
 }
@@ -67,20 +59,6 @@ kubectl scale deployment/gops-simulator --replicas=1 -n "${K8S_NAMESPACE}"
 kubectl rollout status deployment/gops-simulator -n "${K8S_NAMESPACE}" --timeout=180s
 reset_simulator_to_live
 
-kubectl set env deployment/gops-backend -n "${K8S_NAMESPACE}" \
-  GOPS_SIMULATOR_URL=http://gops-simulator:8765
-
-kubectl set env deployment/alfaka-alpaca-ingestor-sip -n "${K8S_NAMESPACE}" \
-  ALPACA_STREAM_BASE_URL=ws://gops-simulator:8765 \
-  ALPACA_COLLECTION_SYMBOLS=NVDA,AMD,AVGO,MU,TSM,XOM,CVX,COP \
-  ALPACA_CHANNELS=trades \
-  ALPACA_ACTIVE_CHANNELS= \
-  ALPACA_MAX_TRADE_SYMBOLS=8 \
-  ALPACA_ENFORCE_FEED_SESSION_WINDOW=false
-
-kubectl rollout status deployment/gops-backend -n "${K8S_NAMESPACE}" --timeout=300s
-kubectl rollout status deployment/alfaka-alpaca-ingestor-sip -n "${K8S_NAMESPACE}" --timeout=300s
-
 trap - ERR
-printf 'EKS simulator is ready. LIVE→SIM 토글을 누르면 5초 뒤 속보가 공개됩니다.\n'
+printf 'EKS simulator Pod is ready. LIVE→SIM 토글 시 Redis override가 현재 SIP/BOATS 연결을 전환합니다.\n'
 printf '종료 후 반드시 AWS_PROFILE=%s scripts/aws/stop-dev-simulator.sh 를 실행하세요.\n' "${AWS_PROFILE:-gops-dev}"

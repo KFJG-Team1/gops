@@ -145,6 +145,18 @@ class RedisKeyBuilder:
     def feed_switch_state(self):
         return self.key("feed:switch:state")
 
+    def simulation_feed_override(self):
+        return self.key("simulation:feed-override")
+
+    def simulation_last_run(self):
+        return self.key("simulation:last-run")
+
+    def simulation_run(self, run_id):
+        return self.key(f"simulation:run:{run_id}")
+
+    def simulation_rollback(self, run_id):
+        return self.key(f"simulation:rollback:{run_id}")
+
     def feed_quarantine(self, date):
         return self.key(f"feed:quarantine:{date}")
 

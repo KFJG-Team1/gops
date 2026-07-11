@@ -8,6 +8,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
+from datetime import UTC, datetime
 from typing import Callable, Iterable
 
 from gops_simul.config import PROJECT_ROOT
@@ -68,6 +69,10 @@ class DemoScenarioController:
         self.starting_cash = starting_cash
         self.mode = "live"
         self.run_id: str | None = None
+        self.last_run_id: str | None = None
+        self.last_run_started_at: str | None = None
+        self.last_run_ended_at: str | None = None
+        self.selected_feed_profile: str | None = None
         self.started_at: float | None = None
         self.paused_at: float | None = None
         self.paused_duration = 0.0
@@ -87,6 +92,8 @@ class DemoScenarioController:
                 self.mode = normalized
                 self._start_new_run()
             elif normalized == "live":
+                if self.run_id:
+                    self._remember_current_run()
                 self.mode = normalized
                 self.started_at = None
                 self.paused_at = None
@@ -119,12 +126,21 @@ class DemoScenarioController:
             elapsed = self._elapsed_seconds()
             self._apply_events_until(elapsed)
             state = self._state(elapsed)
+            if state == "completed" and self.run_id:
+                self._remember_current_run()
             return {
                 "mode": self.mode,
                 "state": state,
                 "scenarioId": self.scenario.scenario_id if self.mode == "simulation" else None,
                 "scenarioTitle": self.scenario.title if self.mode == "simulation" else None,
                 "runId": self.run_id,
+                "lastRunId": self.last_run_id,
+                "lastRunStartedAt": self.last_run_started_at,
+                "lastRunEndedAt": self.last_run_ended_at,
+                "lastRunSymbols": list(ALL_DEMO_SYMBOLS) if self.last_run_id else [],
+                "selectedFeedProfile": self.selected_feed_profile,
+                "rollbackState": "available" if self.last_run_id else None,
+                "rollbackDetail": None,
                 "elapsedSeconds": round(elapsed, 3),
                 "durationSeconds": self.scenario.duration_seconds,
                 "breakingNewsAtSeconds": self.scenario.breaking_news_at_seconds,
@@ -144,6 +160,16 @@ class DemoScenarioController:
                     for symbol in ALL_DEMO_SYMBOLS
                 ],
             }
+
+    def set_run_context(self, run_id: str, selected_feed_profile: str) -> dict[str, object]:
+        normalized = str(selected_feed_profile or "").strip().lower()
+        if normalized not in {"sip", "boats"}:
+            raise ValueError("selectedFeedProfile must be sip or boats")
+        with self._lock:
+            if not self.run_id or run_id != self.run_id:
+                raise ValueError("runId does not match the active simulation")
+            self.selected_feed_profile = normalized
+            return self.status()
 
     def news(self, symbols: Iterable[str] | None = None) -> dict[str, object]:
         with self._lock:
@@ -266,12 +292,21 @@ class DemoScenarioController:
 
     def _start_new_run(self) -> None:
         self.run_id = f"sim-{uuid.uuid4().hex[:12]}"
+        self.last_run_id = None
+        self.last_run_started_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        self.last_run_ended_at = None
+        self.selected_feed_profile = None
         self.started_at = self.clock()
         self.paused_at = None
         self.paused_duration = 0.0
         self.latest_prices = dict(self.scenario.seed_prices)
         self._applied_event_index = 0
         self._accounts.clear()
+
+    def _remember_current_run(self) -> None:
+        self.last_run_id = self.run_id
+        if self.last_run_ended_at is None:
+            self.last_run_ended_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def _elapsed_seconds(self) -> float:
         if self.mode != "simulation" or self.started_at is None:

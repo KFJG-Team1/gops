@@ -10,13 +10,17 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
+import redis
+
 from alfaka.alpaca.feed_profiles import market_session_for_timestamp
 from alfaka.common.canonical import candle_metadata
 from alfaka.common.env import load_dotenv, parse_csv
 from alfaka.common.kafka_io import create_json_consumer
 from alfaka.common.kafka_topics import closed_candle_topic_values
+from alfaka.common.redis_keys import RedisKeyBuilder
 from alfaka.common.runtime_config import validate_required_values
 from alfaka.common.symbols import is_crypto_symbol
+from alfaka.realtime.feed_control import simulation_run_rolled_back
 from alfaka.storage.candle_validation import invalid_candle_reason
 
 
@@ -51,6 +55,11 @@ def main():
     )
     if should_ensure_schema_on_start():
         client.ensure_market_data_schema()
+    redis_client = redis.from_url(
+        os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        decode_responses=True,
+    )
+    redis_keys = RedisKeyBuilder()
 
     consumer = create_json_consumer(
         topics,
@@ -79,6 +88,7 @@ def main():
         flush_interval_seconds=flush_interval_seconds,
         poll_timeout_ms=poll_timeout_ms,
         recent_source_ids=RecentSourceEventIds(recent_source_event_ids),
+        rolled_back_run_checker=lambda run_id: simulation_run_rolled_back(redis_client, run_id, redis_keys),
     )
 
 
@@ -93,6 +103,7 @@ def run_clickhouse_loader(
     flush_interval_seconds=1.0,
     poll_timeout_ms=1000,
     recent_source_ids=None,
+    rolled_back_run_checker=None,
 ):
     batch_size = max(1, int(batch_size or 1))
     flush_interval_seconds = max(0.0, float(flush_interval_seconds or 0))
@@ -116,6 +127,7 @@ def run_clickhouse_loader(
                             load_quotes=load_quotes,
                             enable_auto_commit=enable_auto_commit,
                             recent_source_ids=recent_source_ids,
+                            rolled_back_run_checker=rolled_back_run_checker,
                         )
                         buffer.clear()
                         last_flush_at = now
@@ -128,6 +140,7 @@ def run_clickhouse_loader(
                     load_quotes=load_quotes,
                     enable_auto_commit=enable_auto_commit,
                     recent_source_ids=recent_source_ids,
+                    rolled_back_run_checker=rolled_back_run_checker,
                 )
                 buffer.clear()
                 last_flush_at = now
@@ -141,6 +154,7 @@ def run_clickhouse_loader(
                 load_quotes=load_quotes,
                 enable_auto_commit=enable_auto_commit,
                 recent_source_ids=recent_source_ids,
+                rolled_back_run_checker=rolled_back_run_checker,
             )
 
 
@@ -153,6 +167,7 @@ def flush_clickhouse_buffer(
     load_quotes=True,
     enable_auto_commit=False,
     recent_source_ids=None,
+    rolled_back_run_checker=None,
 ):
     if not records:
         return 0
@@ -162,6 +177,7 @@ def flush_clickhouse_buffer(
         load_trades=load_trades,
         load_quotes=load_quotes,
         recent_source_ids=recent_source_ids,
+        rolled_back_run_checker=rolled_back_run_checker,
     )
     if not enable_auto_commit:
         commit_processed_records(consumer, records)
@@ -239,7 +255,14 @@ class RecentSourceEventIds:
                 self.seen.discard(self.order.popleft())
 
 
-def load_payload_batch(client, records, load_trades=False, load_quotes=True, recent_source_ids=None):
+def load_payload_batch(
+    client,
+    records,
+    load_trades=False,
+    load_quotes=True,
+    recent_source_ids=None,
+    rolled_back_run_checker=None,
+):
     table_entries = {}
     table_order = []
     skipped = 0
@@ -248,6 +271,10 @@ def load_payload_batch(client, records, load_trades=False, load_quotes=True, rec
     for record in records:
         try:
             payload = clickhouse_record_payload(record)
+            run_id = payload.get("simulationRunId")
+            if run_id and callable(rolled_back_run_checker) and rolled_back_run_checker(run_id):
+                skipped += 1
+                continue
             actions = clickhouse_actions_for_payload(payload, load_trades=load_trades, load_quotes=load_quotes)
         except Exception as exc:
             skipped += 1
@@ -412,6 +439,8 @@ def trade_to_clickhouse_row(payload):
         "feed_profile": payload.get("feedProfile") or payload.get("feed") or "unknown",
         "market_session": payload.get("marketSession") or market_session_for_symbol(payload.get("symbol"), payload.get("timestamp")),
         "source_event_id": payload.get("sourceEventId"),
+        "simulation_run_id": payload.get("simulationRunId"),
+        "simulation_scenario_id": payload.get("simulationScenarioId"),
         "received_at": clickhouse_time_or_none(payload.get("receivedAt")),
     }
 
@@ -464,6 +493,8 @@ def candle_to_clickhouse_row(payload):
         "price_adjustment": metadata["priceAdjustment"],
         "canonical_version": metadata["canonicalVersion"],
         "source_event_id": payload.get("sourceEventId"),
+        "simulation_run_id": payload.get("simulationRunId"),
+        "simulation_scenario_id": payload.get("simulationScenarioId"),
         "created_at": clickhouse_time_or_none(payload.get("createdAt") or payload.get("updatedAt")),
     }
 
@@ -892,6 +923,13 @@ class ClickHouseHttpClient:
             "ADD COLUMN IF NOT EXISTS price_adjustment LowCardinality(String) DEFAULT 'unknown' AFTER market_session, "
             "ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment"
         )
+        for table in ("trade_ticks", "chart_candles"):
+            table_name = f"{self.database}.{clickhouse_identifier(table)}"
+            self.execute(
+                f"ALTER TABLE {table_name} "
+                "ADD COLUMN IF NOT EXISTS simulation_run_id Nullable(String) AFTER source_event_id, "
+                "ADD COLUMN IF NOT EXISTS simulation_scenario_id Nullable(String) AFTER simulation_run_id"
+            )
         # Crypto 체결 수량과 거래량은 0.013 BTC처럼 소수일 수 있어서 Float64로 보정합니다.
         for table, column, column_type in (
             ("trade_ticks", "size", "Nullable(Float64)"),

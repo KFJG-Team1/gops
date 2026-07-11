@@ -904,7 +904,8 @@ button {
 }
 
 .simulator-mode-toggle,
-.simulator-run-controls button {
+.simulator-run-controls button,
+.simulator-rollback-button {
   border: 0;
   background: transparent;
   color: var(--color-text);
@@ -959,6 +960,35 @@ button {
 
 .simulator-run-controls button:hover {
   background: var(--color-surface-strong);
+}
+
+.simulator-rollback-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  border-left: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--type-micro);
+  font-weight: 760;
+}
+
+.simulator-rollback-button:hover:not(:disabled) {
+  background: var(--color-surface-strong);
+}
+
+.simulator-rollback-button.is-running {
+  color: #c66e00;
+}
+
+.simulator-rollback-button.is-completed {
+  color: #278861;
+}
+
+.simulator-rollback-button.is-failed {
+  color: #c33b33;
 }
 
 @keyframes simulator-live-pulse {

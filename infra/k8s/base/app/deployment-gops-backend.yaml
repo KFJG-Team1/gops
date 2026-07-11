@@ -22,6 +22,11 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          env:
+            - name: GOPS_SIMULATOR_URL
+              value: http://gops-simulator:8765
+            - name: GOPS_SIMULATOR_WS_BASE_URL
+              value: ws://gops-simulator:8765
           envFrom:
             - configMapRef:
                 name: alfaka-market-data-config

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS market_data.trade_ticks
     feed_profile LowCardinality(String) DEFAULT feed,
     market_session LowCardinality(String) DEFAULT 'unknown',
     source_event_id Nullable(String),
+    simulation_run_id Nullable(String),
+    simulation_scenario_id Nullable(String),
     received_at Nullable(DateTime64(3, 'UTC')),
     inserted_at DateTime64(3, 'UTC') DEFAULT now64(3)
 )
@@ -77,6 +79,8 @@ CREATE TABLE IF NOT EXISTS market_data.chart_candles
     price_adjustment LowCardinality(String) DEFAULT 'unknown',
     canonical_version LowCardinality(String) DEFAULT 'legacy',
     source_event_id Nullable(String),
+    simulation_run_id Nullable(String),
+    simulation_scenario_id Nullable(String),
     created_at Nullable(DateTime64(3, 'UTC')),
     inserted_at DateTime64(3, 'UTC') DEFAULT now64(3)
 )

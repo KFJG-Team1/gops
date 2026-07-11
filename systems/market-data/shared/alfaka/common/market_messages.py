@@ -65,6 +65,14 @@ def build_raw_envelope(message, feed, feed_profile=None, market_session=None):
         envelope["providerSymbol"] = provider_symbol
     if channel in {"bars", "updatedBars", "dailyBars"}:
         envelope.update(candle_metadata(LIVE_PRICE_ADJUSTMENT))
+    simulator = message.get("simulator")
+    if isinstance(simulator, dict) and simulator.get("runId"):
+        envelope.update({
+            "simulationRunId": str(simulator["runId"]),
+            "simulationScenarioId": str(simulator.get("scenarioId") or ""),
+            "simulationPhase": str(simulator.get("phase") or ""),
+            "isSimulated": True,
+        })
     return envelope
 
 

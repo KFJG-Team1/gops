@@ -95,6 +95,7 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
+import { subscribeSimulationRollback } from "../simulator/simulatorApi";
 import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
@@ -321,6 +322,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
+  const [simulationRollbackRevision, setSimulationRollbackRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
     structure: true,
     trend: true,
@@ -476,6 +478,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       setAnalysisAssetsRevision((current) => current + 1);
     }
   }), [chart.symbol]);
+
+  useEffect(() => subscribeSimulationRollback(() => {
+    olderRangeRequestsRef.current.clear();
+    olderRangeRetryAfterRef.current.clear();
+    setSimulationRollbackRevision((current) => current + 1);
+  }), []);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -902,7 +910,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         window.clearTimeout(retryTimer);
       }
     };
-  }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
+  }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction, simulationRollbackRevision]);
 
   useEffect(() => {
     const activeSymbol = chart.symbol.trim().toUpperCase();
