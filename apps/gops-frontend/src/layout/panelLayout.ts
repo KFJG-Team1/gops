@@ -24,6 +24,7 @@ export type PanelContentKind =
   | "indices"
   | "popular"
   | "recommendations"
+  | "recommendationsList"
   | "themeRadar"
   | "ontology"
   | "portfolio"

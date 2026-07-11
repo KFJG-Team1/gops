@@ -1,6 +1,10 @@
 import type { ThemeColors } from "../theme/colors";
 import { applyCanvasTypography, CANVAS_FONT_FAMILY } from "../theme/typography";
-import type { OrderFlowLadder, OrderFlowLadderLevel } from "./orderFlow";
+import {
+  ORDER_FLOW_CHART_FOOTER_HEIGHT,
+  type OrderFlowLadder,
+  type OrderFlowLadderLevel
+} from "./orderFlow";
 
 export type OrderFlowLadderRect = {
   x: number;
@@ -48,7 +52,7 @@ export type OrderFlowPanelRenderOptions = {
 };
 
 const minChartRowHeight = 2;
-const chartFooterHeight = 13;
+const chartFooterHeight = ORDER_FLOW_CHART_FOOTER_HEIGHT;
 const panelFooterHeight = 16;
 const canvasFontFamily = CANVAS_FONT_FAMILY;
 
@@ -95,8 +99,12 @@ export function projectOrderFlowChartRows(
   ladder: OrderFlowLadder,
   priceToY: (price: number) => number,
   top: number,
-  bottom: number
+  bottom: number,
+  gridPrices?: number[]
 ): OrderFlowChartRow[] {
+  if (gridPrices?.length) {
+    return projectOrderFlowRowsToGrid(ladder, priceToY, top, bottom, gridPrices);
+  }
   const rows = new Map<number, OrderFlowChartRow>();
   ladder.levels.forEach((level) => {
     const nativeY = priceToY(level.priceBin);
@@ -126,6 +134,56 @@ export function projectOrderFlowChartRows(
     rows.set(pixelY, current);
   });
   return Array.from(rows.values()).sort((left, right) => left.y - right.y);
+}
+
+function projectOrderFlowRowsToGrid(
+  ladder: OrderFlowLadder,
+  priceToY: (price: number) => number,
+  top: number,
+  bottom: number,
+  gridPrices: number[]
+): OrderFlowChartRow[] {
+  const rows = gridPrices
+    .map((price) => ({ price, y: priceToY(price) }))
+    .filter(({ y }) => Number.isFinite(y) && y >= top - 2 && y <= bottom + 2)
+    .map(({ price, y }) => ({
+      price,
+      row: emptyChartRow(y)
+    }));
+  const rowByPrice = new Map(rows.map(({ price, row }) => [chartPriceKey(price), row]));
+  ladder.levels.forEach((level) => {
+    const row = rowByPrice.get(chartPriceKey(level.priceBin));
+    if (!row) {
+      return;
+    }
+    row.bidVolume += Math.max(0, level.bidVolume);
+    row.askVolume += Math.max(0, level.askVolume);
+    row.unknownVolume += Math.max(0, level.unknownVolume);
+    row.totalVolume += Math.max(0, level.totalVolume);
+    row.delta += level.delta;
+    row.askImbalance ||= level.askImbalance;
+    row.bidImbalance ||= level.bidImbalance;
+    row.isPoc ||= ladder.pocPriceBin === level.priceBin;
+  });
+  return rows.map(({ row }) => row).sort((left, right) => left.y - right.y);
+}
+
+function emptyChartRow(y: number): OrderFlowChartRow {
+  return {
+    y,
+    bidVolume: 0,
+    askVolume: 0,
+    unknownVolume: 0,
+    totalVolume: 0,
+    delta: 0,
+    askImbalance: false,
+    bidImbalance: false,
+    isPoc: false
+  };
+}
+
+function chartPriceKey(price: number): string {
+  return price.toFixed(8);
 }
 
 export function orderFlowChartRowScaleMax(rowSets: OrderFlowChartRow[][]): number {
@@ -288,7 +346,7 @@ function drawTwoSidedColumn(
     if (rect.width >= 20) {
       drawImbalanceOutlines(ctx, gutterLeft, gutterRight, y, h, bidWidth, askWidth, row, theme);
     }
-    if (showText) {
+    if (showText && row.totalVolume > 0) {
       drawLevelText(ctx, gutterLeft, gutterRight, y + h / 2, Math.min(leftWidth, rightWidth), row, theme);
     }
   });

@@ -27,7 +27,10 @@ export type ThemeColorToken =
   | "tileTextInverse"
   | "signal"
   | "caution"
-  | "purple";
+  | "purple"
+  | "pointYellow"
+  | "pointOrange"
+  | "pointPurple";
 
 export type ThemeColors = Record<ThemeColorToken, string> & {
   palette: Set<string>;
@@ -60,7 +63,10 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   tileTextInverse: "--color-tile-text-inverse",
   signal: "--color-signal",
   caution: "--color-caution",
-  purple: "--color-purple"
+  purple: "--color-purple",
+  pointYellow: "--color-point-yellow",
+  pointOrange: "--color-point-orange",
+  pointPurple: "--color-point-purple"
 };
 
 const paletteVariables = [
@@ -82,7 +88,6 @@ const paletteVariables = [
   "--coinbase-primary-soft",
   "--coinbase-primary-disabled",
   "--coinbase-ink",
-  "--coinbase-ink-soft",
   "--coinbase-body",
   "--coinbase-body-strong",
   "--coinbase-muted",
@@ -122,7 +127,10 @@ const paletteVariables = [
   "--gops-up",
   "--gops-signal",
   "--gops-caution",
-  "--gops-purple"
+  "--gops-purple",
+  "--gops-point-yellow",
+  "--gops-point-orange",
+  "--gops-point-purple"
 ];
 
 export function readThemeColors(): ThemeColors {
@@ -158,7 +166,10 @@ export function chartDocumentStyleFromTheme(theme: ThemeColors): ChartDocumentSt
     preview: theme.preview,
     signal: theme.signal,
     caution: theme.caution,
-    purple: theme.purple
+    purple: theme.purple,
+    pointYellow: theme.pointYellow,
+    pointOrange: theme.pointOrange,
+    pointPurple: theme.pointPurple
   };
 }
 

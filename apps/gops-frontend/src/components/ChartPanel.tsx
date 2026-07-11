@@ -443,6 +443,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.panes
   ]);
   const sceneRef = useRef<ChartScene | null>(null);
+  const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
@@ -561,6 +562,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     ? analysisAssets.assets[chart.interval]
     : null;
   const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
+  const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
+    activeAnalysisAsset.asOf,
+    chart.candles,
+    activeAnalysisAsset.assetVersion,
+    activeAnalysisAsset.interval
+  ) : false;
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
@@ -572,10 +579,22 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? analysisAssets.assets[interval]
       : null;
     const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
-    const asset = resolvedAsset && !isAnalysisAssetStale(resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion)
+    const asset = resolvedAsset && !isAnalysisAssetStale(
+      resolvedAsset.asOf,
+      chart.candles,
+      resolvedAsset.assetVersion,
+      resolvedAsset.interval
+    )
       ? resolvedAsset
       : null;
-    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none", chart.candles[0]?.timestamp ?? "empty", chart.candles.length].join("|");
+    const applyKey = [
+      chart.symbol,
+      interval,
+      asset?.generatedAt ?? "none",
+      chart.candles[0]?.timestamp ?? "empty",
+      chart.candles.length,
+      latestClosedAssetCandleTimestamp ?? "no-closed-candle"
+    ].join("|");
     if (appliedAnalysisAssetKeyRef.current === applyKey) {
       return;
     }
@@ -601,7 +620,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
-    if (!activeAnalysisAsset) {
+    if (!activeAnalysisAsset || activeAnalysisAssetStale) {
       return;
     }
     const visible = !analysisLayerVisibilityRef.current[layer];
@@ -612,7 +631,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, activeAnalysisAssetStale, commandTarget, dispatchExternalCommandGroup]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -2102,11 +2121,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const labelEditorLayout = labelEditorDrawing && labelEditorScene
     ? drawingLabelLayout(labelEditorScene, labelEditorDrawing, labelEditor?.value)
     : null;
-  const labelEditorPositionStyle = labelEditorLayout && labelEditorScene ? {
-    left: `clamp(${labelEditorScene.plot.left + 3}px, ${labelEditorLayout.left}px, calc(100% - ${labelEditorScene.width - labelEditorScene.plot.right + labelEditorLayout.width + 3}px))`,
-    top: `clamp(${labelEditorScene.plot.top + 3}px, ${labelEditorLayout.top}px, calc(100% - ${labelEditorScene.height - labelEditorScene.plot.priceBottom + labelEditorLayout.height + 3}px))`,
+  const labelEditorScaleX = labelEditorScene && chartWrapRef.current?.clientWidth
+    ? chartWrapRef.current.clientWidth / labelEditorScene.width
+    : 1;
+  const labelEditorScaleY = labelEditorScene && chartWrapRef.current?.clientHeight
+    ? chartWrapRef.current.clientHeight / labelEditorScene.height
+    : 1;
+  const labelEditorPositionStyle = labelEditorLayout ? {
+    left: labelEditorLayout.left * labelEditorScaleX,
+    top: labelEditorLayout.top * labelEditorScaleY,
     width: labelEditorLayout.width,
-    height: labelEditorLayout.height
+    height: labelEditorLayout.height,
+    fontSize: labelEditorLayout.fontSize,
+    lineHeight: `${labelEditorLayout.height}px`,
+    textAlign: labelEditorLayout.textAlign,
+    transform: `scale(${labelEditorScaleX}, ${labelEditorScaleY})`
   } : undefined;
 
   return (
@@ -2177,7 +2206,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </div>
       </div>
 
-      <div className="chart-wrap">
+      <div className="chart-wrap" ref={chartWrapRef}>
         <ChartCanvas
           chart={renderChart}
           expansions={renderExpansions}
@@ -2211,12 +2240,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            structure: !activeAnalysisAsset?.layers.structure.drawings.length,
-            trend: !activeAnalysisAsset?.layers.trend.drawings.length,
-            agent: !activeAnalysisAsset?.layers.agent.drawings.length
+            structure: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.structure.drawings.length,
+            trend: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.trend.drawings.length,
+            agent: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.agent.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAsset ? isAnalysisAssetStale(activeAnalysisAsset.asOf, chart.candles, activeAnalysisAsset.assetVersion) : false}
+          stale={activeAnalysisAssetStale}
           onToggle={toggleAnalysisLayer}
         />
         {labelEditor && labelEditorLayout && (

@@ -127,7 +127,7 @@ function drawing(id: string, type: string, anchors: Array<Record<string, unknown
 
 function assetResponse(): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp;
-  const hline = drawing("ca-NVDA-1D-structure-level", "horizontalLine", [{ price: 164 }], "지지 164.00", "#f5f5f5");
+  const hline = drawing("ca-NVDA-1D-structure-level", "horizontalLine", [{ price: 164 }], "지지 164.00", "#ffffff");
   const flag = drawing("ca-NVDA-1D-structure-event", "flagMarker", [{ timestamp: candles[eventIndex].timestamp, price: candles[eventIndex].high }], "구조 이탈", "#ff7a3d");
   const trend = drawing("ca-NVDA-1D-trend-current", "trendLine", [{ timestamp: candles[10].timestamp, price: candles[10].low }, { timestamp: candles[85].timestamp, price: candles[85].low }], "상승 추세", "#0099ff");
   const insight = drawing("ca-NVDA-1D-agent-event", "flagMarker", [{ timestamp: candles[115].timestamp, price: candles[115].high }], "리테스트 확인", "#33adff");

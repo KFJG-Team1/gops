@@ -10,6 +10,7 @@ import type {
 import type { ChartScene } from "./scene";
 import { createCoordinateTransform } from "./scene";
 import { resolveDrawingRenderItems } from "./drawingProjection";
+import { nearestTypeRole, TYPE_ROLE } from "../theme/typography";
 import {
   buildHorizontalParallelLines,
   buildFibonacciLevelGeometry,
@@ -480,12 +481,14 @@ export type DrawingHit = {
 
 export type DrawingLabelLayout = {
   label: string;
+  fontSize: number;
   left: number;
   top: number;
   width: number;
   height: number;
   textX: number;
   baseline: number;
+  textAlign: "left" | "right";
   boxStyle: "plain" | "tag";
 };
 
@@ -501,7 +504,9 @@ export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, la
   if (!label) {
     return null;
   }
-  const fontSize = drawing.style.fontSize ?? 12;
+  const fontSize = TYPE_ROLE[
+    nearestTypeRole(drawing.style.fontSize ?? TYPE_ROLE.bodyMd.size, "displayMd")
+  ].size;
   const estimatedTextWidth = Array.from(label).reduce((width, character) => (
     width + (/^[\x00-\x7F]$/.test(character) ? fontSize * 0.58 : fontSize)
   ), 0);
@@ -510,22 +515,29 @@ export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, la
   const width = boxStyle === "tag"
     ? Math.max(44, Math.min(150, estimatedTextWidth + 18))
     : Math.max(34, Math.min(180, estimatedTextWidth + 8));
-  const makeLayout = (preferredLeft: number, preferredTop: number): DrawingLabelLayout => {
+  const makeLayout = (
+    preferredLeft: number,
+    preferredTop: number,
+    textAlign: DrawingLabelLayout["textAlign"] = "left"
+  ): DrawingLabelLayout => {
     const left = Math.max(scene.plot.left + 3, Math.min(scene.plot.right - width - 3, preferredLeft));
     const top = Math.max(scene.plot.top + 3, Math.min(scene.plot.priceBottom - height - 3, preferredTop));
     return {
       label,
+      fontSize,
       left,
       top,
       width,
       height,
-      textX: left + (boxStyle === "tag" ? 9 : 4),
+      textX: textAlign === "right" ? left + width - 4 : left + (boxStyle === "tag" ? 9 : 4),
       baseline: top + height / 2 + 0.5,
+      textAlign,
       boxStyle
     };
   };
   if (drawing.type === "horizontalLine") {
-    return makeLayout(scene.plot.right - width - 4, points[0].y - height / 2);
+    const right = scene.plot.right - 18;
+    return makeLayout(right - width, points[0].y - height - 2, "right");
   }
   if (drawing.type === "verticalMarker") {
     return makeLayout(points[0].x + 5, scene.plot.top + 3);

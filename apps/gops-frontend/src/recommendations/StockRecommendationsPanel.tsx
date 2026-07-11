@@ -1,4 +1,4 @@
-import { AlertTriangle, LoaderCircle, RefreshCcw } from "lucide-react";
+import { AlertTriangle, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
 import { sectorLabelKo } from "../market/sectors";
@@ -12,13 +12,16 @@ import {
 } from "./recommendationApi";
 
 const companyNameBySymbol = new Map(sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.companyName]));
+const RECOMMENDATION_STACK_INTERVAL_MS = 8_000;
 
 export function StockRecommendationsPanel({
   activeSymbol,
-  onSelectSymbol
+  onSelectSymbol,
+  variant = "files"
 }: {
   activeSymbol: string;
   onSelectSymbol: (symbol: string) => void;
+  variant?: "files" | "list";
 }) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
@@ -74,7 +77,10 @@ export function StockRecommendationsPanel({
   const items = useMemo(() => payload?.items ?? [], [payload?.items]);
 
   return (
-    <section className="stock-recommendations-panel" aria-label="장중 매수 추천">
+    <section
+      className={`stock-recommendations-panel ${variant === "list" ? "stock-recommendations-list-panel" : ""}`.trim()}
+      aria-label={variant === "list" ? "장중 매수 추천 목록" : "장중 매수 추천"}
+    >
       <button
         className="panel-reload-overlay panel-icon-button"
         type="button"
@@ -86,30 +92,26 @@ export function StockRecommendationsPanel({
         {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
       </button>
       <div className="stock-rec-toolbar">
-        <div>
-          <span>{formatTimestamp(payload?.generatedAt ?? payload?.slotStart)}</span>
+        <div className="stock-rec-session-toggle" role="group" aria-label="추천 세션">
+          <button
+            type="button"
+            className={sessionButtonClass(sessionMode === "pre")}
+            aria-pressed={sessionMode === "pre"}
+            onClick={() => setSessionMode("pre")}
+            disabled={loading || refreshing}
+          >
+            장전
+          </button>
+          <button
+            type="button"
+            className={sessionButtonClass(sessionMode === "regular", regularLive)}
+            aria-pressed={sessionMode === "regular"}
+            onClick={() => setSessionMode("regular")}
+            disabled={loading || refreshing}
+          >
+            본장
+          </button>
         </div>
-      </div>
-
-      <div className="stock-rec-session-toggle" role="group" aria-label="추천 세션">
-        <button
-          type="button"
-          className={sessionButtonClass(sessionMode === "pre")}
-          aria-pressed={sessionMode === "pre"}
-          onClick={() => setSessionMode("pre")}
-          disabled={loading || refreshing}
-        >
-          장전/데이장
-        </button>
-        <button
-          type="button"
-          className={sessionButtonClass(sessionMode === "regular", regularLive)}
-          aria-pressed={sessionMode === "regular"}
-          onClick={() => setSessionMode("regular")}
-          disabled={loading || refreshing}
-        >
-          본장
-        </button>
       </div>
 
       {loading && (
@@ -140,14 +142,90 @@ export function StockRecommendationsPanel({
       )}
 
       {!loading && !error && items.length > 0 && (
-        <div className="stock-rec-list">
-          {items.map((item) => (
-            <RecommendationRow key={`${item.rank}-${item.symbol}`} item={item} onSelectSymbol={onSelectSymbol} />
-          ))}
-        </div>
+        variant === "list" ? (
+          <div className="stock-rec-list">
+            {items.map((item) => (
+              <RecommendationListRow key={`${item.rank}-${item.symbol}`} item={item} onSelectSymbol={onSelectSymbol} />
+            ))}
+          </div>
+        ) : (
+          <RecommendationFileStack items={items} onSelectSymbol={onSelectSymbol} />
+        )
       )}
       <LogoDevAttribution className="panel-logo-attribution" />
     </section>
+  );
+}
+
+function RecommendationFileStack({
+  items,
+  onSelectSymbol
+}: {
+  items: StockRecommendationItem[];
+  onSelectSymbol: (symbol: string) => void;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const itemSequenceKey = useMemo(() => items.map((item) => `${item.rank}-${item.symbol}`).join("|"), [items]);
+  const showNext = useCallback(() => {
+    setActiveIndex((currentIndex) => items.length > 1 ? (currentIndex + 1) % items.length : currentIndex);
+  }, [items.length]);
+
+  useEffect(() => setActiveIndex(0), [itemSequenceKey]);
+
+  useEffect(() => {
+    if (paused || items.length < 2) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(showNext, RECOMMENDATION_STACK_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [items.length, paused, showNext]);
+
+  return (
+    <div
+      className="stock-rec-file-stack"
+      aria-label="추천 기업 파일"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setPaused(false);
+        }
+      }}
+    >
+      {items.map((item, index) => {
+        const position = (index - activeIndex + items.length) % items.length;
+        const stackClass = position === 0
+          ? "is-active"
+          : position === 1
+            ? "is-next"
+            : position === 2
+              ? "is-back-2"
+              : position === 3
+                ? "is-back-3"
+                : "is-hidden";
+        return (
+          <RecommendationRow
+            key={`${item.rank}-${item.symbol}`}
+            item={item}
+            className={stackClass}
+            active={position === 0}
+            onClick={() => position === 0 ? onSelectSymbol(item.symbol) : setActiveIndex(index)}
+          />
+        );
+      })}
+      {items.length > 1 && (
+        <>
+          <span className="stock-rec-stack-count" aria-live="polite">
+            {activeIndex + 1} / {items.length}
+          </span>
+          <button className="stock-rec-stack-next" type="button" aria-label="다음 추천 기업" onClick={showNext}>
+            <ChevronRight size={15} />
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -217,6 +295,55 @@ function emptyMessage(payload: StockRecommendationPayload | null, sessionMode: R
 }
 
 function RecommendationRow({
+  item,
+  className,
+  active,
+  onClick
+}: {
+  item: StockRecommendationItem;
+  className: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const sector = item.sector || "Unclassified";
+  const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
+  const companyName = companyNameBySymbol.get(item.symbol);
+  const visibleReasons = recommendationVisibleReasons(item);
+  const visibleRiskWarnings = item.riskWarnings.slice(0, 1);
+  return (
+    <button
+      className={`stock-rec-row ${className}`}
+      type="button"
+      aria-label={active ? `${item.rank}위 ${item.symbol} 추천 차트 열기` : `${item.rank}위 ${item.symbol} 추천 보기`}
+      tabIndex={active || className === "is-next" ? 0 : -1}
+      onClick={onClick}
+    >
+      <span className="stock-rec-file-tab-label">
+        <StockLogo symbol={item.symbol} companyName={companyName} size="lg" className="stock-rec-file-tab-logo" />
+        <strong>{item.symbol}</strong>
+      </span>
+      <span className="stock-rec-copy">
+        <span className="stock-rec-symbol-line">
+          <strong>{companyName ?? item.symbol}</strong>
+          <span className={`stock-rec-change ${changeTone(item.changePercent)}`} title="오늘의 등락률">
+            {formatChangePercent(item.changePercent)}
+          </span>
+        </span>
+        <span className="stock-rec-reasons">
+          {visibleReasons.map((reason) => (
+            <em key={`${item.symbol}-${reason.type}-${reason.text}`}>{reason.text}</em>
+          ))}
+          {visibleRiskWarnings.map((warning) => (
+            <em className="risk" key={`${item.symbol}-${warning}`}>{warning}</em>
+          ))}
+        </span>
+        <span className="stock-rec-sector" title={sector}>{sectorLabel}</span>
+      </span>
+    </button>
+  );
+}
+
+function RecommendationListRow({
   item,
   onSelectSymbol
 }: {
@@ -296,17 +423,6 @@ function normalizeRecommendationText(text: string) {
 
 function isAbortError(value: unknown) {
   return value instanceof DOMException && value.name === "AbortError";
-}
-
-function formatTimestamp(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 function initialRecommendationSessionMode(date = new Date()): RecommendationSessionMode {

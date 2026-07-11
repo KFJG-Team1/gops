@@ -255,6 +255,10 @@ export function PanelContentRenderer({
     return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
 
+  if (content.kind === "recommendationsList") {
+    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} variant="list" />;
+  }
+
   if (content.kind === "themeRadar") {
     return <ThemeRadarPanel items={marketItems} activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
   }
@@ -362,12 +366,20 @@ export function PanelContentRenderer({
         symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
         interval={normalizeChartInterval(activeChartDocument?.timeframe)}
         candles={activeChartCandles}
+        drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
       />
     );
   }
 
   if (content.kind === "chartAssetOps") {
-    return <ChartAssetOpsPanel currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()} />;
+    return (
+      <ChartAssetOpsPanel
+        currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+        currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+        currentCandles={activeChartCandles}
+        currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+      />
+    );
   }
 
   if (content.kind !== "chart") {

@@ -2,7 +2,8 @@ import { Building2, ChevronLeft, ChevronRight, CircleDollarSign, ShieldCheck, Tr
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
-import { LogoDevAttribution, StockLogo } from "./StockLogo";
+import { buildStockLogoUrl, stockLogoInitials } from "../market/stockLogo";
+import { LogoDevAttribution } from "./StockLogo";
 
 type CompanySummaryPanelProps = {
   symbol: string;
@@ -66,6 +67,12 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
   const [earningsSeriesFromApi, setEarningsSeriesFromApi] = useState<CompanyEarningsSeriesPoint[] | null>(null);
   const normalizedSymbol = symbol.toUpperCase();
   const companyName = item?.companyName || normalizedSymbol;
+  const companyNameHeaderLines = splitCompanyNameForHeader(companyName);
+  const companyLogoBackdropUrl = useMemo(
+    () => buildStockLogoUrl(normalizedSymbol, { size: 256 }),
+    [normalizedSymbol]
+  );
+  const [failedCompanyLogoBackdropUrl, setFailedCompanyLogoBackdropUrl] = useState<string | null>(null);
   const price = item?.lastPrice ?? item?.layoutPrice ?? null;
   const marketCap = item?.marketCap ?? item?.layoutMarketCap ?? null;
   const changePercent = item?.changePercent ?? null;
@@ -84,6 +91,10 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
     () => buildValuationMetrics(price, marketCap, item),
     [price, marketCap, item]
   );
+
+  useEffect(() => {
+    setFailedCompanyLogoBackdropUrl(null);
+  }, [companyLogoBackdropUrl]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -123,21 +134,35 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
 
   const infoSection = (
     <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
-      <header className="company-info-heading">
-        <strong>
-          <StockLogo symbol={normalizedSymbol} companyName={companyName} size="md" />
-          <span>{companyName}</span>
-        </strong>
-        <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
-      </header>
-      <dl className="company-info-grid">
-        {infoRows.map(([label, value, tone]) => (
-          <div key={label} className="company-info-cell">
-            <dt>{label}</dt>
-            <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="company-info-backdrop" aria-hidden="true">
+        {companyLogoBackdropUrl && failedCompanyLogoBackdropUrl !== companyLogoBackdropUrl ? (
+          <img
+            src={companyLogoBackdropUrl}
+            alt=""
+            loading="lazy"
+            referrerPolicy="origin"
+            onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
+          />
+        ) : (
+          <span>{stockLogoInitials(normalizedSymbol)}</span>
+        )}
+      </div>
+      <strong className="company-info-tab-title" aria-label={companyName}>
+        {companyNameHeaderLines.map((line) => <span key={line} aria-hidden="true">{line}</span>)}
+      </strong>
+      <div className="company-info-sheet">
+        <header className="company-info-heading">
+          <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
+        </header>
+        <dl className="company-info-grid">
+          {infoRows.map(([label, value, tone]) => (
+            <div key={label} className="company-info-cell">
+              <dt>{label}</dt>
+              <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
     </section>
   );
   const valuationSection = (
@@ -276,6 +301,28 @@ export function CompanyMultiPanel(props: CompanySummaryPanelProps) {
 
 function companyPanelViewLabel(view: CompanyPanelView): string {
   return companyMultiViews.find((candidate) => candidate.id === view)?.title ?? "기업정보";
+}
+
+function splitCompanyNameForHeader(companyName: string): string[] {
+  const normalizedName = companyName.trim();
+  const words = normalizedName.split(/\s+/).filter(Boolean);
+  if (normalizedName.length <= 20 || words.length < 2) {
+    return [normalizedName];
+  }
+
+  let bestBreakIndex = 1;
+  let bestDifference = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < words.length; index += 1) {
+    const firstLineLength = words.slice(0, index).join(" ").length;
+    const secondLineLength = words.slice(index).join(" ").length;
+    const difference = Math.abs(firstLineLength - secondLineLength);
+    if (difference < bestDifference) {
+      bestDifference = difference;
+      bestBreakIndex = index;
+    }
+  }
+
+  return [words.slice(0, bestBreakIndex).join(" "), words.slice(bestBreakIndex).join(" ")];
 }
 
 function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; series: EarningsChartPoint[] }) {
