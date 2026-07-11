@@ -13,6 +13,7 @@ from alfaka.common.market_messages import build_raw_envelope
 from alfaka.realtime import feed_control
 from alfaka.common.redis_keys import RedisKeyBuilder
 from alfaka.storage.clickhouse_loader import candle_to_clickhouse_row, load_payload_batch, trade_to_clickhouse_row
+from alfaka.storage.candle_validation import invalid_candle_reason
 from alfaka.streaming.processor import process_raw_envelope
 from alfaka.streaming.transforms import CandleAggregator, LiveCandleBuilder, normalize_trade
 
@@ -41,6 +42,16 @@ class SimulationFeedSelectionTests(unittest.TestCase):
 
 
 class SimulationMetadataPropagationTests(unittest.TestCase):
+    def test_saturday_simulation_candle_is_storable_while_real_weekend_candle_stays_blocked(self):
+        candle = {
+            "symbol": "NVDA",
+            "interval": "1m",
+            "timestamp": "2026-07-11T09:13:00.000Z",
+        }
+
+        self.assertIn("weekday market sessions", invalid_candle_reason(candle))
+        self.assertIsNone(invalid_candle_reason({**candle, "simulationRunId": "sim-run-1"}))
+
     def test_run_metadata_reaches_trade_live_and_derived_candles_and_clickhouse_rows(self):
         envelope = build_raw_envelope(SIMULATOR_PAYLOAD, "sip", feed_profile="sip", market_session="closed")
         trade = normalize_trade(envelope)
