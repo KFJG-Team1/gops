@@ -16,6 +16,8 @@ def invalid_candle_reason(row):
         return "Candle timestamp is missing or invalid."
     if is_crypto_symbol(row.get("symbol")):
         return None
+    if row.get("simulationRunId") or row.get("simulation_run_id"):
+        return None
     if interval not in {"1W", "1M"} and timestamp.weekday() >= 5:
         return f"{interval} stock candle timestamp falls outside weekday market sessions."
     return None
