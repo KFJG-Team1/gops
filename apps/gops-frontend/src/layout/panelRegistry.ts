@@ -274,6 +274,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 36
   },
   {
+    kind: "portfolioHeatmap",
+    title: "나만의 히트맵",
+    agentPanelType: "portfolioHeatmap",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 3, rowSpan: 2 },
+    minSizePx: { width: 420, height: 260 },
+    defaultSpan: { colSpan: 4, rowSpan: 3 },
+    defaultLayoutWeight: 44
+  },
+  {
     kind: "portfolioHoldings",
     title: "Holdings 표",
     agentPanelType: "portfolioHoldings",

@@ -18,6 +18,8 @@ type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
   onSelectSymbol?: (symbol: string) => void;
   onHoverTileChange?: (tile: TreeMapTile | null) => void;
+  highlightedSymbol?: string;
+  ariaLabel?: string;
   style?: CSSProperties;
   className?: string;
   interactive?: boolean;
@@ -61,7 +63,16 @@ type TreeMapHoverPanelModel = {
   rows: TreeMapTile[];
 };
 
-export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style, className, interactive = true }: TreeMapCanvasProps) {
+export function TreeMapCanvas({
+  items,
+  onSelectSymbol,
+  onHoverTileChange,
+  highlightedSymbol,
+  ariaLabel = "S&P 500 TreeMap",
+  style,
+  className,
+  interactive = true
+}: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
   const [size, setSize] = useState<CanvasSize>({ width: 1, height: 1 });
@@ -133,8 +144,8 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
       return;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    drawTreeMap(context, size, tiles, hoverState, opacityScale);
-  }, [hoverState, opacityScale, size, tiles]);
+    drawTreeMap(context, size, tiles, hoverState, opacityScale, highlightedSymbol);
+  }, [highlightedSymbol, hoverState, opacityScale, size, tiles]);
 
   const updateHover = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!interactive) {
@@ -184,12 +195,12 @@ export function TreeMapCanvas({ items, onSelectSymbol, onHoverTileChange, style,
   };
 
   return (
-    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={style} aria-label="S&P 500 TreeMap">
+    <section className={`treemap-panel${className ? ` ${className}` : ""}`} style={style} aria-label={ariaLabel}>
       <canvas
         ref={canvasRef}
         className="treemap-canvas"
         style={{ cursor: interactive && hoverState?.tile.symbol ? "pointer" : "default" }}
-        aria-label="S&P 500 TreeMap canvas"
+        aria-label={`${ariaLabel} canvas`}
         onPointerMove={interactive ? updateHover : undefined}
         onPointerLeave={interactive ? clearHover : undefined}
         onClick={interactive ? selectHoveredTile : undefined}
@@ -249,7 +260,8 @@ function drawTreeMap(
   size: CanvasSize,
   tiles: TreeMapTile[],
   hoverState: TreeMapHoverState | null,
-  opacityScale: TreeMapOpacityScale
+  opacityScale: TreeMapOpacityScale,
+  highlightedSymbol?: string
 ) {
   const theme = readTheme();
   context.clearRect(0, 0, size.width, size.height);
@@ -263,7 +275,15 @@ function drawTreeMap(
     ? symbolTiles.filter((tile) => tile.parentId === highlightedIndustry.id)
     : [];
   const symbolBounds = boundsForSymbolTiles(symbolTiles);
-  symbolTiles.forEach((tile) => drawSymbol(context, tile, hoveredTile?.id, theme, opacityScale, symbolBounds));
+  symbolTiles.forEach((tile) => drawSymbol(
+    context,
+    tile,
+    hoveredTile?.id,
+    theme,
+    opacityScale,
+    symbolBounds,
+    highlightedSymbol?.toUpperCase() === tile.symbol?.toUpperCase()
+  ));
   industryTiles.forEach((tile) => drawIndustry(context, tile, theme, opacityScale, symbolTiles));
   sectorTiles.forEach((tile) => drawSector(context, tile, theme));
   if (highlightedIndustry) {
@@ -590,7 +610,8 @@ function drawSymbol(
   hoveredTileId: string | undefined,
   theme: TreeMapTheme,
   opacityScale: TreeMapOpacityScale,
-  symbolBounds: TreeMapSymbolBounds | null
+  symbolBounds: TreeMapSymbolBounds | null,
+  highlighted: boolean
 ) {
   const hovered = hoveredTileId === tile.id;
   const rect = insetTile(tile, tileGap);
@@ -611,6 +632,24 @@ function drawSymbol(
     hovered ? 1 : tileOpacity,
     theme.colors.shadow
   );
+
+  if (highlighted) {
+    const lineWidth = clamp(Math.min(rect.width, rect.height) * 0.025, 2, 4);
+    const inset = lineWidth / 2 + 1;
+    context.save();
+    context.strokeStyle = theme.colors.signal;
+    context.lineWidth = lineWidth;
+    roundedRectPath(
+      context,
+      rect.x + inset,
+      rect.y + inset,
+      Math.max(0, rect.width - inset * 2),
+      Math.max(0, rect.height - inset * 2),
+      Math.max(0, tileRadius - inset)
+    );
+    context.stroke();
+    context.restore();
+  }
 
   const labelSpace = rect.width - 10;
   if (rect.width < 38 || rect.height < 27 || labelSpace < 24) {

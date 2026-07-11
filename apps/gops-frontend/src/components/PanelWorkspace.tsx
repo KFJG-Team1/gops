@@ -1298,6 +1298,7 @@ function isPortfolioPanelKind(kind: PanelContentKind): boolean {
     || kind === "portfolioInvested"
     || kind === "portfolioDividend"
     || kind === "portfolioDiversification"
+    || kind === "portfolioHeatmap"
     || kind === "portfolioHoldings"
     || kind === "portfolioHoldingsCards";
 }

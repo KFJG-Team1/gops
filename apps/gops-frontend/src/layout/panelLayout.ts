@@ -33,6 +33,7 @@ export type PanelContentKind =
   | "portfolioInvested"
   | "portfolioDividend"
   | "portfolioDiversification"
+  | "portfolioHeatmap"
   | "portfolioHoldings"
   | "portfolioHoldingsCards"
   | "orderFlow"

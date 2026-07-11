@@ -47,6 +47,7 @@ import {
   PortfolioMultiPanel,
   PortfolioPerformancePanel
 } from "./PortfolioHoldingsPanel";
+import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
@@ -295,6 +296,16 @@ export function PanelContentRenderer({
 
   if (content.kind === "portfolioDiversification") {
     return <PortfolioDiversificationPanel />;
+  }
+
+  if (content.kind === "portfolioHeatmap") {
+    return (
+      <PortfolioPersonalHeatmapPanel
+        symbol={symbol}
+        marketItems={marketItems}
+        onSelectSymbol={onSelectSymbol}
+      />
+    );
   }
 
   if (content.kind === "portfolioHoldings") {

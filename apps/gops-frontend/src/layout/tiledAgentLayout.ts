@@ -49,6 +49,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   portfolioInvested: "portfolioInvested",
   portfolioDividend: "portfolioDividend",
   portfolioDiversification: "portfolioDiversification",
+  portfolioHeatmap: "portfolioHeatmap",
   portfolioHoldings: "portfolioHoldings",
   portfolioHoldingsCards: "portfolioHoldingsCards",
   orderFlow: "orderFlowProfile",

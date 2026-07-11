@@ -87,6 +87,10 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
       {
         kind: "portfolioHoldings",
         gridRect: { col: 3, row: 1, colSpan: 6, rowSpan: 3 }
+      },
+      {
+        kind: "portfolioHeatmap",
+        gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 3 }
       }
     ]
   }
@@ -323,6 +327,7 @@ const integratedPortfolioPanelKinds: readonly PanelContentKind[] = [
   "portfolioMulti",
   "portfolioInvestment",
   "portfolioInvested",
+  "portfolioHeatmap",
   "portfolioHoldings",
   "portfolioHoldingsCards"
 ];
