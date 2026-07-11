@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   basketForOrderSide,
   formatSimulatorClock,
+  rollbackLatestSimulation,
   requestPortfolioRefresh,
   subscribePortfolioRefresh
 } from "../src/simulator/simulatorApi";
@@ -37,6 +38,12 @@ const apiSource = readFileSync(
   "utf-8"
 );
 assert.match(apiSource, /\/api\/simulator\/orders\/basket/);
+assert.match(apiSource, /\/api\/simulator\/rollback/);
+assert.equal(typeof rollbackLatestSimulation, "function");
+assert.match(controlSource, /봉 되돌리기/);
+assert.match(controlSource, /rollbackState/);
+assert.match(controlSource, /원복 중/);
+assert.match(controlSource, /원복 완료/);
 assert.match(orderTicketSource, /submitSimulatorBasket\(form\.side/);
 assert.match(orderTicketSource, /onClick=\{submitOrder\}/);
 

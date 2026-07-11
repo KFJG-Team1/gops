@@ -77,7 +77,7 @@ class SimulatorEksDeploymentContractTests(unittest.TestCase):
         self.assertIn("systems/simulator/*", detector)
         self.assertIn("Dockerfile.gops-simulator", detector)
 
-    def test_on_demand_scripts_switch_only_the_sip_feed_and_restore_it(self):
+    def test_on_demand_scripts_leave_feed_switching_to_runtime_override(self):
         start_script = (REPO_ROOT / "scripts" / "aws" / "start-dev-simulator.sh").read_text(
             encoding="utf-8"
         )
@@ -86,22 +86,18 @@ class SimulatorEksDeploymentContractTests(unittest.TestCase):
         )
 
         self.assertIn("gops-simulator --replicas=1", start_script)
-        self.assertIn("GOPS_SIMULATOR_URL=http://gops-simulator:8765", start_script)
-        self.assertIn("ALPACA_STREAM_BASE_URL=ws://gops-simulator:8765", start_script)
+        self.assertNotIn("kubectl set env deployment/alfaka-alpaca-ingestor", start_script)
+        self.assertNotIn("ALPACA_STREAM_BASE_URL", start_script)
         self.assertIn("/api/control/mode", start_script)
         self.assertIn('{"mode":"live"}', start_script)
-        self.assertIn("NVDA,AMD,AVGO,MU,TSM,XOM,CVX,COP", start_script)
-        self.assertIn("alfaka-alpaca-ingestor-sip", start_script)
+        self.assertNotIn("ALPACA_COLLECTION_SYMBOLS", start_script)
+        self.assertNotIn("alfaka-alpaca-ingestor-sip", start_script)
         self.assertNotIn("alfaka-alpaca-ingestor-boats", start_script)
         self.assertNotIn("alfaka-alpaca-ingestor-crypto", start_script)
 
-        self.assertIn("GOPS_SIMULATOR_URL-", stop_script)
-        self.assertIn("ALPACA_STREAM_BASE_URL-", stop_script)
-        self.assertIn(
-            "ALPACA_ACTIVE_CHANNELS=bars,updatedBars,dailyBars,trades,quotes",
-            stop_script,
-        )
-        self.assertNotIn("ALPACA_ACTIVE_CHANNELS-", stop_script)
+        self.assertNotIn("kubectl set env deployment/alfaka-alpaca-ingestor", stop_script)
+        self.assertNotIn("ALPACA_STREAM_BASE_URL", stop_script)
+        self.assertIn("simulation:feed-override", stop_script)
         self.assertIn("gops-simulator --replicas=0", stop_script)
 
         for script in ("start-dev-simulator.sh", "stop-dev-simulator.sh"):

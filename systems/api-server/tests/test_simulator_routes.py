@@ -72,6 +72,21 @@ class FakeSimulatorGateway:
         return {"news": [], "next_page_token": None}
 
 
+class FakeSimulatorRollbackService:
+    def __init__(self, gateway):
+        self.gateway = gateway
+        self.calls = []
+
+    def rollback_latest(self, user_id):
+        self.calls.append(user_id)
+        return {
+            "runId": "sim-last-run",
+            "rollbackState": "completed",
+            "selectedFeedProfile": "sip",
+            "rollbackDetail": "시뮬레이션 봉 원복 완료",
+        }
+
+
 class SimulatorRoutesTest(unittest.TestCase):
     def setUp(self):
         os.environ["AUTH_ENABLED"] = "false"
@@ -82,6 +97,8 @@ class SimulatorRoutesTest(unittest.TestCase):
         self.app = create_app()
         self.app.state.simulator_gateway = self.gateway
         self.app.state.order_repository = self.repository
+        self.rollback_service = FakeSimulatorRollbackService(self.gateway)
+        self.app.state.simulator_rollback_service = self.rollback_service
         self.client = TestClient(self.app)
 
     def test_mode_control_is_exposed_to_the_frontend(self):
@@ -132,6 +149,21 @@ class SimulatorRoutesTest(unittest.TestCase):
         self.assertTrue(response.json()["simulation"])
         self.assertEqual(self.repository.orders, {})
         self.assertIn(("individual", "dev-auth-disabled", "XOM", "buy", 3), self.gateway.calls)
+
+    def test_authenticated_user_can_rollback_the_latest_completed_simulation(self):
+        response = self.client.post("/api/simulator/rollback")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rollbackState"], "completed")
+        self.assertEqual(self.rollback_service.calls, ["dev-auth-disabled"])
+
+    def test_rollback_is_rejected_while_simulation_is_running(self):
+        self.gateway.mode = "simulation"
+
+        response = self.client.post("/api/simulator/rollback")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.rollback_service.calls, [])
 
 
 if __name__ == "__main__":
