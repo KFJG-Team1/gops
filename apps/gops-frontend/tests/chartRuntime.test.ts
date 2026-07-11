@@ -105,6 +105,7 @@ import { fetchDemoOrderFlowIntraday } from "../src/chart/orderFlowDemoData";
 import {
   autoOrderFlowTargetRows,
   autoPriceStep,
+  buildBidAskPriceGrid,
   buildLadder,
   effectiveOrderFlowPriceStep,
   maxOrderFlowTargetRowsForHeight,
@@ -1508,6 +1509,67 @@ assert.deepEqual(rebinnedOrderFlow, [
   { priceBin: 100, askVolume: 13, bidVolume: 6, unknownVolume: 1, askTradeCount: 1, bidTradeCount: 2 }
 ]);
 assert.throws(() => rebinLevels([], 0.02, 0.03), /multiple/);
+const rebinnedWithCountsSource = [
+  { priceBin: 210.61, askVolume: 10, bidVolume: 2, unknownVolume: 1, askTradeCount: 2, bidTradeCount: 1 },
+  { priceBin: 210.62, askVolume: 3, bidVolume: 4, unknownVolume: 2, askTradeCount: 1, unknownTradeCount: 2 },
+  { priceBin: 210.67, askVolume: 7, bidVolume: 6, unknownVolume: 0, askTradeCount: 3, bidTradeCount: 2 }
+];
+const rebinnedWithCounts = rebinLevels(rebinnedWithCountsSource, 0.01, 0.05);
+assert.deepEqual(buildLadder(rebinnedWithCountsSource, 0.01).totals, buildLadder(rebinnedWithCounts, 0.05).totals);
+
+const narrowBidAskGrid = buildBidAskPriceGrid([210.6, 210.9], 0.01, 320);
+assert.equal(narrowBidAskGrid.priceStep, 0.01);
+assert.equal(narrowBidAskGrid.domainMin, 210.585);
+assert.equal(narrowBidAskGrid.domainMax, 210.915);
+assert.equal(narrowBidAskGrid.decimalPlaces, 2);
+assert.ok(narrowBidAskGrid.rowPrices.length <= 64);
+assert.ok(narrowBidAskGrid.domainMax - narrowBidAskGrid.domainMin < 0.35);
+const compactBidAskGrid = buildBidAskPriceGrid([210.6, 210.9], 0.01, 100);
+assert.equal(compactBidAskGrid.priceStep, 0.02);
+assert.ok(compactBidAskGrid.rowPrices.length <= 20);
+const expandedBidAskGrid = buildBidAskPriceGrid([210.6, 212.8], 0.01, 320);
+assert.ok(expandedBidAskGrid.priceStep > narrowBidAskGrid.priceStep);
+assert.ok(expandedBidAskGrid.domainMax > 212.8);
+const narrowPriceCandle: CandleDto = {
+  timestamp: "2026-07-08T13:30:00.000Z",
+  open: 210.7,
+  high: 210.9,
+  low: 210.6,
+  close: 210.8,
+  volume: 100,
+  isClosed: true
+};
+const ordinaryNarrowPriceScene = buildFrontendChartScene(frontendChartState({
+  candles: [narrowPriceCandle],
+  visibleCount: 1,
+  requestedLimit: 1
+}), 600, 320);
+assert.equal(ordinaryNarrowPriceScene.scales.minPrice, 210);
+assert.equal(ordinaryNarrowPriceScene.scales.maxPrice, 212);
+assert.equal(ordinaryNarrowPriceScene.scales.bidAskPriceGrid, undefined);
+const bidAskNarrowPriceScene = buildFrontendChartScene(frontendChartState({
+  chartType: "bidask",
+  interval: "1m",
+  candles: [narrowPriceCandle],
+  visibleCount: 1,
+  requestedLimit: 1,
+  orderFlow: {
+    dataStatus: "ready",
+    priceBinSize: 0.01,
+    sessionDate: "2026-07-08",
+    minutes: new Map([[narrowPriceCandle.timestamp, {
+      eventMinute: narrowPriceCandle.timestamp,
+      bins: [
+        { priceBin: 210.6, askVolume: 4, bidVolume: 2, unknownVolume: 0 },
+        { priceBin: 210.9, askVolume: 1, bidVolume: 3, unknownVolume: 0 }
+      ]
+    }]])
+  }
+}), 600, 320);
+assert.ok(bidAskNarrowPriceScene.scales.minPrice > 210.5);
+assert.ok(bidAskNarrowPriceScene.scales.maxPrice < 211);
+assert.equal(bidAskNarrowPriceScene.scales.priceBottomInset, 13);
+assert.equal(bidAskNarrowPriceScene.scales.bidAskPriceGrid?.decimalPlaces, 2);
 
 const minuteWindowLevels = [
   { eventMinute: "2026-07-08T13:30:00.000Z", bins: [{ priceBin: 100, askVolume: 1, bidVolume: 0, unknownVolume: 0 }] },
@@ -1630,6 +1692,37 @@ assert.equal(projectedOrderFlowRows.length, 2);
 assert.equal(projectedOrderFlowRows[0]?.bidVolume, 80);
 assert.equal(projectedOrderFlowRows[1]?.askVolume, 120);
 assert.equal(orderFlowChartRowScaleMax([projectedOrderFlowRows]), 120);
+const sharedGrid = buildBidAskPriceGrid([99, 102], 0.01, 240);
+const sharedGridPriceToY = (price: number) => (
+  ((sharedGrid.domainMax - price) / (sharedGrid.domainMax - sharedGrid.domainMin)) * 240
+);
+const sparseSharedGridLadder = buildLadder([
+  { priceBin: 100, askVolume: 12, bidVolume: 3, unknownVolume: 0 }
+], sharedGrid.priceStep);
+const denseSharedGridLadder = buildLadder(rebinLevels([
+  { priceBin: 99, askVolume: 2, bidVolume: 1, unknownVolume: 0 },
+  { priceBin: 100, askVolume: 3, bidVolume: 4, unknownVolume: 1 },
+  { priceBin: 102, askVolume: 5, bidVolume: 6, unknownVolume: 0 }
+], 0.01, sharedGrid.priceStep), sharedGrid.priceStep);
+const sparseSharedRows = projectOrderFlowChartRows(
+  sparseSharedGridLadder,
+  sharedGridPriceToY,
+  0,
+  240,
+  sharedGrid.rowPrices
+);
+const denseSharedRows = projectOrderFlowChartRows(
+  denseSharedGridLadder,
+  sharedGridPriceToY,
+  0,
+  240,
+  sharedGrid.rowPrices
+);
+assert.equal(sparseSharedRows.length, sharedGrid.rowPrices.length);
+assert.equal(denseSharedRows.length, sharedGrid.rowPrices.length);
+assert.deepEqual(sparseSharedRows.map((row) => row.y), denseSharedRows.map((row) => row.y));
+assert.equal(sparseSharedRows.filter((row) => row.totalVolume === 0).every((row) => !row.isPoc && !row.askImbalance && !row.bidImbalance), true);
+assert.equal(sparseSharedRows.filter((row) => row.isPoc).length, 1);
 
 const orderFlowUpdateA: OrderFlowMinuteUpdate = {
   eventMinute: "2026-07-08T13:31:00.000Z",

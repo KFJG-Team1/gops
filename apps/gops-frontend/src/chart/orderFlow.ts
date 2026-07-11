@@ -87,6 +87,19 @@ export const ORDER_FLOW_WINDOWS = ["1m", "10m", "1h", "session"] as const;
 export const ORDER_FLOW_MIN_TARGET_ROWS = 8;
 export const ORDER_FLOW_MIN_ROW_HEIGHT = 6;
 export const ORDER_FLOW_AUTO_ROW_CAP = 44;
+export const ORDER_FLOW_CHART_FOOTER_HEIGHT = 13;
+export const BID_ASK_GRID_MIN_ROWS = 16;
+export const BID_ASK_GRID_MAX_ROWS = 64;
+export const BID_ASK_GRID_ROW_HEIGHT = 5;
+
+export type BidAskPriceGrid = {
+  domainMin: number;
+  domainMax: number;
+  priceStep: number;
+  rowPrices: number[];
+  axisTicks: number[];
+  decimalPlaces: number;
+};
 
 export type OrderFlowWindow = typeof ORDER_FLOW_WINDOWS[number];
 export type OrderFlowPriceStep = typeof ORDER_FLOW_PRICE_STEPS[number];
@@ -139,6 +152,52 @@ export function stepOrderFlowTargetRows(currentTargetRows: number, direction: 1 
 
 export function effectiveOrderFlowPriceStep(priceRange: number, targetRows: number, sourceStep: number): OrderFlowPriceStep {
   return Math.max(sourceStep, autoPriceStep(priceRange, targetRows)) as OrderFlowPriceStep;
+}
+
+export function buildBidAskPriceGrid(
+  sourceValues: Array<number | undefined>,
+  sourceStep: number,
+  plotHeight: number
+): BidAskPriceGrid {
+  const normalizedSourceStep = isFiniteNumber(sourceStep) && sourceStep > 0 ? sourceStep : 0.01;
+  const values = sourceValues.filter((value): value is number => isFiniteNumber(value));
+  if (!values.length) {
+    return fallbackBidAskPriceGrid(normalizedSourceStep);
+  }
+
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const targetRows = clampNumber(
+    Math.floor(Math.max(0, plotHeight) / BID_ASK_GRID_ROW_HEIGHT),
+    BID_ASK_GRID_MIN_ROWS,
+    BID_ASK_GRID_MAX_ROWS
+  );
+  const rawRange = Math.max(normalizedSourceStep, rawMax - rawMin);
+  let priceStep = niceSourceStepMultiple(rawRange / Math.max(1, targetRows - 3), normalizedSourceStep);
+  let dataMin = alignedPriceFloor(rawMin, priceStep);
+  let dataMax = alignedPriceCeil(rawMax, priceStep);
+  let dataRowCount = alignedRowCount(dataMin, dataMax, priceStep);
+
+  while (dataRowCount + 2 > targetRows) {
+    priceStep = nextNiceSourceStepMultiple(priceStep, normalizedSourceStep);
+    dataMin = alignedPriceFloor(rawMin, priceStep);
+    dataMax = alignedPriceCeil(rawMax, priceStep);
+    dataRowCount = alignedRowCount(dataMin, dataMax, priceStep);
+  }
+
+  const firstRow = roundPrice(dataMax + priceStep);
+  const lastRow = roundPrice(dataMin - priceStep);
+  const rowPrices = descendingPrices(firstRow, lastRow, priceStep);
+  const domainMin = roundPrice(lastRow - priceStep / 2);
+  const domainMax = roundPrice(firstRow + priceStep / 2);
+  return {
+    domainMin,
+    domainMax,
+    priceStep,
+    rowPrices,
+    axisTicks: bidAskAxisTicks(rowPrices),
+    decimalPlaces: decimalPlacesForStep(priceStep)
+  };
 }
 
 export function visibleScaleMax(ladders: OrderFlowLadder[]): number {
@@ -355,6 +414,71 @@ function assertRebinCompatible(fromStep: number, toStep: number): void {
   if (Math.abs(Math.round(ratio) - ratio) > 1e-6) {
     throw new RangeError("Order flow target price step must be a multiple of the source step.");
   }
+}
+
+function fallbackBidAskPriceGrid(sourceStep: number): BidAskPriceGrid {
+  const rowPrices = [roundPrice(sourceStep), 0, roundPrice(-sourceStep)];
+  return {
+    domainMin: roundPrice(-sourceStep * 1.5),
+    domainMax: roundPrice(sourceStep * 1.5),
+    priceStep: sourceStep,
+    rowPrices,
+    axisTicks: rowPrices,
+    decimalPlaces: decimalPlacesForStep(sourceStep)
+  };
+}
+
+function niceSourceStepMultiple(rawStep: number, sourceStep: number): number {
+  const multiplier = Math.max(1, rawStep / sourceStep);
+  const exponent = Math.floor(Math.log10(multiplier));
+  const magnitude = 10 ** exponent;
+  const normalized = multiplier / magnitude;
+  const niceMultiplier = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return roundPrice(Math.max(sourceStep, niceMultiplier * magnitude * sourceStep));
+}
+
+function nextNiceSourceStepMultiple(currentStep: number, sourceStep: number): number {
+  return niceSourceStepMultiple(currentStep + sourceStep * 1e-6, sourceStep);
+}
+
+function alignedPriceFloor(value: number, step: number): number {
+  return roundPrice(Math.floor(value / step + 1e-9) * step);
+}
+
+function alignedPriceCeil(value: number, step: number): number {
+  return roundPrice(Math.ceil(value / step - 1e-9) * step);
+}
+
+function alignedRowCount(min: number, max: number, step: number): number {
+  return Math.max(1, Math.round((max - min) / step) + 1);
+}
+
+function descendingPrices(first: number, last: number, step: number): number[] {
+  const count = alignedRowCount(last, first, step);
+  return Array.from({ length: count }, (_, index) => roundPrice(first - index * step));
+}
+
+function bidAskAxisTicks(rowPrices: number[]): number[] {
+  if (rowPrices.length <= 6) {
+    return [...rowPrices].reverse();
+  }
+  const stride = Math.max(1, Math.ceil((rowPrices.length - 1) / 4));
+  const indices = new Set([0, rowPrices.length - 1]);
+  for (let index = stride; index < rowPrices.length - 1; index += stride) {
+    indices.add(index);
+  }
+  return Array.from(indices)
+    .sort((left, right) => right - left)
+    .map((index) => rowPrices[index]);
+}
+
+function decimalPlacesForStep(step: number): number {
+  for (let places = 0; places <= 6; places += 1) {
+    if (Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-8) {
+      return places;
+    }
+  }
+  return 6;
 }
 
 function emptyAccumulator(priceBin: number): OrderFlowAccumulator {

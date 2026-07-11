@@ -38,6 +38,7 @@ export type ChartAssetBuildStatus = {
     missingBarsBefore: number;
     missingBarsAfter: number;
     materializedRows: number;
+    reasonCodes?: Record<string, number>;
   };
   recentItems: ChartAssetBuildItem[];
   failedItems?: ChartAssetBuildItem[];
@@ -57,6 +58,7 @@ export type ChartAssetCoverageItem = {
   qualityState?: string | null;
   payloadBytes?: number;
   drawingCount?: number;
+  storedDrawingCount?: number;
   freshness?: "current" | "stale" | "unknown";
   staleByBars?: number | null;
 };

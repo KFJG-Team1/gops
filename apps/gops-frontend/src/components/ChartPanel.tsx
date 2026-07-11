@@ -562,6 +562,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     ? analysisAssets.assets[chart.interval]
     : null;
   const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
+  const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
+    activeAnalysisAsset.asOf,
+    chart.candles,
+    activeAnalysisAsset.assetVersion,
+    activeAnalysisAsset.interval
+  ) : false;
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
@@ -573,10 +579,22 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? analysisAssets.assets[interval]
       : null;
     const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
-    const asset = resolvedAsset && !isAnalysisAssetStale(resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion)
+    const asset = resolvedAsset && !isAnalysisAssetStale(
+      resolvedAsset.asOf,
+      chart.candles,
+      resolvedAsset.assetVersion,
+      resolvedAsset.interval
+    )
       ? resolvedAsset
       : null;
-    const applyKey = [chart.symbol, interval, asset?.generatedAt ?? "none", chart.candles[0]?.timestamp ?? "empty", chart.candles.length].join("|");
+    const applyKey = [
+      chart.symbol,
+      interval,
+      asset?.generatedAt ?? "none",
+      chart.candles[0]?.timestamp ?? "empty",
+      chart.candles.length,
+      latestClosedAssetCandleTimestamp ?? "no-closed-candle"
+    ].join("|");
     if (appliedAnalysisAssetKeyRef.current === applyKey) {
       return;
     }
@@ -602,7 +620,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
-    if (!activeAnalysisAsset) {
+    if (!activeAnalysisAsset || activeAnalysisAssetStale) {
       return;
     }
     const visible = !analysisLayerVisibilityRef.current[layer];
@@ -613,7 +631,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, activeAnalysisAssetStale, commandTarget, dispatchExternalCommandGroup]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -2222,12 +2240,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            structure: !activeAnalysisAsset?.layers.structure.drawings.length,
-            trend: !activeAnalysisAsset?.layers.trend.drawings.length,
-            agent: !activeAnalysisAsset?.layers.agent.drawings.length
+            structure: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.structure.drawings.length,
+            trend: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.trend.drawings.length,
+            agent: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.agent.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAsset ? isAnalysisAssetStale(activeAnalysisAsset.asOf, chart.candles, activeAnalysisAsset.assetVersion) : false}
+          stale={activeAnalysisAssetStale}
           onToggle={toggleAnalysisLayer}
         />
         {labelEditor && labelEditorLayout && (

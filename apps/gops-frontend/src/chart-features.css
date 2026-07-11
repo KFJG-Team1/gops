@@ -410,6 +410,7 @@
 }
 
 .chart-asset-ops-progress > div:first-child,
+.chart-asset-ops-current header,
 .chart-asset-ops-coverage header {
   display: flex;
   align-items: center;
@@ -424,6 +425,10 @@
 }
 
 .chart-asset-ops-progress p {
+  margin: 5px 0;
+}
+
+.chart-asset-ops-current p {
   margin: 5px 0;
 }
 
@@ -781,6 +786,7 @@
 .chart-commentary-levels p,
 .chart-commentary-levels li,
 .chart-asset-ops-progress p,
+.chart-asset-ops-current p,
 .chart-asset-ops-log,
 .chart-asset-ops-coverage th,
 .chart-asset-ops-coverage td {

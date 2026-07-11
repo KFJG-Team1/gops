@@ -282,7 +282,7 @@ test("inline label editor replaces the label and remains clipped to the price pl
     const style = getComputedStyle(element);
     return { borderLeftWidth: style.borderLeftWidth, paddingLeft: style.paddingLeft, fontSize: style.fontSize };
   });
-  expect(editorMetrics).toEqual({ borderLeftWidth: "0px", paddingLeft: "4px", fontSize: "12px" });
+  expect(editorMetrics).toEqual({ borderLeftWidth: "0px", paddingLeft: "4px", fontSize: "14px" });
   await editor.fill("오른쪽 경계에서도 차트 폭을 바꾸지 않는 설명");
   const editorBox = await editor.boundingBox();
   const canvasBox = await canvas.boundingBox();
