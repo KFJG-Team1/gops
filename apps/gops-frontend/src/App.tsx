@@ -1358,6 +1358,7 @@ export function App() {
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
+        onApplyLayoutProposal={applyAgentLayoutProposal}
       />
       <GlossaryTooltip />
     </main>

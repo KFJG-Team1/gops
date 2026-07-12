@@ -117,6 +117,11 @@ export function notificationSocketUrl(): string {
   return `${protocol}//${window.location.host}/ws/notifications`;
 }
 
+export function agentAlertsSocketUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/agent-alerts`;
+}
+
 function normalizeAlert(value: unknown): PriceAlert | null {
   const source = asRecord(value);
   const id = asNumber(source.id);

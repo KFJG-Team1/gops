@@ -2,15 +2,23 @@ import { CandlestickChart, LogIn, MessagesSquare, Newspaper, SendHorizontal, Squ
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertToast } from "../alerts/AlertToast";
-import { markNotificationRead, normalizeNotificationPayload, notificationSocketUrl, type NotificationItem } from "../alerts/alertApi";
+import {
+  agentAlertsSocketUrl,
+  markNotificationRead,
+  normalizeNotificationPayload,
+  notificationSocketUrl,
+  type NotificationItem
+} from "../alerts/alertApi";
 import {
   createMarketOpenNotification,
   isMarketOpenNotification,
   readMarketOpenReminderEnabled,
   shouldShowMarketOpenReminder
 } from "../alerts/marketOpenReminder";
-import { notificationChartSymbol } from "../alerts/alertPresentation";
+import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
 import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
+import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
+import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { SimulatorControl } from "../simulator/SimulatorControl";
@@ -55,6 +63,7 @@ type BottomCommandBarProps = {
   onLogin: () => void;
   onLogout: () => void;
   onSelectSymbol: (symbol: string) => void;
+  onApplyLayoutProposal?: (proposal: AgentLayoutProposal) => void;
 };
 
 const alertToastAdvanceMs = 6000;
@@ -81,7 +90,8 @@ export function BottomCommandBar({
   onAgentSubmit,
   onLogin,
   onLogout,
-  onSelectSymbol
+  onSelectSymbol,
+  onApplyLayoutProposal
 }: BottomCommandBarProps) {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
@@ -121,8 +131,24 @@ export function BottomCommandBar({
     advanceAlertToast();
   };
 
+  const openAlertToastEvidence = (notification: NotificationItem) => {
+    const proposal = buildUiProposalLayoutProposal(notificationUiProposals(notification), {
+      title: "리스크 알림 근거 패널",
+      rationale: "리스크 알림이 참조한 패널을 엽니다."
+    });
+    if (proposal && onApplyLayoutProposal) {
+      onApplyLayoutProposal(proposal);
+    }
+    void markAlertToastRead(notification);
+    advanceAlertToast();
+  };
+
   const markAlertToastRead = async (notification: NotificationItem) => {
     if (notification.readAt) {
+      return;
+    }
+    if (notification.id < 0) {
+      // Synthetic toast (agent-alerts stream) — not persisted, nothing to mark.
       return;
     }
     try {
@@ -171,6 +197,27 @@ export function BottomCommandBar({
         if (notification && !notification.readAt) {
           enqueueAlertToast(notification);
         }
+      }
+    };
+    return () => socket.close();
+  }, [canUseAlerts]);
+
+  useEffect(() => {
+    if (!canUseAlerts) {
+      return undefined;
+    }
+    // Risk monitor / agent alerts arrive on a separate broadcast socket and are
+    // not persisted as notifications; surface toast-worthy ones with a
+    // synthetic (negative-id) NotificationItem so the same queue renders them.
+    const socket = new WebSocket(agentAlertsSocketUrl());
+    socket.onmessage = (event) => {
+      const payload = readSocketPayload(event.data);
+      if (payload.type !== "AGENT_ALERT" || payload.showToast !== true) {
+        return;
+      }
+      const notification = agentAlertNotification(payload);
+      if (notification) {
+        enqueueAlertToast(notification);
       }
     };
     return () => socket.close();
@@ -311,6 +358,7 @@ export function BottomCommandBar({
           queuedCount={alertToastState.queue.length}
           onClose={advanceAlertToast}
           onOpenChart={openAlertToastChart}
+          onOpenEvidence={onApplyLayoutProposal ? openAlertToastEvidence : undefined}
         />
       )}
       <nav className="workspace-top-nav" aria-label="Global navigation">
@@ -573,6 +621,26 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function agentAlertNotification(payload: Record<string, unknown>): NotificationItem | null {
+  const decision = payload.decision && typeof payload.decision === "object"
+    ? payload.decision as Record<string, unknown>
+    : {};
+  const eventId = typeof decision.eventId === "string" && decision.eventId
+    ? decision.eventId
+    : `agent-alert-${Date.now()}`;
+  return {
+    // Synthetic id: agent alerts are broadcast-only (not persisted), so the
+    // toast key dedupes on the stable eventId instead.
+    id: -1,
+    alertId: null,
+    eventId,
+    type: "AGENT_ALERT",
+    payload,
+    createdAt: new Date().toISOString(),
+    readAt: null
+  };
 }
 
 function alertToastKey(notification: NotificationItem): string {
