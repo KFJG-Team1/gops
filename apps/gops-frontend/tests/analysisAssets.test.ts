@@ -56,7 +56,7 @@ const asset = {
   chartSetup: {
     alwaysOn: ["volume-profile", "volume"],
     recommended: [
-      { layer: "rsi:14", reason: "과매도", source: "rule" },
+      { layer: "sma:120", reason: "MA60/120 교차 확인", source: "rule" },
       { layer: "macd:12:26:9", reason: "교차", source: "rule" },
       { layer: "ema:20", reason: "방어적 초과 입력", source: "llm" }
     ]
@@ -252,6 +252,9 @@ const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDraw
 assert.equal(applyCommands.filter((command) => command.type === "chart.drawing.remove").length, 1);
 assert.equal(applyCommands.every((command) => command.actor === "system" && command.historyScope === "external"), true);
 assert.equal(applyCommands.filter((command) => command.type === "chart.layer.visibility.set").length, 4);
+assert.ok(applyCommands.some((command) => (
+  command.type === "chart.layer.visibility.set" && command.payload.layer === "sma:120" && command.payload.visible === true
+)));
 
 const recovered = analysisLayerToggleCommands(target, [], asset, "structure", true);
 assert.equal(recovered[0]?.type, "chart.drawing.add");

@@ -394,12 +394,22 @@ assert.ok(compiledChartOps.visualOverlays.some((overlay) => (
   overlay.anchors.some((anchor) => anchor.timestamp === "2026-07-04T00:00:00Z")
 )));
 
+const compiledSma120Ops = compileDeterministicChartOperations({
+  query: "120일선 보여줘",
+  chart: frontendChartState({ layers: { candles: true, "sma:120": false } })
+});
+assert.equal(compiledSma120Ops.handled, true);
+assert.ok(compiledSma120Ops.actions.some((action) => (
+  action.type === "setLayer" && action.layer === "sma:120" && action.enabled
+)));
+
 assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style.background, fallbackChartStyle.background);
 assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
 const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "AAPL", "1m");
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
+assert.equal(chartTypeDefaultDocument.layers["sma:120"], false);
 assert.equal(fallbackChartStyle.background, "#090909");
 assert.equal(fallbackChartStyle.text, "#ffffff");
 assert.equal(fallbackChartStyle.grid, "rgba(255, 255, 255, 0.08)");
@@ -426,9 +436,10 @@ assert.deepEqual(serverIndicatorLayersForLayers({
   ma5: true,
   "sma:20": true,
   "sma:60": true,
+  "sma:120": true,
   "ema:20": true,
   "rsi:14": true
-}), ["ema:20", "rsi:14"]);
+}), ["sma:120", "ema:20", "rsi:14"]);
 assert.deepEqual(indicatorRequestRangeFromCandles([
   { timestamp: "2026-06-25T13:30:00Z", open: 1, high: 2, low: 1, close: 2, volume: 10, isClosed: true },
   { timestamp: "2026-06-25T13:31:00Z", open: 2, high: 3, low: 2, close: 3, volume: 10, isClosed: true },
@@ -607,6 +618,18 @@ assert.equal(smaAliasResult.ok, true);
 if (smaAliasResult.ok) {
   assert.equal(smaAliasResult.document.layers["sma:60"], false);
   assert.equal(smaAliasResult.document.layers.ma60, false);
+}
+
+const sma120Result = executeChartCommand(
+  documentB,
+  makeChartCommand("chart.layer.visibility.set", "user", target("panel-b", documentB.id), {
+    layer: "sma:120",
+    visible: true
+  })
+);
+assert.equal(sma120Result.ok, true);
+if (sma120Result.ok) {
+  assert.equal(sma120Result.document.layers["sma:120"], true);
 }
 
 const rsiPaneResult = executeChartCommand(
