@@ -39,7 +39,6 @@ import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
-  PortfolioHoldingsCardsPanel,
   PortfolioHoldingsFlatCardsPanel,
   PortfolioHoldingsOnlyPanel,
   PortfolioInvestedPanel,
@@ -309,17 +308,6 @@ export function PanelContentRenderer({
   if (content.kind === "portfolioHoldings") {
     return (
       <PortfolioHoldingsOnlyPanel
-        onSelectSymbol={(nextSymbol) => {
-          onSelectSymbol(nextSymbol);
-          return true;
-        }}
-      />
-    );
-  }
-
-  if (content.kind === "portfolioHoldingsCards") {
-    return (
-      <PortfolioHoldingsCardsPanel
         onSelectSymbol={(nextSymbol) => {
           onSelectSymbol(nextSymbol);
           return true;

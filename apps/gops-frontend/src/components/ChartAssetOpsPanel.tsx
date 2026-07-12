@@ -20,7 +20,7 @@ import {
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
+const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
 
 export function ChartAssetOpsPanel({
   currentSymbol,
@@ -36,8 +36,6 @@ export function ChartAssetOpsPanel({
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
   const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
-  const [llmEnabled, setLlmEnabled] = useState(false);
-  const [skipFreshHours, setSkipFreshHours] = useState(0);
   const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
   const [job, setJob] = useState<ChartAssetBuildStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,63 +98,30 @@ export function ChartAssetOpsPanel({
     }
     let active = true;
     let pollingTimer: number | null = null;
-    let source: EventSource | null = null;
-    let streamedLogs: string[] = [];
 
     const applyStatus = (next: ChartAssetBuildStatus) => {
       if (!active) return;
-      setJob((current) => ({
-        ...next,
-        logs: streamedLogs.length ? streamedLogs : current?.jobId === next.jobId ? current.logs ?? [] : []
-      }));
+      setJob(next);
       if (terminalStatuses.has(next.status)) {
         invalidateAnalysisAssets();
-        source?.close();
         if (pollingTimer !== null) window.clearTimeout(pollingTimer);
         void loadCoverage();
       }
     };
     const poll = async () => {
+      let terminal = false;
       try {
-        applyStatus(await fetchChartAssetBuildStatus(accepted.status_url));
+        const next = await fetchChartAssetBuildStatus(accepted.status_url);
+        terminal = terminalStatuses.has(next.status);
+        applyStatus(next);
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : "빌드 상태를 확인하지 못했습니다.");
       }
-      if (active) pollingTimer = window.setTimeout(poll, 1000);
+      if (active && !terminal) pollingTimer = window.setTimeout(poll, 1000);
     };
-    const startPolling = () => {
-      source?.close();
-      source = null;
-      if (pollingTimer === null) void poll();
-    };
-
-    try {
-      source = new EventSource(accepted.stream_url);
-      const handleStatus = (event: MessageEvent) => {
-        try {
-          applyStatus(JSON.parse(event.data) as ChartAssetBuildStatus);
-        } catch {
-          startPolling();
-        }
-      };
-      source.addEventListener("status", handleStatus as EventListener);
-      source.addEventListener("log", ((event: MessageEvent) => {
-        try {
-          const payload = JSON.parse(event.data) as { message?: unknown };
-          if (typeof payload.message !== "string" || !payload.message) return;
-          streamedLogs = [...streamedLogs, payload.message].slice(-200);
-          setJob((current) => current ? { ...current, logs: streamedLogs } : current);
-        } catch {
-          // Ephemeral logs may be dropped; status polling remains authoritative.
-        }
-      }) as EventListener);
-      source.onerror = startPolling;
-    } catch {
-      startPolling();
-    }
+    void poll();
     return () => {
       active = false;
-      source?.close();
       if (pollingTimer !== null) window.clearTimeout(pollingTimer);
     };
   }, [accepted, loadCoverage]);
@@ -182,24 +147,12 @@ export function ChartAssetOpsPanel({
       setError("interval을 하나 이상 선택하세요.");
       return;
     }
-    if (llmEnabled) {
-      const symbolCount = retrySymbols?.length ?? (useSp500 ? 500 : symbols.length);
-      const estimatedCalls = symbolCount;
-      if (!window.confirm(`LLM 호출은 최대 약 ${estimatedCalls}회입니다. 계속할까요?`)) {
-        return;
-      }
-    }
     setError(null);
     setJob(null);
-    const normalizedSkipFreshHours = Number.isFinite(skipFreshHours)
-      ? Math.max(0, Math.floor(skipFreshHours))
-      : 0;
     try {
       setAccepted(await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
-        intervals,
-        llmEnabled,
-        skipFreshHours: normalizedSkipFreshHours
+        intervals
       }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
@@ -241,11 +194,6 @@ export function ChartAssetOpsPanel({
           {allIntervals.map((interval) => (
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
-          <label><input type="checkbox" checked={llmEnabled} onChange={(event) => setLlmEnabled(event.target.checked)} />LLM 포함</label>
-          <label>갱신 스킵(시간)<input type="number" min="0" value={skipFreshHours} onChange={(event) => {
-            const value = Number(event.target.value);
-            setSkipFreshHours(Number.isFinite(value) ? value : 0);
-          }} /></label>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
@@ -280,6 +228,8 @@ export function ChartAssetOpsPanel({
           <>
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
             <p>판정 {currentDiagnostics.state}</p>
+            {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
+            {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}
             {currentPattern && (
               <p>감지 패턴 {patternKindLabel(currentPattern.kind)} · {currentPattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
             )}
@@ -329,7 +279,7 @@ function formatGeneratedAt(value: string): string {
 }
 
 function coverageStatus(item: ChartAssetCoverageItem): string {
-  const quality = item.qualityState ? ` · ${item.qualityState}` : "";
+  const quality = item.coverageState ? ` · ${item.coverageState}` : "";
   const empty = (item.storedDrawingCount ?? item.drawingCount) === 0 ? " · 작도 없음" : "";
   return `${item.status}${quality}${empty}`;
 }
@@ -342,8 +292,16 @@ function patternKindLabel(kind: string): string {
   return {
     ascending_triangle: "상승 삼각형",
     descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형",
-    bullish_flag: "상승 깃발",
-    bearish_flag: "하락 깃발"
+    symmetrical_triangle: "대칭 삼각형"
   }[kind] ?? kind;
+}
+
+function formatNumber(value: number | null): string {
+  return value === null ? "-" : value.toFixed(2);
+}
+
+function crossLabel(direction: "golden" | "dead" | null | undefined, status: string): string {
+  if (status === "insufficient_previous_bar") return "직전 봉 부족";
+  if (status !== "crossed" || !direction) return "없음";
+  return direction === "golden" ? "골든크로스" : "데드크로스";
 }

@@ -16,7 +16,7 @@ export type ChartToolDefinition = {
 };
 
 export const drawingRegistry: Record<DrawingType, DrawingDefinition> = {
-  horizontalLine: { type: "horizontalLine", label: "H-Line", minAnchors: 1, maxAnchors: 1, commandType: "chart.drawing.add" },
+  horizontalLine: { type: "horizontalLine", label: "H-Line", minAnchors: 1, maxAnchors: 2, commandType: "chart.drawing.add" },
   horizontalParallelLines: { type: "horizontalParallelLines", label: "Price Parallel", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   trendLine: { type: "trendLine", label: "Trend", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   trendParallelLines: { type: "trendParallelLines", label: "Trend Parallel", minAnchors: 3, maxAnchors: 3, commandType: "chart.drawing.add" },

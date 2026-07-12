@@ -1,3 +1,4 @@
+import { normalizeUiProposals, type UiProposalLike } from "../layout/uiProposalLayout";
 import type { AlertDirection, NotificationItem, PriceAlert } from "./alertApi";
 import { isMarketOpenNotification } from "./marketOpenReminder";
 
@@ -8,6 +9,25 @@ export type AlertToastPresentation = {
   message: string;
   detail: string;
 };
+
+const NON_CHART_SYMBOLS = new Set(["PORTFOLIO", "MARKET", "UNKNOWN", "ALERT"]);
+
+const riskAlertTitles: Record<string, string> = {
+  risk_daily_loss_limit: "일일 손실 한도",
+  risk_concentration_drift: "비중 쏠림 경고",
+  risk_correlation_cluster: "상관 클러스터 경고",
+  risk_anomaly_surge: "이상 급등 신호"
+};
+
+export function notificationDecision(notification: NotificationItem): Record<string, unknown> {
+  return asRecord(notification.payload.decision);
+}
+
+export function notificationUiProposals(notification: NotificationItem): UiProposalLike[] {
+  const decision = notificationDecision(notification);
+  const metrics = asRecord(decision.metrics ?? notification.payload.metrics);
+  return normalizeUiProposals(metrics.uiProposals);
+}
 
 const directionLabels: Record<AlertDirection, string> = {
   above: "상승",
@@ -32,6 +52,9 @@ export function notificationSymbol(notification: NotificationItem): string {
 
 export function notificationChartSymbol(notification: NotificationItem): string {
   const symbol = asString(notification.payload.symbol)?.toUpperCase() ?? "";
+  if (NON_CHART_SYMBOLS.has(symbol)) {
+    return "";
+  }
   return /^[A-Z0-9.\-]{1,16}$/.test(symbol) ? symbol : "";
 }
 
@@ -66,6 +89,20 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
   const symbol = notificationSymbol(notification);
   const chartSymbol = notificationChartSymbol(notification);
   const payload = notification.payload;
+
+  const decision = notificationDecision(notification);
+  const decisionSummary = asString(decision.summary);
+  if (decisionSummary) {
+    const eventType = asString(decision.eventType) ?? "";
+    return {
+      symbol,
+      chartSymbol,
+      title: riskAlertTitles[eventType] ?? "리스크 알림",
+      message: decisionSummary,
+      detail: ""
+    };
+  }
+
   const targetPrice = asNumber(payload.targetPrice);
   if (targetPrice !== undefined) {
     const currentPrice = asNumber(payload.price);

@@ -10,6 +10,7 @@ type StockLogoUrlOptions = {
 
 const logoDevDomainBySymbol: Record<string, string> = {
   AAPL: "apple.com",
+  AMZN: "amazon.com",
   AMAT: "appliedmaterials.com",
   CBOE: "cboe.com",
   CVNA: "carvana.com",

@@ -65,6 +65,38 @@ type OrderBalance = {
   orderable_qty?: string | null;
 };
 
+type RiskRule = {
+  ruleId: string;
+  action: "block" | "resize" | "warn" | "info";
+  explanation: string;
+  numbers?: Record<string, string>;
+  suggestedQty?: string;
+};
+
+type RiskVerdict = {
+  verdict: "allow" | "resize" | "block";
+  requestedQty?: string;
+  adjustedQty?: string | null;
+  triggeredRules: RiskRule[];
+  skippedRules?: { ruleId: string; reason: string }[];
+};
+
+const riskVerdictLabels: Record<RiskVerdict["verdict"], string> = {
+  allow: "리스크 점검 통과",
+  resize: "수량 조정 권고",
+  block: "리스크 차단"
+};
+
+function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
+  if (detail && typeof detail === "object" && "risk" in detail) {
+    const risk = (detail as { risk?: unknown }).risk;
+    if (risk && typeof risk === "object" && "verdict" in risk) {
+      return risk as RiskVerdict;
+    }
+  }
+  return undefined;
+}
+
 const DEFAULT_FORM: OrderFormState = {
   market: "overseas",
   symbol: "AAPL",
@@ -287,6 +319,8 @@ export function OrderTicket({
   const [socketState, setSocketState] = useState<"idle" | "open" | "closed">("idle");
   const [simulationMode, setSimulationMode] = useState(false);
   const [useDemoBasket, setUseDemoBasket] = useState(true);
+  const [risk, setRisk] = useState<RiskVerdict | undefined>();
+  const [riskLoading, setRiskLoading] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -394,6 +428,66 @@ export function OrderTicket({
       window.clearTimeout(timeoutId);
     };
   }, [currentPrice, form.exchange, form.orderType, form.price, form.symbol, simulationMode]);
+
+  useEffect(() => {
+    if (simulationMode && useDemoBasket) {
+      setRisk(undefined);
+      return;
+    }
+    const previewPrice = form.orderType === "current" ? currentPrice : Number(form.price);
+    const quantity = Number(form.qty);
+    if (!Number.isInteger(quantity) || quantity <= 0 || typeof previewPrice !== "number" || !Number.isFinite(previewPrice) || previewPrice <= 0) {
+      setRisk(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setRiskLoading(true);
+      try {
+        const response = await fetch("/api/risk/pretrade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            market: form.market,
+            symbol: form.symbol,
+            side: form.side,
+            qty: String(quantity),
+            price: formatPriceInput(previewPrice),
+            exchange: form.exchange,
+            order_division: "00"
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(typeof payload.detail === "string" ? payload.detail : `리스크 점검 API 오류 ${response.status}`);
+        }
+        setRisk(payload.risk as RiskVerdict);
+      } catch {
+        if (!controller.signal.aborted) {
+          setRisk(undefined);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setRiskLoading(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentPrice, form.exchange, form.market, form.orderType, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
+
+  const applySuggestedQty = () => {
+    const suggested = risk?.adjustedQty;
+    const parsed = suggested ? Number(suggested) : NaN;
+    if (Number.isInteger(parsed) && parsed > 0) {
+      setForm((current) => ({ ...current, qty: String(parsed) }));
+      setError(undefined);
+    }
+  };
 
   const selectOrderSymbol = (symbolValue: string) => {
     const symbol = normalizeSupportedSymbol(symbolValue);
@@ -553,7 +647,24 @@ export function OrderTicket({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.detail ?? (response.status === 401 ? "주문하려면 Google 로그인이 필요합니다." : `주문 API 오류 ${response.status}`));
+        const riskDetail = parseRiskDetail(payload.detail);
+        if (riskDetail) {
+          setRisk(riskDetail);
+          const suggestion = riskDetail.adjustedQty ? ` 권장 수량 ${riskDetail.adjustedQty}주로 다시 시도할 수 있습니다.` : "";
+          throw new Error(
+            riskDetail.verdict === "block"
+              ? `리스크 매니저가 주문을 차단했습니다.${suggestion}`
+              : `리스크 매니저가 수량 조정을 권고했습니다.${suggestion}`
+          );
+        }
+        throw new Error(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : response.status === 401 ? "주문하려면 Google 로그인이 필요합니다." : `주문 API 오류 ${response.status}`
+        );
+      }
+      if (payload.risk) {
+        setRisk(payload.risk as RiskVerdict);
       }
       setOrder(payload);
       setEvents([]);
@@ -752,7 +863,34 @@ export function OrderTicket({
         </div>
       </div>
 
-      <button className="order-submit-button" type="button" disabled={submitting || authLoading} onClick={submitOrder}>
+      {risk && !(simulationMode && useDemoBasket) && (
+        <div className={`order-risk-box order-risk-${risk.verdict}`} aria-live="polite">
+          <div className="order-risk-header">
+            <strong>{riskLoading ? "리스크 점검 중" : riskVerdictLabels[risk.verdict]}</strong>
+            {risk.adjustedQty && risk.verdict === "resize" && (
+              <button type="button" className="order-risk-apply" onClick={applySuggestedQty}>
+                권장 {risk.adjustedQty}주 적용
+              </button>
+            )}
+          </div>
+          {risk.triggeredRules.length > 0 && (
+            <ul className="order-risk-rules">
+              {risk.triggeredRules.slice(0, 3).map((rule) => (
+                <li key={rule.ruleId} data-risk-action={rule.action}>
+                  {rule.explanation}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <button
+        className="order-submit-button"
+        type="button"
+        disabled={submitting || authLoading || (risk?.verdict === "block" && !riskLoading)}
+        onClick={submitOrder}
+      >
         {authEnabled && !user
           ? <LogIn size={14} />
           : submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
