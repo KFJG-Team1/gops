@@ -6,7 +6,11 @@ import type { AgentEvidenceItem, OntologyGraphData } from "../ontology/ontologyT
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { TreeMapCanvas } from "../treemap/TreeMapCanvas";
-import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
+import {
+  selectPortfolioHoldingSymbol,
+  usePortfolioHoldingsData,
+  usePortfolioSelectedSymbol
+} from "./PortfolioHoldingsPanel";
 import type { PortfolioPosition } from "./portfolioHoldingsApi";
 
 type PersonalHeatmapView = "holdings" | "relations";
@@ -29,6 +33,8 @@ export function PortfolioPersonalHeatmapPanel({
   onSelectSymbol: (symbol: string) => void;
 }) {
   const { loading, error, positions } = usePortfolioHoldingsData();
+  const portfolioSelection = usePortfolioSelectedSymbol();
+  const selectedPortfolioSymbol = portfolioSelection.symbol;
   const normalizedPageSymbol = symbol.trim().toUpperCase();
   const [view, setView] = useState<PersonalHeatmapView>("holdings");
   const [anchorSymbol, setAnchorSymbol] = useState(normalizedPageSymbol);
@@ -56,6 +62,13 @@ export function PortfolioPersonalHeatmapPanel({
       setView("relations");
     }
   }, [normalizedPageSymbol, positions]);
+
+  useEffect(() => {
+    if (!selectedPortfolioSymbol) return;
+    if (!positions.some((position) => position.symbol.toUpperCase() === selectedPortfolioSymbol)) return;
+    setAnchorSymbol(selectedPortfolioSymbol);
+    setView("relations");
+  }, [portfolioSelection.revision, positions, selectedPortfolioSymbol]);
 
   useEffect(() => {
     if (view !== "relations" || !anchorSymbol) return;
@@ -106,6 +119,7 @@ export function PortfolioPersonalHeatmapPanel({
 
   const selectSymbol = (nextSymbol: string) => {
     const normalized = nextSymbol.toUpperCase();
+    selectPortfolioHoldingSymbol(normalized);
     setAnchorSymbol(normalized);
     if (view === "holdings") setView("relations");
     onSelectSymbol(normalized);

@@ -305,13 +305,23 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioHoldingsCards",
-    title: "Holdings 카드",
+    title: "Holdings 3D 덱",
     agentPanelType: "portfolioHoldingsCards",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 4, rowSpan: 2 },
     defaultLayoutWeight: 39
+  },
+  {
+    kind: "portfolioHoldingsFlatCards",
+    title: "Holdings 카드 목록",
+    agentPanelType: "portfolioHoldingsFlatCards",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 4, rowSpan: 2 },
+    defaultLayoutWeight: 38
   },
   {
     kind: "orderFlow",

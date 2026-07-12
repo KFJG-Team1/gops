@@ -41,6 +41,7 @@ import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
   PortfolioHoldingsCardsPanel,
+  PortfolioHoldingsFlatCardsPanel,
   PortfolioHoldingsOnlyPanel,
   PortfolioInvestedPanel,
   PortfolioInvestmentStatusPanel,
@@ -326,6 +327,17 @@ export function PanelContentRenderer({
   if (content.kind === "portfolioHoldingsCards") {
     return (
       <PortfolioHoldingsCardsPanel
+        onSelectSymbol={(nextSymbol) => {
+          onSelectSymbol(nextSymbol);
+          return true;
+        }}
+      />
+    );
+  }
+
+  if (content.kind === "portfolioHoldingsFlatCards") {
+    return (
+      <PortfolioHoldingsFlatCardsPanel
         onSelectSymbol={(nextSymbol) => {
           onSelectSymbol(nextSymbol);
           return true;

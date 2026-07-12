@@ -21,6 +21,7 @@ export type AgentLayoutPanelType =
   | "portfolioDashboard"
   | "portfolioHoldings"
   | "portfolioHoldingsCards"
+  | "portfolioHoldingsFlatCards"
   | "portfolioMulti"
   | "portfolioInvestment"
   | "portfolioPerformance"

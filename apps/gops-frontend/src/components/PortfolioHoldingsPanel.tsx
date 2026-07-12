@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
-import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
@@ -107,6 +107,31 @@ let portfolioStoreState: PortfolioHoldingsDataState = {
 let portfolioStoreInflight: Promise<void> | null = null;
 let portfolioStoreIntervalId: number | null = null;
 let portfolioStoreRefreshQueued = false;
+const portfolioSelectionListeners = new Set<() => void>();
+type PortfolioSelectionState = { symbol: string | null; revision: number };
+const emptyPortfolioSelection: PortfolioSelectionState = { symbol: null, revision: 0 };
+let portfolioSelectionState = emptyPortfolioSelection;
+
+export function selectPortfolioHoldingSymbol(symbol: string): void {
+  const normalized = symbol.trim().toUpperCase();
+  if (!normalized) return;
+  portfolioSelectionState = {
+    symbol: normalized,
+    revision: portfolioSelectionState.revision + 1
+  };
+  portfolioSelectionListeners.forEach((listener) => listener());
+}
+
+export function usePortfolioSelectedSymbol(): PortfolioSelectionState {
+  return useSyncExternalStore(
+    (listener) => {
+      portfolioSelectionListeners.add(listener);
+      return () => portfolioSelectionListeners.delete(listener);
+    },
+    () => portfolioSelectionState,
+    () => emptyPortfolioSelection
+  );
+}
 
 function setPortfolioStoreState(next: Partial<PortfolioHoldingsDataState>): void {
   portfolioStoreState = { ...portfolioStoreState, ...next };
@@ -213,6 +238,12 @@ export function PortfolioHoldingsPanel({
   const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
   const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
   const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
+  const portfolioSelection = usePortfolioSelectedSymbol();
+  const selectedPortfolioSymbol = portfolioSelection.symbol;
+
+  useEffect(() => {
+    if (selectedPortfolioSymbol) setPerformanceView("purchase");
+  }, [portfolioSelection.revision, selectedPortfolioSymbol]);
   const selectedAllocation = dashboard.allocation[allocationMode];
   const statusMessage = loading
     ? "보유종목을 불러오는 중입니다"
@@ -276,7 +307,7 @@ export function PortfolioHoldingsPanel({
               {performanceView === "performance" ? (
                 <PortfolioPerformanceChart dashboard={dashboard} />
               ) : (
-                <PortfolioPurchaseComparisonChart positions={positions} />
+                <PortfolioPurchaseComparisonChart positions={positions} highlightedSymbol={selectedPortfolioSymbol} />
               )}
             </article>
 
@@ -469,7 +500,13 @@ function handlePortfolioSplitPanelWheel(event: WheelEvent<HTMLElement>) {
 export function PortfolioPerformancePanel() {
   const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
   const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
+  const portfolioSelection = usePortfolioSelectedSymbol();
+  const selectedPortfolioSymbol = portfolioSelection.symbol;
   const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "성과 데이터가 없습니다");
+
+  useEffect(() => {
+    if (selectedPortfolioSymbol) setPerformanceView("purchase");
+  }, [portfolioSelection.revision, selectedPortfolioSymbol]);
 
   return (
     <section
@@ -508,7 +545,7 @@ export function PortfolioPerformancePanel() {
       ) : performanceView === "performance" ? (
         <PortfolioPerformanceChart dashboard={dashboard} />
       ) : (
-        <PortfolioPurchaseComparisonChart positions={positions} />
+        <PortfolioPurchaseComparisonChart positions={positions} highlightedSymbol={selectedPortfolioSymbol} />
       )}
     </section>
   );
@@ -996,6 +1033,30 @@ export function PortfolioHoldingsCardsPanel({
   );
 }
 
+export function PortfolioHoldingsFlatCardsPanel({
+  onSelectSymbol
+}: {
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  const { loading, error, positions } = usePortfolioHoldingsData();
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "보유종목이 없습니다");
+
+  return (
+    <section
+      className="portfolio-split-panel portfolio-holdings-split-panel portfolio-holdings-flat-cards-split-panel portfolio-dashboard-panel"
+      aria-label="포트폴리오 보유종목 평면 카드 패널"
+      onWheelCapture={handlePortfolioSplitPanelWheel}
+      onWheel={handlePortfolioSplitPanelWheel}
+    >
+      {statusMessage ? (
+        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
+      ) : (
+        <PortfolioHoldingsFlatBoard positions={positions} onSelectSymbol={onSelectSymbol} />
+      )}
+    </section>
+  );
+}
+
 function PortfolioSplitHeader({
   title,
   subtitle,
@@ -1138,9 +1199,23 @@ function PortfolioPerformanceChart({ dashboard }: { dashboard: PortfolioDashboar
   );
 }
 
-function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioPosition[] }) {
-  const points = buildPurchaseComparePoints(positions);
+function PortfolioPurchaseComparisonChart({
+  positions,
+  highlightedSymbol
+}: {
+  positions: PortfolioPosition[];
+  highlightedSymbol?: string | null;
+}) {
+  const points = useMemo(() => buildPurchaseComparePoints(positions), [positions]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const normalizedHighlight = highlightedSymbol?.trim().toUpperCase() ?? null;
+
+  useEffect(() => {
+    if (normalizedHighlight && points.some((point) => point.symbol === normalizedHighlight)) {
+      setSelectedSymbol(normalizedHighlight);
+    }
+  }, [normalizedHighlight, points]);
+
   if (!points.length) {
     return <div className="portfolio-chart-empty"><span>매수 비교 데이터 대기</span></div>;
   }
@@ -1193,11 +1268,15 @@ function PortfolioPurchaseComparisonChart({ positions }: { positions: PortfolioP
               role="button"
               tabIndex={0}
               aria-label={`${point.symbol} 매수 비교 선택`}
-              onClick={() => setSelectedSymbol(point.symbol)}
+              onClick={() => {
+                setSelectedSymbol(point.symbol);
+                selectPortfolioHoldingSymbol(point.symbol);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   setSelectedSymbol(point.symbol);
+                  selectPortfolioHoldingSymbol(point.symbol);
                 }
               }}
             >
@@ -1302,7 +1381,7 @@ function PortfolioHoldingsMatrix({
         </span>
         <span>
           <em>평가금</em>
-          <b>{formatCompactMoney(totals.marketValue, "USD")}</b>
+          <b>{formatPanelMoney(totals.marketValue, "USD")}</b>
         </span>
         <span className={directionClass(totalReturn)}>
           <em>총 수익률</em>
@@ -1320,6 +1399,7 @@ function PortfolioHoldingsMatrix({
           <span className="column-symbol">종목</span>
           <span className="column-pe">P/E</span>
           <span className="column-range">52주 범위</span>
+          <span className="column-quantity">보유수량</span>
           <span className="column-price">현재가</span>
           <span className="column-cost">매입가</span>
           <span className="column-value">평가금</span>
@@ -1328,7 +1408,7 @@ function PortfolioHoldingsMatrix({
           <span className="column-dividend">배당</span>
           <span className="column-day">오늘</span>
         </div>
-        {positions.map((position, index) => {
+        {positions.map((position) => {
           const rangeLow = position.low52 ?? position.currentPrice ?? 0;
           const rangeHigh = position.high52 ?? position.currentPrice ?? rangeLow;
           const rangeSpan = Math.max(rangeHigh - rangeLow, 0);
@@ -1343,11 +1423,14 @@ function PortfolioHoldingsMatrix({
           return (
             <button
               key={position.symbol}
-              className={`portfolio-holding-row tone-${index % 6}`}
+              className="portfolio-holding-row"
               type="button"
               title={`${position.symbol} 차트 열기`}
               aria-label={`${position.symbol} 차트 열기`}
-              onClick={() => onSelectSymbol(position.symbol)}
+              onClick={() => {
+                selectPortfolioHoldingSymbol(position.symbol);
+                onSelectSymbol(position.symbol);
+              }}
             >
               <span className="portfolio-holding-row-symbol">
                 <StockLogo
@@ -1356,13 +1439,7 @@ function PortfolioHoldingsMatrix({
                   size="xs"
                   className="portfolio-holding-row-logo"
                 />
-                <span className="portfolio-holding-row-identity">
-                  <span className="portfolio-holding-row-title">
-                    <strong>{position.symbol}</strong>
-                    <small>{position.exchange || "US"}</small>
-                  </span>
-                  <em>{position.name}</em>
-                </span>
+                <strong>{position.symbol}</strong>
               </span>
               <span className="portfolio-holding-cell column-pe">{formatMultiple(position.peRatio)}</span>
               <span className="portfolio-holding-cell portfolio-holding-range column-range">
@@ -1371,9 +1448,10 @@ function PortfolioHoldingsMatrix({
                   <span style={{ width: `${rangePosition}%` }} />
                 </i>
               </span>
-              <span className="portfolio-holding-cell column-price">{formatMoney(position.currentPrice, "USD")}</span>
-              <span className="portfolio-holding-cell column-cost">{formatMoney(position.averagePrice, "USD")}</span>
-              <span className="portfolio-holding-cell value column-value">{formatCompactMoney(marketValue, "USD")}</span>
+              <span className="portfolio-holding-cell column-quantity">{formatHoldingQuantity(position.quantity)}</span>
+              <span className="portfolio-holding-cell column-price">{formatPanelMoney(position.currentPrice, "USD")}</span>
+              <span className="portfolio-holding-cell column-cost">{formatPanelMoney(position.averagePrice, "USD")}</span>
+              <span className="portfolio-holding-cell value column-value">{formatPanelMoney(marketValue, "USD")}</span>
               <span className={`portfolio-holding-cell gain column-gain ${gainTone}`}>
                 {formatCompactMoney(position.unrealizedPnlForeign, "USD")}
               </span>
@@ -1390,7 +1468,7 @@ function PortfolioHoldingsMatrix({
   );
 }
 
-function PortfolioHoldingsBoard({
+function PortfolioHoldingsFlatBoard({
   positions,
   onSelectSymbol
 }: {
@@ -1402,69 +1480,206 @@ function PortfolioHoldingsBoard({
   ), 0);
 
   return (
-    <div className="portfolio-holdings-board" aria-label="보유종목 카드 목록">
+    <div className="portfolio-holdings-flat-board" aria-label="보유종목 카드 목록">
+      {positions.map((position, index) => (
+        <article key={position.symbol} className={`portfolio-holding-flat-card tone-${index % 6}`}>
+          <button
+            type="button"
+            onClick={() => {
+              selectPortfolioHoldingSymbol(position.symbol);
+              onSelectSymbol(position.symbol);
+            }}
+          >
+            <PortfolioHoldingCardContent position={position} totalMarketValue={totalMarketValue} />
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function PortfolioHoldingsBoard({
+  positions,
+  onSelectSymbol
+}: {
+  positions: PortfolioPosition[];
+  onSelectSymbol: (symbol: string) => boolean;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const lastWheelAt = useRef(0);
+  const totalMarketValue = positions.reduce((total, position) => (
+    total + (position.marketValueForeign ?? ((position.currentPrice ?? 0) * (position.quantity ?? 0)))
+  ), 0);
+
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(positions.length - 1, 0)));
+  }, [positions.length]);
+
+  const moveActiveCard = (direction: -1 | 1) => {
+    if (positions.length < 2) return;
+    setActiveIndex((current) => (current + direction + positions.length) % positions.length);
+  };
+
+  const handleDeckWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (Math.abs(delta) < 8 || positions.length < 2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const now = Date.now();
+    if (now - lastWheelAt.current < 180) return;
+    lastWheelAt.current = now;
+    moveActiveCard(delta > 0 ? 1 : -1);
+  };
+
+  return (
+    <div
+      className="portfolio-holdings-board"
+      aria-label="3D 보유종목 카드 덱"
+      tabIndex={0}
+      onWheel={handleDeckWheel}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          moveActiveCard(-1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          moveActiveCard(1);
+        }
+        if (event.key === "Enter") {
+          const activePosition = positions[activeIndex];
+          if (activePosition) {
+            selectPortfolioHoldingSymbol(activePosition.symbol);
+            onSelectSymbol(activePosition.symbol);
+          }
+        }
+      }}
+    >
       {positions.map((position, index) => {
-        const marketValue = position.marketValueForeign ?? ((position.currentPrice ?? 0) * (position.quantity ?? 0));
-        const rangeLow = position.low52 ?? position.currentPrice ?? 0;
-        const rangeHigh = position.high52 ?? position.currentPrice ?? rangeLow;
-        const rangeSpan = Math.max(rangeHigh - rangeLow, 0);
-        const rangePosition = rangeSpan > 0 && position.currentPrice != null
-          ? Math.min(100, Math.max(0, ((position.currentPrice - rangeLow) / rangeSpan) * 100))
-          : 50;
-        const weight = totalMarketValue > 0 ? (marketValue / totalMarketValue) * 100 : null;
-        const gainTone = directionClass(position.unrealizedPnlRate);
         const dayTone = directionClass(position.dayPnlRate);
+        const offset = circularCardOffset(index, activeIndex, positions.length);
+        const distance = Math.abs(offset);
+        const isActive = index === activeIndex;
+        const angle = offset * 11.5;
+        const angleRadians = angle * (Math.PI / 180);
+        const arcX = Math.sin(angleRadians);
+        const arcDepth = 1 - Math.cos(angleRadians);
+        const cardStyle = {
+          "--card-x": `calc(${arcX.toFixed(4)} * clamp(560px, 110cqw, 1300px))`,
+          "--card-y": `calc(${arcDepth.toFixed(4)} * clamp(110px, 24cqh, 260px))`,
+          "--card-z": `calc(${-arcDepth.toFixed(4)} * clamp(480px, 92cqw, 1060px))`,
+          "--card-rotate": `${-angle}deg`,
+          "--card-scale": Math.max(0.58, 1 - distance * 0.045),
+          "--card-opacity": Math.max(0.16, 1 - distance * 0.105),
+          zIndex: positions.length + 2 - distance
+        } as CSSProperties;
 
         return (
-          <article key={position.symbol} className={`portfolio-holding-column tone-${index % 6}`}>
-            <button type="button" onClick={() => onSelectSymbol(position.symbol)}>
-              <header className="portfolio-holding-column-header">
-                <StockLogo
-                  symbol={position.symbol}
-                  companyName={position.name}
-                  size="xs"
-                  className="portfolio-holding-column-logo"
-                />
-                <span>
-                  <strong>{position.symbol}</strong>
-                  <em>{position.name}</em>
-                </span>
-                <small>{position.exchange || "US"}</small>
-              </header>
-
-              <div className="portfolio-holding-event event-price">
-                <span>현재가</span>
-                <b>{formatMoney(position.currentPrice, "USD")}</b>
-                <em className={dayTone}>{formatSignedPercentPlain(position.dayPnlRate)}</em>
-              </div>
-              <div className="portfolio-holding-event event-cost">
-                <span>매입가</span>
-                <b>{formatMoney(position.averagePrice, "USD")}</b>
-                <em>{formatCompactMoney(marketValue, "USD")}</em>
-              </div>
-              <div className={`portfolio-holding-event event-gain ${gainTone}`}>
-                <span>손익</span>
-                <b>{formatCompactMoney(position.unrealizedPnlForeign, "USD")}</b>
-                <em>{formatSignedPercentPlain(position.unrealizedPnlRate)}</em>
-              </div>
-              <div className="portfolio-holding-event event-range">
-                <span>52주</span>
-                <b>{formatCompactMoney(rangeLow, "USD")} - {formatCompactMoney(rangeHigh, "USD")}</b>
-                <i title={`52주 범위 중 현재 위치 ${rangePosition.toFixed(0)}%`}>
-                  <span style={{ width: `${rangePosition}%` }} />
-                </i>
-              </div>
-              <div className="portfolio-holding-event event-facts">
-                <span><small>P/E</small><b>{formatMultiple(position.peRatio)}</b></span>
-                <span><small>비중</small><b>{formatPercentPlain(weight)}</b></span>
-                <span><small>배당</small><b>{formatCompactMoney(annualDividendForPosition(position), "USD")}</b></span>
-              </div>
+          <article
+            key={position.symbol}
+            className={`portfolio-holding-column ${dayTone}${isActive ? " is-active" : ""}`}
+            style={cardStyle}
+          >
+            <button
+              type="button"
+              tabIndex={distance > 2 ? -1 : 0}
+              aria-current={isActive ? "true" : undefined}
+              aria-label={`${position.symbol} ${formatSignedPercentPlain(position.dayPnlRate)}${isActive ? ", 한 번 더 누르면 차트 열기" : ", 카드 앞으로 가져오기"}`}
+              onClick={() => {
+                selectPortfolioHoldingSymbol(position.symbol);
+                if (isActive) {
+                  onSelectSymbol(position.symbol);
+                } else {
+                  setActiveIndex(index);
+                }
+              }}
+            >
+              <PortfolioHoldingCardContent position={position} totalMarketValue={totalMarketValue} />
             </button>
           </article>
         );
       })}
+      <div className="portfolio-holdings-deck-index" aria-hidden="true">
+        {positions.map((position, index) => (
+          <i key={position.symbol} className={index === activeIndex ? "active" : undefined} />
+        ))}
+      </div>
     </div>
   );
+}
+
+function PortfolioHoldingCardContent({
+  position,
+  totalMarketValue
+}: {
+  position: PortfolioPosition;
+  totalMarketValue: number;
+}) {
+  const marketValue = position.marketValueForeign ?? ((position.currentPrice ?? 0) * (position.quantity ?? 0));
+  const rangeLow = position.low52 ?? position.currentPrice ?? 0;
+  const rangeHigh = position.high52 ?? position.currentPrice ?? rangeLow;
+  const rangeSpan = Math.max(rangeHigh - rangeLow, 0);
+  const rangePosition = rangeSpan > 0 && position.currentPrice != null
+    ? Math.min(100, Math.max(0, ((position.currentPrice - rangeLow) / rangeSpan) * 100))
+    : 50;
+  const weight = totalMarketValue > 0 ? (marketValue / totalMarketValue) * 100 : null;
+  const gainTone = directionClass(position.unrealizedPnlRate);
+  const dayTone = directionClass(position.dayPnlRate);
+
+  return (
+    <>
+      <header className="portfolio-holding-column-header">
+        <StockLogo
+          symbol={position.symbol}
+          companyName={position.name}
+          size="xs"
+          className="portfolio-holding-column-logo"
+        />
+        <span>
+          <strong>{position.symbol}</strong>
+          <em>{position.name}</em>
+        </span>
+        <small>{position.exchange || "US"}</small>
+      </header>
+
+      <div className="portfolio-holding-event event-price">
+        <span>현재가</span>
+        <b>{formatMoney(position.currentPrice, "USD")}</b>
+        <em className={dayTone}>{formatSignedPercentPlain(position.dayPnlRate)}</em>
+      </div>
+      <div className="portfolio-holding-event event-cost">
+        <span>매입가</span>
+        <b>{formatMoney(position.averagePrice, "USD")}</b>
+        <em>{formatCompactMoney(marketValue, "USD")}</em>
+      </div>
+      <div className={`portfolio-holding-event event-gain ${gainTone}`}>
+        <span>손익</span>
+        <b>{formatCompactMoney(position.unrealizedPnlForeign, "USD")}</b>
+        <em>{formatSignedPercentPlain(position.unrealizedPnlRate)}</em>
+      </div>
+      <div className="portfolio-holding-event event-range">
+        <span>52주</span>
+        <b>{formatCompactMoney(rangeLow, "USD")} - {formatCompactMoney(rangeHigh, "USD")}</b>
+        <i title={`52주 범위 중 현재 위치 ${rangePosition.toFixed(0)}%`}>
+          <span style={{ width: `${rangePosition}%` }} />
+        </i>
+      </div>
+      <div className="portfolio-holding-event event-facts">
+        <span><small>P/E</small><b>{formatMultiple(position.peRatio)}</b></span>
+        <span><small>비중</small><b>{formatPercentPlain(weight)}</b></span>
+        <span><small>배당</small><b>{formatCompactMoney(annualDividendForPosition(position), "USD")}</b></span>
+      </div>
+    </>
+  );
+}
+
+function circularCardOffset(index: number, activeIndex: number, count: number): number {
+  if (count <= 1) return 0;
+  let offset = index - activeIndex;
+  const half = count / 2;
+  if (offset > half) offset -= count;
+  if (offset < -half) offset += count;
+  return offset;
 }
 
 function formatPercentPlain(value: number | null | undefined): string {
@@ -1618,6 +1833,83 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
       epsTtm: 8.31,
       low52: 97.8,
       high52: 126.34
+    },
+    {
+      symbol: "GOOGL", name: "Alphabet Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Communication Services", industry: "Interactive Media & Services", quantity: 8,
+      averagePrice: 172.4, currentPrice: 184.3, marketValueForeign: 1474.4,
+      unrealizedPnlForeign: 95.2, unrealizedPnlRate: 6.9, dayPnlForeign: 12.8, dayPnlRate: 0.88,
+      dividendYield: 0, annualDividend: 0, peRatio: 24.18, epsTtm: 7.62, low52: 140.53, high52: 207.05
+    },
+    {
+      symbol: "AMZN", name: "Amazon.com, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Consumer Cyclical", industry: "Internet Retail", quantity: 7,
+      averagePrice: 194.5, currentPrice: 187.2, marketValueForeign: 1310.4,
+      unrealizedPnlForeign: -51.1, unrealizedPnlRate: -3.75, dayPnlForeign: -19.6, dayPnlRate: -1.47,
+      dividendYield: 0, annualDividend: 0, peRatio: 31.74, epsTtm: 5.9, low52: 151.61, high52: 242.52
+    },
+    {
+      symbol: "META", name: "Meta Platforms, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Communication Services", industry: "Interactive Media & Services", quantity: 3,
+      averagePrice: 612, currentPrice: 698.4, marketValueForeign: 2095.2,
+      unrealizedPnlForeign: 259.2, unrealizedPnlRate: 14.12, dayPnlForeign: 28.5, dayPnlRate: 1.38,
+      dividendYield: 0.3, dividendPerShare: 2.1, annualDividend: 6.3,
+      peRatio: 27.36, epsTtm: 25.53, low52: 479.8, high52: 740.91
+    },
+    {
+      symbol: "AVGO", name: "Broadcom Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Technology", industry: "Semiconductors", quantity: 4,
+      averagePrice: 292.5, currentPrice: 326.8, marketValueForeign: 1307.2,
+      unrealizedPnlForeign: 137.2, unrealizedPnlRate: 11.73, dayPnlForeign: -18.4, dayPnlRate: -1.39,
+      dividendYield: 0.72, dividendPerShare: 2.36, annualDividend: 9.44,
+      peRatio: 43.82, epsTtm: 7.46, low52: 138.1, high52: 329.4
+    },
+    {
+      symbol: "TSLA", name: "Tesla, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Consumer Cyclical", industry: "Auto Manufacturers", quantity: 5,
+      averagePrice: 345, currentPrice: 318.6, marketValueForeign: 1593,
+      unrealizedPnlForeign: -132, unrealizedPnlRate: -7.65, dayPnlForeign: 35.1, dayPnlRate: 2.25,
+      dividendYield: 0, annualDividend: 0, peRatio: 171.29, epsTtm: 1.86, low52: 182, high52: 488.54
+    },
+    {
+      symbol: "LLY", name: "Eli Lilly and Company", market: "overseas", exchange: "NYSE", currency: "USD",
+      sector: "Healthcare", industry: "Drug Manufacturers - General", quantity: 2,
+      averagePrice: 750, currentPrice: 789.5, marketValueForeign: 1579,
+      unrealizedPnlForeign: 79, unrealizedPnlRate: 5.27, dayPnlForeign: -21.4, dayPnlRate: -1.34,
+      dividendYield: 0.66, dividendPerShare: 5.2, annualDividend: 10.4,
+      peRatio: 55.8, epsTtm: 14.15, low52: 623.78, high52: 972.53
+    },
+    {
+      symbol: "V", name: "Visa Inc.", market: "overseas", exchange: "NYSE", currency: "USD",
+      sector: "Financial Services", industry: "Credit Services", quantity: 6,
+      averagePrice: 329, currentPrice: 351.2, marketValueForeign: 2107.2,
+      unrealizedPnlForeign: 133.2, unrealizedPnlRate: 6.75, dayPnlForeign: 15.6, dayPnlRate: 0.75,
+      dividendYield: 0.67, dividendPerShare: 2.36, annualDividend: 14.16,
+      peRatio: 34.42, epsTtm: 10.2, low52: 252.7, high52: 375.51
+    },
+    {
+      symbol: "COST", name: "Costco Wholesale Corporation", market: "overseas", exchange: "NASDAQ", currency: "USD",
+      sector: "Consumer Defensive", industry: "Discount Stores", quantity: 2,
+      averagePrice: 935, currentPrice: 1005, marketValueForeign: 2010,
+      unrealizedPnlForeign: 140, unrealizedPnlRate: 7.49, dayPnlForeign: 18, dayPnlRate: 0.9,
+      dividendYield: 0.52, dividendPerShare: 5.2, annualDividend: 10.4,
+      peRatio: 58.74, epsTtm: 17.11, low52: 793, high52: 1078.23
+    },
+    {
+      symbol: "HD", name: "The Home Depot, Inc.", market: "overseas", exchange: "NYSE", currency: "USD",
+      sector: "Consumer Cyclical", industry: "Home Improvement Retail", quantity: 4,
+      averagePrice: 389, currentPrice: 375.5, marketValueForeign: 1502,
+      unrealizedPnlForeign: -54, unrealizedPnlRate: -3.47, dayPnlForeign: -12, dayPnlRate: -0.79,
+      dividendYield: 2.45, dividendPerShare: 9.2, annualDividend: 36.8,
+      peRatio: 25.47, epsTtm: 14.74, low52: 326.31, high52: 439.37
+    },
+    {
+      symbol: "KO", name: "The Coca-Cola Company", market: "overseas", exchange: "NYSE", currency: "USD",
+      sector: "Consumer Defensive", industry: "Beverages - Non-Alcoholic", quantity: 15,
+      averagePrice: 66.2, currentPrice: 70.4, marketValueForeign: 1056,
+      unrealizedPnlForeign: 63, unrealizedPnlRate: 6.34, dayPnlForeign: 4.8, dayPnlRate: 0.46,
+      dividendYield: 2.9, dividendPerShare: 2.04, annualDividend: 30.6,
+      peRatio: 27.1, epsTtm: 2.6, low52: 60.62, high52: 74.38
     }
   ];
   const stockValueForeign = sumNumbers(positions.map(positionValue));
@@ -2054,6 +2346,13 @@ function formatMultiple(value: number | null | undefined) {
     return "-";
   }
   return `${value.toFixed(value >= 100 ? 1 : 2)}x`;
+}
+
+function formatHoldingQuantity(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 4 }).format(value)}주`;
 }
 
 function formatCompactMoney(value: number | null | undefined, currency: string) {

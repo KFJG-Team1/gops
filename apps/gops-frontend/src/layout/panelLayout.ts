@@ -37,6 +37,7 @@ export type PanelContentKind =
   | "portfolioHeatmap"
   | "portfolioHoldings"
   | "portfolioHoldingsCards"
+  | "portfolioHoldingsFlatCards"
   | "orderFlow"
   | "chartCommentary"
   | "chartAssetOps"
