@@ -3,6 +3,7 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { buildStockLogoUrl, stockLogoInitials } from "../market/stockLogo";
+import { CANVAS_FONT_FAMILY, TYPE_ROLE } from "../theme/typography";
 import { LogoDevAttribution } from "./StockLogo";
 
 type CompanySummaryPanelProps = {
@@ -25,10 +26,7 @@ type EarningsMetric = "eps" | "revenue";
 
 type ValuationMetric = {
   label: string;
-  detail: string;
   valueLabel: string;
-  statusLabel: string;
-  tone: "good" | "watch" | "risk" | "neutral";
 };
 
 type FinancialTableRow = {
@@ -60,6 +58,15 @@ type FinancialChartPoint = {
   freeCashFlow?: number | null;
   sharesOutstanding?: number | null;
 };
+
+const financialChartAxisTypography = {
+  fontFamily: CANVAS_FONT_FAMILY,
+  fontSize: `${TYPE_ROLE.caption.size}px`,
+  fontWeight: TYPE_ROLE.caption.weight,
+  letterSpacing: `${TYPE_ROLE.caption.letterSpacing}px`,
+  lineHeight: TYPE_ROLE.caption.lineHeight,
+  textTransform: TYPE_ROLE.caption.textTransform
+} satisfies CSSProperties;
 
 export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
@@ -144,13 +151,24 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
     >
       <div className="company-info-backdrop" aria-hidden="true">
         {companyLogoBackdropUrl && failedCompanyLogoBackdropUrl !== companyLogoBackdropUrl ? (
-          <img
-            src={companyLogoBackdropUrl}
-            alt=""
-            loading="lazy"
-            referrerPolicy="origin"
-            onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
-          />
+          <>
+            <img
+              className="company-info-backdrop-fill"
+              src={companyLogoBackdropUrl}
+              alt=""
+              loading="lazy"
+              referrerPolicy="origin"
+              onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
+            />
+            <img
+              className="company-info-backdrop-mark"
+              src={companyLogoBackdropUrl}
+              alt=""
+              loading="lazy"
+              referrerPolicy="origin"
+              onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
+            />
+          </>
         ) : (
           <span>{stockLogoInitials(normalizedSymbol)}</span>
         )}
@@ -171,15 +189,15 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
     </section>
   );
   const valuationSection = (
-    <section className="company-chart-column company-valuation-column" aria-label={`${normalizedSymbol} 가치평가`}>
-      <ValuationGaugePanel metrics={valuationMetrics} />
-      <EarningsPanel
-        metric={earningsMetric}
-        onMetricChange={setEarningsMetric}
-        series={earningsSeries}
-        comparison={comparison}
-      />
-    </section>
+    <ValuationPagedPanel
+      key={normalizedSymbol}
+      symbol={normalizedSymbol}
+      metric={earningsMetric}
+      onMetricChange={setEarningsMetric}
+      series={earningsSeries}
+      comparison={comparison}
+      metrics={valuationMetrics}
+    />
   );
   const profitabilitySection = (
     <section className="company-chart-column" aria-label={`${normalizedSymbol} 수익성 재무`}>
@@ -426,7 +444,6 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
       <FinancialChartShell
         className="company-profitability-card"
         title="수익성"
-        subtitle="재무 시계열 확인 중"
         legend={(
           <div className="company-profitability-legend" aria-label="수익성 범례">
             <span><i className="revenue" />매출</span>
@@ -445,8 +462,8 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1 });
   const marginDomain = paddedDomain(marginValues, { includeZero: true, fallbackMax: 0.3 });
   const chartWidth = 620;
-  const chartHeight = 250;
-  const plot = { left: 64, right: 28, top: 20, bottom: 46 };
+  const chartHeight = 360;
+  const plot = { left: 64, right: 20, top: 10, bottom: 34 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -465,13 +482,10 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
     })
     .filter(Boolean)
     .join(" ");
-  const headline = buildProfitabilityHeadline(points);
-
   return (
     <FinancialChartShell
       className="company-profitability-card"
       title="수익성"
-      subtitle={headline}
       legend={(
         <div className="company-profitability-legend" aria-label="수익성 범례">
           <span><i className="revenue" />매출</span>
@@ -481,7 +495,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 수익성 시계열">
+      <svg className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 수익성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
@@ -546,7 +560,6 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       <FinancialChartShell
         className="company-stability-card"
         title="안정성"
-        subtitle="부채 · 유동 · 이자보상비율"
         legend={(
           <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
             <span><i className="equity" />총자본</span>
@@ -565,8 +578,8 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1, minFloor: 0 });
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
   const chartWidth = 620;
-  const chartHeight = 250;
-  const plot = { left: 64, right: 28, top: 20, bottom: 46 };
+  const chartHeight = 360;
+  const plot = { left: 64, right: 20, top: 10, bottom: 34 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -590,7 +603,6 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
     <FinancialChartShell
       className="company-stability-card"
       title="안정성"
-      subtitle="부채 · 유동 · 이자보상비율"
       legend={(
         <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
           <span><i className="equity" />총자본</span>
@@ -600,7 +612,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot company-stability-plot" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="SEC 재무 안정성 시계열">
+      <svg className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 안정성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
@@ -665,20 +677,79 @@ function FinancialChartShell({
 }: {
   className: string;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: ReactNode;
   legend: ReactNode;
   table: ReactNode;
 }) {
+  const [activePage, setActivePage] = useState<0 | 1>(0);
   return (
     <div className={`company-financial-chart-card ${className}`}>
-      <div className="company-financial-chart-copy">
-        <strong>{title}</strong>
-        <span>{subtitle}</span>
+      <div key={activePage} className={`company-analysis-page ${activePage === 0 ? "company-financial-overview-page" : "company-financial-detail-page"}`}>
+        {activePage === 0 ? (
+          <>
+            <div className="company-financial-chart-copy">
+              <strong>{title}</strong>
+              {subtitle && <span>{subtitle}</span>}
+            </div>
+            {children}
+            {legend}
+          </>
+        ) : (
+          <>
+            <div className="company-financial-chart-copy">
+              <strong>{title}</strong>
+            </div>
+            {table}
+          </>
+        )}
       </div>
-      {children}
-      {legend}
-      {table}
+      <CompanyAnalysisPageNav label={title} onAdvance={() => setActivePage((page) => page === 0 ? 1 : 0)} />
+    </div>
+  );
+}
+
+function ValuationPagedPanel({
+  symbol,
+  metric,
+  onMetricChange,
+  series,
+  comparison,
+  metrics
+}: {
+  symbol: string;
+  metric: EarningsMetric;
+  onMetricChange: (metric: EarningsMetric) => void;
+  series: EarningsChartPoint[];
+  comparison: ReturnType<typeof buildComparison>;
+  metrics: ValuationMetric[];
+}) {
+  const [activePage, setActivePage] = useState<0 | 1>(0);
+  return (
+    <section className="company-chart-column company-valuation-column" aria-label={`${symbol} 가치평가`}>
+      <div key={activePage} className="company-analysis-page company-valuation-page">
+        {activePage === 0 ? (
+          <EarningsPanel
+            metric={metric}
+            onMetricChange={onMetricChange}
+            series={series}
+            comparison={comparison}
+          />
+        ) : (
+          <ValuationMetricsPanel metrics={metrics} />
+        )}
+      </div>
+      <CompanyAnalysisPageNav label="가치평가" onAdvance={() => setActivePage((page) => page === 0 ? 1 : 0)} />
+    </section>
+  );
+}
+
+function CompanyAnalysisPageNav({ label, onAdvance }: { label: string; onAdvance: () => void }) {
+  return (
+    <div className="company-analysis-page-nav">
+      <button type="button" aria-label={`다음 ${label} 페이지`} onClick={onAdvance}>
+        <ChevronRight aria-hidden="true" />
+      </button>
     </div>
   );
 }
@@ -704,50 +775,47 @@ function EarningsPanel({
         </div>
       </div>
       <EarningsHistoryChart metric={metric} series={series} />
-      <div className="company-earnings-summary">
-        <div>
-          <span>동종업계 평균</span>
-          <strong>{formatPercent(comparison.averageChangePercent)}</strong>
+      <dl className="company-earnings-summary">
+        <div className="company-earnings-summary-cell">
+          <dt>동종업계 평균</dt>
+          <dd>{formatPercent(comparison.averageChangePercent)}</dd>
         </div>
-        <div>
-          <span>산업 내 순위</span>
-          <strong>{comparison.rankLabel}</strong>
+        <div className="company-earnings-summary-cell">
+          <dt>산업 내 순위</dt>
+          <dd>{comparison.rankLabel}</dd>
         </div>
-        <div>
-          <span>비교 기준</span>
-          <strong>{comparison.scopeLabel}</strong>
+        <div className="company-earnings-summary-cell">
+          <dt>비교 기준</dt>
+          <dd>{comparison.scopeLabel}</dd>
         </div>
-      </div>
+      </dl>
     </section>
   );
 }
 
-function ValuationGaugePanel({ metrics }: { metrics: ValuationMetric[] }) {
+function ValuationMetricsPanel({ metrics }: { metrics: ValuationMetric[] }) {
   return (
     <section className="company-valuation-panel" aria-label="가치평가">
       <div className="company-section-heading">
         <h3>가치평가</h3>
-        <span>가격 · 재무 기준 핵심 배수</span>
       </div>
-      <div className="company-valuation-gauge-grid">
+      <dl className="company-valuation-metric-list">
         {metrics.map((metric) => (
-          <ValuationCard key={metric.label} metric={metric} />
+          <ValuationRow key={metric.label} metric={metric} />
         ))}
-      </div>
+      </dl>
     </section>
   );
 }
 
-function ValuationCard({ metric }: { metric: ValuationMetric }) {
+function ValuationRow({ metric }: { metric: ValuationMetric }) {
   return (
-    <article className={`company-valuation-gauge company-valuation-card ${metric.tone}`} aria-label={`${metric.label} ${metric.valueLabel}`}>
-      <div className="company-valuation-card-top">
-        <span>{metric.label}</span>
-        <em>{metric.statusLabel}</em>
-      </div>
-      <strong>{metric.valueLabel}</strong>
-      <p>{metric.detail}</p>
-    </article>
+    <div className="company-valuation-metric-row" aria-label={`${metric.label} ${metric.valueLabel}`}>
+      <dt>{metric.label}</dt>
+      <dd>
+        <strong>{metric.valueLabel}</strong>
+      </dd>
+    </div>
   );
 }
 
@@ -790,37 +858,11 @@ function buildValuationMetrics(price: number | null | undefined, marketCap: numb
   const psr = safeDivide(marketCap, item?.revenue);
   const fcfYield = safeDivide(item?.freeCashFlow, marketCap);
   return [
-    { label: "PER", detail: "현재가 / EPS", valueLabel: formatMultiple(per), ...valuationStatus(per, { good: 20, watch: 35, higherIsBetter: false }) },
-    { label: "PBR", detail: "시가총액 / 총자본", valueLabel: formatMultiple(pbr), ...valuationStatus(pbr, { good: 5, watch: 12, higherIsBetter: false }) },
-    { label: "PSR", detail: "시가총액 / 매출", valueLabel: formatMultiple(psr), ...valuationStatus(psr, { good: 8, watch: 18, higherIsBetter: false }) },
-    { label: "FCF Yield", detail: "잉여현금흐름 / 시가총액", valueLabel: formatRatioPercent(fcfYield), ...valuationStatus(fcfYield, { good: 0.04, watch: 0, higherIsBetter: true }) }
+    { label: "PER", valueLabel: formatMultiple(per) },
+    { label: "PBR", valueLabel: formatMultiple(pbr) },
+    { label: "PSR", valueLabel: formatMultiple(psr) },
+    { label: "FCF Yield", valueLabel: formatRatioPercent(fcfYield) }
   ];
-}
-
-function valuationStatus(
-  value: number | null | undefined,
-  rule: { good: number; watch: number; higherIsBetter: boolean }
-): Pick<ValuationMetric, "statusLabel" | "tone"> {
-  if (!Number.isFinite(value ?? NaN)) {
-    return { statusLabel: "확인 중", tone: "neutral" };
-  }
-  const current = value as number;
-  if (rule.higherIsBetter) {
-    if (current >= rule.good) {
-      return { statusLabel: "양호", tone: "good" };
-    }
-    if (current >= rule.watch) {
-      return { statusLabel: "주의", tone: "watch" };
-    }
-    return { statusLabel: "위험", tone: "risk" };
-  }
-  if (current <= rule.good) {
-    return { statusLabel: "양호", tone: "good" };
-  }
-  if (current <= rule.watch) {
-    return { statusLabel: "주의", tone: "watch" };
-  }
-  return { statusLabel: "위험", tone: "risk" };
 }
 
 function buildProfitabilityTableRows(points: FinancialChartPoint[]): FinancialTableRow[] {
@@ -912,22 +954,6 @@ function normalizeFinancialPoint(point: CompanyFinancialSeriesPoint): FinancialC
     freeCashFlow: point.freeCashFlow,
     sharesOutstanding: point.sharesOutstanding
   };
-}
-
-function buildProfitabilityHeadline(points: FinancialChartPoint[]): string {
-  const latest = points[points.length - 1];
-  const previous = points[points.length - 2];
-  if (!latest || !Number.isFinite(latest.netIncome ?? NaN)) {
-    return "재무 시계열 확인 중";
-  }
-  const latestIncome = latest.netIncome as number;
-  const previousIncome = Number.isFinite(previous?.netIncome ?? NaN) ? previous?.netIncome as number : null;
-  const period = formatPeriod(latest.period, latest.periodEndDate);
-  if (previousIncome == null || previousIncome === 0) {
-    return `${period} 순이익은 ${formatUsdCompact(latestIncome)}입니다.`;
-  }
-  const change = (latestIncome - previousIncome) / Math.abs(previousIncome);
-  return `${period} 순이익은 ${formatUsdCompact(latestIncome)}로 직전 분기 대비 ${formatSignedRatio(change)}입니다.`;
 }
 
 function buildEarningsSeries(

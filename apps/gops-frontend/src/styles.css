@@ -255,7 +255,7 @@
 /* Company analysis panels: four independent views and one paged multi-panel. */
 .company-single-panel,
 .company-multi-panel {
-  --company-panel-canvas: var(--coinbase-surface-dark);
+  --company-panel-canvas: var(--coinbase-panel);
   --company-panel-surface: color-mix(in srgb, var(--coinbase-panel) 72%, var(--coinbase-surface-dark));
   --company-panel-raised: var(--coinbase-surface-dark-elevated);
   --company-panel-line: var(--coinbase-hairline);
@@ -302,15 +302,19 @@
   padding: clamp(14px, 2.2cqw, 24px);
 }
 
+.company-single-panel:is(.is-profitability, .is-stability) .company-single-fundamental-section {
+  padding: 4px 20px 26px;
+}
+
+.company-single-fundamental-section > .company-chart-column {
+  height: 100%;
+}
+
 .company-single-panel .company-chart-column {
   width: 100%;
   min-height: 0;
   border: 0;
   padding: 0;
-}
-
-.company-single-panel.is-valuation .company-valuation-gauge-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .company-single-panel .company-info-heading,
@@ -534,9 +538,6 @@
     height: 16px;
   }
 
-  .company-single-panel.is-valuation .company-valuation-gauge-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @supports (color: oklch(100% 0 0)) {
@@ -3686,19 +3687,38 @@ h2 {
 
 .company-info-backdrop::after {
   position: absolute;
+  z-index: 2;
   inset: 0;
   background: linear-gradient(180deg, rgb(4 6 9 / 0.04), rgb(4 6 9 / 0.18) 28%, transparent 44%);
   content: "";
 }
 
 .company-info-backdrop img {
-  align-self: start;
-  width: clamp(120px, 36cqw, 260px);
-  height: clamp(88px, 30cqh, 180px);
-  margin-top: clamp(14px, 4cqh, 34px);
-  object-fit: contain;
+  position: absolute;
+  max-width: none;
   object-position: center;
-  transform: none;
+}
+
+.company-info-backdrop-fill {
+  inset: -12px;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
+  object-fit: cover;
+  opacity: 0.58;
+  transform: scale(1.03);
+  filter: blur(9px) saturate(1.12) contrast(1.04);
+}
+
+.company-info-backdrop-mark {
+  z-index: 1;
+  top: 19.5%;
+  left: 50%;
+  width: clamp(72px, 26cqh, 132px);
+  height: clamp(72px, 26cqh, 132px);
+  border-radius: clamp(6px, 1.2cqw, 12px);
+  background: #fff;
+  object-fit: contain;
+  transform: translate(-50%, -50%);
   filter: saturate(1.08) contrast(1.03);
 }
 
@@ -3714,8 +3734,11 @@ h2 {
 }
 
 .company-info-sheet {
-  --company-tab-end: calc(var(--panel-gap) + var(--company-tab-text-width, 12ch) + (var(--panel-padding) * 3));
   --company-diagonal-width: clamp(40px, 8cqw, 84px);
+  --company-tab-end: min(
+    calc(var(--panel-gap) + var(--company-tab-text-width, 12ch) + (var(--panel-padding) * 3)),
+    calc(100% - var(--company-diagonal-width))
+  );
   position: relative;
   z-index: 1;
   display: flex;
@@ -3726,7 +3749,7 @@ h2 {
   gap: 0;
   margin: 0;
   padding: 42cqh var(--panel-gap) var(--panel-gap);
-  background: #0a0a0a;
+  background: var(--coinbase-panel);
   clip-path: polygon(
     0 28%,
     var(--company-tab-end) 28%,
@@ -3831,7 +3854,7 @@ h2 {
 
 .company-info-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 0;
   margin: 0;
   border: 1px solid rgb(255 255 255 / 0.12);
@@ -3841,7 +3864,7 @@ h2 {
 
 .company-info-cell {
   display: grid;
-  grid-template-columns: minmax(74px, 0.62fr) minmax(0, 1.38fr);
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
   align-items: center;
   min-height: 48px;
   gap: 12px;
@@ -3912,7 +3935,7 @@ h2 {
 .company-info-sheet .company-info-cell {
   border: 0;
   border-color: rgb(255 255 255 / 0.12);
-  background: #0a0a0a;
+  background: var(--coinbase-panel);
   color: #fff;
 }
 
@@ -4013,8 +4036,9 @@ h2 {
 }
 
 .company-valuation-column {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  display: block;
+  overflow: hidden;
 }
 
 .company-earnings-panel {
@@ -4022,118 +4046,161 @@ h2 {
   align-content: start;
 }
 
-.company-valuation-gauge-grid {
+.company-valuation-metric-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.company-valuation-gauge {
-  position: relative;
-  display: grid;
-  align-content: space-between;
-  min-height: 104px;
-  min-width: 0;
-  overflow: hidden;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
   border: 1px solid var(--coinbase-hairline);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-surface) 90%, var(--coinbase-surface-dark));
-  box-shadow: inset 3px 0 0 rgb(var(--coinbase-ink-rgb) / 0.2);
-  padding: 11px 12px;
-}
-
-.company-valuation-card {
-  border-top-width: 1px;
-}
-
-.company-valuation-card.good {
-  box-shadow: inset 3px 0 0 var(--company-positive);
-}
-
-.company-valuation-card.watch {
-  box-shadow: inset 3px 0 0 var(--company-brass);
-}
-
-.company-valuation-card.risk {
-  box-shadow: inset 3px 0 0 var(--company-negative);
-}
-
-.company-valuation-card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 6px;
-  min-width: 0;
-}
-
-.company-valuation-card-top span {
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-  color: var(--color-text);
-}
-
-.company-valuation-card-top em {
-  flex: 0 0 auto;
-  border: 1px solid rgb(var(--gops-ink-rgb) / 0.12);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface) 88%, rgb(var(--coinbase-on-primary-rgb)));
-  padding: 2px 5px;
-  color: var(--color-muted);
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-  font-style: normal;
-}
-
-.company-valuation-card.good .company-valuation-card-top em {
-  border-color: color-mix(in srgb, var(--company-positive) 42%, transparent);
-  color: var(--company-positive-strong);
-}
-
-.company-valuation-card.watch .company-valuation-card-top em {
-  border-color: color-mix(in srgb, var(--company-brass) 46%, transparent);
-  color: #8c939f;
-}
-
-.company-valuation-card.risk .company-valuation-card-top em {
-  border-color: color-mix(in srgb, var(--company-negative) 42%, transparent);
-  color: var(--company-negative-strong);
-}
-
-.company-valuation-card > strong {
-  display: block;
-  max-width: 100%;
   overflow: hidden;
-  color: var(--color-text);
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-  overflow-wrap: anywhere;
-  text-overflow: clip;
-  white-space: normal;
 }
 
-.company-valuation-gauge p {
+.company-valuation-metric-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 42px;
+  min-width: 0;
+  gap: 14px;
+  border-top: 1px solid var(--coinbase-hairline-soft);
+  padding: 9px 12px;
+}
+
+.company-valuation-metric-row:first-child {
+  border-top: 0;
+}
+
+.company-valuation-metric-row dt,
+.company-valuation-metric-row dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.company-valuation-metric-row dt {
+  color: var(--color-text);
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);
   font: var(--type-caption);
-  color: var(--color-muted);
 }
 
-.company-valuation-gauge p {
-  margin: 5px 0 0;
-  text-align: left;
+.company-valuation-metric-row dd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.company-valuation-metric-row dd > strong {
+  color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+  text-align: right;
 }
 
 .company-financial-chart-card {
-  display: grid;
-  grid-template-rows: minmax(42px, auto) minmax(170px, 1fr) auto auto;
-  align-content: start;
-  gap: 8px;
+  position: relative;
+  display: block;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.company-analysis-page {
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding-bottom: 0;
+  animation: company-analysis-page-in 240ms cubic-bezier(0.2, 0.78, 0.25, 1);
+}
+
+.company-financial-overview-page {
+  display: grid;
+  grid-template-rows: minmax(42px, auto) minmax(170px, 1fr) auto;
+  align-content: start;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.company-financial-overview-page .company-financial-chart-copy {
+  min-height: 0;
+}
+
+.company-financial-detail-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+}
+
+.company-financial-detail-page .company-financial-table-wrap {
+  height: 100%;
+  overflow: auto;
+}
+
+.company-valuation-page,
+.company-valuation-page > .company-earnings-panel,
+.company-valuation-page > .company-valuation-panel {
+  min-height: 0;
+  height: 100%;
+}
+
+.company-analysis-page-nav {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  height: 52px;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+.company-analysis-page-nav > button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--coinbase-surface-dark-elevated);
+  color: #fff;
+  opacity: 0;
+  pointer-events: auto;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.company-financial-chart-card:hover .company-analysis-page-nav > button,
+.company-financial-chart-card:focus-within .company-analysis-page-nav > button,
+.company-valuation-column:hover .company-analysis-page-nav > button,
+.company-valuation-column:focus-within .company-analysis-page-nav > button {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.company-analysis-page-nav > button:hover,
+.company-analysis-page-nav > button:focus-visible {
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+  outline: none;
+}
+
+.company-analysis-page-nav > button svg {
+  width: 15px;
+  height: 15px;
+}
+
+@keyframes company-analysis-page-in {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .company-financial-chart-copy {
@@ -4165,13 +4232,18 @@ h2 {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 170px;
+  min-height: 0;
+  align-self: stretch;
+  justify-self: stretch;
   overflow: visible;
 }
 
 .company-profitability-empty-card {
   display: grid;
-  min-height: 170px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
   place-items: center;
   border: 1px dashed var(--coinbase-hairline);
   border-radius: 6px;
@@ -4192,9 +4264,9 @@ h2 {
 }
 
 .company-profitability-plot text {
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
+  text-transform: inherit;
+  letter-spacing: inherit;
+  font: inherit;
   fill: var(--color-muted);
 }
 
@@ -4682,31 +4754,40 @@ h2 {
 .company-earnings-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
   margin: 8px 0 0;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-.company-earnings-summary div {
+.company-earnings-summary-cell {
   display: grid;
   gap: 3px;
   min-width: 0;
+  border-left: 1px solid var(--coinbase-hairline-soft);
+  padding: 9px 12px;
 }
 
-.company-earnings-summary span,
-.company-earnings-summary strong {
+.company-earnings-summary-cell:first-child {
+  border-left: 0;
+}
+
+.company-earnings-summary dt,
+.company-earnings-summary dd {
   min-width: 0;
   margin: 0;
 }
 
-.company-earnings-summary span {
+.company-earnings-summary dt {
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);
   font: var(--type-caption);
   color: var(--color-muted);
 }
 
-.company-earnings-summary strong {
+.company-earnings-summary dd {
   overflow: hidden;
+  color: var(--color-text);
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
@@ -6197,7 +6278,7 @@ h2 {
 .popular-stock-company-text {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 0;
 }
 
 .popular-stock-company-text strong,
@@ -6214,6 +6295,7 @@ h2 {
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
+  line-height: 1.15;
   color: var(--color-text);
 }
 
@@ -6223,9 +6305,10 @@ h2 {
 }
 
 .popular-stock-company-text > span {
-  text-transform: var(--type-label-md-text-transform);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  font: var(--type-label-md);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  line-height: 1.15;
 }
 
 .popular-stock-money {
@@ -6442,9 +6525,9 @@ h2 {
 }
 
 .popular-stocks-panel.is-compact .popular-stock-company-text > span {
-  text-transform: var(--type-label-md-text-transform);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  font: var(--type-label-md);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
   display: block;
 }
 
@@ -10341,7 +10424,7 @@ textarea:focus,
 .stock-rec-row,
 .portfolio-matrix-row,
 .company-info-cell,
-.company-valuation-card,
+.company-valuation-metric-row,
 .portfolio-terminal-card {
   border-color: var(--coinbase-hairline);
   background: var(--coinbase-surface-card);
@@ -13560,161 +13643,9 @@ textarea:focus,
   color: #f4f4f1;
 }
 
-.portfolio-holdings-cards-split-panel.portfolio-dashboard-panel,
-.bottom-menu-panel.menu-II .portfolio-holdings-cards-split-panel {
-  background: #303337;
-}
-
 .portfolio-holdings-flat-cards-split-panel.portfolio-dashboard-panel,
 .bottom-menu-panel.menu-II .portfolio-holdings-flat-cards-split-panel {
   background: #292c30;
-}
-
-.portfolio-holdings-board {
-  position: relative;
-  isolation: isolate;
-  container-type: size;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 0.11);
-  border-radius: 10px;
-  outline: none;
-  background:
-    radial-gradient(ellipse at 50% 92%, rgb(255 255 255 / 0.075), transparent 48%),
-    linear-gradient(180deg, #34373b, #2c2f33 58%, #32353a);
-  perspective: 1800px;
-  perspective-origin: 50% 54%;
-}
-
-.portfolio-holdings-board::before {
-  position: absolute;
-  z-index: 0;
-  right: -22%;
-  bottom: -2%;
-  left: -22%;
-  height: 42%;
-  border: 1px solid rgb(255 255 255 / 0.09);
-  border-radius: 50%;
-  box-shadow:
-    0 -1px 0 rgb(255 255 255 / 0.065),
-    0 34px 58px rgb(12 14 16 / 0.28);
-  content: "";
-  opacity: 0.8;
-  transform: rotateX(74deg);
-}
-
-.portfolio-holding-column {
-  --holding-signal: #9ca3af;
-  --holding-surface: rgb(107 114 128 / 0.16);
-  --holding-border: rgb(209 213 219 / 0.34);
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  width: clamp(190px, 31cqw, 310px);
-  height: clamp(210px, 78cqh, 370px);
-  min-width: 0;
-  border: 1px solid var(--holding-border);
-  border-radius: 24px 24px 16px 16px;
-  opacity: var(--card-opacity);
-  background:
-    linear-gradient(142deg, rgb(255 255 255 / 0.20), rgb(255 255 255 / 0.035) 36%, transparent 58%),
-    linear-gradient(160deg, var(--holding-surface), rgb(68 72 78 / 0.74));
-  box-shadow:
-    0 22px 54px rgb(12 14 16 / 0.30),
-    inset 0 1px 0 rgb(255 255 255 / 0.22),
-    inset 0 -1px 0 rgb(255 255 255 / 0.04);
-  transform:
-    translate(-50%, -50%)
-    translate3d(var(--card-x), var(--card-y), var(--card-z))
-    rotateY(var(--card-rotate))
-    scale(var(--card-scale));
-  transform-style: preserve-3d;
-  transform-origin: 50% 50%;
-  transition:
-    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 260ms ease,
-    border-color 260ms ease,
-    box-shadow 260ms ease;
-  -webkit-backdrop-filter: blur(18px) saturate(115%);
-  backdrop-filter: blur(18px) saturate(115%);
-  will-change: transform;
-}
-
-.portfolio-holding-column::before {
-  position: absolute;
-  z-index: -1;
-  top: -11px;
-  left: 18px;
-  width: 44%;
-  height: 18px;
-  border: 1px solid var(--holding-border);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.20), transparent),
-    var(--holding-surface);
-  content: "";
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16);
-}
-
-.portfolio-holding-column.positive {
-  --holding-signal: #32c976;
-  --holding-surface: rgb(24 150 81 / 0.24);
-  --holding-border: rgb(84 226 143 / 0.42);
-}
-
-.portfolio-holding-column.negative {
-  --holding-signal: #ef5f63;
-  --holding-surface: rgb(185 53 59 / 0.24);
-  --holding-border: rgb(255 113 118 / 0.42);
-}
-
-.portfolio-holding-column.is-active {
-  z-index: 30 !important;
-  opacity: 1;
-  border-color: var(--holding-signal);
-  box-shadow:
-    0 32px 82px rgb(12 14 16 / 0.38),
-    0 0 34px color-mix(in srgb, var(--holding-signal) 24%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.28);
-  transform:
-    translate(-50%, -54%)
-    translate3d(0, -8px, 94px)
-    rotateY(0deg)
-    scale(1.06);
-}
-
-.portfolio-holding-column > button {
-  position: relative;
-  display: grid;
-  grid-template-rows: auto auto auto auto auto auto;
-  align-content: start;
-  gap: 6px;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: 0;
-  border-radius: inherit;
-  padding: 13px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.portfolio-holding-column > button:hover,
-.portfolio-holding-column > button:focus-visible {
-  background: rgb(255 255 255 / 0.045);
-  outline: none;
-}
-
-.portfolio-holding-column > button:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--holding-signal);
 }
 
 .portfolio-holding-column-header {
@@ -13907,102 +13838,6 @@ textarea:focus,
 
 .portfolio-holding-event.event-facts .negative b {
   color: #e58d80;
-}
-
-.portfolio-holding-column.positive .event-price > em,
-.portfolio-holding-column.positive .event-gain > b,
-.portfolio-holding-column.positive .event-gain > em {
-  color: #76e6a6;
-}
-
-.portfolio-holding-column.negative .event-price > em,
-.portfolio-holding-column.negative .event-gain > b,
-.portfolio-holding-column.negative .event-gain > em {
-  color: #ff8e91;
-}
-
-.portfolio-holding-column:not(.is-active) .portfolio-holding-event:not(.event-price) {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(10px);
-}
-
-.portfolio-holding-column:not(.is-active) .portfolio-holding-event.event-price {
-  position: absolute;
-  right: 13px;
-  bottom: 14px;
-  left: 13px;
-  grid-template-columns: 1fr;
-  min-height: 42px;
-  border-left-color: var(--holding-signal);
-  background: rgb(7 9 11 / 0.40);
-}
-
-.portfolio-holding-column:not(.is-active) .portfolio-holding-event.event-price > span,
-.portfolio-holding-column:not(.is-active) .portfolio-holding-event.event-price > b {
-  display: none;
-}
-
-.portfolio-holding-column:not(.is-active) .portfolio-holding-event.event-price > em {
-  overflow: visible;
-  color: var(--holding-signal);
-  font-size: calc(16px * var(--app-font-scale));
-  text-align: center;
-  text-overflow: clip;
-}
-
-.portfolio-holdings-deck-index {
-  position: absolute;
-  z-index: 40;
-  right: 0;
-  bottom: 8px;
-  left: 0;
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  pointer-events: none;
-}
-
-.portfolio-holdings-deck-index i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.24);
-  transition: width 220ms ease, background 220ms ease;
-}
-
-.portfolio-holdings-deck-index i.active {
-  width: 18px;
-  border-radius: 999px;
-  background: #f5f5f2;
-}
-
-@container (max-width: 520px) {
-  .portfolio-holding-column {
-    width: min(74cqw, 270px);
-  }
-
-  .portfolio-holding-column > button {
-    padding: 8px;
-  }
-}
-
-@container (max-height: 320px) {
-  .portfolio-holding-column {
-    height: calc(100cqh - 32px);
-  }
-
-  .portfolio-holding-column .portfolio-holding-event.event-cost,
-  .portfolio-holding-column .portfolio-holding-event.event-range {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .portfolio-holding-column,
-  .portfolio-holdings-deck-index i {
-    transition: none;
-  }
 }
 
 /* The original flat card board remains available as a separate panel. */
@@ -15420,6 +15255,551 @@ textarea:focus,
   }
 }
 
+/* Design-system alignment: Holdings ledger and Dual Portfolio use the shared
+   flat workspace surface, semantic type roles, and market/action accents only. */
+.portfolio-holdings-split-panel.portfolio-dashboard-panel,
+.bottom-menu-panel.menu-II .portfolio-holdings-split-panel,
+.portfolio-multi-panel {
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  background: var(--app-panel-glass-background);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-list {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  color: var(--color-text);
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-table-scroll {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-table-head {
+  min-height: 36px;
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: var(--coinbase-canvas);
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-table-head > span,
+.portfolio-holdings-split-panel .portfolio-holding-row > span,
+.portfolio-holdings-split-panel .portfolio-holding-row > .portfolio-holding-row-symbol {
+  border-right: 0;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row,
+.portfolio-holdings-split-panel .portfolio-holding-row:nth-child(odd) {
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: transparent;
+  color: var(--color-text);
+  box-shadow: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row:nth-child(odd) {
+  background: var(--coinbase-canvas);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row:hover,
+.portfolio-holdings-split-panel .portfolio-holding-row:focus-visible {
+  background: var(--coinbase-canvas);
+  outline: 1px solid var(--coinbase-primary);
+  outline-offset: -1px;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row-symbol strong {
+  color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell,
+.portfolio-holdings-split-panel .portfolio-holding-range > b {
+  color: var(--color-text-medium);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.value,
+.portfolio-holdings-split-panel .portfolio-holding-cell.gain,
+.portfolio-holdings-split-panel .portfolio-holding-cell.return,
+.portfolio-holdings-split-panel .portfolio-holding-cell.dividend,
+.portfolio-holdings-split-panel .portfolio-holding-cell.day {
+  background: transparent;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.value {
+  color: var(--color-point-yellow);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.dividend {
+  color: var(--color-point-orange);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.positive {
+  color: var(--color-up);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.negative {
+  color: var(--color-down);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.neutral {
+  color: var(--color-muted);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-range > i {
+  background: var(--coinbase-hairline-strong);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-range > i > span {
+  background: rgb(255 255 255 / 0.48);
+}
+
+.portfolio-multi-panel {
+  --portfolio-multi-ink: var(--color-text);
+  --portfolio-multi-body: var(--color-muted);
+  --portfolio-multi-muted: var(--color-muted-medium);
+  --portfolio-multi-line: var(--coinbase-hairline-strong);
+  --portfolio-multi-soft: var(--coinbase-canvas);
+  --portfolio-multi-blue: var(--coinbase-primary);
+  --portfolio-multi-green: var(--color-up);
+  --portfolio-multi-red: var(--color-down);
+  --portfolio-multi-gold: var(--color-point-orange);
+  color: var(--color-text);
+}
+
+.portfolio-multi-stage,
+.portfolio-multi-view,
+.portfolio-multi-page,
+.portfolio-multi-summary-page,
+.portfolio-multi-summary-hero,
+.portfolio-multi-asset-visual,
+.portfolio-multi-asset-list {
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-multi-page {
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+  color: var(--color-text);
+}
+
+.portfolio-multi-summary-page {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-page-header span {
+  color: var(--color-text);
+  text-transform: var(--type-title-md-text-transform);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  font: var(--type-title-md);
+}
+
+.portfolio-multi-page-header em,
+.portfolio-multi-page-header > strong {
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-refresh {
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-muted);
+  box-shadow: none;
+}
+
+.portfolio-multi-refresh:hover,
+.portfolio-multi-refresh:focus-visible {
+  color: var(--coinbase-primary);
+  outline: 1px solid var(--coinbase-primary);
+  outline-offset: -1px;
+}
+
+.portfolio-multi-summary-hero {
+  gap: var(--panel-gap);
+  border: 0;
+  border-radius: 0;
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-hero > em,
+.portfolio-multi-summary-hero > div > span > small {
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-summary-hero > div > strong {
+  color: var(--color-text);
+  text-transform: var(--type-title-lg-text-transform);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  font: var(--type-title-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-summary-hero > div > span {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-asset-visual {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-asset-list {
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-asset-row > span {
+  color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-asset-row > strong {
+  color: var(--color-text-medium);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-asset-row.is-stock > strong { color: var(--color-down); }
+.portfolio-multi-asset-row.is-cash > strong { color: var(--color-up); }
+.portfolio-multi-asset-row.is-dividend > strong { color: var(--color-signal); }
+
+.portfolio-multi-flow-switch,
+.portfolio-multi-mode-tabs {
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  padding: 0;
+  background: var(--coinbase-canvas);
+  box-shadow: none;
+}
+
+.portfolio-multi-flow-switch button,
+.portfolio-multi-mode-tabs button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  text-transform: var(--type-button-text-transform);
+  letter-spacing: var(--type-button-letter-spacing);
+  font: var(--type-button);
+  box-shadow: none;
+  transform: none;
+}
+
+.portfolio-multi-flow-switch button.active,
+.portfolio-multi-mode-tabs button.active {
+  background: transparent;
+  color: var(--coinbase-primary);
+  box-shadow: inset 0 -2px 0 var(--coinbase-primary);
+  transform: none;
+}
+
+.portfolio-multi-flow-focus {
+  gap: var(--panel-gap);
+  border: 0;
+  border-radius: 0;
+  padding: var(--panel-padding);
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-multi-flow-metrics {
+  gap: var(--panel-gap);
+}
+
+.portfolio-multi-flow-metrics span {
+  gap: 4px;
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 0;
+  padding: var(--panel-padding);
+  background: transparent;
+}
+
+.portfolio-multi-flow-metrics em {
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-flow-metrics strong {
+  color: var(--color-text);
+  text-transform: var(--type-title-md-text-transform);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  font: var(--type-title-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-flow-chart .grid {
+  stroke: var(--coinbase-hairline-strong);
+}
+
+.portfolio-multi-flow-chart .bar {
+  fill: var(--color-muted-soft);
+}
+
+.portfolio-multi-flow-chart .bar.is-current {
+  fill: var(--coinbase-primary);
+}
+
+.portfolio-multi-flow-chart .line,
+.portfolio-multi-flow-chart .point {
+  stroke: var(--color-text);
+}
+
+.portfolio-multi-flow-chart .point {
+  fill: var(--app-panel-glass-background);
+}
+
+.portfolio-multi-flow-chart text,
+.portfolio-multi-flow-legend {
+  fill: var(--color-muted);
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-leaders span {
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-pie-slice,
+.portfolio-multi-pie-slice.is-selected,
+.portfolio-multi-pie-slice:hover,
+.portfolio-multi-pie-slice:focus-visible {
+  filter: none;
+}
+
+.portfolio-multi-pie-slice.is-selected {
+  stroke: var(--app-panel-glass-background);
+}
+
+.portfolio-multi-exploded-pie-caption {
+  border-top-color: var(--coinbase-hairline-strong);
+}
+
+.portfolio-multi-exploded-pie-caption > span {
+  color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-exploded-pie-caption > strong {
+  color: var(--color-text);
+  text-transform: var(--type-title-lg-text-transform);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  font: var(--type-title-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-page-arrow {
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  background: var(--coinbase-canvas);
+  color: var(--color-muted);
+  box-shadow: none;
+}
+
+/* Holdings keeps its filled heat-ledger scan pattern while using only the
+   approved design-system market accents. */
+.portfolio-holdings-split-panel .portfolio-holding-cell.value {
+  background: rgb(var(--gops-point-yellow-rgb) / 0.16);
+  color: var(--color-point-yellow);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.gain.positive,
+.portfolio-holdings-split-panel .portfolio-holding-cell.return.positive,
+.portfolio-holdings-split-panel .portfolio-holding-cell.day.positive {
+  background: rgb(var(--framer-success-rgb) / 0.18);
+  color: var(--color-up);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.gain.negative,
+.portfolio-holdings-split-panel .portfolio-holding-cell.return.negative,
+.portfolio-holdings-split-panel .portfolio-holding-cell.day.negative {
+  background: rgb(var(--framer-coral-rgb) / 0.18);
+  color: var(--color-down);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.gain.neutral,
+.portfolio-holdings-split-panel .portfolio-holding-cell.return.neutral,
+.portfolio-holdings-split-panel .portfolio-holding-cell.day.neutral {
+  background: rgb(var(--framer-ink-rgb) / 0.04);
+  color: var(--color-muted);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-cell.dividend {
+  background: rgb(var(--gops-point-orange-rgb) / 0.16);
+  color: var(--color-point-orange);
+}
+
+/* Allocation slices remain readable as a group, then yield emphasis to the
+   hovered or selected holding. */
+.portfolio-multi-exploded-pie {
+  grid-template-rows: minmax(170px, 1fr) auto auto;
+}
+
+.portfolio-multi-pie-slice {
+  opacity: 1;
+  filter: brightness(0.94) saturate(0.88);
+  stroke: transparent;
+  stroke-width: 0;
+}
+
+.portfolio-multi-pie-slice:hover,
+.portfolio-multi-pie-slice:focus-visible {
+  opacity: 1;
+  filter: none;
+}
+
+.portfolio-multi-exploded-pie.has-selection .portfolio-multi-pie-slice:not(.is-selected) {
+  opacity: 0.88;
+  filter: brightness(0.78) saturate(0.8);
+}
+
+.portfolio-multi-exploded-pie.has-selection .portfolio-multi-pie-slice:not(.is-selected):hover,
+.portfolio-multi-exploded-pie.has-selection .portfolio-multi-pie-slice:not(.is-selected):focus-visible {
+  opacity: 1;
+  filter: none;
+}
+
+.portfolio-multi-pie-slice.is-selected,
+.portfolio-multi-pie-slice.is-selected:hover,
+.portfolio-multi-pie-slice.is-selected:focus-visible {
+  opacity: 1;
+  filter: none;
+  stroke: transparent;
+  stroke-width: 0;
+}
+
+.portfolio-multi-pie-slice-underlay {
+  opacity: 0.7;
+  filter: brightness(0.58) saturate(0.72);
+  stroke: transparent;
+  stroke-width: 0;
+  pointer-events: none;
+}
+
+.portfolio-multi-pie-legend {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  max-height: 86px;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 4px 8px;
+  overflow: auto;
+  padding: 0 var(--panel-padding);
+  scrollbar-color: var(--color-muted-soft) transparent;
+  scrollbar-width: thin;
+}
+
+.portfolio-multi-pie-legend button {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  padding: 3px 2px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-pie-legend button:hover,
+.portfolio-multi-pie-legend button:focus-visible,
+.portfolio-multi-pie-legend button.is-selected {
+  color: var(--color-text);
+  outline: none;
+}
+
+.portfolio-multi-pie-legend button.is-selected {
+  box-shadow: inset 0 -1px 0 var(--coinbase-primary);
+}
+
+.portfolio-multi-pie-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  filter: brightness(0.94) saturate(0.88);
+}
+
+.portfolio-multi-pie-legend button:hover i,
+.portfolio-multi-pie-legend button:focus-visible i,
+.portfolio-multi-pie-legend button.is-selected i {
+  filter: none;
+}
+
+.portfolio-multi-pie-legend span,
+.portfolio-multi-pie-legend strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-pie-legend strong {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-exploded-pie-caption > .portfolio-multi-pie-prompt {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-page-arrow:hover:not(:disabled),
+.portfolio-multi-page-arrow:focus-visible {
+  color: var(--coinbase-primary);
+  outline: 1px solid var(--coinbase-primary);
+  outline-offset: -1px;
+}
+
 /* Local dark-theme compatibility for the restored dev portfolio panels. */
 .portfolio-dashboard-panel {
   --portfolio-coinbase-blue: var(--coinbase-primary);
@@ -15480,14 +15860,15 @@ textarea:focus,
 
 /* Personal portfolio heatmap: one panel, two data meanings. */
 .workspace-panel-frame[data-panel-kind="portfolioHeatmap"] {
-  background: #242525;
+  --panel-black: #272727;
+  background: var(--panel-black);
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 .workspace-panel-frame[data-panel-kind="portfolioHeatmap"] > .workspace-panel-body {
-  background: #242525;
+  background: var(--panel-black);
 }
 
 .portfolio-personal-heatmap-panel {
@@ -15504,7 +15885,7 @@ textarea:focus,
   overflow: hidden;
   border: 0;
   border-radius: inherit;
-  background: #242525;
+  background: var(--panel-black);
   color: #f7f7f5;
 }
 
@@ -15870,6 +16251,12 @@ textarea:focus,
   scrollbar-gutter: auto;
 }
 
+.company-single-panel .company-single-fundamental-section,
+.company-multi-panel .company-single-fundamental-section {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
 .company-single-panel .company-chart-column,
 .company-multi-panel .company-chart-column {
   flex: 1 1 auto;
@@ -15881,26 +16268,28 @@ textarea:focus,
 }
 
 .company-single-panel.is-valuation .company-valuation-column {
-  display: grid;
-  grid-template-rows: auto minmax(210px, 1fr);
-  align-content: stretch;
-}
-
-.company-single-panel.is-valuation .company-valuation-gauge-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.company-single-panel.is-valuation .company-valuation-gauge {
-  min-height: 96px;
+  display: block;
 }
 
 .company-single-panel.is-valuation .company-earnings-panel {
-  min-height: 210px;
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+  min-height: 300px;
+  align-content: stretch;
 }
 
-.company-single-panel.is-profitability .company-financial-chart-card,
-.company-single-panel.is-stability .company-financial-chart-card {
-  grid-template-rows: auto minmax(190px, 1fr) auto minmax(0, auto);
+.company-single-panel.is-valuation .company-earnings-history-card {
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.company-single-panel.is-valuation .company-earnings-plot {
+  height: 100%;
+  min-height: 240px;
+}
+
+.company-single-panel.is-profitability .company-financial-overview-page,
+.company-single-panel.is-stability .company-financial-overview-page {
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .company-multi-panel .company-info-grid {
@@ -15938,31 +16327,30 @@ textarea:focus,
 @container (max-width: 760px) {
   .company-single-panel .company-info-grid,
   .company-multi-panel .company-info-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .company-single-panel .company-info-cell:nth-child(n),
   .company-multi-panel .company-info-cell:nth-child(n) {
     border-top: 1px solid var(--coinbase-hairline-soft);
-    border-right: 1px solid var(--coinbase-hairline-soft);
-  }
-
-  .company-single-panel .company-info-cell:nth-child(-n + 2),
-  .company-multi-panel .company-info-cell:nth-child(-n + 2) {
-    border-top: 0;
-  }
-
-  .company-single-panel .company-info-cell:nth-child(2n),
-  .company-multi-panel .company-info-cell:nth-child(2n) {
     border-right: 0;
   }
 
-  .company-single-panel.is-valuation .company-valuation-gauge-grid {
-    gap: 7px;
+  .company-single-panel .company-info-cell:first-child,
+  .company-multi-panel .company-info-cell:first-child {
+    border-top: 0;
   }
 
-  .company-single-panel.is-valuation .company-valuation-gauge {
-    padding: 9px;
+  .company-single-panel .company-info-cell,
+  .company-multi-panel .company-info-cell {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    gap: 4px;
+  }
+
+  .company-single-panel .company-summary-value,
+  .company-multi-panel .company-summary-value {
+    text-align: left;
   }
 }
 
@@ -15984,9 +16372,6 @@ textarea:focus,
     padding-bottom: 0;
   }
 
-  .company-earnings-summary {
-    grid-template-columns: 1fr;
-  }
 }
 
 @container (max-width: 480px) {
@@ -16003,10 +16388,6 @@ textarea:focus,
   .company-single-panel .company-info-cell:nth-child(n + 2),
   .company-multi-panel .company-info-cell:nth-child(n + 2) {
     border-top: 1px solid var(--coinbase-hairline-soft);
-  }
-
-  .company-single-panel.is-valuation .company-valuation-gauge-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .company-multi-tabs button {
@@ -16026,17 +16407,13 @@ textarea:focus,
 
 @container (max-height: 360px) {
   .company-single-panel.is-valuation .company-valuation-column {
-    grid-template-rows: auto;
+    display: block;
   }
 
   .company-single-panel.is-valuation .company-earnings-panel {
     min-height: 180px;
   }
 
-  .company-single-panel.is-profitability .company-financial-chart-card,
-  .company-single-panel.is-stability .company-financial-chart-card {
-    grid-template-rows: auto 176px auto auto;
-  }
 }
 
 /* Portfolio summary: one quiet surface, navigated only with the side arrows. */
@@ -16314,4 +16691,248 @@ textarea:focus,
     gap: 9px;
   }
 
+}
+
+/* Keep the portfolio panels on the design-system contract after legacy
+   compatibility rules above have participated in the cascade. */
+.portfolio-multi-panel,
+.portfolio-holdings-split-panel.portfolio-dashboard-panel,
+.bottom-menu-panel.menu-II .portfolio-holdings-split-panel {
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  background: var(--app-panel-glass-background);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-table-scroll {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holdings-table-head {
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: var(--coinbase-canvas);
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row,
+.portfolio-holdings-split-panel .portfolio-holding-row:nth-child(odd) {
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-holdings-split-panel .portfolio-holding-row:nth-child(odd),
+.portfolio-holdings-split-panel .portfolio-holding-row:hover,
+.portfolio-holdings-split-panel .portfolio-holding-row:focus-visible {
+  background: var(--coinbase-canvas);
+}
+
+.portfolio-multi-page,
+.portfolio-multi-summary-page {
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+  background: transparent;
+}
+
+.portfolio-multi-summary-page {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.portfolio-multi-summary-hero,
+.portfolio-multi-asset-visual,
+.portfolio-multi-asset-list {
+  background: transparent;
+  box-shadow: none;
+}
+
+.portfolio-multi-summary-hero {
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-hero > em,
+.portfolio-multi-summary-hero > div > span > small {
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-summary-hero > div > strong {
+  text-transform: var(--type-title-lg-text-transform);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  font: var(--type-title-lg);
+}
+
+.portfolio-multi-summary-hero > div > span {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-asset-visual {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-asset-list {
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-asset-row > span {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-asset-row > strong {
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-page-arrow {
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  background: var(--coinbase-canvas);
+  color: var(--color-muted);
+  box-shadow: none;
+}
+
+/* Dual Portfolio page hierarchy: the balance is the primary read, while the
+   invested view follows the full-panel financial chart treatment. */
+.portfolio-multi-summary-hero > em {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-summary-hero > div > strong {
+  text-transform: var(--type-display-xl-text-transform);
+  letter-spacing: var(--type-display-xl-letter-spacing);
+  font: var(--type-display-xl);
+}
+
+.portfolio-multi-summary-hero > div > span {
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+}
+
+.portfolio-multi-asset-row > span {
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+}
+
+.portfolio-multi-asset-row > strong {
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.portfolio-multi-flow-focus.is-invested {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 0;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  align-items: baseline;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-metrics span {
+  display: inline-flex;
+  width: auto;
+  align-items: baseline;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-metrics em {
+  font: var(--type-caption);
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-metrics strong {
+  font: var(--type-title-sm);
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart svg {
+  min-height: 0;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart .grid {
+  stroke: rgb(var(--gops-ink-rgb) / 0.08);
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart .bar {
+  fill: var(--company-positive-soft);
+  opacity: 0.42;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart .bar.is-current {
+  fill: var(--company-positive-strong);
+  opacity: 0.92;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart .line {
+  stroke: var(--company-brass);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart .point {
+  fill: var(--color-surface);
+  stroke: var(--company-brass);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.portfolio-multi-flow-focus.is-invested .portfolio-multi-flow-chart text {
+  fill: var(--color-muted);
+}
+
+/* Match the recommendation panel's white/black segmented pill. */
+.portfolio-multi-panel .portfolio-multi-flow-switch {
+  display: inline-flex;
+  min-width: 0;
+  gap: 2px;
+  border: 0;
+  border-radius: 999px;
+  padding: 2px;
+  background: #fff;
+}
+
+.portfolio-multi-panel .portfolio-multi-flow-switch button {
+  min-width: 50px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: transparent;
+  color: #6f6f6f;
+  box-shadow: none;
+}
+
+.portfolio-multi-panel .portfolio-multi-flow-switch button.active {
+  background: #0a0a0a;
+  color: #fff;
+  box-shadow: none;
 }

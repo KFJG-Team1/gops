@@ -20,7 +20,6 @@ export type AgentLayoutPanelType =
   | "ontologyGraph"
   | "portfolioDashboard"
   | "portfolioHoldings"
-  | "portfolioHoldingsCards"
   | "portfolioHoldingsFlatCards"
   | "portfolioMulti"
   | "portfolioInvestment"
