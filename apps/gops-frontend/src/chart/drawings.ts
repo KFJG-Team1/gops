@@ -43,19 +43,19 @@ export type DrawingDrag = {
 };
 
 export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; label: string }> = [
-  { mode: "select", label: "Select" },
-  { mode: "pan", label: "Pan" },
-  { mode: "draw-horizontalLine", type: "horizontalLine", label: "H-Line" },
-  { mode: "draw-horizontalParallelLines", type: "horizontalParallelLines", label: "Price Parallel" },
-  { mode: "draw-verticalMarker", type: "verticalMarker", label: "Marker" },
-  { mode: "draw-verticalParallelLines", type: "verticalParallelLines", label: "Time Parallel" },
-  { mode: "draw-trendLine", type: "trendLine", label: "Trend" },
-  { mode: "draw-trendParallelLines", type: "trendParallelLines", label: "Trend Parallel" },
-  { mode: "draw-textLabel", type: "textLabel", label: "Text" },
-  { mode: "draw-flagMarker", type: "flagMarker", label: "Flag" },
-  { mode: "draw-rangeBox", type: "rangeBox", label: "Range" },
-  { mode: "draw-riskRewardBox", type: "riskRewardBox", label: "Risk/Reward" },
-  { mode: "draw-fibonacciRetracement", type: "fibonacciRetracement", label: "Fibonacci" }
+  { mode: "select", label: "그리기 선택" },
+  { mode: "pan", label: "차트 이동" },
+  { mode: "draw-horizontalLine", type: "horizontalLine", label: "수평선" },
+  { mode: "draw-horizontalParallelLines", type: "horizontalParallelLines", label: "가격 평행선" },
+  { mode: "draw-verticalMarker", type: "verticalMarker", label: "시간 마커" },
+  { mode: "draw-verticalParallelLines", type: "verticalParallelLines", label: "시간 평행선" },
+  { mode: "draw-trendLine", type: "trendLine", label: "추세선" },
+  { mode: "draw-trendParallelLines", type: "trendParallelLines", label: "추세 평행선" },
+  { mode: "draw-textLabel", type: "textLabel", label: "텍스트" },
+  { mode: "draw-flagMarker", type: "flagMarker", label: "플래그 마커" },
+  { mode: "draw-rangeBox", type: "rangeBox", label: "범위 박스" },
+  { mode: "draw-riskRewardBox", type: "riskRewardBox", label: "손익비 박스" },
+  { mode: "draw-fibonacciRetracement", type: "fibonacciRetracement", label: "피보나치 되돌림" }
 ];
 
 export function drawingTypeFromToolMode(mode: ChartToolMode): DrawingType | null {

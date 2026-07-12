@@ -76,12 +76,16 @@ test("partial retry locks zoom and keeps the latest quarter gap", async ({ page 
 test("fixed and optional derived layers preserve chart geometry", async ({ page }) => {
   await openFixtureLayout(page, chartOnlyLayout());
   await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
-  await page.getByTitle("EMA 20").click({ force: true });
-  await page.getByTitle("Volume Profile").click({ force: true });
-  await page.getByTitle("RSI 14").click({ force: true });
-  await page.getByRole("toolbar", { name: "Chart add tools" }).getByLabel("차트 추가 도구 닫기").evaluate((element) => {
+  const addMenu = page.getByRole("menu", { name: "차트 추가 도구" });
+  await page.getByRole("menuitemcheckbox", { name: "20기간 지수 이동평균선" }).click({ force: true });
+  await expect(addMenu).toBeVisible();
+  await page.getByRole("menuitemcheckbox", { name: "거래량 프로파일" }).click({ force: true });
+  await page.getByRole("menuitemcheckbox", { name: "거래량 막대 차트" }).click({ force: true });
+  await page.getByRole("menuitemcheckbox", { name: "상대강도지수 (14)" }).click({ force: true });
+  await addMenu.getByLabel("차트 추가 도구 닫기").evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
+  await expect(addMenu).toBeHidden();
   const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expect(panel).toHaveScreenshot("chart-derived-layers.png");
@@ -98,7 +102,7 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
 
   await openFixtureLayout(page, chartOnlyLayout());
   await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
-  await page.getByTitle("SMA 120").click({ force: true });
+  await page.getByRole("menuitemcheckbox", { name: "120기간 단순 이동평균선" }).click({ force: true });
 
   await expect.poll(() => requestedLayers.some((layers) => layers.split(",").includes("sma:120"))).toBe(true);
   await expectNonBlankCanvas(page.locator(".chart-canvas"));

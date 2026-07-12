@@ -17,6 +17,24 @@ import {
 } from "./semanticTimeline";
 
 const volumeScalePadding = 1.18;
+const fourDigitPriceAxisWidth = 68;
+const fourDigitPriceLabelLength = "1356.22".length;
+const priceAxisLabelContentWidth = 60;
+
+export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  const fractionDigits = Math.max(2, Math.min(8, Math.round(decimalPlaces)));
+  return value.toFixed(fractionDigits);
+}
+
+export function priceAxisLabelWidth(label: string, showClock = false): number {
+  const priceWidth = priceAxisLabelContentWidth
+    + Math.max(0, label.length - fourDigitPriceLabelLength) * 6;
+  const clockWidth = showClock ? priceAxisLabelContentWidth : 0;
+  return Math.max(priceAxisLabelContentWidth, priceWidth, clockWidth);
+}
 
 // The price axis is sized to the widest expected tick label so the plot can extend as close
 // to the numbers as possible without overlapping them. Labels are right-aligned 8px from the
@@ -34,14 +52,36 @@ function priceAxisWidthForChart(chart: ChartState): number {
   if (maxPrice <= 0) {
     maxPrice = chart.candles[chart.candles.length - 1]?.close ?? 0;
   }
-  // Inflate slightly so a top tick that rounds up to an extra digit (e.g. 995 -> 1,000)
-  // still fits without overlapping the plot.
-  const label = chart.chartType === "bidask"
-    ? (maxPrice * 1.006).toFixed(2)
-    : Math.round(maxPrice * 1.06).toLocaleString("en-US");
-  // ~5.9px per glyph at the 10px micro type token + 8px right margin + 5px breathing gap.
-  const estimated = 8 + label.length * 5.9 + 5;
-  return Math.round(Math.min(64, Math.max(32, estimated)));
+  // Inflate slightly so a top tick that rounds up to an extra digit still fits.
+  const decimalPlaces = chart.chartType === "bidask"
+    ? decimalPlacesForPriceStep(chart.orderFlow?.priceBinSize ?? 0.01)
+    : 2;
+  const tickLabel = formatPriceAxisValue(maxPrice * (chart.chartType === "bidask" ? 1.006 : 1.06), decimalPlaces);
+  const latest = chart.candles[chart.candles.length - 1];
+  const livePrice = chart.streamState === "live" && Number.isFinite(chart.liveTrade?.price)
+    ? chart.liveTrade?.price
+    : undefined;
+  const currentPrice = livePrice ?? latest?.close;
+  const currentPriceLabel = typeof currentPrice === "number" && Number.isFinite(currentPrice)
+    ? formatPriceAxisValue(currentPrice, decimalPlaces)
+    : "0.00";
+  const showsClock = chart.streamState === "live"
+    && latest?.isClosed === false
+    && (chart.interval === "1m" || chart.interval === "5m" || chart.interval === "10m" || chart.interval === "1h" || chart.interval === "4h");
+  const widestLabelWidth = Math.max(
+    priceAxisLabelWidth(tickLabel),
+    priceAxisLabelWidth(currentPriceLabel, showsClock)
+  );
+  return Math.round(Math.min(146, Math.max(fourDigitPriceAxisWidth, widestLabelWidth + 8)));
+}
+
+function decimalPlacesForPriceStep(step: number): number {
+  for (let places = 0; places <= 8; places += 1) {
+    if (Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-8) {
+      return places;
+    }
+  }
+  return 8;
 }
 
 export type ChartPlot = {

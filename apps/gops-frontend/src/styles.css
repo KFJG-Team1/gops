@@ -1650,6 +1650,17 @@ h2 {
   transform: translateY(0);
 }
 
+.toolbar.has-open-chart-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.toolbar.has-open-chart-menu .toolbar-row > * {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .toolbar-row {
   display: flex;
   align-items: center;
@@ -8791,7 +8802,8 @@ h2 {
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search {
   position: relative;
-  width: 148px;
+  width: 100%;
+  max-width: 100%;
   height: 26px;
   border-radius: 0;
   background: none;
@@ -8832,20 +8844,6 @@ h2 {
   height: 14px;
 }
 
-.chart-instance-sync-page {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--color-text);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, background 120ms ease;
-}
-
 .workspace-panel-frame.is-chart-hovered .chart-instance.is-editable-chart .chart-instance-symbol-search button,
 .chart-instance.is-editable-chart .chart-instance-symbol-search:focus-within button,
 .chart-instance.is-editable-chart .chart-instance-symbol-search.is-active button {
@@ -8857,17 +8855,6 @@ h2 {
 .chart-instance.is-editable-chart .chart-instance-symbol-search:focus-within::after,
 .chart-instance.is-editable-chart .chart-instance-symbol-search.is-active::after {
   opacity: 1;
-}
-
-.workspace-panel-frame.is-chart-hovered .chart-instance-sync-page,
-.chart-instance-symbol-controls:focus-within .chart-instance-sync-page,
-.chart-instance-sync-page:focus-visible {
-  opacity: 0.9;
-  pointer-events: auto;
-}
-
-.chart-instance-sync-page:hover {
-  background: var(--color-surface-strong);
 }
 
 .workspace-panel-frame.is-chart-hovered .chart-instance-select,
@@ -8901,10 +8888,6 @@ h2 {
     max-width: 150px;
   }
 
-  .chart-instance-sync-page {
-    width: 22px;
-  }
-
   .chart-instance-chart-type {
     width: 64px;
   }
@@ -8914,15 +8897,7 @@ h2 {
   }
 }
 
-/* As the panel narrows, drop controls in order of least importance and pull the
-   remaining ones together, reclaiming that width for the symbol search. */
 @container (max-width: 500px) {
-  /* 1) Hide the chart/company toggle first — but only in chart mode. The company
-     view keeps its toggle (.chart-company-toolbar) so there is always a way back. */
-  .chart-panel .chart-content-toggle {
-    display: none;
-  }
-
   .chart-instance-symbol {
     flex-basis: 116px;
     min-width: 70px;
@@ -8931,11 +8906,6 @@ h2 {
 }
 
 @container (max-width: 430px) {
-  /* 2) Then hide the candle/bar/line chart-type selector. */
-  .chart-instance-chart-type {
-    display: none;
-  }
-
   .chart-instance-symbol {
     flex-basis: 98px;
     min-width: 62px;
@@ -8944,14 +8914,31 @@ h2 {
 }
 
 @container (max-width: 360px) {
+  .chart-panel-navigation,
+  .chart-panel-navigation-leading,
+  .chart-panel-navigation-actions,
+  .chart-instance-view-controls {
+    gap: 3px;
+  }
+
   .chart-instance-symbol {
-    flex-basis: 82px;
+    flex-basis: 54px;
+    width: 54px;
     min-width: 54px;
-    max-width: 92px;
+    max-width: 54px;
+  }
+
+  .chart-instance-chart-type {
+    width: 48px;
   }
 
   .chart-instance-interval {
-    width: 52px;
+    width: 44px;
+  }
+
+  .chart-panel-navigation-actions .icon-button {
+    width: 24px;
+    min-width: 24px;
   }
 }
 
@@ -8979,19 +8966,7 @@ h2 {
 }
 
 .chart-drawing-dock {
-  position: fixed;
-  right: 50%;
-  bottom: var(--tool-dock-bottom);
-  z-index: 42;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: min(820px, calc(100vw - 28px));
-  padding: 5px 7px;
-  background: transparent;
   box-shadow: none;
-  transform: translateX(50%);
-  overflow-x: auto;
 }
 
 .chart-tool-dock-row {
@@ -10264,7 +10239,6 @@ h2 {
 .icon-button,
 .panel-icon-button,
 .panel-edit-button,
-.chart-instance-sync-page,
 .chart-content-toggle,
 .chart-compare-range-tabs button,
 .stock-rec-session-toggle button,

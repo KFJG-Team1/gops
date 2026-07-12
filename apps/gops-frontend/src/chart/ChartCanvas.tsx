@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -977,7 +977,7 @@ function drawVolume(context: CanvasRenderingContext2D, scene: ChartScene) {
     const hovered = scene.hoveredNodeId === unit.id;
     context.save();
     const bodyWidth = candleBodyWidth(scene, unit, hovered);
-    context.fillStyle = colors.volume;
+    context.fillStyle = candleStrokeColor(candle.close >= candle.open);
     context.fillRect(
       unitCenterX(scene, unit) - bodyWidth / 2,
       y,
@@ -2402,16 +2402,6 @@ function formatCompactVolumeNumber(value: number): string {
   return value.toFixed(fractionDigits).replace(/\.0$/, "");
 }
 
-function formatPriceAxisValue(value: number, decimalPlaces = 0): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: decimalPlaces,
-    maximumFractionDigits: decimalPlaces
-  });
-}
-
 function hasVolumePane(scene: ChartScene): boolean {
   return Boolean(scene.chart.layers.volume) && Boolean(paneById(scene, "volume"));
 }
@@ -2667,7 +2657,7 @@ function fillDrawingPolygon(context: CanvasRenderingContext2D, polygon: Array<{ 
 }
 
 function horizontalGuideRight(scene: ChartScene): number {
-  return Math.max(scene.plot.right, scene.width - 52);
+  return scene.plot.right;
 }
 
 function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScene, active: boolean) {

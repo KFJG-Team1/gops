@@ -181,7 +181,9 @@ function drawVolume(ctx: CanvasRenderingContext2D, scene: RenderScene) {
     const height = Math.max(1, (candle.volume / scene.scales.maxVolume) * volumeHeight);
     const y = scene.plot.bottom - height;
 
-    ctx.fillStyle = scene.document.style.volume;
+    ctx.fillStyle = candle.close >= candle.open
+      ? scene.document.style.bullish
+      : scene.document.style.bearish;
     ctx.fillRect(x - scene.scales.candleWidth / 2, y, scene.scales.candleWidth, height);
   });
 }

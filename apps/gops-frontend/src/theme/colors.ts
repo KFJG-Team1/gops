@@ -10,8 +10,10 @@ export type ThemeColorToken =
   | "shadow"
   | "up"
   | "upSoft"
+  | "bullish"
   | "down"
   | "downSoft"
+  | "bearish"
   | "changeUp"
   | "changeDown"
   | "ma5"
@@ -46,8 +48,10 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   shadow: "--color-shadow",
   up: "--color-up",
   upSoft: "--color-up-soft",
+  bullish: "--color-bullish",
   down: "--color-down",
   downSoft: "--color-down-soft",
+  bearish: "--color-bearish",
   changeUp: "--color-change-up",
   changeDown: "--color-change-down",
   ma5: "--color-ma5",
