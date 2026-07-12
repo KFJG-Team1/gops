@@ -87,6 +87,23 @@ test("fixed and optional derived layers preserve chart geometry", async ({ page 
   await expect(panel).toHaveScreenshot("chart-derived-layers.png");
 });
 
+test("SMA120 overlay requests derived points and remains renderable", async ({ page }) => {
+  const requestedLayers: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/charts/indicators") {
+      requestedLayers.push(url.searchParams.get("layers") ?? "");
+    }
+  });
+
+  await openFixtureLayout(page, chartOnlyLayout());
+  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await page.getByTitle("SMA 120").click({ force: true });
+
+  await expect.poll(() => requestedLayers.some((layers) => layers.split(",").includes("sma:120"))).toBe(true);
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+});
+
 test("bidask wheel zoom keeps one visual grammar and skips viewport history", async ({ page }) => {
   alignBidAskFixtures = true;
   await openFixtureLayout(page, chartOnlyLayout());

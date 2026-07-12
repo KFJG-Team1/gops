@@ -85,6 +85,16 @@ export const chartLayerMetadata: Record<ChartLayerKey, ChartLayerMetadata> = {
     placement: "overlay",
     supportedPlacements: ["overlay"]
   },
+  "sma:120": {
+    id: "sma:120",
+    kind: "price-overlay",
+    label: "SMA 120",
+    paneId: "price",
+    source: "derived",
+    params: { period: 120 },
+    placement: "overlay",
+    supportedPlacements: ["overlay"]
+  },
   "ema:20": {
     id: "ema:20",
     kind: "price-overlay",

@@ -70,6 +70,7 @@ const indicatorLayers: ChartLayerKey[] = [
   "sma:5",
   "sma:20",
   "sma:60",
+  "sma:120",
   "ema:20",
   "wma:20",
   "bollinger:20:2",
@@ -371,6 +372,12 @@ function extractLayer(query: string): ChartLayerKey | null {
   }
   if (ma?.[1] === "60") {
     return "sma:60";
+  }
+  if (ma?.[1] === "120") {
+    return "sma:120";
+  }
+  if (/(?:^|\s)120\s*일선(?:\s|$)/.test(query)) {
+    return "sma:120";
   }
   return null;
 }
