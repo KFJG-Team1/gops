@@ -603,14 +603,20 @@ async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promis
       return 0;
     }
     const pixels = context.getImageData(0, 0, target.width, target.height).data;
-    let colored = 0;
-    for (let index = 3; index < pixels.length; index += 16) {
-      if (pixels[index] > 0) {
-        colored += 1;
+    let semanticDataPixels = 0;
+    for (let index = 0; index < pixels.length; index += 16) {
+      const red = pixels[index];
+      const green = pixels[index + 1];
+      const blue = pixels[index + 2];
+      const alpha = pixels[index + 3];
+      const isUp = alpha > 0 && green > 100 && green > red + 30 && green > blue + 20;
+      const isDown = alpha > 0 && red > 150 && red > green + 40 && red > blue + 30;
+      if (isUp || isDown) {
+        semanticDataPixels += 1;
       }
     }
-    return colored;
-  })).toBeGreaterThan(100);
+    return semanticDataPixels;
+  })).toBeGreaterThan(50);
 }
 
 async function expectLatestQuarterGap(chartPanel: Locator): Promise<void> {
