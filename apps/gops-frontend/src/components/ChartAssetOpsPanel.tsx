@@ -9,7 +9,7 @@ import {
   type ChartAssetBuildStatus,
   type ChartAssetCoverageItem
 } from "../chart/assetBuildApi";
-import { analysisAssetPresentationDiagnostics } from "../chart/analysisAssetPresentation";
+import { analysisAssetPresentationDiagnostics, detectedPatternSummary } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   invalidateAnalysisAssets,
@@ -20,7 +20,7 @@ import {
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1D", "1W", "1M"];
+const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
 
 export function ChartAssetOpsPanel({
   currentSymbol,
@@ -170,6 +170,7 @@ export function ChartAssetOpsPanel({
   const currentDiagnostics = currentAsset
     ? analysisAssetPresentationDiagnostics(currentAsset, currentCandles, currentDrawingIds)
     : null;
+  const currentPattern = detectedPatternSummary(currentAsset);
 
   const runBuild = async (retrySymbols?: string[]) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
@@ -279,12 +280,15 @@ export function ChartAssetOpsPanel({
           <>
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
             <p>판정 {currentDiagnostics.state}</p>
+            {currentPattern && (
+              <p>감지 패턴 {patternKindLabel(currentPattern.kind)} · {currentPattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
+            )}
             {Object.keys(currentDiagnostics.rejectionReasons).length > 0 && (
               <p>제외 사유 {Object.entries(currentDiagnostics.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>
             )}
           </>
         ) : (
-          <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 저장 자산이 없습니다." : "일/주/월봉에서 진단할 수 있습니다."}</p>
+          <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 저장 자산이 없습니다." : "지원하지 않는 차트 주기입니다."}</p>
         )}
       </section>
 
@@ -331,5 +335,15 @@ function coverageStatus(item: ChartAssetCoverageItem): string {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1D" || interval === "1W" || interval === "1M";
+  return allIntervals.includes(interval as AnalysisAssetInterval);
+}
+
+function patternKindLabel(kind: string): string {
+  return {
+    ascending_triangle: "상승 삼각형",
+    descending_triangle: "하락 삼각형",
+    symmetrical_triangle: "대칭 삼각형",
+    bullish_flag: "상승 깃발",
+    bearish_flag: "하락 깃발"
+  }[kind] ?? kind;
 }

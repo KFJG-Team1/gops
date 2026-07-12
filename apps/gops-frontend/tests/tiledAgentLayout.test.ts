@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import type { AgentLayoutProposal } from "../src/layout/agentLayoutTypes";
-import { agentLayoutApplySucceeded, applyTiledAgentLayoutProposalWithResult } from "../src/layout/tiledAgentLayout";
+import {
+  agentLayoutApplySucceeded,
+  applyTiledAgentLayoutProposalWithResult,
+  buildTiledAgentLayoutContext
+} from "../src/layout/tiledAgentLayout";
 import type { PanelGridRect, TiledPanelState } from "../src/layout/panelLayout";
 
 const viewport = { width: 1440, height: 900 };
+const popularStocksCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "popularStocks");
+assert.deepEqual(popularStocksCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 2 });
+assert.deepEqual(popularStocksCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 2 });
+
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },
   { col: 5, row: 1, colSpan: 2, rowSpan: 2 }

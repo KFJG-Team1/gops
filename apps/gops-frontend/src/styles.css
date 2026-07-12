@@ -15,6 +15,9 @@
   --type-title-lg: 400 24px/1.35 var(--font-data-sans);
   --type-title-lg-letter-spacing: 0.12px;
   --type-title-lg-text-transform: none;
+  --type-instrument-name: 700 24px/1.2 var(--font-data-sans);
+  --type-instrument-name-letter-spacing: 0;
+  --type-instrument-name-text-transform: none;
   --type-title-md: 400 20px/1.5 var(--font-data-sans);
   --type-title-md-letter-spacing: 0;
   --type-title-md-text-transform: none;
@@ -3661,6 +3664,14 @@ h2 {
   container-type: size;
 }
 
+.company-info-section,
+.company-info-section *,
+.stock-recommendations-panel,
+.stock-recommendations-panel * {
+  font-family: var(--font-data-sans);
+  font-synthesis: none;
+}
+
 .company-info-backdrop {
   position: absolute;
   z-index: 0;
@@ -3681,11 +3692,13 @@ h2 {
 }
 
 .company-info-backdrop img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 28%;
-  transform: scale(1.02);
+  align-self: start;
+  width: clamp(120px, 36cqw, 260px);
+  height: clamp(88px, 30cqh, 180px);
+  margin-top: clamp(14px, 4cqh, 34px);
+  object-fit: contain;
+  object-position: center;
+  transform: none;
   filter: saturate(1.08) contrast(1.03);
 }
 
@@ -3701,6 +3714,8 @@ h2 {
 }
 
 .company-info-sheet {
+  --company-tab-end: calc(var(--panel-gap) + var(--company-tab-text-width, 12ch) + (var(--panel-padding) * 3));
+  --company-diagonal-width: clamp(40px, 8cqw, 84px);
   position: relative;
   z-index: 1;
   display: flex;
@@ -3711,8 +3726,15 @@ h2 {
   gap: 0;
   margin: 0;
   padding: 42cqh var(--panel-gap) var(--panel-gap);
-  background: var(--coinbase-surface-dark);
-  clip-path: polygon(0 28%, 38% 28%, 55% 39%, 100% 39%, 100% 100%, 0 100%);
+  background: #0a0a0a;
+  clip-path: polygon(
+    0 28%,
+    var(--company-tab-end) 28%,
+    calc(var(--company-tab-end) + var(--company-diagonal-width)) 39%,
+    100% 39%,
+    100% 100%,
+    0 100%
+  );
 }
 
 .company-info-sheet .company-info-grid {
@@ -3724,24 +3746,33 @@ h2 {
 .company-info-tab-title {
   position: absolute;
   z-index: 2;
-  top: 31%;
+  top: 28%;
   left: var(--panel-gap);
   right: auto;
-  display: block;
-  width: calc(55% - (var(--panel-gap) * 2));
-  max-width: calc(55% - (var(--panel-gap) * 2));
+  display: inline-flex;
+  box-sizing: border-box;
+  width: var(--company-tab-text-width, 12ch);
+  min-height: 11%;
+  max-width: calc(100% - (var(--panel-gap) * 2) - clamp(28px, 7cqw, 60px));
+  flex-direction: column;
+  justify-content: center;
   margin: 0;
-  overflow: visible;
-  color: var(--coinbase-ink);
-  font-size: clamp(22px, 4.2cqw, 44px);
-  font-weight: 760;
-  line-height: 1.1;
+  padding: 0 var(--panel-padding) 0 0;
+  background: transparent;
+  color: #fff;
+  text-transform: var(--type-instrument-name-text-transform);
+  letter-spacing: var(--type-instrument-name-letter-spacing);
+  font: var(--type-instrument-name);
   text-overflow: clip;
   text-wrap: wrap;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: normal;
   pointer-events: none;
+}
+
+.company-info-tab-title::after {
+  content: none;
 }
 
 .company-info-tab-title > span {
@@ -3752,9 +3783,7 @@ h2 {
 
 @container (max-height: 260px) {
   .company-info-tab-title {
-    top: 30%;
-    font-size: clamp(20px, 4cqw, 28px);
-    line-height: 1.04;
+    top: 28%;
   }
 }
 
@@ -3840,12 +3869,12 @@ h2 {
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);
   font: var(--type-caption);
-  color: rgb(255 255 255 / 0.52);
+  color: #fff;
 }
 
 .company-summary-value {
   overflow: visible;
-  color: #f5f7fa;
+  color: #fff;
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
@@ -3875,6 +3904,33 @@ h2 {
 
 .company-summary-change.down,
 .company-summary-value.down {
+  color: var(--color-change-down);
+}
+
+.company-info-sheet .company-info-heading,
+.company-info-sheet .company-info-grid,
+.company-info-sheet .company-info-cell {
+  border: 0;
+  border-color: rgb(255 255 255 / 0.12);
+  background: #0a0a0a;
+  color: #fff;
+}
+
+.company-info-sheet .company-info-heading {
+  border-bottom: 0;
+}
+
+.company-info-sheet .company-info-cell dt,
+.company-info-sheet .company-summary-change,
+.company-info-sheet .company-summary-value {
+  color: #fff;
+}
+
+.company-info-sheet .company-summary-value.up {
+  color: var(--color-change-up);
+}
+
+.company-info-sheet .company-summary-value.down {
   color: var(--color-change-down);
 }
 
@@ -5598,6 +5654,12 @@ h2 {
 }
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-row {
+  --stock-rec-tab-logo-size: clamp(28px, 12cqw, 40px);
+  --stock-rec-tab-height: max(40px, 14cqh);
+  --stock-rec-tab-end: calc(
+    var(--panel-gap) + var(--stock-rec-tab-logo-size) + (var(--panel-padding) * 4) + var(--stock-rec-tab-text-width, 4ch)
+  );
+  --stock-rec-diagonal-width: clamp(32px, 7cqw, 60px);
   position: absolute;
   top: var(--stock-rec-stack-top, 0px);
   right: 0;
@@ -5612,10 +5674,17 @@ h2 {
   overflow: hidden;
   border: 0;
   border-radius: var(--app-glass-radius);
-  padding: 22cqh var(--panel-gap) 52px;
+  padding: 18cqh var(--panel-gap) 52px;
   background: #fff;
   color: #0a0a0a;
-  clip-path: polygon(0 0, 38% 0, 55% 14%, 100% 14%, 100% 100%, 0 100%);
+  clip-path: polygon(
+    0 0,
+    var(--stock-rec-tab-end) 0,
+    calc(var(--stock-rec-tab-end) + var(--stock-rec-diagonal-width)) var(--stock-rec-tab-height),
+    100% var(--stock-rec-tab-height),
+    100% 100%,
+    0 100%
+  );
   transform-origin: center bottom;
   transition:
     top 520ms cubic-bezier(0.2, 0.72, 0.2, 1),
@@ -5668,25 +5737,31 @@ h2 {
 }
 
 .stock-rec-file-tab-label {
-  --stock-rec-tab-logo-size: clamp(28px, 12cqw, 40px);
   position: absolute;
   top: 0;
   left: 0;
   z-index: 2;
   display: inline-grid;
-  width: 55%;
+  width: fit-content;
   height: 14cqh;
   min-height: 40px;
+  max-width: calc(100% - clamp(28px, 7cqw, 60px));
   align-items: center;
   justify-items: start;
   box-sizing: border-box;
   overflow: visible;
+  padding-right: var(--panel-padding);
   padding-left: calc(var(--panel-gap) + var(--stock-rec-tab-logo-size) + var(--panel-padding));
+  background: transparent;
   isolation: isolate;
   color: #0a0a0a;
-  text-transform: var(--type-title-md-text-transform);
-  letter-spacing: var(--type-title-md-letter-spacing);
-  font: var(--type-title-md);
+  text-transform: var(--type-instrument-name-text-transform);
+  letter-spacing: var(--type-instrument-name-letter-spacing);
+  font: var(--type-instrument-name);
+}
+
+.stock-rec-file-tab-label::after {
+  content: none;
 }
 
 .stock-rec-file-tab-label strong {
@@ -5700,7 +5775,7 @@ h2 {
 .stock-rec-file-tab-logo {
   position: absolute;
   z-index: 0;
-  top: calc(50% + var(--panel-padding) / 2);
+  top: 50%;
   right: auto;
   bottom: auto;
   left: var(--panel-gap);
@@ -5782,9 +5857,9 @@ h2 {
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-symbol-line strong {
   color: #0a0a0a;
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
+  text-transform: var(--type-title-lg-text-transform);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  font: var(--type-title-lg);
 }
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-company-name,
@@ -15942,6 +16017,11 @@ textarea:focus,
   .company-multi-tabs span {
     display: none;
   }
+}
+
+.company-single-panel .company-info-sheet .company-info-cell:nth-child(n),
+.company-multi-panel .company-info-sheet .company-info-cell:nth-child(n) {
+  border: 0;
 }
 
 @container (max-height: 360px) {

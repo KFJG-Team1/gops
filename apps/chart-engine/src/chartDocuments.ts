@@ -29,6 +29,7 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       "sma:5": true,
       "sma:20": true,
       "sma:60": true,
+      "sma:120": false,
       "ema:20": false,
       "wma:20": false,
       "bollinger:20:2": false,

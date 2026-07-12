@@ -3,6 +3,7 @@ export const TYPE_ROLE = {
   displayLg: { size: 40, weight: 400, lineHeight: 1.2, letterSpacing: 0, textTransform: "none" },
   displayMd: { size: 32, weight: 400, lineHeight: 1.2, letterSpacing: 0, textTransform: "none" },
   titleLg: { size: 24, weight: 400, lineHeight: 1.35, letterSpacing: 0.12, textTransform: "none" },
+  instrumentName: { size: 24, weight: 700, lineHeight: 1.2, letterSpacing: 0, textTransform: "none" },
   titleMd: { size: 20, weight: 400, lineHeight: 1.5, letterSpacing: 0, textTransform: "none" },
   titleSm: { size: 18, weight: 500, lineHeight: 1.4, letterSpacing: 0, textTransform: "none" },
   labelMd: { size: 16, weight: 500, lineHeight: 1.4, letterSpacing: 0, textTransform: "none" },

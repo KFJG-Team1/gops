@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
 import { sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
@@ -317,6 +317,7 @@ function RecommendationRow({
       aria-label={active ? `${item.rank}위 ${item.symbol} 추천 차트 열기` : `${item.rank}위 ${item.symbol} 추천 보기`}
       tabIndex={active || className === "is-next" ? 0 : -1}
       onClick={onClick}
+      style={{ "--stock-rec-tab-text-width": `${Math.max(3, item.symbol.length)}ch` } as CSSProperties}
     >
       <span className="stock-rec-file-tab-label">
         <StockLogo symbol={item.symbol} companyName={companyName} size="lg" className="stock-rec-file-tab-logo" />

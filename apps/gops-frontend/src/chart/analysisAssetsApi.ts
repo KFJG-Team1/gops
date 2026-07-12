@@ -1,6 +1,6 @@
 import type { ChartLayerKey, DrawingEntity } from "./types";
 
-export type AnalysisAssetInterval = "1D" | "1W" | "1M";
+export type AnalysisAssetInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
 export type AnalysisAssetStatus = "ready" | "degraded";
 
 export type AnalysisAssetCommentary = {
@@ -146,6 +146,11 @@ export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: 
   return {
     symbol: asString(source.symbol)?.toUpperCase() ?? fallbackSymbol,
     assets: {
+      "1m": normalizeAsset(rawAssets["1m"], "1m"),
+      "5m": normalizeAsset(rawAssets["5m"], "5m"),
+      "10m": normalizeAsset(rawAssets["10m"], "10m"),
+      "1h": normalizeAsset(rawAssets["1h"], "1h"),
+      "4h": normalizeAsset(rawAssets["4h"], "4h"),
       "1D": normalizeAsset(rawAssets["1D"], "1D"),
       "1W": normalizeAsset(rawAssets["1W"], "1W"),
       "1M": normalizeAsset(rawAssets["1M"], "1M")

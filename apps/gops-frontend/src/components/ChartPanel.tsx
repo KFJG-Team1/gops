@@ -355,6 +355,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["sma:5"],
     chart.layers["sma:20"],
     chart.layers["sma:60"],
+    chart.layers["sma:120"],
     chart.layers["ema:20"],
     chart.layers["wma:20"],
     chart.layers["bollinger:20:2"],
@@ -2509,6 +2510,7 @@ const chartAddLayers: ChartAddLayerConfig[] = [
   { layer: "sma:5", label: "SMA 5", placement: "overlay", title: "SMA 5" },
   { layer: "sma:20", label: "SMA 20", placement: "overlay", title: "SMA 20" },
   { layer: "sma:60", label: "SMA 60", placement: "overlay", title: "SMA 60" },
+  { layer: "sma:120", label: "SMA 120", placement: "overlay", title: "SMA 120" },
   { layer: "ema:20", label: "EMA 20", placement: "overlay", title: "EMA 20" },
   { layer: "wma:20", label: "WMA 20", placement: "overlay", title: "WMA 20" },
   { layer: "bollinger:20:2", label: "Bollinger Bands", placement: "overlay", title: "Bollinger Bands 20,2" },
@@ -2526,6 +2528,7 @@ const chartLayerAccentByLayer: Partial<Record<ChartLayerKey, string>> = {
   "sma:5": "var(--color-ma5)",
   "sma:20": "var(--color-ma20)",
   "sma:60": "var(--color-ma60)",
+  "sma:120": "var(--color-purple)",
   "ema:20": "var(--color-signal)",
   "wma:20": "var(--color-caution)",
   "bollinger:20:2": "var(--color-purple)",
@@ -2616,6 +2619,8 @@ function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
       return <>MA20</>;
     case "sma:60":
       return <>MA60</>;
+    case "sma:120":
+      return <>MA120</>;
     case "ema:20":
       return <>EMA</>;
     case "wma:20":
@@ -2987,7 +2992,7 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1D" || interval === "1W" || interval === "1M";
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W" || interval === "1M";
 }
 
 function latestClosedTimestamp(candles: CandleDto[]): string | null {

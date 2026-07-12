@@ -238,6 +238,7 @@ function drawChart(
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "sma:120", Boolean(scene.chart.layers["sma:120"]), colors.purple)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),

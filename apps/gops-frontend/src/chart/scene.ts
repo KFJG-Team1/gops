@@ -616,6 +616,7 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), candleUnits))
     .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), candleUnits))
     .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), candleUnits))
+    .concat(indicatorDomainValues(chart, "sma:120", Boolean(chart.layers["sma:120"]), candleUnits))
     .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), candleUnits))
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))

@@ -12,6 +12,7 @@ import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src
 import {
   analysisAssetPresentationDiagnostics,
   candleKeyForTimestamp,
+  detectedPatternSummary,
   formatAnalysisAssetAsOf,
   isAnalysisAssetStale,
   resolveAnalysisAssetForCandles
@@ -55,7 +56,7 @@ const asset = {
   chartSetup: {
     alwaysOn: ["volume-profile", "volume"],
     recommended: [
-      { layer: "rsi:14", reason: "과매도", source: "rule" },
+      { layer: "sma:120", reason: "MA60/120 교차 확인", source: "rule" },
       { layer: "macd:12:26:9", reason: "교차", source: "rule" },
       { layer: "ema:20", reason: "방어적 초과 입력", source: "llm" }
     ]
@@ -78,6 +79,7 @@ assert.equal(candleKeyForTimestamp("2026-07-06T04:00:00.000Z", "1W"), "2026-07-0
 assert.equal(candleKeyForTimestamp("2026-07-06T00:00:00.000Z", "1W"), "2026-07-06");
 assert.equal(candleKeyForTimestamp("2026-07-01T04:00:00.000Z", "1M"), "2026-07");
 assert.equal(candleKeyForTimestamp("2026-07-01T00:00:00.000Z", "1M"), "2026-07");
+assert.equal(candleKeyForTimestamp("2026-07-10T13:35:00.000Z", "5m"), "2026-07-10T13:35:00.000Z");
 
 const v2TimedDrawing = {
   ...assetDrawing,
@@ -106,6 +108,31 @@ assert.equal(rejectedV2?.layers.agent.drawings.length, 0);
 assert.deepEqual(rejectedV2?.layers.agent.meta?.anchorResolutionErrors, [
   { drawingId: v2TimedDrawing.id, reason: "anchor_not_in_canonical_candles" }
 ]);
+
+const patternedAsset = {
+  ...v2Asset,
+  interval: "5m" as const,
+  layers: {
+    ...v2Asset.layers,
+    trend: {
+      drawings: [v2TimedDrawing, { ...v2TimedDrawing, id: "pattern-lower" }],
+      selected: [{
+        candidateId: "5m:pattern:ascending",
+        drawingIds: [v2TimedDrawing.id, "pattern-lower"],
+        patternKind: "ascending_triangle",
+        patternState: "forming",
+        quality: { score: .94 }
+      }],
+      emptyReason: null
+    }
+  }
+} satisfies ChartAnalysisAsset;
+assert.deepEqual(detectedPatternSummary(patternedAsset), {
+  kind: "ascending_triangle",
+  state: "forming",
+  score: .94,
+  drawingCount: 2
+});
 
 const aaplWeeklyDrawing = {
   ...v2TimedDrawing,
@@ -203,6 +230,8 @@ assert.match(opsSource, /작도 없음/);
 assert.match(opsSource, /addEventListener\("log"/);
 assert.match(opsSource, /createdEntities/);
 assert.match(opsSource, /현재 차트 적용/);
+assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"\]/);
+assert.match(opsSource, /감지 패턴/);
 assert.match(opsSource, /제외 사유/);
 assert.match(opsSource, /reasonCodes/);
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
@@ -223,6 +252,9 @@ const applyCommands = analysisAssetApplyCommands(target, [assetDrawing, userDraw
 assert.equal(applyCommands.filter((command) => command.type === "chart.drawing.remove").length, 1);
 assert.equal(applyCommands.every((command) => command.actor === "system" && command.historyScope === "external"), true);
 assert.equal(applyCommands.filter((command) => command.type === "chart.layer.visibility.set").length, 4);
+assert.ok(applyCommands.some((command) => (
+  command.type === "chart.layer.visibility.set" && command.payload.layer === "sma:120" && command.payload.visible === true
+)));
 
 const recovered = analysisLayerToggleCommands(target, [], asset, "structure", true);
 assert.equal(recovered[0]?.type, "chart.drawing.add");

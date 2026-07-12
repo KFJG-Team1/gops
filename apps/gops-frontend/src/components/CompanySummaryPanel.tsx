@@ -68,6 +68,10 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
   const normalizedSymbol = symbol.toUpperCase();
   const companyName = item?.companyName || normalizedSymbol;
   const companyNameHeaderLines = splitCompanyNameForHeader(companyName);
+  const companyTabTextWidthCh = Math.min(
+    28,
+    Math.max(10, ...companyNameHeaderLines.map((line) => Math.ceil(Array.from(line).length * 1.3) + 1))
+  );
   const companyLogoBackdropUrl = useMemo(
     () => buildStockLogoUrl(normalizedSymbol, { size: 256 }),
     [normalizedSymbol]
@@ -117,7 +121,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
     return () => controller.abort();
   }, [normalizedSymbol]);
 
-  const infoRows = [
+  const infoRows: ReadonlyArray<readonly [string, string, ("up" | "down" | "neutral")?]> = [
     ["현재가", formatUsd(price)],
     ["등락률", formatPercent(changePercent), changeTone],
     ["시가총액", formatUsdCompact(marketCap)],
@@ -130,10 +134,14 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
     ["시장", formatMarket(item?.market, item?.country)],
     ["기업정보 원천", formatCompanySource(item)],
     ["데이터 기준", formatDate(dataAsOf)]
-  ] as const;
+  ];
 
   const infoSection = (
-    <section className="company-info-section" aria-label={`${normalizedSymbol} 기본 기업정보`}>
+    <section
+      className="company-info-section"
+      aria-label={`${normalizedSymbol} 기본 기업정보`}
+      style={{ "--company-tab-text-width": `${companyTabTextWidthCh}ch` } as CSSProperties}
+    >
       <div className="company-info-backdrop" aria-hidden="true">
         {companyLogoBackdropUrl && failedCompanyLogoBackdropUrl !== companyLogoBackdropUrl ? (
           <img
@@ -151,9 +159,6 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: 
         {companyNameHeaderLines.map((line) => <span key={line} aria-hidden="true">{line}</span>)}
       </strong>
       <div className="company-info-sheet">
-        <header className="company-info-heading">
-          <em className={`company-summary-change ${changeTone}`}>{formatPercent(changePercent)}</em>
-        </header>
         <dl className="company-info-grid">
           {infoRows.map(([label, value, tone]) => (
             <div key={label} className="company-info-cell">
