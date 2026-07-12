@@ -64,6 +64,25 @@ const document = createChartDocument(target.chartDocumentId, "AAPL", "1D");
 const result = executeChartCommandGroup(document, commands, "Apply Geometry asset");
 assert.equal(result.ok, true);
 
+const support: DrawingEntity = {
+  ...upper,
+  id: "chart-asset:AAPL:1D:support",
+  type: "horizontalLine",
+  anchors: [
+    { timestamp: "2026-01-23T05:00:00.000Z", price: 245.7 },
+    { timestamp: "2026-04-07T04:00:00.000Z", price: 245.7 }
+  ],
+  label: "지지"
+};
+const levelAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: { ...asset.geometry, drawings: [support], primaryTriangle: null }
+};
+const levelCommands = analysisAssetApplyCommands(target, [], levelAsset, { geometry: true }, { mode: "pan" });
+const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geometry level asset");
+assert.equal(levelResult.ok, true);
+assert.equal(levelResult.document.drawings[0]?.anchors.length, 2);
+
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
