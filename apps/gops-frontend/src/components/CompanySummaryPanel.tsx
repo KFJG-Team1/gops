@@ -463,7 +463,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const marginDomain = paddedDomain(marginValues, { includeZero: true, fallbackMax: 0.3 });
   const chartWidth = 620;
   const chartHeight = 360;
-  const plot = { left: 64, right: 20, top: 10, bottom: 34 };
+  const plot = { left: 112, right: 20, top: 10, bottom: 34 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -501,7 +501,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
           return (
             <g key={tick}>
               <line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
-              <text x={0} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
+              <text className="company-financial-axis-value" x={plot.left - 12} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
             </g>
           );
         })}
@@ -579,7 +579,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
   const chartWidth = 620;
   const chartHeight = 360;
-  const plot = { left: 64, right: 20, top: 10, bottom: 34 };
+  const plot = { left: 112, right: 20, top: 10, bottom: 34 };
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -618,7 +618,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
           return (
             <g key={tick}>
               <line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
-              <text x={0} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
+              <text className="company-financial-axis-value" x={plot.left - 12} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
             </g>
           );
         })}
