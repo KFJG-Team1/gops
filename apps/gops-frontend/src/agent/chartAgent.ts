@@ -34,7 +34,10 @@ const allowedActionTypes = new Set<ChartAction["type"]>([
 ]);
 
 const chartIntervals = new Set<ChartInterval>(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
-const chartLayers = new Set<ChartLayerKey>(["candles", "volume", "ma5", "ma20", "ma60"]);
+const chartLayers = new Set<ChartLayerKey>([
+  "candles", "volume", "ma5", "ma20", "ma60", "sma:5", "sma:20", "sma:60", "sma:120",
+  "ema:20", "wma:20", "bollinger:20:2", "rsi:14", "stochastic:14:3:3", "macd:12:26:9", "volume-profile"
+]);
 const drawingTypes = new Set<DrawingType>([
   "horizontalLine",
   "trendLine",

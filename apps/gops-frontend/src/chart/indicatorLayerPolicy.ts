@@ -3,6 +3,7 @@ import type { CandleDto, ChartLayerKey } from "./types";
 export const candleMovingAverageWindows = [5, 20, 60];
 
 const serverIndicatorLayerOrder: ChartLayerKey[] = [
+  "sma:120",
   "ema:20",
   "wma:20",
   "bollinger:20:2",

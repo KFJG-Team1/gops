@@ -337,6 +337,7 @@ export type ChartLayerKey =
   | "sma:5"
   | "sma:20"
   | "sma:60"
+  | "sma:120"
   | "ema:20"
   | "wma:20"
   | "bollinger:20:2"

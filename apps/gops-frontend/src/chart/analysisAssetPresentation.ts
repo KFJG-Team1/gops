@@ -20,6 +20,13 @@ export type AnalysisAssetPresentationDiagnostics = {
   resolvedAsset: ChartAnalysisAsset;
 };
 
+export type DetectedPatternSummary = {
+  kind: string;
+  state: "forming" | "confirmed";
+  score: number;
+  drawingCount: number;
+};
+
 const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
   year: "numeric",
@@ -30,6 +37,9 @@ const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
 export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAssetInterval): string | null {
   const parsed = new Date(timestamp);
   if (!Number.isFinite(parsed.getTime())) return null;
+  if (interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h") {
+    return parsed.toISOString();
+  }
   const utcMidnight = parsed.getUTCHours() === 0
     && parsed.getUTCMinutes() === 0
     && parsed.getUTCSeconds() === 0
@@ -47,6 +57,25 @@ export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAsset
   }
   const dayKey = bucketDate.toISOString().slice(0, 10);
   return interval === "1M" ? dayKey.slice(0, 7) : dayKey;
+}
+
+export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
+  if (!asset) return null;
+  const selected = asset.layers.trend.selected ?? [];
+  for (const item of selected) {
+    const kind = typeof item.patternKind === "string" ? item.patternKind : null;
+    const state = item.patternState === "forming" || item.patternState === "confirmed" ? item.patternState : null;
+    if (!kind || !state) continue;
+    const quality = item.quality && typeof item.quality === "object" && !Array.isArray(item.quality)
+      ? item.quality as Record<string, unknown>
+      : {};
+    const score = typeof quality.score === "number" && Number.isFinite(quality.score) ? quality.score : 0;
+    const drawingIds = Array.isArray(item.drawingIds)
+      ? item.drawingIds.filter((value): value is string => typeof value === "string")
+      : [];
+    return { kind, state, score, drawingCount: drawingIds.length };
+  }
+  return null;
 }
 
 export function isAnalysisAssetStale(
@@ -181,7 +210,7 @@ function canonicalTimestampByKey(
 }
 
 function prefersTimestamp(candidate: string, current: string, interval: AnalysisAssetInterval): boolean {
-  if (interval === "1D") return false;
+  if (interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D") return false;
   const candidateDate = new Date(candidate);
   const currentDate = new Date(current);
   const candidateUtcMidnight = candidateDate.getUTCHours() === 0 && candidateDate.getUTCMinutes() === 0;
