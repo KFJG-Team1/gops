@@ -3744,7 +3744,7 @@ assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
-assert.equal(agentLayoutPortfolioPanel?.title, "Holdings 표");
+assert.equal(agentLayoutPortfolioPanel?.title, "보유 종목 표");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);

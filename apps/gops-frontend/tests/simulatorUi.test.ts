@@ -46,8 +46,9 @@ const layoutPresetSource = readFileSync(
 );
 assert.match(
   layoutPresetSource,
-  /asset:[\s\S]*kind: "portfolioHoldings"[\s\S]*kind: "trade"[\s\S]*\n\s*}\n}/
+  /asset:[\s\S]*kind: "portfolioHoldings"[\s\S]*kind: "portfolioHeatmap"[\s\S]*\n\s*}\n}/
 );
+assert.doesNotMatch(layoutPresetSource, /kind: "trade"/);
 
 const portfolioHoldingsSource = readFileSync(
   fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)),
