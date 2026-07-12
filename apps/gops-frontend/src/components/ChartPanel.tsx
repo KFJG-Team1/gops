@@ -42,7 +42,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../chart/analysisAssetPresentation";
+import { isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -322,9 +322,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    structure: true,
-    trend: true,
-    agent: true
+    geometry: true
   });
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
@@ -580,13 +578,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? analysisAssets.assets[interval]
       : null;
     const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
-    const asset = resolvedAsset && !isAnalysisAssetStale(
-      resolvedAsset.asOf,
-      chart.candles,
-      resolvedAsset.assetVersion,
-      resolvedAsset.interval
-    )
-      ? resolvedAsset
+    const asset = resolvedAsset
+      ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
+          resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
+        ))
       : null;
     const applyKey = [
       chart.symbol,
@@ -621,7 +616,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
-    if (!activeAnalysisAsset || activeAnalysisAssetStale) {
+    if (!activeAnalysisAsset) {
       return;
     }
     const visible = !analysisLayerVisibilityRef.current[layer];
@@ -632,7 +627,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, activeAnalysisAssetStale, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -2241,9 +2236,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            structure: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.structure.drawings.length,
-            trend: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.trend.drawings.length,
-            agent: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.agent.drawings.length
+            geometry: !activeAnalysisAsset?.geometry.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}
@@ -2992,7 +2985,7 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W" || interval === "1M";
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W";
 }
 
 function latestClosedTimestamp(candles: CandleDto[]): string | null {
