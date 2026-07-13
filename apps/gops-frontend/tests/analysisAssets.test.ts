@@ -5,7 +5,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerToggleCommands, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
-import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
+import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
 import type { DrawingEntity } from "../src/chart/types";
 
@@ -51,6 +51,8 @@ const genericPatternAsset: ChartAnalysisAsset = {
   }
 };
 assert.deepEqual(detectedPatternSummary(genericPatternAsset), { kind: "bullish_flag", state: "confirmed", score: .88, drawingCount: 3 });
+assert.equal(formatDetectedPattern(flagPattern), "상승 깃발형 · 돌파 확인");
+assert.equal(formatDetectedPattern(null), "감지 없음");
 assert.equal(isAnalysisAssetStale(asset.asOf, candles, "geometry", "1D"), false);
 
 const normalized = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": asset, "1M": asset } }, "AAPL");
@@ -114,6 +116,8 @@ assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /SMA120/);
 assert.match(opsSource, /상승 페넌트/);
+assert.match(opsSource, /<th>감지 패턴<\/th>/);
+assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
 assert.match(commentarySource, /하락 채널 상단 돌파/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
