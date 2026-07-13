@@ -5,7 +5,6 @@ import {
   ChartNoAxesCombined,
   ChartSpline,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eraser,
@@ -32,6 +31,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -144,6 +144,7 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import type { ThemeColorToken } from "../theme/colors";
 
 function iconButtonClass(active = false): string {
@@ -2469,22 +2470,20 @@ export function ChartDrawingDock({
   onChartRuntimeAction
 }: ChartDrawingDockProps) {
   type ToolGroup = "horizontal" | "vertical" | "trend";
-  type GroupToolMode = "draw-horizontalLine" | "draw-horizontalParallelLines" | "draw-verticalMarker" | "draw-verticalParallelLines";
-  const [openToolGroup, setOpenToolGroup] = useState<ToolGroup | null>(null);
-  const [toolMenuLeft, setToolMenuLeft] = useState(0);
-  const [colorMenuOpen, setColorMenuOpen] = useState(false);
-  const [colorMenuLeft, setColorMenuLeft] = useState(0);
-  const [horizontalToolMode, setHorizontalToolMode] = useState<GroupToolMode>(() => (
+  type HorizontalToolMode = "draw-horizontalLine" | "draw-horizontalParallelLines";
+  type VerticalToolMode = "draw-verticalMarker" | "draw-verticalParallelLines";
+  type ParallelLineCountValue = "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10";
+  type DrawingMenu = ToolGroup | "parallel-count" | "color";
+  const [openDrawingMenu, setOpenDrawingMenu] = useState<DrawingMenu | null>(null);
+  const [colorMenuStyle, setColorMenuStyle] = useState<CSSProperties | null>(null);
+  const [horizontalToolMode, setHorizontalToolMode] = useState<HorizontalToolMode>(() => (
     document.interactionState.mode === "draw-horizontalParallelLines" ? "draw-horizontalParallelLines" : "draw-horizontalLine"
   ));
-  const [verticalToolMode, setVerticalToolMode] = useState<GroupToolMode>(() => (
+  const [verticalToolMode, setVerticalToolMode] = useState<VerticalToolMode>(() => (
     document.interactionState.mode === "draw-verticalParallelLines" ? "draw-verticalParallelLines" : "draw-verticalMarker"
   ));
   const [scrollState, setScrollState] = useState({ hasOverflow: false, canScrollLeft: false, canScrollRight: false });
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const toolGroupButtonRef = useRef<HTMLButtonElement | null>(null);
-  const toolGroupMenuRef = useRef<HTMLDivElement | null>(null);
   const colorButtonRef = useRef<HTMLButtonElement | null>(null);
   const colorMenuRef = useRef<HTMLDivElement | null>(null);
   const drawingTooltip = useImmediateChartTooltip();
@@ -2530,6 +2529,7 @@ export function ChartDrawingDock({
       setVerticalToolMode(document.interactionState.mode);
     }
   }, [document.interactionState.mode]);
+  const colorMenuOpen = openDrawingMenu === "color";
 
   const updateScrollState = useCallback(() => {
     const scroller = scrollerRef.current;
@@ -2564,68 +2564,76 @@ export function ChartDrawingDock({
     };
   }, [updateScrollState]);
 
-  useEffect(() => {
-    if (!openToolGroup && !colorMenuOpen) {
+  useLayoutEffect(() => {
+    if (!colorMenuOpen) {
+      setColorMenuStyle(null);
       return undefined;
     }
-    const closeToolMenu = (event: PointerEvent) => {
+    const updateColorMenuPosition = () => {
+      const button = colorButtonRef.current;
+      if (!button) {
+        return;
+      }
+      const rect = button.getBoundingClientRect();
+      const panelRect = button.closest(".chart-panel")?.getBoundingClientRect();
+      const menuWidth = 132;
+      const viewportWidth = window.innerWidth || rect.right + menuWidth;
+      const viewportHeight = window.innerHeight || rect.bottom + 320;
+      const minLeft = Math.max(8, (panelRect?.left ?? 4) + 4);
+      const maxLeft = Math.max(
+        minLeft,
+        Math.min(viewportWidth - menuWidth - 8, (panelRect?.right ?? viewportWidth) - menuWidth - 4)
+      );
+      const top = rect.bottom + 6;
+      setColorMenuStyle({
+        left: Math.max(minLeft, Math.min(rect.left, maxLeft)),
+        top,
+        width: menuWidth,
+        maxHeight: Math.max(0, viewportHeight - top - 8)
+      });
+    };
+    updateColorMenuPosition();
+    window.addEventListener("resize", updateColorMenuPosition);
+    window.addEventListener("scroll", updateColorMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateColorMenuPosition);
+      window.removeEventListener("scroll", updateColorMenuPosition, true);
+    };
+  }, [colorMenuOpen]);
+
+  useEffect(() => {
+    if (!colorMenuOpen) {
+      return undefined;
+    }
+    const closeColorMenu = (event: PointerEvent) => {
       const targetNode = event.target as Node | null;
       if (!targetNode
-        || toolGroupButtonRef.current?.contains(targetNode)
-        || toolGroupMenuRef.current?.contains(targetNode)
         || colorButtonRef.current?.contains(targetNode)
         || colorMenuRef.current?.contains(targetNode)) {
         return;
       }
-      setOpenToolGroup(null);
-      setColorMenuOpen(false);
+      setOpenDrawingMenu(null);
     };
-    const closeToolMenuOnEscape = (event: KeyboardEvent) => {
+    const closeColorMenuOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        const focusTarget = colorMenuOpen ? colorButtonRef.current : toolGroupButtonRef.current;
-        setOpenToolGroup(null);
-        setColorMenuOpen(false);
-        focusTarget?.focus();
+        setOpenDrawingMenu(null);
+        colorButtonRef.current?.focus();
       }
     };
-    window.document.addEventListener("pointerdown", closeToolMenu, true);
-    window.document.addEventListener("keydown", closeToolMenuOnEscape);
+    window.document.addEventListener("pointerdown", closeColorMenu, true);
+    window.document.addEventListener("keydown", closeColorMenuOnEscape);
     return () => {
-      window.document.removeEventListener("pointerdown", closeToolMenu, true);
-      window.document.removeEventListener("keydown", closeToolMenuOnEscape);
+      window.document.removeEventListener("pointerdown", closeColorMenu, true);
+      window.document.removeEventListener("keydown", closeColorMenuOnEscape);
     };
-  }, [colorMenuOpen, openToolGroup]);
+  }, [colorMenuOpen]);
 
-  const menuLeftForButton = (button: HTMLButtonElement, menuWidth: number): number => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar) {
-      return 0;
-    }
-    const toolbarRect = toolbar.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-    const panelRect = toolbar.closest(".chart-panel")?.getBoundingClientRect() ?? toolbarRect;
-    const minLeft = panelRect.left - toolbarRect.left + 4;
-    const maxLeft = panelRect.right - toolbarRect.left - menuWidth - 4;
-    return Math.max(minLeft, Math.min(buttonRect.left - toolbarRect.left, maxLeft));
-  };
-
-  const toggleToolGroupMenu = (group: ToolGroup, button: HTMLButtonElement) => {
-    setToolMenuLeft(menuLeftForButton(button, 142));
-    toolGroupButtonRef.current = button;
-    drawingTooltip.hideTooltip();
-    setColorMenuOpen(false);
-    setOpenToolGroup((open) => open === group ? null : group);
-  };
-
-  const toggleColorMenu = (button: HTMLButtonElement) => {
+  const toggleColorMenu = () => {
     if (!selectedDrawing) {
       return;
     }
-    setColorMenuLeft(menuLeftForButton(button, 132));
-    colorButtonRef.current = button;
     drawingTooltip.hideTooltip();
-    setOpenToolGroup(null);
-    setColorMenuOpen((open) => !open);
+    setOpenDrawingMenu((open) => open === "color" ? null : "color");
   };
 
   const updateSelectedDrawingStyle = (colorToken: DrawingPaletteToken) => {
@@ -2649,7 +2657,7 @@ export function ChartDrawingDock({
       drawingId: selectedDrawing.id,
       drawingPatch: { style: nextStyle }
     });
-    setColorMenuOpen(false);
+    setOpenDrawingMenu(null);
   };
   const removeSelectedDrawing = () => {
     if (selectedDrawing) {
@@ -2684,8 +2692,7 @@ export function ChartDrawingDock({
     event.preventDefault();
     event.stopPropagation();
     scroller.scrollLeft += delta;
-    setOpenToolGroup(null);
-    setColorMenuOpen(false);
+    setOpenDrawingMenu(null);
     drawingTooltip.hideTooltip();
   };
 
@@ -2693,66 +2700,70 @@ export function ChartDrawingDock({
 
   const horizontalLabel = horizontalToolMode === "draw-horizontalParallelLines" ? "가격 평행선" : "수평선";
   const verticalLabel = verticalToolMode === "draw-verticalParallelLines" ? "세로 평행선" : "세로선";
-  const groupMenu = openToolGroup === "horizontal"
-    ? {
-        ariaLabel: "가로선 종류",
-        options: [
-          { key: "draw-horizontalLine", label: "수평선", icon: <ToolIcon toolMode="draw-horizontalLine" /> },
-          { key: "draw-horizontalParallelLines", label: "가격 평행선", icon: <ToolIcon toolMode="draw-horizontalParallelLines" /> }
-        ]
-      }
-    : openToolGroup === "vertical"
-      ? {
-          ariaLabel: "세로선 종류",
-          options: [
-            { key: "draw-verticalMarker", label: "세로선", icon: <ToolIcon toolMode="draw-verticalMarker" /> },
-            { key: "draw-verticalParallelLines", label: "세로 평행선", icon: <ToolIcon toolMode="draw-verticalParallelLines" /> }
-          ]
-        }
-      : openToolGroup === "trend"
-        ? {
-            ariaLabel: "추세선 종류",
-            options: trendExtensionButtons.map(([extension, label]) => ({
-              key: extension,
-              label,
-              icon: <TrendExtensionIcon extension={extension} />
-            }))
-          }
-        : null;
-
-  const selectGroupOption = (key: string) => {
-    if (openToolGroup === "horizontal") {
-      const mode = key as GroupToolMode;
-      setHorizontalToolMode(mode);
-      setToolMode(mode);
-    } else if (openToolGroup === "vertical") {
-      const mode = key as GroupToolMode;
-      setVerticalToolMode(mode);
-      setToolMode(mode);
-    } else if (openToolGroup === "trend") {
-      setTrendLineExtension(key as ChartLineExtension);
+  const horizontalToolOptions: readonly ChartToolbarSelectOption<HorizontalToolMode>[] = [
+    { value: "draw-horizontalLine", label: "수평선", icon: <ToolIcon toolMode="draw-horizontalLine" /> },
+    { value: "draw-horizontalParallelLines", label: "가격 평행선", icon: <ToolIcon toolMode="draw-horizontalParallelLines" /> }
+  ];
+  const verticalToolOptions: readonly ChartToolbarSelectOption<VerticalToolMode>[] = [
+    { value: "draw-verticalMarker", label: "세로선", icon: <ToolIcon toolMode="draw-verticalMarker" /> },
+    { value: "draw-verticalParallelLines", label: "세로 평행선", icon: <ToolIcon toolMode="draw-verticalParallelLines" /> }
+  ];
+  const trendToolOptions: readonly ChartToolbarSelectOption<ChartLineExtension>[] = trendExtensionButtons.map(([extension, label]) => ({
+    value: extension,
+    label,
+    icon: <TrendExtensionIcon extension={extension} />
+  }));
+  const parallelLineCountValue = String(
+    selectedDrawing?.type === "trendParallelLines"
+      ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
+      : normalizeParallelLineCount(document.interactionState.parallelLineCount)
+  ) as ParallelLineCountValue;
+  const parallelLineCountOptions: readonly ChartToolbarSelectOption<ParallelLineCountValue>[] = Array.from(
+    { length: 9 },
+    (_, index) => {
+      const value = String(index + 2) as ParallelLineCountValue;
+      return { value, label: value };
     }
-    setOpenToolGroup(null);
-  };
-
-  const groupedButton = (group: ToolGroup, label: string, icon: ReactNode, active: boolean) => (
-    <button
-      key={group}
-      type="button"
-      className={`${iconButtonClass(active)} chart-grouped-tool-button`}
-      aria-label={`${group === "horizontal" ? "가로선" : group === "vertical" ? "세로선" : "추세선"} 도구 (${label})`}
-      aria-haspopup="menu"
-      aria-expanded={openToolGroup === group}
-      onClick={(event) => toggleToolGroupMenu(group, event.currentTarget)}
-      {...drawingTooltip.tooltipProps(label)}
-    >
-      {icon}
-      <ChevronDown className="chart-trend-tool-chevron" size={10} aria-hidden="true" />
-    </button>
   );
+  const colorMenu = colorMenuOpen
+    && selectedDrawing
+    && colorMenuStyle
+    && typeof window !== "undefined"
+    ? createPortal(
+        <div
+          ref={colorMenuRef}
+          className="chart-drawing-color-menu surface-raised"
+          role="menu"
+          aria-label="그리기 색상"
+          style={colorMenuStyle}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {drawingPaletteOptions.map((option) => {
+            const active = selectedColorToken === option.token;
+            return (
+              <button
+                key={option.token}
+                type="button"
+                role="menuitemradio"
+                className={active ? "active" : ""}
+                aria-label={option.label}
+                aria-checked={active}
+                style={{ "--drawing-swatch-color": option.cssColor } as CSSProperties}
+                onClick={() => updateSelectedDrawingStyle(option.token)}
+                {...drawingTooltip.tooltipProps(option.label)}
+              >
+                <span className="chart-drawing-color-swatch" aria-hidden="true" />
+                {active && <Check size={12} aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>,
+        window.document.body
+      )
+    : null;
 
   return (
-    <div ref={toolbarRef} className="chart-drawing-dock" role="toolbar" aria-label="차트 그리기 도구" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="chart-drawing-dock" role="toolbar" aria-label="차트 그리기 도구" onPointerDown={(event) => event.stopPropagation()}>
       {scrollState.hasOverflow && (
         <button
           type="button"
@@ -2769,8 +2780,7 @@ export function ChartDrawingDock({
         ref={scrollerRef}
         className={`chart-drawing-dock-scroller ${scrollState.canScrollLeft ? "has-overflow-left" : ""} ${scrollState.canScrollRight ? "has-overflow-right" : ""}`}
         onScroll={() => {
-          setOpenToolGroup(null);
-          setColorMenuOpen(false);
+          setOpenDrawingMenu(null);
           drawingTooltip.hideTooltip();
         }}
         onWheel={handleDrawingToolsWheel}
@@ -2781,26 +2791,71 @@ export function ChartDrawingDock({
             return [];
           }
           const controls = tool.mode === "draw-horizontalLine"
-            ? [groupedButton(
-                "horizontal",
-                horizontalLabel,
-                <ToolIcon toolMode={horizontalToolMode} />,
-                document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines"
-              )]
+            ? [(
+              <ChartToolbarSelect
+                key="horizontal"
+                value={horizontalToolMode}
+                options={horizontalToolOptions}
+                ariaLabel={`가로선 도구 (${horizontalLabel})`}
+                optionsAriaLabel="가로선 종류"
+                variant="drawing-tool"
+                open={openDrawingMenu === "horizontal"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "horizontal" : null);
+                }}
+                onChange={(mode) => {
+                  setHorizontalToolMode(mode);
+                  setToolMode(mode);
+                }}
+                onReselect={() => setToolMode(horizontalToolMode)}
+                showSelectedLabel={false}
+                active={document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines"}
+              />
+            )]
             : tool.mode === "draw-verticalMarker"
-              ? [groupedButton(
-                  "vertical",
-                  verticalLabel,
-                  <ToolIcon toolMode={verticalToolMode} />,
-                  document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines"
-                )]
-            : tool.mode === "draw-trendLine"
-            ? [groupedButton(
-                "trend",
-                trendExtensionLabel(document.interactionState.trendLineExtension),
-                <TrendExtensionIcon extension={document.interactionState.trendLineExtension} />,
-                document.interactionState.mode === "draw-trendLine"
+              ? [(
+                <ChartToolbarSelect
+                  key="vertical"
+                  value={verticalToolMode}
+                  options={verticalToolOptions}
+                  ariaLabel={`세로선 도구 (${verticalLabel})`}
+                  optionsAriaLabel="세로선 종류"
+                  variant="drawing-tool"
+                  open={openDrawingMenu === "vertical"}
+                  onOpenChange={(open) => {
+                    drawingTooltip.hideTooltip();
+                    setOpenDrawingMenu(open ? "vertical" : null);
+                  }}
+                  onChange={(mode) => {
+                    setVerticalToolMode(mode);
+                    setToolMode(mode);
+                  }}
+                  onReselect={() => setToolMode(verticalToolMode)}
+                  showSelectedLabel={false}
+                  active={document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines"}
+                />
               )]
+            : tool.mode === "draw-trendLine"
+            ? [(
+              <ChartToolbarSelect
+                key="trend"
+                value={document.interactionState.trendLineExtension}
+                options={trendToolOptions}
+                ariaLabel={`추세선 도구 (${trendExtensionLabel(document.interactionState.trendLineExtension)})`}
+                optionsAriaLabel="추세선 종류"
+                variant="drawing-tool"
+                open={openDrawingMenu === "trend"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "trend" : null);
+                }}
+                onChange={setTrendLineExtension}
+                onReselect={() => setTrendLineExtension(document.interactionState.trendLineExtension)}
+                showSelectedLabel={false}
+                active={document.interactionState.mode === "draw-trendLine"}
+              />
+            )]
             : tool.mode === "draw-trendParallelLines"
             ? [
               <button
@@ -2813,20 +2868,23 @@ export function ChartDrawingDock({
               >
                 <ToolIcon toolMode={tool.mode} />
               </button>,
-              <select
+              <ChartToolbarSelect
                 key={`${tool.mode}-line-count`}
-                className="chart-parallel-line-count"
-                aria-label="Parallel line count"
-                value={selectedDrawing?.type === "trendParallelLines"
-                  ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
-                  : normalizeParallelLineCount(document.interactionState.parallelLineCount)}
-                  onChange={(event) => setParallelLineCount(Number(event.target.value))}
-                {...drawingTooltip.tooltipProps("평행선 개수")}
-              >
-                {Array.from({ length: 9 }, (_, index) => index + 2).map((count) => (
-                  <option key={count} value={count}>{count}</option>
-                ))}
-              </select>
+                value={parallelLineCountValue}
+                options={parallelLineCountOptions}
+                ariaLabel="평행선 개수"
+                optionsAriaLabel="평행선 개수 선택"
+                variant="drawing-count"
+                open={openDrawingMenu === "parallel-count"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "parallel-count" : null);
+                }}
+                onChange={(value) => setParallelLineCount(Number(value))}
+                onReselect={() => setParallelLineCount(Number(parallelLineCountValue))}
+                menuMinWidth={72}
+                active={document.interactionState.mode === "draw-trendParallelLines" || selectedDrawing?.type === "trendParallelLines"}
+              />
             ]
             : [(
               <button
@@ -2856,7 +2914,7 @@ export function ChartDrawingDock({
           data-fill-token={selectedDrawing?.style.fillToken}
           disabled={!selectedDrawing}
           style={{ "--drawing-color": drawingPaletteOptions.find((option) => option.token === selectedColorToken)?.cssColor } as CSSProperties}
-          onClick={(event) => toggleColorMenu(event.currentTarget)}
+          onClick={toggleColorMenu}
           {...drawingTooltip.tooltipProps("선택한 그리기 색상 변경")}
         >
           <Palette size={16} />
@@ -2882,61 +2940,7 @@ export function ChartDrawingDock({
           <ChevronRight size={15} aria-hidden="true" />
         </button>
       )}
-      {groupMenu && (
-        <div
-          ref={toolGroupMenuRef}
-          className="chart-tool-group-menu surface-raised"
-          role="menu"
-          aria-label={groupMenu.ariaLabel}
-          style={{ left: toolMenuLeft }}
-        >
-          {groupMenu.options.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              role="menuitem"
-              className={(
-                openToolGroup === "trend"
-                  ? document.interactionState.mode === "draw-trendLine" && document.interactionState.trendLineExtension === option.key
-                  : document.interactionState.mode === option.key
-              ) ? "active" : ""}
-              onClick={() => selectGroupOption(option.key)}
-            >
-              {option.icon}
-              <span>{option.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {colorMenuOpen && selectedDrawing && (
-        <div
-          ref={colorMenuRef}
-          className="chart-drawing-color-menu surface-raised"
-          role="menu"
-          aria-label="그리기 색상"
-          style={{ left: colorMenuLeft }}
-        >
-          {drawingPaletteOptions.map((option) => {
-            const active = selectedColorToken === option.token;
-            return (
-              <button
-                key={option.token}
-                type="button"
-                role="menuitemradio"
-                className={active ? "active" : ""}
-                aria-label={option.label}
-                aria-checked={active}
-                style={{ "--drawing-swatch-color": option.cssColor } as CSSProperties}
-                onClick={() => updateSelectedDrawingStyle(option.token)}
-                {...drawingTooltip.tooltipProps(option.label)}
-              >
-                <span className="chart-drawing-color-swatch" aria-hidden="true" />
-                {active && <Check size={12} aria-hidden="true" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {colorMenu}
       {drawingTooltip.tooltipOverlay}
     </div>
   );

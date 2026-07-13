@@ -200,36 +200,34 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
     "범위 박스", "손익비 박스", "피보나치 되돌림"
   ]);
 
-  await dock.getByRole("button", { name: "가로선 도구 (수평선)", exact: true }).click();
-  const horizontalMenu = page.getByRole("menu", { name: "가로선 종류" });
-  await expect(horizontalMenu.getByRole("menuitem", { name: "수평선", exact: true })).toBeVisible();
-  await expect(horizontalMenu.getByRole("menuitem", { name: "가격 평행선", exact: true })).toBeVisible();
-  await horizontalMenu.getByRole("menuitem", { name: "가격 평행선", exact: true }).click();
-  const priceParallelButton = dock.getByRole("button", { name: "가로선 도구 (가격 평행선)", exact: true });
+  await dock.getByRole("combobox", { name: "가로선 도구 (수평선)", exact: true }).click();
+  const horizontalMenu = page.getByRole("listbox", { name: "가로선 종류" });
+  await expect(horizontalMenu.getByRole("option", { name: "수평선", exact: true })).toBeVisible();
+  await expect(horizontalMenu.getByRole("option", { name: "가격 평행선", exact: true })).toBeVisible();
+  await horizontalMenu.getByRole("option", { name: "가격 평행선", exact: true }).click();
+  const priceParallelButton = dock.getByRole("combobox", { name: "가로선 도구 (가격 평행선)", exact: true });
   await expectTwoLineGlyph(priceParallelButton, "horizontal-parallel-lines");
 
-  await dock.getByRole("button", { name: "세로선 도구 (세로선)", exact: true }).click();
-  const verticalMenu = page.getByRole("menu", { name: "세로선 종류" });
-  await expect(verticalMenu.getByRole("menuitem", { name: "세로선", exact: true })).toBeVisible();
-  await expect(verticalMenu.getByRole("menuitem", { name: "세로 평행선", exact: true })).toBeVisible();
-  await verticalMenu.getByRole("menuitem", { name: "세로 평행선", exact: true }).click();
-  const timeParallelButton = dock.getByRole("button", { name: "세로선 도구 (세로 평행선)", exact: true });
+  await dock.getByRole("combobox", { name: "세로선 도구 (세로선)", exact: true }).click();
+  const verticalMenu = page.getByRole("listbox", { name: "세로선 종류" });
+  await expect(verticalMenu.getByRole("option", { name: "세로선", exact: true })).toBeVisible();
+  await expect(verticalMenu.getByRole("option", { name: "세로 평행선", exact: true })).toBeVisible();
+  await verticalMenu.getByRole("option", { name: "세로 평행선", exact: true }).click();
+  const timeParallelButton = dock.getByRole("combobox", { name: "세로선 도구 (세로 평행선)", exact: true });
   await expectTwoLineGlyph(timeParallelButton, "vertical-parallel-lines");
 
-  const trendButton = dock.getByRole("button", { name: "추세선 도구 (선분)", exact: true });
+  const trendButton = dock.getByRole("combobox", { name: "추세선 도구 (선분)", exact: true });
   await trendButton.click();
-  const trendMenu = page.getByRole("menu", { name: "추세선 종류" });
-  await expect(trendMenu.getByRole("menuitem", { name: "선분", exact: true })).toBeVisible();
-  await expect(trendMenu.getByRole("menuitem", { name: "반직선", exact: true })).toBeVisible();
-  await expect(trendMenu.getByRole("menuitem", { name: "직선", exact: true })).toBeVisible();
-  await trendMenu.getByRole("menuitem", { name: "반직선", exact: true }).click();
-  const rayButton = dock.getByRole("button", { name: "추세선 도구 (반직선)", exact: true });
-  await rayButton.hover();
-  await expect(page.getByRole("tooltip", { name: "반직선" })).toBeVisible();
+  const trendMenu = page.getByRole("listbox", { name: "추세선 종류" });
+  await expect(trendMenu.getByRole("option", { name: "선분", exact: true })).toBeVisible();
+  await expect(trendMenu.getByRole("option", { name: "반직선", exact: true })).toBeVisible();
+  await expect(trendMenu.getByRole("option", { name: "직선", exact: true })).toBeVisible();
+  await trendMenu.getByRole("option", { name: "반직선", exact: true }).click();
+  await expect(dock.getByRole("combobox", { name: "추세선 도구 (반직선)", exact: true })).toBeVisible();
   const trendParallelButton = dock.getByRole("button", { name: "추세 평행선", exact: true });
-  const lineCount = dock.getByRole("combobox", { name: "Parallel line count" });
+  const lineCount = dock.getByRole("combobox", { name: "평행선 개수" });
   await expect(trendParallelButton).toBeVisible();
-  await expect(lineCount).toHaveValue("3");
+  await expect(lineCount).toContainText("3");
 
   await chooseGroupedTool(page, dock, "가로선 도구 (가격 평행선)", "가로선 종류", "가격 평행선");
   await resetCanvasArcCalls(page);
@@ -252,7 +250,7 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
   await trendParallelButton.click();
   await expect(trendParallelButton).toHaveClass(/\bactive\b/);
   await page.keyboard.press("ArrowRight");
-  await expect(lineCount).toHaveValue("4");
+  await expect(lineCount).toContainText("4");
 
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.23, 0.61) });
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.52, 0.38) });
@@ -260,7 +258,7 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.31, 0.28) });
 
   await expect(selectButton).toHaveClass(/\bactive\b/);
-  await expect(lineCount).toHaveValue("4");
+  await expect(lineCount).toContainText("4");
   await expect.poll(() => uniqueRadiusFourArcCount(page)).toBe(3);
 });
 
@@ -296,6 +294,27 @@ test("drawing color palette applies global theme tokens to stroke, text, and sup
   await expect(colorMenu.getByRole("menuitemradio", { name: "시그널", exact: true })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
   await expect(colorMenu).toBeHidden();
+});
+
+test("company view keeps the chart return button at the left edge", async ({ page }) => {
+  await openFixtureChart(page);
+  const chartPanel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await chartPanel.hover();
+  await chartPanel.getByRole("button", { name: "NVDA 기업정보 보기", exact: true }).click();
+
+  const companyContent = page.locator(".chart-tab-content.is-company");
+  const chartButton = page.getByRole("button", { name: "NVDA 차트 보기", exact: true });
+  await companyContent.hover();
+  await expect(chartButton).toBeVisible();
+
+  const contentBox = await companyContent.boundingBox();
+  const buttonBox = await chartButton.boundingBox();
+  const leftInset = (buttonBox?.x ?? 0) - (contentBox?.x ?? 0);
+  expect(leftInset).toBeGreaterThanOrEqual(0);
+  expect(leftInset).toBeLessThanOrEqual(12);
+
+  await chartButton.click();
+  await expect(page.locator(".chart-canvas")).toBeVisible();
 });
 
 test("drawing toolbar scrolls inside a narrow panel and chart-add stays panel-bound", async ({ page }) => {
@@ -518,15 +537,15 @@ test("parallel arrow shortcut only affects the active chart", async ({ page }) =
 
   let dock = await openDrawingDockForPanel(page, 0);
   await dock.getByRole("button", { name: "추세 평행선", exact: true }).click();
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("3");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("3");
 
   dock = await openDrawingDockForPanel(page, 1);
   await dock.getByRole("button", { name: "추세 평행선", exact: true }).click();
   await page.keyboard.press("ArrowRight");
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("4");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("4");
 
   dock = await openDrawingDockForPanel(page, 0);
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("3");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("3");
 });
 
 async function openDrawingDock(page: Page): Promise<Locator> {
@@ -544,8 +563,8 @@ async function chooseGroupedTool(
   menuName: string,
   optionName: string
 ): Promise<void> {
-  await dock.getByRole("button", { name: triggerName, exact: true }).click();
-  await page.getByRole("menu", { name: menuName }).getByRole("menuitem", { name: optionName, exact: true }).click();
+  await dock.getByRole("combobox", { name: triggerName, exact: true }).click();
+  await page.getByRole("listbox", { name: menuName }).getByRole("option", { name: optionName, exact: true }).click();
 }
 
 async function expectToolbarOrder(dock: Locator, labels: string[]): Promise<void> {

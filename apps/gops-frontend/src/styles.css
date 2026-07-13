@@ -8966,7 +8966,7 @@ h2 {
 .chart-company-toolbar {
   position: absolute;
   top: 9px;
-  right: 10px;
+  left: 10px;
   z-index: 36;
   display: inline-flex;
   align-items: center;
@@ -9069,10 +9069,16 @@ h2 {
   transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.chart-toolbar-select-trigger > span {
+.chart-toolbar-select-trigger-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chart-toolbar-select-trigger-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
 }
 
 .chart-toolbar-select-trigger > svg {
@@ -9082,7 +9088,8 @@ h2 {
 
 .chart-toolbar-select-trigger:hover,
 .chart-toolbar-select-trigger:focus-visible,
-.chart-toolbar-select-trigger.is-open {
+.chart-toolbar-select-trigger.is-open,
+.chart-toolbar-select-trigger.is-active {
   border-color: var(--coinbase-primary);
   background: var(--coinbase-panel-strong);
   color: var(--coinbase-primary);
@@ -9128,11 +9135,29 @@ h2 {
   outline: none;
 }
 
-.chart-toolbar-select-menu button > span {
+.chart-toolbar-select-option-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chart-toolbar-select-menu.has-icons button {
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+}
+
+.chart-toolbar-select-option-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: currentColor;
+}
+
+.chart-toolbar-select-option-icon svg,
+.chart-toolbar-select-trigger-icon svg {
+  width: 17px;
+  height: 17px;
 }
 
 .chart-toolbar-select-menu button > svg {
@@ -9158,6 +9183,32 @@ h2 {
 .chart-instance-interval {
   width: 66px;
   min-width: 0;
+}
+
+.chart-instance-drawing-tool {
+  width: 38px;
+  height: 28px;
+}
+
+.chart-instance-drawing-count {
+  width: 48px;
+  height: 28px;
+}
+
+.chart-instance-drawing-tool .chart-toolbar-select-trigger,
+.chart-instance-drawing-count .chart-toolbar-select-trigger {
+  height: 28px;
+}
+
+.chart-instance-drawing-tool .chart-toolbar-select-trigger {
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px 0 4px;
+}
+
+.chart-instance-drawing-count .chart-toolbar-select-trigger {
+  padding-right: 5px;
+  padding-left: 7px;
 }
 
 .chart-instance.is-editable-chart .chart-instance-symbol-search-wrap {

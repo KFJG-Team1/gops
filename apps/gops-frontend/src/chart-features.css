@@ -798,16 +798,6 @@
   background: var(--color-surface-strong);
 }
 
-.chart-grouped-tool-button {
-  position: relative;
-}
-
-.chart-trend-tool-chevron {
-  position: absolute;
-  right: 1px;
-  bottom: 1px;
-}
-
 .chart-drawing-scroll-button {
   display: inline-grid;
   flex: 0 0 24px;
@@ -837,44 +827,6 @@
   margin-left: 2px;
 }
 
-.chart-tool-group-menu {
-  position: absolute;
-  z-index: 48;
-  top: 32px;
-  display: grid;
-  width: 142px;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 4px;
-  background: var(--color-surface-strong);
-  box-shadow: none;
-}
-
-.chart-tool-group-menu button {
-  display: grid;
-  grid-template-columns: 22px 1fr;
-  align-items: center;
-  min-height: 30px;
-  border: 0;
-  border-radius: 6px;
-  padding: 3px 7px;
-  background: transparent;
-  color: var(--color-text);
-  text-align: left;
-}
-
-.chart-tool-group-menu button:hover,
-.chart-tool-group-menu button:focus-visible,
-.chart-tool-group-menu button.active {
-  background: var(--color-surface);
-}
-
-.chart-tool-group-menu .trend-extension-icon {
-  width: 17px;
-  height: 17px;
-}
-
 .chart-drawing-color-button {
   position: relative;
 }
@@ -891,19 +843,21 @@
 }
 
 .chart-drawing-color-menu {
-  position: absolute;
-  z-index: 48;
-  top: 32px;
+  position: fixed;
+  z-index: 1100;
   display: grid;
   grid-template-columns: repeat(4, 26px);
   gap: 4px;
   box-sizing: border-box;
   width: 132px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--coinbase-hairline-strong);
   border-radius: 8px;
   padding: 7px;
-  background: var(--color-surface-strong);
+  background: var(--coinbase-panel-strong);
   box-shadow: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .chart-drawing-color-menu button {
@@ -923,8 +877,8 @@
 .chart-drawing-color-menu button:hover,
 .chart-drawing-color-menu button:focus-visible,
 .chart-drawing-color-menu button.active {
-  border-color: var(--color-border);
-  background: var(--color-surface);
+  border-color: var(--coinbase-hairline-strong);
+  background: var(--coinbase-primary-soft);
 }
 
 .chart-drawing-color-swatch {
@@ -940,17 +894,6 @@
   color: var(--color-surface-strong);
   stroke-width: 3;
   pointer-events: none;
-}
-
-.chart-parallel-line-count {
-  flex: 0 0 auto;
-  width: 44px;
-  height: 28px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface-raised-surface);
-  color: var(--color-text);
 }
 
 .chart-placement-toggle {
@@ -1059,7 +1002,6 @@
 .chart-panel-navigation select,
 .chart-panel-navigation .symbol-search,
 .chart-panel-navigation .symbol-search input,
-.chart-panel-navigation .chart-tool-group-menu,
 .chart-panel-navigation .chart-add-dock,
 .chart-immediate-tooltip {
   box-shadow: none !important;

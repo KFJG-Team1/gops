@@ -3544,6 +3544,7 @@ assert.match(chartToolbarSelectSource, /createPortal/);
 assert.match(chartToolbarSelectSource, /rect\.bottom \+ menuGap/);
 assert.match(chartToolbarSelectSource, /role="listbox"/);
 assert.match(chartToolbarSelectSource, /aria-activedescendant/);
+assert.match(chartToolbarSelectSource, /chart-toolbar-select-option-icon/);
 
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
@@ -3569,9 +3570,11 @@ assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
 assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
 assert.match(chartPanelSource, /liveTradePrice/);
-assert.match(chartPanelSource, /ChevronDown/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
-assert.match(chartPanelSource, /openToolGroup|chart-tool-group-menu/);
+assert.match(chartPanelSource, /variant="drawing-tool"/);
+assert.match(chartPanelSource, /variant="drawing-count"/);
+assert.match(chartPanelSource, /window\.document\.body/);
+assert.doesNotMatch(chartPanelSource, /chart-tool-group-menu|chart-parallel-line-count/);
 assert.match(chartPanelSource, /ResizeObserver/);
 assert.match(chartPanelSource, /clientWidth \* 0\.7/);
 assert.match(chartPanelSource, /useImmediateChartTooltip/);
@@ -3664,6 +3667,8 @@ const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, sc
 assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
+assert.match(chartCanvasSource, /const axisLabelColor = resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 2);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
