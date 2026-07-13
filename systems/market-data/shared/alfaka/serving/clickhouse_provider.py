@@ -57,6 +57,88 @@ class ClickHouseMarketDataProvider:
             )
         return self.stored_interval_candles(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time)
 
+    def canonical_completed_rows(self, symbol, interval, limit=240, before=None):
+        """Read the deterministic Czardas inference window.
+
+        Unlike the chart-serving path this contract is deliberately independent
+        from serving environment flags.  Eligibility is fixed in SQL to
+        canonical v2, split-adjusted, regular-session, completed rows.  Weekly
+        candles are the sole exception: they are derived from at most 1,300
+        canonical daily rows so their NYSE calendar identity stays code-owned.
+        """
+        interval = normalize_chart_interval(interval)
+        if interval == "1M" or interval not in {*INTRADAY_INTERVAL_MINUTES, "1D", "1W"}:
+            raise ValueError(f"Unsupported Czardas interval: {interval}")
+        requested_limit = int(limit)
+        if requested_limit < 1:
+            raise ValueError("Czardas candle limit must be positive")
+        if interval == "1W":
+            from alfaka.analytics.analysis_candles import aggregate_analysis_candles
+            from alfaka.backfill.gapfill import TradingCalendar
+
+            daily = self.canonical_completed_rows(symbol, "1D", limit=min(1300, max(1, requested_limit * 6)), before=before)
+            weekly = aggregate_analysis_candles(
+                daily, "1W", now=self.now_provider(), calendar=TradingCalendar()
+            )
+            return weekly[-requested_limit:]
+
+        params = {"symbol": str(symbol).upper(), "limit": requested_limit}
+        interval_filter = "interval IN ('1D', '1d')" if interval == "1D" else "interval = {interval:String}"
+        if interval != "1D":
+            params["interval"] = interval
+        before_filter = ""
+        if before:
+            before_filter = "\n            AND event_time < parseDateTime64BestEffort({before:String})"
+            params["before"] = before
+        bucket_filter = ""
+        if interval in INTRADAY_DERIVED_INTERVALS:
+            bucket_filter = "\n            AND bucket_policy = {bucketPolicy:String}"
+            params["bucketPolicy"] = BUCKET_POLICY_REGULAR_SESSION
+        source = self.latest_chart_candles_source(f"""
+            symbol = {{symbol:String}}
+            AND {interval_filter}
+            AND canonical_version = 'v2'
+            AND price_adjustment = 'split'
+            AND market_session = 'regular'
+            AND is_closed = 1
+            {bucket_filter}
+            {before_filter}
+        """, include_live=False)
+        if interval == "1D":
+            source = self.latest_canonical_daily_source(f"""
+                symbol = {{symbol:String}}
+                AND interval IN ('1D', '1d')
+                AND canonical_version = 'v2'
+                AND price_adjustment = 'split'
+                AND market_session = 'regular'
+                AND is_closed = 1
+                {before_filter}
+            """)
+        query = f"""
+        SELECT
+          {{symbol:String}} AS symbol,
+          {repr(interval)} AS interval,
+          formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
+          formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS candleKey,
+          open,
+          high,
+          low,
+          close,
+          volume,
+          1 AS isClosed,
+          'regular' AS marketSession,
+          'split' AS priceAdjustment,
+          'v2' AS canonicalVersion,
+          source_event_id AS sourceEventId
+        FROM (
+          {source}
+        )
+        ORDER BY event_time DESC, source_event_id DESC
+        LIMIT {{limit:UInt32}}
+        FORMAT JSONEachRow
+        """
+        return list(reversed(self.query_json_each_row(query, params)))
+
     def direct_or_aggregated_candles(self, symbol, interval, limit=None, aggregate=None, before=None, from_time=None, to_time=None):
         """저장된 direct interval 캔들을 우선 쓰고, 비어 있으면 기존 source 집계로 보강합니다."""
         interval = normalize_chart_interval(interval)

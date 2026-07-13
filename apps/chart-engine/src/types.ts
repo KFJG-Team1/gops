@@ -124,7 +124,7 @@ export type RealtimeLayerEvent =
 
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
-export type ChartType = "candle" | "line" | "ohlc" | "bidask";
+export type ChartType = "candle" | "line" | "ohlc" | "bidask" | "czardas";
 
 export type ChartLayerKey =
   | "candles"
@@ -182,6 +182,9 @@ export type ChartCommandType =
   | "chart.drawing.remove"
   | "chart.drawing.select"
   | "chart.drawing.clearSelection"
+  | "chart.czardas.forkManaged"
+  | "chart.czardas.deleteManaged"
+  | "chart.czardas.restoreManaged"
   | "chart.preview.set"
   | "chart.preview.toggle"
   | "chart.preview.apply"
@@ -232,6 +235,7 @@ export type ChartDocumentSnapshot = {
   style: ChartDocument["style"];
   interactionState: ChartDocument["interactionState"];
   drawings: DrawingEntity[];
+  czardasSuppressions: CzardasSuppression[];
   comparisons: ComparisonSeries[];
   selectedDrawingId?: string;
   updatedAt: string;
@@ -292,6 +296,7 @@ export type ChartDocument = {
     parallelLineCount: number;
   };
   drawings: DrawingEntity[];
+  czardasSuppressions: CzardasSuppression[];
   comparisons: ComparisonSeries[];
   selectedDrawingId?: string;
   history: ChartHistoryEntry[];
@@ -448,8 +453,22 @@ export type DrawingEntity = {
   visible: boolean;
   createdBy: ChartCommandActor;
   sourceProposalId?: string;
+  ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
+  czardasLayer?: "hline" | "trend";
+  sourceCandidateId?: string;
+  sourceFieldModeId?: string;
+  sourceFieldRevision?: number;
+  sourceGroupId?: string;
+  engineRevision?: number;
+  forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CzardasSuppression = {
+  sourceCandidateId: string;
+  sourceGroupId?: string;
+  suppressedAt: string;
 };
 
 export type ComparisonSeries = {

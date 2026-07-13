@@ -152,7 +152,12 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(120);
   await page.waitForTimeout(250);
   await expectNonBlankCanvas(canvas);
-  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png");
+  // Wheel projection lands on fractional canvas coordinates. Chromium may
+  // rasterize the same deterministic viewport with ~1% edge anti-aliasing
+  // variance between runs; keep the geometry assertions above strict.
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png", {
+    maxDiffPixelRatio: 0.015
+  });
 });
 
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {

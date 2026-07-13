@@ -135,6 +135,18 @@
   white-space: nowrap;
 }
 
+.chart-asset-kind-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.chart-asset-kind-tabs button.active {
+  border-color: var(--framer-accent-blue);
+  background: color-mix(in srgb, var(--framer-accent-blue) 14%, transparent);
+  color: var(--framer-accent-blue);
+}
+
 .chart-analysis-asof.is-stale {
   color: var(--gops-caution);
 }
@@ -904,6 +916,32 @@
   color: var(--color-surface-strong);
   stroke-width: 3;
   pointer-events: none;
+}
+
+.chart-drawing-width-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--color-border);
+}
+
+.chart-drawing-width-options {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.chart-drawing-width-options button {
+  width: auto;
+  min-width: 0;
+}
+
+.chart-drawing-width-sample {
+  display: block;
+  width: 18px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .chart-parallel-line-count {

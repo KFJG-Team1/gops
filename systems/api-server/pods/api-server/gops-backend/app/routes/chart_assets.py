@@ -7,7 +7,9 @@ from functools import lru_cache
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from alfaka.analytics.czardas.data import CzardasCandleLoader
 
 from app.auth.dependencies import require_current_user
 from app.auth.models import AuthenticatedUser
@@ -16,13 +18,19 @@ from gops_agents.chart_assets.envelope import ALLOWED_INTERVALS, ChartAssetBuild
 from gops_agents.chart_assets.progress import build_progress_store_from_env
 from gops_agents.chart_assets.queue import build_chart_asset_queue_from_env
 from gops_agents.chart_assets.storage import build_chart_asset_storage_from_env
+from gops_agents.czardas_assets.delivery import symbol_entries as czardas_symbol_entries
+from gops_agents.czardas_assets.envelope import CzardasBuildEnvelope
+from gops_agents.czardas_assets.progress import build_czardas_progress_store_from_env
+from gops_agents.czardas_assets.queue import build_czardas_queue_from_env
+from gops_agents.czardas_assets.storage import build_czardas_storage_from_env
 
 
 router = APIRouter()
-JOB_ID_PATTERN = r"^cab-[A-Za-z0-9-]{8,64}$"
+JOB_ID_PATTERN = r"^(?:cab|cza)-[A-Za-z0-9-]{8,64}$"
 
 
 class ChartAssetBuildRequest(BaseModel):
+    assetKind: Literal["geometry", "czardas"] = "geometry"
     symbols: list[str] | Literal["sp500"]
     intervals: list[str] = Field(default_factory=lambda: list(ALLOWED_INTERVALS))
     force: bool = False
@@ -35,10 +43,27 @@ class ChartAssetBuildRequest(BaseModel):
             raise ValueError("intervals must contain only supported chart intervals")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_asset_kind_shape(self):
+        if self.assetKind == "czardas":
+            if self.symbols == "sp500" or len(self.symbols) != 1 or len(self.intervals) != 1:
+                raise ValueError("Czardas builds require exactly one symbol and one interval")
+        return self
+
 
 @router.get("/api/charts/analysis-assets")
-def chart_analysis_assets(symbol: str = Query(min_length=1, max_length=12)) -> dict[str, Any]:
+def chart_analysis_assets(
+    symbol: str = Query(min_length=1, max_length=12),
+    assetKind: Literal["geometry", "czardas"] = Query(default="geometry"),
+) -> dict[str, Any]:
     normalized = normalize_market_symbol(symbol)
+    if assetKind == "czardas":
+        try:
+            records = czardas_asset_storage().get_symbol_records(normalized)
+            assets = czardas_symbol_entries(normalized, records, czardas_identity_reader().current_identity)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Czardas asset storage is unavailable.") from exc
+        return {"assetKind": "czardas", "symbol": normalized, "assets": assets, "meta": {"servedAt": utc_now_iso()}}
     try:
         assets = chart_asset_storage().get_symbol_assets(normalized)
     except Exception as exc:
@@ -47,10 +72,13 @@ def chart_analysis_assets(symbol: str = Query(min_length=1, max_length=12)) -> d
 
 
 @router.get("/api/charts/analysis-assets/coverage")
-def chart_analysis_asset_coverage(symbols: str | None = Query(default=None, max_length=4096)) -> dict[str, Any]:
+def chart_analysis_asset_coverage(
+    symbols: str | None = Query(default=None, max_length=4096),
+    assetKind: Literal["geometry", "czardas"] = Query(default="geometry"),
+) -> dict[str, Any]:
     selected = _parse_symbol_csv(symbols) if symbols else None
     try:
-        items = chart_asset_storage().coverage(selected)
+        items = (czardas_asset_storage() if assetKind == "czardas" else chart_asset_storage()).coverage(selected)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Chart analysis asset coverage is unavailable.") from exc
     return {"items": items, "total": len(items)}
@@ -60,6 +88,7 @@ def chart_analysis_asset_coverage(symbols: str | None = Query(default=None, max_
 def delete_chart_analysis_assets(
     symbols: str = Query(min_length=1, max_length=4096),
     intervals: str = Query(default=",".join(ALLOWED_INTERVALS), min_length=2, max_length=64),
+    assetKind: Literal["geometry", "czardas"] = Query(default="geometry"),
     _user: AuthenticatedUser = Depends(require_current_user),
 ) -> dict[str, Any]:
     if _storage_maintenance_enabled():
@@ -69,7 +98,8 @@ def delete_chart_analysis_assets(
     if len(selected_symbols) > 100:
         raise HTTPException(status_code=400, detail="At most 100 symbols can be deleted at once.")
     try:
-        deleted = chart_asset_storage().delete(selected_symbols, selected_intervals)
+        storage = czardas_asset_storage() if assetKind == "czardas" else chart_asset_storage()
+        deleted = storage.delete(selected_symbols, selected_intervals)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Chart analysis assets could not be deleted.") from exc
     return {"symbols": selected_symbols, "intervals": selected_intervals, "deleted": deleted}
@@ -84,6 +114,27 @@ def build_chart_analysis_assets(
     if _storage_maintenance_enabled():
         raise HTTPException(status_code=503, detail="Chart analysis asset storage migration is in progress.")
     symbols = _requested_symbols(request.symbols)
+    if request.assetKind == "czardas":
+        envelope = CzardasBuildEnvelope.create(
+            requested_by=hashlib.sha256(user.sub.encode("utf-8")).hexdigest()[:24],
+            symbol=symbols[0],
+            interval=request.intervals[0],
+            force=request.force,
+        )
+        progress = czardas_asset_progress_store()
+        progress.initialize(envelope)
+        try:
+            czardas_asset_build_queue().submit(envelope)
+        except Exception as exc:
+            progress.set_status(envelope.job_id, "failed", finishedAt=utc_now_iso())
+            raise HTTPException(status_code=503, detail="Czardas build queue is unavailable.") from exc
+        response.status_code = 202
+        return {
+            "assetKind": "czardas",
+            "jobId": envelope.job_id,
+            "status": "queued",
+            "status_url": f"/api/charts/analysis-assets/build/{envelope.job_id}",
+        }
     envelope = ChartAssetBuildEnvelope.create(
         requested_by=hashlib.sha256(user.sub.encode("utf-8")).hexdigest()[:24],
         symbols=symbols,
@@ -110,7 +161,7 @@ def chart_analysis_asset_build_status(
     job_id: str = Path(min_length=12, max_length=80, pattern=JOB_ID_PATTERN),
     _user: AuthenticatedUser = Depends(require_current_user),
 ) -> dict[str, Any]:
-    state = chart_asset_progress_store().get(job_id)
+    state = _progress_for_job(job_id).get(job_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Chart analysis asset build job not found.")
     return state
@@ -121,7 +172,7 @@ def cancel_chart_analysis_asset_build(
     job_id: str = Path(min_length=12, max_length=80, pattern=JOB_ID_PATTERN),
     _user: AuthenticatedUser = Depends(require_current_user),
 ) -> dict[str, Any]:
-    state = chart_asset_progress_store().request_cancel(job_id)
+    state = _progress_for_job(job_id).request_cancel(job_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Chart analysis asset build job not found.")
     return state
@@ -168,6 +219,30 @@ def chart_asset_progress_store():
 @lru_cache(maxsize=1)
 def chart_asset_build_queue():
     return build_chart_asset_queue_from_env()
+
+
+@lru_cache(maxsize=1)
+def czardas_asset_storage():
+    return build_czardas_storage_from_env()
+
+
+@lru_cache(maxsize=1)
+def czardas_asset_progress_store():
+    return build_czardas_progress_store_from_env()
+
+
+@lru_cache(maxsize=1)
+def czardas_asset_build_queue():
+    return build_czardas_queue_from_env()
+
+
+@lru_cache(maxsize=1)
+def czardas_identity_reader():
+    return CzardasCandleLoader()
+
+
+def _progress_for_job(job_id: str):
+    return czardas_asset_progress_store() if job_id.startswith("cza-") else chart_asset_progress_store()
 
 
 def _storage_maintenance_enabled() -> bool:

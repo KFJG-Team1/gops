@@ -1108,6 +1108,34 @@ services:
     networks:
       - data_net
 
+  czardas-asset-builder:
+    image: gops-agent-orchestrator
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.gops-agent-orchestrator
+    container_name: alfaka-czardas-asset-builder
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_HTTP_URL: "http://clickhouse:8123"
+      CLICKHOUSE_DATABASE: "market_data"
+      CLICKHOUSE_USER: "alfaka"
+      CLICKHOUSE_PASSWORD: "alfaka"
+      DATABASE_URL: "postgresql://gops:${POSTGRES_PASSWORD:-gops_dev_password}@postgres:5432/gops"
+      HISTORICAL_ADJUSTMENT: "split"
+      ALLOW_NON_CANONICAL_HISTORICAL_ADJUSTMENT: "false"
+      ALPACA_API_KEY: "${ALPACA_API_KEY:-}"
+      ALPACA_SECRET_KEY: "${ALPACA_SECRET_KEY:-}"
+      ALPACA_FEED: "${ALPACA_FEED:-sip}"
+      HISTORICAL_FEED: "${HISTORICAL_FEED:-sip}"
+    command: ["python", "-u", "/app/systems/agent-orchestration/pods/czardas-asset-builder/main.py"]
+    restart: unless-stopped
+    networks:
+      - data_net
+
   chart-asset-migrations:
     profiles: ["chart-assets-pg"]
     image: gops-agent-orchestrator
@@ -1471,6 +1499,8 @@ services:
       agent-analysis-worker:
         condition: service_started
       chart-asset-builder:
+        condition: service_started
+      czardas-asset-builder:
         condition: service_started
     environment:
       REDIS_URL: "redis://redis:6379/0"

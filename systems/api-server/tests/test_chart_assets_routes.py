@@ -22,6 +22,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.main import create_app  # noqa: E402
 from gops_agents.chart_assets.progress import InMemoryChartAssetProgressStore  # noqa: E402
 from gops_agents.chart_assets.queue import InMemoryChartAssetBuildQueue  # noqa: E402
+from gops_agents.czardas_assets.progress import InMemoryCzardasProgressStore  # noqa: E402
+from gops_agents.czardas_assets.queue import InMemoryCzardasBuildQueue  # noqa: E402
 
 
 class FakeStorage:
@@ -49,16 +51,50 @@ class FailingStorage:
     def delete(self, _symbols, _intervals): raise RuntimeError("clickhouse unavailable")
 
 
+class FakeCzardasStorage:
+    def __init__(self):
+        self.record = {
+            "pack": {
+                "algorithmVersion": "czardas-v1",
+                "configVersion": "czardas-config-v1",
+                "timeContractVersion": "market-time-v1",
+                "calendarVersion": "nyse-calendar-v1",
+                "symbol": "NVDA",
+                "interval": "1D",
+            },
+            "generatedAt": "2026-07-11T00:00:00.000Z",
+            "inputDigest": "sha256:input",
+            "lastCandleKey": "2026-07-10",
+        }
+    def get_symbol_records(self, symbol):
+        return {interval: self.record if symbol == "NVDA" and interval == "1D" else None for interval in ALL_INTERVALS}
+    def coverage(self, symbols=None): return []
+    def delete(self, symbols, intervals): self.deleted = (symbols, intervals); return 1
+
+
+class FakeIdentityReader:
+    def current_identity(self, _symbol, interval):
+        if interval != "1D": return None
+        return {"inputDigest": "sha256:input", "lastCandleKey": "2026-07-10", "actualCompleted": 240}
+
+
 class ChartAssetsRoutesTest(unittest.TestCase):
     def setUp(self):
         os.environ["AUTH_ENABLED"] = "false"
         self.storage = FakeStorage()
         self.progress = InMemoryChartAssetProgressStore()
         self.queue = InMemoryChartAssetBuildQueue()
+        self.czardas_storage = FakeCzardasStorage()
+        self.czardas_progress = InMemoryCzardasProgressStore()
+        self.czardas_queue = InMemoryCzardasBuildQueue()
         self.patches = [
             patch("app.routes.chart_assets.chart_asset_storage", return_value=self.storage),
             patch("app.routes.chart_assets.chart_asset_progress_store", return_value=self.progress),
             patch("app.routes.chart_assets.chart_asset_build_queue", return_value=self.queue),
+            patch("app.routes.chart_assets.czardas_asset_storage", return_value=self.czardas_storage),
+            patch("app.routes.chart_assets.czardas_asset_progress_store", return_value=self.czardas_progress),
+            patch("app.routes.chart_assets.czardas_asset_build_queue", return_value=self.czardas_queue),
+            patch("app.routes.chart_assets.czardas_identity_reader", return_value=FakeIdentityReader()),
             patch("app.routes.chart_assets.sp500_universe_symbols", return_value=["NVDA", "AAPL"]),
             patch("app.routes.chart_assets.configured_universe_symbols", return_value=["NVDA", "AAPL"]),
         ]
@@ -81,6 +117,16 @@ class ChartAssetsRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total"], 1)
 
+    def test_czardas_get_returns_freshness_envelope_without_changing_geometry_default(self):
+        geometry = self.client.get("/api/charts/analysis-assets", params={"symbol": "NVDA"})
+        czardas = self.client.get("/api/charts/analysis-assets", params={"symbol": "NVDA", "assetKind": "czardas"})
+
+        self.assertNotIn("assetKind", geometry.json())
+        self.assertEqual(czardas.status_code, 200)
+        self.assertEqual(czardas.json()["assetKind"], "czardas")
+        self.assertEqual(czardas.json()["assets"]["1D"]["freshness"], "current")
+        self.assertEqual(czardas.json()["assets"]["1m"]["freshness"], "missing")
+
     def test_delete_removes_selected_asset_rows(self):
         response = self.client.delete("/api/charts/analysis-assets", params={"symbols": "nvda", "intervals": "1D,1W"})
         self.assertEqual(response.status_code, 200)
@@ -101,6 +147,25 @@ class ChartAssetsRoutesTest(unittest.TestCase):
         canceled = self.client.post(f"/api/charts/analysis-assets/build/{job_id}/cancel")
         self.assertTrue(canceled.json()["cancelRequested"])
         self.progress.set_status(job_id, "canceled", finishedAt="2026-07-11T00:00:00.000Z")
+
+    def test_czardas_build_accepts_only_one_symbol_interval_and_dispatches_cza_status(self):
+        submitted = self.client.post("/api/charts/analysis-assets/build", json={
+            "assetKind": "czardas", "symbols": ["NVDA"], "intervals": ["1D"], "force": True,
+        })
+        self.assertEqual(submitted.status_code, 202)
+        self.assertEqual(submitted.json()["assetKind"], "czardas")
+        job_id = submitted.json()["jobId"]
+        self.assertTrue(job_id.startswith("cza-"))
+        self.assertEqual(self.czardas_queue.items[-1]["symbols"], ["NVDA"])
+        status = self.client.get(f"/api/charts/analysis-assets/build/{job_id}")
+        self.assertEqual(status.json()["assetKind"], "czardas")
+        canceled = self.client.post(f"/api/charts/analysis-assets/build/{job_id}/cancel")
+        self.assertTrue(canceled.json()["cancelRequested"])
+
+        invalid = self.client.post("/api/charts/analysis-assets/build", json={
+            "assetKind": "czardas", "symbols": ["NVDA", "AAPL"], "intervals": ["1D"],
+        })
+        self.assertEqual(invalid.status_code, 422)
 
     def test_sp500_build_expands_registry_and_preserves_envelope_options(self):
         response = self.client.post("/api/charts/analysis-assets/build", json={

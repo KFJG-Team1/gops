@@ -385,7 +385,9 @@ export function PanelContentRenderer({
   }
   const interval = (chartDocument.timeframe || chartHeaderSnapshot?.interval || "1D") as ChartInterval;
   const chartType = normalizeChartType(chartDocument.chartType);
-  const chartIntervalOptions = chartType === "bidask" ? bidAskChartIntervals : chartIntervals;
+  const chartIntervalOptions = chartType === "bidask"
+    ? bidAskChartIntervals
+    : chartIntervals;
   const chartIntervalValue = chartType === "bidask"
     ? (isBidAskChartInterval(interval) ? interval : defaultBidAskInterval)
     : interval;
@@ -436,7 +438,7 @@ export function PanelContentRenderer({
           onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
         >
           {chartTypes.map((nextChartType) => (
-            <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
+            <option key={nextChartType} value={nextChartType} disabled={nextChartType === "czardas" && interval === "1M"}>{chartTypeLabel(nextChartType)}</option>
           ))}
         </select>
         <select
@@ -447,7 +449,7 @@ export function PanelContentRenderer({
           onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
         >
           {chartIntervalOptions.map((nextInterval) => (
-            <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
+            <option key={nextInterval} value={nextInterval} disabled={chartType === "czardas" && nextInterval === "1M"}>{nextInterval}</option>
           ))}
         </select>
       </div>
@@ -492,7 +494,7 @@ export function PanelContentRenderer({
 }
 
 function normalizeChartType(value: string | undefined): ChartType {
-  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
+  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" || value === "czardas" ? value : "candle";
 }
 
 function normalizeChartInterval(value: string | undefined): ChartInterval {
@@ -510,6 +512,9 @@ function chartTypeLabel(chartType: ChartType): string {
   }
   if (chartType === "ohlc") {
     return "OHLC";
+  }
+  if (chartType === "czardas") {
+    return "Czardas";
   }
   return "Candle";
 }

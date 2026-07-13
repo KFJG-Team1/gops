@@ -181,10 +181,14 @@ current Geometry code does not use it as a primary, shadow, or rollback store.
 The authenticated development delete route removes explicit pairs from
 PostgreSQL; it is not retention or automatic cleanup.
 
-The current implementation builds a fixed latest-window projection on a
-weekday CronJob or manual request. The proposed czardas refactor remains a
-design until implemented; its latest-window and OHLCV evidence contracts are in
-`docs/czardas/` and do not silently change this runtime path.
+The retained Geometry implementation builds a fixed latest-window projection on
+a weekday CronJob or manual request. Czardas v1 is a separate manual-only path:
+it audits exactly the latest 240 completed expected candles, repairs bounded
+missing ranges through Alpaca→ClickHouse, re-reads the canonical snapshot, and
+stores one deterministic shared pack in PostgreSQL. Chart open, GET miss, candle
+events, and schedules never enqueue Czardas work. Both paths share canonical
+ClickHouse candle facts but not asset tables, queues, or workers. The exact
+Czardas contracts live in `docs/czardas/`.
 
 The chart-analysis kernel may derive a daily MA60/MA120 crossing event from 121
 canonical completed closes. This is an asset-build feature, not a persisted

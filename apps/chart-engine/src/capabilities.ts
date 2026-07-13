@@ -34,14 +34,14 @@ export const chartCapabilities: ChartCapability[] = [
     label: "Chart type",
     description: "Switch the base price renderer without changing the candle source interval.",
     commandTypes: ["chart.type.set"],
-    payloadSchema: { type: "object", required: ["chartType"], properties: { chartType: { enum: ["candle", "line", "ohlc", "bidask"] } } },
+    payloadSchema: { type: "object", required: ["chartType"], properties: { chartType: { enum: ["candle", "line", "ohlc", "bidask", "czardas"] } } },
     requiredContext: ["chartDocumentId"],
     previewable: true,
     autoApplyEligible: true,
     undoScope: "chart",
     conflictsWith: [],
     recommendedWith: ["chart-timeframe", "chart-layer-visibility"],
-    validationRules: ["chartType must be candle, line, ohlc, or bidask"]
+    validationRules: ["chartType must be candle, line, ohlc, bidask, or czardas", "czardas is unavailable for 1M"]
   },
   {
     id: "chart-viewport",

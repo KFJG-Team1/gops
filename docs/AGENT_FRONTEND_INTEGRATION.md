@@ -324,6 +324,20 @@ stale 자산은 차트에서 제거하지 않고 낮은 불투명도와 stale ba
 상태, log, repair 집계는 PostgreSQL polling 응답을 사용하며 SSE와 Redis pub/sub은
 사용하지 않는다.
 
+Czardas kind는 같은 운영 패널에서 정확히 한 symbol×interval을 수동 build/delete한다.
+현재 release constant는 `czardas`이며 UI, 환경변수, localStorage에 노출하지 않는다.
+`czardas` chart type은 Candle Fact 위에 selector 이전 Basis, H-Line response/ridge,
+Trend hypothesis/mode/ribbon을 그린다. 기존 MA·indicator·comparison·Volume Profile은
+paint와 하단 pane만 숨기고 설정은 보존한다. `1M` option은 disabled이고 저장된
+`czardas+1M`만 load 시 candle로 정규화한다.
+
+H-Line과 Trend는 별도 toggle이고 managed drawing은 사용자가 편집할 수 있다. 첫 편집은
+session-only fork, 삭제는 suppression이며 reload 시 서버 공통 제안이 복원된다. Triangle
+두 Trend의 편집·삭제·복원은 한 command transaction이다. 선 두께 UI는 1/2/3 px만
+제공한다. `chart.czardas.*` command는 internal capability라 LLM chart proposal
+whitelist에 넣지 않는다. stale drawing은 낮은 opacity로 유지할 수 있지만 stale 또는
+incompatible Field와 Triangle badge는 최신 candle 위에 투영하지 않는다.
+
 지원하지 않는 경우 정책:
 
 ```text

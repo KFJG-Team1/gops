@@ -45,6 +45,7 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       parallelLineCount: 3
     },
     drawings: [],
+    czardasSuppressions: [],
     comparisons: [],
     history: [],
     future: [],
@@ -60,12 +61,16 @@ export function normalizeChartDocument(document: ChartDocument): ChartDocument {
   const selectedDrawingId = document.selectedDrawingId && drawings.some((drawing) => drawing.id === document.selectedDrawingId)
     ? document.selectedDrawingId
     : undefined;
+  const chartType = document.chartType === "czardas" && document.timeframe === "1M" ? "candle" : document.chartType;
+  const czardasSuppressions = Array.isArray(document.czardasSuppressions) ? document.czardasSuppressions : [];
   const changed = interactionState !== document.interactionState ||
     drawings !== document.drawings ||
+    chartType !== document.chartType ||
+    czardasSuppressions !== document.czardasSuppressions ||
     history.some((entry, index) => entry !== document.history[index]) ||
     future.some((entry, index) => entry !== document.future[index]) ||
     selectedDrawingId !== document.selectedDrawingId;
-  return changed ? { ...document, interactionState, drawings, history, future, selectedDrawingId } : document;
+  return changed ? { ...document, chartType, interactionState, drawings, czardasSuppressions, history, future, selectedDrawingId } : document;
 }
 
 export function cloneChartDocument(document: ChartDocument): ChartDocument {
@@ -85,6 +90,7 @@ export function snapshotChartDocument(document: ChartDocument): ChartDocumentSna
     style: normalizeChartStyle(document.style),
     interactionState: { ...normalizeChartInteractionState(document.interactionState) },
     drawings: structuredClone(drawings) as ChartDocument["drawings"],
+    czardasSuppressions: structuredClone(document.czardasSuppressions ?? []) as ChartDocument["czardasSuppressions"],
     comparisons: structuredClone(document.comparisons) as ChartDocument["comparisons"],
     selectedDrawingId: document.selectedDrawingId && drawings.some((drawing) => drawing.id === document.selectedDrawingId)
       ? document.selectedDrawingId
@@ -109,6 +115,7 @@ export function restoreChartDocumentSnapshot(
     style: normalizeChartStyle(normalizedSnapshot.style),
     interactionState: { ...normalizeChartInteractionState(normalizedSnapshot.interactionState) },
     drawings: structuredClone(normalizedSnapshot.drawings) as ChartDocument["drawings"],
+    czardasSuppressions: structuredClone(normalizedSnapshot.czardasSuppressions ?? []) as ChartDocument["czardasSuppressions"],
     comparisons: structuredClone(normalizedSnapshot.comparisons) as ChartDocument["comparisons"],
     selectedDrawingId: normalizedSnapshot.selectedDrawingId,
     updatedAt: new Date().toISOString()

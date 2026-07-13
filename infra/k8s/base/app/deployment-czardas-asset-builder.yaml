@@ -1,0 +1,37 @@
+# 역할: PostgreSQL 수동 작업 큐에서 exact-240 Czardas 빌드 한 쌍을 처리합니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: czardas-asset-builder
+  namespace: alfaka-market-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: czardas-asset-builder
+  template:
+    metadata:
+      labels:
+        app: czardas-asset-builder
+    spec:
+      serviceAccountName: alfaka-market-data-sa
+      containers:
+        - name: czardas-asset-builder
+          image: YOUR_ECR_REPOSITORY/gops-agent-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -u
+            - /app/systems/agent-orchestration/pods/czardas-asset-builder/main.py
+          envFrom:
+            - configMapRef:
+                name: alfaka-market-data-config
+            - secretRef:
+                name: alfaka-clickhouse-secret
+                optional: true
+            - secretRef:
+                name: alfaka-order-db-secret
+                optional: false
+            - secretRef:
+                name: alfaka-alpaca-secret
+                optional: true

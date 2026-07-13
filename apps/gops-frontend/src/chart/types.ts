@@ -3,7 +3,7 @@ import type { OrderFlowIntradayResponseDto, OrderFlowMinuteDto, OrderFlowMinuteU
 
 export type ChartInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
 
-export type ChartType = "candle" | "line" | "ohlc" | "bidask";
+export type ChartType = "candle" | "line" | "ohlc" | "bidask" | "czardas";
 
 export type CandleDto = {
   timestamp: string;
@@ -418,6 +418,14 @@ export type DrawingEntity = {
   visible: boolean;
   createdBy: "user" | "agent" | "system" | "llm";
   sourceProposalId?: string;
+  ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
+  czardasLayer?: "hline" | "trend";
+  sourceCandidateId?: string;
+  sourceFieldModeId?: string;
+  sourceFieldRevision?: number;
+  sourceGroupId?: string;
+  engineRevision?: number;
+  forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -483,6 +491,10 @@ export type ChartState = {
   layers: Partial<Record<ChartLayerKey, boolean>>;
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
+  czardasField?: CzardasFieldDto | null;
+  czardasPattern?: CzardasPatternDto | null;
+  czardasVisibility?: { hline: boolean; trend: boolean };
+  czardasAssetState?: "current" | "stale" | "missing" | "incompatible";
   orderFlow?: {
     dataStatus: OrderFlowIntradayResponseDto["dataStatus"];
     supportedSymbols?: string[];
@@ -503,7 +515,42 @@ export type ChartState = {
   streamState: "connecting" | "live" | "idle" | "error";
 };
 
-export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
+export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask", "czardas"];
+
+export type CzardasFieldDto = {
+  schemaVersion: number;
+  sourceBars: number;
+  basisGlyphs: Array<{
+    basisId: string;
+    observedAt: string;
+    confirmedAt: string;
+    endpointPrice: number;
+    corridorLow: number;
+    corridorHigh: number;
+    kind: "hline_reaction" | "trend_endpoint";
+    role: "support" | "resistance" | "lower" | "upper";
+    effectiveScale: number;
+    roleMassAtAsOf: number;
+    participation?: number | null;
+  }>;
+  hlineResponseSegments: Array<Record<string, unknown>>;
+  hlineProfileBins: Array<Record<string, unknown>>;
+  hlineModes: Array<Record<string, unknown>>;
+  trendModes: Array<Record<string, unknown>>;
+  selectedModeRefs: Array<Record<string, unknown>>;
+  validationGlyphs: Array<Record<string, unknown>>;
+  relationGlyph?: Record<string, unknown> | null;
+  projection?: Record<string, unknown>;
+};
+
+export type CzardasPatternDto = {
+  triangleId: string;
+  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+  upperCandidateId: string;
+  lowerCandidateId: string;
+  upperDrawingId?: string;
+  lowerDrawingId?: string;
+};
 
 export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];
 

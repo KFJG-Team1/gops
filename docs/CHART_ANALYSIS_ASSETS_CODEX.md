@@ -1,8 +1,10 @@
 # Chart Geometry Assets — Codex Reference
 
-이 문서는 동결한 코드 기준점 `16e0fa5`의 현재 Geometry 구현 기준이다. 다음 세대 엔진의
-구현 참조문서는 [czardas/README.md](czardas/README.md)를 읽는다. 목표 문서만 보고
-현재 API·schema·runtime이 이미 바뀌었다고 가정하지 않는다.
+이 문서는 동결한 코드 기준점 `16e0fa5`에서 보존한 Geometry 롤백 계약이다. 현재 기본
+release constant는 `czardas`이며, Czardas 변경 전에는 [czardas/README.md](czardas/README.md),
+[czardas/ENGINE_SPEC.md](czardas/ENGINE_SPEC.md),
+[czardas/IMPLEMENTATION_PLAN.md](czardas/IMPLEMENTATION_PLAN.md)와 현재 코드를 함께 읽는다.
+`assetKind` 생략 요청은 여전히 아래 Geometry 계약과 호환되어야 한다.
 
 ## 불변 조건
 
@@ -66,3 +68,27 @@ PostgreSQL 테이블은 `geometry_assets`, `geometry_build_jobs`,
 
 프론트는 `Geometry` 토글 하나만 제공하고, 현재 interval의 자산만 적용하며,
 SMA60·SMA120 overlay를 함께 활성화한다.
+
+## Czardas v1 코드 경계
+
+- kernel: `alfaka.analytics.czardas`; exact-240 `CandleTape`에서 H-Line, Trend, Triangle,
+  pre-selection Field와 canonical pack을 만든다.
+- data: `CzardasCandleLoader`와 `canonical_completed_rows()`가
+  `v2/split/regular/closed` 및 NYSE session identity를 강제한다.
+- repair/build/storage: `gops_agents.czardas_assets`; 최대 8개 연속 range를 2 round 안에
+  Alpaca→ClickHouse→canonical re-read하고 exact-240일 때만 저장한다.
+- PostgreSQL: `czardas_latest`, `czardas_build_jobs`, `czardas_build_items`; Geometry table과
+  queue를 공유하지 않는다.
+- API: `assetKind=czardas`; build는 한 pair만 허용하며 status/cancel은 `cza-` prefix로
+  dispatch한다. GET freshness 판정은 read-only다.
+- chart: `czardas` chart type, H-Line/Trend 독립 layer, 1/2/3 px, Triangle group atomic fork,
+  session-only suppression. `chart.czardas.*`는 internal command이며 LLM whitelist 밖이다.
+
+Czardas 검증의 시작점은 다음과 같다.
+
+```sh
+.venv/bin/python -m pytest systems/market-data/tests/analytics/czardas
+.venv/bin/python -m pytest systems/agent-orchestration/tests/test_czardas_*.py
+.venv/bin/python -m pytest systems/api-server/tests/test_chart_assets_routes.py
+cd apps/gops-frontend && npm run test:chart
+```

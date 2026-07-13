@@ -9,7 +9,7 @@ flowchart TD
   ARCH["AGENT_ARCHITECTURE.md<br/>에이전트 자체 설명"]
   POLICY["AGENT_ANALYSIS_QUERY_POLICY.md<br/>분석 쿼리/응답 정책"]
   CHARTAGENT["CHART_AGENT_STRATEGY.md<br/>차트 지능/에이전트 전략"]
-  CZARDAS["czardas/README.md<br/>최신구간 자동 작도 엔진 설계"]
+  CZARDAS["czardas/README.md<br/>최신구간 자동 작도 엔진"]
   BE["AGENT_BACKEND_INTEGRATION.md<br/>백엔드 연동"]
   FE["AGENT_FRONTEND_INTEGRATION.md<br/>프런트 연동"]
   AWS["AGENT_AWS_BUILD.md<br/>AWS 빌드/배포"]
@@ -38,11 +38,11 @@ flowchart TD
 | `PRODUCT_CONTEXT.md` | Product direction and current/future scope boundary. |
 | `CHART_DATA_ARCHITECTURE.md` | Current chart fact ownership, compute placement, query path, API/WS, order-flow, and S3 contracts. |
 | `CHART_AGENT_STRATEGY.md` | 차트 지능의 투자적 역할, deterministic kernel, rule/LLM 경계, 작도 compiler, 데이터 사전 계산, orchestrator 통합, 단계별 구현 전략. |
-| `CHART_ANALYSIS_ASSETS.md` | 현재 Geometry 자산의 H-Line·세 Triangle, PostgreSQL 저장, build·화면 흐름을 설명하는 사람용 문서. |
-| `CHART_ANALYSIS_ASSETS_CODEX.md` | 현재 Geometry 구현의 불변 조건, 파일 책임, threshold, digest, 검증 절차 기술 기준서. |
-| `czardas/README.md` | czardas의 시선, 데이터 흐름, 작도, 강점·약점·한계를 설명하는 시작점. |
-| `czardas/ENGINE_SPEC.md` | Codex가 구현할 자료구조, H-Line·Trend와 파생 Triangle 관계, 평가, API, 저장, drawing의 단일 규격. |
-| `czardas/IMPLEMENTATION_PLAN.md` | czardas를 평가 harness부터 rollout까지 구현하는 파일·테스트·성능 gate 순서. |
+| `CHART_ANALYSIS_ASSETS.md` | 보존된 Geometry 롤백 계약과 현재 Czardas 자산 경계를 설명하는 사람용 문서. |
+| `CHART_ANALYSIS_ASSETS_CODEX.md` | Geometry 호환 조건과 Czardas 구현의 코드 경계·검증 진입점을 정리한 기술 기준서. |
+| `czardas/README.md` | 현재 Czardas의 시선, 데이터 흐름, 작도, 강점·약점·한계를 설명하는 시작점. |
+| `czardas/ENGINE_SPEC.md` | 구현된 자료구조, H-Line·Trend와 파생 Triangle 관계, 평가, API, 저장, drawing의 단일 규격. |
+| `czardas/IMPLEMENTATION_PLAN.md` | Czardas의 평가 harness부터 rollout까지 구현 순서와 회귀·성능 gate. |
 | `CHART_DATA_OPERATIONS.md` | Validation, deployment observation, recovery, retention, Terraform ownership, and rollback runbook. |
 | `STRUCTURE_GUIDE.md` | Folder placement rules for future code. |
 | `ARCHITECTURE.md` | Current system, pod/job, and platform relationships. |

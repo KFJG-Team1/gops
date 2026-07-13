@@ -3,9 +3,11 @@
 Chart Geometry Asset은 완료된 실제 OHLCV 봉에서 현재 지지·저항과 삼각형만 계산해
 차트에 적용하는 결정론적 자산이다. LLM 해설이나 다른 패턴을 생성하지 않는다.
 
-이 문서는 동결한 코드 기준점 `16e0fa5`의 **현재 구현 계약**이다. 전면 리팩터링 설계인
-czardas는 [czardas/README.md](czardas/README.md)에서 별도로 관리한다. czardas가
-실제로 rollout되기 전까지 이 문서의 runtime 사실이 우선한다.
+이 문서는 동결한 코드 기준점 `16e0fa5`에서 롤백 경로로 보존한 Geometry 계약을 설명한다.
+현재 기본 분석 엔진은 수동 빌드 방식의 Czardas v1이며, 그 구현 계약은
+[czardas/README.md](czardas/README.md), [czardas/ENGINE_SPEC.md](czardas/ENGINE_SPEC.md),
+[czardas/IMPLEMENTATION_PLAN.md](czardas/IMPLEMENTATION_PLAN.md)가 함께 정의한다. API에서
+`assetKind`를 생략하면 아래 Geometry 동작과 byte/behavior compatibility를 유지한다.
 
 ## 지원 범위
 
@@ -57,3 +59,16 @@ Alpaca 요청에도 실재 봉이 없는 무거래 slot은 `provider_confirmed_e
 
 새 완료 봉 때문에 stale이 된 자산은 차트에서 제거하지 않고 낮은 불투명도로 표시한다.
 현재 symbol과 interval이 모두 일치하는 자산만 적용한다.
+
+## 현재 Czardas v1 확장
+
+- 수동 패널 action은 정확히 한 `symbol × interval`의 최신 완료봉 240개를 감사·보충·분석한다.
+- 결과는 PostgreSQL `chart_assets.czardas_latest`에 저장하고 작업은 별도
+  `czardas_build_jobs/items`에서 `cza-` ID로 처리한다.
+- `assetKind=czardas` GET은 저장된 공통 pack과 `current/stale/missing/incompatible`
+  freshness만 읽는다. GET 자체는 repair, kernel, enqueue, PostgreSQL write를 하지 않는다.
+- Czardas는 H-Line `0..4`, Trend `0..3`과 선택된 두 Trend의 파생 Triangle만 제안한다.
+  기본 목표는 H-Line 2개, Trend 2개이며 근거가 부족하면 no-draw Field를 반환한다.
+- 프런트 기본 release constant는 `czardas`다. H-Line/Trend layer는 독립 toggle이고,
+  managed drawing 편집·삭제는 session-only fork/suppression이다. Geometry DB와 worker는
+  제거하지 않는다.

@@ -1,12 +1,14 @@
 import type { AnalysisAssetInterval, AnalysisAssetStatus } from "./analysisAssetsApi";
 
 export type ChartAssetBuildRequest = {
+  assetKind?: "geometry" | "czardas";
   symbols: string[] | "sp500";
   intervals: AnalysisAssetInterval[];
   force?: boolean;
 };
 
 export type ChartAssetBuildAccepted = {
+  assetKind?: "czardas";
   jobId: string;
   status: "queued";
   status_url: string;
@@ -24,6 +26,7 @@ export type ChartAssetBuildItem = {
 };
 
 export type ChartAssetBuildStatus = {
+  assetKind?: "czardas";
   jobId: string;
   status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
@@ -52,6 +55,7 @@ export type ChartAssetCoverageItem = {
   generatedAt: string;
   status: AnalysisAssetStatus;
   assetVersion?: "geometry";
+  assetKind?: "geometry" | "czardas";
   coverageState?: "full" | "partial";
   payloadBytes?: number;
   drawingCount?: number;
@@ -82,14 +86,16 @@ export async function cancelChartAssetBuild(jobId: string): Promise<ChartAssetBu
   return apiJson(`/api/charts/analysis-assets/build/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 }
 
-export async function fetchChartAssetCoverage(symbols?: string[]): Promise<ChartAssetCoverageItem[]> {
-  const query = symbols?.length ? `?${new URLSearchParams({ symbols: symbols.join(",") }).toString()}` : "";
+export async function fetchChartAssetCoverage(symbols?: string[], assetKind: "geometry" | "czardas" = "geometry"): Promise<ChartAssetCoverageItem[]> {
+  const params = new URLSearchParams({ assetKind });
+  if (symbols?.length) params.set("symbols", symbols.join(","));
+  const query = `?${params.toString()}`;
   const response = await apiJson<{ items?: ChartAssetCoverageItem[] }>(`/api/charts/analysis-assets/coverage${query}`);
   return Array.isArray(response.items) ? response.items : [];
 }
 
-export async function deleteChartAssets(symbols: string[], intervals: AnalysisAssetInterval[]): Promise<ChartAssetDeleteResult> {
-  const query = new URLSearchParams({ symbols: symbols.join(","), intervals: intervals.join(",") });
+export async function deleteChartAssets(symbols: string[], intervals: AnalysisAssetInterval[], assetKind: "geometry" | "czardas" = "geometry"): Promise<ChartAssetDeleteResult> {
+  const query = new URLSearchParams({ symbols: symbols.join(","), intervals: intervals.join(","), assetKind });
   return apiJson(`/api/charts/analysis-assets?${query.toString()}`, { method: "DELETE" });
 }
 

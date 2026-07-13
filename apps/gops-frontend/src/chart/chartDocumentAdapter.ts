@@ -120,7 +120,7 @@ function normalizeFrontendInterval(value: string): ChartInterval {
 }
 
 function normalizeFrontendChartType(value: string | undefined): ChartType {
-  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
+  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" || value === "czardas" ? value : "candle";
 }
 
 function readString(value: unknown): string | null {

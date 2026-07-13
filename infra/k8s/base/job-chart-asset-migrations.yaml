@@ -1,4 +1,4 @@
-# 역할: Chart Geometry Asset과 PostgreSQL 작업 큐 schema를 1회 적용합니다.
+# 역할: Chart Geometry/Czardas Asset과 PostgreSQL 작업 큐 schema를 1회 적용합니다.
 apiVersion: batch/v1
 kind: Job
 metadata:

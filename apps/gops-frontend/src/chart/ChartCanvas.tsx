@@ -224,7 +224,7 @@ function drawChart(
     return;
   }
 
-  const standardLayersVisible = scene.chart.chartType !== "bidask";
+  const standardLayersVisible = scene.chart.chartType !== "bidask" && scene.chart.chartType !== "czardas";
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene, Boolean(crosshair)),
     () => drawTimeGrid(context, scene),
@@ -261,7 +261,7 @@ function drawChart(
 }
 
 function basePriceLayerVisible(scene: ChartScene): boolean {
-  return scene.chart.layers.candles !== false;
+  return scene.chart.chartType === "czardas" || scene.chart.layers.candles !== false;
 }
 
 function movingAverageLayerVisible(scene: ChartScene, key: "ma5" | "ma20" | "ma60"): boolean {
@@ -288,8 +288,271 @@ function drawBasePriceLayer(context: CanvasRenderingContext2D, scene: ChartScene
     drawCarryForwardGapCandles(context, scene, "ohlc");
     return;
   }
+  if (scene.chart.chartType === "czardas") {
+    drawCzardasField(context, scene);
+    return;
+  }
   drawCandles(context, scene);
   drawCarryForwardGapCandles(context, scene, "candle");
+}
+
+function drawCzardasField(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const field = scene.chart.czardasField;
+  const visibility = scene.chart.czardasVisibility ?? { hline: true, trend: true };
+  if (!field) {
+    drawCzardasCandleFacts(context, scene);
+    drawCzardasEmpty(context, scene);
+    return;
+  }
+  const selectedModes = new Set(field.selectedModeRefs.map((item) => {
+    const modeId = recordString(item, "sourceFieldModeId");
+    const revision = recordNumber(item, "sourceFieldRevision");
+    return modeId ? `${modeId}:${revision ?? 1}` : "";
+  }));
+  const responseMax = Math.max(1, ...field.hlineResponseSegments.map((item) => recordNumber(item, "responseMass") ?? 0));
+  drawCzardasCandleFacts(context, scene);
+
+  // Price-space response density: this is the H-Line inference landscape,
+  // before any ridge or selected boundary is chosen.
+  if (visibility.hline) field.hlineResponseSegments.forEach((item) => {
+    const low = recordNumber(item, "lowPrice");
+    const high = recordNumber(item, "highPrice");
+    const mass = recordNumber(item, "responseMass") ?? 0;
+    const role = recordString(item, "role");
+    if (low === null || high === null) return;
+    const top = priceToY(scene, Math.max(low, high));
+    const bottom = priceToY(scene, Math.min(low, high));
+    context.save();
+    context.globalAlpha = 0.05 + 0.24 * Math.min(1, mass / responseMax);
+    context.fillStyle = role === "resistance" ? colors.caution : colors.signal;
+    context.fillRect(scene.plot.left, top, scene.plot.right - scene.plot.left, Math.max(1, bottom - top));
+    context.restore();
+  });
+
+  if (visibility.hline) {
+    drawCzardasProfile(context, scene, field.hlineProfileBins);
+    drawCzardasHlineModes(context, scene, field.hlineModes, selectedModes);
+  }
+  if (visibility.trend) drawCzardasTrendModes(context, scene, field.trendModes, selectedModes);
+  drawCzardasBasis(context, scene, field.basisGlyphs.filter((item) => (
+    item.role === "support" || item.role === "resistance" ? visibility.hline : visibility.trend
+  )));
+  if (visibility.trend) drawCzardasPatternBadge(context, scene);
+}
+
+function drawCzardasCandleFacts(context: CanvasRenderingContext2D, scene: ChartScene) {
+  candleUnits(scene).forEach((unit) => {
+    const candle = unit.candle;
+    const center = unitCenterX(scene, unit);
+    const open = priceToY(scene, candle.open);
+    const close = priceToY(scene, candle.close);
+    const high = priceToY(scene, candle.high);
+    const low = priceToY(scene, candle.low);
+    const bodyTop = Math.min(open, close);
+    const bodyHeight = Math.max(1, Math.abs(close - open));
+    const bodyBottom = bodyTop + bodyHeight;
+    const width = Math.max(1.5, candleBodyWidth(scene, unit) * 0.76);
+    context.save();
+    context.strokeStyle = candle.close >= candle.open ? colors.upSoft : colors.downSoft;
+    context.globalAlpha = candle.isClosed === false ? 0.16 : 0.28;
+    context.lineWidth = 1;
+    context.setLineDash(candle.isClosed === false ? [2, 2] : []);
+    line(context, center, high, center, bodyTop);
+    line(context, center, bodyBottom, center, low);
+    context.strokeRect(center - width / 2, bodyTop, width, bodyHeight);
+    context.restore();
+  });
+}
+
+function drawCzardasHlineModes(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  modes: Array<Record<string, unknown>>,
+  selectedModes: Set<string>
+) {
+  const maxMass = Math.max(1, ...modes.map((mode) => recordNumber(mode, "supportMass") ?? 0));
+  modes.forEach((mode) => {
+    const center = recordNumber(mode, "centerPrice");
+    const width = recordNumber(mode, "zoneHalfWidth") ?? 0;
+    const role = recordString(mode, "role");
+    const modeId = recordString(mode, "fieldModeId");
+    const revision = recordNumber(mode, "fieldRevision") ?? 1;
+    const mass = recordNumber(mode, "supportMass") ?? 0;
+    const state = recordString(mode, "modeState");
+    const opposition = recordNumber(mode, "oppositionMass") ?? 0;
+    if (center === null || !modeId) return;
+    const selected = selectedModes.has(`${modeId}:${revision}`);
+    const top = priceToY(scene, center + width);
+    const bottom = priceToY(scene, center - width);
+    context.save();
+    context.fillStyle = role === "resistance" ? colors.caution : colors.signal;
+    context.globalAlpha = (selected ? 0.16 : 0.05) + 0.08 * Math.min(1, mass / maxMass);
+    context.fillRect(scene.plot.left, top, scene.plot.right - scene.plot.left, Math.max(1, bottom - top));
+    context.globalAlpha = (selected ? 0.58 : 0.20) * Math.max(0.35, 1 - opposition);
+    context.lineWidth = selected ? 1.5 : 1;
+    context.setLineDash(state === "weak" ? [4, 4] : state === "opposed" ? [2, 3] : []);
+    line(context, scene.plot.left, priceToY(scene, center), scene.plot.right, priceToY(scene, center));
+    context.restore();
+  });
+}
+
+function drawCzardasTrendModes(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  modes: Array<Record<string, unknown>>,
+  selectedModes: Set<string>
+) {
+  modes.forEach((mode) => {
+    const ribbon = asCanvasRecord(mode.ribbon);
+    const estimate = asCanvasRecord(mode.boundaryEstimate);
+    const modeId = recordString(mode, "fieldModeId");
+    const revision = recordNumber(mode, "fieldRevision") ?? 1;
+    const role = recordString(mode, "role");
+    const startLow = recordNumber(ribbon, "lowerYAtWindowStart");
+    const startHigh = recordNumber(ribbon, "upperYAtWindowStart");
+    const endLow = recordNumber(ribbon, "lowerYAtWindowEnd");
+    const endHigh = recordNumber(ribbon, "upperYAtWindowEnd");
+    const start = recordNumber(estimate, "yAtWindowStart");
+    const end = recordNumber(estimate, "yAtWindowEnd");
+    if (!modeId || [startLow, startHigh, endLow, endHigh, start, end].some((value) => value === null)) return;
+    const selected = selectedModes.has(`${modeId}:${revision}`);
+    const color = role === "upper" ? colors.pointOrange : colors.pointPurple;
+    context.save();
+    context.fillStyle = color;
+    context.globalAlpha = selected ? 0.18 : 0.055;
+    context.beginPath();
+    context.moveTo(scene.plot.left, priceToY(scene, startHigh!));
+    context.lineTo(scene.plot.right, priceToY(scene, endHigh!));
+    context.lineTo(scene.plot.right, priceToY(scene, endLow!));
+    context.lineTo(scene.plot.left, priceToY(scene, startLow!));
+    context.closePath();
+    context.fill();
+    context.strokeStyle = color;
+    context.globalAlpha = selected ? 0.62 : 0.18;
+    context.lineWidth = selected ? 1.5 : 1;
+    line(context, scene.plot.left, priceToY(scene, start!), scene.plot.right, priceToY(scene, end!));
+    const hypotheses = Array.isArray(mode.representativeHypotheses) ? mode.representativeHypotheses : [];
+    context.globalAlpha = 0.12;
+    context.lineWidth = 0.75;
+    hypotheses.forEach((hypothesis) => {
+      const fact = asCanvasRecord(hypothesis);
+      const y0 = recordNumber(fact, "yAtWindowStart");
+      const y1 = recordNumber(fact, "yAtWindowEnd");
+      if (y0 !== null && y1 !== null) {
+        line(context, scene.plot.left, priceToY(scene, y0), scene.plot.right, priceToY(scene, y1));
+      }
+    });
+    context.restore();
+  });
+}
+
+function drawCzardasBasis(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  basis: Array<{
+    observedAt: string;
+    endpointPrice: number;
+    corridorLow: number;
+    corridorHigh: number;
+    role: "support" | "resistance" | "lower" | "upper";
+    roleMassAtAsOf: number;
+    effectiveScale: number;
+  }>
+) {
+  const transform = createCoordinateTransform(scene);
+  basis.forEach((item) => {
+    const x = transform.timestampToX(item.observedAt);
+    if (x === null) return;
+    const y = priceToY(scene, item.endpointPrice);
+    const color = item.role === "support" ? colors.signal
+      : item.role === "resistance" ? colors.caution
+        : item.role === "lower" ? colors.pointPurple : colors.pointOrange;
+    context.save();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.globalAlpha = 0.16 + 0.62 * Math.min(1, Math.max(0, item.roleMassAtAsOf));
+    context.lineWidth = Math.max(1, Math.min(2.5, item.effectiveScale / 7));
+    line(context, x, priceToY(scene, item.corridorLow), x, priceToY(scene, item.corridorHigh));
+    const radius = 1.8 + 2.5 * Math.min(1, item.roleMassAtAsOf);
+    context.beginPath();
+    if (item.role === "support" || item.role === "resistance") {
+      context.ellipse(x, y, radius * 1.45, radius * 0.72, 0, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.moveTo(x, y - radius);
+      context.lineTo(x + radius, y);
+      context.lineTo(x, y + radius);
+      context.lineTo(x - radius, y);
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  });
+}
+
+function drawCzardasProfile(context: CanvasRenderingContext2D, scene: ChartScene, bins: Array<Record<string, unknown>>) {
+  if (!bins.length) return;
+  const max = Math.max(1, ...bins.map((bin) => recordNumber(bin, "normalizedVolume") ?? recordNumber(bin, "volumeMass") ?? recordNumber(bin, "volume") ?? 0));
+  bins.forEach((bin) => {
+    const low = recordNumber(bin, "lowPrice") ?? recordNumber(bin, "priceLow");
+    const high = recordNumber(bin, "highPrice") ?? recordNumber(bin, "priceHigh");
+    const volume = recordNumber(bin, "normalizedVolume") ?? recordNumber(bin, "volumeMass") ?? recordNumber(bin, "volume") ?? 0;
+    if (low === null || high === null) return;
+    const width = 34 * Math.min(1, volume / max);
+    const top = priceToY(scene, high);
+    const bottom = priceToY(scene, low);
+    context.save();
+    context.fillStyle = colors.purple;
+    context.globalAlpha = 0.12;
+    context.fillRect(scene.plot.right - width, top, width, Math.max(1, bottom - top));
+    context.restore();
+  });
+}
+
+function drawCzardasPatternBadge(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const pattern = scene.chart.czardasPattern;
+  if (!pattern) return;
+  const label = pattern.kind === "ascending_triangle" ? "상승 삼각형"
+    : pattern.kind === "descending_triangle" ? "하락 삼각형"
+      : "대칭 삼각형";
+  context.save();
+  applyCanvasTypography(context, "caption", canvasFontFamily);
+  const width = context.measureText(label).width + 18;
+  const x = scene.plot.right - width - 8;
+  const y = scene.plot.top + 8;
+  context.fillStyle = colors.surfaceStrong;
+  context.globalAlpha = 0.88;
+  context.fillRect(x, y, width, 24);
+  context.fillStyle = colors.text;
+  context.globalAlpha = 0.95;
+  context.fillText(label, x + 9, y + 16);
+  context.restore();
+}
+
+function drawCzardasEmpty(context: CanvasRenderingContext2D, scene: ChartScene) {
+  context.save();
+  applyCanvasTypography(context, "caption", canvasFontFamily);
+  context.fillStyle = colors.muted;
+  context.globalAlpha = 0.78;
+  const label = scene.chart.czardasAssetState === "stale" ? "Czardas · 수동 재분석 필요"
+    : scene.chart.czardasAssetState === "incompatible" ? "Czardas · 호환되지 않는 자산"
+      : "Czardas · 분석 자산 없음";
+  context.fillText(label, scene.plot.left + 12, scene.plot.top + 20);
+  context.restore();
+}
+
+function asCanvasRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function recordNumber(value: unknown, key: string): number | null {
+  const candidate = asCanvasRecord(value)[key];
+  return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+}
+
+function recordString(value: unknown, key: string): string | null {
+  const candidate = asCanvasRecord(value)[key];
+  return typeof candidate === "string" && candidate ? candidate : null;
 }
 
 type ComparisonRenderPoint = {

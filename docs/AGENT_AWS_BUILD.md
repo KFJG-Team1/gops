@@ -87,6 +87,7 @@ infra/docker/Dockerfile.gops-agent-orchestrator
 agent-orchestrator
 agent-analysis-worker
 chart-asset-builder
+czardas-asset-builder
 agent-delivery-gateway
 agent-intent-classifier
 deep-analysis-worker
@@ -203,6 +204,7 @@ infra/k8s/base/app/deployment-deep-analysis-worker.yaml
 infra/k8s/base/app/deployment-agent-event-detector.yaml
 infra/k8s/base/app/deployment-agent-notification-publisher.yaml
 infra/k8s/base/app/deployment-recommendation-worker.yaml
+infra/k8s/base/app/deployment-czardas-asset-builder.yaml
 ```
 
 The AWS in-cluster overlay keeps `recommendation-worker` and
@@ -782,6 +784,15 @@ CronJob은 S&P500 전체 7개 interval을 등록한다. PostgreSQL schema는
 `job-chart-asset-migrations.yaml`과 `run-chart-asset-migrations-job.sh`로 명시 적용하며
 runtime은 자동 생성하지 않는다. one-shot migration Job은 PostgreSQL Secret이 없으면
 시작하지 않는다.
+
+`czardas-asset-builder`도 같은 image를 사용하지만 Geometry queue와 분리된 `cza-`
+PostgreSQL queue에서 명시적 한 pair만 처리한다. 지원 interval마다 최신 완료봉 정확히
+240개를 요구하고, 한 round 최대 8 missing range·최대 2 round만
+Alpaca→ClickHouse→canonical re-read한다. 자동 schedule/Cron이나 candle-event trigger는
+없다. base deployment는 ClickHouse, PostgreSQL, Alpaca secret을 읽고 AWS overlay에서는
+PostgreSQL과 Alpaca secret이 필수다. migration Job은 `003_geometry_assets.sql` 뒤에
+`004_czardas_assets.sql`을 적용하며 runtime은 table을 만들지 않는다. Czardas asset
+경로는 S3, Redis, Kafka, OpenAI를 사용하지 않는다.
 
 Financial final-answer synthesis is enabled with
 `AGENT_FINANCIAL_FINAL_ANSWER_PROVIDER=openai`. The orchestrator still reads SEC

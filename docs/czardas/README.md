@@ -16,6 +16,10 @@ upsert한다. 삭제도 같은 패널에서 수동으로 한다. chart open, 새
 pan, zoom, resize, live tick은 build를 시작하지 않는다. 자동 갱신은 이 수동 경로와
 엔진 품질이 검증된 다음 구현에서 추가한다.
 
+current Geometry와 Czardas를 동시에 적용하지 않는다. 프런트의 비영속 release constant가
+`geometry | czardas | off` 중 하나만 고르며 현재 repository 기본값은 `czardas`다. 이는
+세 번째 사용자 버튼이나 저장되는 설정이 아니며 기존 Geometry는 rollback 경로로 남는다.
+
 ## czardas가 차트를 보는 시선
 
 czardas는 candle을 단순한 시간×가격 막대로 보지 않는다. OHLCV를 다섯 관점으로
@@ -154,7 +158,7 @@ zero-volume이나 carry-forward candle로 만들지 않으며 실패한 build는
 - naive datetime, 서버 local timezone, 고정 `UTC-5/UTC-4` 계산은 금지한다.
 
 인증된 패널 action이 만든 Python job은 공통 pack을 PostgreSQL
-`chart_assets.czardas_assets`의 `(symbol, interval)` latest row로 upsert한다. GET이나 chart
+`chart_assets.czardas_latest`의 `(symbol, interval)` latest row로 upsert한다. GET이나 chart
 open은 job을 등록하지 않는다. 모든 사용자는 다음 asset read에서 같은 저장 결과를 받고,
 사용자 편집은 서버에 저장하지 않는다. 새 완료봉 뒤 stored drawing은 `stale` badge와 낮은
 opacity로 유지할 수 있지만, digest가 다른 과거 Czardas Field는 현재 candle 위에 겹치지
@@ -432,7 +436,7 @@ czardas는 다음 자원을 수용한다.
 - 형성과 검증이 섞인 score.
 - chart asset 전체 remove-all/add-all과 편집 소실.
 
-이번 POC는 current Geometry와 별도 `czardas_assets` latest table을 사용한다. 자동
+이번 POC는 current Geometry와 별도 `czardas_latest` table을 사용한다. 자동
 `CANDLE_CLOSED/CORRECTED` build, chart miss enqueue, S&P500 schedule/CronJob, active-release
 pointer와 cross-client push는 구현하지 않는다. 현재 Geometry는 수동 검증과 rollback이
 끝날 때까지 보존한다.

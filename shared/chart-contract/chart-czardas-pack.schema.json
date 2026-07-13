@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gops.local/contracts/chart-czardas-pack.schema.json",
+  "title": "GOPS Czardas Pack Content",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithmVersion", "configVersion", "timeContractVersion", "calendarVersion",
+    "symbol", "interval", "asOf", "lastCandleKey", "inputDigest", "status",
+    "coverage", "selection", "boundaries", "presentationPattern", "drawings",
+    "czardasField", "rejectSummary"
+  ],
+  "properties": {
+    "algorithmVersion": {"const": "czardas-v1"},
+    "configVersion": {"type": "string", "minLength": 1},
+    "timeContractVersion": {"type": "string", "minLength": 1},
+    "calendarVersion": {"type": "string", "minLength": 1},
+    "symbol": {"type": "string", "minLength": 1},
+    "interval": {"enum": ["1m", "5m", "10m", "1h", "4h", "1D", "1W"]},
+    "asOf": {"type": "string", "format": "date-time"},
+    "lastCandleKey": {"type": "string", "minLength": 1},
+    "inputDigest": {"type": "string", "pattern": "^sha256:"},
+    "status": {"const": "ready"},
+    "coverage": {
+      "type": "object",
+      "required": ["state", "targetCompleted", "actualCompleted", "analysisBars", "qualityFlags"],
+      "properties": {
+        "state": {"const": "exact"},
+        "targetCompleted": {"const": 240},
+        "actualCompleted": {"const": 240},
+        "analysisBars": {"const": 240},
+        "qualityFlags": {"type": "array"}
+      }
+    },
+    "selection": {"type": "object"},
+    "boundaries": {"type": "array", "maxItems": 7},
+    "presentationPattern": {"type": ["object", "null"]},
+    "drawings": {"type": "array", "maxItems": 7},
+    "czardasField": {"type": "object"},
+    "rejectSummary": {"type": "object"}
+  }
+}

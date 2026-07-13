@@ -69,6 +69,14 @@ import {
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
+import { analysisEngine } from "../chart/analysisEngine";
+import { fetchCzardasAssets, type CzardasAssetsResponse } from "../chart/czardasAssetsApi";
+import {
+  czardasDeltaCommands,
+  czardasToggleCommands,
+  type CzardasLayerKey,
+  type CzardasLayerVisibility
+} from "../chart/czardasLayerController";
 import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
@@ -124,7 +132,7 @@ import {
   type SemanticRenderUnit,
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
-import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, CzardasPatternDto, DrawingEntity, IndicatorSeries } from "../chart/types";
 import {
   defaultBidAskInterval,
   defaultVisibleBarsForBidAskInterval,
@@ -401,9 +409,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [czardasAssets, setCzardasAssets] = useState<CzardasAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
-  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    geometry: true
+  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility & CzardasLayerVisibility>({
+    geometry: true,
+    hline: true,
+    trend: true
   });
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
@@ -556,6 +567,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const activeSymbol = chart.symbol.trim().toUpperCase();
     if (!invalidatedSymbol || invalidatedSymbol === activeSymbol) {
       setAnalysisAssets(null);
+      setCzardasAssets(null);
       appliedAnalysisAssetKeyRef.current = "";
       setAnalysisAssetsRevision((current) => current + 1);
     }
@@ -621,6 +633,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [onChartRuntimeAction]);
 
   useEffect(() => {
+    if (analysisEngine !== "geometry") {
+      setAnalysisAssets(null);
+      return undefined;
+    }
     const requestedSymbol = chart.symbol.trim().toUpperCase();
     let active = true;
     setAnalysisAssets((current) => current?.symbol === requestedSymbol ? current : null);
@@ -641,6 +657,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
   }, [analysisAssetsRevision, chart.symbol]);
 
+  useEffect(() => {
+    if (analysisEngine !== "czardas") {
+      setCzardasAssets(null);
+      return undefined;
+    }
+    const requestedSymbol = chart.symbol.trim().toUpperCase();
+    let active = true;
+    setCzardasAssets((current) => current?.symbol === requestedSymbol ? current : null);
+    appliedAnalysisAssetKeyRef.current = "";
+    fetchCzardasAssets(requestedSymbol)
+      .then((response) => {
+        if (active && response.symbol === requestedSymbol) setCzardasAssets(response);
+      })
+      .catch(() => {
+        if (active) setCzardasAssets(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [analysisAssetsRevision, chart.symbol]);
+
   const rawActiveAnalysisAsset = isAnalysisAssetInterval(chart.interval)
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
@@ -652,11 +689,55 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeAnalysisAsset.assetVersion,
     activeAnalysisAsset.interval
   ) : false;
+  const activeCzardasEntry = isAnalysisAssetInterval(chart.interval)
+    && czardasAssets?.symbol === chart.symbol.trim().toUpperCase()
+    ? czardasAssets.assets[chart.interval]
+    : null;
+  const activeCzardasPack = activeCzardasEntry
+    && activeCzardasEntry.freshness !== "missing"
+    && activeCzardasEntry.freshness !== "incompatible"
+    ? activeCzardasEntry.pack
+    : null;
+  const activeCzardasStale = activeCzardasEntry?.freshness === "stale";
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
+    if (analysisEngine === "czardas") {
+      const entry = supportedInterval
+        && czardasAssets?.symbol === chart.symbol.trim().toUpperCase()
+        ? czardasAssets.assets[interval]
+        : null;
+      const pack = entry && entry.freshness !== "missing" && entry.freshness !== "incompatible"
+        ? entry.pack
+        : null;
+      const applyKey = [
+        "czardas",
+        chart.symbol,
+        interval,
+        entry?.generatedAt ?? "none",
+        entry?.freshness ?? "missing",
+        document.czardasSuppressions.map((item) => item.sourceCandidateId).sort().join(",")
+      ].join("|");
+      if (appliedAnalysisAssetKeyRef.current === applyKey) return;
+      appliedAnalysisAssetKeyRef.current = applyKey;
+      dispatchExternalCommandGroup(czardasDeltaCommands(
+        commandTarget,
+        chart.drawings,
+        document.czardasSuppressions,
+        pack,
+        analysisLayerVisibilityRef.current,
+        { mode: chart.toolMode, selectedDrawingId: chart.selectedDrawingId },
+        entry?.freshness === "stale"
+      ), pack ? "Apply Czardas pack" : "Clear Czardas pack");
+      return;
+    }
+    if (analysisEngine === "off") {
+      const commands = analysisAssetRemovalCommands(commandTarget, chart.drawings);
+      dispatchExternalCommandGroup(commands, "Clear chart analysis asset");
+      return;
+    }
     const rawAsset = supportedInterval
       && latestClosedAssetCandleTimestamp
       && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
@@ -690,17 +771,32 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
   }, [
     analysisAssets,
+    czardasAssets,
     chart.candles,
     chart.interval,
     chart.selectedDrawingId,
     chart.symbol,
     chart.toolMode,
     commandTarget,
+    document.czardasSuppressions,
     dispatchExternalCommandGroup,
     latestClosedAssetCandleTimestamp
   ]);
 
-  const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
+  const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey | CzardasLayerKey) => {
+    if (analysisEngine === "czardas") {
+      if (!activeCzardasPack || layer === "geometry") return;
+      const visible = !analysisLayerVisibilityRef.current[layer];
+      const next = { ...analysisLayerVisibilityRef.current, [layer]: visible };
+      analysisLayerVisibilityRef.current = next;
+      setAnalysisLayerVisibility(next);
+      dispatchExternalCommandGroup(
+        czardasToggleCommands(commandTarget, chartRef.current.drawings, layer, visible),
+        `${visible ? "Show" : "Hide"} Czardas ${layer}`
+      );
+      return;
+    }
+    if (layer !== "geometry") return;
     if (!activeAnalysisAsset) {
       return;
     }
@@ -712,7 +808,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, activeCzardasPack, commandTarget, dispatchExternalCommandGroup]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -748,7 +844,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     if (labelEditor.value !== labelEditor.originalValue) {
-      dispatchDocumentCommand("chart.drawing.update", {
+      const drawing = chartRef.current.drawings.find((item) => item.id === labelEditor.drawingId);
+      dispatchDocumentCommand(drawing?.ownership === "czardas-managed" ? "chart.czardas.forkManaged" : "chart.drawing.update", {
         drawingId: labelEditor.drawingId,
         drawingPatch: { label: labelEditor.value }
       });
@@ -982,13 +1079,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       fetchCandles({
         symbol: requestedSymbol,
         interval: requestedSourceInterval,
-        limit: defaultVisibleBarsForInterval(requestedInterval),
+        limit: initialCandleTransportLimit(requestedInterval),
         ma: candleMovingAverageWindows,
         includePreviousClose: true
       }, controller.signal)
         .then((response) => {
-          applyResponse(response);
-          if (!controller.signal.aborted && shouldRetryRealtimeSnapshot(response, requestedInterval, attempt)) {
+          const normalizedResponse = normalizeInitialCandleTransport(response, requestedInterval);
+          applyResponse(normalizedResponse);
+          if (!controller.signal.aborted && shouldRetryRealtimeSnapshot(normalizedResponse, requestedInterval, attempt)) {
             retryTimer = window.setTimeout(() => loadCandles(attempt + 1), realtimeSnapshotRetryDelayMs);
           }
         })
@@ -1411,6 +1509,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     ...chart,
     indicatorSeries,
     volumeProfile,
+    czardasField: chart.chartType === "czardas" && activeCzardasEntry?.freshness === "current"
+      ? activeCzardasPack?.czardasField ?? null
+      : null,
+    czardasPattern: chart.chartType === "czardas" && activeCzardasEntry?.freshness === "current"
+      ? visibleManagedCzardasPattern(
+          activeCzardasPack?.presentationPattern ?? null,
+          transientDrawings ?? chart.drawings,
+          analysisLayerVisibility.trend
+        )
+      : null,
+    czardasVisibility: { hline: analysisLayerVisibility.hline, trend: analysisLayerVisibility.trend },
+    czardasAssetState: activeCzardasEntry?.freshness ?? "missing",
     orderFlow: orderFlowActive ? {
       dataStatus: orderFlowDataStatus,
       supportedSymbols: orderFlowSupportedSymbols,
@@ -1427,7 +1537,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [activeCzardasEntry?.freshness, activeCzardasPack, analysisLayerVisibility.hline, analysisLayerVisibility.trend, chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings: DrawingEntity[] = [];
   const currentPriceTimeText = useMemo(() => (
@@ -2151,7 +2261,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const anchor = scene ? createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol) : null;
       if (scene && anchor) {
         const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
-        dispatchDocumentCommand("chart.drawing.update", {
+        dispatchDocumentCommand(drawingDrag.drawing.ownership === "czardas-managed" ? "chart.czardas.forkManaged" : "chart.drawing.update", {
           drawingId: drawingDrag.drawing.id,
           drawingPatch: { anchors }
         });
@@ -2359,12 +2469,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onLostPointerCapture={cancelDrag}
         />
         <ChartAnalysisLayerToggles
+          engine={analysisEngine}
           visibility={analysisLayerVisibility}
           disabled={{
-            geometry: !activeAnalysisAsset?.geometry.drawings.length
+            geometry: !activeAnalysisAsset?.geometry.drawings.length,
+            hline: !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "hline")
+              && !(activeCzardasEntry?.freshness === "current" && (
+                activeCzardasPack?.czardasField.hlineModes.length
+                || activeCzardasPack?.czardasField.hlineResponseSegments.length
+              )),
+            trend: !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "trend")
+              && !(activeCzardasEntry?.freshness === "current" && activeCzardasPack?.czardasField.trendModes.length)
           }}
-          asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAssetStale}
+          asOf={analysisEngine === "czardas" ? activeCzardasPack?.asOf : activeAnalysisAsset?.asOf}
+          stale={analysisEngine === "czardas" ? activeCzardasStale : activeAnalysisAssetStale}
           onToggle={toggleAnalysisLayer}
         />
         {labelEditor && labelEditorLayout && (
@@ -2504,7 +2622,7 @@ export function ChartDrawingDock({
   const setParallelLineCount = (lineCount: number) => {
     const normalized = normalizeParallelLineCount(lineCount);
     if (selectedDrawing?.type === "trendParallelLines") {
-      dispatchCommand("chart.drawing.update", {
+      dispatchCommand(selectedDrawing.ownership === "czardas-managed" ? "chart.czardas.forkManaged" : "chart.drawing.update", {
         drawingId: selectedDrawing.id,
         drawingPatch: { parallelLineCount: normalized }
       });
@@ -2638,21 +2756,28 @@ export function ChartDrawingDock({
       textToken: colorToken,
       ...(supportsPaletteFill ? { fillColor: undefined, fillToken: colorToken } : {})
     };
-    dispatchCommand("chart.drawing.update", {
+    dispatchCommand(selectedDrawing.ownership === "czardas-managed" ? "chart.czardas.forkManaged" : "chart.drawing.update", {
       drawingId: selectedDrawing.id,
       drawingPatch: { style: nextStyle }
     });
     setColorMenuOpen(false);
   };
+  const updateSelectedDrawingLineWidth = (lineWidth: 1 | 2 | 3) => {
+    if (!selectedDrawing) return;
+    dispatchCommand(selectedDrawing.ownership === "czardas-managed" ? "chart.czardas.forkManaged" : "chart.drawing.update", {
+      drawingId: selectedDrawing.id,
+      drawingPatch: { style: { ...selectedDrawing.style, lineWidth } }
+    });
+  };
   const removeSelectedDrawing = () => {
     if (selectedDrawing) {
-      dispatchCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
+      dispatchCommand(selectedDrawing.ownership === "czardas-managed" ? "chart.czardas.deleteManaged" : "chart.drawing.remove", { drawingId: selectedDrawing.id });
     }
   };
   const clearAllDrawings = () => {
     dispatchCommandGroup(
       document.drawings
-        .filter((drawing) => !isChartAssetDrawing(drawing))
+        .filter((drawing) => !isChartAssetDrawing(drawing) && drawing.ownership !== "czardas-managed")
         .map((drawing) => makeChartCommand("chart.drawing.remove", "user", target, { drawingId: drawing.id })),
       "Clear drawings"
     );
@@ -2928,6 +3053,21 @@ export function ChartDrawingDock({
               </button>
             );
           })}
+          <span className="chart-drawing-width-divider" aria-hidden="true" />
+          <div className="chart-drawing-width-options" role="group" aria-label="선 두께">
+            {([1, 2, 3] as const).map((lineWidth) => (
+              <button
+                key={`width-${lineWidth}`}
+                type="button"
+                className={nearestDrawingLineWidthStage(selectedDrawing.style.lineWidth) === lineWidth ? "active" : ""}
+                aria-label={`선 두께 ${lineWidth}`}
+                aria-pressed={nearestDrawingLineWidthStage(selectedDrawing.style.lineWidth) === lineWidth}
+                onClick={() => updateSelectedDrawingLineWidth(lineWidth)}
+              >
+                <span className="chart-drawing-width-sample" style={{ height: lineWidth }} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {drawingTooltip.tooltipOverlay}
@@ -2937,6 +3077,11 @@ export function ChartDrawingDock({
 
 function trendExtensionLabel(extension: ChartLineExtension): string {
   return trendExtensionButtons.find(([value]) => value === extension)?.[1] ?? "선분";
+}
+
+function nearestDrawingLineWidthStage(value: number | undefined): 1 | 2 | 3 {
+  const width = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return width < 1.5 ? 1 : width < 2.5 ? 2 : 3;
 }
 
 function normalizeDrawingPaletteToken(value: string | undefined): DrawingPaletteToken {
@@ -3683,8 +3828,55 @@ function viewportClampOptionsForChart(chart: ChartState, scene: ChartScene | nul
 function requestedVisibleSlotsFromResponse(response: CandleQueryResponseDto, interval: ChartInterval): number {
   return Math.max(
     defaultVisibleBarsForInterval(interval),
-    Math.ceil(response.requestedLimit ?? response.request?.limit ?? 0)
+    Math.ceil(displayRequestedLimit(response, interval))
   );
+}
+
+function initialCandleTransportLimit(interval: ChartInterval): number {
+  return isAnalysisAssetInterval(interval) ? 241 : defaultVisibleBarsForInterval(interval);
+}
+
+function displayRequestedLimit(response: CandleQueryResponseDto, interval: ChartInterval): number {
+  const requested = Math.ceil(response.requestedLimit ?? response.request?.limit ?? 0);
+  return isAnalysisAssetInterval(interval) && requested === 241
+    ? defaultVisibleBarsForInterval(interval)
+    : requested;
+}
+
+function normalizeInitialCandleTransport(
+  response: CandleQueryResponseDto,
+  interval: ChartInterval
+): CandleQueryResponseDto {
+  if (!isAnalysisAssetInterval(interval)) return response;
+  const closed = response.candles.filter((candle) => candle.isClosed !== false).slice(-240);
+  const live = response.candles.filter((candle) => candle.isClosed === false).slice(-1);
+  const candles = mergeCandlesByTimestamp(closed, live).slice(-241);
+  return {
+    ...response,
+    candles,
+    requestedLimit: displayRequestedLimit(response, interval),
+    request: { ...response.request, limit: displayRequestedLimit(response, interval) },
+    returnedCount: candles.length
+  };
+}
+
+function visibleManagedCzardasPattern(
+  pattern: CzardasPatternDto | null,
+  drawings: DrawingEntity[],
+  trendVisible: boolean
+): CzardasPatternDto | null {
+  if (!pattern || !trendVisible) return null;
+  const drawingIds = [
+    pattern.upperDrawingId ?? `czardas:${pattern.upperCandidateId}:line`,
+    pattern.lowerDrawingId ?? `czardas:${pattern.lowerCandidateId}:line`
+  ];
+  const managed = drawings.filter((drawing) => (
+    drawingIds.includes(drawing.id)
+    && drawing.ownership === "czardas-managed"
+    && drawing.visible
+    && drawing.sourceGroupId === pattern.triangleId
+  ));
+  return managed.length === 2 ? pattern : null;
 }
 
 function buildSemanticExpansion(unit: Extract<SemanticRenderUnit, { kind: "candle" }>): SemanticExpansion {

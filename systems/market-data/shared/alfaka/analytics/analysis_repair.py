@@ -96,7 +96,13 @@ class AnalysisRepairResult:
 class AlpacaClickHouseRepairRunner:
     """Fetch only the requested Alpaca range and insert canonical candles directly into ClickHouse."""
 
-    def __init__(self, *, clickhouse_client: Any | None = None, fetcher: Callable[..., list[dict[str, Any]]] | None = None):
+    def __init__(
+        self,
+        *,
+        clickhouse_client: Any | None = None,
+        fetcher: Callable[..., list[dict[str, Any]]] | None = None,
+        calendar: TradingCalendar | None = None,
+    ):
         self.clickhouse_client = clickhouse_client or ClickHouseHttpClient(
             url=os.getenv("CLICKHOUSE_HTTP_URL", "http://localhost:8123"),
             database=os.getenv("CLICKHOUSE_DATABASE", "market_data"),
@@ -104,6 +110,7 @@ class AlpacaClickHouseRepairRunner:
             password=os.getenv("CLICKHOUSE_PASSWORD", "alfaka"),
         )
         self.fetcher = fetcher or fetch_alpaca_bars
+        self.calendar = calendar
 
     def run(self, record: dict[str, Any]) -> dict[str, Any]:
         symbol = str(record["symbol"]).upper()
@@ -138,7 +145,12 @@ class AlpacaClickHouseRepairRunner:
         ]
         if interval in INTRADAY_ANALYSIS_INTERVALS and source_interval == "1m" and interval != "1m":
             range_end = datetime.fromisoformat(str(requested_range["end"]).replace("Z", "+00:00"))
-            candles = aggregate_regular_session_candles(regular_source, interval, now=range_end)
+            candles = aggregate_regular_session_candles(
+                regular_source,
+                interval,
+                now=range_end,
+                calendar=self.calendar,
+            )
         else:
             candles = regular_source
         missing_keys = {str(item) for item in record.get("analysisMissingCandleKeys") or [] if item}

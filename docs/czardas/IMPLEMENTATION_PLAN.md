@@ -6,6 +6,9 @@
 조건을 정의한다. 알고리즘 선택을 다시 논의하는 문서가 아니다. Codex는 milestone을
 순서대로 완료하고, 각 단계에서 테스트와 측정 artifact를 남긴다.
 
+현재 상태는 Milestone 1~5 repository 구현 완료, 수동 PostgreSQL migration·실종목 pack
+검증·배포 전이다. 아래 순서는 후속 변경이 계약을 보존하는지 확인하는 회귀 지도이기도 하다.
+
 - 동결 기준 코드: 현재 branch의 `16e0fa5`
 - 저장소 동기화: czardas 구현 중 원격 `dev`를 merge/rebase/pull하지 않는다. 구현과 검증을
   완료한 뒤 별도 통합 단계에서 차이를 재검토한다.
@@ -32,8 +35,12 @@
    전용 bounded projection이며 renderer가 role mass·mode·episode를 다시 계산하지 않는다.
 10. 후속 linear-regression pattern도 parameter-space hypothesis와 mode가 먼저 존재하고
     Czardas chart에 근거가 보여야 한다. v1에는 그 detector나 placeholder를 미리 만들지 않는다.
+11. `ENGINE_SPEC.md` 2.1의 Field clock, mode lineage, FormationEpisode, sweep/refine tie-break,
+    byte-budget 순서와 rollout release constant를 구현 선택 없이 그대로 따른다.
+12. `chart.czardas.*` command는 chart-engine internal capability다. agent/LLM proposal의
+    command whitelist에는 추가하지 않는다.
 
-## 2. 목표 파일 구조
+## 2. 현재 파일 구조
 
 ```text
 systems/market-data/shared/alfaka/analytics/czardas/
@@ -59,17 +66,14 @@ systems/market-data/shared/alfaka/analytics/czardas/
 systems/market-data/tests/analytics/czardas/
   test_tape.py
   test_features.py
-  test_evidence.py
-  test_hline.py
-  test_trend.py
-  test_interactions.py
-  test_rank.py
   test_relations.py
-  test_selector.py
-  test_field.py
-  test_field_view.py
+  test_field_chronology.py
   test_kernel_golden.py
   test_no_lookahead.py
+  test_robustness.py
+  test_volume_contract.py
+  test_clickhouse_contract.py
+  test_data.py
   test_performance.py
 
 systems/market-data/tests/fixtures/czardas_v1/
@@ -82,13 +86,17 @@ systems/api-server/pods/api-server/gops-backend/app/routes/
   chart_assets.py
 
 systems/api-server/tests/
-  test_czardas_asset_routes.py
+  test_chart_assets_routes.py
 
 systems/agent-orchestration/shared/gops_agents/czardas_assets/
   builder.py
   storage.py
   envelope.py
   job_store.py
+  delivery.py
+  progress.py
+  queue.py
+  repair.py
 
 systems/agent-orchestration/pods/czardas-asset-builder/
   main.py
@@ -97,20 +105,19 @@ shared/chart-contract/
   chart-czardas-pack.schema.json
 
 apps/gops-frontend/src/chart/
-  czardasTypes.ts
-  czardasField.ts
+  analysisEngine.ts
+  czardasAssetsApi.ts
   czardasLayerController.ts
-  czardasPresentation.ts
+  ChartCanvas.tsx
 
 apps/gops-frontend/src/components/
   ChartAssetOpsPanel.tsx
   ChartAnalysisLayerToggles.tsx
-  ChartCzardasPatternBadge.tsx
+  ChartPanel.tsx
 
 apps/gops-frontend/tests/
-  czardasLayer.test.ts
-  czardasField.test.ts
-  czardasOwnership.test.ts
+  czardas.test.ts
+  visual/chart-analysis-assets-v2.spec.ts
 ```
 
 파일 수는 책임 경계다. 작은 helper 하나 때문에 새 파일을 만들지 않는다. 위 구조보다
@@ -125,7 +132,7 @@ PYTHONPATH=systems/market-data/shared:systems/order/shared:systems/order:systems
   .venv/bin/python -m pytest systems/market-data/tests/analytics/czardas
 
 PYTHONPATH=systems/market-data/shared:systems/agent-orchestration/shared:systems/order/shared:systems/order:systems/api-server/pods/api-server/gops-backend \
-  .venv/bin/python -m pytest systems/api-server/tests/test_czardas_asset_routes.py
+  .venv/bin/python -m pytest systems/api-server/tests/test_chart_assets_routes.py
 
 PYTHONPATH=systems/market-data/shared:systems/agent-orchestration/shared \
   .venv/bin/python -m pytest systems/agent-orchestration/tests
@@ -433,7 +440,9 @@ tests/.../test_field_view.py
   formation 두 glyph는 projection cap에서 생략되지 않음.
 - 고립 돌출봉은 center를 끄는 control point가 아니라 exploration probe로 보이고 reclaim이
   있어야 verified response tail을 가짐.
-- H-Line participation halo를 바꿔도 center/zone/source candidate가 바뀌지 않음.
+- H-Line participation multiplier가 항상 `[0.90,1.00]`이고 volume만으로 reaction 2회나
+  hard gate를 우회하지 않음. 명확한 core fixture의 geometry drift는 old revision의
+  `0.35 ATR` identity tolerance 안이며 initial episode가 달라지면 새 candidate만 허용함.
 - ready no-draw에서도 capped H-Line Basis와 weak/opposed mode가 보이고 selected
   mode ref/validation/drawing은 없음.
 
@@ -663,6 +672,7 @@ apps/gops-frontend/tests/visual/chart-czardas.spec.ts
     selectedModeRefs/validationGlyphs` DTO를 검증한 뒤 candle key/price 좌표 변환과 primitive
     렌더만 한다. response segment,
     role mass, hypothesis grouping, dispersion, episode와 outcome을 브라우저에서 재계산하지 않는다.
+    Trend ribbon은 DTO가 운반한 네 price-space endpoint를 그대로 투영한다.
 18. Czardas renderer는 standard indicator/MA/Volume Profile/comparison/below pane을 숨기되
     사용자의 layer state는 보존하고, user-owned drawing은 그대로 렌더한다.
 19. current digest만 Field를 보인다. stale asset에서는 이전 Field를 제거하고 Candle Fact와
@@ -836,6 +846,8 @@ market-event consumer, duplicate candle client나 전역 Geometry feature flag�
    변환한다. audit/repair round는 최대 2회다.
 7. `004_czardas_assets.sql`에 `(symbol,interval)` latest asset과 Czardas 전용 jobs/items를
    만든다. active-release pointer는 만들지 않는다.
+   migration runner는 retired `analysis_assets`를 만드는 001/002를 다시 실행하지 않고
+   `003_geometry_assets.sql`, `004_czardas_assets.sql`만 명시 순서로 적용한다.
 8. 기존 job lease/cancel/poll과 `FOR UPDATE SKIP LOCKED`를 parameterized 공통 코드로
    재사용하되 Geometry와 Czardas table/store를 분리하고 job ID는 `cza-`로 dispatch한다.
 9. `assetKind=czardas` build는 symbols/intervals 각각 하나만 허용한다. panel의 현재 chart
@@ -845,8 +857,9 @@ market-event consumer, duplicate candle client나 전역 Geometry feature flag�
     `snapshot_changed_during_build`로 실패한다.
 11. storage는 canonical payload bytes/digest, version, exact coverage와 line/Field cap을
     검증한 뒤 monotonic latest upsert를 수행한다. 실패·취소는 기존 성공 row를 보존한다.
-12. asset GET/coverage는 PostgreSQL read-only로 current/stale/missing/incompatible를 반환하고
-    miss/stale에서 job을 만들지 않는다. chart candle API 계약은 바꾸지 않는다.
+12. asset GET/coverage는 PostgreSQL과 ClickHouse를 read-only로 결합해
+    current/stale/missing/incompatible를 반환하고 miss/stale에서 job을 만들지 않는다.
+    current identity를 증명하지 못하면 stale이며 chart candle API 계약은 바꾸지 않는다.
 13. stale drawing은 낮은 opacity와 as-of badge를 허용하지만 stale Field는 숨기고
     `수동 재분석 필요`를 보인다.
 14. 현재 API `limit`이 live도 count하므로 지원 interval의 initial request budget은 최대
@@ -964,7 +977,7 @@ v1은 production 자동 rollout을 정의하지 않는다. 구현 검증은 다�
 - frontend의 Czardas assetKind/renderer를 끄고 current Geometry layer를 계속 사용한다.
 - `/api/charts/candles`는 변경하지 않았으므로 되돌릴 candle 계약이 없다.
 - current `geometry_assets`, worker와 read route를 그대로 유지한다.
-- `czardas_assets`를 drop하지 않고 Czardas reader/on-demand worker만 끈다.
+- `czardas_latest`를 drop하지 않고 Czardas reader/on-demand worker만 끈다.
 - schema rollback보다 application rollback을 우선한다.
 
 ## 4. Inference Field, production view와 debug 경계

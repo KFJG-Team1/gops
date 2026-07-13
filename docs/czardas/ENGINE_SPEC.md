@@ -6,16 +6,17 @@
 작도 수명주기를 변경하기 전에 이 문서를 읽고, 구현과 계약이 달라지면 같은 변경에서
 이 문서를 갱신한다.
 
-- 상태: 구현 승인 전 기준안, 모든 v1 선택은 결정됨
+- 상태: repository 구현 완료, 수동 자산 검증·배포 전
 - 동결한 구현 기준점: `16e0fa5` (원격 `dev` 병합은 czardas 구현 완료 뒤 별도 단계)
 - 엔진 버전: `czardas-v1`
 - 초기 설정 버전: `czardas-config-v1`
 - 상위 소개: [README.md](README.md)
 - 구현 순서: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
-`CHART_ANALYSIS_ASSETS.md`와 `CHART_ANALYSIS_ASSETS_CODEX.md`는 현재 Geometry
-구현의 사실을 설명한다. 이 문서는 그 구현을 대체할 목표 계약이다. rollout 전까지
-목표 계약을 이미 배포된 동작으로 오해하지 않는다.
+`CHART_ANALYSIS_ASSETS.md`와 `CHART_ANALYSIS_ASSETS_CODEX.md`는 보존한 Geometry
+롤백 계약과 Czardas 통합 경계를 설명한다. 이 문서는 현재 repository에 구현된 Czardas
+v1의 규격이며, 운영 DB migration·수동 asset 검증을 마치기 전에는 배포 완료로 간주하지
+않는다.
 
 ## 1. 제품 명제
 
@@ -90,6 +91,35 @@ Segment Tree, R-Tree, dense Hough Transform, KDE, random RANSAC도 v1 hot path�
 exact interval sweep, 최대 66개 sparse line hypothesis와 endpoint-space mode grouping이
 더 작고 결정론적이다. 데이터 규모나 도형 자유도가 실제로 커질 때 측정 근거와 함께
 도입한다.
+
+### 2.1 구현 잠금 결정
+
+아래 항목은 구현 과정에서 다시 선택하지 않는 실행 계약이다.
+
+- `FieldSnapshotAt(t)`는 순수 함수다. Interaction은 매 완료봉에서 먼저 평가하고,
+  candidate genesis/refit은 Basis confirmation 또는 scale-up event에서 계산한 Field만
+  사용할 수 있다. 마지막 `t=239` landscape는 항상 다시 계산하되 candidate와 selection을
+  바꾸지 않는다.
+- H-Line mode는 최초 ridge의 canonical `originSeedBasisIds` 두 개와 seed bounds를,
+  Trend mode는 `seedHypothesisId`를 lineage fact로 고정한다. 이후 revision은 origin seed가
+  여전히 member이고 geometry/Jaccard gate를 통과할 때만 같은 mode다. candidate는 자기
+  `sourceFieldModeId`의 후속 revision만 refit한다.
+- FormationEpisode는 compatible cluster를 `(observedIndex,confirmedAt,clusterId)` 순으로
+  읽는다. valid side로 `0.75 ATR` 이상 이탈한 완료봉 하나 또는 valid-side zone 밖 종가
+  3봉 연속을 leave로 보고, leave 다음 봉의 cluster부터 새 episode를 시작한다.
+- H-Line `J_e`는 contribution Basis 하나의 확장 corridor `I_i`다. member corridor union은
+  사용하지 않는다. interval sweep은 unique endpoint 사이의 양의 폭 segment만 만들며 한
+  가격점에서만 닿는 overlap은 seed로 쓰지 않는다.
+- Trend medoid는 weighted L-infinity 거리 합을 최소화하고 hypothesis ID로 동률을 푼다.
+  intercept candidate는 seed 범위의 양 끝과 각 `r_e`, `r_e +/- zone`을 clip·dedupe한 뒤
+  `(loss, abs(b-bSeed), b)` 순으로 선택한다. slope 부호 필터는 없다.
+- production Field byte budget은 selected refs, frozen source mode와 그 Basis, boundary별 최초
+  formation 2개, relation을 먼저 예약한다. 남은 공간은 current H-Line/Trend mode,
+  H-Line response, remaining Basis, representative fact, extra validation, profile 순으로
+  채운다. profile은 all-or-none이며 mandatory bundle이 32 KiB를 넘으면 build를 실패시킨다.
+- rollout presentation mode는 frontend의 비영속 release constant 하나가 소유한다. 사용자
+  설정·localStorage·환경변수로 만들지 않으며 최종 gate 전에는 `geometry`, 통과 뒤에는
+  `czardas`가 기본이다. `off`와 `geometry`는 rollback 경로로 남는다.
 
 ## 3. 용어와 시간 안전성
 
@@ -2173,6 +2203,12 @@ TrendFieldModeDto = {
   hypothesisMedoid: {yAtWindowStart: number, yAtWindowEnd: number},
   boundaryEstimate: {yAtWindowStart: number, yAtWindowEnd: number},
   dispersion: {startAtr: number, endAtr: number},
+  ribbon: {
+    lowerYAtWindowStart: number,
+    upperYAtWindowStart: number,
+    lowerYAtWindowEnd: number,
+    upperYAtWindowEnd: number
+  },
   supportMass: number,
   oppositionMass: number,
   contributorCount: int,
@@ -2332,14 +2368,14 @@ market event는 job을 만들지 않는다.
 기존 Geometry table을 건드리지 않고 Czardas 전용 table을 둔다.
 
 ```text
-chart_assets.czardas_assets
+chart_assets.czardas_latest
   PRIMARY KEY (symbol, interval)
   algorithm_version, config_version
   time_contract_version, calendar_version
   as_of, last_candle_key, generated_at
-  input_digest, payload_digest
-  coverage_state, payload_bytes
-  payload JSONB
+  input_digest, content_digest
+  drawing_count, field_bytes, payload_bytes
+  pack JSONB
 
 chart_assets.czardas_build_jobs
 chart_assets.czardas_build_items       # v1 job당 item은 정확히 한 symbol×interval
@@ -2425,8 +2461,8 @@ canonical query가 그대로 이득을 본다.
 
 ### 18.4 read, freshness와 패널 반영
 
-asset GET은 read-only이며 miss/stale에서도 job을 enqueue하지 않는다. API는 저장 asset과
-현재 canonical snapshot identity를 비교해 다음을 반환한다.
+asset GET은 mutation-free이며 miss/stale에서도 job을 enqueue하지 않는다. API는 PostgreSQL
+저장 asset과 read-only ClickHouse canonical snapshot identity를 비교해 다음을 반환한다.
 
 ```text
 current       stored asOf/inputDigest와 현재 exact-240 identity가 같음
@@ -2434,6 +2470,11 @@ stale         지원 version이지만 candle identity가 달라 수동 재분석
 missing       저장 row 없음
 incompatible  schema/algorithm/config/time/calendar version을 현재 reader가 해석하지 못함
 ```
+
+현재 canonical identity를 ClickHouse에서 증명하지 못하면 저장 row를 삭제하거나 GET 자체를
+실패시키지 않고 보수적으로 `stale`을 반환한다. Czardas interval entry의 wire shape은
+`{freshness, generatedAt, pack}`이며 current/stale은 pack을, missing/incompatible은
+`pack:null`을 반환한다. stale pack의 canonical bytes는 바꾸지 않는다.
 
 `current`일 때만 Czardas Field를 현재 candle 위에 표시한다. `stale` drawing은 badge와 낮은
 opacity로 유지할 수 있지만 stale Field는 숨긴다. 성공 upsert/delete 뒤 패널은 요청한

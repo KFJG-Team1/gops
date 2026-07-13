@@ -28,7 +28,7 @@ export type ChartCommandResult =
   | { ok: true; document: ChartDocument; message: string; historyEntry?: ChartHistoryEntry; noOp?: boolean }
   | { ok: false; document: ChartDocument; message: string };
 
-const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
+const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask", "czardas"];
 
 export function makeChartCommand(
   type: ChartCommandType,
@@ -270,6 +270,9 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
+      if (timeframe === "1M" && document.chartType === "czardas") {
+        document.chartType = "candle";
+      }
       const visibleCount = defaultVisibleBarsForInterval(timeframe);
       document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
@@ -278,6 +281,9 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       const chartType = readChartType(command.payload.chartType);
       if (!chartType) {
         return "Invalid chart type.";
+      }
+      if (chartType === "czardas" && document.timeframe === "1M") {
+        return "Czardas chart is unavailable for 1M.";
       }
       document.chartType = chartType;
       return null;
@@ -346,6 +352,9 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       if (!current || current.locked) {
         return "Drawing not found or locked.";
       }
+      if (current.ownership === "czardas-managed" && command.actor !== "system") {
+        return "Managed Czardas drawings must be forked before editing.";
+      }
       const next = mergeDrawingPatch(current, patch);
       if (!isSupportedDrawing(next)) {
         return "Invalid drawing update.";
@@ -358,8 +367,12 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       if (!drawingId) {
         return "Invalid drawing remove payload.";
       }
-      if (!document.drawings.some((drawing) => drawing.id === drawingId)) {
+      const drawing = document.drawings.find((item) => item.id === drawingId);
+      if (!drawing) {
         return "Drawing not found.";
+      }
+      if (drawing.ownership === "czardas-managed" && command.actor !== "system") {
+        return "Managed Czardas drawings must be suppressed through the Czardas command.";
       }
       document.drawings = document.drawings.filter((drawing) => drawing.id !== drawingId);
       if (document.selectedDrawingId === drawingId) {
@@ -367,6 +380,12 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       }
       return null;
     }
+    case "chart.czardas.forkManaged":
+      return forkManagedDrawing(document, command.payload);
+    case "chart.czardas.deleteManaged":
+      return deleteManagedDrawing(document, command.payload);
+    case "chart.czardas.restoreManaged":
+      return restoreManagedDrawings(document, command.payload);
     case "chart.drawing.select": {
       const drawingId = readString(command.payload.drawingId);
       if (!drawingId || !document.drawings.some((drawing) => drawing.id === drawingId)) {
@@ -514,9 +533,13 @@ function restoreChartDocumentFields(
   if (
     typeSet.has("chart.drawing.add") ||
     typeSet.has("chart.drawing.update") ||
-    typeSet.has("chart.drawing.remove")
+    typeSet.has("chart.drawing.remove") ||
+    typeSet.has("chart.czardas.forkManaged") ||
+    typeSet.has("chart.czardas.deleteManaged") ||
+    typeSet.has("chart.czardas.restoreManaged")
   ) {
     next.drawings = restored.drawings;
+    next.czardasSuppressions = restored.czardasSuppressions;
     next.selectedDrawingId = restored.selectedDrawingId;
   }
   if (
@@ -554,6 +577,12 @@ function labelForCommand(command: ChartCommand): string {
       return "Chart drawing selected.";
     case "chart.drawing.clearSelection":
       return "Chart drawing selection cleared.";
+    case "chart.czardas.forkManaged":
+      return "Czardas drawing forked for editing.";
+    case "chart.czardas.deleteManaged":
+      return "Czardas drawing hidden for this session.";
+    case "chart.czardas.restoreManaged":
+      return "Czardas drawing restored.";
     case "chart.comparison.add":
       return "Comparison added.";
     case "chart.comparison.update":
@@ -577,6 +606,7 @@ function snapshotsEqual(left: ReturnType<typeof snapshotChartDocument>, right: R
     JSON.stringify(left.style) === JSON.stringify(right.style) &&
     JSON.stringify(left.interactionState) === JSON.stringify(right.interactionState) &&
     JSON.stringify(left.drawings) === JSON.stringify(right.drawings) &&
+    JSON.stringify(left.czardasSuppressions) === JSON.stringify(right.czardasSuppressions) &&
     JSON.stringify(left.comparisons) === JSON.stringify(right.comparisons) &&
     left.selectedDrawingId === right.selectedDrawingId;
 }
@@ -675,7 +705,7 @@ function readStyle(value: unknown): DrawingStyle {
   return {
     color: color ?? undefined,
     colorToken: readString(source.colorToken) ?? (color ? undefined : "drawing"),
-    lineWidth: readNumber(source.lineWidth) ?? 1.0,
+    lineWidth: normalizeLineWidth(readNumber(source.lineWidth) ?? 1),
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
     fillColor: fillColor ?? undefined,
     fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),
@@ -701,7 +731,9 @@ function readStylePatch(value: unknown): DrawingStyle {
   }
   for (const key of ["lineWidth", "fillOpacity", "fontSize", "opacity"] as const) {
     if (key in source) {
-      patch[key] = readNumber(source[key]) ?? undefined;
+      patch[key] = key === "lineWidth"
+        ? normalizeLineWidth(readNumber(source[key]) ?? 1)
+        : readNumber(source[key]) ?? undefined;
     }
   }
   if ("lineDash" in source) {
@@ -739,6 +771,14 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     visible: typeof source.visible === "boolean" ? source.visible : true,
     createdBy: source.createdBy === "llm" || source.createdBy === "system" || source.createdBy === "user" ? source.createdBy : actor,
     sourceProposalId: readString(source.sourceProposalId) ?? proposalId,
+    ownership: readOwnership(source.ownership, actor),
+    czardasLayer: source.czardasLayer === "hline" || source.czardasLayer === "trend" ? source.czardasLayer : undefined,
+    sourceCandidateId: readString(source.sourceCandidateId) ?? undefined,
+    sourceFieldModeId: readString(source.sourceFieldModeId) ?? undefined,
+    sourceFieldRevision: readNumber(source.sourceFieldRevision) ?? undefined,
+    sourceGroupId: readString(source.sourceGroupId) ?? undefined,
+    engineRevision: readNumber(source.engineRevision) ?? undefined,
+    forkedFromDrawingId: readString(source.forkedFromDrawingId) ?? undefined,
     createdAt,
     updatedAt: readString(source.updatedAt) ?? createdAt
   };
@@ -860,4 +900,107 @@ function readComparison(value: unknown): ComparisonSeries | null {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeLineWidth(value: number): number {
+  return Math.max(0.25, Math.min(12, value));
+}
+
+function readOwnership(value: unknown, actor: ChartCommandActor): DrawingEntity["ownership"] {
+  if (value === "user" || value === "llm" || value === "czardas-managed" || value === "czardas-fork") {
+    return value;
+  }
+  return actor === "user" ? "user" : actor === "llm" ? "llm" : undefined;
+}
+
+function managedGroup(document: ChartDocument, drawing: DrawingEntity): DrawingEntity[] {
+  if (!drawing.sourceGroupId) {
+    return [drawing];
+  }
+  return document.drawings.filter((item) => (
+    item.ownership === "czardas-managed" && item.sourceGroupId === drawing.sourceGroupId
+  ));
+}
+
+function suppressionsFor(drawings: DrawingEntity[]): ChartDocument["czardasSuppressions"] {
+  const suppressedAt = new Date().toISOString();
+  return drawings.flatMap((drawing) => drawing.sourceCandidateId ? [{
+    sourceCandidateId: drawing.sourceCandidateId,
+    sourceGroupId: drawing.sourceGroupId,
+    suppressedAt
+  }] : []);
+}
+
+function mergeSuppressions(
+  current: ChartDocument["czardasSuppressions"],
+  incoming: ChartDocument["czardasSuppressions"]
+): ChartDocument["czardasSuppressions"] {
+  const next = new Map(current.map((item) => [item.sourceCandidateId, item]));
+  incoming.forEach((item) => next.set(item.sourceCandidateId, item));
+  return [...next.values()].sort((left, right) => left.sourceCandidateId.localeCompare(right.sourceCandidateId));
+}
+
+function forkManagedDrawing(document: ChartDocument, payload: Record<string, unknown>): string | null {
+  const drawingId = readString(payload.drawingId);
+  const patch = readObject(payload.drawingPatch) ?? {};
+  const target = document.drawings.find((item) => item.id === drawingId && item.ownership === "czardas-managed");
+  if (!target) {
+    return "Managed Czardas drawing not found.";
+  }
+  const group = managedGroup(document, target);
+  const groupIds = new Set(group.map((item) => item.id));
+  const forks = group.map((item) => {
+    const fork = mergeDrawingPatch({
+      ...item,
+      id: `${item.id}:fork`,
+      ownership: "czardas-fork",
+      createdBy: "user",
+      forkedFromDrawingId: item.id,
+      locked: false
+    }, item.id === target.id ? patch : {});
+    return fork;
+  });
+  document.drawings = [
+    ...document.drawings.filter((item) => !groupIds.has(item.id)),
+    ...forks
+  ];
+  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group));
+  document.selectedDrawingId = `${target.id}:fork`;
+  return null;
+}
+
+function deleteManagedDrawing(document: ChartDocument, payload: Record<string, unknown>): string | null {
+  const drawingId = readString(payload.drawingId);
+  const target = document.drawings.find((item) => item.id === drawingId && item.ownership === "czardas-managed");
+  if (!target) {
+    return "Managed Czardas drawing not found.";
+  }
+  const group = managedGroup(document, target);
+  const ids = new Set(group.map((item) => item.id));
+  document.drawings = document.drawings.filter((item) => !ids.has(item.id));
+  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group));
+  if (document.selectedDrawingId && ids.has(document.selectedDrawingId)) {
+    document.selectedDrawingId = undefined;
+  }
+  return null;
+}
+
+function restoreManagedDrawings(document: ChartDocument, payload: Record<string, unknown>): string | null {
+  const candidateId = readString(payload.sourceCandidateId);
+  const groupId = readString(payload.sourceGroupId);
+  const rawDrawings = Array.isArray(payload.drawings) ? payload.drawings : [];
+  if (!candidateId && !groupId) {
+    return "Czardas restore requires a candidate or group id.";
+  }
+  document.czardasSuppressions = document.czardasSuppressions.filter((item) => (
+    groupId ? item.sourceGroupId !== groupId : item.sourceCandidateId !== candidateId
+  ));
+  const restored = rawDrawings
+    .map((item) => readDrawing(item, "system"))
+    .filter((item): item is DrawingEntity => Boolean(item && item.ownership === "czardas-managed"));
+  if (restored.length) {
+    const ids = new Set(restored.map((item) => item.id));
+    document.drawings = [...document.drawings.filter((item) => !ids.has(item.id)), ...restored];
+  }
+  return null;
 }

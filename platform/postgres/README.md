@@ -25,12 +25,26 @@ prompt, or provider response. `geometry_build_jobs` and
 `geometry_build_items` own queue, status, progress, logs, attempts, and leases;
 workers claim items with `FOR UPDATE SKIP LOCKED`.
 
+The Czardas v1 subsystem uses a separate latest projection and queue:
+
+```text
+chart_assets.czardas_latest
+chart_assets.czardas_build_jobs
+chart_assets.czardas_build_items
+```
+
+`czardas_latest` stores one deterministic `CzardasPackContent` per explicit
+`(symbol, interval)` pair. `generated_at` stays in the row/API envelope, not in
+the pack. Field and pack are limited to 32/64 KiB. Czardas IDs use `cza-` and
+workers use a lease plus same-pair advisory lock; they do not mutate Geometry
+rows or queues.
+
 There is no active `CHART_ASSET_STORAGE_MODE`, ClickHouse dual-write, parity
 sync, or Redis job-status path. The runtime storage factory always selects
 PostgreSQL. Older `001_create_chart_assets.sql` and
 `002_expand_chart_asset_intervals.sql` files describe the retired
 `analysis_assets` rollout; the current migration runner applies
-`003_geometry_assets.sql`.
+`003_geometry_assets.sql` followed by `004_czardas_assets.sql`.
 
 EKS uses `infra/k8s/base/job-chart-asset-migrations.yaml` and
 `scripts/aws/run-chart-asset-migrations-job.sh`; runtime never creates the

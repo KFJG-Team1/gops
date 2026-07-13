@@ -338,7 +338,7 @@ const belowLayerPaneIds: Record<string, string> = {
 };
 
 export function activeBelowPaneIds(chart: ChartState): string[] {
-  if (chart.chartType === "bidask") {
+  if (chart.chartType === "bidask" || chart.chartType === "czardas") {
     return [];
   }
   const visiblePaneIds = Object.entries(belowLayerPaneIds)

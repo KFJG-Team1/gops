@@ -7,6 +7,7 @@ import "./uiScale.test";
 import "./glossary.test";
 import "./analysisAssets.test";
 import "./analysisAssetsCache.test";
+import "./czardas.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -67,6 +68,7 @@ import {
 } from "../src/chart/intervalNavigation";
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
+  activeBelowPaneIds,
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
@@ -1588,6 +1590,17 @@ const ordinaryNarrowPriceScene = buildFrontendChartScene(frontendChartState({
 assert.equal(ordinaryNarrowPriceScene.scales.minPrice, 210);
 assert.equal(ordinaryNarrowPriceScene.scales.maxPrice, 212);
 assert.equal(ordinaryNarrowPriceScene.scales.bidAskPriceGrid, undefined);
+const czardasPaneState = frontendChartState({
+  chartType: "czardas",
+  layers: {
+    candles: true,
+    volume: true,
+    "rsi:14": true,
+    "macd:12:26:9": true
+  }
+});
+assert.deepEqual(activeBelowPaneIds(czardasPaneState), []);
+assert.equal(buildFrontendChartScene(czardasPaneState, 600, 320).plot.belowPanes.length, 0);
 const bidAskNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   chartType: "bidask",
   interval: "1m",

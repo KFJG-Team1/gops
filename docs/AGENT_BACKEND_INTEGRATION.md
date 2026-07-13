@@ -399,6 +399,15 @@ drawing ID를 아는 프런트가 계산한다.
 `CHART_ASSET_STORAGE_MAINTENANCE=true` 동안 GET은 계속 열어 두고 build와 DELETE만
 503으로 막는다. 기존 숫자형 자산은 변환하거나 fallback으로 읽지 않는다.
 
+이 route군은 additive `assetKind=geometry|czardas`를 받는다. 생략하면 위 Geometry
+계약을 그대로 사용한다. Czardas build body는 `symbols`와 `intervals`가 각각 하나인
+명시적 pair만 허용하며 latest pack과 queue는 PostgreSQL
+`chart_assets.czardas_latest`, `czardas_build_jobs/items`에 분리한다. status/cancel은
+기존 `cab-`와 Czardas `cza-` prefix로 store를 dispatch한다. Czardas GET은 read-only
+ClickHouse identity와 저장 pack을 비교해 interval별
+`current|stale|missing|incompatible`를 반환하며 repair, kernel, enqueue, PG write를
+절대 수행하지 않는다. 현재 identity를 증명할 수 없으면 `stale`이다.
+
 ## Failure Policy
 
 - PostgreSQL enqueue 실패는 `202 queued`로 가장하면 안 된다.

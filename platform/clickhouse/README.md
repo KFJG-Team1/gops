@@ -42,6 +42,14 @@ Legacy/native clock rows use `clock_aligned`; new US-equity derived rows use
 `5m/10m/1h/4h`. The source `1m` and session-derived rows are both persisted, so
 chart serving, Geometry, and SMA share the same OHLCV facts.
 
+Czardas uses the dedicated `canonical_completed_rows()` read boundary. Its SQL
+always filters `canonical_version=v2`, `price_adjustment=split`,
+`market_session=regular`, `is_closed=1`, and the compatible bucket policy,
+independent of permissive serving flags. A manual Czardas build audits the exact
+latest 240 expected keys; bounded Alpaca repair writes only real missing rows and
+the builder re-reads ClickHouse before inference. Weekly input is derived from
+at most 1,300 canonical daily rows. Czardas pack/job state is PostgreSQL-only.
+
 The operator migration and one-year rebuild entrypoint is:
 
 ```bash

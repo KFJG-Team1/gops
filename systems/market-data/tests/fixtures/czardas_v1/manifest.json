@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    {
+      "id": "synthetic-oscillating-boundaries-v1",
+      "kind": "synthetic",
+      "recipe": "synthetic/oscillating-boundaries.json",
+      "interval": "1D",
+      "bars": 240,
+      "meaning": "Repeated lower and upper reactions with stable structural endpoints"
+    },
+    {
+      "id": "synthetic-flat-no-draw-v1",
+      "kind": "synthetic",
+      "recipe": "synthetic/flat-no-draw.json",
+      "interval": "1D",
+      "bars": 240,
+      "meaning": "No confirmed extrema or independent reactions"
+    }
+  ]
+}

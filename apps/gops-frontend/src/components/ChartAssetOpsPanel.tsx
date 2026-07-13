@@ -18,6 +18,7 @@ import {
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
 import type { CandleDto, ChartInterval } from "../chart/types";
+import { fetchCzardasAssets, type CzardasAssetsResponse } from "../chart/czardasAssetsApi";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
 const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
@@ -33,6 +34,7 @@ export function ChartAssetOpsPanel({
   currentCandles: CandleDto[];
   currentDrawingIds: string[];
 }) {
+  const [assetKind, setAssetKind] = useState<"geometry" | "czardas">("czardas");
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
   const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
@@ -44,6 +46,7 @@ export function ChartAssetOpsPanel({
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [currentAssets, setCurrentAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [currentCzardasAssets, setCurrentCzardasAssets] = useState<CzardasAssetsResponse | null>(null);
   const [assetRevision, setAssetRevision] = useState(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
@@ -51,13 +54,13 @@ export function ChartAssetOpsPanel({
   const loadCoverage = useCallback(async () => {
     setCoverageLoading(true);
     try {
-      setCoverage(await fetchChartAssetCoverage());
+      setCoverage(await fetchChartAssetCoverage(undefined, assetKind));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "자산 현황을 불러오지 못했습니다.");
     } finally {
       setCoverageLoading(false);
     }
-  }, []);
+  }, [assetKind]);
 
   useEffect(() => {
     void loadCoverage();
@@ -66,12 +69,21 @@ export function ChartAssetOpsPanel({
   useEffect(() => subscribeAnalysisAssetsInvalidation((symbol) => {
     if (!symbol || symbol === normalizedCurrentSymbol) {
       setCurrentAssets(null);
+      setCurrentCzardasAssets(null);
       setAssetRevision((current) => current + 1);
     }
   }), [normalizedCurrentSymbol]);
 
   useEffect(() => {
     let active = true;
+    if (assetKind === "czardas") {
+      setCurrentAssets(null);
+      fetchCzardasAssets(normalizedCurrentSymbol)
+        .then((response) => { if (active) setCurrentCzardasAssets(response); })
+        .catch(() => { if (active) setCurrentCzardasAssets(null); });
+      return () => { active = false; };
+    }
+    setCurrentCzardasAssets(null);
     setCurrentAssets((current) => current?.symbol === normalizedCurrentSymbol ? current : null);
     fetchAnalysisAssets(normalizedCurrentSymbol)
       .then((response) => {
@@ -83,7 +95,14 @@ export function ChartAssetOpsPanel({
     return () => {
       active = false;
     };
-  }, [assetRevision, normalizedCurrentSymbol]);
+  }, [assetKind, assetRevision, normalizedCurrentSymbol]);
+
+  useEffect(() => {
+    if (assetKind !== "czardas") return;
+    setUseSp500(false);
+    setSymbolsText(normalizedCurrentSymbol);
+    if (isAnalysisAssetInterval(currentInterval)) setIntervals([currentInterval]);
+  }, [assetKind, currentInterval, normalizedCurrentSymbol]);
 
   useEffect(() => {
     const node = logRef.current;
@@ -136,6 +155,9 @@ export function ChartAssetOpsPanel({
     ? analysisAssetPresentationDiagnostics(currentAsset, currentCandles, currentDrawingIds)
     : null;
   const currentPattern = detectedPatternSummary(currentAsset);
+  const currentCzardasEntry = isAnalysisAssetInterval(currentInterval)
+    ? currentCzardasAssets?.assets[currentInterval] ?? null
+    : null;
 
   const runBuild = async (retrySymbols?: string[]) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
@@ -147,10 +169,15 @@ export function ChartAssetOpsPanel({
       setError("interval을 하나 이상 선택하세요.");
       return;
     }
+    if (assetKind === "czardas" && (symbols.length !== 1 || intervals.length !== 1)) {
+      setError("Czardas는 한 번에 종목 1개와 interval 1개만 빌드합니다.");
+      return;
+    }
     setError(null);
     setJob(null);
     try {
       setAccepted(await submitChartAssetBuild({
+        assetKind,
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
         intervals
       }));
@@ -168,7 +195,7 @@ export function ChartAssetOpsPanel({
     setNotice(null);
     setDeletingKey(key);
     try {
-      const result = await deleteChartAssets([item.symbol], [item.interval]);
+      const result = await deleteChartAssets([item.symbol], [item.interval], assetKind);
       invalidateAnalysisAssets(item.symbol);
       setNotice(`${item.symbol} ${item.interval} 자산 ${result.deleted}건을 삭제했습니다.`);
       await loadCoverage();
@@ -182,8 +209,12 @@ export function ChartAssetOpsPanel({
   return (
     <div className="chart-asset-ops-panel">
       <section className="chart-asset-ops-form">
+        <div className="chart-asset-kind-tabs" role="group" aria-label="작도 자산 종류">
+          <button type="button" className={assetKind === "czardas" ? "active" : ""} onClick={() => setAssetKind("czardas")}>Czardas</button>
+          <button type="button" className={assetKind === "geometry" ? "active" : ""} onClick={() => setAssetKind("geometry")}>Geometry</button>
+        </div>
         <div className="chart-asset-ops-universe-row">
-          <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
+          <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} disabled={assetKind === "czardas"} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
           <span>콤마로 구분</span>
         </div>
         <div className="chart-asset-ops-symbols">
@@ -192,7 +223,7 @@ export function ChartAssetOpsPanel({
         </div>
         <div className="chart-asset-ops-options">
           {allIntervals.map((interval) => (
-            <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
+            <label key={interval}><input type={assetKind === "czardas" ? "radio" : "checkbox"} name={assetKind === "czardas" ? "czardas-interval" : undefined} checked={intervals.includes(interval)} onChange={() => setIntervals((current) => assetKind === "czardas" ? [interval] : current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
         </div>
         <div className="chart-asset-ops-actions">
@@ -224,7 +255,13 @@ export function ChartAssetOpsPanel({
 
       <section className="chart-asset-ops-current">
         <header><strong>현재 차트</strong><span>{normalizedCurrentSymbol} {currentInterval}</span></header>
-        {currentDiagnostics ? (
+        {assetKind === "czardas" ? currentCzardasEntry?.pack ? (
+          <>
+            <p>freshness {currentCzardasEntry.freshness} · H-Line {currentCzardasEntry.pack.selection.hline.actualCount} · Trend {currentCzardasEntry.pack.selection.trend.actualCount}</p>
+            <p>coverage exact · {currentCzardasEntry.pack.coverage.actualCompleted}/{currentCzardasEntry.pack.coverage.targetCompleted}봉 · Field {currentCzardasEntry.pack.czardasField.basisGlyphs.length} basis</p>
+            {currentCzardasEntry.pack.presentationPattern && <p>감지 패턴 {patternKindLabel(currentCzardasEntry.pack.presentationPattern.kind)}</p>}
+          </>
+        ) : <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 Czardas 자산이 없습니다." : "지원하지 않는 차트 주기입니다."}</p> : currentDiagnostics ? (
           <>
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
             <p>판정 {currentDiagnostics.state}</p>
