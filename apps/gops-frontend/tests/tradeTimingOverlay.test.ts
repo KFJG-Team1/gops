@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildTradeTimingDrawings } from "../src/chart/tradeTimingOverlay";
 import type { ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
+import { resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 
 const candles = [0, 1, 2].map((index) => ({
   timestamp: `2026-07-13T13:${30 + index * 5}:00.000Z`,
@@ -28,6 +29,8 @@ const asset = {
     primaryTriangle: null, historicalTriangle: null,
     tradePlan: {
       version: "pattern-trade-timing-v1",
+      symbol: "AAPL",
+      interval: "5m",
       patternId: "pattern-bullish-flag",
       patternKind: "bullish_flag",
       patternState: "confirmed",
@@ -59,6 +62,11 @@ assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.price), [98.5, 97, 1
 assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.logicalIndex), [2, 12, 12]);
 assert.equal(drawings[1].anchors[1].timestamp, undefined);
 assert.equal(drawings[1].anchors[2].timestamp, undefined);
+
+const resolved = resolveAnalysisAssetForCandles(asset, candles);
+assert.deepEqual(resolved?.geometry.drawings.map((drawing) => drawing.type), ["flagMarker", "riskRewardBox"]);
+const resolvedAgain = resolveAnalysisAssetForCandles(resolved, candles);
+assert.equal(resolvedAgain?.geometry.drawings.filter((drawing) => drawing.type === "flagMarker").length, 1);
 
 const exitAsset: ChartAnalysisAsset = {
   ...asset,

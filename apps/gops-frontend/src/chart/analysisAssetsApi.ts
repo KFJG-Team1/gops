@@ -35,6 +35,28 @@ export type GeometryTriangle = GeometryPattern & {
   kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
 };
 
+export type GeometryTradePlan = {
+  version: "pattern-trade-timing-v1";
+  symbol: string | null;
+  interval: AnalysisAssetInterval | null;
+  patternId: string;
+  patternKind: GeometryPatternKind;
+  patternState: GeometryPattern["state"];
+  action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
+  direction: "long" | "exit_long" | "short" | null;
+  signalAt: string | null;
+  entryTrigger: number | null;
+  entryPrice: number | null;
+  stopPrice: number | null;
+  targetPrice: number | null;
+  riskPerShare: number | null;
+  rewardPerShare: number | null;
+  rewardRiskRatio: number | null;
+  minimumRewardRisk: number;
+  projectionBars: number;
+  reasons: string[];
+};
+
 export type ChartAnalysisAsset = {
   assetVersion: "geometry";
   algorithmVersion: string;
@@ -65,6 +87,7 @@ export type ChartAnalysisAsset = {
     resistances: GeometryLevel[];
     patterns?: GeometryPattern[];
     primaryPattern?: GeometryPattern | null;
+    tradePlan?: GeometryTradePlan | null;
     primaryTriangle: GeometryTriangle | null;
     historicalTriangle: GeometryTriangle | null;
     evidence?: Array<Record<string, unknown>>;
