@@ -6,6 +6,7 @@ import "./drawingTools.test";
 import "./uiScale.test";
 import "./glossary.test";
 import "./analysisAssets.test";
+import "./tradeTimingOverlay.test";
 import "./analysisAssetsCache.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
