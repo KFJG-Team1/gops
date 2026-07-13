@@ -22,6 +22,7 @@ const volumeScalePadding = 1.18;
 const fourDigitPriceAxisWidth = 68;
 const fourDigitPriceLabelLength = "1356.22".length;
 const priceAxisLabelContentWidth = 60;
+const priceTickSubdivisionThreshold = 120;
 
 export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
   if (!Number.isFinite(value)) {
@@ -735,10 +736,10 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  return priceDomainFromValues(values);
+  return priceDomainFromValues(values, plotHeight);
 }
 
-function priceDomainFromValues(source: Array<number | undefined>): { min: number; max: number; ticks: number[] } {
+function priceDomainFromValues(source: Array<number | undefined>, plotHeight: number): { min: number; max: number; ticks: number[] } {
   const values = source.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
@@ -747,7 +748,30 @@ function priceDomainFromValues(source: Array<number | undefined>): { min: number
   const max = Math.max(...values);
   const rawRange = Math.max(0.01, max - min);
   const pad = Math.max(0.5, rawRange * 0.08);
-  return integerPriceDomain(min - pad, max + pad);
+  const domain = integerPriceDomain(min - pad, max + pad);
+  return {
+    ...domain,
+    ticks: subdividePriceTicksForHeight(domain.ticks, plotHeight)
+  };
+}
+
+function subdividePriceTicksForHeight(ticks: number[], plotHeight: number): number[] {
+  if (ticks.length < 2 || !Number.isFinite(plotHeight)) {
+    return ticks;
+  }
+  const gapHeight = Math.max(0, plotHeight) / Math.max(1, ticks.length - 1);
+  if (gapHeight < priceTickSubdivisionThreshold) {
+    return ticks;
+  }
+  const subdivided: number[] = [];
+  ticks.forEach((tick, index) => {
+    subdivided.push(tick);
+    const nextTick = ticks[index + 1];
+    if (typeof nextTick === "number") {
+      subdivided.push(Number(((tick + nextTick) / 2).toFixed(8)));
+    }
+  });
+  return subdivided;
 }
 
 function indicatorDomainValues(

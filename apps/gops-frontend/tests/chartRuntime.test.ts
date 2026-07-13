@@ -1097,6 +1097,39 @@ assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
 assert.equal(formatFrontendPriceAxisValue(-12.3), "-12.30");
 assert.equal(formatFrontendPriceAxisValue(1.2345, 4), "1.2345");
 assert.equal(formatFrontendPriceAxisValue(Number.NaN), "-");
+const priceDensityCandles = [
+  testCandle("2026-07-09T00:00:00.000Z", 150),
+  testCandle("2026-07-10T00:00:00.000Z", 164)
+] as CandleDto[];
+const compactPriceDensityScene = buildFrontendChartScene(frontendChartState({
+  candles: priceDensityCandles,
+  visibleCount: 6,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+const tallPriceDensityScene = buildFrontendChartScene(frontendChartState({
+  candles: priceDensityCandles,
+  visibleCount: 6,
+  layers: { candles: true, volume: false }
+}), 800, 760);
+assert.equal(tallPriceDensityScene.scales.minPrice, compactPriceDensityScene.scales.minPrice);
+assert.equal(tallPriceDensityScene.scales.maxPrice, compactPriceDensityScene.scales.maxPrice);
+assert.equal(
+  tallPriceDensityScene.scales.priceTicks.length,
+  compactPriceDensityScene.scales.priceTicks.length * 2 - 1
+);
+assert.equal(
+  tallPriceDensityScene.scales.priceTicks[1],
+  (compactPriceDensityScene.scales.priceTicks[0] + compactPriceDensityScene.scales.priceTicks[1]) / 2
+);
+assert.equal(formatFrontendPriceAxisValue(tallPriceDensityScene.scales.priceTicks[1]), "147.50");
+assert.ok(
+  (compactPriceDensityScene.plot.priceBottom - compactPriceDensityScene.plot.top)
+    / (compactPriceDensityScene.scales.priceTicks.length - 1) < 120
+);
+assert.ok(
+  (tallPriceDensityScene.plot.priceBottom - tallPriceDensityScene.plot.top)
+    / (compactPriceDensityScene.scales.priceTicks.length - 1) >= 120
+);
 const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
   candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
   visibleCount: 1
@@ -3523,6 +3556,10 @@ const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/C
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
 const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
+assert.match(chartPanelSource, /const chartVolumeProfileBinCount = 10;/);
+assert.equal((chartPanelSource.match(/targetBins: chartVolumeProfileBinCount/g) ?? []).length, 2);
+assert.equal((chartPanelSource.match(/priceMin: visibleProfileRange\.priceMin/g) ?? []).length, 2);
+assert.equal((chartPanelSource.match(/priceMax: visibleProfileRange\.priceMax/g) ?? []).length, 2);
 assert.match(chartPanelSource, /visibleProfileRangeKey/);
 assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
@@ -3592,6 +3629,7 @@ assert.doesNotMatch(chartCanvasSource, /function drawCarryForwardGaps/);
 assert.doesNotMatch(chartCanvasSource, /function drawTimeGapUnit/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /if \(!Number\.isFinite\(bucket\.volume\) \|\| bucket\.volume <= 0\) \{\s*return;/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /context\.fillStyle = candleStrokeColor\(candle\.close >= candle\.open\)/);
 assert.match(chartCanvasSource, /function horizontalGuideRight[\s\S]*return scene\.plot\.right/);
