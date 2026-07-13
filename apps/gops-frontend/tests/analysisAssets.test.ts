@@ -38,6 +38,18 @@ assert.equal(isChartAssetDrawing(upper), true);
 assert.equal(candleKeyForTimestamp("2026-07-06T00:00:00.000Z", "1W"), "2026-07-06");
 assert.equal(candleKeyForTimestamp("2026-07-10T13:35:00.000Z", "5m"), "2026-07-10T13:35:00.000Z");
 assert.deepEqual(detectedPatternSummary(asset), { kind: "ascending_triangle", state: "forming", score: .92, drawingCount: 2 });
+const flagPattern = { kind: "bullish_flag" as const, state: "confirmed" as const, score: .88, touches: 4, geometryHash: "flag" };
+const genericPatternAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    drawings: [{ ...upper, id: "chart-asset:AAPL:1D:flag-pole" }, { ...upper, id: "chart-asset:AAPL:1D:flag-upper" }, { ...lower, id: "chart-asset:AAPL:1D:flag-lower" }],
+    patterns: [flagPattern],
+    primaryPattern: flagPattern,
+    primaryTriangle: null
+  }
+};
+assert.deepEqual(detectedPatternSummary(genericPatternAsset), { kind: "bullish_flag", state: "confirmed", score: .88, drawingCount: 3 });
 assert.equal(isAnalysisAssetStale(asset.asOf, candles, "geometry", "1D"), false);
 
 const normalized = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": asset, "1M": asset } }, "AAPL");
@@ -94,6 +106,9 @@ const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAss
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /SMA120/);
+assert.match(opsSource, /상승 페넌트/);
+const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
+assert.match(commentarySource, /하락 채널 상단 돌파/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
 assert.match(toggleSource, /Geometry 분석 레이어/);
 assert.doesNotMatch(toggleSource, /인사이트|추세 분석 레이어/);
