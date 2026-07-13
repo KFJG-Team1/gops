@@ -119,6 +119,20 @@ function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetIn
 }
 
 function resolveDrawingAnchors<T extends DrawingEntity>(drawing: T, interval: AnalysisAssetInterval, timestampByKey: Map<string, string>): T | null {
+  const visibleTimestamps = [...timestampByKey.values()].sort((left, right) => Date.parse(left) - Date.parse(right));
+  if (drawing.type === "horizontalLine" && visibleTimestamps.length) {
+    const anchors = drawing.anchors.map((anchor, index): DrawingAnchor => {
+      if (anchor.timestamp === undefined) return anchor;
+      const key = candleKeyForTimestamp(String(anchor.timestamp), interval);
+      const timestamp = key ? timestampByKey.get(key) : undefined;
+      if (timestamp) return timestamp === anchor.timestamp ? anchor : { ...anchor, timestamp };
+      const fallback = index === drawing.anchors.length - 1
+        ? visibleTimestamps[visibleTimestamps.length - 1]
+        : visibleTimestamps[0];
+      return { ...anchor, timestamp: fallback };
+    });
+    return { ...drawing, anchors } as T;
+  }
   let valid = true;
   const anchors = drawing.anchors.map((anchor): DrawingAnchor => {
     if (anchor.timestamp === undefined) return anchor;
