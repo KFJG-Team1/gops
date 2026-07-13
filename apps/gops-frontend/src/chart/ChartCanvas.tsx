@@ -2012,7 +2012,8 @@ function drawDarkAxisPill(
   text: string,
   x: number,
   y: number,
-  align: "center" | "left" | "right"
+  align: "center" | "left" | "right",
+  color: string
 ) {
   context.save();
   applyCanvasTypography(context, "caption", canvasFontFamily);
@@ -2021,8 +2022,8 @@ function drawDarkAxisPill(
   const height = 17;
   const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
   const top = y - height / 2;
-  context.fillStyle = colors.drawing;
-  context.strokeStyle = colors.drawing;
+  context.fillStyle = color;
+  context.strokeStyle = color;
   context.lineWidth = 1;
   roundedRect(context, left, top, width, height, 4);
   context.fill();
@@ -2050,13 +2051,14 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
     if (!anchor) {
       return;
     }
+    const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
 
     if (drawing.type === "horizontalLine" || drawing.type === "horizontalParallelLines") {
       const anchors = drawing.type === "horizontalLine" ? [anchor] : drawing.anchors.slice(0, 2);
       anchors.forEach((lineAnchor) => {
         const pt = transform.anchorToPoint(lineAnchor);
         if (typeof lineAnchor.price === "number" && pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
-          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), rightAxisPillX(scene), pt.y, "right");
+          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), rightAxisPillX(scene), pt.y, "right", axisLabelColor);
         }
       });
     } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
@@ -2065,7 +2067,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
         const pt = transform.anchorToPoint(lineAnchor);
         const label = lineAnchor.timestamp ? formatSemanticTimestamp(lineAnchor.timestamp, scene.chart.interval) : "";
         if (pt && pt.x >= scene.plot.left && pt.x <= scene.plot.right && label) {
-          drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center");
+          drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center", axisLabelColor);
         }
       });
     }

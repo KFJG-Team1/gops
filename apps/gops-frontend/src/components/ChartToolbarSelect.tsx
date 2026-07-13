@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   useEffect,
   useId,
   useLayoutEffect,
@@ -13,16 +14,24 @@ import {
 export type ChartToolbarSelectOption<T extends string> = {
   value: T;
   label: string;
+  icon?: ReactNode;
 };
+
+type ChartToolbarSelectVariant = "chart-type" | "interval" | "drawing-tool" | "drawing-count";
 
 type ChartToolbarSelectProps<T extends string> = {
   value: T;
   options: readonly ChartToolbarSelectOption<T>[];
   ariaLabel: string;
-  variant: "chart-type" | "interval";
+  variant: ChartToolbarSelectVariant;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (value: T) => void;
+  onReselect?: () => void;
+  showSelectedLabel?: boolean;
+  menuMinWidth?: number;
+  optionsAriaLabel?: string;
+  active?: boolean;
 };
 
 const menuGap = 6;
@@ -35,7 +44,12 @@ export function ChartToolbarSelect<T extends string>({
   variant,
   open,
   onOpenChange,
-  onChange
+  onChange,
+  onReselect,
+  showSelectedLabel = true,
+  menuMinWidth,
+  optionsAriaLabel,
+  active = false
 }: ChartToolbarSelectProps<T>) {
   const listboxId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -43,7 +57,9 @@ export function ChartToolbarSelect<T extends string>({
   const [highlightedIndex, setHighlightedIndex] = useState(() => selectedOptionIndex(options, value));
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const selectedIndex = selectedOptionIndex(options, value);
+  const selectedOption = options[selectedIndex];
   const highlightedOption = options[highlightedIndex];
+  const hasOptionIcons = options.some((option) => Boolean(option.icon));
 
   useEffect(() => {
     if (!open) {
@@ -62,7 +78,12 @@ export function ChartToolbarSelect<T extends string>({
       if (!rect) {
         return;
       }
-      const minimumWidth = variant === "chart-type" ? 104 : 72;
+      const defaultMinimumWidth = variant === "chart-type"
+        ? 104
+        : variant === "drawing-tool"
+          ? 142
+          : 72;
+      const minimumWidth = menuMinWidth ?? defaultMinimumWidth;
       const width = Math.max(rect.width, minimumWidth);
       const viewportWidth = window.innerWidth || width + viewportInset * 2;
       const viewportHeight = window.innerHeight || rect.bottom + 320;
@@ -87,7 +108,7 @@ export function ChartToolbarSelect<T extends string>({
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
-  }, [open, variant]);
+  }, [menuMinWidth, open, variant]);
 
   useEffect(() => {
     if (!open) {
@@ -124,7 +145,9 @@ export function ChartToolbarSelect<T extends string>({
   };
 
   const selectOption = (nextValue: T) => {
-    if (nextValue !== value) {
+    if (nextValue === value) {
+      onReselect?.();
+    } else {
       onChange(nextValue);
     }
     closeMenu(true);
@@ -189,9 +212,9 @@ export function ChartToolbarSelect<T extends string>({
         <div
           ref={menuRef}
           id={listboxId}
-          className={`chart-toolbar-select-menu is-${variant}`}
+          className={`chart-toolbar-select-menu is-${variant} ${hasOptionIcons ? "has-icons" : ""}`.trim()}
           role="listbox"
-          aria-label={`${ariaLabel} options`}
+          aria-label={optionsAriaLabel ?? `${ariaLabel} options`}
           style={menuStyle}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -212,7 +235,10 @@ export function ChartToolbarSelect<T extends string>({
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => selectOption(option.value)}
               >
-                <span>{option.label}</span>
+                {option.icon && (
+                  <span className="chart-toolbar-select-option-icon" aria-hidden="true">{option.icon}</span>
+                )}
+                <span className="chart-toolbar-select-option-label">{option.label}</span>
                 {selected && <Check size={13} aria-hidden="true" />}
               </button>
             );
@@ -222,7 +248,7 @@ export function ChartToolbarSelect<T extends string>({
       )
     : null;
 
-  const selectedLabel = options[selectedIndex]?.label ?? value;
+  const selectedLabel = selectedOption?.label ?? value;
   const activeDescendant = open && highlightedOption
     ? `${listboxId}-option-${highlightedOption.value}`
     : undefined;
@@ -233,7 +259,7 @@ export function ChartToolbarSelect<T extends string>({
         ref={triggerRef}
         type="button"
         role="combobox"
-        className={`chart-toolbar-select-trigger ${open ? "is-open" : ""}`}
+        className={`chart-toolbar-select-trigger ${open ? "is-open" : ""} ${active ? "is-active" : ""}`.trim()}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -243,7 +269,10 @@ export function ChartToolbarSelect<T extends string>({
         onClick={() => open ? closeMenu() : openMenu()}
         onKeyDown={handleKeyDown}
       >
-        <span>{selectedLabel}</span>
+        {selectedOption?.icon && (
+          <span className="chart-toolbar-select-trigger-icon" aria-hidden="true">{selectedOption.icon}</span>
+        )}
+        {showSelectedLabel && <span className="chart-toolbar-select-trigger-label">{selectedLabel}</span>}
         <ChevronDown size={12} aria-hidden="true" />
       </button>
       {menu}
