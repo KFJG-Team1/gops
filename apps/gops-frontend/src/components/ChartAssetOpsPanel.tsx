@@ -292,7 +292,17 @@ function patternKindLabel(kind: string): string {
   return {
     ascending_triangle: "상승 삼각형",
     descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형"
+    symmetrical_triangle: "대칭 삼각형",
+    bullish_flag: "상승 깃발형",
+    bearish_flag: "하락 깃발형",
+    bullish_pennant: "상승 페넌트",
+    bearish_pennant: "하락 페넌트",
+    bullish_rectangle: "상승 직사각형",
+    bearish_rectangle: "하락 직사각형",
+    rising_wedge: "상승 쐐기",
+    falling_wedge: "하락 쐐기",
+    descending_channel_breakout: "하락 채널 상단 돌파",
+    ascending_channel_breakdown: "상승 채널 하단 이탈"
   }[kind] ?? kind;
 }
 

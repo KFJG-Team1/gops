@@ -35,10 +35,10 @@ export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAsset
 }
 
 export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
-  const triangle = asset?.geometry.primaryTriangle;
-  if (!triangle || (triangle.state !== "forming" && triangle.state !== "confirmed")) return null;
-  const drawingCount = asset.geometry.drawings.filter((drawing) => drawing.id.includes(triangle.geometryHash)).length;
-  return { kind: triangle.kind, state: triangle.state, score: triangle.score, drawingCount };
+  const pattern = asset?.geometry.primaryPattern ?? asset?.geometry.primaryTriangle;
+  if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
+  const drawingCount = asset.geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash)).length;
+  return { kind: pattern.kind, state: pattern.state, score: pattern.score, drawingCount };
 }
 
 export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetVersion?: string, interval?: AnalysisAssetInterval): boolean {
