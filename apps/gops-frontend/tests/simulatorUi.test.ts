@@ -6,6 +6,7 @@ import {
   basketForOrderSide,
   formatSimulatorClock,
   requestPortfolioRefresh,
+  simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh
 } from "../src/simulator/simulatorApi";
 
@@ -14,6 +15,10 @@ assert.equal(basketForOrderSide("sell"), "semiconductor");
 assert.equal(basketForOrderSide("buy"), "energy");
 assert.equal(formatSimulatorClock(0), "00:00");
 assert.equal(formatSimulatorClock(65.8), "01:05");
+assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "running" }), 1_000);
+assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "live", state: "idle" }), 30_000);
+assert.equal(simulatorStatusPollIntervalMs({ available: false, mode: "live", state: "idle" }), 30_000);
+assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "paused" }), 30_000);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
@@ -27,6 +32,9 @@ const controlSource = readFileSync(
 );
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.match(controlSource, /window\.open\(article\.url/);
+assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);
+assert.match(controlSource, /document\.visibilityState === "hidden"/);
+assert.match(controlSource, /simulatorStatusPollIntervalMs\(latestStatusRef\.current\)/);
 
 const orderTicketSource = readFileSync(
   fileURLToPath(new URL("../src/components/OrderTicket.tsx", import.meta.url)),
