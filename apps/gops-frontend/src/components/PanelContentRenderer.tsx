@@ -21,6 +21,7 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
@@ -129,6 +130,7 @@ export function PanelContentRenderer({
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
+  const [openChartDropdown, setOpenChartDropdown] = useState<"chart-type" | "interval" | null>(null);
   const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
     chartPanelHandleRef.current = handle;
     onChartHandleChange(content.id, handle);
@@ -403,6 +405,14 @@ export function PanelContentRenderer({
   const chartIntervalValue = chartType === "bidask"
     ? (isBidAskChartInterval(interval) ? interval : defaultBidAskInterval)
     : interval;
+  const chartTypeOptions: ChartToolbarSelectOption<ChartType>[] = chartTypes.map((nextChartType) => ({
+    value: nextChartType,
+    label: chartTypeLabel(nextChartType)
+  }));
+  const chartIntervalSelectOptions: ChartToolbarSelectOption<ChartInterval>[] = chartIntervalOptions.map((nextInterval) => ({
+    value: nextInterval,
+    label: nextInterval
+  }));
   const handleChartTypeChange = (nextChartType: ChartType) => {
     chartPanelHandleRef.current?.setChartType(nextChartType);
   };
@@ -442,28 +452,24 @@ export function PanelContentRenderer({
         </div>
       </div>
       <div className="chart-instance-view-controls">
-        <select
-          className="chart-instance-select chart-instance-chart-type"
+        <ChartToolbarSelect
           value={chartType}
-          aria-label="Chart type"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
-        >
-          {chartTypes.map((nextChartType) => (
-            <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
-          ))}
-        </select>
-        <select
-          className="chart-instance-select chart-instance-interval"
+          options={chartTypeOptions}
+          ariaLabel="Chart type"
+          variant="chart-type"
+          open={openChartDropdown === "chart-type"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "chart-type" : null)}
+          onChange={handleChartTypeChange}
+        />
+        <ChartToolbarSelect
           value={chartIntervalValue}
-          aria-label="Interval"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
-        >
-          {chartIntervalOptions.map((nextInterval) => (
-            <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
-          ))}
-        </select>
+          options={chartIntervalSelectOptions}
+          ariaLabel="Interval"
+          variant="interval"
+          open={openChartDropdown === "interval"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "interval" : null)}
+          onChange={(nextInterval) => chartPanelHandleRef.current?.setInterval(nextInterval)}
+        />
       </div>
     </>
   );
@@ -491,7 +497,7 @@ export function PanelContentRenderer({
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
           toolbarLeading={chartNavigationLeading}
-          toolbarTrailing={companyToggleButton}
+          toolbarAfterViewControls={companyToggleButton}
         />
       ) : (
         <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>

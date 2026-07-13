@@ -650,21 +650,51 @@
 
 .chart-panel-navigation-leading {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
-  max-width: none;
+  max-width: calc(100% - 52px);
   min-width: 0;
   height: 30px;
 }
 
-.chart-panel-navigation-actions {
+.chart-panel-navigation-adjacent,
+.chart-panel-navigation-right {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 5px;
   min-width: 0;
   height: 30px;
+}
+
+.chart-panel-navigation-adjacent {
+  flex: 0 0 auto;
+}
+
+.chart-panel-navigation-right {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  margin-left: auto;
+  overflow: hidden;
+}
+
+.chart-panel-hover-controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 130ms ease, visibility 0s linear 130ms;
+}
+
+.workspace-panel-frame.is-chart-hovered .chart-panel-hover-controls,
+.chart-lane-frame.is-chart-hovered .chart-panel-hover-controls,
+.chart-lane-frame:hover .chart-panel-hover-controls,
+.chart-lane-frame:focus-within .chart-panel-hover-controls,
+.chart-panel-navigation:focus-within .chart-panel-hover-controls,
+.chart-panel-navigation.has-open-chart-menu .chart-panel-hover-controls {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .chart-panel-navigation .chart-instance-symbol {
@@ -676,8 +706,13 @@
 }
 
 .chart-panel-navigation .chart-content-toggle,
+.chart-panel-navigation .chart-add-target-button,
+.chart-panel-navigation .chart-panel-navigation-reset {
+  box-sizing: border-box;
+}
+
+.chart-panel-navigation .chart-content-toggle,
 .chart-panel-navigation .chart-add-target-button {
-  opacity: 1;
   pointer-events: auto;
 }
 
@@ -702,8 +737,9 @@
   z-index: 34;
   box-sizing: border-box;
   display: flex;
-  flex: 1 1 0;
-  width: 0;
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 100%;
   align-items: center;
   min-width: 52px;
   height: 30px;
@@ -744,7 +780,7 @@
   align-items: center;
   gap: 4px;
   width: max-content;
-  min-width: 100%;
+  min-width: max-content;
   height: 28px;
 }
 
@@ -1037,6 +1073,13 @@
   border-color: var(--color-border);
   outline: none;
   box-shadow: none !important;
+}
+
+.chart-panel-navigation .chart-toolbar-select-trigger:hover,
+.chart-panel-navigation .chart-toolbar-select-trigger:focus-visible,
+.chart-panel-navigation .chart-toolbar-select-trigger.is-open {
+  border-color: var(--coinbase-primary);
+  color: var(--coinbase-primary);
 }
 
 .chart-add-dock-divider {

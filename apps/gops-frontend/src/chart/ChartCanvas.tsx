@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -69,6 +69,8 @@ let colors: ThemeColors;
 const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 const bollingerFillAlpha = 0.1;
+const rightAxisOuterInset = 4;
+const axisPillHorizontalPadding = 5;
 const volumeProfileAlpha = {
   poc: 0.28,
   valueAreaBase: 0.12,
@@ -2015,7 +2017,7 @@ function drawDarkAxisPill(
   context.save();
   applyCanvasTypography(context, "caption", canvasFontFamily);
   const metrics = context.measureText(text);
-  const width = metrics.width + 10;
+  const width = metrics.width + axisPillHorizontalPadding * 2;
   const height = 17;
   const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
   const top = y - height / 2;
@@ -2026,9 +2028,9 @@ function drawDarkAxisPill(
   context.fill();
   context.stroke();
   context.fillStyle = colors.background;
-  context.textAlign = "center";
+  context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, left + width / 2, y + 0.5);
+  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
   context.restore();
 }
 
@@ -2054,7 +2056,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
       anchors.forEach((lineAnchor) => {
         const pt = transform.anchorToPoint(lineAnchor);
         if (typeof lineAnchor.price === "number" && pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
-          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), scene.width - 8, pt.y, "right");
+          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), rightAxisPillX(scene), pt.y, "right");
         }
       });
     } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
@@ -2092,7 +2094,7 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
   context.globalAlpha = 1;
   context.setLineDash([]);
-  drawAxisPill(context, price.toFixed(2), scene.width - 8, y, "right", "currentPrice");
+  drawAxisPill(context, price.toFixed(2), rightAxisPillX(scene), y, "right", "currentPrice");
   context.restore();
 }
 
@@ -2362,7 +2364,7 @@ function drawPriceAxis(context: CanvasRenderingContext2D, scene: ChartScene) {
   scene.scales.priceTicks.forEach((price) => {
     context.fillText(
       formatPriceAxisValue(price, scene.scales.bidAskPriceGrid?.decimalPlaces ?? 0),
-      scene.width - 8,
+      rightAxisTextX(scene),
       priceToY(scene, price)
     );
   });
@@ -2380,7 +2382,7 @@ function drawVolumeAxisLabels(context: CanvasRenderingContext2D, scene: ChartSce
   context.textAlign = "right";
   context.textBaseline = "middle";
   scene.scales.volumeTicks.forEach((volume) => {
-    context.fillText(formatVolumeAxisValue(volume), scene.width - 8, volumeY(scene, volume));
+    context.fillText(formatVolumeAxisValue(volume), rightAxisTextX(scene), volumeY(scene, volume));
   });
   context.restore();
 }
@@ -2410,20 +2412,15 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   if (!crosshair || crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
     return;
   }
-  const semanticHit = hitTestSemanticNode(scene, crosshair.x, crosshair.y);
-  if (!semanticHit) {
+  const timeTarget = resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y);
+  if (!timeTarget) {
     return;
   }
-  const gapBounds = semanticHit.kind === "time-gap" ? unitBoundsX(scene, semanticHit) : null;
-  const x = gapBounds
-    ? Math.max(gapBounds.left, Math.min(gapBounds.right, crosshair.x))
-    : unitCenterX(scene, semanticHit);
+  const x = timeTarget.x;
   const y = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, crosshair.y));
   const drawingToolActive = scene.chart.toolMode !== "pan" && scene.chart.toolMode !== "select";
   const alpha = drawingToolActive ? 0.12 : 0.22;
-  const label = semanticHit.kind === "candle"
-    ? formatSemanticTimestamp(semanticHit.timestamp, semanticHit.interval)
-    : formatSemanticTimestamp(timestampAtUnitX(scene, semanticHit, x), semanticHit.interval);
+  const label = formatSemanticTimestamp(timeTarget.timestamp, timeTarget.interval);
   const inPricePane = crosshair.y <= scene.plot.priceBottom;
   const activeBelowPane = scene.plot.belowPanes.find((pane) => crosshair.y >= pane.top && crosshair.y <= pane.bottom);
   const inVolumePane = activeBelowPane?.id === "volume";
@@ -2442,9 +2439,9 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   drawAxisPill(context, label, x, timeAxisY(scene), "center");
   if (inPricePane) {
     const price = createCoordinateTransform(scene).yToPrice(y);
-    drawAxisPill(context, price.toFixed(2), scene.width - 8, y, "right");
+    drawAxisPill(context, price.toFixed(2), rightAxisPillX(scene), y, "right");
   } else if (inVolumePane) {
-    drawAxisPill(context, formatVolumeAxisValue(volumeAtY(scene, crosshair.y)), scene.width - 8, crosshair.y, "right");
+    drawAxisPill(context, formatVolumeAxisValue(volumeAtY(scene, crosshair.y)), rightAxisPillX(scene), crosshair.y, "right");
   }
   context.restore();
 }
@@ -2454,6 +2451,9 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
     return;
   }
   if (crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
+    return;
+  }
+  if (resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y)?.kind === "future") {
     return;
   }
   let best: { x: number; close: number } | null = null;
@@ -2468,10 +2468,7 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
     bestDistance = 0;
   }
   scene.semantic.units.forEach((unit) => {
-    if (bestDistance === 0) {
-      return;
-    }
-    if (unit.kind !== "candle") {
+    if (bestDistance === 0 || unit.kind !== "candle") {
       return;
     }
     const centerX = unitCenterX(scene, unit);
@@ -2620,9 +2617,32 @@ function drawAxisPill(
   context.fill();
   context.stroke();
   context.fillStyle = variant === "currentPrice" ? colors.surface : colors.text;
-  context.textAlign = "center";
+  context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, left + width / 2, y + 0.5);
+  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
+}
+
+function rightAxisPillX(scene: ChartScene): number {
+  return scene.width - rightAxisOuterInset;
+}
+
+function rightAxisTextX(scene: ChartScene): number {
+  return rightAxisPillX(scene) - axisPillHorizontalPadding;
+}
+
+function axisPillTextX(
+  x: number,
+  left: number,
+  width: number,
+  align: "center" | "left" | "right"
+): number {
+  if (align === "right") {
+    return x - axisPillHorizontalPadding;
+  }
+  if (align === "left") {
+    return x + axisPillHorizontalPadding;
+  }
+  return left + width / 2;
 }
 
 function drawEmpty(context: CanvasRenderingContext2D, width: number, height: number, message: string) {

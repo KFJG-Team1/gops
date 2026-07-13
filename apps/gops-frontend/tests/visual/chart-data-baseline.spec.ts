@@ -34,17 +34,17 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   await expectLatestQuarterGap(chartPanel);
 
   await expect(panel).toHaveScreenshot("chart-candle.png");
-  await page.getByLabel("Chart type").selectOption("line", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "line");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expect(panel).toHaveScreenshot("chart-line.png");
 
-  await page.getByLabel("Chart type").selectOption("ohlc", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "ohlc");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expect(panel).toHaveScreenshot("chart-ohlc.png");
 
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
   for (const interval of ["1m", "10m", "1h"] as const) {
-    await page.getByLabel("Interval").selectOption(interval, { force: true });
+    await selectChartToolbarOption(page, "Interval", interval);
     await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-status", "ready");
     await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
     await expect(page.locator(".chart-canvas")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
@@ -56,6 +56,46 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
     await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`);
   }
   expect(intradayRequestCount).toBe(1);
+});
+
+test("chart toolbar dropdowns open downward and remain keyboard accessible", async ({ page }) => {
+  await openFixtureLayout(page, chartOnlyLayout());
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  const chartTypeTrigger = page.getByRole("combobox", { name: "Chart type" });
+  const intervalTrigger = page.getByRole("combobox", { name: "Interval" });
+
+  await selectChartToolbarOption(page, "Chart type", "ohlc");
+  await chartTypeTrigger.click();
+  const chartTypeMenu = page.getByRole("listbox", { name: "Chart type options" });
+  await expect(chartTypeMenu).toBeVisible();
+  await expectDropdownBelowTrigger(chartTypeTrigger, chartTypeMenu);
+  await expect(chartTypeMenu.getByRole("option")).toHaveText(["Candle", "Line", "OHLC", "Bid/Ask"]);
+  await expect(chartTypeMenu.locator('[data-value="ohlc"]')).toHaveAttribute("aria-selected", "true");
+  expect(await chartTypeMenu.evaluate((element) => element.scrollTop)).toBe(0);
+
+  await intervalTrigger.click();
+  await expect(chartTypeMenu).toBeHidden();
+  const intervalMenu = page.getByRole("listbox", { name: "Interval options" });
+  await expect(intervalMenu).toBeVisible();
+  await expectDropdownBelowTrigger(intervalTrigger, intervalMenu);
+  await expect(intervalMenu.getByRole("option")).toHaveText(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
+  expect(await intervalMenu.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png");
+
+  await intervalTrigger.press("Escape");
+  await expect(intervalMenu).toBeHidden();
+  await expect(intervalTrigger).toBeFocused();
+
+  await intervalTrigger.press("ArrowDown");
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeVisible();
+  await intervalTrigger.press("End");
+  await intervalTrigger.press("Enter");
+  await expect(intervalTrigger).toContainText("1M");
+
+  await intervalTrigger.click();
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeVisible();
+  await page.locator(".chart-canvas").click({ position: { x: 12, y: 80 } });
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeHidden();
 });
 
 test("partial retry locks zoom and keeps the latest quarter gap", async ({ page }) => {
@@ -75,8 +115,7 @@ test("partial retry locks zoom and keeps the latest quarter gap", async ({ page 
 
 test("fixed and optional derived layers preserve chart geometry", async ({ page }) => {
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
-  const addMenu = page.getByRole("menu", { name: "차트 추가 도구" });
+  const addMenu = await openChartAddMenu(page);
   await page.getByRole("menuitemcheckbox", { name: "20기간 지수 이동평균선" }).click({ force: true });
   await expect(addMenu).toBeVisible();
   await page.getByRole("menuitemcheckbox", { name: "거래량 프로파일" }).click({ force: true });
@@ -101,7 +140,7 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
   });
 
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await openChartAddMenu(page);
   await page.getByRole("menuitemcheckbox", { name: "120기간 단순 이동평균선" }).click({ force: true });
 
   await expect.poll(() => requestedLayers.some((layers) => layers.split(",").includes("sma:120"))).toBe(true);
@@ -111,8 +150,8 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
 test("bidask wheel zoom keeps one visual grammar and skips viewport history", async ({ page }) => {
   alignBidAskFixtures = true;
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
-  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+  await selectChartToolbarOption(page, "Interval", "1m");
   const chartPanel = page.locator(".chart-panel");
   const canvas = chartPanel.locator(".chart-canvas");
   await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
@@ -136,8 +175,8 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   omittedCandleIndex = 82;
   omittedOrderFlowMinute = 88;
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
-  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+  await selectChartToolbarOption(page, "Interval", "1m");
   const chartPanel = page.locator(".chart-panel");
   await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "139");
@@ -378,6 +417,36 @@ test("order-flow panels stay intraday-only and keep the lower canvas wheelable",
   await expect.poll(() => storedPanelProp(page, "content-orderFlow-2", "symbol")).toBe("AAPL");
   await expect.poll(() => storedPanelProp(page, "content-orderFlow-3", "symbol")).toBe("NVDA");
 });
+
+async function selectChartToolbarOption(page: Page, ariaLabel: "Chart type" | "Interval", value: string): Promise<void> {
+  const trigger = page.getByRole("combobox", { name: ariaLabel });
+  await trigger.click({ force: true });
+  const listbox = page.getByRole("listbox", { name: `${ariaLabel} options` });
+  await expect(listbox).toBeVisible();
+  await listbox.locator(`[data-value="${value}"]`).click();
+  await expect(listbox).toBeHidden();
+}
+
+async function expectDropdownBelowTrigger(trigger: Locator, listbox: Locator): Promise<void> {
+  const triggerBox = await trigger.boundingBox();
+  const listboxBox = await listbox.boundingBox();
+  expect(triggerBox).not.toBeNull();
+  expect(listboxBox).not.toBeNull();
+  if (!triggerBox || !listboxBox) {
+    return;
+  }
+  expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height + 5);
+  expect(listboxBox.y + listboxBox.height).toBeLessThanOrEqual(await listbox.evaluate(() => window.innerHeight - 7));
+}
+
+async function openChartAddMenu(page: Page): Promise<Locator> {
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await panel.hover();
+  await panel.getByRole("button", { name: "차트 추가 도구 열기" }).click();
+  const menu = panel.getByRole("menu", { name: "차트 추가 도구" });
+  await expect(menu).toBeVisible();
+  return menu;
+}
 
 async function openFixtureLayout(page: Page, layout: Record<string, unknown>): Promise<void> {
   await page.addInitScript(({ storageKey, storedLayout }) => {

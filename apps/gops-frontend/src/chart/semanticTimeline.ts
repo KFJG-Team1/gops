@@ -642,6 +642,18 @@ function addInterval(date: Date, interval: ChartInterval): Date {
   }
 }
 
+export function advanceTimestampByInterval(value: string, interval: ChartInterval, steps = 1): string | null {
+  let date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const safeSteps = Math.max(0, Math.floor(steps));
+  for (let step = 0; step < safeSteps; step += 1) {
+    date = addInterval(date, interval);
+  }
+  return date.toISOString();
+}
+
 function floorInterval(date: Date, interval: ChartInterval): Date {
   const next = new Date(date.getTime());
   next.setUTCSeconds(0, 0);

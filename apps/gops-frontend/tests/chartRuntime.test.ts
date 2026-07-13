@@ -52,6 +52,7 @@ import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShow
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
 import type { AgentLayoutCommand, AgentLayoutCommandType, AgentLayoutProposal, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
+  advanceTimestampByInterval,
   buildSemanticTimeline,
   nextDigTargetInterval,
   semanticExpansionId,
@@ -70,6 +71,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
+  resolveCrosshairTimeTarget,
   viewportAnchorRatioAtX,
   viewportSlotWidth
 } from "../src/chart/scene";
@@ -807,6 +809,14 @@ const afterGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:39:00Z");
 assert.equal(typeof insideGapX, "number");
 assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
 assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
+const gapCrosshairTarget = resolveCrosshairTimeTarget(
+  sparseMinuteScene,
+  insideGapX ?? sparseMinuteScene.plot.left,
+  (sparseMinuteScene.plot.top + sparseMinuteScene.plot.priceBottom) / 2
+);
+assert.equal(gapCrosshairTarget?.kind, "semantic");
+assert.equal(gapCrosshairTarget?.unit?.kind, "time-gap");
+assert.equal(gapCrosshairTarget?.x, insideGapX);
 const afterGapAnchorRatio = viewportAnchorRatioAtX(sparseMinuteScene, afterGapX ?? sparseMinuteScene.plot.left);
 const afterGapVisualRatio = ((afterGapX ?? sparseMinuteScene.plot.left) - sparseMinuteScene.plot.left) / (sparseMinuteScene.plot.right - sparseMinuteScene.plot.left);
 assert.ok(Math.abs(afterGapVisualRatio - afterGapAnchorRatio) < 0.000001);
@@ -955,6 +965,68 @@ const noExpansionFutureScene = buildFrontendChartScene(frontendChartState({
   rightOffset: futureOffsetWithSemanticWidth
 }), 800, 360);
 assert.equal(noExpansionFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80));
+const intervalAdvanceCases = [
+  ["1m", "2026-01-31T23:32:00.000Z"],
+  ["5m", "2026-01-31T23:40:00.000Z"],
+  ["10m", "2026-01-31T23:50:00.000Z"],
+  ["1h", "2026-02-01T01:30:00.000Z"],
+  ["4h", "2026-02-01T07:30:00.000Z"],
+  ["1D", "2026-02-02T23:30:00.000Z"],
+  ["1W", "2026-02-14T23:30:00.000Z"],
+  ["1M", "2026-03-01T00:00:00.000Z"]
+] as const;
+intervalAdvanceCases.forEach(([interval, expected]) => {
+  assert.equal(advanceTimestampByInterval("2026-01-31T23:30:00.000Z", interval, 2), expected);
+});
+assert.equal(advanceTimestampByInterval("not-a-timestamp", "1D"), null);
+const emptyCrosshairScene = buildFrontendChartScene(frontendChartState({ candles: [] }), 800, 360);
+assert.equal(
+  resolveCrosshairTimeTarget(
+    emptyCrosshairScene,
+    emptyCrosshairScene.plot.right / 2,
+    (emptyCrosshairScene.plot.top + emptyCrosshairScene.plot.priceBottom) / 2
+  ),
+  null
+);
+
+const latestFutureUnit = noExpansionFutureScene.semantic.unitById.get(semanticFutureParentNodeId);
+assert.ok(latestFutureUnit?.kind === "candle");
+if (latestFutureUnit?.kind === "candle") {
+  const crosshairY = (noExpansionFutureScene.plot.top + noExpansionFutureScene.plot.priceBottom) / 2;
+  const latestTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    noExpansionFutureScene.plot.left + latestFutureUnit.slotCenter * noExpansionFutureScene.scales.slotWidth,
+    crosshairY
+  );
+  assert.equal(latestTarget?.kind, "semantic");
+  assert.equal(latestTarget?.timestamp, semanticFutureParent.timestamp);
+
+  const futureStartX = noExpansionFutureScene.plot.left + latestFutureUnit.slotEnd * noExpansionFutureScene.scales.slotWidth;
+  const firstFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 0.1,
+    crosshairY
+  );
+  const sameFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 0.9,
+    crosshairY
+  );
+  const thirdFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 2.1,
+    crosshairY
+  );
+  assert.equal(firstFutureTarget?.kind, "future");
+  assert.equal(firstFutureTarget?.futureIndex, 0);
+  assert.equal(firstFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D", 1));
+  assert.equal(sameFutureTarget?.x, firstFutureTarget?.x);
+  assert.equal(sameFutureTarget?.timestamp, firstFutureTarget?.timestamp);
+  assert.equal(thirdFutureTarget?.futureIndex, 2);
+  assert.equal(thirdFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D", 3));
+  assert.ok(Math.abs((thirdFutureTarget?.x ?? 0) - (firstFutureTarget?.x ?? 0) - noExpansionFutureScene.scales.slotWidth * 2) < 0.000001);
+  assert.equal(resolveCrosshairTimeTarget(noExpansionFutureScene, noExpansionFutureScene.plot.right + 1, crosshairY), null);
+}
 const semanticFutureScene = buildFrontendChartScene(frontendChartState({
   candles: semanticFutureCandles as CandleDto[],
   visibleCount: 80,
@@ -962,6 +1034,34 @@ const semanticFutureScene = buildFrontendChartScene(frontendChartState({
 }), 800, 360, { expansions: [semanticFutureExpansion] });
 assert.equal(semanticFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
 assert.equal(Math.ceil(semanticFutureScene.semantic.expansionExtraSlots), semanticFutureExtraSlots);
+const latestExpansionRange = semanticFutureScene.semantic.expansionRanges.find(
+  (range) => range.parentNodeId === semanticFutureParentNodeId
+);
+assert.ok(latestExpansionRange);
+if (latestExpansionRange) {
+  const crosshairY = (semanticFutureScene.plot.top + semanticFutureScene.plot.priceBottom) / 2;
+  const futureStartX = semanticFutureScene.plot.left + latestExpansionRange.slotEnd * semanticFutureScene.scales.slotWidth;
+  const expansionFutureTarget = resolveCrosshairTimeTarget(
+    semanticFutureScene,
+    futureStartX + semanticFutureScene.scales.slotWidth * 0.25,
+    crosshairY
+  );
+  assert.equal(expansionFutureTarget?.kind, "future");
+  assert.equal(expansionFutureTarget?.futureIndex, 0);
+  assert.equal(expansionFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D"));
+}
+const pannedAwayLatestScene = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 20,
+  rightOffset: 10
+}), 800, 360);
+const pannedAwayTarget = resolveCrosshairTimeTarget(
+  pannedAwayLatestScene,
+  pannedAwayLatestScene.plot.right - pannedAwayLatestScene.scales.slotWidth / 2,
+  (pannedAwayLatestScene.plot.top + pannedAwayLatestScene.plot.priceBottom) / 2
+);
+assert.equal(pannedAwayTarget?.kind, "semantic");
+assert.notEqual(pannedAwayTarget?.timestamp, semanticFutureParent.timestamp);
 const semanticFutureSceneAtBaseEmptySpace = buildFrontendChartScene(frontendChartState({
   candles: semanticFutureCandles as CandleDto[],
   visibleCount: 80,
@@ -3397,12 +3497,19 @@ assert.match(panelContentRendererSource, /PortfolioHoldingsOnlyPanel/);
 assert.match(panelContentRendererSource, /ChartComparisonPanel/);
 assert.match(panelContentRendererSource, /content\.kind === "compare"/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
-assert.match(panelContentRendererSource, /chart-instance-interval/);
+assert.match(panelContentRendererSource, /ChartToolbarSelect/);
+assert.match(panelContentRendererSource, /variant="interval"/);
 assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
 assert.match(panelContentRendererSource, /bidAskChartIntervals/);
 assert.match(panelContentRendererSource, /chartIntervalOptions\.map/);
 assert.doesNotMatch(panelContentRendererSource, /disabled=\{chartType === "bidask"\}/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
+
+const chartToolbarSelectSource = readFileSync(fileURLToPath(new URL("../src/components/ChartToolbarSelect.tsx", import.meta.url)), "utf-8");
+assert.match(chartToolbarSelectSource, /createPortal/);
+assert.match(chartToolbarSelectSource, /rect\.bottom \+ menuGap/);
+assert.match(chartToolbarSelectSource, /role="listbox"/);
+assert.match(chartToolbarSelectSource, /aria-activedescendant/);
 
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
