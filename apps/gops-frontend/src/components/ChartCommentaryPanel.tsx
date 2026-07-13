@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
-import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
-import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
-import type { CandleDto, ChartInterval } from "../chart/types";
+import {
+  fetchCzardasAssetsSnapshot,
+  isCzardasAssetsGenerationCurrent,
+  isCzardasInterval,
+  subscribeCzardasAssetsInvalidation,
+  type CzardasAssetsResponse,
+  type CzardasBoundary
+} from "../chart/czardasAssetsApi";
+import type { ChartInterval } from "../chart/types";
 
-export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: {
+export function ChartCommentaryPanel({ symbol, interval }: {
   symbol: string;
   interval: ChartInterval;
-  candles: CandleDto[];
-  drawingIds: string[];
 }) {
-  const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
+  const [assets, setAssets] = useState<CzardasAssetsResponse | null>(null);
   const [revision, setRevision] = useState(0);
   const normalizedSymbol = symbol.trim().toUpperCase();
 
-  useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
+  useEffect(() => subscribeCzardasAssetsInvalidation((invalidatedSymbol) => {
     if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
       setAssets(null);
       setRevision((current) => current + 1);
@@ -22,47 +26,69 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
 
   useEffect(() => {
     let active = true;
-    fetchAnalysisAssets(normalizedSymbol).then((response) => {
-      if (active) setAssets(response);
-    }).catch(() => {
-      if (active) setAssets(null);
-    });
+    fetchCzardasAssetsSnapshot(normalizedSymbol)
+      .then(({ response, generation }) => {
+        if (active && isCzardasAssetsGenerationCurrent(normalizedSymbol, generation)) setAssets(response);
+      })
+      .catch(() => { if (active) setAssets(null); });
     return () => { active = false; };
   }, [normalizedSymbol, revision]);
 
-  if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
-  const asset = assets?.assets[interval] ?? null;
-  if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
+  if (!isCzardasInterval(interval)) return <Empty text="이 interval은 Czardas 분석을 지원하지 않습니다." />;
+  const entry = assets?.assets[interval] ?? null;
+  const pack = entry?.pack ?? null;
+  if (!pack) {
+    const text = entry?.freshness === "incompatible"
+      ? "현재 엔진과 호환되지 않는 Czardas 자산입니다."
+      : "Czardas 자산이 준비되지 않았습니다.";
+    return <Empty text={text} />;
+  }
 
-  const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
-  const pattern = detectedPatternSummary(asset);
-  const focusDrawing = (ids: string[]) => window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
-    detail: { symbol: normalizedSymbol, interval, drawingIds: ids }
+  const focusDrawings = (drawingIds: string[]) => window.dispatchEvent(new CustomEvent("gops:czardas-focus", {
+    detail: { symbol: normalizedSymbol, interval, drawingIds }
   }));
+  const pattern = pack.presentationPattern;
+
   return (
     <article className="chart-commentary-panel">
       <header className="chart-commentary-meta">
         <span className="chart-commentary-badge">{interval}</span>
-        <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
-        <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
+        <span className={entry?.freshness === "stale" ? "is-stale" : ""}>분석 기준 {formatAsOf(pack.asOf)}</span>
+        <span className="chart-commentary-badge is-muted">{entry?.freshness ?? "missing"}</span>
       </header>
-      <h3 className="chart-commentary-headline">Geometry 분석</h3>
-      <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
+      <h3 className="chart-commentary-headline">Czardas가 본 차트</h3>
+      <p className="chart-commentary-text">
+        240개 완료봉에서 H-Line {pack.selection.hline.actualCount}개와 Trend {pack.selection.trend.actualCount}개를 선택했습니다.
+      </p>
       {pattern && (
-        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
-          {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
+        <button type="button" onClick={() => focusDrawings([
+          pattern.upperDrawingId ?? `czardas:${pattern.upperCandidateId}:line`,
+          pattern.lowerDrawingId ?? `czardas:${pattern.lowerCandidateId}:line`
+        ])}>
+          {patternName(pattern.kind)} · 두 Trend의 수렴 관계
         </button>
       )}
-      <section className="chart-commentary-levels" aria-label="핵심 레벨">
-        <h3>핵심 레벨</h3>
-        <ul>
-          {[...asset.geometry.supports, ...asset.geometry.resistances].map((level) => (
-            <li key={level.id}>{level.role === "support" ? "지지" : "저항"} {level.price.toFixed(2)} · 접촉 {level.touches}회</li>
-          ))}
-        </ul>
+      <section className="chart-commentary-levels" aria-label="Czardas 경계 해석">
+        <h3>선택 근거</h3>
+        {pack.boundaries.length ? (
+          <ul>
+            {pack.boundaries.map((boundary) => (
+              <li key={boundary.candidateId}>
+                <button type="button" onClick={() => focusDrawings([`czardas:${boundary.candidateId}:line`])}>
+                  {boundaryName(boundary)} {boundary.line.priceAtAsOf.toFixed(2)} · 강도 {boundary.rank.rankScore.toFixed(2)}
+                </button>
+                <span>{boundary.explanation.claim}</span>
+                <span>
+                  형성 {boundary.formation.fitCount}회 · 독립 반응 {boundary.responses.completedCount}회
+                  {boundary.isRelevantNow ? " · 현재 구간과 가까움" : ""}
+                </span>
+                {boundary.explanation.because.length > 0 && <span>{boundary.explanation.because.join(" · ")}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="chart-commentary-text">선택 조건을 통과한 경계가 없습니다. Field는 유지되어 Czardas의 관찰 근거를 보여줍니다.</p>}
       </section>
-      <p className="chart-commentary-text">SMA60 {formatValue(asset.indicators.sma60)} · SMA120 {formatValue(asset.indicators.sma120)} · {crossName(asset.indicators.cross.direction)}</p>
-      {diagnostics.stale && <p className="chart-commentary-invalidation">새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다.</p>}
+      {entry?.freshness === "stale" && <p className="chart-commentary-invalidation">최신 완료봉과 저장된 추론 입력이 달라 이전 제안을 낮은 불투명도로 표시합니다.</p>}
     </article>
   );
 }
@@ -71,18 +97,26 @@ function Empty({ text }: { text: string }) {
   return <div className="chart-commentary-empty" role="status"><span>{text}</span></div>;
 }
 
-function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return ["1m", "5m", "10m", "1h", "4h", "1D", "1W"].includes(interval);
+function boundaryName(boundary: CzardasBoundary): string {
+  return {
+    support: "지지 H-Line",
+    resistance: "저항 H-Line",
+    lower: "하단 Trend",
+    upper: "상단 Trend"
+  }[boundary.role];
 }
 
 function patternName(kind: string): string {
   return { ascending_triangle: "상승 삼각형", descending_triangle: "하락 삼각형", symmetrical_triangle: "대칭 삼각형" }[kind] ?? kind;
 }
 
-function formatValue(value: number | null): string {
-  return value === null ? "-" : value.toFixed(2);
-}
-
-function crossName(direction: "golden" | "dead" | null | undefined): string {
-  return direction === "golden" ? "골든크로스" : direction === "dead" ? "데드크로스" : "교차 없음";
+function formatAsOf(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : date.toLocaleString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/New_York"
+  });
 }

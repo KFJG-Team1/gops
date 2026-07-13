@@ -54,6 +54,10 @@ export function executeChartCommand(document: ChartDocument, command: ChartComma
   if (command.target.chartDocumentId !== document.id) {
     return { ok: false, document, message: "Chart command target does not match document." };
   }
+  const accessError = czardasCommandAccessError(command);
+  if (accessError) {
+    return { ok: false, document, message: accessError };
+  }
 
   if (command.type === "chart.undo") {
     return undoChartDocument(document);
@@ -136,6 +140,10 @@ export function executeChartCommandGroup(
     }
     if (command.type === "chart.undo" || command.type === "chart.redo") {
       return { ok: false, document, message: "Undo/redo cannot be part of a proposal group." };
+    }
+    const accessError = czardasCommandAccessError(command);
+    if (accessError) {
+      return { ok: false, document, message: accessError };
     }
     const validation = applyDocumentMutation(next, command);
     if (validation) {
@@ -337,6 +345,17 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       if (!drawing || !isSupportedDrawing(drawing)) {
         return "Invalid drawing payload.";
       }
+      if (isReservedCzardasDrawingId(drawing.id) && command.actor !== "system") {
+        return "Czardas drawing ids are reserved for the system engine.";
+      }
+      const existing = document.drawings.find((item) => item.id === drawing.id);
+      if (existing && (
+        existing.ownership === "czardas-managed"
+        || drawing.ownership === "czardas-managed"
+        || isReservedCzardasDrawingId(drawing.id)
+      )) {
+        return "Czardas managed drawing id collision.";
+      }
       document.drawings = [...document.drawings.filter((item) => item.id !== drawing.id), drawing];
       document.selectedDrawingId = drawing.id;
       document.interactionState = { ...document.interactionState, mode: "select" };
@@ -355,7 +374,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       if (current.ownership === "czardas-managed" && command.actor !== "system") {
         return "Managed Czardas drawings must be forked before editing.";
       }
-      const next = mergeDrawingPatch(current, patch);
+      const next = mergeDrawingPatch(current, patch, command.actor === "system" && current.ownership === "czardas-managed");
       if (!isSupportedDrawing(next)) {
         return "Invalid drawing update.";
       }
@@ -752,6 +771,9 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
   if (!source) {
     return null;
   }
+  if (actor !== "system" && hasCzardasProvenance(source)) {
+    return null;
+  }
   const type = readDrawingType(source.type);
   const rawAnchors = readAnchors(source.anchors);
   const anchors = type && rawAnchors ? normalizeDrawingAnchors(type, rawAnchors) : rawAnchors;
@@ -759,8 +781,26 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     return null;
   }
   const createdAt = readString(source.createdAt) ?? new Date().toISOString();
+  const id = readString(source.id) ?? `drawing-${crypto.randomUUID()}`;
+  const ownership = readOwnership(source.ownership, actor);
+  const trustedCzardasProvenance = actor === "system" && ownership === "czardas-managed";
+  const czardasLayer = source.czardasLayer === "hline" || source.czardasLayer === "trend" ? source.czardasLayer : undefined;
+  const sourceInferenceId = readString(source.sourceInferenceId) ?? undefined;
+  const sourceCandidateId = readString(source.sourceCandidateId) ?? undefined;
+  const sourceFieldModeId = readString(source.sourceFieldModeId) ?? undefined;
+  const sourceFieldDerivationDigest = readString(source.sourceFieldDerivationDigest) ?? undefined;
+  if (trustedCzardasProvenance && (
+    !isReservedCzardasDrawingId(id)
+    || !czardasLayer
+    || !sourceInferenceId
+    || !sourceCandidateId
+    || !sourceFieldModeId
+    || !sourceFieldDerivationDigest
+  )) {
+    return null;
+  }
   return {
-    id: readString(source.id) ?? `drawing-${crypto.randomUUID()}`,
+    id,
     type,
     anchors,
     sourceInterval: readString(source.sourceInterval) ?? undefined,
@@ -769,16 +809,16 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(readNumber(source.parallelLineCount) ?? 3) : undefined,
     locked: typeof source.locked === "boolean" ? source.locked : undefined,
     visible: typeof source.visible === "boolean" ? source.visible : true,
-    createdBy: source.createdBy === "llm" || source.createdBy === "system" || source.createdBy === "user" ? source.createdBy : actor,
+    createdBy: actor,
     sourceProposalId: readString(source.sourceProposalId) ?? proposalId,
-    ownership: readOwnership(source.ownership, actor),
-    czardasLayer: source.czardasLayer === "hline" || source.czardasLayer === "trend" ? source.czardasLayer : undefined,
-    sourceCandidateId: readString(source.sourceCandidateId) ?? undefined,
-    sourceFieldModeId: readString(source.sourceFieldModeId) ?? undefined,
-    sourceFieldRevision: readNumber(source.sourceFieldRevision) ?? undefined,
-    sourceGroupId: readString(source.sourceGroupId) ?? undefined,
-    engineRevision: readNumber(source.engineRevision) ?? undefined,
-    forkedFromDrawingId: readString(source.forkedFromDrawingId) ?? undefined,
+    ownership,
+    czardasLayer: trustedCzardasProvenance ? czardasLayer : undefined,
+    sourceInferenceId: trustedCzardasProvenance ? sourceInferenceId : undefined,
+    sourceCandidateId: trustedCzardasProvenance ? sourceCandidateId : undefined,
+    sourceFieldModeId: trustedCzardasProvenance ? sourceFieldModeId : undefined,
+    sourceFieldDerivationDigest: trustedCzardasProvenance ? sourceFieldDerivationDigest : undefined,
+    sourceGroupId: trustedCzardasProvenance ? readString(source.sourceGroupId) ?? undefined : undefined,
+    forkedFromDrawingId: undefined,
     createdAt,
     updatedAt: readString(source.updatedAt) ?? createdAt
   };
@@ -841,11 +881,11 @@ function hasAnchorValue(anchor: DrawingAnchor): boolean {
   return typeof anchor.price === "number" || typeof anchor.value === "number";
 }
 
-function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown>): DrawingEntity {
+function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown>, allowManagedProvenance = false): DrawingEntity {
   const rawAnchors = readAnchors(patch.anchors);
   const anchors = rawAnchors ? normalizeDrawingAnchors(current.type, rawAnchors) : null;
   const parallelLineCount = readNumber(patch.parallelLineCount);
-  return {
+  const next: DrawingEntity = {
     ...current,
     anchors: anchors ?? current.anchors,
     style: { ...current.style, ...readStylePatch(patch.style) },
@@ -854,6 +894,17 @@ function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown
     visible: typeof patch.visible === "boolean" ? patch.visible : current.visible,
     locked: typeof patch.locked === "boolean" ? patch.locked : current.locked,
     updatedAt: new Date().toISOString()
+  };
+  if (!allowManagedProvenance) return next;
+  return {
+    ...next,
+    czardasLayer: patch.czardasLayer === "hline" || patch.czardasLayer === "trend" ? patch.czardasLayer : current.czardasLayer,
+    sourceInferenceId: readString(patch.sourceInferenceId) ?? current.sourceInferenceId,
+    sourceCandidateId: readString(patch.sourceCandidateId) ?? current.sourceCandidateId,
+    sourceFieldModeId: readString(patch.sourceFieldModeId) ?? current.sourceFieldModeId,
+    sourceFieldDerivationDigest: readString(patch.sourceFieldDerivationDigest) ?? current.sourceFieldDerivationDigest,
+    sourceGroupId: "sourceGroupId" in patch ? readString(patch.sourceGroupId) ?? undefined : current.sourceGroupId,
+    updatedAt: readString(patch.updatedAt) ?? next.updatedAt
   };
 }
 
@@ -907,10 +958,37 @@ function normalizeLineWidth(value: number): number {
 }
 
 function readOwnership(value: unknown, actor: ChartCommandActor): DrawingEntity["ownership"] {
-  if (value === "user" || value === "llm" || value === "czardas-managed" || value === "czardas-fork") {
+  if (actor === "system" && (value === "user" || value === "llm" || value === "czardas-managed" || value === "czardas-fork")) {
     return value;
   }
   return actor === "user" ? "user" : actor === "llm" ? "llm" : undefined;
+}
+
+function isReservedCzardasDrawingId(value: string): boolean {
+  return value.startsWith("czardas:");
+}
+
+function hasCzardasProvenance(source: Record<string, unknown>): boolean {
+  return source.ownership === "czardas-managed"
+    || source.ownership === "czardas-fork"
+    || [
+      "czardasLayer",
+      "sourceInferenceId",
+      "sourceCandidateId",
+      "sourceFieldModeId",
+      "sourceFieldDerivationDigest",
+      "sourceGroupId",
+      "forkedFromDrawingId"
+    ].some((key) => source[key] !== undefined && source[key] !== null);
+}
+
+function czardasCommandAccessError(command: ChartCommand): string | null {
+  const internal = command.type === "chart.czardas.forkManaged"
+    || command.type === "chart.czardas.deleteManaged"
+    || command.type === "chart.czardas.restoreManaged";
+  if (!internal) return null;
+  if (command.actor !== "system") return "Only the system engine can execute internal Czardas commands.";
+  return null;
 }
 
 function managedGroup(document: ChartDocument, drawing: DrawingEntity): DrawingEntity[] {
@@ -922,22 +1000,40 @@ function managedGroup(document: ChartDocument, drawing: DrawingEntity): DrawingE
   ));
 }
 
-function suppressionsFor(drawings: DrawingEntity[]): ChartDocument["czardasSuppressions"] {
-  const suppressedAt = new Date().toISOString();
-  return drawings.flatMap((drawing) => drawing.sourceCandidateId ? [{
+function suppressionsFor(
+  drawings: DrawingEntity[],
+  reason: ChartDocument["czardasSuppressions"][number]["reason"]
+): ChartDocument["czardasSuppressions"] {
+  const createdAt = new Date().toISOString();
+  const suppressionSetId = `czardas-suppression-${crypto.randomUUID()}`;
+  const sourceGroupId = drawings.find((drawing) => drawing.sourceGroupId)?.sourceGroupId;
+  const candidates: ChartDocument["czardasSuppressions"] = drawings.flatMap((drawing) => drawing.sourceCandidateId ? [{
+    suppressionSetId,
+    sourceKind: "candidate" as const,
+    sourceId: drawing.sourceCandidateId,
     sourceCandidateId: drawing.sourceCandidateId,
     sourceGroupId: drawing.sourceGroupId,
-    suppressedAt
+    reason,
+    createdAt
   }] : []);
+  return sourceGroupId ? [{
+    suppressionSetId,
+    sourceKind: "group",
+    sourceId: sourceGroupId,
+    sourceGroupId,
+    reason,
+    createdAt
+  }, ...candidates] : candidates;
 }
 
 function mergeSuppressions(
   current: ChartDocument["czardasSuppressions"],
   incoming: ChartDocument["czardasSuppressions"]
 ): ChartDocument["czardasSuppressions"] {
-  const next = new Map(current.map((item) => [item.sourceCandidateId, item]));
-  incoming.forEach((item) => next.set(item.sourceCandidateId, item));
-  return [...next.values()].sort((left, right) => left.sourceCandidateId.localeCompare(right.sourceCandidateId));
+  const key = (item: ChartDocument["czardasSuppressions"][number]) => `${item.sourceKind}:${item.sourceId}`;
+  const next = new Map(current.map((item) => [key(item), item]));
+  incoming.forEach((item) => next.set(key(item), item));
+  return [...next.values()].sort((left, right) => key(left).localeCompare(key(right)));
 }
 
 function forkManagedDrawing(document: ChartDocument, payload: Record<string, unknown>): string | null {
@@ -964,7 +1060,7 @@ function forkManagedDrawing(document: ChartDocument, payload: Record<string, unk
     ...document.drawings.filter((item) => !groupIds.has(item.id)),
     ...forks
   ];
-  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group));
+  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group, "forked"));
   document.selectedDrawingId = `${target.id}:fork`;
   return null;
 }
@@ -978,7 +1074,7 @@ function deleteManagedDrawing(document: ChartDocument, payload: Record<string, u
   const group = managedGroup(document, target);
   const ids = new Set(group.map((item) => item.id));
   document.drawings = document.drawings.filter((item) => !ids.has(item.id));
-  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group));
+  document.czardasSuppressions = mergeSuppressions(document.czardasSuppressions, suppressionsFor(group, "deleted"));
   if (document.selectedDrawingId && ids.has(document.selectedDrawingId)) {
     document.selectedDrawingId = undefined;
   }
@@ -986,18 +1082,32 @@ function deleteManagedDrawing(document: ChartDocument, payload: Record<string, u
 }
 
 function restoreManagedDrawings(document: ChartDocument, payload: Record<string, unknown>): string | null {
-  const candidateId = readString(payload.sourceCandidateId);
-  const groupId = readString(payload.sourceGroupId);
+  const candidateId = readString(payload.sourceCandidateId) ?? (payload.sourceKind === "candidate" ? readString(payload.sourceId) : null);
+  const groupId = readString(payload.sourceGroupId) ?? (payload.sourceKind === "group" ? readString(payload.sourceId) : null);
   const rawDrawings = Array.isArray(payload.drawings) ? payload.drawings : [];
   if (!candidateId && !groupId) {
     return "Czardas restore requires a candidate or group id.";
   }
-  document.czardasSuppressions = document.czardasSuppressions.filter((item) => (
-    groupId ? item.sourceGroupId !== groupId : item.sourceCandidateId !== candidateId
+  const matched = document.czardasSuppressions.filter((item) => (
+    groupId
+      ? (item.sourceKind === "group" && item.sourceId === groupId) || item.sourceGroupId === groupId
+      : item.sourceKind === "candidate" && item.sourceId === candidateId
+  ));
+  if (!matched.length) return "Czardas suppression not found.";
+  const setIds = new Set(matched.map((item) => item.suppressionSetId));
+  const restoredCandidates = new Set(document.czardasSuppressions.filter((item) => (
+    setIds.has(item.suppressionSetId) && item.sourceKind === "candidate"
+  )).map((item) => item.sourceId));
+  document.czardasSuppressions = document.czardasSuppressions.filter((item) => !setIds.has(item.suppressionSetId));
+  document.drawings = document.drawings.filter((item) => !(
+    item.ownership === "czardas-fork" && item.sourceCandidateId && restoredCandidates.has(item.sourceCandidateId)
   ));
   const restored = rawDrawings
     .map((item) => readDrawing(item, "system"))
-    .filter((item): item is DrawingEntity => Boolean(item && item.ownership === "czardas-managed"));
+    .filter((item): item is DrawingEntity => Boolean(
+      item && item.ownership === "czardas-managed" && item.sourceCandidateId && restoredCandidates.has(item.sourceCandidateId)
+    ));
+  if (rawDrawings.length !== restored.length) return "Czardas restore drawings do not match the suppression set.";
   if (restored.length) {
     const ids = new Set(restored.map((item) => item.id));
     document.drawings = [...document.drawings.filter((item) => !ids.has(item.id)), ...restored];

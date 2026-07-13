@@ -251,8 +251,7 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 | --- | --- | --- |
 | `agent-orchestrator` | yes | HTTP compatibility endpoint and direct report lookup. |
 | `agent-analysis-worker` | yes | hot analysis request를 소비하고 report를 저장한다. |
-| `chart-asset-builder` | no | PostgreSQL queue의 symbol/interval item을 처리한다. ClickHouse 완료 봉을 우선 읽고 누락 range만 Alpaca로 보충한 뒤 지지·저항과 세 삼각형을 결정론적으로 계산해 PostgreSQL에 저장한다. S3, Redis, Kafka, LLM을 사용하지 않으며 interactive orchestrator와 독립이다. |
-| `czardas-asset-builder` | no | 별도 `cza-` PostgreSQL queue의 명시적 symbol×interval 한 쌍을 exact-240으로 감사·보충하고 Czardas H-Line·Trend·파생 Triangle·Field pack을 저장한다. 자동 schedule 없이 수동 패널 요청만 처리하며 interactive orchestrator와 독립이다. |
+| `czardas-asset-builder` | no | `cza-` PostgreSQL queue의 명시적 symbol×interval 한 쌍을 exact-240으로 감사·보충하고 Czardas H-Line·Trend·파생 Triangle·Field pack을 저장한다. 자동 schedule 없이 수동 패널 요청만 처리하며 interactive orchestrator와 독립이다. |
 | `agent-delivery-gateway` | yes for async/SSE | result event를 Redis report update로 mirror한다. |
 | `agent-intent-classifier` | no | ambiguous query를 위한 optional cheap classifier. |
 | `deep-analysis-worker` | no | opt-in deep analysis request를 처리한다. |
@@ -351,12 +350,12 @@ market_data.sec_frames
 market_data.sec_collection_runs
 ```
 
-Chart Geometry assets are not an agent ClickHouse provider. Their latest
-projection and build state live in PostgreSQL `chart_assets.geometry_*`; the
-legacy ClickHouse `chart_analysis_assets` table is not read by current runtime.
-Czardas assets likewise use the separate PostgreSQL `chart_assets.czardas_*`
-tables and only read/materialize canonical candles in ClickHouse; neither asset
-path enters the interactive agent provider or LLM synthesis flow.
+Czardas assets are not an interactive agent provider. Their latest projection
+and build state live only in PostgreSQL `chart_assets.czardas_*`; the worker
+reads and repairs canonical candles in ClickHouse but does not store asset
+payloads there. Retained PostgreSQL `chart_assets.geometry_*` rows and the
+ClickHouse `chart_analysis_assets` table are dormant data: current runtime must
+not read, write, migrate, recreate, or use them as fallback.
 
 Financial role contract:
 

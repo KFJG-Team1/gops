@@ -6,8 +6,15 @@ import json
 import math
 import platform
 import statistics
+import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+MARKET_DATA_SHARED = REPOSITORY_ROOT / "systems" / "market-data" / "shared"
+if str(MARKET_DATA_SHARED) not in sys.path:
+    sys.path.insert(0, str(MARKET_DATA_SHARED))
 
 from alfaka.analytics.czardas import Ready, analyze_czardas
 
@@ -29,19 +36,32 @@ def main() -> int:
     values.sort()
     if not isinstance(last, Ready):
         raise SystemExit(last.reason)
+    p95 = values[max(0, math.ceil(len(values) * 0.95) - 1)]
+    p99 = values[max(0, math.ceil(len(values) * 0.99) - 1)]
+    failures = []
+    if p95 > 50.0:
+        failures.append("kernel_p95_exceeded")
+    if p99 > 80.0:
+        failures.append("kernel_p99_exceeded")
+    if last.debug["fieldBytes"] > 80 * 1024:
+        failures.append("field_bytes_exceeded")
+    if last.debug["payloadBytes"] > 96 * 1024:
+        failures.append("payload_bytes_exceeded")
     report = {
         "python": platform.python_version(),
         "platform": platform.platform(),
         "iterations": args.iterations,
         "p50Ms": statistics.median(values),
-        "p95Ms": values[max(0, math.ceil(len(values) * 0.95) - 1)],
-        "p99Ms": values[max(0, math.ceil(len(values) * 0.99) - 1)],
+        "p95Ms": p95,
+        "p99Ms": p99,
         "fieldBytes": last.debug["fieldBytes"],
         "payloadBytes": last.debug["payloadBytes"],
         "contentDigest": last.debug["contentDigest"],
+        "passed": not failures,
+        "failures": failures,
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 0
+    return 0 if not failures else 1
 
 
 def fixture():

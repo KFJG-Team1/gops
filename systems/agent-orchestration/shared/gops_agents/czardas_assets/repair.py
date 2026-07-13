@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from alfaka.analytics.czardas.data import CzardasCandleLoader, CzardasCandleWindow
-from alfaka.analytics.analysis_repair import (
-    AlpacaClickHouseRepairRunner,
-    BackfillUnavailable,
-    ProviderConfirmedEmpty,
+from alfaka.candles.repair import (
+    CanonicalCandleRepairRunner,
+    CanonicalRepairError,
 )
+from alfaka.analytics.czardas.data import CzardasCandleLoader, CzardasCandleWindow
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,10 +26,11 @@ class StrictRepairResult:
     materialized_rows: int
     rounds: int
     reason: str
+    error: str | None = None
 
     def metrics(self) -> dict[str, Any]:
         reason_codes = {} if self.reason in {"coverage_complete", "repaired"} else {self.reason: 1}
-        return {
+        metrics = {
             "checkedSymbols": int(self.checked),
             "attemptedSymbols": int(self.attempted),
             "repairedSymbols": int(self.repaired),
@@ -37,6 +41,9 @@ class StrictRepairResult:
             "rounds": self.rounds,
             "reasonCodes": reason_codes,
         }
+        if self.error:
+            metrics["lastError"] = self.error
+        return metrics
 
 
 class StrictCzardasRepairCoordinator:
@@ -52,7 +59,7 @@ class StrictCzardasRepairCoordinator:
     ) -> None:
         self.loader = loader
         self.runner_factory = runner_factory or (
-            lambda: AlpacaClickHouseRepairRunner(calendar=self.loader.calendar)
+            lambda: CanonicalCandleRepairRunner(calendar=self.loader.calendar)
         )
         self.max_ranges = min(8, max(1, int(max_ranges)))
         self.max_rounds = min(2, max(1, int(max_rounds)))
@@ -73,7 +80,8 @@ class StrictCzardasRepairCoordinator:
         current = before
         materialized = 0
         attempted = False
-        failed = False
+        failure_codes: list[str] = []
+        failure_messages: dict[str, str] = {}
         rounds = 0
         for round_index in range(self.max_rounds):
             if cancel() or current.ready or not current.repair_gaps:
@@ -95,28 +103,58 @@ class StrictCzardasRepairCoordinator:
                         "sourcePreference": "alpaca-only",
                         "mode": "inline",
                         "force": False,
-                        "analysisMissingCandleKeys": list(gap.missing_keys),
+                        "missingCandleKeys": list(gap.missing_keys),
                     })
                     result = outcome.get("result") if isinstance(outcome, dict) else None
                     materialized += int((result or {}).get("materializedRowCount") or 0)
-                except (ProviderConfirmedEmpty, BackfillUnavailable):
-                    failed = True
+                except CanonicalRepairError as exc:
+                    failure_codes.append(exc.reason_code)
+                    failure_messages[exc.reason_code] = exc.public_message
+                    LOGGER.warning(
+                        "canonical_candle_repair_failed code=%s symbol=%s interval=%s",
+                        exc.reason_code,
+                        str(symbol).upper(),
+                        interval,
+                    )
+                    if exc.reason_code == "credentials_missing":
+                        break
                 except Exception:
-                    failed = True
+                    failure_codes.append("provider_failed")
+                    failure_messages["provider_failed"] = "Historical candle provider request failed."
+                    LOGGER.warning(
+                        "canonical_candle_repair_failed code=provider_failed symbol=%s interval=%s",
+                        str(symbol).upper(),
+                        interval,
+                    )
             # The canonical re-read is mandatory; runner return values never
             # become inference input directly.
             current = self.loader.load(symbol, interval)
+            if "credentials_missing" in failure_codes:
+                break
         missing_after = len(current.missing_keys)
         if cancel():
             reason = "canceled"
         elif current.ready:
             reason = "repaired"
+        elif "credentials_missing" in failure_codes:
+            reason = "credentials_missing"
+        elif "provider_failed" in failure_codes:
+            reason = "provider_failed"
+        elif "provider_empty" in failure_codes:
+            reason = "provider_empty"
         elif not current.repair_gaps:
             reason = "exact_240_unavailable"
-        elif failed:
-            reason = "repair_incomplete"
         else:
-            reason = "repair_round_limit"
+            reason = "canonical_reread_incomplete"
+        if reason not in {"coverage_complete", "repaired", "canceled"}:
+            LOGGER.warning(
+                "czardas_candle_coverage_unavailable code=%s symbol=%s interval=%s missing_before=%s missing_after=%s",
+                reason,
+                str(symbol).upper(),
+                interval,
+                missing_before,
+                missing_after,
+            )
         return StrictRepairResult(
             current,
             True,
@@ -128,4 +166,5 @@ class StrictCzardasRepairCoordinator:
             materialized,
             rounds,
             reason,
+            failure_messages.get(reason),
         )

@@ -420,11 +420,11 @@ export type DrawingEntity = {
   sourceProposalId?: string;
   ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
   czardasLayer?: "hline" | "trend";
+  sourceInferenceId?: string;
   sourceCandidateId?: string;
   sourceFieldModeId?: string;
-  sourceFieldRevision?: number;
+  sourceFieldDerivationDigest?: string;
   sourceGroupId?: string;
-  engineRevision?: number;
   forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
@@ -517,9 +517,123 @@ export type ChartState = {
 
 export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask", "czardas"];
 
+export const czardasMeaningFactorKeys = [
+  "rangeAtr",
+  "absoluteReturnAtr",
+  "bodyFraction",
+  "lowerWickFraction",
+  "upperWickFraction",
+  "volumeRank",
+  "volumeZ",
+  "participation",
+  "localHighR2",
+  "localLowR2",
+  "localHighR5",
+  "localLowR5",
+  "localHighR13",
+  "localLowR13",
+  "supportProximity",
+  "resistanceProximity",
+  "lowerResidualAtr",
+  "upperResidualAtr",
+  "hlinePenetrationAtr",
+  "trendPenetrationAtr",
+  "reclaimStrength"
+] as const;
+
+export type CzardasMeaningFactorKey = typeof czardasMeaningFactorKeys[number];
+export type CzardasMeaningChannel = "shared" | "hline" | "trend";
+export type CzardasMeaningUsage = "geometry_input" | "fit" | "integrity" | "response" | "visualization_only";
+
+export type CzardasReasonCodeDto = {
+  code: number;
+  key: string;
+  label: string;
+  usage: CzardasMeaningUsage;
+  channel: CzardasMeaningChannel;
+};
+
+export type CzardasCandleMeaningsDto = {
+  evaluationAsOf: string;
+  rawFactorScales: Record<CzardasMeaningFactorKey, number>;
+  rawFactorTransforms: Record<CzardasMeaningFactorKey, "linear" | "log1p">;
+  normalizedFactorScale: number;
+  scoreScale: number;
+  rawFactorEncoding: "int16-base64-be";
+  normalizedFactorEncoding: "int16-base64-be";
+  rawFactorNullSentinel: -32768;
+  normalizedFactorNullSentinel: -32768;
+  rawFactorRanges: Record<CzardasMeaningFactorKey, [number, number]>;
+  rawFactorOverflowPolicy: "reject";
+  candleKeys: string[];
+  timestamps: string[];
+  summaries: Record<CzardasMeaningChannel, number[]> & { compositePercentile: number[] };
+  roles: Record<"support" | "resistance" | "lower" | "upper", number[]>;
+  factors: Record<CzardasMeaningFactorKey, string>;
+  normalizedFactors: Record<CzardasMeaningFactorKey, string>;
+  availabilityMasks: number[];
+  phaseMasks: number[];
+  availabilityCodebook: Record<string, number>;
+  phaseCodebook: Record<string, number>;
+  reasonCodebook: CzardasReasonCodeDto[];
+  reasonEncoding: "uint32-bitmask-base64-be";
+  reasonMasks: string;
+};
+
+export type CzardasValidationGlyphDto = {
+  validationId: string;
+  candidateIndex: number;
+  episodeIndex: number | null;
+  candidateKind: "hline" | "trend";
+  role: "support" | "resistance" | "lower" | "upper";
+  kind: "formation" | "fit" | "interaction";
+  observedAt: string;
+  confirmedAt: string | null;
+  endpointPrice: number;
+  corridorLow: number | null;
+  corridorHigh: number | null;
+  initialFormation: boolean;
+  outcome?: string | null;
+};
+
+export type CzardasBasisFactsDto = {
+  basisIds: string[];
+  roleCodes: number[];
+  observedIndexes: number[];
+  confirmedIndexes: number[];
+  endpointPrices: number[];
+  bodyEdgePrices: number[];
+  corridorLows: number[];
+  corridorHighs: number[];
+  roleMasses: number[];
+  participations: Array<number | null>;
+  effectiveScales: number[];
+  roleCodebook: Record<"support" | "resistance" | "lower" | "upper", number>;
+};
+
+export type CzardasDerivationEpisodesDto = {
+  candidateIndexes: number[];
+  candidateEpisodeOrdinals: number[];
+  contributionBasisIndexes: number[];
+  memberBasisIndexes: number[][];
+  observedFromIndexes: number[];
+  observedToIndexes: number[];
+  confirmedIndexes: number[];
+  contributionPrices: number[];
+  corridorLows: number[];
+  corridorHighs: number[];
+  initialFormationMasks: number[];
+};
+
 export type CzardasFieldDto = {
   schemaVersion: number;
   sourceBars: number;
+  evaluationAsOf: string;
+  sourceInferenceId: string;
+  windowFromTimestamp: string;
+  windowToTimestamp: string;
+  candleMeanings: CzardasCandleMeaningsDto;
+  basisFacts: CzardasBasisFactsDto;
   basisGlyphs: Array<{
     basisId: string;
     observedAt: string;
@@ -538,7 +652,8 @@ export type CzardasFieldDto = {
   hlineModes: Array<Record<string, unknown>>;
   trendModes: Array<Record<string, unknown>>;
   selectedModeRefs: Array<Record<string, unknown>>;
-  validationGlyphs: Array<Record<string, unknown>>;
+  derivationEpisodes: CzardasDerivationEpisodesDto;
+  validationGlyphs: CzardasValidationGlyphDto[];
   relationGlyph?: Record<string, unknown> | null;
   projection?: Record<string, unknown>;
 };

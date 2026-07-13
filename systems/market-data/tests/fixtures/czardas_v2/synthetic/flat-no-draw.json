@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 2,
+  "generator": "flat_no_draw",
+  "symbol": "TEST",
+  "interval": "1D",
+  "start": "2025-01-01T00:00:00.000Z",
+  "bars": 240,
+  "price": 100.0
+}

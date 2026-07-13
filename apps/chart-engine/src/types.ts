@@ -455,20 +455,24 @@ export type DrawingEntity = {
   sourceProposalId?: string;
   ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
   czardasLayer?: "hline" | "trend";
+  sourceInferenceId?: string;
   sourceCandidateId?: string;
   sourceFieldModeId?: string;
-  sourceFieldRevision?: number;
+  sourceFieldDerivationDigest?: string;
   sourceGroupId?: string;
-  engineRevision?: number;
   forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
 };
 
 export type CzardasSuppression = {
-  sourceCandidateId: string;
+  suppressionSetId: string;
+  sourceKind: "candidate" | "group";
+  sourceId: string;
+  sourceCandidateId?: string;
   sourceGroupId?: string;
-  suppressedAt: string;
+  reason: "forked" | "deleted";
+  createdAt: string;
 };
 
 export type ComparisonSeries = {

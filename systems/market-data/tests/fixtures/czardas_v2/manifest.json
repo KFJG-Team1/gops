@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "marketCorpus": {
+    "source": "Nasdaq historical public API; split-adjusted regular-session daily OHLCV",
+    "purpose": "Cross-symbol PresentSnapshot, budget, and invariance checks; never a line-position oracle",
+    "series": [
+      "market/aapl-1d.json",
+      "market/msft-1d.json",
+      "market/nvda-1d.json",
+      "market/tsla-1d.json",
+      "market/spy-1d.json",
+      "market/tlt-1d.json"
+    ],
+    "derivedIntervals": ["1D", "1W"]
+  },
+  "fixtures": [
+    {
+      "id": "synthetic-oscillating-boundaries-v2",
+      "kind": "synthetic",
+      "recipe": "synthetic/oscillating-boundaries.json",
+      "interval": "1D",
+      "bars": 240,
+      "meaning": "Repeated lower and upper reactions with stable structural endpoints"
+    },
+    {
+      "id": "synthetic-flat-no-draw-v2",
+      "kind": "synthetic",
+      "recipe": "synthetic/flat-no-draw.json",
+      "interval": "1D",
+      "bars": 240,
+      "meaning": "No confirmed extrema or independent reactions"
+    }
+  ]
+}

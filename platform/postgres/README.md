@@ -6,26 +6,13 @@ series remain in ClickHouse.
 ```text
 docker-compose postgres
 systems/order/jobs/migrations
-systems/agent-orchestration/jobs/chart-asset-migrations
+systems/agent-orchestration/jobs/czardas-asset-migrations
 ```
 
-## Chart Geometry Assets
+## Czardas Assets
 
-The active Geometry subsystem uses PostgreSQL only for asset and build state.
-
-```text
-chart_assets.geometry_assets
-chart_assets.geometry_build_jobs
-chart_assets.geometry_build_items
-```
-
-`geometry_assets` stores exactly one latest JSONB projection per
-`(symbol, interval)`. It stores no canonical candle, rejected-candidate ledger,
-prompt, or provider response. `geometry_build_jobs` and
-`geometry_build_items` own queue, status, progress, logs, attempts, and leases;
-workers claim items with `FOR UPDATE SKIP LOCKED`.
-
-The Czardas v1 subsystem uses a separate latest projection and queue:
+Czardas is the only active automatic drawing subsystem. PostgreSQL owns its
+latest projection and queue:
 
 ```text
 chart_assets.czardas_latest
@@ -35,22 +22,26 @@ chart_assets.czardas_build_items
 
 `czardas_latest` stores one deterministic `CzardasPackContent` per explicit
 `(symbol, interval)` pair. `generated_at` stays in the row/API envelope, not in
-the pack. Field and pack are limited to 32/64 KiB. Czardas IDs use `cza-` and
-workers use a lease plus same-pair advisory lock; they do not mutate Geometry
-rows or queues.
+the pack. The v2 all-candle Field and pack are limited to 80/96 KiB. Czardas IDs use `cza-` and
+workers use a lease plus same-pair advisory lock.
 
-There is no active `CHART_ASSET_STORAGE_MODE`, ClickHouse dual-write, parity
-sync, or Redis job-status path. The runtime storage factory always selects
-PostgreSQL. Older `001_create_chart_assets.sql` and
-`002_expand_chart_asset_intervals.sql` files describe the retired
-`analysis_assets` rollout; the current migration runner applies
-`003_geometry_assets.sql` followed by `004_czardas_assets.sql`.
+There is no `assetKind`, ClickHouse asset write, Redis job-status path, Kafka
+asset topic, or cross-engine fallback. The Czardas migration runner applies
+only `004_czardas_assets.sql`.
 
-EKS uses `infra/k8s/base/job-chart-asset-migrations.yaml` and
-`scripts/aws/run-chart-asset-migrations-job.sh`; runtime never creates the
+EKS uses `infra/k8s/base/job-czardas-asset-migrations.yaml` and
+`scripts/aws/run-czardas-asset-migrations-job.sh`; runtime never creates the
 schema. Canonical OHLCV and exact repair materialization remain in ClickHouse.
-The authenticated development delete route removes explicit Geometry pairs
-from PostgreSQL and is not a retention policy.
+Local Compose includes `czardas-asset-migrations` as an unprofiled one-shot
+dependency, and `czardas-asset-builder` starts only after it completes
+successfully. The runner still applies only `004_czardas_assets.sql`.
+The authenticated development delete route removes one explicit Czardas pair
+and is not a retention policy.
+
+Existing `chart_assets.geometry_*` tables may remain only as dormant historical
+data. Current migrations, runtime, API and operations must not read, write,
+recreate or use them as fallback. Dropping them requires a separate explicit
+operator migration.
 
 AWS/EKS can point `DATABASE_*` or `DATABASE_URL` at the in-cluster database or
 RDS. Never commit real passwords or connection strings.

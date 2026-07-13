@@ -7,7 +7,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[3]
-for path in (ROOT / "systems" / "market-data" / "shared", ROOT / "systems" / "agent-orchestration" / "shared"):
+for path in (Path(__file__).resolve().parent, ROOT / "systems" / "market-data" / "shared", ROOT / "systems" / "agent-orchestration" / "shared"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -16,24 +16,11 @@ from gops_agents.czardas_assets.storage import (  # noqa: E402
     PostgresCzardasAssetStorage,
     _pack_projection,
 )
+from czardas_test_support import valid_flat_pack  # noqa: E402
 
 
 def _pack() -> dict:
-    return {
-        "algorithmVersion": "czardas-v1",
-        "configVersion": "czardas-config-v1",
-        "timeContractVersion": "market-time-v1",
-        "calendarVersion": "nyse-calendar-v1",
-        "symbol": "NVDA",
-        "interval": "1D",
-        "asOf": "2026-07-10T04:00:00.000Z",
-        "lastCandleKey": "2026-07-10",
-        "inputDigest": "sha256:input",
-        "status": "ready",
-        "coverage": {"state": "exact", "actualCompleted": 240},
-        "drawings": [],
-        "czardasField": {"schemaVersion": 1},
-    }
+    return valid_flat_pack()
 
 
 def test_projection_keeps_generated_at_outside_deterministic_pack():
@@ -41,8 +28,8 @@ def test_projection_keeps_generated_at_outside_deterministic_pack():
     second = _pack_projection(_pack(), "2026-07-12T00:00:00.000Z")
 
     assert first["content_digest"] == second["content_digest"]
-    assert first["payload_bytes"] < 65_536
-    assert first["field_bytes"] < 32_768
+    assert first["payload_bytes"] < 98_304
+    assert first["field_bytes"] < 81_920
 
 
 def test_projection_rejects_generated_at_inside_pack():
@@ -52,18 +39,27 @@ def test_projection_rejects_generated_at_inside_pack():
         _pack_projection(pack, pack["generatedAt"])
 
 
+def test_storage_rejects_malformed_v2_pack_before_opening_a_transaction():
+    pack = _pack()
+    pack["czardasField"]["candleMeanings"]["timestamps"].pop()
+    connection = Connection(fetches=[])
+    storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+    with pytest.raises(ValueError, match="exact-240"):
+        storage.save_if_active(pack, job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z")
+
+    assert connection.executions == []
+
+
 def test_projection_rejects_oversized_field_and_layer_counts():
     oversized = _pack()
-    oversized["czardasField"] = {"payload": "x" * 32_768}
+    oversized["czardasField"]["projection"]["padding"] = "x" * 81_920
     with pytest.raises(ValueError, match="Field exceeds"):
         _pack_projection(oversized, "2026-07-11T00:00:00.000Z")
 
     invalid_layers = _pack()
-    invalid_layers["drawings"] = [{
-        "symbol": "NVDA", "interval": "1D", "czardasLayer": "hline",
-        "ownership": "czardas-managed",
-    } for _ in range(5)]
-    with pytest.raises(ValueError, match="layer drawing limit"):
+    invalid_layers["drawings"] = [{"czardasLayer": "hline"} for _ in range(5)]
+    with pytest.raises(ValueError, match="boundaries and drawings|drawing"):
         _pack_projection(invalid_layers, "2026-07-11T00:00:00.000Z")
 
 
@@ -76,37 +72,51 @@ def test_atomic_save_returns_canceled_without_insert():
 
 
 def test_same_input_with_different_content_is_determinism_conflict():
+    pack = _pack()
     connection = Connection(fetches=[
         {"cancel_requested": False},
         {
-            "input_digest": "sha256:input", "content_digest": "sha256:different",
-            "last_candle_key": "2026-07-10", "as_of": None,
-            "algorithm_version": "czardas-v1", "config_version": "czardas-config-v1",
-            "time_contract_version": "market-time-v1", "calendar_version": "nyse-calendar-v1",
+            "input_digest": pack["inputDigest"], "content_digest": "sha256:different",
+            "last_candle_key": pack["lastCandleKey"], "as_of": None,
+            "algorithm_version": pack["algorithmVersion"], "config_version": pack["configVersion"],
+            "time_contract_version": pack["timeContractVersion"], "calendar_version": pack["calendarVersion"],
         },
     ])
     storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
 
     with pytest.raises(DeterminismConflict):
-        storage.save_if_active(_pack(), job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z")
+        storage.save_if_active(pack, job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z")
 
 
 def test_new_config_can_replace_the_same_candle_input():
+    pack = _pack()
     connection = Connection(fetches=[
         {"cancel_requested": False},
         {
-            "input_digest": "sha256:input", "content_digest": "sha256:old",
-            "last_candle_key": "2026-07-10", "as_of": None,
-            "algorithm_version": "czardas-v1", "config_version": "czardas-config-v0",
+            "input_digest": pack["inputDigest"], "content_digest": "sha256:old",
+            "last_candle_key": pack["lastCandleKey"], "as_of": None,
+            "algorithm_version": "czardas-v2", "config_version": "czardas-config-v0",
             "time_contract_version": "market-time-v1", "calendar_version": "nyse-calendar-v1",
         },
     ])
     storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
 
     assert storage.save_if_active(
-        _pack(), job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z"
+        pack, job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z"
     ) == "saved"
     assert any("INSERT INTO chart_assets.czardas_latest" in query for query, _ in connection.executions)
+
+
+def test_delete_contract_is_exactly_one_symbol_interval_pair():
+    connection = Connection(fetches=[])
+    storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+    assert storage.delete("nvda", "1D") == 0
+    query, parameters = connection.executions[0]
+    assert 'WHERE symbol = %s AND "interval" = %s' in query
+    assert parameters == ("NVDA", "1D")
+    with pytest.raises(ValueError, match="identity"):
+        storage.delete("NVDA", "4H")
 
 
 class Connection:

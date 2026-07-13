@@ -3835,40 +3835,6 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertIn("/revisions/revision=", revision_key)
         self.assertEqual(len(data_keys), 2)
 
-    def test_analysis_alpaca_repair_materializes_only_exact_missing_daily_keys(self):
-        record = {
-            "requestId": "chart-analysis:AAPL:1D:missing",
-            "symbol": "AAPL",
-            "interval": "1D",
-            "range": {"start": "2026-07-08T04:00:00.000Z", "end": "2026-07-10T04:00:00.000Z"},
-            "analysisMissingCandleKeys": ["2026-07-08"],
-            "jobType": "gapfill",
-            "sourcePreference": "alpaca-only",
-            "mode": "inline",
-            "force": False,
-        }
-        s3 = S3ObjectStore()
-        client = RecordingClickHouseClient()
-        runner = BackfillRunner(s3=s3, clickhouse_client=client, coverage_provider=StaticCoverageProvider({}))
-
-        with mock.patch.dict(os.environ, {
-            "S3_BUCKET": "bucket",
-            "S3_RAW_PREFIX": "raw",
-            "S3_FINAL_PREFIX": "final",
-            "S3_MANIFEST_PREFIX": "manifest",
-            "S3_PROCESSED_FORMAT": "jsonl",
-        }):
-            with mock.patch("alfaka.backfill.runner.fetch_alpaca_bars", return_value=[
-                alpaca_raw_bar("2026-07-08T00:00:00.000Z", open_price=100),
-                alpaca_raw_bar("2026-07-09T00:00:00.000Z", open_price=200),
-            ]):
-                result = runner._run(record)
-
-        inserted = next(rows for table, rows in client.inserts if table == "chart_candles")
-        self.assertEqual(result["processedRowCount"], 1)
-        self.assertEqual(len(inserted), 1)
-        self.assertEqual(inserted[0]["close"], 100.5)
-
     def test_initial_load_fetches_even_when_clickhouse_is_covered_to_populate_s3(self):
         record = {
             "requestId": "backfill:AAPL:1D:covered",

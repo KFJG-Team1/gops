@@ -86,7 +86,6 @@ infra/docker/Dockerfile.gops-agent-orchestrator
 ```text
 agent-orchestrator
 agent-analysis-worker
-chart-asset-builder
 czardas-asset-builder
 agent-delivery-gateway
 agent-intent-classifier
@@ -94,7 +93,7 @@ deep-analysis-worker
 agent-event-detector
 agent-notification-publisher
 graph-expansion-refresh
-chart-asset-migrations one-shot job
+czardas-asset-migrations one-shot job
 agent queue/report/graph/retrieval/grounding smoke jobs
 ```
 
@@ -759,40 +758,45 @@ GRAPHDB_REPOSITORY
 SEC_USER_AGENT
 ```
 
-Chart-analysis asset builder (independent optional runtime):
+Czardas asset builder is an independent optional runtime.
+`czardas-asset-builder`는 `gops-agent-orchestrator` image를 공유하지만 interactive
+AgentOrchestrator workflow에 참여하지 않는다. `cza-` PostgreSQL queue에서 명시적
+symbol×interval 한 쌍만 처리하며 지원 interval마다 최신 완료봉 정확히 240개를
+요구한다. 한 round 최대 8 missing range, 최대 2 round만
+Alpaca→ClickHouse→canonical re-read한다. `5m/10m/1h/4h` repair는 Alpaca `1Min`,
+`1W`는 canonical `1D`를 사용한다. S3, Redis, Kafka, OpenAI, 자동 schedule/Cron,
+candle-event trigger는 사용하지 않는다.
 
-```text
-CHART_ASSET_BUILD_CONCURRENCY
-CHART_ASSET_STORAGE_MAINTENANCE
-CHART_ASSET_REPAIR_ENABLED
-CHART_ASSET_REPAIR_ALPACA_ENABLED
-CHART_ASSET_REPAIR_CONCURRENCY
-CHART_ASSET_REPAIR_MAX_RANGES
+로컬 Compose는 untracked `.env`의 `APCA_API_KEY_ID/APCA_API_SECRET_KEY`와
+`ALPACA_CREDENTIAL_SOURCE=local-env`를 사용한다. AWS/EKS는 IRSA와 Secrets Manager
+`dev/alpaca`를 사용하므로 별도 Kubernetes Alpaca Secret을 필수로 요구하지 않는다.
+ClickHouse와 PostgreSQL Secret은 필수다. schema는
+`job-czardas-asset-migrations.yaml`과
+`run-czardas-asset-migrations-job.sh`로 `004_czardas_assets.sql`만 명시 적용하며
+runtime은 table을 만들지 않는다.
+
+기존 Geometry worker, weekday CronJob, Kafka topic, migration은 배포하지 않는다.
+기존 PostgreSQL `geometry_*`와 ClickHouse `chart_analysis_assets` 데이터는 삭제하지
+않지만 모든 runtime과 운영 도구에서 read/write 금지이며 신규 환경에 생성하지 않는다.
+
+최초 Czardas 전환은 일반 `kubectl apply`가 삭제된 manifest를 prune한다고 가정하면 안
+된다. 기존 `chart-geometry-build` CronJob이 있다면 먼저 suspend하고 진행 중인 legacy
+Job과 queue가 없음을 확인한다. Czardas migration과 worker/backend/frontend 배포 및
+수동 symbol×interval 검증이 끝난 뒤 다음 preview를 검토하고 명시적으로 적용한다.
+
+```bash
+kubectl patch cronjob/chart-geometry-build -n alfaka-market-data \
+  --type=merge -p '{"spec":{"suspend":true}}'
+kubectl get jobs -n alfaka-market-data \
+  -l 'app in (chart-geometry-build,chart-geometry-build-manual)'
+scripts/aws/retire-legacy-chart-geometry.sh
+scripts/aws/retire-legacy-chart-geometry.sh --apply
 ```
 
-`chart-asset-builder`는 `gops-agent-orchestrator` image를 공유하지만 interactive
-AgentOrchestrator workflow에 참여하지 않는다. PostgreSQL queue item을 symbol/interval
-단위로 처리하고 ClickHouse 완료 봉을 감사하며 누락 range만 Alpaca로 보충한다.
-미국 주식 `5m/10m/1h/4h` 보충은 native timeframe이 아니라 Alpaca `1Min`을 사용해
-실제 정규장 `1m`과 `bucket_policy=us_equity_regular_session` 파생 봉을 함께
-ClickHouse에 저장한다.
-`1W`는 underlying `1D` 결측만 보충한 뒤 기존 주봉 집계를 사용한다. 이 하위 시스템은
-S3, Redis, Kafka, OpenAI를 사용하지 않는다.
-
-AWS overlay는 Alpaca repair 동시성 2와 최대 range 8을 사용한다. 평일 KST 08:40
-CronJob은 S&P500 전체 7개 interval을 등록한다. PostgreSQL schema는
-`job-chart-asset-migrations.yaml`과 `run-chart-asset-migrations-job.sh`로 명시 적용하며
-runtime은 자동 생성하지 않는다. one-shot migration Job은 PostgreSQL Secret이 없으면
-시작하지 않는다.
-
-`czardas-asset-builder`도 같은 image를 사용하지만 Geometry queue와 분리된 `cza-`
-PostgreSQL queue에서 명시적 한 pair만 처리한다. 지원 interval마다 최신 완료봉 정확히
-240개를 요구하고, 한 round 최대 8 missing range·최대 2 round만
-Alpaca→ClickHouse→canonical re-read한다. 자동 schedule/Cron이나 candle-event trigger는
-없다. base deployment는 ClickHouse, PostgreSQL, Alpaca secret을 읽고 AWS overlay에서는
-PostgreSQL과 Alpaca secret이 필수다. migration Job은 `003_geometry_assets.sql` 뒤에
-`004_czardas_assets.sql`을 적용하며 runtime은 table을 만들지 않는다. Czardas asset
-경로는 S3, Redis, Kafka, OpenAI를 사용하지 않는다.
+이 script는 `deployment/chart-asset-builder`와 `cronjob/chart-geometry-build`만
+`--ignore-not-found`로 제거하며 어떤 PostgreSQL/ClickHouse table도 조회·수정·삭제하지
+않는다. 장애 rollback은 이전 Geometry image나 manifest를 복구하지 않고 기본 candle
+chart의 `no asset` 상태 또는 마지막 검증된 Czardas image로만 수행한다.
 
 Financial final-answer synthesis is enabled with
 `AGENT_FINANCIAL_FINAL_ANSWER_PROVIDER=openai`. The orchestrator still reads SEC

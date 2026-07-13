@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
-from alfaka.analytics.analysis_candles import (
-    _expected_intraday_keys,
-    _expected_keys_ending,
-    _last_expected_key,
-    aggregate_analysis_candles,
+from alfaka.candles import (
+    aggregate_canonical_candles,
     canonicalize_candle_identity,
+    expected_intraday_keys,
+    expected_keys_ending,
+    last_expected_key,
 )
 from alfaka.backfill.gapfill import TradingCalendar
 from alfaka.serving.clickhouse_provider import ClickHouseMarketDataProvider
@@ -62,7 +62,9 @@ class CzardasCandleLoader:
         calendar: TradingCalendar | None = None,
         config: CzardasConfig = DEFAULT_CONFIG,
     ) -> None:
-        self.provider = provider or ClickHouseMarketDataProvider()
+        # Czardas reads are used by GET freshness checks as well as builders.
+        # They must never inherit the API pod's schema-ensure environment flag.
+        self.provider = provider if provider is not None else ClickHouseMarketDataProvider.read_only()
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         # The inference calendar is intentionally not created from environment.
         self.calendar = calendar or TradingCalendar()
@@ -78,7 +80,7 @@ class CzardasCandleLoader:
 
         if interval == "1W":
             daily = list(self.provider.canonical_completed_rows(symbol, "1D", limit=1300))
-            rows = aggregate_analysis_candles(daily, "1W", now=now, calendar=self.calendar)
+            rows = aggregate_canonical_candles(daily, "1W", now=now, calendar=self.calendar)
             source_expected = self._weekly_source_keys(expected)
             source_actual = {
                 str(identity["candleKey"])
@@ -156,11 +158,11 @@ class CzardasCandleLoader:
     def _expected_keys(self, interval: str, now: datetime) -> tuple[str, ...]:
         count = self.config.target_completed_bars
         if interval in INTRADAY_INTERVAL_MINUTES:
-            return tuple(_expected_intraday_keys(now, count, interval, self.calendar))
-        last = _last_expected_key(interval, now, calendar=self.calendar)
+            return tuple(expected_intraday_keys(now, count, interval, self.calendar))
+        last = last_expected_key(interval, now, calendar=self.calendar)
         if last is None:
             return ()
-        return tuple(_expected_keys_ending(interval, last, count, calendar=self.calendar))
+        return tuple(expected_keys_ending(interval, last, count, calendar=self.calendar))
 
     def _weekly_source_keys(self, weekly_keys: tuple[str, ...]) -> tuple[str, ...]:
         if not weekly_keys:

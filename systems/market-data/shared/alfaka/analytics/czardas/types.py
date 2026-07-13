@@ -39,7 +39,7 @@ class EvidenceAtom:
     prominence: float
     rejection: float
     body_integrity: float
-    participation: float
+    participation: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +95,7 @@ class InteractionEvent:
     contact_index: int
     terminal_index: int | None
     leave_index: int | None
-    outcome: Literal["response_pending", "neutral_response", "verified_response", "confirmed_break"]
+    outcome: Literal["response_pending", "neutral_response", "supported_response", "confirmed_break"]
     exploration_pressure: float
     acceptance_mass: float
     response_score: float
@@ -104,12 +104,11 @@ class InteractionEvent:
 @dataclass(frozen=True, slots=True)
 class FieldMode:
     field_mode_id: str
-    field_revision: int
+    derivation_digest: str
     kind: Literal["hline", "trend"]
     role: Role
     mode_state: ModeState
     geometry_state: Literal["provisional", "refined"]
-    first_seen_at: str
     center_start: float
     center_end: float
     zone_half_width: float
@@ -128,12 +127,11 @@ class FieldMode:
 @dataclass(frozen=True, slots=True)
 class BoundaryCandidate:
     candidate_id: str
-    model_revision: int
     kind: Literal["hline", "trend"]
     role: Role
-    lifecycle: Literal["formed", "verified"]
+    evidence_state: Literal["formed", "response_supported"]
     source_field_mode_id: str
-    source_field_revision: int
+    source_field_derivation_digest: str
     slope_per_bar: float
     index_origin: int
     intercept_at_origin: float
@@ -143,8 +141,7 @@ class BoundaryCandidate:
     observed_to_index: int
     initial_episode_ids: tuple[str, str]
     fit_episode_ids: tuple[str, ...]
-    lineage_formed_index: int
-    revision_formed_index: int
+    fit_evidence_confirmed_index: int
     seed_quality: float
     integrity: float
     body_integrity: float

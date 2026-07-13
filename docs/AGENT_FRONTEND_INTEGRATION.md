@@ -146,7 +146,7 @@ drawing command로 저장하고, 해당 봉은 canvas에서 만료 시간이 있
 
 Drawing anchor는 pixel이 아니라 canonical `timestamp`/`price`를 사용하고
 `logicalIndex`는 현재 candle 배열에서 계산 가능한 보조 cache로만 취급한다.
-`horizontalLine`은 수동 작도의 단일 anchor와 Geometry 자산의 동일 가격 2-anchor
+`horizontalLine`은 수동 작도의 단일 anchor와 Czardas H-Line의 동일 가격 2-anchor
 접촉 구간을 모두 허용한다. 2-anchor 형식의 각 timestamp도 실제 candle key여야 한다.
 지원하는 평행선 계약은 2-anchor `horizontalParallelLines`/`verticalParallelLines`, 3-anchor
 `trendParallelLines`이며 추세 평행선의 `parallelLineCount`는 2..10이다. 이벤트 설명은
@@ -303,31 +303,27 @@ symbol을 보낸다. 필수 투자 설정은 하단 `VI: 설정`의 `추천 설�
 전환까지만 수행하고 주문 실행으로 연결하지 않는다. 추천 행의 섹터도
 `sectorLabelKo` 한글 라벨을 사용한다.
 
-chart analysis asset 운영 패널은 `kind="chartAssetOps"`, 화면 표시는
+Czardas asset 운영 패널은 저장 레이아웃 호환을 위해 `kind="chartAssetOps"`, 화면 표시는
 `작도 자산(개발)`로 표현한다. 이름의 `(개발)`은 수동 운영 도구임을 나타내는 라벨일
 뿐 표시 게이트가 아니다. 로컬 Vite, Docker production build, 실제 배포 환경 모두
 레이아웃 수정 모드의 패널 추가 팔레트에 항상 노출하며 URL query나 localStorage로
 숨기지 않는다.
 
-Geometry asset은 GET/build/poll route를 사용한다. timed anchor는 현재 interval의
-canonical candle timestamp로만 snap하며 대응 봉이 없으면 해당 drawing을 제외한다.
-패널은 `1m/5m/10m/1h/4h/1D/1W`를 지원하고 지지·저항, 세 삼각형, coverage,
-SMA60·SMA120과 최근 교차 상태를 표시한다. Geometry 토글 하나가 모든 자동 작도를
-제어하며 삼각형은 실선, forming은 낮은 불투명도로 표현한다.
+Czardas는 `/api/charts/czardas-assets` GET/build/poll/delete route만 사용한다. 운영
+패널은 `1m/5m/10m/1h/4h/1D/1W` 중 정확히 한 symbol×interval을 수동
+build/delete하고 Geometry kind, S&P500 batch, 다중 interval 선택을 제공하지 않는다.
+timed anchor는 현재 interval의 canonical candle timestamp로만 snap하며 대응 봉이
+없으면 해당 drawing을 제외한다. 완료·삭제 시 generation을 올려 같은 symbol cache를
+무효화하고 열린 chart/panel을 즉시 재조회한다. 무효화 전 시작한 늦은 응답은 새 cache를
+되살릴 수 없다. build 상태와 repair 집계는 PostgreSQL polling으로 읽으며
+SSE와 Redis pub/sub은 사용하지 않는다.
 
-SMA 기간은 일수가 아니라 현재 interval의 완료 봉 개수다. SMA60과 SMA120 overlay는
-Geometry 자산 적용 시 함께 활성화하고 골든·데드크로스는 별도 marker가 아닌 metadata로
-표시한다. 빌드 완료와 삭제는 cache invalidation event를 발생시켜 같은 symbol의 열린
-chart/panel을 즉시 재조회한다. 다른 interval의 자산은 적용하지 않는다.
-
-stale 자산은 차트에서 제거하지 않고 낮은 불투명도와 stale badge로 표시한다. 빌드
-상태, log, repair 집계는 PostgreSQL polling 응답을 사용하며 SSE와 Redis pub/sub은
-사용하지 않는다.
-
-Czardas kind는 같은 운영 패널에서 정확히 한 symbol×interval을 수동 build/delete한다.
-현재 release constant는 `czardas`이며 UI, 환경변수, localStorage에 노출하지 않는다.
-`czardas` chart type은 Candle Fact 위에 selector 이전 Basis, H-Line response/ridge,
-Trend hypothesis/mode/ribbon을 그린다. 기존 MA·indicator·comparison·Volume Profile은
+`czardas` chart type은 pack의 `asOf`에서 exact-240 전체를 본 현재 해석을 그린다.
+240개 candle 모두 Shared/H-Line/Trend 의미를 가지며 hover는 우측 하단에서 세
+channel의 factor·availability·reason을 분리해 보여준다. 이는 과거 시점의 Czardas
+판단을 재생한 값이 아니다. Basis, H-Line response/ridge, Trend
+hypothesis/mode/ribbon과 최종 drawing은 같은 revision-free `inferenceId`와
+derivation provenance를 사용한다. 기존 MA·indicator·comparison·Volume Profile은
 paint와 하단 pane만 숨기고 설정은 보존한다. `1M` option은 disabled이고 저장된
 `czardas+1M`만 load 시 candle로 정규화한다.
 
@@ -336,7 +332,13 @@ session-only fork, 삭제는 suppression이며 reload 시 서버 공통 제안�
 두 Trend의 편집·삭제·복원은 한 command transaction이다. 선 두께 UI는 1/2/3 px만
 제공한다. `chart.czardas.*` command는 internal capability라 LLM chart proposal
 whitelist에 넣지 않는다. stale drawing은 낮은 opacity로 유지할 수 있지만 stale 또는
-incompatible Field와 Triangle badge는 최신 candle 위에 투영하지 않는다.
+incompatible Field, candle meaning hover와 Triangle badge는 최신 candle 위에
+투영하지 않는다. 모든 Field 좌표는 canonical timestamp/price를 사용하며 pan/zoom
+때 viewport 좌우에 고정되는 screen-space 추론 선을 만들지 않는다.
+
+Geometry engine, release switch, API adapter, cache, controller, presentation은 없다.
+Czardas가 unavailable이면 이전 엔진으로 fallback하지 않고 자동 작도 없이 차트를
+정상 렌더링한다.
 
 지원하지 않는 경우 정책:
 

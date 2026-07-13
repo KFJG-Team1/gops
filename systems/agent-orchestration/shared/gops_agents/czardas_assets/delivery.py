@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from alfaka.analytics.czardas import DEFAULT_CONFIG
 from alfaka.analytics.czardas.data import SUPPORTED_INTERVALS
+
+from .contract import is_valid_czardas_pack
 
 
 def symbol_entries(
@@ -19,12 +20,11 @@ def symbol_entries(
             result[interval] = {"freshness": "missing", "generatedAt": None, "pack": None}
             continue
         pack = record.get("pack")
-        if not isinstance(pack, dict) or any((
-            pack.get("algorithmVersion") != DEFAULT_CONFIG.algorithm_version,
-            pack.get("configVersion") != DEFAULT_CONFIG.config_version,
-            pack.get("timeContractVersion") != DEFAULT_CONFIG.time_contract_version,
-            pack.get("calendarVersion") != DEFAULT_CONFIG.calendar_version,
-        )):
+        if (
+            not is_valid_czardas_pack(pack, expected_symbol=symbol, expected_interval=interval)
+            or record.get("inputDigest") != pack.get("inputDigest")
+            or record.get("lastCandleKey") != pack.get("lastCandleKey")
+        ):
             freshness = "incompatible"
         else:
             try:

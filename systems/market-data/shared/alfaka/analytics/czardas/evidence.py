@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .config import CzardasConfig
 from .features import FeatureTape
+from .meaning import CandleMeaningTape, build_base_candle_meanings
 from .numeric import clamp, stable_hash
 from .tape import CandleTape
 from .types import EvidenceAtom, EvidenceCluster, RoleBasis
@@ -11,11 +12,12 @@ def build_evidence(
     tape: CandleTape,
     features: FeatureTape,
     config: CzardasConfig,
-    *,
-    prefix_index: int | None = None,
+    meanings: CandleMeaningTape | None = None,
 ) -> tuple[tuple[EvidenceCluster, ...], tuple[RoleBasis, ...]]:
-    prefix = len(tape.candles) - 1 if prefix_index is None else int(prefix_index)
-    atoms = _raw_atoms(tape, features, config, prefix)
+    # PresentSnapshotContract evaluates one current exact-240 snapshot.
+    as_of_index = len(tape.candles) - 1
+    meanings = meanings or build_base_candle_meanings(tape, features, config)
+    atoms = _raw_atoms(tape, features, config, as_of_index)
     clusters = _cluster_atoms(atoms, tape, features)
     basis: list[RoleBasis] = []
     for cluster in clusters:
@@ -23,7 +25,7 @@ def build_evidence(
         role = _role_for_kind(atom.kind)
         if role is None:
             continue
-        age = max(0, prefix - atom.bar_index)
+        age = max(0, as_of_index - atom.bar_index)
         recency = 2.0 ** (-age / config.recency_half_life_bars)
         scale_score = {2: 0.35, 5: 0.70, 13: 1.0}[max(cluster.confirmed_scales)]
         if role in {"support", "resistance"}:
@@ -36,10 +38,19 @@ def build_evidence(
             geometry_score = clamp(
                 (0.40 * atom.prominence + 0.20 * atom.body_integrity + 0.10 * recency) / 0.70
             )
-            role_mass = hline_mass * (0.90 + 0.10 * atom.participation)
-            participation: float | None = atom.participation
+            snapshot_mass = (
+                meanings.support[atom.bar_index] if role == "support" else meanings.resistance[atom.bar_index]
+            )
+            participation_multiplier = 1.0 if atom.participation is None else 0.90 + 0.10 * atom.participation
+            role_mass = clamp(
+                0.80 * hline_mass * participation_multiplier
+                + 0.20 * snapshot_mass
+            )
+            participation = atom.participation
         else:
-            role_mass = clamp(0.50 * atom.prominence + 0.30 * scale_score + 0.20 * recency)
+            structural_mass = clamp(0.50 * atom.prominence + 0.30 * scale_score + 0.20 * recency)
+            snapshot_mass = meanings.lower[atom.bar_index] if role == "lower" else meanings.upper[atom.bar_index]
+            role_mass = clamp(0.80 * structural_mass + 0.20 * snapshot_mass)
             geometry_score = role_mass
             participation = None
         basis.append(RoleBasis(
@@ -67,14 +78,14 @@ def _raw_atoms(
     tape: CandleTape,
     features: FeatureTape,
     config: CzardasConfig,
-    prefix: int,
+    as_of_index: int,
 ) -> list[EvidenceAtom]:
     candles = tape.candles
     result: list[EvidenceAtom] = []
     for radius in config.extrema_radii:
         highs: list[tuple[int, float, float]] = []
         lows: list[tuple[int, float, float]] = []
-        for index in range(radius, min(prefix + 1, len(candles) - radius)):
+        for index in range(radius, min(as_of_index + 1, len(candles) - radius)):
             window = candles[index - radius:index + radius + 1]
             candle = candles[index]
             local_atr = features.atr_scale(index, candle.close)
@@ -103,11 +114,11 @@ def _raw_atoms(
                 if prominence <= 1e-12:
                     continue
                 swing_confirmed = index + radius
-                if swing_confirmed <= prefix:
-                    result.append(_atom(tape, features, index, radius, prominence, side, swing_confirmed, rejection=False))
+                if swing_confirmed <= as_of_index:
+                    result.append(_atom(tape, features, config, index, radius, prominence, side, swing_confirmed, rejection=False))
                 reaction_confirmed = max(index + radius, index + 3)
-                if reaction_confirmed <= prefix:
-                    result.append(_atom(tape, features, index, radius, prominence, side, reaction_confirmed, rejection=True))
+                if reaction_confirmed <= as_of_index:
+                    result.append(_atom(tape, features, config, index, radius, prominence, side, reaction_confirmed, rejection=True))
     return sorted(result, key=lambda item: (item.confirmed_index, -item.scale, -item.prominence, item.candle_key, item.evidence_id))
 
 
@@ -128,6 +139,7 @@ def _collapse_plateaus(values: list[tuple[int, float, float]]) -> list[tuple[int
 def _atom(
     tape: CandleTape,
     features: FeatureTape,
+    config: CzardasConfig,
     index: int,
     scale: int,
     prominence: float,
@@ -168,7 +180,7 @@ def _atom(
         prominence=prominence,
         rejection=rejection_value if rejection else 0.0,
         body_integrity=body_integrity,
-        participation=features.participation[index],
+        participation=features.participation[index] if index >= config.volume_baseline else None,
     )
 
 

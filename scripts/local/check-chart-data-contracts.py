@@ -217,12 +217,14 @@ def collect_errors() -> list[str]:
                 errors.append(f"{label} {table} is missing the 21-day delete TTL")
             if tick_dedup_window not in ddl:
                 errors.append(f"{label} {table} is missing the non-replicated insert deduplication window")
-        for table in ("chart_candles", "order_flow_profile_daily", "chart_analysis_assets"):
+        for table in ("chart_candles", "order_flow_profile_daily"):
             ddl = table_ddl(sql, table)
             if not ddl:
                 errors.append(f"{label} {table} DDL is missing")
             elif "TTL " in ddl:
                 errors.append(f"{label} {table} must not have a deletion TTL")
+        if table_ddl(sql, "chart_analysis_assets"):
+            errors.append(f"{label} dormant chart_analysis_assets must not be auto-created")
 
     local_topics = topic_values(LOCAL_TOPICS)
     k8s_topics = topic_values(K8S_TOPICS)
@@ -233,6 +235,7 @@ def collect_errors() -> list[str]:
         ".".join(("market", "layer", "candles", "live", "v1")),
         ".".join(("market", "chart-derived", "requests", "v1")),
         ".".join(("market", "chart-derived", "dlq", "v1")),
+        ".".join(("agents", "chart-asset-build-requests", "v1")),
     }
     present = retired_topics.intersection(local_topics)
     if present:

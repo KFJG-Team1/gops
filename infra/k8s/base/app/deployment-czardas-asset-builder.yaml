@@ -32,6 +32,3 @@ spec:
             - secretRef:
                 name: alfaka-order-db-secret
                 optional: false
-            - secretRef:
-                name: alfaka-alpaca-secret
-                optional: true

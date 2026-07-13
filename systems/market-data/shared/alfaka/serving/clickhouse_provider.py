@@ -18,7 +18,16 @@ from alfaka.serving.session_buckets import BUCKET_POLICY_REGULAR_SESSION, aggreg
 
 
 class ClickHouseMarketDataProvider:
-    def __init__(self, url=None, database=None, user=None, password=None, now_provider=None):
+    def __init__(
+        self,
+        url=None,
+        database=None,
+        user=None,
+        password=None,
+        now_provider=None,
+        *,
+        ensure_schema=None,
+    ):
         """ClickHouse HTTP API 접속 정보를 환경변수 또는 인자로 초기화합니다."""
         load_dotenv()
         self.url = (url or os.getenv("CLICKHOUSE_HTTP_URL", "http://localhost:8123")).rstrip("/")
@@ -26,8 +35,23 @@ class ClickHouseMarketDataProvider:
         self.user = user or os.getenv("CLICKHOUSE_USER", "alfaka")
         self.password = password or os.getenv("CLICKHOUSE_PASSWORD", "alfaka")
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
-        if os.getenv("CLICKHOUSE_PROVIDER_ENSURE_SESSION_COLUMNS", "false").lower() in {"1", "true", "yes"}:
+        should_ensure_schema = (
+            os.getenv("CLICKHOUSE_PROVIDER_ENSURE_SESSION_COLUMNS", "false").lower() in {"1", "true", "yes"}
+            if ensure_schema is None
+            else bool(ensure_schema)
+        )
+        if should_ensure_schema:
             self.ensure_market_data_schema()
+
+    @classmethod
+    def read_only(cls, **kwargs):
+        """Construct a provider that can never run schema DDL.
+
+        Read paths such as Czardas freshness checks must remain mutation-free
+        even when the surrounding API pod enables legacy schema bootstrapping.
+        """
+        kwargs["ensure_schema"] = False
+        return cls(**kwargs)
 
     def candles(self, symbol, interval, limit=None, before=None, from_time=None, to_time=None):
         """요청 interval에 맞는 캔들 목록을 ClickHouse에서 조회합니다."""
@@ -73,11 +97,11 @@ class ClickHouseMarketDataProvider:
         if requested_limit < 1:
             raise ValueError("Czardas candle limit must be positive")
         if interval == "1W":
-            from alfaka.analytics.analysis_candles import aggregate_analysis_candles
+            from alfaka.candles import aggregate_canonical_candles
             from alfaka.backfill.gapfill import TradingCalendar
 
             daily = self.canonical_completed_rows(symbol, "1D", limit=min(1300, max(1, requested_limit * 6)), before=before)
-            weekly = aggregate_analysis_candles(
+            weekly = aggregate_canonical_candles(
                 daily, "1W", now=self.now_provider(), calendar=TradingCalendar()
             )
             return weekly[-requested_limit:]
@@ -1052,10 +1076,8 @@ class ClickHouseMarketDataProvider:
             "ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment, "
             "ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT 'clock_aligned' AFTER canonical_version"
         )
-        self.execute(
-            f"ALTER TABLE {self.table('chart_candles')} MODIFY ORDER BY "
-            "(symbol, interval, event_time, feed_profile, market_session, bucket_policy)"
-        )
+        # Sorting-key changes are an operator migration, never a runtime
+        # bootstrap side effect. Existing tables may contain years of data.
         # Crypto 체결/거래량은 소수 단위가 자연스럽기 때문에 조회 스키마도 Float64로 맞춥니다.
         for table, column, column_type in (
             ("trade_ticks", "size", "Nullable(Float64)"),
@@ -1349,7 +1371,7 @@ def merge_candle_rows(*groups, interval=None):
             normalized = row
             identity_key = None
             if normalized_interval in {"1D", "1W", "1M"}:
-                from alfaka.analytics.analysis_candles import canonicalize_candle_identity
+                from alfaka.candles import canonicalize_candle_identity
 
                 normalized = canonicalize_candle_identity(row, normalized_interval)
                 identity_key = normalized.get("candleKey") if normalized else None
@@ -1365,13 +1387,13 @@ def with_higher_timeframe_closed_state(rows, interval, *, now=None):
     normalized_interval = normalize_chart_interval(interval)
     if normalized_interval not in {"1W", "1M"}:
         return list(rows or [])
-    from alfaka.analytics.analysis_candles import is_analysis_candle_bucket_complete
+    from alfaka.candles import is_candle_bucket_complete
 
     reference = now or datetime.now(timezone.utc)
     return [
         {
             **row,
-            "isClosed": is_analysis_candle_bucket_complete(
+            "isClosed": is_candle_bucket_complete(
                 row.get("timestamp"),
                 normalized_interval,
                 now=reference,

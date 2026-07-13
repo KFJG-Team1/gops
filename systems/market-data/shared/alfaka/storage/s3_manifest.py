@@ -184,120 +184,6 @@ def processed_candle_keys_from_manifest(s3, bucket, manifest_prefix, symbol, int
     return unique_ordered(entry["objectKey"] for entry in processed_candle_manifest_entries(s3, bucket, manifest_prefix, symbol, interval, start, end) if entry.get("objectKey"))
 
 
-def analysis_repair_processed_candle_keys(
-    s3,
-    bucket,
-    manifest_prefix,
-    symbol,
-    interval,
-    ranges,
-    *,
-    metrics=None,
-    deadline_check=None,
-):
-    """Resolve a chart-analysis repair batch without scanning realtime hourly shards.
-
-    Historical compact manifests are listed once for the symbol. Daily legacy
-    manifests are considered through one symbol-root listing only when the
-    compact layout has no matching entry. The caller supplies all missing
-    ranges so the same manifest inventory is never repeated per range.
-    """
-    normalized_ranges = [
-        {"start": item.get("start"), "end": item.get("end")}
-        for item in ranges
-        if item.get("start") and item.get("end")
-    ]
-    if not normalized_ranges:
-        return []
-
-    compact_prefix = processed_candle_compact_manifest_prefix(manifest_prefix, symbol, interval)
-    compact_entries = _read_analysis_manifest_prefix(
-        s3,
-        bucket,
-        compact_prefix,
-        symbol,
-        interval,
-        normalized_ranges,
-        metrics=metrics,
-        deadline_check=deadline_check,
-    )
-    entries = compact_entries
-    source = "compact"
-    if not entries:
-        symbol_root = f"{manifest_prefix.strip('/')}/candles/interval={interval}/symbol={symbol}/"
-        entries = _read_analysis_manifest_prefix(
-            s3,
-            bucket,
-            symbol_root,
-            symbol,
-            interval,
-            normalized_ranges,
-            metrics=metrics,
-            deadline_check=deadline_check,
-            excluded_prefix=compact_prefix,
-        )
-        source = "legacy" if entries else "none"
-
-    selected = select_preferred_manifest_entries(
-        sort_unique_manifest_entries(entries),
-        normalized_ranges[0]["start"],
-        normalized_ranges[-1]["end"],
-    )
-    if metrics is not None:
-        metrics["manifestSource"] = source
-        metrics["objectsSelected"] = len(selected)
-    return unique_ordered(entry["objectKey"] for entry in selected if entry.get("objectKey"))
-
-
-def _read_analysis_manifest_prefix(
-    s3,
-    bucket,
-    prefix,
-    symbol,
-    interval,
-    ranges,
-    *,
-    metrics=None,
-    deadline_check=None,
-    excluded_prefix=None,
-):
-    entries = []
-    keys = list_s3_objects(
-        s3,
-        bucket,
-        prefix,
-        metrics=metrics,
-        deadline_check=deadline_check,
-    )
-    for key in keys:
-        if not key.endswith(".json") or (excluded_prefix and key.startswith(excluded_prefix)):
-            continue
-        if deadline_check:
-            deadline_check()
-        try:
-            entry = read_manifest_entry(s3, bucket, key)
-            if not isinstance(entry, dict):
-                raise ValueError("manifest entry must be an object")
-            increment_metric(metrics, "manifestObjectsRead")
-        except Exception:
-            # A compact inventory is a bounded hint, not a single point of
-            # failure. Keep one malformed/deleted entry from discarding every
-            # other usable object; the stage deadline is still checked before
-            # and after each attempted read.
-            if deadline_check:
-                deadline_check()
-            increment_metric(metrics, "manifestReadErrors")
-            continue
-        if deadline_check:
-            deadline_check()
-        if any(
-            entry_matches_range(entry, symbol, interval, item["start"], item["end"])
-            for item in ranges
-        ):
-            entries.append(entry)
-    return entries
-
-
 def raw_keys_from_manifest(s3, bucket, manifest_prefix, symbol, channels, start, end):
     return unique_ordered(entry["objectKey"] for entry in raw_manifest_entries(s3, bucket, manifest_prefix, symbol, channels, start, end) if entry.get("objectKey"))
 
@@ -404,7 +290,7 @@ def entry_matches_range(entry, symbol, interval, start, end):
     if not available_from or not available_to:
         return False
     if interval == "1D":
-        from alfaka.analytics.analysis_candles import canonicalize_candle_identity
+        from alfaka.candles import canonicalize_candle_identity
         first = canonicalize_candle_identity({"timestamp": available_from}, "1D")
         last = canonicalize_candle_identity({"timestamp": available_to}, "1D")
         if not first or not last:

@@ -16,9 +16,12 @@ class InMemoryCzardasProgressStore:
     def initialize(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
         state = {
             "jobId": envelope.job_id,
-            "assetKind": "czardas",
             "status": "queued",
-            "requested": {"symbolCount": 1, "intervals": [envelope.interval], "force": envelope.force},
+            "requested": {
+                "symbol": envelope.symbol,
+                "interval": envelope.interval,
+                "force": envelope.force,
+            },
             "progress": {"total": 1, "done": 0, "failed": 0, "skipped": 0, "warnings": 0, "current": None},
             "repair": {
                 "checkedSymbols": 0, "attemptedSymbols": 0, "repairedSymbols": 0,

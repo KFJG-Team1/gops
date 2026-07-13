@@ -386,7 +386,7 @@ def matching_candles(rows, selection):
             # market-midnight 04:00/05:00Z identities. Compare the canonical
             # trading-date timestamp so an adjacent legacy row cannot leak
             # into a bounded repair range.
-            from alfaka.analytics.analysis_candles import canonicalize_candle_identity
+            from alfaka.candles import canonicalize_candle_identity
             identity = canonicalize_candle_identity(row, "1D")
             timestamp = identity.get("timestamp") if identity else None
             if selected_candle_keys:
@@ -466,7 +466,7 @@ def dedupe_candles(rows, *, canonical_daily_identity=False):
     for index, row in enumerate(rows):
         identity = None
         if canonical_daily_identity and normalize_chart_interval(row.get("interval")) == "1D":
-            from alfaka.analytics.analysis_candles import canonicalize_candle_identity
+            from alfaka.candles import canonicalize_candle_identity
             identity = canonicalize_candle_identity(row, "1D")
         key = (
             row["symbol"],

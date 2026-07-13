@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from alfaka.analytics.czardas import AnalysisUnavailable, Ready, analyze_czardas
+from alfaka.analytics.czardas.config import DEFAULT_CONFIG
 from alfaka.analytics.czardas.numeric import canonical_digest
 
 from .fixtures import flat_rows, oscillating_rows
@@ -19,8 +22,9 @@ def test_kernel_is_deterministic_and_emits_bounded_editable_lines():
     }
     assert len(content["drawings"]) == 4
     assert all(item["ownership"] == "czardas-managed" for item in content["drawings"])
-    assert results[0].debug["fieldBytes"] <= 32_768
-    assert results[0].debug["payloadBytes"] <= 65_536
+    assert all(item["sourceInferenceId"] == content["inferenceId"] for item in content["drawings"])
+    assert results[0].debug["fieldBytes"] <= 81_920
+    assert results[0].debug["payloadBytes"] <= 98_304
 
 
 def test_mapping_insertion_order_does_not_change_input_or_content_digest():
@@ -44,3 +48,22 @@ def test_public_kernel_rejects_non_exact_input():
     rows = flat_rows()
     assert isinstance(analyze_czardas(rows[:-1]), AnalysisUnavailable)
     assert isinstance(analyze_czardas([*rows, rows[-1]]), AnalysisUnavailable)
+
+
+def test_max_configured_drawing_counts_keep_selected_closure_inside_budgets():
+    config = replace(DEFAULT_CONFIG, hline_display_count=4, trend_display_count=3)
+    result = analyze_czardas(oscillating_rows(), config)
+
+    assert isinstance(result, Ready), getattr(result, "reason", None)
+    assert result.content["selection"]["hline"]["actualCount"] <= 4
+    assert result.content["selection"]["trend"]["actualCount"] <= 3
+    assert len(result.content["drawings"]) <= 7
+    assert result.debug["fieldBytes"] <= 80 * 1024
+    assert result.debug["payloadBytes"] <= 96 * 1024
+
+    field = result.content["czardasField"]
+    fact_count = len(field["basisFacts"]["basisIds"])
+    for mode in (*field["hlineModes"], *field["trendModes"]):
+        if mode["viewRole"] == "landscape_and_selected":
+            assert len(mode["contributorBasisIndexes"]) == mode["contributorCount"]
+            assert all(0 <= index < fact_count for index in mode["contributorBasisIndexes"])

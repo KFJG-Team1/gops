@@ -20,10 +20,9 @@ if [[ "${APPLY}" == "true" ]]; then
       --user "$CLICKHOUSE_USER" \
       --password "$CLICKHOUSE_PASSWORD" \
       --query "ALTER TABLE market_data.chart_candles ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT '\''clock_aligned'\'' AFTER canonical_version"
-    clickhouse-client \
-      --user "$CLICKHOUSE_USER" \
-      --password "$CLICKHOUSE_PASSWORD" \
-      --query "ALTER TABLE market_data.chart_candles MODIFY ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy)"
+    # A populated ReplacingMergeTree sorting key is never rewritten by this
+    # rebuild helper. Audit SHOW CREATE TABLE and run a separately reviewed
+    # table-copy migration when the canonical identity key must be upgraded.
   '
 fi
 

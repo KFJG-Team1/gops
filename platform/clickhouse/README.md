@@ -13,7 +13,6 @@ market_data.quote_ticks
 market_data.market_events
 market_data.market_status_events
 market_data.order_flow_profile_daily
-market_data.chart_analysis_assets  # legacy table; current Geometry path does not use it
 market_data.backfill_jobs
 market_data.storage_object_audit
 market_data.load_audit
@@ -25,10 +24,10 @@ token from Kafka topic/partition/offset metadata, commits only offsets included
 in a successful insert, and keeps a bounded recent `sourceEventId` cache for
 short replays that cross insert batch boundaries. `chart_candles` and
 `order_flow_profile_daily` have no deletion TTL. Initialized environments may
-still contain the legacy no-TTL `chart_analysis_assets` table. Current Geometry
-builder, API, delete route, and agent providers do not read or write it; active
-asset and build state live in PostgreSQL. Removing the legacy DDL/table is a
-separate operator migration, not an automatic runtime action. Existing
+still contain the legacy no-TTL `chart_analysis_assets` table. It is dormant:
+runtime, migrations, APIs and operators must not read, write, recreate or use it
+as fallback. Fresh environments do not create it; dropping existing data
+requires a separate explicit operator migration. Existing
 environments apply the tick TTL and deduplication window through the
 operator-reviewed, idempotent migration:
 
@@ -40,7 +39,17 @@ scripts/local/migrate-chart-tick-retention.sql
 Legacy/native clock rows use `clock_aligned`; new US-equity derived rows use
 `us_equity_regular_session`. Readers select only the latter for
 `5m/10m/1h/4h`. The source `1m` and session-derived rows are both persisted, so
-chart serving, Geometry, and SMA share the same OHLCV facts.
+chart serving, Czardas, and SMA share the same OHLCV facts.
+
+Fresh `chart_candles` tables include `canonical_version` and
+`price_adjustment` in the `ReplacingMergeTree` sorting key. Runtime schema
+ensure and rebuild scripts never issue `MODIFY ORDER BY` against a populated
+table. Existing AWS tables must be audited with `SHOW CREATE TABLE`; upgrading
+their key requires a separately reviewed table-copy migration, not a rollout
+side effect. Until that migration, canonical repair uses a dedicated
+`*-canonical-split-repair` feed profile so split/v2 rows remain physically
+distinct under the legacy key. Existing rows and dormant Geometry tables are
+not altered.
 
 Czardas uses the dedicated `canonical_completed_rows()` read boundary. Its SQL
 always filters `canonical_version=v2`, `price_adjustment=split`,
@@ -56,9 +65,9 @@ The operator migration and one-year rebuild entrypoint is:
 APPLY=true WAIT_FOR_JOB=false scripts/aws/run-session-candle-rebuild-job.sh
 ```
 
-The script adds the column idempotently before starting the rebuild Job. It never
-deletes legacy rows; readers exclude them by policy and an operator may clean them
-only after validation and the rollback window.
+The script adds the bucket-policy column idempotently before starting the rebuild
+Job. It does not rewrite the sorting key or delete legacy rows; readers exclude
+them by policy and a future table-copy migration requires separate approval.
 
 Optional indicators and candle volume profile are calculated by the API and
 cached in Redis; ClickHouse does not store request-hash artifacts. The retired
@@ -77,18 +86,13 @@ infra/k8s/base/platform/clickhouse-initdb/01-market-data.sql
 the two market-data DDL copies. Environment headers and the declared local-only
 agent table are the only allowed difference.
 
-## Legacy Chart Analysis Asset Table
+## Dormant Chart Analysis Asset Table
 
-Current Chart Geometry does not persist asset JSON in ClickHouse. It reads
-canonical completed candles from `market_data.chart_candles`; exact intraday
-repair also materializes real candles there before the builder re-reads them.
-The final latest Geometry JSON, job, and item state live in PostgreSQL. There is
-no active mirrored write or ClickHouse rollback source.
-
-The legacy `market_data.chart_analysis_assets` DDL remains only so existing
-environments are not destructively changed during an unrelated rollout. New
-code must not restore readers or writers to it without an explicit migration
-plan and updated canonical docs.
+Czardas reads canonical completed candles from `market_data.chart_candles` and
+persists pack/job state only in PostgreSQL `chart_assets.czardas_*`. Existing
+`market_data.chart_analysis_assets` rows are historical dormant data, not an
+active, mirrored, or rollback source. The init DDL intentionally omits the
+table. Do not add readers, writers or automatic creation back.
 
 ## SEC Fundamentals Tables
 

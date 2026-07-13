@@ -11,6 +11,7 @@ from .tape import CandleTape
 @dataclass(frozen=True, slots=True)
 class FeatureTape:
     atr: tuple[float | None, ...]
+    effective_atr: tuple[float, ...]
     body_low: tuple[float, ...]
     body_high: tuple[float, ...]
     lower_wick: tuple[float, ...]
@@ -21,8 +22,7 @@ class FeatureTape:
     participation: tuple[float, ...]
 
     def atr_scale(self, index: int, close: float) -> float:
-        value = self.atr[index]
-        return max(0.01, abs(close) * 1e-6, value or 0.0)
+        return self.effective_atr[index]
 
 
 def build_features(tape: CandleTape, config: CzardasConfig) -> FeatureTape:
@@ -66,7 +66,11 @@ def build_features(tape: CandleTape, config: CzardasConfig) -> FeatureTape:
         volume_rank.append(rank)
         volume_z.append(z)
         participation.append(0.5 * rank + 0.5 * anomaly)
+    effective_atr = tuple(
+        max(0.01, abs(item.close) * 1e-6, atr[index] or 0.0)
+        for index, item in enumerate(candles)
+    )
     return FeatureTape(
-        tuple(atr), body_low, body_high, lower_wick, upper_wick, returns,
+        tuple(atr), effective_atr, body_low, body_high, lower_wick, upper_wick, returns,
         tuple(volume_rank), tuple(volume_z), tuple(participation),
     )

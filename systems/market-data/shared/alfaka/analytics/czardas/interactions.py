@@ -87,22 +87,38 @@ def integrity_for_domain(
     end_index: int,
     config: CzardasConfig,
 ) -> tuple[float, float, float, int, int]:
-    facts: list[tuple[int, float, float, float]] = []
+    fact_indexes: list[int] = []
+    raw_facts: list[float] = []
+    body_facts: list[float] = []
+    close_facts: list[float] = []
     body_penetrations = close_penetrations = 0
-    for index in range(max(0, start_index), min(end_index, len(tape.candles) - 1) + 1):
-        candle = tape.candles[index]
-        atr = features.atr_scale(index, candle.close)
-        y = probe.price(index)
-        if probe.lower_side:
-            wick_depth = max(0.0, y - probe.zone - candle.low) / atr
-            body_depth = max(0.0, y - probe.zone - features.body_low[index]) / atr
-            close_depth = max(0.0, y - probe.zone - candle.close) / atr
-            distance = max(0.0, candle.low - (y + probe.zone), (y - probe.zone) - candle.high) / atr
+    candles = tape.candles
+    atr_values = features.effective_atr
+    body_lows = features.body_low
+    body_highs = features.body_high
+    slope = probe.slope
+    intercept = probe.intercept
+    origin = probe.origin_index
+    zone = probe.zone
+    lower_side = probe.role in {"support", "lower"}
+    start = max(0, start_index)
+    stop = min(end_index, len(candles) - 1) + 1
+    for index in range(start, stop):
+        candle = candles[index]
+        atr = atr_values[index]
+        y = intercept + slope * (index - origin)
+        if lower_side:
+            lower_edge = y - zone
+            wick_depth = max(0.0, lower_edge - candle.low) / atr
+            body_depth = max(0.0, lower_edge - body_lows[index]) / atr
+            close_depth = max(0.0, lower_edge - candle.close) / atr
+            distance = max(0.0, candle.low - (y + zone), lower_edge - candle.high) / atr
         else:
-            wick_depth = max(0.0, candle.high - y - probe.zone) / atr
-            body_depth = max(0.0, features.body_high[index] - y - probe.zone) / atr
-            close_depth = max(0.0, candle.close - y - probe.zone) / atr
-            distance = max(0.0, candle.low - (y + probe.zone), (y - probe.zone) - candle.high) / atr
+            upper_edge = y + zone
+            wick_depth = max(0.0, candle.high - upper_edge) / atr
+            body_depth = max(0.0, body_highs[index] - upper_edge) / atr
+            close_depth = max(0.0, candle.close - upper_edge) / atr
+            distance = max(0.0, candle.low - upper_edge, (y - zone) - candle.high) / atr
         if distance > 1.0 and wick_depth == 0 and body_depth == 0 and close_depth == 0:
             continue
         if body_depth > 0:
@@ -110,15 +126,20 @@ def integrity_for_domain(
         if close_depth > 0:
             close_penetrations += 1
         raw = max(wick_depth, 4.0 * body_depth, 8.0 * close_depth)
-        facts.append((index, bounded(raw), bounded(4.0 * body_depth), bounded(8.0 * close_depth)))
-    if not facts:
+        body_raw = 4.0 * body_depth
+        close_raw = 8.0 * close_depth
+        fact_indexes.append(index)
+        raw_facts.append(raw / (1.0 + raw))
+        body_facts.append(body_raw / (1.0 + body_raw))
+        close_facts.append(close_raw / (1.0 + close_raw))
+    if not fact_indexes:
         return 0.0, 0.0, 0.0, 0, 0
-    raw_weights = [2.0 ** (-(end_index - index) / config.recency_half_life_bars) for index, *_ in facts]
+    raw_weights = [2.0 ** (-(end_index - index) / config.recency_half_life_bars) for index in fact_indexes]
     total = math.fsum(raw_weights)
     influences = [min(weight / total, config.max_single_bar_integrity_influence) for weight in raw_weights]
-    integrity = clamp(1.0 - math.fsum(weight * facts[index][1] for index, weight in enumerate(influences)))
-    body_integrity = clamp(1.0 - math.fsum(weight * facts[index][2] for index, weight in enumerate(influences)))
-    close_integrity = clamp(1.0 - math.fsum(weight * facts[index][3] for index, weight in enumerate(influences)))
+    integrity = clamp(1.0 - math.fsum(weight * raw_facts[index] for index, weight in enumerate(influences)))
+    body_integrity = clamp(1.0 - math.fsum(weight * body_facts[index] for index, weight in enumerate(influences)))
+    close_integrity = clamp(1.0 - math.fsum(weight * close_facts[index] for index, weight in enumerate(influences)))
     return integrity, body_integrity, close_integrity, body_penetrations, close_penetrations
 
 
@@ -142,14 +163,13 @@ def evaluate_interactions(
     features: FeatureTape,
     probe: LineProbe,
     candidate_id: str,
-    revision: int,
-    formed_index: int,
+    fit_evidence_confirmed_index: int,
     formation_span: int,
     config: CzardasConfig,
 ) -> tuple[InteractionEvent, ...]:
     horizon = 3 if formation_span < 48 else 5 if formation_span < 96 else 8
     events: list[InteractionEvent] = []
-    cursor = formed_index + 1
+    cursor = fit_evidence_confirmed_index + 1
     while cursor < len(tape.candles):
         contact = None
         for index in range(cursor, len(tape.candles)):
@@ -162,13 +182,13 @@ def evaluate_interactions(
         terminal_target = contact + horizon
         if break_index is not None and break_index <= terminal_target:
             events.append(InteractionEvent(
-                stable_hash(candidate_id, revision, probe.role, tape.candles[contact].candle_key),
+                stable_hash(candidate_id, probe.role, tape.candles[contact].candle_key),
                 contact, break_index, None, "confirmed_break", 0.0, 1.0, 0.0,
             ))
             break
         if terminal_target >= len(tape.candles):
             events.append(InteractionEvent(
-                stable_hash(candidate_id, revision, probe.role, tape.candles[contact].candle_key),
+                stable_hash(candidate_id, probe.role, tape.candles[contact].candle_key),
                 contact, None, None, "response_pending", 0.0, 0.0, 0.0,
             ))
             break
@@ -203,15 +223,15 @@ def evaluate_interactions(
         reclaim_speed = 0.0 if reclaim_lag is None else 1.0 - reclaim_lag / (horizon + 1)
         excursion = max(excursions, default=0.0)
         score = clamp(0.45 * excursion + 0.30 * (1.0 - acceptance) + 0.25 * pressure * reclaim_speed * (1.0 - acceptance))
-        outcome = "verified_response" if excursion >= config.verification_min_excursion_atr and score >= config.verification_min_response else "neutral_response"
+        outcome = "supported_response" if excursion >= config.response_min_excursion_atr and score >= config.response_min_score else "neutral_response"
         leave = _first_leave(tape, features, probe, terminal_target + 1, len(tape.candles), config)
         events.append(InteractionEvent(
-            stable_hash(candidate_id, revision, probe.role, tape.candles[contact].candle_key),
+            stable_hash(candidate_id, probe.role, tape.candles[contact].candle_key),
             contact, terminal_target, leave, outcome, pressure, acceptance, score,
         ))
         if break_index is not None and (leave is None or break_index <= leave):
             events.append(InteractionEvent(
-                stable_hash(candidate_id, revision, probe.role, tape.candles[break_index - 1].candle_key),
+                stable_hash(candidate_id, probe.role, tape.candles[break_index - 1].candle_key),
                 break_index - 1, break_index, None, "confirmed_break", 0.0, 1.0, 0.0,
             ))
             break

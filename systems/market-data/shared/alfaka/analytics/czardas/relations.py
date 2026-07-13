@@ -104,4 +104,4 @@ def _price(candidate, index):
 
 
 def _string_rank(value: str) -> int:
-    return int(value.removeprefix("sha256:")[:12], 16)
+    return int((value[7:] if value.startswith("sha256:") else value)[:12], 16)

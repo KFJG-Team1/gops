@@ -7,18 +7,84 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from gops_agents.chart_assets.storage import _database_conninfo
-
+from .database import database_conninfo
 from .envelope import CzardasBuildEnvelope
 from .storage import ITEMS_TABLE, JOBS_TABLE
 
 
 TERMINAL_ITEM_STATUSES = {"saved", "unchanged", "failed", "skipped"}
+MAX_CLAIM_ATTEMPTS = 2
+
+REAP_EXHAUSTED_CLAIMS_SQL = f"""
+WITH exhausted AS (
+    UPDATE {ITEMS_TABLE} item
+    SET status = 'failed', stage = 'lease',
+        reason = 'worker_attempts_exhausted',
+        error = COALESCE(item.error, 'Czardas worker lease expired after maximum attempts.'),
+        worker_id = NULL, lease_expires_at = NULL,
+        finished_at = now(), updated_at = now()
+    FROM {JOBS_TABLE} job
+    WHERE item.job_id = job.job_id
+      AND item.status = 'running'
+      AND item.attempts >= {MAX_CLAIM_ATTEMPTS}
+      AND item.lease_expires_at < now()
+      AND job.cancel_requested = false
+      AND job.status IN ('queued', 'running')
+    RETURNING item.job_id
+)
+UPDATE {JOBS_TABLE} job
+SET status = 'completed_with_errors',
+    error = COALESCE(job.error, 'Czardas worker lease expired after maximum attempts.'),
+    finished_at = now(), updated_at = now()
+WHERE job.job_id IN (SELECT job_id FROM exhausted)
+  AND job.status IN ('queued', 'running')
+"""
+
+CLAIM_NEXT_SQL = f"""
+WITH candidate AS MATERIALIZED (
+    SELECT item.job_id, item.symbol, item."interval"
+    FROM {ITEMS_TABLE} item
+    JOIN {JOBS_TABLE} job ON job.job_id = item.job_id
+    WHERE job.cancel_requested = false
+      AND job.status IN ('queued', 'running')
+      AND item.attempts < {MAX_CLAIM_ATTEMPTS}
+      AND (
+        item.status = 'pending'
+        OR (item.status = 'running' AND item.lease_expires_at < now())
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM {ITEMS_TABLE} active
+        WHERE active.symbol = item.symbol
+          AND active."interval" = item."interval"
+          AND active.status = 'running'
+          AND active.lease_expires_at >= now()
+          AND active.job_id <> item.job_id
+      )
+    ORDER BY job.submitted_at, item.job_id
+    FOR UPDATE OF item SKIP LOCKED
+    LIMIT 1
+),
+locked_candidate AS MATERIALIZED (
+    SELECT candidate.*
+    FROM candidate
+    WHERE pg_try_advisory_xact_lock(
+        hashtextextended(candidate.symbol || ':' || candidate."interval", 0)
+    )
+)
+UPDATE {ITEMS_TABLE} item
+SET status = 'running', stage = 'claimed', attempts = attempts + 1,
+    worker_id = %s,
+    lease_expires_at = now() + make_interval(secs => %s),
+    started_at = COALESCE(started_at, now()), updated_at = now()
+FROM locked_candidate
+WHERE item.job_id = locked_candidate.job_id
+RETURNING item.job_id, item.symbol, item."interval", item.attempts
+"""
 
 
 class PostgresCzardasJobStore:
     def __init__(self, conninfo: str | None = None, *, connect: Callable[..., Any] | None = None) -> None:
-        self.conninfo = conninfo or _database_conninfo()
+        self.conninfo = conninfo or database_conninfo()
         self._connector = connect or psycopg.connect
 
     def enqueue(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
@@ -49,42 +115,10 @@ class PostgresCzardasJobStore:
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 120) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute(
-                f"""
-                WITH candidate AS (
-                    SELECT item.job_id
-                    FROM {ITEMS_TABLE} item
-                    JOIN {JOBS_TABLE} job ON job.job_id = item.job_id
-                    WHERE job.cancel_requested = false
-                      AND job.status IN ('queued', 'running')
-                      AND item.attempts < 2
-                      AND (
-                        item.status = 'pending'
-                        OR (item.status = 'running' AND item.lease_expires_at < now())
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM {ITEMS_TABLE} active
-                        WHERE active.symbol = item.symbol
-                          AND active."interval" = item."interval"
-                          AND active.status = 'running'
-                          AND active.lease_expires_at >= now()
-                          AND active.job_id <> item.job_id
-                      )
-                    ORDER BY job.submitted_at, item.job_id
-                    FOR UPDATE OF item SKIP LOCKED
-                    LIMIT 1
-                )
-                UPDATE {ITEMS_TABLE} item
-                SET status = 'running', stage = 'claimed', attempts = attempts + 1,
-                    worker_id = %s,
-                    lease_expires_at = now() + make_interval(secs => %s),
-                    started_at = COALESCE(started_at, now()), updated_at = now()
-                FROM candidate
-                WHERE item.job_id = candidate.job_id
-                RETURNING item.job_id, item.symbol, item."interval", item.attempts
-                """,
-                (worker_id, lease_seconds),
-            ).fetchone()
+            # A crashed claim is made terminal before new work is considered.
+            # This keeps attempts=2 rows from remaining `running` forever.
+            conn.execute(REAP_EXHAUSTED_CLAIMS_SQL)
+            row = conn.execute(CLAIM_NEXT_SQL, (worker_id, lease_seconds)).fetchone()
             if row is None:
                 conn.commit()
                 return None
@@ -121,6 +155,70 @@ class PostgresCzardasJobStore:
             conn.commit()
         return int(cursor.rowcount) == 1
 
+    def record_outer_failure(self, job_id: str, worker_id: str) -> str | None:
+        """Release or terminate a claim that failed outside the item boundary.
+
+        The first failure is retried; the second is terminal. Error text is
+        deliberately fixed so provider/database details never enter job state.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""
+                UPDATE {ITEMS_TABLE} item
+                SET status = CASE
+                        WHEN job.cancel_requested OR job.status = 'canceled' THEN 'skipped'
+                        WHEN item.attempts >= {MAX_CLAIM_ATTEMPTS} THEN 'failed'
+                        ELSE 'pending'
+                    END,
+                    stage = 'worker',
+                    reason = CASE
+                        WHEN job.cancel_requested OR job.status = 'canceled' THEN 'cancel_requested'
+                        ELSE 'worker_boundary_failure'
+                    END,
+                    error = CASE
+                        WHEN job.cancel_requested OR job.status = 'canceled' THEN item.error
+                        ELSE 'Czardas worker failed outside item boundary.'
+                    END,
+                    worker_id = NULL, lease_expires_at = NULL,
+                    finished_at = CASE
+                        WHEN job.cancel_requested OR job.status = 'canceled'
+                          OR item.attempts >= {MAX_CLAIM_ATTEMPTS}
+                        THEN now() ELSE NULL
+                    END,
+                    updated_at = now()
+                FROM {JOBS_TABLE} job
+                WHERE item.job_id = job.job_id
+                  AND item.job_id = %s
+                  AND item.worker_id = %s
+                  AND item.status = 'running'
+                RETURNING item.status
+                """,
+                (job_id, worker_id),
+            ).fetchone()
+            status = str(row["status"]) if row else None
+            if status == "pending":
+                conn.execute(
+                    f"""
+                    UPDATE {JOBS_TABLE}
+                    SET status = 'queued', updated_at = now()
+                    WHERE job_id = %s AND cancel_requested = false
+                    """,
+                    (job_id,),
+                )
+            elif status == "failed":
+                conn.execute(
+                    f"""
+                    UPDATE {JOBS_TABLE}
+                    SET status = 'completed_with_errors',
+                        error = COALESCE(error, 'Czardas worker failed outside item boundary.'),
+                        finished_at = now(), updated_at = now()
+                    WHERE job_id = %s AND status <> 'canceled'
+                    """,
+                    (job_id,),
+                )
+            conn.commit()
+        return status
+
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             job = conn.execute(f"SELECT * FROM {JOBS_TABLE} WHERE job_id = %s", (job_id,)).fetchone()
@@ -144,9 +242,12 @@ class PostgresCzardasJobStore:
         repair.update(dict(job.get("repair") or {}))
         return {
             "jobId": job_id,
-            "assetKind": "czardas",
             "status": job["status"],
-            "requested": {"symbolCount": 1, "intervals": [job["interval"]], "force": job["force_build"]},
+            "requested": {
+                "symbol": job["symbol"],
+                "interval": job["interval"],
+                "force": job["force_build"],
+            },
             "progress": {
                 "total": 1,
                 "done": int(done),

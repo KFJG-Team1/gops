@@ -38,8 +38,6 @@ flowchart TD
 | `PRODUCT_CONTEXT.md` | Product direction and current/future scope boundary. |
 | `CHART_DATA_ARCHITECTURE.md` | Current chart fact ownership, compute placement, query path, API/WS, order-flow, and S3 contracts. |
 | `CHART_AGENT_STRATEGY.md` | 차트 지능의 투자적 역할, deterministic kernel, rule/LLM 경계, 작도 compiler, 데이터 사전 계산, orchestrator 통합, 단계별 구현 전략. |
-| `CHART_ANALYSIS_ASSETS.md` | 보존된 Geometry 롤백 계약과 현재 Czardas 자산 경계를 설명하는 사람용 문서. |
-| `CHART_ANALYSIS_ASSETS_CODEX.md` | Geometry 호환 조건과 Czardas 구현의 코드 경계·검증 진입점을 정리한 기술 기준서. |
 | `czardas/README.md` | 현재 Czardas의 시선, 데이터 흐름, 작도, 강점·약점·한계를 설명하는 시작점. |
 | `czardas/ENGINE_SPEC.md` | 구현된 자료구조, H-Line·Trend와 파생 Triangle 관계, 평가, API, 저장, drawing의 단일 규격. |
 | `czardas/IMPLEMENTATION_PLAN.md` | Czardas의 평가 harness부터 rollout까지 구현 순서와 회귀·성능 gate. |

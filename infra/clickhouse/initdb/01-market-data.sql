@@ -83,7 +83,16 @@ CREATE TABLE IF NOT EXISTS market_data.chart_candles
 )
 ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY toYYYYMM(event_time)
-ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy);
+ORDER BY (
+    symbol,
+    interval,
+    event_time,
+    feed_profile,
+    market_session,
+    bucket_policy,
+    canonical_version,
+    price_adjustment
+);
 
 CREATE TABLE IF NOT EXISTS market_data.market_status_events
 (
@@ -310,22 +319,6 @@ CREATE TABLE IF NOT EXISTS market_data.order_flow_profile_daily
 PARTITION BY toYYYYMM(session_date)
 ORDER BY (symbol, session_date, price_bin_size, price_bin);
 
-CREATE TABLE IF NOT EXISTS market_data.chart_analysis_assets
-(
-    symbol         LowCardinality(String),
-    interval       LowCardinality(String),
-    as_of          DateTime64(3, 'UTC'),
-    generated_at   DateTime64(3, 'UTC'),
-    asset_version  LowCardinality(String),
-    kernel_version LowCardinality(String),
-    prompt_version LowCardinality(String) DEFAULT '',
-    status         LowCardinality(String),
-    payload        String,
-    inserted_at    DateTime64(3, 'UTC') DEFAULT now64(3)
-)
-ENGINE = ReplacingMergeTree(inserted_at)
-ORDER BY (symbol, interval);
-
 -- Existing local/production volumes may have been initialized before source_event_id
 -- and hardening tables existed. Keep these migrations idempotent.
 ALTER TABLE market_data.chart_candles
@@ -343,8 +336,9 @@ ALTER TABLE market_data.chart_candles
     ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment,
     ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT 'clock_aligned' AFTER canonical_version;
 
-ALTER TABLE market_data.chart_candles
-    MODIFY ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy);
+-- Never rewrite a populated ReplacingMergeTree sorting key from init/runtime
+-- bootstrap. Existing clusters require an explicit operator migration; the
+-- CREATE TABLE key above is the canonical contract for fresh installations.
 
 ALTER TABLE market_data.trade_ticks
     ADD COLUMN IF NOT EXISTS feed_profile LowCardinality(String) DEFAULT feed AFTER feed,

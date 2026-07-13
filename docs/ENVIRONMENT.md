@@ -395,8 +395,9 @@ trade/quote/event values, and SIP/BOATS feed state.
 Durable historical candles live in ClickHouse and S3 final/manifest.
 Run the in-cluster Redis StatefulSet as a bounded cache/control-plane store.
 Compose and Kubernetes currently keep AOF with `everysec`; RDB snapshots remain
-disabled. Historical chart data still lives in ClickHouse and S3 final/manifest,
-and Chart Asset logs remain pub/sub-only so they never enter the AOF.
+disabled. Historical chart data still lives in ClickHouse and S3 final/manifest.
+Czardas packs and manual-build state live only in PostgreSQL; they do not create
+Redis keys, lists, streams, or pub/sub traffic.
 
 ```text
 redis-server --appendonly yes --appendfsync everysec --save "" --dir /data
@@ -500,7 +501,14 @@ value can turn slower intraday reads into HTTP 503 instead of a partial or
 filled chart response. `CLICKHOUSE_PROVIDER_RETRY_ATTEMPTS` controls a small
 API-side retry budget for transient ClickHouse timeout spikes.
 
-Set `CLICKHOUSE_PROVIDER_ENSURE_SESSION_COLUMNS=true` for API serving pods and `CLICKHOUSE_ENSURE_SESSION_COLUMNS=true` for storage jobs during the transition to feed/session/canonical-aware rows. New deployments create `feed_profile`, `market_session`, `price_adjustment`, and `canonical_version` in the primary schema. Existing ClickHouse volumes can add the columns idempotently, but preserving multiple feed/session rows after merges requires rebuilding old tables with the new `ORDER BY` definition. Keep `CLICKHOUSE_REQUIRE_CANONICAL_CANDLES=true` so chart serving excludes legacy/raw/unknown candles.
+Use schema-ensure flags only in an explicit migration/maintenance job. New
+deployments create `feed_profile`, `market_session`, `price_adjustment`, and
+`canonical_version`; fresh `chart_candles` sorting keys also include the latter
+two. Existing tables require a reviewed table-copy migration for a key upgrade.
+Czardas freshness and inference readers always construct a DDL-disabled provider,
+even if a legacy API environment flag is accidentally true. Keep
+`CLICKHOUSE_REQUIRE_CANONICAL_CANDLES=true` so chart serving excludes
+legacy/raw/unknown candles.
 
 Keep `CLICKHOUSE_ENSURE_SCHEMA_ON_START=false` for normal API, worker, and
 cache rebuild pods. Schema DDL should run as an explicit migration/maintenance
@@ -786,19 +794,22 @@ server refresh only asks Yahoo whether newer data is available.
 
 GapFill and chart-analysis readiness share one year-aware US equity calendar to avoid false gaps on weekends, regular holidays, exceptional full-day closures, and early closes. `MARKET_CLOSED_DATES` remains an additive emergency override. Set `MARKET_INCLUDE_DEFAULT_US_EQUITY_HOLIDAYS=false` only for a test that intentionally disables built-in rules. The v1 provider is `configured-nyse`; it is an adapter boundary that can later be replaced by a managed exchange-calendar provider. Sunday `20:00 ET` through Friday `20:00 ET` is treated as the 24/5 equity window, with BOATS active only for the `overnight` slices. Intraday chart serving keeps historical views regular-session-only and allows the currently active `pre`, `after`, or `overnight` session to appear while it is live. Intraday chart renderability treats sparse gaps as blocking only when both candles are inside the regular session; sparse extended-hours 1m bars can still render because Alpaca may only emit bars for minutes with activity.
 
-Chart Geometry repair는 trigger-only다. ClickHouse를 감사하고 Alpaca historical
-API로 정확한 누락 range만 보충한다. S3, Redis, Kafka를 사용하지 않는다.
+Czardas repair는 수동 build에서만 실행한다. ClickHouse를 감사하고 Alpaca historical
+API로 정확한 누락 range만 보충한 뒤 canonical rows를 다시 읽는다. S3, Redis,
+Kafka를 사용하지 않는다. 최대 8 range·2 round는 code-owned v1 계약이며 환경변수로
+별도 engine 동작 분기를 만들지 않는다.
 
 ```text
-CHART_ASSET_REPAIR_ENABLED
-CHART_ASSET_REPAIR_ALPACA_ENABLED
-CHART_ASSET_REPAIR_CONCURRENCY
-CHART_ASSET_REPAIR_MAX_RANGES
-CHART_ASSET_STORAGE_MAINTENANCE
+ALPACA_CREDENTIAL_SOURCE
+ALPACA_SECRET_NAME
+APCA_API_KEY_ID
+APCA_API_SECRET_KEY
 ```
 
-Asset payload와 build queue는 PostgreSQL만 사용한다. Maintenance mode는 asset GET을
-유지하면서 build/delete를 일시 거부한다.
+로컬 Compose는 `local-env`와 untracked `.env`의 canonical `APCA_*` 두 값을 사용한다.
+AWS/EKS는 `aws-secrets-manager`, IRSA, `dev/alpaca`를 사용하며 Kubernetes Alpaca
+Secret을 필수로 요구하지 않는다. Asset payload와 build queue는 PostgreSQL
+`chart_assets.czardas_*`만 사용한다.
 
 ```text
 MARKET_CALENDAR_PROVIDER

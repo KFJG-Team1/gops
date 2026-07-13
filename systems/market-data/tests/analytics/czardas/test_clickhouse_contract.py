@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from alfaka.analytics.czardas.data import CzardasCandleLoader
 from alfaka.serving.clickhouse_provider import ClickHouseMarketDataProvider
 
 
@@ -28,3 +29,18 @@ def test_czardas_sql_eligibility_is_explicit_when_serving_flag_is_disabled(monke
     assert "bucket_policy = {bucketPolicy:String}" in provider.query
     assert provider.params["limit"] == 240
     assert provider.params["bucketPolicy"] == "us_equity_regular_session"
+
+
+def test_czardas_identity_reader_never_runs_schema_ddl(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_PROVIDER_ENSURE_SESSION_COLUMNS", "true")
+    calls = []
+    monkeypatch.setattr(
+        ClickHouseMarketDataProvider,
+        "ensure_market_data_schema",
+        lambda self: calls.append(self),
+    )
+
+    loader = CzardasCandleLoader()
+
+    assert isinstance(loader.provider, ClickHouseMarketDataProvider)
+    assert calls == []

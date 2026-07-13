@@ -56,11 +56,9 @@ def detect_hlines(
             if len({item.cluster_id for item in contributors}) < 2:
                 continue
             origin_seed = sorted(contributors, key=lambda item: (item.confirmed_index, item.basis_id))[:2]
-            first_seen_index = max(item.confirmed_index for item in origin_seed)
             origin_ids = tuple(item.basis_id for item in origin_seed)
             mode_id = stable_hash(
-                "hmode", tape.symbol, tape.interval, role,
-                tape.candles[first_seen_index].timestamp, low, high, origin_ids,
+                "hmode", tape.symbol, tape.interval, role, origin_ids,
             )
             atr_values = [
                 features.atr_scale(index, tape.candles[index].close)
@@ -80,17 +78,17 @@ def detect_hlines(
             refined = _refine_mode(tape, features, episodes, role, mode_id, config)
             if refined is None:
                 modes.append(_field_mode(
-                    tape, mode_id, role, first_seen_index, origin_ids, center, zone, low, high,
+                    tape, mode_id, role, origin_ids, center, zone, low, high,
                     contributors, episodes, "weak", provisional_atr,
                 ))
                 continue
             final_center, final_zone, final_episodes, dispersion = refined
-            revision_index = max(item.confirmed_index for item in final_episodes)
+            fit_confirmed_index = max(item.confirmed_index for item in final_episodes)
             formation_start = min(item.observed_from_index for item in final_episodes)
             formation_end = max(item.observed_to_index for item in final_episodes)
             probe = LineProbe(role, 0.0, final_center, 0, final_zone)
             integrity, body_integrity, close_integrity, _, _ = integrity_for_domain(
-                tape, features, probe, formation_start, revision_index, config
+                tape, features, probe, 0, len(tape.candles) - 1, config
             )
             rejection_mean = math.fsum(item.rejection for item in final_episodes) / len(final_episodes)
             contribution_basis = [basis_by_id[item.contribution_basis_id] for item in final_episodes]
@@ -108,38 +106,40 @@ def detect_hlines(
                 len(final_episodes) >= 2
                 and span >= 20
                 and rejection_mean >= 0.35
-                and final_zone <= config.max_zone_atr * _candidate_median_atr(tape, features, formation_start, revision_index)
+                and final_zone <= config.max_zone_atr * _candidate_median_atr(tape, features, formation_start, fit_confirmed_index)
                 and seed_quality >= 0.45
             )
-            opposed = body_integrity < 0.70 or has_open_break(tape, features, probe, revision_index, config)
+            opposed = body_integrity < 0.70 or has_open_break(tape, features, probe, len(tape.candles) - 1, config)
             state = "coherent" if geometry_ok and not opposed else "opposed" if geometry_ok else "weak"
             opposition = clamp(0.5 * (1 - body_integrity) + 0.5 * (1 - close_integrity))
-            modes.append(_field_mode(
-                tape, mode_id, role, first_seen_index, origin_ids, final_center, final_zone, low, high,
+            mode = _field_mode(
+                tape, mode_id, role, origin_ids, final_center, final_zone, low, high,
                 contributors, final_episodes, state, provisional_atr, opposition, dispersion,
-            ))
+            )
+            modes.append(mode)
             if state != "coherent":
                 continue
             initial = tuple(item.episode_id for item in sorted(final_episodes, key=lambda item: (item.confirmed_index, item.episode_id))[:2])
             initial_episodes = [item for item in final_episodes if item.episode_id in initial]
-            lineage_formed = max(item.confirmed_index for item in initial_episodes)
             candidate_id = stable_hash(tape.symbol, tape.interval, "hline", role, "initial", initial)
-            interactions = evaluate_interactions(tape, features, probe, candidate_id, 1, revision_index, span, config)
-            if any(item.outcome == "confirmed_break" for item in interactions):
-                continue
+            interactions = evaluate_interactions(tape, features, probe, candidate_id, fit_confirmed_index, span, config)
             confluence = profile_confluence(profile, final_center, final_zone)
             persistence = clamp(span / 96.0, 0.25, 1.0)
             rank_score, _, _ = boundary_rank(
                 seed_quality, integrity, persistence, interactions, profile_confluence=confluence
             )
-            lifecycle = "verified" if any(item.outcome == "verified_response" for item in interactions) else "formed"
+            evidence_state = "response_supported" if any(item.outcome == "supported_response" for item in interactions) else "formed"
             candidates.append(BoundaryCandidate(
-                candidate_id, 1, "hline", role, lifecycle, mode_id, 1,
-                0.0, formation_start, final_center, final_center, final_zone,
-                formation_start, formation_end, initial, tuple(item.episode_id for item in final_episodes),
-                lineage_formed, revision_index, seed_quality, integrity, body_integrity, close_integrity,
-                persistence, interactions, confluence, rank_score,
-                (), tuple(final_episodes),
+                candidate_id=candidate_id, kind="hline", role=role, evidence_state=evidence_state,
+                source_field_mode_id=mode_id, source_field_derivation_digest=mode.derivation_digest,
+                slope_per_bar=0.0, index_origin=formation_start, intercept_at_origin=final_center,
+                price_at_as_of=final_center, zone_half_width=final_zone,
+                observed_from_index=formation_start, observed_to_index=formation_end,
+                initial_episode_ids=initial, fit_episode_ids=tuple(item.episode_id for item in final_episodes),
+                fit_evidence_confirmed_index=fit_confirmed_index, seed_quality=seed_quality, integrity=integrity,
+                body_integrity=body_integrity, close_integrity=close_integrity, persistence=persistence,
+                interactions=interactions, profile_confluence=confluence, rank_score=rank_score,
+                reject_reasons=(), fit_episodes=tuple(final_episodes),
             ))
     return DetectorResult(
         tuple(_dedupe_candidates(candidates, tape, features)),
@@ -175,7 +175,12 @@ def _local_ridges(segments):
         low, high, mass, active = segments[index]
         end = index
         contributors = set(active)
-        while end + 1 < len(segments) and abs(segments[end + 1][2] - mass) <= 1e-12 and segments[end + 1][0] == segments[end][1]:
+        while (
+            end + 1 < len(segments)
+            and abs(segments[end + 1][2] - mass) <= 1e-12
+            and segments[end + 1][0] == segments[end][1]
+            and set(segments[end][3]).intersection(segments[end + 1][3])
+        ):
             end += 1
             high = segments[end][1]
             contributors.update(segments[end][3])
@@ -204,11 +209,11 @@ def _refine_mode(tape, features, episodes, role, mode_id, config):
     values = [(clamp(item.contribution_price, low, high), item.contribution_mass, item.episode_id) for item in selected]
     center = weighted_median(values)
     start = min(item.observed_from_index for item in selected)
-    revision = max(item.confirmed_index for item in selected)
-    atr = _candidate_median_atr(tape, features, start, revision)
+    fit_confirmed = max(item.confirmed_index for item in selected)
+    atr = _candidate_median_atr(tape, features, start, fit_confirmed)
     residual_floor = weighted_quantile([(abs(value - center), weight, stable_id) for value, weight, stable_id in values], 0.80)
     zone = max(
-        2 * max(0.01, tape.candles[revision].close * 1e-6),
+        2 * max(0.01, tape.candles[fit_confirmed].close * 1e-6),
         min(config.max_zone_atr * atr, max(config.touch_tolerance_atr * atr, 1.4826 * weighted_mad(values, center), residual_floor)),
     )
     if not all(item.corridor_low <= center + zone and item.corridor_high >= center - zone for item in selected):
@@ -223,24 +228,28 @@ def _candidate_median_atr(tape, features, start, end):
 
 
 def _field_mode(
-    tape, mode_id, role, first_seen_index, origin_ids, center, zone, low, high, contributors, episodes, state, atr,
+    tape, mode_id, role, origin_ids, center, zone, low, high, contributors, episodes, state, atr,
     opposition=0.0, dispersion=0.0,
 ):
+    contributor_ids = tuple(sorted(item.basis_id for item in contributors))
+    episode_ids = tuple(item.episode_id for item in episodes)
+    support_mass = math.fsum(item.contribution_mass for item in episodes) if episodes else math.fsum(item.role_mass for item in contributors)
+    derivation = stable_hash("hmode-derivation", mode_id, contributor_ids, episode_ids, center, zone, low, high, support_mass, opposition)
     return FieldMode(
-        mode_id, 1, "hline", role, state, "refined" if episodes else "provisional",
-        tape.candles[first_seen_index].timestamp,
-        center, center, zone, low, high,
-        math.fsum(item.contribution_mass for item in episodes) if episodes else math.fsum(item.role_mass for item in contributors),
-        opposition, dispersion, dispersion,
-        tuple(sorted(item.basis_id for item in contributors)), tuple(item.episode_id for item in episodes),
-        (), tuple(origin_ids),
+        field_mode_id=mode_id, derivation_digest=derivation, kind="hline", role=role,
+        mode_state=state, geometry_state="refined" if episodes else "provisional",
+        center_start=center, center_end=center, zone_half_width=zone, ridge_low=low, ridge_high=high,
+        support_mass=support_mass, opposition_mass=opposition,
+        dispersion_start_atr=dispersion, dispersion_end_atr=dispersion,
+        contributor_basis_ids=contributor_ids, episode_ids=episode_ids,
+        representative_hypotheses=(), origin_seed_basis_ids=tuple(origin_ids),
     )
 
 
 def _dedupe_candidates(candidates, tape, features):
     winners = []
-    for candidate in sorted(candidates, key=lambda item: (-item.rank_score, item.lineage_formed_index, item.candidate_id)):
-        atr = features.atr_scale(candidate.revision_formed_index, tape.candles[candidate.revision_formed_index].close)
+    for candidate in sorted(candidates, key=lambda item: (-item.rank_score, item.fit_evidence_confirmed_index, item.candidate_id)):
+        atr = features.atr_scale(candidate.fit_evidence_confirmed_index, tape.candles[candidate.fit_evidence_confirmed_index].close)
         if any(existing.role == candidate.role and abs(existing.price_at_as_of - candidate.price_at_as_of) <= 0.35 * atr for existing in winners):
             continue
         winners.append(candidate)

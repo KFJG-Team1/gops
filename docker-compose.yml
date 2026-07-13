@@ -1070,44 +1070,6 @@ services:
       - data_net
       - streaming_net
 
-  chart-asset-builder:
-    image: gops-agent-orchestrator
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.gops-agent-orchestrator
-    container_name: alfaka-chart-asset-builder
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    environment:
-      CLICKHOUSE_HTTP_URL: "http://clickhouse:8123"
-      CLICKHOUSE_DATABASE: "market_data"
-      CLICKHOUSE_USER: "alfaka"
-      CLICKHOUSE_PASSWORD: "alfaka"
-      DATABASE_URL: "postgresql://gops:${POSTGRES_PASSWORD:-gops_dev_password}@postgres:5432/gops"
-      CHART_ASSET_STORAGE_MAINTENANCE: "${CHART_ASSET_STORAGE_MAINTENANCE:-false}"
-      CHART_ASSET_BUILD_CONCURRENCY: "${CHART_ASSET_BUILD_CONCURRENCY:-4}"
-      CHART_ASSET_REPAIR_ENABLED: "${CHART_ASSET_REPAIR_ENABLED:-true}"
-      CHART_ASSET_REPAIR_ALPACA_ENABLED: "${CHART_ASSET_REPAIR_ALPACA_ENABLED:-true}"
-      CHART_ASSET_REPAIR_CONCURRENCY: "${CHART_ASSET_REPAIR_CONCURRENCY:-2}"
-      CHART_ASSET_REPAIR_MAX_RANGES: "${CHART_ASSET_REPAIR_MAX_RANGES:-8}"
-      MARKET_CALENDAR_PROVIDER: "configured-nyse"
-      MARKET_TIMEZONE: "America/New_York"
-      MARKET_OPEN_TIME: "09:30"
-      MARKET_CLOSE_TIME: "16:00"
-      MARKET_CLOSED_DATES: "${MARKET_CLOSED_DATES:-}"
-      MARKET_INCLUDE_DEFAULT_US_EQUITY_HOLIDAYS: "${MARKET_INCLUDE_DEFAULT_US_EQUITY_HOLIDAYS:-true}"
-      MARKET_EARLY_CLOSES: "${MARKET_EARLY_CLOSES:-}"
-      HISTORICAL_ADJUSTMENT: "split"
-      ALLOW_NON_CANONICAL_HISTORICAL_ADJUSTMENT: "false"
-      CLICKHOUSE_REQUIRE_CANONICAL_CANDLES: "true"
-    command: ["python", "-u", "/app/systems/agent-orchestration/pods/chart-asset-builder/main.py"]
-    restart: unless-stopped
-    networks:
-      - data_net
-
   czardas-asset-builder:
     image: gops-agent-orchestrator
     build:
@@ -1119,6 +1081,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      czardas-asset-migrations:
+        condition: service_completed_successfully
     environment:
       CLICKHOUSE_HTTP_URL: "http://clickhouse:8123"
       CLICKHOUSE_DATABASE: "market_data"
@@ -1127,8 +1091,9 @@ services:
       DATABASE_URL: "postgresql://gops:${POSTGRES_PASSWORD:-gops_dev_password}@postgres:5432/gops"
       HISTORICAL_ADJUSTMENT: "split"
       ALLOW_NON_CANONICAL_HISTORICAL_ADJUSTMENT: "false"
-      ALPACA_API_KEY: "${ALPACA_API_KEY:-}"
-      ALPACA_SECRET_KEY: "${ALPACA_SECRET_KEY:-}"
+      ALPACA_CREDENTIAL_SOURCE: "local-env"
+      APCA_API_KEY_ID: "${APCA_API_KEY_ID:-}"
+      APCA_API_SECRET_KEY: "${APCA_API_SECRET_KEY:-}"
       ALPACA_FEED: "${ALPACA_FEED:-sip}"
       HISTORICAL_FEED: "${HISTORICAL_FEED:-sip}"
     command: ["python", "-u", "/app/systems/agent-orchestration/pods/czardas-asset-builder/main.py"]
@@ -1136,20 +1101,18 @@ services:
     networks:
       - data_net
 
-  chart-asset-migrations:
-    profiles: ["chart-assets-pg"]
+  czardas-asset-migrations:
     image: gops-agent-orchestrator
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.gops-agent-orchestrator
-    container_name: alfaka-chart-asset-migrations
+    container_name: alfaka-czardas-asset-migrations
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://gops:${POSTGRES_PASSWORD:-gops_dev_password}@postgres:5432/gops"
-      CHART_ASSET_STORAGE_MAINTENANCE: "${CHART_ASSET_STORAGE_MAINTENANCE:-false}"
-    command: ["python", "-u", "/app/systems/agent-orchestration/jobs/chart-asset-migrations/main.py"]
+    command: ["python", "-u", "/app/systems/agent-orchestration/jobs/czardas-asset-migrations/main.py"]
     restart: "no"
     networks:
       - data_net
@@ -1498,8 +1461,6 @@ services:
         condition: service_started
       agent-analysis-worker:
         condition: service_started
-      chart-asset-builder:
-        condition: service_started
       czardas-asset-builder:
         condition: service_started
     environment:
@@ -1519,7 +1480,6 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
       GOOGLE_OAUTH_SECRET_NAME: "${GOOGLE_OAUTH_SECRET_NAME:-}"
       DATABASE_URL: "postgresql://gops:${POSTGRES_PASSWORD:-gops_dev_password}@postgres:5432/gops"
-      CHART_ASSET_STORAGE_MAINTENANCE: "${CHART_ASSET_STORAGE_MAINTENANCE:-false}"
       AGENT_ORCHESTRATOR_URL: "http://agent-orchestrator:8100"
       AGENT_ASYNC_ANALYSIS_ENABLED: "${AGENT_ASYNC_ANALYSIS_ENABLED:-true}"
       AGENT_SYNC_COMPAT_WAIT_ENABLED: "${AGENT_SYNC_COMPAT_WAIT_ENABLED:-false}"

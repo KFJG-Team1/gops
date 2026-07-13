@@ -67,8 +67,15 @@ Expected version: `3.12.x`.
 ## 4. Start Docker
 
 ```sh
-docker compose --env-file .env up -d --build
+docker compose --env-file .env up -d --build --remove-orphans
 ```
+
+Default startup includes the one-shot `czardas-asset-migrations` service.
+`czardas-asset-builder` waits for that service to apply only
+`004_czardas_assets.sql` successfully; no extra profile or manual schema command
+is required. The migration is additive and never touches legacy Geometry data.
+`--remove-orphans` retires containers for deleted services such as the old
+Geometry worker without deleting Postgres or ClickHouse volumes.
 
 Open:
 
@@ -127,7 +134,9 @@ It must never print secret values.
 | Symptom | Check |
 | --- | --- |
 | Docker services do not start | Confirm Docker Desktop is running and required ports are free. |
-| Backend cannot read Alpaca credentials | Check AWS keys and the `dev/alpaca` secret JSON shape. |
+| Czardas repair reports `credentials_missing` | Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` directly in the untracked `.env`; local Czardas does not read `dev/alpaca`. |
+| Other AWS-backed services cannot read Alpaca credentials | Check AWS keys and the `dev/alpaca` secret JSON shape. |
+| Czardas worker reports a missing `czardas_*` table | Confirm the one-shot `czardas-asset-migrations` service completed successfully before the worker started. |
 | S3 write/read fails | Check bucket name, region, IAM permission, and that S3 endpoint values are empty for real AWS. |
 | Chart has no candles | Run the `repair` profile dry-run, then queue missing backfills if needed. |
 | Live stream shows idle | This can mean WebSocket is connected but no current market data is arriving yet. Stored candles should still render. |

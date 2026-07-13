@@ -32,10 +32,7 @@ def detect_trends(
             item for item in all_basis
             if item.role == role and (item.effective_scale >= 5 or item.geometry_score >= 0.75)
         ]
-        anchors = sorted(anchors, key=lambda item: (-item.bar_index, -item.confirmed_index, item.cluster_id))[
-            :config.trend_anchor_cap_per_side
-        ]
-        anchors.sort(key=lambda item: (item.bar_index, item.basis_id))
+        anchors = _stratified_anchors(anchors, len(tape.candles), config.trend_anchor_cap_per_side)
         retained.extend(anchors)
         if len(anchors) < 2:
             continue
@@ -64,8 +61,7 @@ def detect_trends(
         for group in groups:
             medoid = _weighted_medoid(group, dual_scale)
             mode_id = stable_hash(
-                "tmode", tape.symbol, tape.interval, role,
-                tape.candles[medoid["confirmedIndex"]].timestamp, medoid["hypothesisId"],
+                "tmode", tape.symbol, tape.interval, role, medoid["hypothesisId"],
             )
             medoid_slope = (medoid["yAtWindowEnd"] - medoid["yAtWindowStart"]) / (len(tape.candles) - 1)
             medoid_probe = LineProbe(role, medoid_slope, medoid["yAtWindowStart"], 0, max(0.01, 0.25 * dual_scale))
@@ -102,9 +98,9 @@ def detect_trends(
             ]
             seed = weighted_quantile(residuals, 0.20 if role == "lower" else 0.80)
             start = min(item.observed_from_index for item in episodes)
-            revision = max(item.confirmed_index for item in episodes)
-            candidate_atr = _median_atr(tape, features, start, revision)
-            zone = max(2 * max(0.01, tape.candles[revision].close * 1e-6), config.touch_tolerance_atr * candidate_atr)
+            fit_confirmed_index = max(item.confirmed_index for item in episodes)
+            candidate_atr = _median_atr(tape, features, start, fit_confirmed_index)
+            zone = max(2 * max(0.01, tape.candles[fit_confirmed_index].close * 1e-6), config.touch_tolerance_atr * candidate_atr)
             lower_bound, upper_bound = seed - config.max_zone_atr * candidate_atr, seed + config.max_zone_atr * candidate_atr
             intercepts = {lower_bound, upper_bound}
             for residual, _weight, _id in residuals:
@@ -113,8 +109,8 @@ def detect_trends(
             scored = []
             for intercept in sorted(set(intercepts)):
                 probe = LineProbe(role, slope, intercept, 0, zone)
-                integrity, body_integrity, close_integrity, _, _ = integrity_for_domain(
-                    tape, features, probe, start, revision, config
+                fit_integrity, fit_body_integrity, fit_close_integrity, _, _ = integrity_for_domain(
+                    tape, features, probe, start, fit_confirmed_index, config
                 )
                 anchor_loss = math.fsum(
                     item.contribution_mass * huber(
@@ -123,9 +119,15 @@ def detect_trends(
                     )
                     for item in episodes
                 ) / math.fsum(item.contribution_mass for item in episodes)
-                scored.append((anchor_loss + (1.0 - integrity), abs(intercept - seed), intercept, integrity, body_integrity, close_integrity))
-            _loss, _seed_distance, intercept, integrity, body_integrity, close_integrity = min(scored)
+                scored.append((
+                    anchor_loss + (1.0 - fit_integrity), abs(intercept - seed), intercept,
+                    fit_body_integrity, fit_close_integrity,
+                ))
+            _loss, _seed_distance, intercept, _fit_body_integrity, _fit_close_integrity = min(scored)
             probe = LineProbe(role, slope, intercept, 0, zone)
+            integrity, body_integrity, close_integrity, _, _ = integrity_for_domain(
+                tape, features, probe, 0, len(tape.candles) - 1, config
+            )
             corridors_ok = all(
                 _basis_corridor_distance(by_id[item.contribution_basis_id], probe.price(item.observed_from_index))
                 <= config.trend_hypothesis_mode_tolerance_atr
@@ -157,33 +159,35 @@ def detect_trends(
             opposed = (
                 body_integrity < 0.75
                 or close_integrity < 0.85
-                or has_open_break(tape, features, probe, revision, config)
+                or has_open_break(tape, features, probe, len(tape.candles) - 1, config)
             )
             state = "coherent" if geometry_ok and not opposed else "opposed" if geometry_ok else "weak"
             opposition = clamp(0.5 * (1.0 - body_integrity) + 0.5 * (1.0 - close_integrity))
-            modes.append(_trend_mode(
+            mode = _trend_mode(
                 tape, mode_id, role, medoid, group, compatible, episodes, state, dual_scale,
                 probe=probe, opposition=opposition,
-            ))
+            )
+            modes.append(mode)
             if state != "coherent":
                 continue
             initial = tuple(item.episode_id for item in sorted(episodes, key=lambda item: (item.confirmed_index, item.episode_id))[:2])
             initial_episodes = [item for item in episodes if item.episode_id in initial]
-            lineage_formed = max(item.confirmed_index for item in initial_episodes)
             candidate_id = stable_hash(tape.symbol, tape.interval, "trend", role, "initial", initial)
-            interactions = evaluate_interactions(tape, features, probe, candidate_id, 1, revision, span, config)
-            if any(item.outcome == "confirmed_break" for item in interactions):
-                continue
+            interactions = evaluate_interactions(tape, features, probe, candidate_id, fit_confirmed_index, span, config)
             persistence = clamp(span / 96.0, 0.25, 1.0)
             rank_score, _, _ = boundary_rank(seed_quality, integrity, persistence, interactions)
-            lifecycle = "verified" if any(item.outcome == "verified_response" for item in interactions) else "formed"
+            evidence_state = "response_supported" if any(item.outcome == "supported_response" for item in interactions) else "formed"
             candidates.append(BoundaryCandidate(
-                candidate_id, 1, "trend", role, lifecycle, mode_id, 1,
-                slope, start, probe.price(start), probe.price(len(tape.candles) - 1), zone,
-                start, max(item.observed_to_index for item in episodes), initial, tuple(item.episode_id for item in episodes),
-                lineage_formed, revision, seed_quality, integrity, body_integrity, close_integrity,
-                persistence, interactions, None, rank_score,
-                (), tuple(episodes),
+                candidate_id=candidate_id, kind="trend", role=role, evidence_state=evidence_state,
+                source_field_mode_id=mode_id, source_field_derivation_digest=mode.derivation_digest,
+                slope_per_bar=slope, index_origin=start, intercept_at_origin=probe.price(start),
+                price_at_as_of=probe.price(len(tape.candles) - 1), zone_half_width=zone,
+                observed_from_index=start, observed_to_index=max(item.observed_to_index for item in episodes),
+                initial_episode_ids=initial, fit_episode_ids=tuple(item.episode_id for item in episodes),
+                fit_evidence_confirmed_index=fit_confirmed_index, seed_quality=seed_quality, integrity=integrity,
+                body_integrity=body_integrity, close_integrity=close_integrity, persistence=persistence,
+                interactions=interactions, profile_confluence=None, rank_score=rank_score,
+                reject_reasons=(), fit_episodes=tuple(episodes),
             ))
     return DetectorResult(tuple(_dedupe(candidates, tape, features)), tuple(modes), tuple(retained))
 
@@ -235,22 +239,49 @@ def _trend_mode(
     start_disp = weighted_mad(start_values) / max(dual_scale, 1e-12)
     end_disp = weighted_mad(end_values) / max(dual_scale, 1e-12)
     representative = sorted(group, key=lambda item: (-item["seedMass"], item["hypothesisId"]))[:3]
-    return FieldMode(
-        mode_id, 1, "trend", role, state, "refined" if episodes else "provisional",
-        tape.candles[medoid["confirmedIndex"]].timestamp,
-        y0, y_end, probe.zone if probe else 0.25 * dual_scale, None, None,
-        math.fsum(item.contribution_mass for item in episodes) if episodes else math.fsum(item.role_mass for item in compatible),
-        opposition, start_disp, end_disp,
-        tuple(item.basis_id for item in compatible), tuple(item.episode_id for item in episodes),
-        tuple({
+    contributor_ids = tuple(sorted(item.basis_id for item in compatible))
+    episode_ids = tuple(item.episode_id for item in episodes)
+    support_mass = math.fsum(item.contribution_mass for item in episodes) if episodes else math.fsum(item.role_mass for item in compatible)
+    hypotheses = tuple({
             "hypothesisId": item["hypothesisId"],
             "sourceBasisIds": list(item["sourceBasisIds"]),
             "yAtWindowStart": item["yAtWindowStart"],
             "yAtWindowEnd": item["yAtWindowEnd"],
             "seedMass": item["seedMass"],
-        } for item in representative),
-        tuple(medoid["sourceBasisIds"]),
+        } for item in representative)
+    derivation = stable_hash(
+        "tmode-derivation", mode_id, contributor_ids, episode_ids, y0, y_end,
+        probe.zone if probe else 0.25 * dual_scale, support_mass, opposition, hypotheses,
     )
+    return FieldMode(
+        field_mode_id=mode_id, derivation_digest=derivation, kind="trend", role=role,
+        mode_state=state, geometry_state="refined" if episodes else "provisional",
+        center_start=y0, center_end=y_end, zone_half_width=probe.zone if probe else 0.25 * dual_scale,
+        ridge_low=None, ridge_high=None, support_mass=support_mass, opposition_mass=opposition,
+        dispersion_start_atr=start_disp, dispersion_end_atr=end_disp,
+        contributor_basis_ids=contributor_ids, episode_ids=episode_ids,
+        representative_hypotheses=hypotheses, origin_seed_basis_ids=tuple(medoid["sourceBasisIds"]),
+    )
+
+
+def _stratified_anchors(anchors, candle_count, cap):
+    """Keep structural coverage across the current snapshot, not just recent endpoints."""
+    if cap <= 0:
+        return []
+    ordered = sorted(
+        anchors,
+        key=lambda item: (-item.geometry_score, -item.effective_scale, -item.bar_index, item.basis_id),
+    )
+    strata = 3
+    per_stratum = min(4, max(1, cap // strata))
+    chosen = []
+    for stratum in range(strata):
+        start = stratum * candle_count // strata
+        end = (stratum + 1) * candle_count // strata
+        values = [item for item in ordered if start <= item.bar_index < end]
+        for item in values[:per_stratum]:
+            chosen.append(item)
+    return sorted(chosen[:cap], key=lambda item: (item.bar_index, item.basis_id))
 
 
 def _median_atr(tape, features, start, end):

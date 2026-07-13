@@ -41,22 +41,13 @@ class CzardasBuildEnvelope:
             force=bool(force),
         )
 
-    @property
-    def symbols(self) -> tuple[str, ...]:
-        return (self.symbol,)
-
-    @property
-    def intervals(self) -> tuple[str, ...]:
-        return (self.interval,)
-
     def to_dict(self) -> dict[str, Any]:
         return {
-            "assetKind": "czardas",
             "jobId": self.job_id,
             "requestedBy": self.requested_by,
             "submittedAt": self.submitted_at,
-            "symbols": [self.symbol],
-            "intervals": [self.interval],
+            "symbol": self.symbol,
+            "interval": self.interval,
             "force": self.force,
         }
 

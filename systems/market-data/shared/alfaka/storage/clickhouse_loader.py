@@ -905,10 +905,9 @@ class ClickHouseHttpClient:
             "ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment, "
             "ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT 'clock_aligned' AFTER canonical_version"
         )
-        self.execute(
-            f"ALTER TABLE {chart_candles} MODIFY ORDER BY "
-            "(symbol, interval, event_time, feed_profile, market_session, bucket_policy)"
-        )
+        # Sorting-key changes require an explicit operator migration. Runtime
+        # schema bootstrap only adds compatible columns and never rewrites the
+        # identity of an existing chart_candles table.
         # Crypto 체결 수량과 거래량은 0.013 BTC처럼 소수일 수 있어서 Float64로 보정합니다.
         for table, column, column_type in (
             ("trade_ticks", "size", "Nullable(Float64)"),

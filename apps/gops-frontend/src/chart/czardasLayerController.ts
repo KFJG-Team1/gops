@@ -21,7 +21,9 @@ export function czardasDeltaCommands(
 ): ChartCommand[] {
   const current = currentDrawings.filter(isManagedCzardasDrawing);
   const currentById = new Map(current.map((drawing) => [drawing.id, drawing]));
-  const suppressed = new Set(suppressions.map((item) => item.sourceCandidateId));
+  const suppressed = new Set(suppressions.flatMap((item) => (
+    item.sourceKind === "candidate" ? [item.sourceCandidateId ?? item.sourceId] : []
+  )));
   const desired = (pack?.drawings ?? []).filter((drawing) => (
     drawing.sourceCandidateId && !suppressed.has(drawing.sourceCandidateId)
   )).map((drawing) => ({
@@ -50,7 +52,14 @@ export function czardasDeltaCommands(
           anchors: drawing.anchors,
           style: drawing.style,
           label: drawing.label,
-          visible: drawing.visible
+          visible: drawing.visible,
+          czardasLayer: drawing.czardasLayer,
+          sourceInferenceId: drawing.sourceInferenceId,
+          sourceCandidateId: drawing.sourceCandidateId,
+          sourceFieldModeId: drawing.sourceFieldModeId,
+          sourceFieldDerivationDigest: drawing.sourceFieldDerivationDigest,
+          sourceGroupId: drawing.sourceGroupId,
+          updatedAt: drawing.updatedAt
         }
       }));
     }
@@ -80,8 +89,55 @@ export function czardasToggleCommands(
     }));
 }
 
+export function czardasRestoreCommands(
+  target: Target,
+  suppressions: CzardasSuppression[],
+  pack: CzardasPackContent | null
+): ChartCommand[] {
+  if (!pack || !suppressions.length) return [];
+  const activeCandidates = new Set(pack.drawings.flatMap((drawing) => (
+    drawing.sourceCandidateId ? [drawing.sourceCandidateId] : []
+  )));
+  const activeSetIds = new Set(suppressions.filter((item) => (
+    item.sourceKind === "candidate" && activeCandidates.has(item.sourceCandidateId ?? item.sourceId)
+  )).map((item) => item.suppressionSetId));
+  const commands: ChartCommand[] = [];
+  [...activeSetIds].sort().forEach((setId) => {
+    const members = suppressions.filter((item) => item.suppressionSetId === setId);
+    const group = members.find((item) => item.sourceKind === "group");
+    if (group) {
+      commands.push(makeChartCommand("chart.czardas.restoreManaged", "system", target, {
+        sourceKind: "group",
+        sourceId: group.sourceId,
+        sourceGroupId: group.sourceGroupId ?? group.sourceId
+      }));
+      return;
+    }
+    members.filter((item) => item.sourceKind === "candidate")
+      .sort((left, right) => left.sourceId.localeCompare(right.sourceId))
+      .forEach((item) => commands.push(makeChartCommand("chart.czardas.restoreManaged", "system", target, {
+        sourceKind: "candidate",
+        sourceId: item.sourceId,
+        sourceCandidateId: item.sourceCandidateId ?? item.sourceId
+      })));
+  });
+  return commands;
+}
+
 function drawingDigest(drawing: DrawingEntity): string {
-  return JSON.stringify([drawing.anchors, drawing.style, drawing.label, drawing.visible]);
+  return JSON.stringify([
+    drawing.anchors,
+    drawing.style,
+    drawing.label,
+    drawing.visible,
+    drawing.czardasLayer,
+    drawing.sourceInferenceId,
+    drawing.sourceCandidateId,
+    drawing.sourceFieldModeId,
+    drawing.sourceFieldDerivationDigest,
+    drawing.sourceGroupId,
+    drawing.updatedAt
+  ]);
 }
 
 function external(target: Target, type: ChartCommand["type"], payload: Record<string, unknown>): ChartCommand {

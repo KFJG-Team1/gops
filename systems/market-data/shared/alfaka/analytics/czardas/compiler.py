@@ -8,18 +8,23 @@ from .types import BoundaryCandidate
 
 CLAIMS = {
     ("support", "formed"): "최근 가격대에서 지지 경계가 형성됨",
-    ("support", "verified"): "최근 가격대에서 지지 경계가 형성되고 이후 반응으로 확인됨",
+    ("support", "response_supported"): "최근 가격대에서 지지 경계가 형성되고 독립 반응이 뒷받침함",
     ("resistance", "formed"): "최근 가격대에서 저항 경계가 형성됨",
-    ("resistance", "verified"): "최근 가격대에서 저항 경계가 형성되고 이후 반응으로 확인됨",
+    ("resistance", "response_supported"): "최근 가격대에서 저항 경계가 형성되고 독립 반응이 뒷받침함",
     ("lower", "formed"): "최근 저점들이 하단 추세 경계를 형성함",
-    ("lower", "verified"): "최근 저점들이 하단 추세 경계를 형성하고 이후 반응으로 확인됨",
+    ("lower", "response_supported"): "최근 저점들이 하단 추세 경계를 형성하고 독립 반응이 뒷받침함",
     ("upper", "formed"): "최근 고점들이 상단 추세 경계를 형성함",
-    ("upper", "verified"): "최근 고점들이 상단 추세 경계를 형성하고 이후 반응으로 확인됨",
+    ("upper", "response_supported"): "최근 고점들이 상단 추세 경계를 형성하고 독립 반응이 뒷받침함",
 }
 
 
-def compile_boundary(tape: CandleTape, features: FeatureTape, candidate: BoundaryCandidate) -> dict:
-    verified = [item for item in candidate.interactions if item.outcome == "verified_response"]
+def compile_boundary(
+    tape: CandleTape,
+    features: FeatureTape,
+    candidate: BoundaryCandidate,
+    inference_id: str,
+) -> dict:
+    responses = [item for item in candidate.interactions if item.outcome == "supported_response"]
     current_index = len(tape.candles) - 1
     current_atr = features.atr_scale(current_index, tape.candles[-1].close)
     current_distance_atr = abs(candidate.price_at_as_of - tape.candles[-1].close) / current_atr
@@ -27,14 +32,13 @@ def compile_boundary(tape: CandleTape, features: FeatureTape, candidate: Boundar
     recent_contact = any(current_index - item.contact_index <= 8 for item in candidate.interactions)
     return {
         "candidateId": candidate.candidate_id,
-        "modelRevision": candidate.model_revision,
-        "originFieldModeId": candidate.source_field_mode_id,
+        "sourceInferenceId": inference_id,
         "sourceFieldModeId": candidate.source_field_mode_id,
-        "sourceFieldRevision": candidate.source_field_revision,
+        "sourceFieldDerivationDigest": candidate.source_field_derivation_digest,
         "kind": candidate.kind,
         "layer": candidate.kind,
         "role": candidate.role,
-        "lifecycle": candidate.lifecycle,
+        "evidenceState": candidate.evidence_state,
         "isRelevantNow": current_distance_atr <= 1.0 or recent_contact,
         "line": {
             "priceSpace": "linear",
@@ -50,26 +54,27 @@ def compile_boundary(tape: CandleTape, features: FeatureTape, candidate: Boundar
             "bars": candidate.observed_to_index - candidate.observed_from_index + 1,
         },
         "formation": {
-            "initialEpisodeIds": list(candidate.initial_episode_ids),
+            "initialFormationEpisodeIds": list(candidate.initial_episode_ids),
+            "fitEpisodeIds": list(candidate.fit_episode_ids),
             "fitCount": len(candidate.fit_episode_ids),
             "lastFitObservedAt": tape.candles[candidate.observed_to_index].timestamp,
+            "fitEvidenceConfirmedAt": tape.candles[candidate.fit_evidence_confirmed_index].timestamp,
             "seedQuality": candidate.seed_quality,
         },
-        "verification": {
-            "completedCount": len(verified),
+        "responses": {
+            "completedCount": len(responses),
             "pendingCount": sum(item.outcome == "response_pending" for item in candidate.interactions),
-            "lastInteractionAt": tape.candles[verified[-1].contact_index].timestamp if verified else None,
+            "lastInteractionAt": tape.candles[responses[-1].contact_index].timestamp if responses else None,
+            "responseMass": sum(item.response_score for item in responses),
         },
-        "lineageFormedAt": tape.candles[candidate.lineage_formed_index].timestamp,
-        "revisionFormedAt": tape.candles[candidate.revision_formed_index].timestamp,
         "normalizedCurrentDistance": normalized_distance,
         "rank": {
             "seedQuality": candidate.seed_quality,
             "integrity": candidate.integrity,
             "persistence": candidate.persistence,
-            "verificationCount": len(verified),
-            "verificationMass": sum(item.response_score for item in verified),
-            "verificationBonus": min(0.10, 0.05 * sum(item.response_score for item in verified)),
+            "responseCount": len(responses),
+            "responseMass": sum(item.response_score for item in responses),
+            "responseBonus": min(0.10, 0.05 * sum(item.response_score for item in responses)),
             "profileBonus": 0.05 * (candidate.profile_confluence or 0.0),
             "rankScore": candidate.rank_score,
         },
@@ -81,7 +86,12 @@ def compile_boundary(tape: CandleTape, features: FeatureTape, candidate: Boundar
     }
 
 
-def compile_drawing(tape: CandleTape, candidate: BoundaryCandidate, triangle: dict | None) -> dict:
+def compile_drawing(
+    tape: CandleTape,
+    candidate: BoundaryCandidate,
+    triangle: dict | None,
+    inference_id: str,
+) -> dict:
     drawing_id = f"czardas:{candidate.candidate_id}:line"
     group_id = triangle["triangleId"] if triangle and candidate.candidate_id in {
         triangle["upperCandidateId"], triangle["lowerCandidateId"]
@@ -110,27 +120,27 @@ def compile_drawing(tape: CandleTape, candidate: BoundaryCandidate, triangle: di
         "ownership": "czardas-managed",
         "czardasLayer": candidate.kind,
         "sourceCandidateId": candidate.candidate_id,
+        "sourceInferenceId": inference_id,
         "sourceFieldModeId": candidate.source_field_mode_id,
-        "sourceFieldRevision": candidate.source_field_revision,
+        "sourceFieldDerivationDigest": candidate.source_field_derivation_digest,
         "sourceGroupId": group_id,
-        "engineRevision": candidate.model_revision,
-        "createdAt": tape.candles[candidate.lineage_formed_index].timestamp,
+        "createdAt": tape.as_of,
         "updatedAt": tape.as_of,
     }
 
 
 def _explanation(candidate):
-    verified = [item for item in candidate.interactions if item.outcome == "verified_response"]
+    responses = [item for item in candidate.interactions if item.outcome == "supported_response"]
     because = [f"독립 형성 {len(candidate.fit_episode_ids)}회"]
-    if verified:
-        because.append(f"형성 이후 반응 {len(verified)}회")
+    if responses:
+        because.append(f"형성 이후 반응 {len(responses)}회")
     if candidate.kind == "hline" and (candidate.profile_confluence or 0) > 0:
         because.append(f"OHLCV 추정 거래량 밀집도 {candidate.profile_confluence:.2f}")
     return {
-        "claim": CLAIMS[(candidate.role, candidate.lifecycle)],
+        "claim": CLAIMS[(candidate.role, candidate.evidence_state)],
         "because": because,
         "against": [],
-        "state": candidate.lifecycle,
+        "state": candidate.evidence_state,
         "invalidationCondition": "경계 반대편 0.25 ATR 초과 종가 이탈 2봉",
         "dataQualifier": "OHLCV 기반 추정 volume-at-price" if candidate.kind == "hline" else "OHLCV 구조적 endpoint",
     }

@@ -1,12 +1,22 @@
 # GOPS Shared Chart Contract
 
-Shared chart-command and chart-analysis-asset contracts for frontend runtime and backend/agent code.
-
-`chart-analysis-asset.schema.json` points to the semantic `geometry` asset stored
-per `(symbol, interval)`. Builders persist complete `DrawingEntity` objects and
-the frontend applies them without a second compiler. Geometry assets support
-`1m`, `5m`, `10m`, `1h`, `4h`, `1D`, `1W`; the general chart can still expose
-other intervals independently.
+Shared chart-command and Czardas pack contracts for frontend runtime and
+backend/agent code. `chart-czardas-pack.schema.json` mirrors the final v2 wire
+shape. The authoritative relational validator is
+`gops_agents.czardas_assets.contract.validate_czardas_pack`; both PostgreSQL
+save and API delivery use that same validator, so schema-valid JSON alone is
+not sufficient to enter or leave storage. Czardas stores one deterministic pack per
+`(symbol, interval)` and the frontend compiles its H-Line, Trend, Triangle
+relation, explanation, and Field without a Geometry compatibility adapter.
+The v2 pack is one present-view interpretation of the completed exact-240
+snapshot. It includes 240 compact candle meanings and revision-free
+`inferenceId`/derivation provenance; it does not transport historical engine
+states or reconstruct what Czardas would have decided at an earlier prefix.
+Its 21 raw-factor and normalized-factor columns use the v2-locked scale 1000
+and are exact 480-byte big-endian `int16` blobs. Its per-candle reason bitset is one exact 960-byte big-endian
+`uint32` blob. The Python validator additionally enforces identity, timestamp,
+selected-mode, Basis/episode, drawing, provenance closure, and the 80/96 KiB limits that JSON Schema
+cannot express reliably.
 
 Chart data storage and transport semantics are defined by
 `docs/CHART_DATA_ARCHITECTURE.md`. This contract covers UI/chart command shape;

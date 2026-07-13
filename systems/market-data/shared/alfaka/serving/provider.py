@@ -249,7 +249,7 @@ def merge_candles(*groups, now=None):
     rows = [candle for group in groups for candle in group if candle]
     intervals = {normalize_chart_interval(row.get("interval", "1m")) for row in rows}
     if rows and len(intervals) == 1 and intervals.issubset({"1D", "1W", "1M"}):
-        from alfaka.analytics.analysis_candles import merge_canonical_candles
+        from alfaka.candles import merge_canonical_candles
         interval = next(iter(intervals))
         classified = []
         for index, group in enumerate(groups):
@@ -286,7 +286,7 @@ def merge_timestamp_key(candle):
         interval = "1m"
     if interval not in {"1D", "1W", "1M"}:
         return timestamp
-    from alfaka.analytics.analysis_candles import canonicalize_candle_identity
+    from alfaka.candles import canonicalize_candle_identity
 
     normalized = canonicalize_candle_identity(candle, interval)
     return normalized.get("timestamp") if normalized else timestamp

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from copy import deepcopy
-
 from .config import CzardasConfig
+from .meaning import CandleMeaningTape
 from .numeric import canonical_digest, canonical_json, median
 from .tape import CandleTape
 from .types import BoundaryCandidate, DetectorResult, FieldMode, RoleBasis
@@ -18,73 +17,153 @@ def build_field_view(
     trend: DetectorResult,
     selected: tuple[BoundaryCandidate, ...],
     relation: dict | None,
+    meanings: CandleMeaningTape,
+    inference_id: str,
     config: CzardasConfig,
 ) -> dict:
-    selected_modes = {(item.source_field_mode_id, item.source_field_revision) for item in selected}
+    selected_modes = {
+        (item.source_field_mode_id, item.source_field_derivation_digest) for item in selected
+    }
     all_basis = _dedupe_basis((*hline.basis, *trend.basis))
     basis_by_id = {item.basis_id: item for item in all_basis}
     required_basis = {
         basis_id
         for mode in (*hline.modes, *trend.modes)
-        if (mode.field_mode_id, mode.field_revision) in selected_modes
-        for basis_id in mode.origin_seed_basis_ids
+        if (mode.field_mode_id, mode.derivation_digest) in selected_modes
+        for basis_id in mode.contributor_basis_ids
     }
     required_basis.update(
+        basis_id
+        for candidate in selected
+        for episode in candidate.fit_episodes
+        for basis_id in episode.member_basis_ids
+    )
+    # The full selected derivation is retained in basisFacts.  Glyphs are the
+    # canonical initial formation contributions actually painted on the chart.
+    priority_glyph_basis = {
         episode.contribution_basis_id
         for candidate in selected
         for episode in candidate.fit_episodes
         if episode.episode_id in candidate.initial_episode_ids
-    )
+    }
     basis_sorted = sorted(all_basis, key=lambda item: (ROLE_ORDER[item.role], -item.role_mass, -item.bar_index, item.basis_id))
-    basis_sorted = _required_first(basis_sorted, required_basis, key=lambda item: item.basis_id)[:64]
-    h_modes = _mode_dtos(tape, hline.modes, selected_modes, all_basis, required_basis)
-    t_modes = _mode_dtos(tape, trend.modes, selected_modes, all_basis, required_basis)
+    basis_sorted = _required_first(basis_sorted, priority_glyph_basis, key=lambda item: item.basis_id)[:max(16, len(priority_glyph_basis))]
+    basis_facts = sorted(
+        (basis_by_id[basis_id] for basis_id in required_basis if basis_id in basis_by_id),
+        key=lambda item: item.basis_id,
+    )
+    basis_fact_index = {item.basis_id: index for index, item in enumerate(basis_facts)}
+    h_modes = _mode_dtos(tape, hline.modes, selected_modes, all_basis, required_basis, basis_fact_index)
+    t_modes = _mode_dtos(tape, trend.modes, selected_modes, all_basis, required_basis, basis_fact_index)
+    eligible_hline_response_segments = [
+        {
+            **item,
+            "windowFromTimestamp": tape.candles[0].timestamp,
+            "windowToTimestamp": tape.candles[-1].timestamp,
+        }
+        for item in sorted(
+            hline.response_segments,
+            key=lambda row: (ROLE_ORDER[row["role"]], row["lowPrice"], row["segmentId"]),
+        )
+        if item["activeBasisCount"] >= 2
+    ]
+    rendered_hline_response_segments = eligible_hline_response_segments[:96]
     selected_refs = [{
         "candidateId": item.candidate_id,
-        "modelRevision": item.model_revision,
+        "sourceInferenceId": inference_id,
         "kind": item.kind,
         "sourceFieldModeId": item.source_field_mode_id,
-        "sourceFieldRevision": item.source_field_revision,
+        "sourceFieldDerivationDigest": item.source_field_derivation_digest,
     } for item in selected]
     validation = []
-    for candidate in selected:
+    derivation_episodes = {
+        "candidateIndexes": [],
+        "candidateEpisodeOrdinals": [],
+        "contributionBasisIndexes": [],
+        "memberBasisIndexes": [],
+        "observedFromIndexes": [],
+        "observedToIndexes": [],
+        "confirmedIndexes": [],
+        "contributionPrices": [],
+        "corridorLows": [],
+        "corridorHighs": [],
+        "initialFormationMasks": [],
+    }
+    for candidate_index, candidate in enumerate(selected):
         episodes = {item.episode_id: item for item in candidate.fit_episodes}
-        for episode_id in candidate.initial_episode_ids:
+        for candidate_episode_ordinal, episode_id in enumerate(candidate.fit_episode_ids):
             episode = episodes[episode_id]
+            initial = episode_id in candidate.initial_episode_ids
+            derivation_episodes["candidateIndexes"].append(candidate_index)
+            derivation_episodes["candidateEpisodeOrdinals"].append(candidate_episode_ordinal)
+            derivation_episodes["contributionBasisIndexes"].append(basis_fact_index[episode.contribution_basis_id])
+            derivation_episodes["memberBasisIndexes"].append([basis_fact_index[item] for item in episode.member_basis_ids])
+            derivation_episodes["observedFromIndexes"].append(episode.observed_from_index)
+            derivation_episodes["observedToIndexes"].append(episode.observed_to_index)
+            derivation_episodes["confirmedIndexes"].append(episode.confirmed_index)
+            derivation_episodes["contributionPrices"].append(episode.contribution_price)
+            derivation_episodes["corridorLows"].append(episode.corridor_low)
+            derivation_episodes["corridorHighs"].append(episode.corridor_high)
+            derivation_episodes["initialFormationMasks"].append(1 if initial else 0)
+            episode_index = len(derivation_episodes["candidateIndexes"]) - 1
+            if not initial:
+                continue
             validation.append({
-                "validationId": canonical_digest([candidate.candidate_id, episode_id, "formation"]),
-                "candidateId": candidate.candidate_id,
-                "sourceFieldModeId": candidate.source_field_mode_id,
-                "sourceFieldRevision": candidate.source_field_revision,
-                "kind": "formation",
+                "validationId": canonical_digest([candidate.candidate_id, episode_id, "formation" if initial else "fit"]),
+                "candidateIndex": candidate_index,
+                "episodeIndex": episode_index,
+                "candidateKind": candidate.kind,
+                "role": candidate.role,
+                "kind": "formation" if initial else "fit",
                 "observedAt": tape.candles[episode.observed_from_index].timestamp,
                 "confirmedAt": tape.candles[episode.confirmed_index].timestamp,
-                "episodeId": episode_id,
-                "clusterId": basis_by_id[episode.contribution_basis_id].cluster_id,
                 "endpointPrice": episode.contribution_price,
-                "bodyEdgePrice": None,
                 "corridorLow": episode.corridor_low,
                 "corridorHigh": episode.corridor_high,
-                "interactionId": None,
-                "initialFormation": True,
+                "initialFormation": initial,
+            })
+        for event in candidate.interactions:
+            validation.append({
+                "validationId": canonical_digest([candidate.candidate_id, event.interaction_id, "interaction"]),
+                "candidateIndex": candidate_index,
+                "episodeIndex": None,
+                "candidateKind": candidate.kind,
+                "role": candidate.role,
+                "kind": "interaction",
+                "observedAt": tape.candles[event.contact_index].timestamp,
+                "confirmedAt": None if event.terminal_index is None else tape.candles[event.terminal_index].timestamp,
+                "clusterId": None,
+                "endpointPrice": (
+                    candidate.intercept_at_origin
+                    + candidate.slope_per_bar * (event.contact_index - candidate.index_origin)
+                ),
+                "bodyEdgePrice": None,
+                "corridorLow": None,
+                "corridorHigh": None,
+                "interactionId": event.interaction_id,
+                "initialFormation": False,
                 "residualAtr": None,
-                "explorationPressure": None,
-                "acceptanceMass": None,
-                "responseScore": None,
-                "outcome": None,
+                "explorationPressure": event.exploration_pressure,
+                "acceptanceMass": event.acceptance_mass,
+                "responseScore": event.response_score,
+                "outcome": event.outcome,
             })
     field = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "sourceBars": 240,
+        "evaluationAsOf": tape.as_of,
+        "sourceInferenceId": inference_id,
+        "windowFromTimestamp": tape.candles[0].timestamp,
+        "windowToTimestamp": tape.candles[-1].timestamp,
+        "candleMeanings": meanings.to_dto(tape),
+        "basisFacts": _basis_facts_dto(basis_facts),
         "basisGlyphs": [_basis_dto(item) for item in basis_sorted],
-        "hlineResponseSegments": [
-            item for item in sorted(hline.response_segments, key=lambda row: (ROLE_ORDER[row["role"]], row["lowPrice"], row["segmentId"]))
-            if item["activeBasisCount"] >= 2
-        ][:96],
+        "hlineResponseSegments": rendered_hline_response_segments,
         "hlineProfileBins": list(hline.profile_bins),
         "hlineModes": h_modes,
         "trendModes": t_modes,
         "selectedModeRefs": selected_refs,
+        "derivationEpisodes": derivation_episodes,
         "validationGlyphs": validation,
         "relationGlyph": None if relation is None else {
             "triangleId": relation["triangleId"],
@@ -96,27 +175,35 @@ def build_field_view(
         "projection": {
             "truncated": False,
             "omittedBasisCount": max(0, len(all_basis) - len(basis_sorted)),
-            "omittedHlineResponseSegmentCount": max(0, len(hline.response_segments) - min(96, len(hline.response_segments))),
+            "omittedHlineResponseSegmentCount": len(hline.response_segments) - len(rendered_hline_response_segments),
             "profileBinsOmitted": False,
             "omittedHlineModeCount": max(0, len(hline.modes) - len(h_modes)),
             "omittedTrendModeCount": max(0, len(trend.modes) - len(t_modes)),
             "omittedHypothesisCount": sum(max(0, len(item.representative_hypotheses) - 3) for item in trend.modes),
-            "omittedValidationCount": 0,
+            "omittedValidationCount": sum(
+                max(0, len(item.fit_episode_ids) - len(item.initial_episode_ids))
+                for item in selected
+            ),
         },
     }
-    _fit_budget(field, required_basis, selected_modes, config.max_field_bytes)
+    _fit_budget(
+        field, set(), selected_modes,
+        config.target_field_bytes, config.max_field_bytes,
+    )
     return field
 
 
-def _fit_budget(field, required_basis, selected_modes, budget):
+def _fit_budget(field, required_basis, selected_modes, target_budget, hard_budget):
     projection = field["projection"]
-    size = lambda: len(canonical_json(field).encode("utf-8"))
-    if size() <= budget:
+    current_size = len(canonical_json(field).encode("utf-8"))
+    if current_size <= target_budget:
         projection["truncated"] = any(
             value for key, value in projection.items() if key != "truncated" and isinstance(value, int)
         )
         return
+    remaining = current_size - target_budget + 512
     if field["hlineProfileBins"]:
+        remaining -= len(canonical_json(field["hlineProfileBins"]).encode("utf-8"))
         field["hlineProfileBins"] = []
         projection["profileBinsOmitted"] = True
         projection["truncated"] = True
@@ -125,52 +212,48 @@ def _fit_budget(field, required_basis, selected_modes, budget):
     for item in field["trendModes"]:
         hypotheses = item.get("representativeHypotheses") or []
         if len(hypotheses) > 1:
+            remaining -= sum(len(canonical_json(value).encode("utf-8")) + 1 for value in hypotheses[1:])
             omitted_hypotheses += len(hypotheses) - 1
             item["representativeHypotheses"] = hypotheses[:1]
     projection["omittedHypothesisCount"] += omitted_hypotheses
-    _trim_optional_to_budget(
-        field, "basisGlyphs", lambda item: item["basisId"] in required_basis, budget,
+    remaining = _trim_optional_for_saving(
+        field, "basisGlyphs", lambda item: item["basisId"] in required_basis, remaining,
         projection, "omittedBasisCount",
     )
-    _trim_optional_to_budget(
-        field, "hlineResponseSegments", lambda _item: False, budget,
+    remaining = _trim_optional_for_saving(
+        field, "hlineResponseSegments", lambda _item: False, remaining,
         projection, "omittedHlineResponseSegmentCount",
     )
     for key, omitted_key in (("trendModes", "omittedTrendModeCount"), ("hlineModes", "omittedHlineModeCount")):
-        _trim_optional_to_budget(
+        remaining = _trim_optional_for_saving(
             field, key,
-            lambda item: (item["fieldModeId"], item["fieldRevision"]) in selected_modes,
-            budget, projection, omitted_key,
+            lambda item: (item["fieldModeId"], item["derivationDigest"]) in selected_modes,
+            remaining, projection, omitted_key,
         )
     projection["truncated"] = True
-    if size() > budget:
+    if len(canonical_json(field).encode("utf-8")) > hard_budget:
         raise ValueError("payload_limit_exceeded")
 
 
-def _trim_optional_to_budget(field, key, mandatory, budget, projection, omitted_key):
+def _trim_optional_for_saving(field, key, mandatory, remaining, projection, omitted_key):
     values = field[key]
-    current_size = len(canonical_json(field).encode("utf-8"))
-    if current_size <= budget or not values:
-        return
+    if remaining <= 0 or not values:
+        return remaining
     optional = [item for item in values if not mandatory(item)]
     if not optional:
-        return
-    # Remove the lowest-priority tail in one deterministic pass.  Per-item
-    # encoded sizes avoid serializing the whole Field at every binary-search
-    # probe, which would dominate the 50 ms kernel budget.
-    required_saving = current_size - budget + 128
+        return remaining
     removed: set[int] = set()
-    saved = 0
     for item in reversed(optional):
         removed.add(id(item))
-        saved += len(canonical_json(item).encode("utf-8")) + 1
-        if saved >= required_saving:
+        remaining -= len(canonical_json(item).encode("utf-8")) + 1
+        if remaining <= 0:
             break
     field[key] = [item for item in values if id(item) not in removed]
     projection[omitted_key] += len(removed)
+    return remaining
 
 
-def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis):
+def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fact_index):
     basis_by_id = {item.basis_id: item for item in all_basis}
     atr_values = [item.high - item.low for item in tape.candles]
     price_scale = median(atr_values) if any(atr_values) else max(0.01, tape.candles[-1].close * 1e-6)
@@ -180,44 +263,46 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis):
     for role in roles:
         role_modes = [item for item in ordered if item.role == role]
         cap = 4 if role in {"support", "resistance"} else 3
-        selected_role_modes = [item for item in role_modes if (item.field_mode_id, item.field_revision) in selected_modes]
-        values = role_modes[:cap]
-        for selected_mode in selected_role_modes:
-            if selected_mode not in values:
-                values[-1:] = [selected_mode]
+        selected_role_modes = [item for item in role_modes if (item.field_mode_id, item.derivation_digest) in selected_modes]
+        values = list(selected_role_modes)
+        optional_role_modes = [item for item in role_modes if item not in values]
+        values.extend(optional_role_modes[:max(0, cap - len(values))])
         chosen.extend(values)
-    chosen_by_id = {(item.field_mode_id, item.field_revision): item for item in chosen}
+    chosen_by_id = {(item.field_mode_id, item.derivation_digest): item for item in chosen}
     ordered = sorted(chosen_by_id.values(), key=lambda item: (ROLE_ORDER[item.role], STATE_ORDER[item.mode_state], -item.support_mass, item.dispersion_start_atr + item.dispersion_end_atr, item.field_mode_id))
     result = []
     for mode in ordered:
-        selected = (mode.field_mode_id, mode.field_revision) in selected_modes
+        selected = (mode.field_mode_id, mode.derivation_digest) in selected_modes
         contribution_ids = sorted(
             mode.contributor_basis_ids,
             key=lambda basis_id: (basis_id not in required_basis, basis_id),
         )
         common = {
             "fieldModeId": mode.field_mode_id,
-            "fieldRevision": mode.field_revision,
             "viewRole": "landscape_and_selected" if selected else "landscape",
-            "derivationDigest": canonical_digest([
-                mode.field_mode_id, mode.contributor_basis_ids, mode.episode_ids, mode.center_start, mode.center_end
-            ]),
+            "derivationDigest": mode.derivation_digest,
             "role": mode.role,
             "modeState": mode.mode_state,
             "geometryState": mode.geometry_state,
-            "firstSeenAt": mode.first_seen_at,
             "originSeedBasisIds": list(mode.origin_seed_basis_ids),
             "supportMass": mode.support_mass,
             "oppositionMass": mode.opposition_mass,
             "contributorCount": len(mode.contributor_basis_ids),
+            "contributorBasisIndexes": [
+                basis_fact_index[basis_id]
+                for basis_id in mode.contributor_basis_ids
+                if selected and basis_id in basis_fact_index
+            ],
             "independentEpisodeCount": len(mode.episode_ids),
             "representativeContributions": [{
                 "basisId": basis_id,
-                "roleMassAtRevision": basis_by_id[basis_id].role_mass,
-            } for basis_id in contribution_ids[:(6 if selected else 2)] if basis_id in basis_by_id],
+                "roleMassAtAsOf": basis_by_id[basis_id].role_mass,
+            } for basis_id in contribution_ids[:(3 if selected else 2)] if basis_id in basis_by_id],
         }
         if mode.kind == "hline":
             common.update({
+                "windowFromTimestamp": tape.candles[0].timestamp,
+                "windowToTimestamp": tape.candles[-1].timestamp,
                 "ridge": {"lowPrice": mode.ridge_low, "highPrice": mode.ridge_high},
                 "centerPrice": mode.center_start,
                 "zoneHalfWidth": mode.zone_half_width,
@@ -227,16 +312,39 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis):
             start_width = max(mode.zone_half_width, mode.dispersion_start_atr * price_scale)
             end_width = max(mode.zone_half_width, mode.dispersion_end_atr * price_scale)
             common.update({
-                "hypothesisMedoid": {"yAtWindowStart": mode.center_start, "yAtWindowEnd": mode.center_end},
-                "boundaryEstimate": {"yAtWindowStart": mode.center_start, "yAtWindowEnd": mode.center_end},
+                "hypothesisMedoid": {
+                    "fromTimestamp": tape.candles[0].timestamp,
+                    "fromPrice": mode.center_start,
+                    "toTimestamp": tape.candles[-1].timestamp,
+                    "toPrice": mode.center_end,
+                },
+                "boundaryEstimate": {
+                    "fromTimestamp": tape.candles[0].timestamp,
+                    "fromPrice": mode.center_start,
+                    "toTimestamp": tape.candles[-1].timestamp,
+                    "toPrice": mode.center_end,
+                },
                 "dispersion": {"startAtr": mode.dispersion_start_atr, "endAtr": mode.dispersion_end_atr},
                 "ribbon": {
-                    "lowerYAtWindowStart": mode.center_start - start_width,
-                    "upperYAtWindowStart": mode.center_start + start_width,
-                    "lowerYAtWindowEnd": mode.center_end - end_width,
-                    "upperYAtWindowEnd": mode.center_end + end_width,
+                    "fromTimestamp": tape.candles[0].timestamp,
+                    "lowerFromPrice": mode.center_start - start_width,
+                    "upperFromPrice": mode.center_start + start_width,
+                    "toTimestamp": tape.candles[-1].timestamp,
+                    "lowerToPrice": mode.center_end - end_width,
+                    "upperToPrice": mode.center_end + end_width,
                 },
-                "representativeHypotheses": list(mode.representative_hypotheses[:3]),
+                "representativeHypotheses": [
+                    {
+                        "hypothesisId": item["hypothesisId"],
+                        "sourceBasisIds": item["sourceBasisIds"],
+                        "fromTimestamp": tape.candles[0].timestamp,
+                        "fromPrice": item["yAtWindowStart"],
+                        "toTimestamp": tape.candles[-1].timestamp,
+                        "toPrice": item["yAtWindowEnd"],
+                        "seedMass": item["seedMass"],
+                    }
+                    for item in mode.representative_hypotheses[:3]
+                ],
             })
         result.append(common)
     return result
@@ -257,6 +365,23 @@ def _basis_dto(item):
         "effectiveScale": item.effective_scale,
         "roleMassAtAsOf": item.role_mass,
         "participation": item.participation,
+    }
+
+
+def _basis_facts_dto(items):
+    return {
+        "basisIds": [item.basis_id for item in items],
+        "roleCodes": [ROLE_ORDER[item.role] for item in items],
+        "observedIndexes": [item.bar_index for item in items],
+        "confirmedIndexes": [item.confirmed_index for item in items],
+        "endpointPrices": [item.endpoint_price for item in items],
+        "bodyEdgePrices": [item.body_edge_price for item in items],
+        "corridorLows": [item.corridor_low for item in items],
+        "corridorHighs": [item.corridor_high for item in items],
+        "roleMasses": [item.role_mass for item in items],
+        "participations": [item.participation for item in items],
+        "effectiveScales": [item.effective_scale for item in items],
+        "roleCodebook": {"support": 0, "resistance": 1, "lower": 2, "upper": 3},
     }
 
 

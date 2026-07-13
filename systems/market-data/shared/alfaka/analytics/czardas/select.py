@@ -128,7 +128,7 @@ def _near_duplicate_similarity(
 def _relevant(tape, features, candidate, config):
     if candidate.rank_score < config.display_min_rank_score:
         return False
-    recent_facts = [candidate.observed_to_index, candidate.revision_formed_index]
+    recent_facts = [candidate.observed_to_index, candidate.fit_evidence_confirmed_index]
     recent_facts.extend(item.contact_index for item in candidate.interactions)
     recent = max(recent_facts)
     distance = abs(candidate.price_at_as_of - tape.candles[-1].close) / features.atr_scale(

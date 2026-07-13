@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -10,14 +9,20 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from alfaka.analytics.czardas.data import SUPPORTED_INTERVALS
-from gops_agents.chart_assets.storage import _database_conninfo
+
+from .contract import (
+    MAX_FIELD_BYTES,
+    MAX_PACK_BYTES,
+    canonical_pack_digest,
+    canonical_pack_json,
+    validate_czardas_pack,
+)
+from .database import database_conninfo
 
 
 LATEST_TABLE = "chart_assets.czardas_latest"
 JOBS_TABLE = "chart_assets.czardas_build_jobs"
 ITEMS_TABLE = "chart_assets.czardas_build_items"
-MAX_PACK_BYTES = 64 * 1024
-MAX_FIELD_BYTES = 32 * 1024
 
 
 class DeterminismConflict(RuntimeError):
@@ -26,7 +31,7 @@ class DeterminismConflict(RuntimeError):
 
 class PostgresCzardasAssetStorage:
     def __init__(self, conninfo: str | None = None, *, connect: Callable[..., Any] | None = None) -> None:
-        self.conninfo = conninfo or _database_conninfo()
+        self.conninfo = conninfo or database_conninfo()
         self._connector = connect or psycopg.connect
 
     def get(self, symbol: str, interval: str) -> dict[str, Any] | None:
@@ -34,7 +39,8 @@ class PostgresCzardasAssetStorage:
             row = conn.execute(
                 f"""
                 SELECT pack, generated_at, input_digest, content_digest,
-                       last_candle_key, algorithm_version, config_version
+                       last_candle_key, algorithm_version, config_version,
+                       time_contract_version, calendar_version
                 FROM {LATEST_TABLE}
                 WHERE symbol = %s AND "interval" = %s
                 """,
@@ -47,7 +53,8 @@ class PostgresCzardasAssetStorage:
             rows = conn.execute(
                 f"""
                 SELECT "interval", pack, generated_at, input_digest, content_digest,
-                       last_candle_key, algorithm_version, config_version
+                       last_candle_key, algorithm_version, config_version,
+                       time_contract_version, calendar_version
                 FROM {LATEST_TABLE}
                 WHERE symbol = %s
                 ORDER BY "interval"
@@ -146,46 +153,18 @@ class PostgresCzardasAssetStorage:
             conn.commit()
         return "saved"
 
-    def coverage(self, symbols: list[str] | None = None) -> list[dict[str, Any]]:
-        where = ""
-        params: tuple[Any, ...] = ()
-        if symbols:
-            where = "WHERE symbol = ANY(%s)"
-            params = ([symbol.upper() for symbol in symbols],)
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT symbol, "interval", generated_at, algorithm_version,
-                       drawing_count, field_bytes, payload_bytes
-                FROM {LATEST_TABLE} {where}
-                ORDER BY symbol, "interval"
-                """,
-                params,
-            ).fetchall()
-        return [{
-            "symbol": row["symbol"],
-            "interval": row["interval"],
-            "generatedAt": _iso(row["generated_at"]),
-            "status": "ready",
-            "assetKind": "czardas",
-            "algorithmVersion": row["algorithm_version"],
-            "drawingCount": int(row["drawing_count"]),
-            "fieldBytes": int(row["field_bytes"]),
-            "payloadBytes": int(row["payload_bytes"]),
-            "freshness": "unknown",
-        } for row in rows]
-
-    def delete(self, symbols: list[str], intervals: list[str]) -> int:
-        if not symbols or not intervals:
-            return 0
+    def delete(self, symbol: str, interval: str) -> int:
+        normalized_symbol = str(symbol).strip().upper()
+        if not normalized_symbol or interval not in SUPPORTED_INTERVALS:
+            raise ValueError("invalid Czardas asset identity")
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
                 DELETE FROM {LATEST_TABLE}
-                WHERE symbol = ANY(%s) AND "interval" = ANY(%s)
+                WHERE symbol = %s AND "interval" = %s
                 RETURNING symbol
                 """,
-                ([symbol.upper() for symbol in symbols], intervals),
+                (normalized_symbol, interval),
             ).fetchall()
             conn.commit()
         return len(rows)
@@ -195,49 +174,32 @@ class PostgresCzardasAssetStorage:
 
 
 def _pack_projection(pack: dict[str, Any], generated_at: str) -> dict[str, Any]:
-    if "generatedAt" in pack:
+    if isinstance(pack, dict) and "generatedAt" in pack:
         raise ValueError("generatedAt belongs to the Czardas DB/API envelope, not deterministic pack content")
-    symbol = str(pack.get("symbol") or "").upper()
-    interval = str(pack.get("interval") or "")
-    if not symbol or interval not in SUPPORTED_INTERVALS:
-        raise ValueError("invalid Czardas pack identity")
-    if int((pack.get("coverage") or {}).get("actualCompleted") or 0) != 240:
-        raise ValueError("Czardas pack must contain exact completed-240 coverage")
-    drawings = list(pack.get("drawings") or [])
-    if len(drawings) > 7:
-        raise ValueError("Czardas drawing limit exceeded")
-    if any(
-        str(item.get("symbol") or "").upper() != symbol
-        or str(item.get("interval") or "") != interval
-        for item in drawings
-    ):
-        raise ValueError("Czardas drawing identity does not match pack")
-    hlines = [item for item in drawings if item.get("czardasLayer") == "hline"]
-    trends = [item for item in drawings if item.get("czardasLayer") == "trend"]
-    if len(hlines) > 4 or len(trends) > 3 or len(hlines) + len(trends) != len(drawings):
-        raise ValueError("Czardas layer drawing limit exceeded")
-    if any(item.get("ownership") != "czardas-managed" for item in drawings):
-        raise ValueError("stored Czardas drawings must remain managed proposals")
-    payload = json.dumps(pack, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    validated = validate_czardas_pack(pack)
+    symbol = validated["symbol"]
+    interval = validated["interval"]
+    drawings = validated["drawings"]
+    payload = canonical_pack_json(validated)
     payload_bytes = len(payload.encode("utf-8"))
-    if payload_bytes > MAX_PACK_BYTES:
-        raise ValueError("Czardas pack exceeds 64 KiB")
-    field_payload = json.dumps(pack.get("czardasField") or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    field_payload = canonical_pack_json(validated["czardasField"])
     field_bytes = len(field_payload.encode("utf-8"))
     if field_bytes > MAX_FIELD_BYTES:
-        raise ValueError("Czardas Field exceeds 32 KiB")
+        raise ValueError("Czardas Field exceeds 80 KiB")
+    if payload_bytes > MAX_PACK_BYTES:
+        raise ValueError("Czardas pack exceeds 96 KiB")
     return {
         "symbol": symbol,
         "interval": interval,
-        "last_candle_key": str(pack["lastCandleKey"]),
-        "as_of": _timestamp(pack["asOf"]),
+        "last_candle_key": str(validated["lastCandleKey"]),
+        "as_of": _timestamp(validated["asOf"]),
         "generated_at": _timestamp(generated_at),
-        "algorithm_version": str(pack["algorithmVersion"]),
-        "config_version": str(pack["configVersion"]),
-        "time_contract_version": str(pack["timeContractVersion"]),
-        "calendar_version": str(pack["calendarVersion"]),
-        "input_digest": str(pack["inputDigest"]),
-        "content_digest": "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "algorithm_version": str(validated["algorithmVersion"]),
+        "config_version": str(validated["configVersion"]),
+        "time_contract_version": str(validated["timeContractVersion"]),
+        "calendar_version": str(validated["calendarVersion"]),
+        "input_digest": str(validated["inputDigest"]),
+        "content_digest": canonical_pack_digest(validated),
         "drawing_count": len(drawings),
         "field_bytes": field_bytes,
         "payload_bytes": payload_bytes,
@@ -256,6 +218,9 @@ def _record(row: dict[str, Any]) -> dict[str, Any]:
         "lastCandleKey": row.get("last_candle_key"),
         "algorithmVersion": row.get("algorithm_version"),
         "configVersion": row.get("config_version"),
+        "timeContractVersion": row.get("time_contract_version"),
+        "calendarVersion": row.get("calendar_version"),
+        "fieldSchemaVersion": (pack.get("czardasField") or {}).get("schemaVersion"),
     }
 
 

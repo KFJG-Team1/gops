@@ -767,9 +767,6 @@ export function PanelWorkspace({
   const primaryChartDocument = primaryChartContent
     ? chartRuntime.documents[chartDocumentIdForContent(primaryChartContent)]
     : undefined;
-  const primaryChartCandles = primaryChartDocument
-    ? getCandlesForDocument(chartRuntime, primaryChartDocument) as CandleDto[]
-    : [];
   const renderWorkspacePanel = (slot: PanelSlot) => {
     const content = panelState.contents[slot.contentId];
     if (!content) {
@@ -834,7 +831,6 @@ export function PanelWorkspace({
           chartDocument={chartDocument}
           chartCandles={chartCandles}
           activeChartDocument={primaryChartDocument}
-          activeChartCandles={primaryChartCandles}
           chartDataStatus={chartDataStatus}
           chartStreamStatus={chartStreamStatus}
           chartStreamMessage={chartStreamMessage}

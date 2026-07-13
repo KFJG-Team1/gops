@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+MARKET_DATA_SHARED = REPOSITORY_ROOT / "systems" / "market-data" / "shared"
+if str(MARKET_DATA_SHARED) not in sys.path:
+    sys.path.insert(0, str(MARKET_DATA_SHARED))
 
 from alfaka.analytics.czardas import Ready, analyze_czardas
 

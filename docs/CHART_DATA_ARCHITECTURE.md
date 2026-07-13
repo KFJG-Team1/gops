@@ -151,18 +151,27 @@ layout migration. See `platform/s3/README.md` for exact prefixes.
 - Processor maps, frontend inactive candle caches, and order-flow bucket caches
   have tested upper bounds.
 
-Persisted chart-analysis assets are an offline build projection, not an API
-request-derived cache. The independent builder reads canonical ClickHouse candles
+Czardas assets are a manual build projection, not an API request-derived cache.
+The independent builder reads canonical ClickHouse candles
 for the requested interval. Missing derived intraday ranges fetch Alpaca `1Min`,
 write real regular-session `1m`, materialize the requested session-aligned
 `5m/10m/1h/4h`, and re-read ClickHouse. `1W` continues to derive from canonical
-`1D`. This analysis repair path does not use S3, Redis, or Kafka.
+`1D`. This canonical repair path does not use S3, Redis, or Kafka.
 
 Alpaca may legitimately omit an intraday slot with no bar. A successful provider
-request with no matching real candle is `provider_confirmed_empty`, not an OHLCV
-row and not a coverage failure. Authentication, network, rate-limit, and server
-failures remain `alpaca_request_failed`/unavailable. No zero-volume or carry-forward
-candle is manufactured.
+request with no matching real candle is `provider_empty`, not an OHLCV row.
+Missing credentials are `credentials_missing`; network, rate-limit, and server
+failures are `provider_failed`; a write that still cannot produce exact-240 after
+the canonical re-read is `canonical_reread_incomplete`. No zero-volume or
+carry-forward candle is manufactured, and an incomplete window is never inferred
+or saved.
+
+The repair runner owns `America/New_York`, the code-owned NYSE calendar,
+`adjustment=split`, and `[start,end)` independently of pod environment. Repair
+rows use a dedicated canonical repair feed profile. This preserves split/v2
+facts on legacy `ReplacingMergeTree` keys while fresh tables also key by
+`canonical_version + price_adjustment`; live key upgrades are operator-owned
+table-copy migrations.
 
 Completed 1D/1W/1M candles use a shared `candleKey`. Daily chart coordinates use
 New York market midnight; weekly/monthly coordinates use their UTC bucket start.
@@ -170,32 +179,27 @@ The last real NYSE session close, including early close, determines whether a
 higher-timeframe bucket is complete. Serving, analysis, stale checks, and drawing
 anchor snapping share this identity rather than comparing raw timestamps.
 
-Only compact final Geometry assets are written to PostgreSQL
-`chart_assets.geometry_assets`, one latest JSON projection per
-`(symbol, interval)`. Build jobs, item queue/status, leases, progress, and logs
-also live in PostgreSQL. Canonical candles and repair materialization remain in
-ClickHouse. The active Geometry path has no ClickHouse asset read/write,
-dual-write mode, Redis job key, or Redis pub/sub channel. A legacy ClickHouse
-`chart_analysis_assets` table may still exist in initialized environments, but
-current Geometry code does not use it as a primary, shadow, or rollback store.
-The authenticated development delete route removes explicit pairs from
-PostgreSQL; it is not retention or automatic cleanup.
+Czardas is the only automatic drawing asset path. It audits exactly the latest
+240 completed expected candles, repairs bounded missing ranges through
+Alpaca→ClickHouse, re-reads the canonical snapshot, and stores one deterministic
+shared pack per `(symbol, interval)` in PostgreSQL
+`chart_assets.czardas_latest`. Queue/status, leases, and progress live in
+`czardas_build_jobs/items`. Canonical candles and repair materialization
+remain in ClickHouse; asset payloads do not.
 
-The retained Geometry implementation builds a fixed latest-window projection on
-a weekday CronJob or manual request. Czardas v1 is a separate manual-only path:
-it audits exactly the latest 240 completed expected candles, repairs bounded
-missing ranges through Alpaca→ClickHouse, re-reads the canonical snapshot, and
-stores one deterministic shared pack in PostgreSQL. Chart open, GET miss, candle
-events, and schedules never enqueue Czardas work. Both paths share canonical
-ClickHouse candle facts but not asset tables, queues, or workers. The exact
-Czardas contracts live in `docs/czardas/`.
+Chart open, GET miss, candle events, and schedules never enqueue Czardas work.
+Only the authenticated development panel may build or delete one explicit pair.
+There is no Redis asset key, Kafka asset topic, S3 asset, automatic TTL, or
+cross-engine fallback. The exact Czardas contracts live in `docs/czardas/`.
+Each v2 pack evaluates the exact-240 rows as one immutable present snapshot;
+post-`asOf`/live rows are excluded, while later rows inside that snapshot may
+contribute to the current interpretation of an earlier candle.
 
-The chart-analysis kernel may derive a daily MA60/MA120 crossing event from 121
-canonical completed closes. This is an asset-build feature, not a persisted
-candle indicator: it does not add an `ma120` ClickHouse column, Redis key, or
-public candle response field. The chart can request the `sma:120` overlay from
-the generic derived-indicator endpoint, which computes it from the canonical
-close series and keeps only the existing bounded derived cache.
+PostgreSQL `chart_assets.geometry_*` rows and ClickHouse
+`market_data.chart_analysis_assets` may remain in existing environments solely
+as dormant historical data. Current runtime and migrations must not read,
+write, recreate, update, or use them for rollback. Fresh environments do not
+create those tables.
 
 ## Retained Compatibility
 

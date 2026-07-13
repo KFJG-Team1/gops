@@ -26,6 +26,12 @@ def run() -> None:
             process_claim(builder, queue, claim, worker_id)
         except Exception:
             LOGGER.exception("Czardas build item failed outside its item boundary")
+            try:
+                queue.record_outer_failure(claim["envelope"].job_id, worker_id)
+            except Exception:
+                # The expired-lease reaper in claim_next is the durable fallback
+                # when PostgreSQL itself caused the boundary failure.
+                LOGGER.exception("Czardas failed claim could not be released")
 
 
 def process_claim(builder, queue, claim: dict, worker_id: str) -> dict:

@@ -100,9 +100,20 @@ python --version
 
 The expected local Python version is `3.12.x`. Do not create duplicate project virtualenvs under `/tmp` or other ad hoc paths.
 
-For AWS-backed local work, leave `S3_ENDPOINT_URL` and `DOCKER_S3_ENDPOINT_URL` empty and use:
+The local Czardas builder is deliberately pinned to `local-env` credentials, even
+when other local services use AWS Secrets Manager. Put the direct Alpaca values
+in the untracked `.env`:
 
 ```text
+APCA_API_KEY_ID=<required for local Czardas repair>
+APCA_API_SECRET_KEY=<required for local Czardas repair>
+```
+
+For other AWS-backed local work, leave `S3_ENDPOINT_URL` and
+`DOCKER_S3_ENDPOINT_URL` empty and additionally use:
+
+```text
+ALPACA_CREDENTIAL_SOURCE=aws-secrets-manager
 ALPACA_SECRET_NAME=dev/alpaca
 S3_BUCKET=gops-market-data-993099901407-ap-northeast-2-an
 AWS_REGION=ap-northeast-2
@@ -114,8 +125,15 @@ AWS_SESSION_TOKEN=
 Start the local stack:
 
 ```sh
-docker compose --env-file .env up -d --build
+docker compose --env-file .env up -d --build --remove-orphans
 ```
+
+The default dependency graph runs `czardas-asset-migrations` once and requires
+its `004_czardas_assets.sql` migration to succeed before the Czardas worker
+starts. It never creates, reads, drops, or updates legacy Geometry tables.
+`--remove-orphans` removes containers for services no longer declared by this
+Compose project, including a previously created Geometry worker; named database
+volumes are not removed.
 
 Open:
 
@@ -143,6 +161,11 @@ Chart API:
 GET  /api/charts/candles
 GET  /api/charts/symbols
 WS   /ws/charts
+GET    /api/charts/czardas-assets?symbol=AAPL
+POST   /api/charts/czardas-assets/build
+GET    /api/charts/czardas-assets/build/{cza_job_id}
+POST   /api/charts/czardas-assets/build/{cza_job_id}/cancel
+DELETE /api/charts/czardas-assets?symbol=AAPL&interval=1D
 ```
 
 Deprecated chart backfill queue routes return `410 Gone`. `GET /api/charts/candles`

@@ -1,331 +1,214 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  cancelChartAssetBuild,
-  deleteChartAssets,
-  fetchChartAssetBuildStatus,
-  fetchChartAssetCoverage,
-  submitChartAssetBuild,
-  type ChartAssetBuildAccepted,
-  type ChartAssetBuildStatus,
-  type ChartAssetCoverageItem
-} from "../chart/assetBuildApi";
-import { analysisAssetPresentationDiagnostics, detectedPatternSummary } from "../chart/analysisAssetPresentation";
-import {
-  fetchAnalysisAssets,
-  invalidateAnalysisAssets,
-  subscribeAnalysisAssetsInvalidation,
-  type AnalysisAssetInterval,
-  type AnalysisAssetsResponse
-} from "../chart/analysisAssetsApi";
-import type { CandleDto, ChartInterval } from "../chart/types";
-import { fetchCzardasAssets, type CzardasAssetsResponse } from "../chart/czardasAssetsApi";
+  cancelCzardasBuild,
+  czardasIntervals,
+  deleteCzardasAsset,
+  fetchCzardasAssetsSnapshot,
+  fetchCzardasBuildStatus,
+  invalidateCzardasAssets,
+  isCzardasAssetsGenerationCurrent,
+  isCzardasInterval,
+  submitCzardasBuild,
+  subscribeCzardasAssetsInvalidation,
+  type CzardasAssetsResponse,
+  type CzardasBuildAccepted,
+  type CzardasBuildStatus,
+  type CzardasInterval
+} from "../chart/czardasAssetsApi";
+import type { ChartInterval } from "../chart/types";
 
-const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const terminalStatuses = new Set(["completed", "completed_with_errors", "failed", "canceled"]);
 
 export function ChartAssetOpsPanel({
   currentSymbol,
-  currentInterval,
-  currentCandles,
-  currentDrawingIds
+  currentInterval
 }: {
   currentSymbol: string;
   currentInterval: ChartInterval;
-  currentCandles: CandleDto[];
-  currentDrawingIds: string[];
 }) {
-  const [assetKind, setAssetKind] = useState<"geometry" | "czardas">("czardas");
-  const [useSp500, setUseSp500] = useState(false);
-  const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
-  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
-  const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
-  const [job, setJob] = useState<ChartAssetBuildStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [coverage, setCoverage] = useState<ChartAssetCoverageItem[]>([]);
-  const [coverageLoading, setCoverageLoading] = useState(false);
-  const [deletingKey, setDeletingKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [currentAssets, setCurrentAssets] = useState<AnalysisAssetsResponse | null>(null);
-  const [currentCzardasAssets, setCurrentCzardasAssets] = useState<CzardasAssetsResponse | null>(null);
-  const [assetRevision, setAssetRevision] = useState(0);
-  const logRef = useRef<HTMLDivElement | null>(null);
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
+  const [symbol, setSymbol] = useState(normalizedCurrentSymbol);
+  const [interval, setInterval] = useState<CzardasInterval>(isCzardasInterval(currentInterval) ? currentInterval : "1D");
+  const [force, setForce] = useState(false);
+  const [assets, setAssets] = useState<CzardasAssetsResponse | null>(null);
+  const [accepted, setAccepted] = useState<CzardasBuildAccepted | null>(null);
+  const [submittedPair, setSubmittedPair] = useState<{ symbol: string; interval: CzardasInterval } | null>(null);
+  const [job, setJob] = useState<CzardasBuildStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const normalizedSymbol = symbol.trim().toUpperCase();
 
-  const loadCoverage = useCallback(async () => {
-    setCoverageLoading(true);
-    try {
-      setCoverage(await fetchChartAssetCoverage(undefined, assetKind));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "자산 현황을 불러오지 못했습니다.");
-    } finally {
-      setCoverageLoading(false);
+  useEffect(() => {
+    setSymbol(normalizedCurrentSymbol);
+    if (isCzardasInterval(currentInterval)) setInterval(currentInterval);
+  }, [currentInterval, normalizedCurrentSymbol]);
+
+  useEffect(() => subscribeCzardasAssetsInvalidation((invalidatedSymbol) => {
+    if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
+      setAssets(null);
+      setRevision((current) => current + 1);
     }
-  }, [assetKind]);
+  }), [normalizedSymbol]);
 
   useEffect(() => {
-    void loadCoverage();
-  }, [loadCoverage]);
-
-  useEffect(() => subscribeAnalysisAssetsInvalidation((symbol) => {
-    if (!symbol || symbol === normalizedCurrentSymbol) {
-      setCurrentAssets(null);
-      setCurrentCzardasAssets(null);
-      setAssetRevision((current) => current + 1);
-    }
-  }), [normalizedCurrentSymbol]);
-
-  useEffect(() => {
-    let active = true;
-    if (assetKind === "czardas") {
-      setCurrentAssets(null);
-      fetchCzardasAssets(normalizedCurrentSymbol)
-        .then((response) => { if (active) setCurrentCzardasAssets(response); })
-        .catch(() => { if (active) setCurrentCzardasAssets(null); });
-      return () => { active = false; };
-    }
-    setCurrentCzardasAssets(null);
-    setCurrentAssets((current) => current?.symbol === normalizedCurrentSymbol ? current : null);
-    fetchAnalysisAssets(normalizedCurrentSymbol)
-      .then((response) => {
-        if (active) setCurrentAssets(response);
-      })
-      .catch(() => {
-        if (active) setCurrentAssets(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [assetKind, assetRevision, normalizedCurrentSymbol]);
-
-  useEffect(() => {
-    if (assetKind !== "czardas") return;
-    setUseSp500(false);
-    setSymbolsText(normalizedCurrentSymbol);
-    if (isAnalysisAssetInterval(currentInterval)) setIntervals([currentInterval]);
-  }, [assetKind, currentInterval, normalizedCurrentSymbol]);
-
-  useEffect(() => {
-    const node = logRef.current;
-    if (node) {
-      node.scrollTop = node.scrollHeight;
-    }
-  }, [job?.logs?.length]);
-
-  useEffect(() => {
-    if (!accepted) {
+    if (!normalizedSymbol) {
+      setAssets(null);
       return undefined;
     }
     let active = true;
-    let pollingTimer: number | null = null;
+    setLoading(true);
+    setAssets((current) => current?.symbol === normalizedSymbol ? current : null);
+    fetchCzardasAssetsSnapshot(normalizedSymbol)
+      .then(({ response, generation }) => {
+        if (active && isCzardasAssetsGenerationCurrent(normalizedSymbol, generation)) setAssets(response);
+      })
+      .catch((reason) => { if (active) setError(errorMessage(reason, "Czardas 자산을 불러오지 못했습니다.")); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [normalizedSymbol, revision]);
 
-    const applyStatus = (next: ChartAssetBuildStatus) => {
-      if (!active) return;
-      setJob(next);
-      if (terminalStatuses.has(next.status)) {
-        invalidateAnalysisAssets();
-        if (pollingTimer !== null) window.clearTimeout(pollingTimer);
-        void loadCoverage();
-      }
-    };
+  useEffect(() => {
+    if (!accepted || !submittedPair) return undefined;
+    let active = true;
+    let timer: number | null = null;
     const poll = async () => {
       let terminal = false;
       try {
-        const next = await fetchChartAssetBuildStatus(accepted.status_url);
+        const next = await fetchCzardasBuildStatus(accepted.status_url);
+        if (!active) return;
+        setJob(next);
         terminal = terminalStatuses.has(next.status);
-        applyStatus(next);
+        if (terminal) invalidateCzardasAssets(submittedPair.symbol);
       } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : "빌드 상태를 확인하지 못했습니다.");
+        if (active) setError(errorMessage(reason, "빌드 상태를 확인하지 못했습니다."));
       }
-      if (active && !terminal) pollingTimer = window.setTimeout(poll, 1000);
+      if (active && !terminal) timer = window.setTimeout(poll, 1000);
     };
     void poll();
     return () => {
       active = false;
-      if (pollingTimer !== null) window.clearTimeout(pollingTimer);
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [accepted, loadCoverage]);
+  }, [accepted, submittedPair]);
 
+  const entry = assets?.symbol === normalizedSymbol ? assets.assets[interval] : null;
   const running = job?.status === "queued" || job?.status === "running";
-  const failedSymbols = [...new Set((job?.failedItems ?? job?.recentItems ?? []).filter((item) => item.status === "failed").map((item) => item.symbol))];
-  const currentAsset = isAnalysisAssetInterval(currentInterval)
-    && currentAssets?.symbol === normalizedCurrentSymbol
-    ? currentAssets.assets[currentInterval]
-    : null;
-  const currentDiagnostics = currentAsset
-    ? analysisAssetPresentationDiagnostics(currentAsset, currentCandles, currentDrawingIds)
-    : null;
-  const currentPattern = detectedPatternSummary(currentAsset);
-  const currentCzardasEntry = isAnalysisAssetInterval(currentInterval)
-    ? currentCzardasAssets?.assets[currentInterval] ?? null
-    : null;
+  const failure = (job?.failedItems ?? job?.recentItems ?? []).find((item) => item.status === "failed");
 
-  const runBuild = async (retrySymbols?: string[]) => {
-    const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
-    if (!useSp500 && !symbols.length) {
-      setError("빌드할 심볼을 입력하세요.");
-      return;
-    }
-    if (!intervals.length) {
-      setError("interval을 하나 이상 선택하세요.");
-      return;
-    }
-    if (assetKind === "czardas" && (symbols.length !== 1 || intervals.length !== 1)) {
-      setError("Czardas는 한 번에 종목 1개와 interval 1개만 빌드합니다.");
-      return;
-    }
-    setError(null);
-    setJob(null);
-    try {
-      setAccepted(await submitChartAssetBuild({
-        assetKind,
-        symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
-        intervals
-      }));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
-    }
-  };
-
-  const removeAsset = async (item: ChartAssetCoverageItem) => {
-    const key = `${item.symbol}-${item.interval}`;
-    if (!window.confirm(`${item.symbol} ${item.interval} 작도 자산의 모든 저장 이력을 삭제할까요?`)) {
+  const runBuild = async () => {
+    if (!normalizedSymbol || !/^[A-Z0-9.-]{1,16}$/.test(normalizedSymbol)) {
+      setError("유효한 종목 심볼 하나를 입력하세요.");
       return;
     }
     setError(null);
     setNotice(null);
-    setDeletingKey(key);
+    setJob(null);
     try {
-      const result = await deleteChartAssets([item.symbol], [item.interval], assetKind);
-      invalidateAnalysisAssets(item.symbol);
-      setNotice(`${item.symbol} ${item.interval} 자산 ${result.deleted}건을 삭제했습니다.`);
-      await loadCoverage();
+      const pair = { symbol: normalizedSymbol, interval };
+      const next = await submitCzardasBuild({ ...pair, force });
+      setSubmittedPair(pair);
+      setAccepted(next);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "작도 자산을 삭제하지 못했습니다.");
+      setError(errorMessage(reason, "빌드를 시작하지 못했습니다."));
+    }
+  };
+
+  const removeAsset = async () => {
+    if (!entry || entry.freshness === "missing" || !window.confirm(`${normalizedSymbol} ${interval} Czardas 자산을 삭제할까요?`)) return;
+    setDeleting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await deleteCzardasAsset(normalizedSymbol, interval);
+      setNotice(`${result.symbol} ${result.interval} 자산 ${result.deleted}건을 삭제했습니다.`);
+    } catch (reason) {
+      setError(errorMessage(reason, "Czardas 자산을 삭제하지 못했습니다."));
     } finally {
-      setDeletingKey(null);
+      setDeleting(false);
     }
   };
 
   return (
     <div className="chart-asset-ops-panel">
       <section className="chart-asset-ops-form">
-        <div className="chart-asset-kind-tabs" role="group" aria-label="작도 자산 종류">
-          <button type="button" className={assetKind === "czardas" ? "active" : ""} onClick={() => setAssetKind("czardas")}>Czardas</button>
-          <button type="button" className={assetKind === "geometry" ? "active" : ""} onClick={() => setAssetKind("geometry")}>Geometry</button>
-        </div>
-        <div className="chart-asset-ops-universe-row">
-          <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} disabled={assetKind === "czardas"} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
-          <span>콤마로 구분</span>
-        </div>
+        <header><strong>Czardas 수동 분석</strong><span>종목 × interval 한 쌍</span></header>
         <div className="chart-asset-ops-symbols">
-          <textarea aria-label="빌드 심볼" value={symbolsText} disabled={useSp500} onChange={(event) => setSymbolsText(event.target.value)} />
-          <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
+          <textarea
+            aria-label="Czardas 분석 심볼"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value.toUpperCase().replace(/[\s,]+/g, ""))}
+          />
+          <button type="button" onClick={() => setSymbol(normalizedCurrentSymbol)}>현재 종목</button>
         </div>
-        <div className="chart-asset-ops-options">
-          {allIntervals.map((interval) => (
-            <label key={interval}><input type={assetKind === "czardas" ? "radio" : "checkbox"} name={assetKind === "czardas" ? "czardas-interval" : undefined} checked={intervals.includes(interval)} onChange={() => setIntervals((current) => assetKind === "czardas" ? [interval] : current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
+        <div className="chart-asset-ops-options" role="radiogroup" aria-label="Czardas 분석 interval">
+          {czardasIntervals.map((value) => (
+            <label key={value}>
+              <input type="radio" name="czardas-interval" checked={interval === value} onChange={() => setInterval(value)} />
+              {value}
+            </label>
           ))}
         </div>
+        <label className="chart-asset-ops-check">
+          <input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />
+          기존 결과와 같아도 강제 재분석
+        </label>
         <div className="chart-asset-ops-actions">
-          <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
-          {running && <button type="button" onClick={() => accepted && void cancelChartAssetBuild(accepted.jobId).then(setJob).catch((reason) => setError(String(reason)))}>중단</button>}
-          {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols)}>실패분 재실행</button>}
+          <button type="button" disabled={running || loading || !normalizedSymbol} onClick={() => void runBuild()}>분석 시작</button>
+          {running && accepted && (
+            <button type="button" onClick={() => void cancelCzardasBuild(accepted.jobId).then(setJob).catch((reason) => setError(errorMessage(reason, "중단하지 못했습니다.")))}>중단</button>
+          )}
+          <button type="button" disabled={loading} onClick={() => invalidateCzardasAssets(normalizedSymbol)}>새로고침</button>
         </div>
       </section>
 
       {error && <p className="chart-asset-ops-error" role="alert">{error}</p>}
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
+
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
             <p>
               데이터 점검 {job.repair.checkedSymbols} · 복구 {job.repair.repairedSymbols} · 결측 {job.repair.missingBarsBefore}→{job.repair.missingBarsAfter} · 적재 {job.repair.materializedRows}
-              {job.repair.reasonCodes && Object.keys(job.repair.reasonCodes).length > 0
+              {job.repair.reasonCodes && Object.keys(job.repair.reasonCodes).length
                 ? ` · 사유 ${Object.entries(job.repair.reasonCodes).map(([reason, count]) => `${reason} ${count}`).join(", ")}`
                 : ""}
             </p>
           )}
-          <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{(job.logs ?? []).slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
-          {failedSymbols.length > 0 && <p>실패: {failedSymbols.join(", ")}</p>}
+          {failure && <p role="alert">실패 사유: {failure.reason ?? failure.error ?? failure.stage}</p>}
         </section>
       )}
 
       <section className="chart-asset-ops-current">
-        <header><strong>현재 차트</strong><span>{normalizedCurrentSymbol} {currentInterval}</span></header>
-        {assetKind === "czardas" ? currentCzardasEntry?.pack ? (
+        <header><strong>선택한 자산</strong><span>{normalizedSymbol || "-"} {interval}</span></header>
+        {loading ? <p>불러오는 중…</p> : entry?.pack ? (
           <>
-            <p>freshness {currentCzardasEntry.freshness} · H-Line {currentCzardasEntry.pack.selection.hline.actualCount} · Trend {currentCzardasEntry.pack.selection.trend.actualCount}</p>
-            <p>coverage exact · {currentCzardasEntry.pack.coverage.actualCompleted}/{currentCzardasEntry.pack.coverage.targetCompleted}봉 · Field {currentCzardasEntry.pack.czardasField.basisGlyphs.length} basis</p>
-            {currentCzardasEntry.pack.presentationPattern && <p>감지 패턴 {patternKindLabel(currentCzardasEntry.pack.presentationPattern.kind)}</p>}
+            <p>freshness {entry.freshness} · H-Line {entry.pack.selection.hline.actualCount} · Trend {entry.pack.selection.trend.actualCount}</p>
+            <p>
+              coverage exact · {entry.pack.coverage.actualCompleted}/{entry.pack.coverage.targetCompleted}봉
+              {` · Field ${entry.pack.czardasField.basisFacts.basisIds.length} basis`}
+            </p>
+            {entry.pack.presentationPattern && <p>감지 패턴 {patternName(entry.pack.presentationPattern.kind)}</p>}
+            <p>생성 {formatGeneratedAt(entry.generatedAt)}</p>
+            <button type="button" disabled={deleting || running} onClick={() => void removeAsset()}>{deleting ? "삭제 중" : "자산 삭제"}</button>
           </>
-        ) : <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 Czardas 자산이 없습니다." : "지원하지 않는 차트 주기입니다."}</p> : currentDiagnostics ? (
+        ) : entry?.freshness === "incompatible" ? (
           <>
-            <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
-            <p>판정 {currentDiagnostics.state}</p>
-            {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
-            {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}
-            {currentPattern && (
-              <p>감지 패턴 {patternKindLabel(currentPattern.kind)} · {currentPattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
-            )}
-            {Object.keys(currentDiagnostics.rejectionReasons).length > 0 && (
-              <p>제외 사유 {Object.entries(currentDiagnostics.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>
-            )}
+            <p>호환되지 않는 Czardas 자산입니다.</p>
+            <button type="button" disabled={deleting || running} onClick={() => void removeAsset()}>{deleting ? "삭제 중" : "자산 삭제"}</button>
           </>
-        ) : (
-          <p>{isAnalysisAssetInterval(currentInterval) ? "현재 주기의 저장 자산이 없습니다." : "지원하지 않는 차트 주기입니다."}</p>
-        )}
-      </section>
-
-      <section className="chart-asset-ops-coverage">
-        <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
-        <div className="chart-asset-ops-table-wrap">
-          <table>
-            <thead><tr><th>심볼</th><th>주기</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
-            <tbody>{coverage.map((item) => {
-              const key = `${item.symbol}-${item.interval}`;
-              return <tr key={key}>
-                <td>{item.symbol}</td>
-                <td>{item.interval}</td>
-                <td>{coverageStatus(item)}</td>
-                <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
-                <td>{formatGeneratedAt(item.generatedAt)}</td>
-                <td><button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button></td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div>
+        ) : <p>저장된 Czardas 자산이 없습니다.</p>}
       </section>
     </div>
   );
 }
 
-function parseSymbols(value: string): string[] {
-  return [...new Set(value.split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean))];
-}
-
-function mergeSymbol(value: string, symbol: string): string {
-  return [...new Set([...parseSymbols(value), symbol.trim().toUpperCase()].filter(Boolean))].join(", ");
-}
-
-function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function coverageStatus(item: ChartAssetCoverageItem): string {
-  const quality = item.coverageState ? ` · ${item.coverageState}` : "";
-  const empty = (item.storedDrawingCount ?? item.drawingCount) === 0 ? " · 작도 없음" : "";
-  return `${item.status}${quality}${empty}`;
-}
-
-function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return allIntervals.includes(interval as AnalysisAssetInterval);
-}
-
-function patternKindLabel(kind: string): string {
+function patternName(kind: string): string {
   return {
     ascending_triangle: "상승 삼각형",
     descending_triangle: "하락 삼각형",
@@ -333,12 +216,12 @@ function patternKindLabel(kind: string): string {
   }[kind] ?? kind;
 }
 
-function formatNumber(value: number | null): string {
-  return value === null ? "-" : value.toFixed(2);
+function formatGeneratedAt(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function crossLabel(direction: "golden" | "dead" | null | undefined, status: string): string {
-  if (status === "insufficient_previous_bar") return "직전 봉 부족";
-  if (status !== "crossed" || !direction) return "없음";
-  return direction === "golden" ? "골든크로스" : "데드크로스";
+function errorMessage(reason: unknown, fallback: string): string {
+  return reason instanceof Error && reason.message ? reason.message : fallback;
 }

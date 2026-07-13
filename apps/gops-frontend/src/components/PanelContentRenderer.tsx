@@ -67,7 +67,6 @@ type PanelContentRendererProps = {
   chartDocument?: ChartDocument;
   chartCandles: CandleDto[];
   activeChartDocument?: ChartDocument;
-  activeChartCandles: CandleDto[];
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
@@ -105,7 +104,6 @@ export function PanelContentRenderer({
   chartDocument,
   chartCandles,
   activeChartDocument,
-  activeChartCandles,
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
@@ -358,8 +356,6 @@ export function PanelContentRenderer({
       <ChartCommentaryPanel
         symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
         interval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        candles={activeChartCandles}
-        drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
       />
     );
   }
@@ -369,8 +365,6 @@ export function PanelContentRenderer({
       <ChartAssetOpsPanel
         currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
         currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        currentCandles={activeChartCandles}
-        currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
       />
     );
   }

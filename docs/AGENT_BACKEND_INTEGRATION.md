@@ -372,41 +372,38 @@ systems/api-server/tests/test_agent_routes.py
 새 백엔드는 구현을 바꿔도 되지만 route name, idempotency, async status,
 polling/SSE semantics는 보존해야 한다.
 
-## Chart Analysis Asset Routes
+## Czardas Asset Routes
 
-Chart analysis asset은 interactive agent report와 별도인 수동 build projection이다.
+Czardas asset은 interactive agent report와 분리된 수동 build projection이다.
 
 ```text
-GET    /api/charts/analysis-assets
-DELETE /api/charts/analysis-assets?symbols=NVDA&intervals=1D
-GET    /api/charts/analysis-assets/coverage
-POST   /api/charts/analysis-assets/build
-GET    /api/charts/analysis-assets/build/{job_id}
-POST   /api/charts/analysis-assets/build/{job_id}/cancel
+GET    /api/charts/czardas-assets?symbol=NVDA
+POST   /api/charts/czardas-assets/build
+GET    /api/charts/czardas-assets/build/{cza_job_id}
+POST   /api/charts/czardas-assets/build/{cza_job_id}/cancel
+DELETE /api/charts/czardas-assets?symbol=NVDA&interval=1D
 ```
 
-DELETE는 개발 패널의 명시적 정리 기능이다. 최대 100개 symbol과
-`1m/5m/10m/1h/4h/1D/1W`만 받고 선택된 pair를 PostgreSQL
-`chart_assets.geometry_assets`에서 삭제한다. 자동 TTL이나 broad cleanup은 사용하지
-않는다. build 완료·삭제 후 프런트는 cache를 무효화하고 열린 chart를 재조회한다.
-Build 상태와 bounded log는 PostgreSQL polling 응답으로 제공한다. Redis pub/sub과
-SSE route는 사용하지 않는다.
-최종 생성량은 status의 작은 `createdEntities` 정수만 사용한다. Coverage의
-`drawingCount`는 저장된 엔티티 수이며 호환 alias `storedDrawingCount`와 같다. 실제
-차트 적용 수와 anchor/stale 제외 수는 현재 candle과 active chart document의 실제
-drawing ID를 아는 프런트가 계산한다.
+Build body는 `{symbol, interval, force}` 한 쌍만 받는다. latest pack과 queue는
+PostgreSQL `chart_assets.czardas_latest`, `czardas_build_jobs`,
+`czardas_build_items`에 저장하고 job ID는 `cza-`로 시작한다. 자동 TTL, broad cleanup,
+Redis pub/sub, SSE, Kafka queue는 사용하지 않는다.
 
-`CHART_ASSET_STORAGE_MAINTENANCE=true` 동안 GET은 계속 열어 두고 build와 DELETE만
-503으로 막는다. 기존 숫자형 자산은 변환하거나 fallback으로 읽지 않는다.
+GET은 `{symbol, assets, meta}`를 반환하며 interval entry는
+`current|stale|missing|incompatible` 중 하나다. 이 요청은 read-only PostgreSQL과
+read-only ClickHouse identity 비교만 수행하며 repair, kernel, enqueue, PostgreSQL
+write를 절대 실행하지 않는다. 현재 identity를 증명할 수 없으면 보수적으로 `stale`이다.
+별도 coverage route와 `assetKind` dispatch는 없다.
 
-이 route군은 additive `assetKind=geometry|czardas`를 받는다. 생략하면 위 Geometry
-계약을 그대로 사용한다. Czardas build body는 `symbols`와 `intervals`가 각각 하나인
-명시적 pair만 허용하며 latest pack과 queue는 PostgreSQL
-`chart_assets.czardas_latest`, `czardas_build_jobs/items`에 분리한다. status/cancel은
-기존 `cab-`와 Czardas `cza-` prefix로 store를 dispatch한다. Czardas GET은 read-only
-ClickHouse identity와 저장 pack을 비교해 interval별
-`current|stale|missing|incompatible`를 반환하며 repair, kernel, enqueue, PG write를
-절대 수행하지 않는다. 현재 identity를 증명할 수 없으면 `stale`이다.
+v2 pack은 완료봉 exact-240 전체의 단일 present-snapshot 해석이다. deterministic
+content에는 `inferenceId`, 240개 compact CandleMeaning, revision-free Field
+derivation을 포함하며 `generatedAt`은 계속 DB/API envelope에만 둔다. 저장 guard는
+Field 80 KiB, 전체 pack 96 KiB이고 partial mandatory bundle은 저장하지 않는다.
+
+DELETE는 인증된 개발 패널이 명시한 단일 pair만 삭제한다. build 완료·삭제 후 요청한
+프런트는 generation을 올려 해당 symbol cache를 무효화하고 열린 chart를 재조회한다.
+기존 `/api/charts/analysis-assets` route는 제거하며 Geometry payload나 DB row를
+fallback으로 읽지 않는다.
 
 ## Failure Policy
 
