@@ -35,9 +35,11 @@ export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAsset
 }
 
 export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
-  const pattern = asset?.geometry.primaryPattern ?? asset?.geometry.primaryTriangle;
+  const geometry = asset?.geometry;
+  if (!geometry) return null;
+  const pattern = geometry.primaryPattern ?? geometry.primaryTriangle;
   if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
-  const drawingCount = asset.geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash)).length;
+  const drawingCount = geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash)).length;
   return { kind: pattern.kind, state: pattern.state, score: pattern.score, drawingCount };
 }
 
