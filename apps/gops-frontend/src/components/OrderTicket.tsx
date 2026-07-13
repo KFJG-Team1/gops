@@ -1,4 +1,4 @@
-import { LoaderCircle, LogIn, Minus, Plus, Search, SendHorizontal } from "lucide-react";
+import { LoaderCircle, LogIn, Search, SendHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
@@ -12,13 +12,11 @@ import {
 
 type OrderSide = "buy" | "sell";
 type OrderMarket = "overseas";
-type OrderType = "limit" | "current";
 
 type OrderFormState = {
   market: OrderMarket;
   symbol: string;
   side: OrderSide;
-  orderType: OrderType;
   qty: string;
   price: string;
   exchange: string;
@@ -44,17 +42,9 @@ type OrderSnapshot = {
   simulation?: boolean;
 };
 
-type OrderEvent = {
-  event_id?: string;
-  status: string;
-  reason?: string | null;
-  created_at?: string;
-};
-
 type OrderSocketPayload = {
   type: "snapshot" | "update" | "error";
   order?: OrderSnapshot;
-  events?: OrderEvent[];
   detail?: string;
 };
 
@@ -68,9 +58,13 @@ type OrderBalance = {
 type RiskRule = {
   ruleId: string;
   action: "block" | "resize" | "warn" | "info";
+  title?: string;
   explanation: string;
+  guidance?: string;
   numbers?: Record<string, string>;
   suggestedQty?: string;
+  suggestedPrice?: string;
+  suggestedActionLabel?: string;
 };
 
 type RiskVerdict = {
@@ -81,11 +75,25 @@ type RiskVerdict = {
   skippedRules?: { ruleId: string; reason: string }[];
 };
 
-const riskVerdictLabels: Record<RiskVerdict["verdict"], string> = {
-  allow: "리스크 점검 통과",
-  resize: "수량 조정 권고",
-  block: "리스크 차단"
-};
+function riskVerdictLabel(risk: RiskVerdict): string {
+  if (risk.verdict === "block") {
+    return "주문 내용 확인이 필요합니다";
+  }
+  if (risk.verdict === "resize") {
+    return "수량 조정이 필요합니다";
+  }
+  if (risk.triggeredRules.some((rule) => rule.action === "warn")) {
+    return "주문 전 확인 사항이 있습니다";
+  }
+  return "설정한 위험 한도 이내입니다";
+}
+
+function riskBoxTone(risk: RiskVerdict): RiskVerdict["verdict"] | "warn" {
+  if (risk.verdict === "allow" && risk.triggeredRules.some((rule) => rule.action === "warn")) {
+    return "warn";
+  }
+  return risk.verdict;
+}
 
 function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
   if (detail && typeof detail === "object" && "risk" in detail) {
@@ -101,9 +109,8 @@ const DEFAULT_FORM: OrderFormState = {
   market: "overseas",
   symbol: "AAPL",
   side: "buy",
-  orderType: "limit",
   qty: "1",
-  price: "145.00",
+  price: "",
   exchange: "NASD"
 };
 
@@ -115,17 +122,6 @@ const SHORT_COMPANY_NAMES: Record<string, string> = {
 const sideLabels: Record<OrderSide, string> = {
   buy: "매수",
   sell: "매도"
-};
-
-const orderTypeLabels: Record<OrderType, string> = {
-  limit: "지정가",
-  current: "현재가"
-};
-
-const socketStateLabels: Record<"idle" | "open" | "closed", string> = {
-  idle: "대기",
-  open: "연결됨",
-  closed: "종료"
 };
 
 function makeIdempotencyKey() {
@@ -142,21 +138,64 @@ function websocketUrl(orderId: string) {
 
 function orderStatusLabel(status?: string): string {
   switch (status?.toLowerCase()) {
+    case "received":
+      return "주문 요청을 받았습니다";
+    case "published":
+    case "submitting":
+    case "pending":
+      return "주문을 접수하고 있습니다";
     case "accepted":
-      return "접수";
     case "submitted":
-      return "전송";
+      return "주문이 접수되었습니다";
+    case "partially_filled":
+      return "주문이 일부 체결되었습니다";
     case "filled":
-      return "체결";
+      return "주문이 체결되었습니다";
     case "rejected":
-      return "거부";
+      return "주문이 거절되었습니다";
+    case "risk_rejected":
+      return "위험 한도를 초과해 주문이 거절되었습니다";
     case "cancelled":
     case "canceled":
-      return "취소";
-    case "pending":
-      return "대기";
+      return "주문이 취소되었습니다";
+    case "submit_failed_unknown":
+    case "reconciliation_required":
+      return "주문 상태를 확인하고 있습니다";
+    case "failed":
+      return "주문 처리에 실패했습니다";
     default:
-      return status ? status.toUpperCase() : "주문 가능";
+      return status ? "주문 상태를 확인하고 있습니다" : "주문할 수 있습니다";
+  }
+}
+
+function orderStatusDescription(status?: string): string {
+  switch (status?.toLowerCase()) {
+    case "received":
+    case "published":
+    case "submitting":
+    case "pending":
+      return "주문을 거래 시스템에 전달하고 있습니다. 잠시만 기다려 주십시오.";
+    case "accepted":
+    case "submitted":
+      return "주문이 거래 시스템에 접수되었습니다. 체결 여부는 상태가 바뀌면 알려드립니다.";
+    case "partially_filled":
+      return "주문 수량 중 일부만 체결되었습니다. 남은 수량은 계속 처리 중입니다.";
+    case "filled":
+      return "주문한 수량이 모두 체결되었습니다.";
+    case "risk_rejected":
+      return "설정한 위험 한도를 확인하고 주문 내용을 수정해 주십시오.";
+    case "rejected":
+      return "주문 가격과 수량을 확인한 뒤 다시 시도해 주십시오.";
+    case "cancelled":
+    case "canceled":
+      return "취소된 주문은 체결되지 않습니다.";
+    case "submit_failed_unknown":
+    case "reconciliation_required":
+      return "거래 시스템의 응답을 확인하고 있습니다. 같은 주문을 반복해서 누르지 마십시오.";
+    case "failed":
+      return "주문이 접수되지 않았습니다. 잠시 후 다시 시도해 주십시오.";
+    default:
+      return "잠시 후 주문 상태가 갱신됩니다.";
   }
 }
 
@@ -184,17 +223,6 @@ function formatCurrency(value: number, currency = "USD"): string {
   }).format(value);
 }
 
-function formatPriceDisplay(value: number | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
 function parseFiniteNumber(value: string | number | null | undefined): number | undefined {
   if (value === null || value === undefined || value === "") {
     return undefined;
@@ -203,10 +231,10 @@ function parseFiniteNumber(value: string | number | null | undefined): number | 
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function formatOrderAmount(qty: string, price: string, orderType: OrderType, currentPrice: number | undefined): string {
+function formatOrderAmount(qty: string, price: string): string {
   const quantity = Number(qty);
-  const orderPrice = orderType === "current" ? currentPrice : Number(price);
-  if (!Number.isFinite(quantity) || typeof orderPrice !== "number" || !Number.isFinite(orderPrice)) {
+  const orderPrice = Number(price);
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(orderPrice) || orderPrice <= 0) {
     return "-";
   }
 
@@ -215,16 +243,6 @@ function formatOrderAmount(qty: string, price: string, orderType: OrderType, cur
 
 function displayCompanyName(meta: Pick<WatchlistSymbol, "symbol" | "name">): string {
   return SHORT_COMPANY_NAMES[meta.symbol] ?? meta.name;
-}
-
-function formatInputNumber(value: number, fractionDigits: number): string {
-  if (!Number.isFinite(value)) {
-    return "";
-  }
-  if (fractionDigits === 0) {
-    return String(Math.max(0, Math.round(value)));
-  }
-  return value.toFixed(fractionDigits).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
 function formatPriceInput(value: number): string {
@@ -312,11 +330,9 @@ export function OrderTicket({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [order, setOrder] = useState<OrderSnapshot | undefined>();
-  const [events, setEvents] = useState<OrderEvent[]>([]);
   const [balance, setBalance] = useState<OrderBalance | undefined>();
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | undefined>();
-  const [socketState, setSocketState] = useState<"idle" | "open" | "closed">("idle");
   const [simulationMode, setSimulationMode] = useState(false);
   const [useDemoBasket, setUseDemoBasket] = useState(true);
   const [risk, setRisk] = useState<RiskVerdict | undefined>();
@@ -328,6 +344,7 @@ export function OrderTicket({
     setForm((current) => ({
       ...current,
       symbol: activeSymbol,
+      price: "",
       exchange: marketToExchange(activeMeta.market, current.exchange)
     }));
   }, [activeSymbol]);
@@ -375,10 +392,6 @@ export function OrderTicket({
       .slice(0, ORDER_SEARCH_RESULT_LIMIT);
   }, [allSymbolOptions, symbolSearchQuery]);
 
-  const currentPrice = typeof selectedSymbolMeta.lastPrice === "number" && Number.isFinite(selectedSymbolMeta.lastPrice)
-    ? selectedSymbolMeta.lastPrice
-    : undefined;
-  const currentPriceLabel = formatPriceDisplay(currentPrice);
   const selectedCompanyName = displayCompanyName(selectedSymbolMeta);
   const orderableCash = parseFiniteNumber(balance?.orderable_cash);
   const balanceCurrency = balance?.currency || "USD";
@@ -389,7 +402,7 @@ export function OrderTicket({
       : balanceError ? "조회 실패" : "-";
 
   useEffect(() => {
-    const queryPrice = form.orderType === "current" ? currentPrice : Number(form.price);
+    const queryPrice = Number(form.price);
     const balanceQueryPrice = typeof queryPrice === "number" && Number.isFinite(queryPrice) && queryPrice > 0
       ? formatPriceInput(queryPrice)
       : "0";
@@ -427,14 +440,14 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [currentPrice, form.exchange, form.orderType, form.price, form.symbol, simulationMode]);
+  }, [form.exchange, form.price, form.symbol, simulationMode]);
 
   useEffect(() => {
     if (simulationMode && useDemoBasket) {
       setRisk(undefined);
       return;
     }
-    const previewPrice = form.orderType === "current" ? currentPrice : Number(form.price);
+    const previewPrice = Number(form.price);
     const quantity = Number(form.qty);
     if (!Number.isInteger(quantity) || quantity <= 0 || typeof previewPrice !== "number" || !Number.isFinite(previewPrice) || previewPrice <= 0) {
       setRisk(undefined);
@@ -478,13 +491,18 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [currentPrice, form.exchange, form.market, form.orderType, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
+  }, [form.exchange, form.market, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
 
-  const applySuggestedQty = () => {
-    const suggested = risk?.adjustedQty;
-    const parsed = suggested ? Number(suggested) : NaN;
-    if (Number.isInteger(parsed) && parsed > 0) {
-      setForm((current) => ({ ...current, qty: String(parsed) }));
+  const applyRuleSuggestion = (rule: RiskRule) => {
+    const quantity = rule.suggestedQty ? Number(rule.suggestedQty) : NaN;
+    if (Number.isInteger(quantity) && quantity > 0) {
+      setForm((current) => ({ ...current, qty: String(quantity) }));
+      setError(undefined);
+      return;
+    }
+    const price = rule.suggestedPrice ? Number(rule.suggestedPrice) : NaN;
+    if (Number.isFinite(price) && price > 0) {
+      setForm((current) => ({ ...current, price: formatPriceInput(price) }));
       setError(undefined);
     }
   };
@@ -492,13 +510,14 @@ export function OrderTicket({
   const selectOrderSymbol = (symbolValue: string) => {
     const symbol = normalizeSupportedSymbol(symbolValue);
     if (!symbol) {
-      setError("유효한 종목 코드를 입력하세요.");
+      setError("유효한 종목 코드 입력이 필요합니다.");
       return;
     }
     const meta = resolveSymbolMeta(symbol, allSymbolOptions);
     setForm((current) => ({
       ...current,
       symbol,
+      price: "",
       exchange: marketToExchange(meta.market, current.exchange)
     }));
     setSymbolSearchQuery("");
@@ -510,63 +529,22 @@ export function OrderTicket({
     setForm((current) => ({ ...current, [field]: normalizeDecimalText(value) }));
   };
 
-  const adjustPrice = (delta: number) => {
-    setForm((current) => {
-      const nextPrice = Math.max(0.01, (Number(current.price) || 0) + delta);
-      return { ...current, price: formatPriceInput(nextPrice) };
-    });
-  };
-
-  const adjustQuantity = (delta: number) => {
-    setForm((current) => {
-      const currentQuantity = Number(current.qty) || 0;
-      const nextQuantity = Math.max(1, currentQuantity + delta);
-      return {
-        ...current,
-        qty: formatInputNumber(nextQuantity, 0)
-      };
-    });
-  };
-
-  const applyBuyingPowerRatio = (ratio: number) => {
-    setForm((current) => {
-      const limitPrice = current.orderType === "limit" ? Number(current.price) : currentPrice;
-      if (typeof limitPrice !== "number" || !Number.isFinite(limitPrice) || limitPrice <= 0) {
-        return current;
-      }
-      if (orderableCash === undefined) {
-        setError("잔고를 조회한 뒤 수량을 계산할 수 있습니다.");
-        return current;
-      }
-      const rawQuantity = (orderableCash * ratio) / limitPrice;
-      const nextQuantity = String(Math.max(1, Math.floor(rawQuantity)));
-      return { ...current, qty: nextQuantity };
-    });
-  };
-
   const connectSocket = (orderId: string) => {
     socketRef.current?.close();
     const socket = new WebSocket(websocketUrl(orderId));
     socketRef.current = socket;
-    setSocketState("idle");
 
-    socket.onopen = () => setSocketState("open");
-    socket.onclose = () => setSocketState("closed");
     socket.onerror = () => {
-      setError("주문 스트림에 연결할 수 없습니다.");
-      setSocketState("closed");
+      setError("주문 상태를 실시간으로 확인할 수 없습니다. 주문번호로 상태를 다시 확인해 주십시오.");
     };
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as OrderSocketPayload;
       if (payload.type === "error") {
-        setError(payload.detail ?? "주문 스트림 오류가 발생했습니다.");
+        setError(payload.detail ?? "주문 상태를 확인하는 중 문제가 발생했습니다.");
         return;
       }
       if (payload.order) {
         setOrder(payload.order);
-      }
-      if (payload.events) {
-        setEvents(payload.events);
       }
     };
   };
@@ -594,12 +572,6 @@ export function OrderTicket({
           qty: String(orders.length),
           simulation: true
         });
-        setEvents(orders.map((item, index) => ({
-          event_id: String(item.order_id ?? index),
-          status: String(item.status ?? "filled"),
-          reason: `${String(item.symbol ?? "")} ${String(item.qty ?? "")}주 · SIM 체결`
-        })));
-        setSocketState("closed");
         requestPortfolioRefresh();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "SIM 바스켓 주문에 실패했습니다.");
@@ -608,12 +580,7 @@ export function OrderTicket({
       }
       return;
     }
-    if (form.orderType === "current" && currentPrice === undefined) {
-      setError("현재가를 확인할 수 없어 주문을 전송할 수 없습니다.");
-      setSubmitting(false);
-      return;
-    }
-    const submitPrice = form.orderType === "current" ? formatPriceInput(currentPrice ?? 0) : form.price;
+    const submitPrice = form.price;
     const quantity = Number(form.qty);
     const price = Number(submitPrice);
     if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -622,7 +589,7 @@ export function OrderTicket({
       return;
     }
     if (!Number.isFinite(price) || price <= 0) {
-      setError("지정가를 입력하세요.");
+      setError("주문 가격 입력이 필요합니다.");
       setSubmitting(false);
       return;
     }
@@ -642,7 +609,8 @@ export function OrderTicket({
           exchange: form.exchange,
           order_division: "00",
           actor_id: "gops-frontend",
-          role: "trader"
+          role: "trader",
+          risk_acknowledged: Boolean(risk && risk.verdict !== "allow")
         })
       });
       const payload = await response.json();
@@ -667,10 +635,7 @@ export function OrderTicket({
         setRisk(payload.risk as RiskVerdict);
       }
       setOrder(payload);
-      setEvents([]);
       if (payload.simulation) {
-        setSocketState("closed");
-        setEvents([{ status: "filled", reason: `${payload.symbol ?? form.symbol} ${payload.qty ?? form.qty}주 · SIM 체결` }]);
         requestPortfolioRefresh();
       } else {
         connectSocket(payload.order_id);
@@ -682,18 +647,45 @@ export function OrderTicket({
     }
   };
 
-  const estimatedAmount = formatOrderAmount(form.qty, form.price, form.orderType, currentPrice);
+  const quantity = Number(form.qty);
+  const price = Number(form.price);
+  const individualOrderReady = Number.isInteger(quantity) && quantity > 0 && Number.isFinite(price) && price > 0;
+  const orderReady = simulationMode && useDemoBasket ? true : individualOrderReady;
+  const riskNeedsAcknowledgement = Boolean(risk && risk.verdict !== "allow");
+  const estimatedAmount = formatOrderAmount(form.qty, form.price);
+  const orderSummary = `${form.symbol} ${form.qty || "-"}주 · ${sideLabels[form.side]} · 지정가`;
 
   return (
-    <section className="order-ticket order-ticket-v2" data-order-side={form.side} aria-label="주문 패널">
-      <div className="order-side-control order-segmented-control" role="group" aria-label="매수 매도 선택">
-        <button className={form.side === "buy" ? "active" : ""} type="button" onClick={() => setForm((current) => ({ ...current, side: "buy" }))}>
-          매수
-        </button>
-        <button className={form.side === "sell" ? "active" : ""} type="button" onClick={() => setForm((current) => ({ ...current, side: "sell" }))}>
-          매도
-        </button>
-      </div>
+    <section className="order-ticket order-ticket-v3" data-order-side={form.side} aria-label="주문 패널">
+      <header className="order-ticket-heading">
+        <div>
+          <strong>주문하기</strong>
+          <span className="order-side-badge">{sideLabels[form.side]} 주문</span>
+        </div>
+        <p>주문 방향, 가격과 수량을 확인한 뒤 주문합니다.</p>
+      </header>
+
+      <section className="order-ticket-section" aria-labelledby="order-side-title">
+        <h3 id="order-side-title">매수 또는 매도</h3>
+        <div className="order-side-control" role="group" aria-label="매수 매도 선택">
+          <button
+            className={form.side === "buy" ? "active" : ""}
+            type="button"
+            aria-pressed={form.side === "buy"}
+            onClick={() => setForm((current) => ({ ...current, side: "buy" }))}
+          >
+            매수
+          </button>
+          <button
+            className={form.side === "sell" ? "active" : ""}
+            type="button"
+            aria-pressed={form.side === "sell"}
+            onClick={() => setForm((current) => ({ ...current, side: "sell" }))}
+          >
+            매도
+          </button>
+        </div>
+      </section>
 
       {simulationMode && (
         <div className="simulation-order-banner">
@@ -713,150 +705,120 @@ export function OrderTicket({
         </div>
       )}
 
-      <div
-        className="order-form-row order-symbol-row"
-        onBlur={(event) => {
-          const nextTarget = event.relatedTarget;
-          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-            setSymbolSearchOpen(false);
-          }
-        }}
-      >
-        <span className="order-row-label">주문종목</span>
-        <div className="order-symbol-picker">
-          <div className="order-symbol-search">
-            <Search size={13} aria-hidden="true" />
-            <input
-              value={symbolSearchQuery}
-              placeholder={`${form.symbol} ${selectedCompanyName}`}
-              aria-label="주문 종목 검색"
-              aria-expanded={symbolSearchOpen}
-              onFocus={() => {
-                setSymbolSearchOpen(true);
-                onSymbolOptionsRequest(symbolSearchQuery);
-              }}
-              onChange={(event) => {
-                const value = event.target.value.toUpperCase();
-                setSymbolSearchQuery(value);
-                setSymbolSearchOpen(true);
-                onSymbolOptionsRequest(value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  const query = event.currentTarget.value.toUpperCase();
-                  const exact = visibleSearchOptions.find((item) => item.symbol === query);
-                  selectOrderSymbol(exact?.symbol ?? query);
-                }
-                if (event.key === "Escape") {
-                  setSymbolSearchOpen(false);
-                }
-              }}
-            />
-          </div>
+      <section className="order-ticket-section" aria-labelledby="order-symbol-title">
+        <h3 id="order-symbol-title">종목</h3>
+        <div
+          className="order-field order-symbol-field"
+          onBlur={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+              setSymbolSearchOpen(false);
+            }
+          }}
+        >
+          <label htmlFor="order-symbol-search">주문 종목</label>
+          <div className="order-symbol-picker">
+            <div className="order-symbol-search">
+              <Search size={13} aria-hidden="true" />
+              <input
+                id="order-symbol-search"
+                value={symbolSearchQuery}
+                placeholder={`${form.symbol} ${selectedCompanyName}`}
+                aria-label="주문 종목 검색"
+                aria-expanded={symbolSearchOpen}
+                onFocus={() => {
+                  setSymbolSearchOpen(true);
+                  onSymbolOptionsRequest(symbolSearchQuery);
+                }}
+                onChange={(event) => {
+                  const value = event.target.value.toUpperCase();
+                  setSymbolSearchQuery(value);
+                  setSymbolSearchOpen(true);
+                  onSymbolOptionsRequest(value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    const query = event.currentTarget.value.toUpperCase();
+                    const exact = visibleSearchOptions.find((item) => item.symbol === query);
+                    selectOrderSymbol(exact?.symbol ?? query);
+                  }
+                  if (event.key === "Escape") {
+                    setSymbolSearchOpen(false);
+                  }
+                }}
+              />
+            </div>
 
-          {symbolSearchOpen && (
-            <div className="order-symbol-dropdown" role="listbox" aria-label="주문 종목 선택">
-              <div className="order-symbol-dropdown-section">
-                {visibleSearchOptions.map((item) => (
-                  <button
-                    key={`search-${item.symbol}`}
-                    type="button"
-                    role="option"
-                    aria-selected={item.symbol === form.symbol}
-                    className={item.symbol === form.symbol ? "order-symbol-option active" : "order-symbol-option"}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectOrderSymbol(item.symbol)}
-                  >
-                    <strong>{item.symbol}</strong>
-                    <span>{displayCompanyName(item)}</span>
-                  </button>
-                ))}
-                {visibleSearchOptions.length === 0 && (
-                  <span className="order-symbol-empty">일치하는 종목이 없습니다</span>
-                )}
+            {symbolSearchOpen && (
+              <div className="order-symbol-dropdown" role="listbox" aria-label="주문 종목 선택">
+                <div className="order-symbol-dropdown-section">
+                  {visibleSearchOptions.map((item) => (
+                    <button
+                      key={`search-${item.symbol}`}
+                      type="button"
+                      role="option"
+                      aria-selected={item.symbol === form.symbol}
+                      className={item.symbol === form.symbol ? "order-symbol-option active" : "order-symbol-option"}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectOrderSymbol(item.symbol)}
+                    >
+                      <strong>{item.symbol}</strong>
+                      <span>{displayCompanyName(item)}</span>
+                    </button>
+                  ))}
+                  {visibleSearchOptions.length === 0 && (
+                    <span className="order-symbol-empty">일치하는 종목이 없습니다</span>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="order-form-stack">
-        <div className="order-form-row">
-          <span className="order-row-label">구매가격</span>
-          <div className="order-segmented-control order-price-type-control" role="group" aria-label="구매 가격">
-            {(["limit", "current"] as OrderType[]).map((type) => (
-              <button
-                key={type}
-                type="button"
-                className={form.orderType === type ? "active" : ""}
-                onClick={() => setForm((current) => ({ ...current, orderType: type }))}
-              >
-                {orderTypeLabels[type]}
-              </button>
-            ))}
+            )}
           </div>
         </div>
+      </section>
 
-        <div className="order-form-row order-input-row">
-          <span className="order-row-label">가격</span>
-          <div className="order-input-stepper">
-            <input
-              inputMode="decimal"
-              value={form.orderType === "current" ? currentPriceLabel : form.price}
-              disabled={form.orderType !== "limit"}
-              aria-label="주문 가격"
-              onChange={(event) => updateTextField("price", event.target.value)}
-            />
-            <span className="order-input-suffix">USD</span>
-            <div className="order-stepper-buttons" aria-label="가격 조정">
-              <button type="button" disabled={form.orderType !== "limit"} aria-label="가격 낮추기" onClick={() => adjustPrice(-1)}>
-                <Minus size={13} />
-              </button>
-              <span />
-              <button type="button" disabled={form.orderType !== "limit"} aria-label="가격 올리기" onClick={() => adjustPrice(1)}>
-                <Plus size={13} />
-              </button>
+      <section className="order-ticket-section" aria-labelledby="order-entry-title">
+        <h3 id="order-entry-title">가격과 수량</h3>
+        <div className="order-entry-grid">
+          <label className="order-field" htmlFor="order-price-input">
+            <span>주문 가격 (USD)</span>
+            <div className="order-input-unit">
+              <input
+                id="order-price-input"
+                inputMode="decimal"
+                value={form.price}
+                placeholder="예: 70.40"
+                aria-label="주문 가격"
+                onChange={(event) => updateTextField("price", event.target.value)}
+              />
+              <span>USD</span>
             </div>
-          </div>
-        </div>
-
-        <div className="order-form-row order-input-row">
-          <span className="order-row-label">수량</span>
-          <div className="order-input-stepper">
-            <input
-              inputMode="decimal"
-              value={form.qty}
-              placeholder="수량 입력"
-              aria-label="주문 수량"
-              onChange={(event) => updateTextField("qty", event.target.value)}
-            />
-            <span className="order-input-suffix">주</span>
-            <div className="order-stepper-buttons" aria-label="수량 조정">
-              <button type="button" aria-label="수량 줄이기" onClick={() => adjustQuantity(-1)}>
-                <Minus size={13} />
-              </button>
-              <span />
-              <button type="button" aria-label="수량 늘리기" onClick={() => adjustQuantity(1)}>
-                <Plus size={13} />
-              </button>
+            <small>주문할 가격을 직접 입력합니다.</small>
+          </label>
+          <label className="order-field" htmlFor="order-quantity-input">
+            <span>수량 (주)</span>
+            <div className="order-input-unit">
+              <input
+                id="order-quantity-input"
+                inputMode="numeric"
+                value={form.qty}
+                placeholder="예: 1"
+                aria-label="주문 수량"
+                onChange={(event) => updateTextField("qty", event.target.value)}
+              />
+              <span>주</span>
             </div>
-          </div>
+            <small>보유 가능 금액과 리스크 한도를 함께 확인합니다.</small>
+          </label>
         </div>
-
-        <div className="order-ratio-buttons" role="group" aria-label="주문 가능 금액 비율">
-          <button type="button" onClick={() => applyBuyingPowerRatio(0.1)}>10%</button>
-          <button type="button" onClick={() => applyBuyingPowerRatio(0.25)}>25%</button>
-          <button type="button" onClick={() => applyBuyingPowerRatio(0.5)}>50%</button>
-          <button type="button" onClick={() => applyBuyingPowerRatio(1)}>최대</button>
-        </div>
-      </div>
+      </section>
 
       <div className="order-summary-box order-summary-box-v2">
         <div>
-          <span>총 주문 금액</span>
-          <strong>{estimatedAmount}</strong>
+          <span>주문 요약</span>
+          <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
         </div>
+        <p>{orderSummary}</p>
         <div className="order-buying-power-row">
           <span>주문 가능 금액</span>
           <strong>{balanceLabel}</strong>
@@ -864,20 +826,28 @@ export function OrderTicket({
       </div>
 
       {risk && !(simulationMode && useDemoBasket) && (
-        <div className={`order-risk-box order-risk-${risk.verdict}`} aria-live="polite">
+        <div className={`order-risk-box order-risk-${riskBoxTone(risk)}`} aria-live="polite">
           <div className="order-risk-header">
-            <strong>{riskLoading ? "리스크 점검 중" : riskVerdictLabels[risk.verdict]}</strong>
-            {risk.adjustedQty && risk.verdict === "resize" && (
-              <button type="button" className="order-risk-apply" onClick={applySuggestedQty}>
-                권장 {risk.adjustedQty}주 적용
-              </button>
-            )}
+            <strong>{riskLoading ? "리스크 점검 중" : riskVerdictLabel(risk)}</strong>
           </div>
           {risk.triggeredRules.length > 0 && (
             <ul className="order-risk-rules">
               {risk.triggeredRules.slice(0, 3).map((rule) => (
                 <li key={rule.ruleId} data-risk-action={rule.action}>
-                  {rule.explanation}
+                  <div className="order-risk-rule-copy">
+                    <strong>{rule.title ?? "주문 내용 확인이 필요합니다"}</strong>
+                    <p>{rule.explanation}</p>
+                    {rule.guidance && <small>{rule.guidance}</small>}
+                  </div>
+                  {rule.suggestedActionLabel && (rule.suggestedQty || rule.suggestedPrice) && (
+                    <button
+                      type="button"
+                      className="order-risk-rule-action"
+                      onClick={() => applyRuleSuggestion(rule)}
+                    >
+                      {rule.suggestedActionLabel}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -885,23 +855,34 @@ export function OrderTicket({
         </div>
       )}
 
-      <button
-        className="order-submit-button"
-        type="button"
-        disabled={submitting || authLoading || (risk?.verdict === "block" && !riskLoading)}
-        onClick={submitOrder}
-      >
-        {authEnabled && !user
-          ? <LogIn size={14} />
-          : submitting ? <LoaderCircle size={14} className="spin" /> : <SendHorizontal size={14} />}
-        {authEnabled && !user
-          ? "로그인"
-          : submitting
-            ? "전송 중"
+      <div className="order-submit-area">
+        <button
+          className="order-submit-button"
+          type="button"
+          disabled={submitting || authLoading || riskLoading || !orderReady}
+          onClick={submitOrder}
+        >
+          {submitting
+            ? <LoaderCircle size={14} className="spin" />
+            : authEnabled && !user ? <LogIn size={14} /> : <SendHorizontal size={14} />}
+          {submitting
+            ? "주문 전송 중"
+            : authEnabled && !user
+              ? "로그인"
+              : simulationMode && useDemoBasket
+                ? form.side === "sell" ? "반도체 5종 매도 주문" : "에너지 3종 매수 주문"
+                : riskNeedsAcknowledgement
+                  ? `경고 확인 후 ${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`
+                  : `${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`}
+        </button>
+        <small>
+          {riskNeedsAcknowledgement
+            ? "리스크 안내를 확인한 뒤에도 입력한 가격과 수량 그대로 주문할 수 있습니다."
             : simulationMode && useDemoBasket
-              ? form.side === "sell" ? "반도체 5종 매도" : "에너지 3종 매수"
-              : `${sideLabels[form.side]} 주문 전송`}
-      </button>
+            ? "버튼을 누르면 모의 주문이 바로 전송됩니다."
+            : `예상 주문 금액 ${estimatedAmount} · 버튼을 누르면 주문이 바로 전송됩니다.`}
+        </small>
+      </div>
 
       {error && <div className="order-error">{error}</div>}
 
@@ -915,21 +896,7 @@ export function OrderTicket({
             <span>주문번호</span>
             <strong>{order.order_id}</strong>
           </div>
-          <div>
-            <span>스트림</span>
-            <strong>{socketStateLabels[socketState]}</strong>
-          </div>
-        </div>
-      )}
-
-      {events.length > 0 && (
-        <div className="order-event-list">
-          {events.slice(-3).map((event, index) => (
-            <div key={event.event_id ?? `${event.status}-${index}`} className="order-event-row">
-              <strong>{event.status}</strong>
-              <span>{event.reason ?? event.created_at ?? ""}</span>
-            </div>
-          ))}
+          <p>{orderStatusDescription(order.status)}</p>
         </div>
       )}
     </section>
