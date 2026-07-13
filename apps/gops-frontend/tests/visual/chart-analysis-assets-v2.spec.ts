@@ -2,7 +2,6 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const candles = fixtureCandles();
-const eventIndex = 100;
 let postedSymbols: unknown = null;
 
 test.beforeEach(async ({ page }) => {
@@ -16,57 +15,19 @@ test.beforeEach(async ({ page }) => {
   }, { key: layoutStorageKey, layout: assetLayout() });
 });
 
-test("v2 asset keeps flags on candle centers and connects focus commentary", async ({ page }, testInfo) => {
+test("geometry asset renders one layer and interval-bound drawings", async ({ page }, testInfo) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
-  for (const label of ["지지·저항", "추세", "인사이트"]) {
-    const toggle = page.getByRole("button", { name: `${label} 분석 레이어 끄기` });
-    await expect(toggle).toBeEnabled();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  }
-  await page.getByRole("button", { name: "추세 분석 레이어 끄기" }).click();
-  await expect(page.getByRole("button", { name: "추세 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
-  await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
-
-  const focus = page.getByRole("region", { name: "주요 관찰" }).getByRole("button").first();
-  await expect(focus).toContainText("확인 조건");
-  await expect(focus).toContainText("무효화 조건");
-  await focus.click();
-
-  const flagGeometry = await canvas.evaluate((element) => {
-    const target = element as HTMLCanvasElement;
-    const context = target.getContext("2d");
-    if (!context) return null;
-    const image = context.getImageData(0, 0, target.width, target.height);
-    const spans = new Map<number, { min: number; max: number }>();
-    for (let index = 0; index < image.data.length; index += 4) {
-      const red = image.data[index];
-      const green = image.data[index + 1];
-      const blue = image.data[index + 2];
-      const pixel = index / 4;
-      const y = Math.floor(pixel / target.width);
-      if (red >= 245 && green >= 105 && green <= 140 && blue >= 45 && blue <= 80 && image.data[index + 3] > 180) {
-        const x = pixel % target.width;
-        const current = spans.get(x);
-        spans.set(x, current ? { min: Math.min(current.min, y), max: Math.max(current.max, y) } : { min: y, max: y });
-      }
-    }
-    if (!spans.size) return null;
-    const x = [...spans].sort((left, right) => (right[1].max - right[1].min) - (left[1].max - left[1].min) || left[0] - right[0])[0][0];
-    return { x, width: target.width };
-  });
-  expect(flagGeometry).not.toBeNull();
-  const box = await canvas.boundingBox();
-  expect(box).not.toBeNull();
-  if (flagGeometry === null || !box) throw new Error("flag pixel geometry unavailable");
-  if (testInfo.project.name === "desktop") {
-    await page.mouse.move(box.x + flagGeometry.x * box.width / flagGeometry.width, box.y + box.height * 0.45);
-    const expectedDate = new Date(candles[eventIndex].timestamp).toLocaleString("en-US", { month: "short", day: "2-digit", timeZone: "UTC" });
-    await expect(page.locator(".hover-ohlc-time dd")).toContainText(expectedDate);
-  }
+  const toggle = page.getByRole("button", { name: "Geometry 분석 레이어 끄기" });
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(page.getByRole("button", { name: "Geometry 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "Geometry 분석 레이어 켜기" }).click();
+  await expect(page.getByText(/상승 삼각형 · 형성 중/).first()).toBeVisible();
+  await expect(canvas).toBeVisible();
   await page.screenshot({ path: `/tmp/chart-assets-v2-${testInfo.project.name}.png`, fullPage: true });
 });
 
@@ -74,7 +35,7 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
   await page.goto("/?symbol=NVDA");
   const ops = page.locator(".chart-asset-ops-panel");
   await expect(ops.getByText("콤마로 구분", { exact: true })).toBeVisible();
-  await expect(ops.getByText("갱신 스킵(시간)", { exact: true })).toBeVisible();
+  await expect(ops.getByText("갱신 스킵(시간)", { exact: true })).toHaveCount(0);
   await expect(ops.getByText("신선 자산 스킵(시간)", { exact: true })).toHaveCount(0);
   await ops.getByLabel("빌드 심볼").fill("NVDA,AAPL, MSFT");
   await ops.getByRole("button", { name: "빌드 시작" }).click();
@@ -122,16 +83,16 @@ function fixtureCandles() {
 }
 
 function drawing(id: string, type: string, anchors: Array<Record<string, unknown>>, label: string, color: string) {
-  return { id, type, anchors, sourceInterval: "1D", style: { color, lineWidth: 2, opacity: .95 }, label, locked: false, visible: true, createdBy: "system", sourceProposalId: "chart-asset:NVDA:1D:test", createdAt: candles.at(-1)?.timestamp, updatedAt: candles.at(-1)?.timestamp };
+  return { id, type, anchors, symbol: "NVDA", interval: "1D", sourceInterval: "1D", style: { color, lineWidth: 2, opacity: .95 }, label, locked: false, visible: true, createdBy: "system", sourceProposalId: "chart-asset:NVDA:1D:test", createdAt: candles.at(-1)?.timestamp, updatedAt: candles.at(-1)?.timestamp };
 }
 
 function assetResponse(): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp;
-  const hline = drawing("ca-NVDA-1D-structure-level", "horizontalLine", [{ price: 164 }], "지지 164.00", "#ffffff");
-  const flag = drawing("ca-NVDA-1D-structure-event", "flagMarker", [{ timestamp: candles[eventIndex].timestamp, price: candles[eventIndex].high }], "구조 이탈", "#ff7a3d");
-  const trend = drawing("ca-NVDA-1D-trend-current", "trendLine", [{ timestamp: candles[10].timestamp, price: candles[10].low }, { timestamp: candles[85].timestamp, price: candles[85].low }], "상승 추세", "#0099ff");
-  const insight = drawing("ca-NVDA-1D-agent-event", "flagMarker", [{ timestamp: candles[115].timestamp, price: candles[115].high }], "리테스트 확인", "#33adff");
-  return { symbol: "NVDA", assets: { "1D": { assetVersion: "v2", symbol: "NVDA", interval: "1D", asOf, generatedAt: asOf, status: "ready", layers: { structure: { drawings: [hline, flag], selected: [], emptyReason: null, meta: {} }, trend: { drawings: [trend], selected: [], emptyReason: null, meta: {} }, agent: { drawings: [insight], selected: [], emptyReason: null, meta: {} } }, chartSetup: { alwaysOn: ["volume-profile", "volume"], recommended: [] }, commentary: { headline: "현재와 연결된 핵심 구조", regimeSummary: "상승 구조", focusItems: [{ drawingIds: [hline.id], candidateId: "level", featureIds: [], whatItShows: "검증된 지지 구조", whyItMatters: "현재 가격과 가깝습니다.", whatToWatch: "확인 조건: 다음 확정봉의 반응. 무효화 조건: 확정 종가 이탈.", confirmation: "다음 확정봉의 반응", invalidation: "확정 종가 이탈", horizon: "weeks" }], text: "핵심 구조를 확인하세요.", keyLevels: ["support 164.00 · 지지"], invalidation: "확정 종가가 지지 구간 아래에서 유지되면 무효입니다.", confidence: .9, enrichment: null } }, "1W": null, "1M": null }, meta: { servedAt: asOf } };
+  const hline = drawing("chart-asset:NVDA:1D:support", "horizontalLine", [{ timestamp: candles[50].timestamp, price: 164 }, { timestamp: candles[100].timestamp, price: 164 }], "지지", "#22c55e");
+  const upper = drawing("chart-asset:NVDA:1D:triangle-upper", "trendLine", [{ timestamp: candles[40].timestamp, price: 178 }, { timestamp: candles[139].timestamp, price: 178 }], "상승 삼각형 · 형성 중", "#22c55e");
+  const lower = drawing("chart-asset:NVDA:1D:triangle-lower", "trendLine", [{ timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 174 }], "상승 삼각형 · 형성 중", "#22c55e");
+  const asset = { assetVersion: "geometry", algorithmVersion: "ohlcv-consensus-1", symbol: "NVDA", interval: "1D", sourceInterval: "1D", asOf, generatedAt: asOf, status: "ready", inputDigest: "sha256:fixture", coverage: { state: "partial", targetBars: 380, actualBars: 140, contiguousBars: 140, missingBars: 240 }, geometry: { drawings: [hline, upper, lower], supports: [{ id: "support", role: "support", price: 164, score: .8, touches: 2, anchors: hline.anchors }], resistances: [], primaryTriangle: { kind: "ascending_triangle", state: "forming", score: .9, touches: 5, geometryHash: "triangle" }, historicalTriangle: null }, indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } } };
+  return { symbol: "NVDA", assets: { "1D": asset }, meta: { servedAt: asOf } };
 }
 
 function assetLayout(): Record<string, unknown> {

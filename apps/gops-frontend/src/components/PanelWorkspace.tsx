@@ -12,7 +12,6 @@ import {
   chartDocumentIdForContent
 } from "../chart/chartDocumentAdapter";
 import type { CandleDto } from "../chart/types";
-import type { ChartDocument } from "@gops/chart-engine";
 import {
   type CSSProperties,
   type Dispatch,
@@ -75,7 +74,7 @@ import {
 } from "../layout/panelLayout";
 import type { WorkspaceLayoutMode } from "../layout/responsivePanelLayout";
 import { workspaceBottomInset } from "../layout/workspaceMetrics";
-import { ChartAddDock, ChartDrawingDock, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { boundaryStyle } from "./panelWorkspaceGeometry";
@@ -103,7 +102,6 @@ type PanelWorkspaceProps = {
   onAgentAsk: () => void;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
-  onSyncPageSymbolFromChart: (contentId: string) => void;
   onSelectSymbol: (symbol: string) => void;
   presetDock?: ReactNode;
   placementPickerOverlay?: ReactNode;
@@ -182,7 +180,6 @@ export function PanelWorkspace({
   onAgentAsk,
   onChartRuntimeAction,
   onChartHandleChange,
-  onSyncPageSymbolFromChart,
   onSelectSymbol,
   presetDock,
   placementPickerOverlay
@@ -238,7 +235,6 @@ export function PanelWorkspace({
     });
   }, []);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
-  const [drawingTargetContentId, setDrawingTargetContentId] = useState<string | null>(null);
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
@@ -688,9 +684,6 @@ export function PanelWorkspace({
         delete next[closing.contentId];
         return next;
       });
-      if (closing.contentId === drawingTargetContentId) {
-        setDrawingTargetContentId(null);
-      }
       if (closing.contentId === chartAddTargetContentId) {
         setChartAddTargetContentId(null);
       }
@@ -717,36 +710,6 @@ export function PanelWorkspace({
     });
     // Keep the panel content in sync so the symbol label and company tab follow the chart.
     updatePanelProps(contentId, { symbol });
-  };
-
-  const resetDrawingTargetTool = (contentId: string) => {
-    const slot = panelStateRef.current.slots.find((item) => item.contentId === contentId);
-    const content = slot ? panelStateRef.current.contents[slot.contentId] : null;
-    if (!slot || !content || content.kind !== "chart") {
-      return;
-    }
-    onChartRuntimeAction({
-      kind: "chart.command",
-      command: makeChartCommand(
-        "chart.drawing.clearSelection",
-        "user",
-        { panelId: slot.id, chartDocumentId: chartDocumentIdForContent(content) },
-        { mode: "pan" }
-      )
-    });
-  };
-
-  const toggleDrawingTarget = (contentId: string) => {
-    setDrawingTargetContentId((current) => {
-      if (current === contentId) {
-        resetDrawingTargetTool(contentId);
-        return null;
-      }
-      if (current) {
-        resetDrawingTargetTool(current);
-      }
-      return contentId;
-    });
   };
 
   const toggleChartAddTarget = (contentId: string) => {
@@ -793,12 +756,6 @@ export function PanelWorkspace({
     );
   };
 
-  const drawingTarget = drawingTargetContentId
-    ? targetChartForContentId(panelState, chartRuntime, drawingTargetContentId)
-    : null;
-  const chartAddTarget = chartAddTargetContentId
-    ? targetChartForContentId(panelState, chartRuntime, chartAddTargetContentId)
-    : null;
   const scrollBounds = workspaceBounds(viewportSize, layoutMetrics);
   const scrollExtentStyle: CSSProperties = {
     width: scrollBounds.width,
@@ -849,7 +806,7 @@ export function PanelWorkspace({
           layoutEditMode ? "is-layout-editing" : ""
         ].filter(Boolean).join(" ")}
         isBoundaryActive={activeBoundarySlotIds.has(slot.id)}
-        isChartHovered={isChart && (hoveredChartSlotId === slot.id || drawingTargetContentId === content.id || chartAddTargetContentId === content.id)}
+        isChartHovered={isChart && (hoveredChartSlotId === slot.id || chartAddTargetContentId === content.id)}
         showNav={!hidePanelNav}
         onFramePointerDown={layoutEditMode ? beginPanelEditMove : undefined}
         onFramePointerMove={layoutEditMode ? updateFrameCursor : undefined}
@@ -882,7 +839,6 @@ export function PanelWorkspace({
           chartStreamStatus={chartStreamStatus}
           chartStreamMessage={chartStreamMessage}
           chartLiveTrade={chartLiveTrade}
-          chartDrawingActive={drawingTargetContentId === content.id}
           chartAddActive={chartAddTargetContentId === content.id}
           selectedAgentReferenceKeys={selectedAgentReferenceKeys}
           emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
@@ -894,9 +850,7 @@ export function PanelWorkspace({
           onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
           onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
           onChartHandleChange={onChartHandleChange}
-          onChartDrawingToggle={() => toggleDrawingTarget(content.id)}
           onChartAddToggle={() => toggleChartAddTarget(content.id)}
-          onSyncPageSymbolFromChart={() => onSyncPageSymbolFromChart(content.id)}
           onUpdatePanelProps={updatePanelProps}
           onChangePanelChartSymbol={changePanelChartSymbol}
           onSelectSymbol={onSelectSymbol}
@@ -1047,28 +1001,7 @@ export function PanelWorkspace({
           </div>
         </div>
       )}
-      {!layoutEditMode && (drawingTarget || chartAddTarget) && (
-        <div className="chart-tool-dock-row" aria-label="Chart tool docks">
-          {chartAddTarget && (
-            <ChartAddDock
-              document={chartAddTarget.document}
-              panelId={chartAddTarget.slot.id}
-              laneHeight={Math.max(120, chartAddTarget.slot.rect.height)}
-              onChartRuntimeAction={onChartRuntimeAction}
-              onClose={() => setChartAddTargetContentId(null)}
-            />
-          )}
-          {drawingTarget && (
-            <ChartDrawingDock
-              document={drawingTarget.document}
-              panelId={drawingTarget.slot.id}
-              onChartRuntimeAction={onChartRuntimeAction}
-              onClose={() => setDrawingTargetContentId(null)}
-            />
-          )}
-        </div>
-      )}
-      {!layoutEditMode && !drawingTarget && !chartAddTarget && presetDock}
+      {!layoutEditMode && presetDock}
       {!layoutEditMode && placementPickerOverlay}
     </>
   );
@@ -1255,20 +1188,6 @@ function resizeDirectionIcon(direction: ResizeDirection) {
   );
 }
 
-function targetChartForContentId(
-  panelState: TiledPanelState,
-  chartRuntime: ChartRuntimeState,
-  contentId: string
-): { slot: NonNullable<TiledPanelState["slots"][number]>; content: PanelContentInstance; document: ChartDocument } | null {
-  const slot = panelState.slots.find((item) => item.contentId === contentId);
-  const content = slot ? panelState.contents[slot.contentId] : null;
-  if (!slot || !content || content.kind !== "chart") {
-    return null;
-  }
-  const document = chartRuntime.documents[chartDocumentIdForContent(content)];
-  return document ? { slot, content, document } : null;
-}
-
 function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHeaderSnapshot): boolean {
   if (!a) {
     return false;
@@ -1300,6 +1219,5 @@ function isPortfolioPanelKind(kind: PanelContentKind): boolean {
     || kind === "portfolioDiversification"
     || kind === "portfolioHeatmap"
     || kind === "portfolioHoldings"
-    || kind === "portfolioHoldingsCards"
     || kind === "portfolioHoldingsFlatCards";
 }

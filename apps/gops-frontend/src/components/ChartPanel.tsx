@@ -1,19 +1,31 @@
 import {
+  Activity,
+  AudioWaveform,
+  ChartColumn,
   ChartNoAxesCombined,
+  ChartSpline,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Eraser,
   Flag,
+  Gauge,
   Hand,
   MousePointer2,
   Palette,
-  Paintbrush,
   RotateCcw,
   Square,
   Trash2,
+  TrendingUp,
   Type,
+  Waves,
   X
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import {
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   forwardRef,
   PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -42,7 +54,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../chart/analysisAssetPresentation";
+import { isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -63,7 +75,6 @@ import {
   buildSingleAnchorPreviewDrawing,
   buildDraggedAnchors,
   defaultDrawingLabel,
-  defaultDrawingStyle,
   drawingLabelLayout,
   drawingRequiredAnchorCount,
   drawingSupportsTextEditing,
@@ -95,7 +106,7 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, createCoordinateTransform, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
@@ -133,6 +144,7 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import type { ThemeColorToken } from "../theme/colors";
 
 function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
@@ -222,10 +234,8 @@ type ChartPanelProps = {
   liveTrade?: TradeTickData;
   symbols: ChartSymbolDto[];
   laneHeight?: number;
-  chartDrawingActive?: boolean;
   chartAddActive?: boolean;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onChartDrawingToggle?: () => void;
   onChartAddToggle?: () => void;
   onSemanticSelectionChange?: (selection: SemanticSelectionSnapshot | null) => void;
   onAgentAsk?: () => void;
@@ -233,6 +243,7 @@ type ChartPanelProps = {
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
 };
 
 export type ChartPanelHandle = {
@@ -267,10 +278,81 @@ const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
 const defaultOrderFlowPriceBinSize = 0.01;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
-  ["segment", "Segment"],
-  ["ray", "Ray"],
-  ["line", "Line"]
+  ["segment", "선분"],
+  ["ray", "반직선"],
+  ["line", "직선"]
 ];
+
+type DrawingPaletteToken = Extract<ThemeColorToken,
+  | "drawing"
+  | "bullish"
+  | "bearish"
+  | "signal"
+  | "caution"
+  | "purple"
+  | "pointYellow"
+  | "pointOrange"
+  | "pointPurple"
+  | "ma5"
+  | "ma20"
+  | "ma60"
+>;
+
+const drawingPaletteOptions: Array<{ token: DrawingPaletteToken; label: string; cssColor: string }> = [
+  { token: "drawing", label: "기본 그리기 색상", cssColor: "var(--color-drawing)" },
+  { token: "bullish", label: "상승", cssColor: "var(--color-bullish)" },
+  { token: "bearish", label: "하락", cssColor: "var(--color-bearish)" },
+  { token: "signal", label: "시그널", cssColor: "var(--color-signal)" },
+  { token: "caution", label: "주의", cssColor: "var(--color-caution)" },
+  { token: "purple", label: "보라", cssColor: "var(--color-purple)" },
+  { token: "pointYellow", label: "포인트 노랑", cssColor: "var(--color-point-yellow)" },
+  { token: "pointOrange", label: "포인트 주황", cssColor: "var(--color-point-orange)" },
+  { token: "pointPurple", label: "포인트 보라", cssColor: "var(--color-point-purple)" },
+  { token: "ma5", label: "MA5", cssColor: "var(--color-ma5)" },
+  { token: "ma20", label: "MA20", cssColor: "var(--color-ma20)" },
+  { token: "ma60", label: "MA60", cssColor: "var(--color-ma60)" }
+];
+
+type ImmediateTooltipState = {
+  text: string;
+  left: number;
+  top: number;
+};
+
+function useImmediateChartTooltip() {
+  const [tooltip, setTooltip] = useState<ImmediateTooltipState | null>(null);
+  const hideTooltip = useCallback(() => setTooltip(null), []);
+  const showTooltip = useCallback((text: string, element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const panelRect = element.closest(".chart-panel")?.getBoundingClientRect();
+    const boundaryLeft = Math.max(6, panelRect?.left ?? 6);
+    const boundaryRight = Math.min(window.innerWidth - 6, panelRect?.right ?? window.innerWidth - 6);
+    const estimatedWidth = Math.min(Math.max(72, Array.from(text).length * 13 + 20), Math.max(72, boundaryRight - boundaryLeft));
+    const left = Math.min(
+      Math.max(rect.left + rect.width / 2 - estimatedWidth / 2, boundaryLeft),
+      Math.max(boundaryLeft, boundaryRight - estimatedWidth)
+    );
+    const preferredTop = rect.bottom + 6;
+    const boundaryBottom = Math.min(window.innerHeight - 6, panelRect?.bottom ?? window.innerHeight - 6);
+    const top = preferredTop + 30 <= boundaryBottom ? preferredTop : Math.max(6, rect.top - 30);
+    setTooltip({ text, left, top });
+  }, []);
+  const tooltipProps = useCallback((text: string) => ({
+    onPointerEnter: (event: ReactPointerEvent<HTMLElement>) => showTooltip(text, event.currentTarget),
+    onPointerLeave: hideTooltip,
+    onFocus: (event: ReactFocusEvent<HTMLElement>) => showTooltip(text, event.currentTarget),
+    onBlur: hideTooltip
+  }), [hideTooltip, showTooltip]);
+  const tooltipOverlay = tooltip && typeof window !== "undefined"
+    ? createPortal(
+        <div className="chart-immediate-tooltip" role="tooltip" style={{ left: tooltip.left, top: tooltip.top }}>
+          {tooltip.text}
+        </div>,
+        window.document.body
+      )
+    : null;
+  return { hideTooltip, tooltipOverlay, tooltipProps };
+}
 
 export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function ChartPanel({
   panelId,
@@ -282,16 +364,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   liveTrade,
   symbols,
   laneHeight,
-  chartDrawingActive = false,
   chartAddActive = false,
   onChartRuntimeAction,
-  onChartDrawingToggle,
   onChartAddToggle,
   onSemanticSelectionChange,
   emphasizeSelection = false,
   onChartHoverChange,
   onHeaderChange,
-  toolbarLeading
+  toolbarLeading,
+  toolbarTrailing
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
@@ -322,9 +403,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    structure: true,
-    trend: true,
-    agent: true
+    geometry: true
   });
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
@@ -443,8 +522,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["macd:12:26:9"],
     chart.panes
   ]);
+  const chartPanelRef = useRef<HTMLElement | null>(null);
+  const chartControlTooltip = useImmediateChartTooltip();
   const sceneRef = useRef<ChartScene | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const chartAddButtonRef = useRef<HTMLButtonElement | null>(null);
+  const chartAddMenuRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
@@ -580,13 +663,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? analysisAssets.assets[interval]
       : null;
     const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
-    const asset = resolvedAsset && !isAnalysisAssetStale(
-      resolvedAsset.asOf,
-      chart.candles,
-      resolvedAsset.assetVersion,
-      resolvedAsset.interval
-    )
-      ? resolvedAsset
+    const asset = resolvedAsset
+      ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
+          resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
+        ))
       : null;
     const applyKey = [
       chart.symbol,
@@ -621,7 +701,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const toggleAnalysisLayer = useCallback((layer: AnalysisLayerKey) => {
-    if (!activeAnalysisAsset || activeAnalysisAssetStale) {
+    if (!activeAnalysisAsset) {
       return;
     }
     const visible = !analysisLayerVisibilityRef.current[layer];
@@ -632,7 +712,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, activeAnalysisAssetStale, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -707,10 +787,37 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [chart.drawings, labelEditor, postCreateFocusDrawingId]);
 
   useEffect(() => {
+    if (!chartAddActive || !onChartAddToggle) {
+      return undefined;
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || chartAddButtonRef.current?.contains(target) || chartAddMenuRef.current?.contains(target)) {
+        return;
+      }
+      onChartAddToggle();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onChartAddToggle();
+        chartAddButtonRef.current?.focus();
+      }
+    };
+    window.document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [chartAddActive, onChartAddToggle]);
+
+  useEffect(() => {
     const handleParallelLineCountKey = (event: KeyboardEvent) => {
-      // Only the chart that owns the visible drawing dock may consume the
-      // global shortcut. Multiple ChartPanel instances mount this effect.
-      if (!chartDrawingActive) {
+      // Multiple chart panels own an always-visible toolbar. Only the panel
+      // containing focus (or the pointer) may consume the global shortcut.
+      const panel = chartPanelRef.current;
+      if (!panel || (!panel.contains(window.document.activeElement) && !panel.matches(":hover"))) {
         return;
       }
       if (event.key !== "ArrowUp" && event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft") {
@@ -742,7 +849,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
     window.addEventListener("keydown", handleParallelLineCountKey);
     return () => window.removeEventListener("keydown", handleParallelLineCountKey);
-  }, [chart.drawings, chart.parallelLineCount, chart.selectedDrawingId, chart.toolMode, chartDrawingActive, emitDocumentCommand]);
+  }, [chart.drawings, chart.parallelLineCount, chart.selectedDrawingId, chart.toolMode, emitDocumentCommand]);
 
   useEffect(() => {
     if (chart.chartType !== "bidask" || isBidAskChartInterval(document.timeframe)) {
@@ -2141,6 +2248,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   return (
     <section
+      ref={chartPanelRef}
       className="chart-panel"
       data-chart-visible-count={renderChart.visibleCount}
       data-chart-right-offset={renderChart.rightOffset}
@@ -2164,48 +2272,60 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         </dl>
       )}
 
-      <div className={chartDrawingActive || chartAddActive ? "toolbar has-active-chart-target" : "toolbar"} aria-label="Chart controls">
-        <div className="toolbar-row">
+      <div className={chartAddActive ? "chart-panel-navigation has-open-chart-menu" : "chart-panel-navigation"} aria-label="Chart controls">
+        <div className="chart-panel-navigation-leading">
           {toolbarLeading}
+        </div>
+        <ChartDrawingDock
+          document={document}
+          panelId={panelId}
+          onChartRuntimeAction={onChartRuntimeAction}
+        />
+        <div className="chart-panel-navigation-actions">
+          {toolbarTrailing}
+          <div className="chart-add-control">
           <button
+            ref={chartAddButtonRef}
             type="button"
             className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
             aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
-            title={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
             aria-pressed={chartAddActive}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={onChartAddToggle}
+            {...chartControlTooltip.tooltipProps(chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기")}
           >
             <ChartNoAxesCombined size={16} />
           </button>
-          <button
-            type="button"
-            className={`${iconButtonClass(chartDrawingActive)} chart-drawing-target-button ${chartDrawingActive ? "is-active" : ""}`}
-            aria-label={chartDrawingActive ? "차트 그리기 도구 닫기" : "차트 그리기 도구 열기"}
-            title={chartDrawingActive ? "그리기 도구 닫기" : "그리기 도구 열기"}
-            aria-pressed={chartDrawingActive}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onChartDrawingToggle}
-          >
-            <Paintbrush size={16} />
-          </button>
-          <span className="toolbar-separator" aria-hidden="true" />
+            {chartAddActive && (
+              <div ref={chartAddMenuRef} className="chart-add-dropdown-anchor">
+                <ChartAddDock
+                  document={document}
+                  panelId={panelId}
+                  laneHeight={laneHeight ?? 120}
+                  onChartRuntimeAction={onChartRuntimeAction}
+                  onClose={() => onChartAddToggle?.()}
+                />
+              </div>
+            )}
+          </div>
+          <span className="toolbar-separator chart-navigation-action-separator" aria-hidden="true" />
           <button
             className={iconButtonClass()}
             onClick={resetChart}
             type="button"
             aria-label="차트 초기화"
-            title="차트 초기화 (디깅 해제 · 현재가 위치 복귀)"
+            {...chartControlTooltip.tooltipProps("차트 초기화 (디깅 해제 · 현재가 위치 복귀)")}
           >
             <RotateCcw size={15} aria-hidden="true" />
           </button>
-          {drawingDraft && (
-            <span className={`draft-pill ${drawingDraftError ? "is-error" : ""}`}>
-              {drawingDraftError ?? `${defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} ${drawingDraft.anchors.length + 1}/${drawingRequiredAnchorCount(drawingDraft.type)}`}
-            </span>
-          )}
         </div>
       </div>
+      {drawingDraft && (
+        <span className={`draft-pill chart-drawing-draft-pill ${drawingDraftError ? "is-error" : ""}`}>
+          {drawingDraftError ?? `${defaultDrawingLabel(drawingDraft.type) ?? drawingDraft.type} ${drawingDraft.anchors.length + 1}/${drawingRequiredAnchorCount(drawingDraft.type)}`}
+        </span>
+      )}
+      {chartControlTooltip.tooltipOverlay}
 
       <div className="chart-wrap" ref={chartWrapRef}>
         <ChartCanvas
@@ -2241,9 +2361,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            structure: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.structure.drawings.length,
-            trend: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.trend.drawings.length,
-            agent: activeAnalysisAssetStale || !activeAnalysisAsset?.layers.agent.drawings.length
+            geometry: !activeAnalysisAsset?.geometry.drawings.length
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}
@@ -2336,15 +2454,33 @@ type ChartDrawingDockProps = {
   document: ChartDocument;
   panelId: string;
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
-  onClose: () => void;
 };
 
 export function ChartDrawingDock({
   document,
   panelId,
-  onChartRuntimeAction,
-  onClose
+  onChartRuntimeAction
 }: ChartDrawingDockProps) {
+  type ToolGroup = "horizontal" | "vertical" | "trend";
+  type GroupToolMode = "draw-horizontalLine" | "draw-horizontalParallelLines" | "draw-verticalMarker" | "draw-verticalParallelLines";
+  const [openToolGroup, setOpenToolGroup] = useState<ToolGroup | null>(null);
+  const [toolMenuLeft, setToolMenuLeft] = useState(0);
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [colorMenuLeft, setColorMenuLeft] = useState(0);
+  const [horizontalToolMode, setHorizontalToolMode] = useState<GroupToolMode>(() => (
+    document.interactionState.mode === "draw-horizontalParallelLines" ? "draw-horizontalParallelLines" : "draw-horizontalLine"
+  ));
+  const [verticalToolMode, setVerticalToolMode] = useState<GroupToolMode>(() => (
+    document.interactionState.mode === "draw-verticalParallelLines" ? "draw-verticalParallelLines" : "draw-verticalMarker"
+  ));
+  const [scrollState, setScrollState] = useState({ hasOverflow: false, canScrollLeft: false, canScrollRight: false });
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const toolGroupButtonRef = useRef<HTMLButtonElement | null>(null);
+  const toolGroupMenuRef = useRef<HTMLDivElement | null>(null);
+  const colorButtonRef = useRef<HTMLButtonElement | null>(null);
+  const colorMenuRef = useRef<HTMLDivElement | null>(null);
+  const drawingTooltip = useImmediateChartTooltip();
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const selectedDrawing = document.drawings.find((drawing) => drawing.id === document.selectedDrawingId);
   const dispatchCommand = useCallback((type: ChartCommandType, payload: Record<string, unknown> = {}) => {
@@ -2379,20 +2515,134 @@ export function ChartDrawingDock({
       parallelLineCount: normalized
     });
   };
-  const closeDock = () => {
-    dispatchCommand("chart.drawing.clearSelection", { mode: "pan" });
-    onClose();
+  useEffect(() => {
+    if (document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines") {
+      setHorizontalToolMode(document.interactionState.mode);
+    }
+    if (document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines") {
+      setVerticalToolMode(document.interactionState.mode);
+    }
+  }, [document.interactionState.mode]);
+
+  const updateScrollState = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    setScrollState({
+      hasOverflow: maxScrollLeft > 1,
+      canScrollLeft: scroller.scrollLeft > 1,
+      canScrollRight: scroller.scrollLeft < maxScrollLeft - 1
+    });
+  }, []);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return undefined;
+    }
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateScrollState);
+    observer?.observe(scroller);
+    if (scroller.firstElementChild) {
+      observer?.observe(scroller.firstElementChild);
+    }
+    scroller.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    updateScrollState();
+    return () => {
+      observer?.disconnect();
+      scroller.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, [updateScrollState]);
+
+  useEffect(() => {
+    if (!openToolGroup && !colorMenuOpen) {
+      return undefined;
+    }
+    const closeToolMenu = (event: PointerEvent) => {
+      const targetNode = event.target as Node | null;
+      if (!targetNode
+        || toolGroupButtonRef.current?.contains(targetNode)
+        || toolGroupMenuRef.current?.contains(targetNode)
+        || colorButtonRef.current?.contains(targetNode)
+        || colorMenuRef.current?.contains(targetNode)) {
+        return;
+      }
+      setOpenToolGroup(null);
+      setColorMenuOpen(false);
+    };
+    const closeToolMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        const focusTarget = colorMenuOpen ? colorButtonRef.current : toolGroupButtonRef.current;
+        setOpenToolGroup(null);
+        setColorMenuOpen(false);
+        focusTarget?.focus();
+      }
+    };
+    window.document.addEventListener("pointerdown", closeToolMenu, true);
+    window.document.addEventListener("keydown", closeToolMenuOnEscape);
+    return () => {
+      window.document.removeEventListener("pointerdown", closeToolMenu, true);
+      window.document.removeEventListener("keydown", closeToolMenuOnEscape);
+    };
+  }, [colorMenuOpen, openToolGroup]);
+
+  const menuLeftForButton = (button: HTMLButtonElement, menuWidth: number): number => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) {
+      return 0;
+    }
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = toolbar.closest(".chart-panel")?.getBoundingClientRect() ?? toolbarRect;
+    const minLeft = panelRect.left - toolbarRect.left + 4;
+    const maxLeft = panelRect.right - toolbarRect.left - menuWidth - 4;
+    return Math.max(minLeft, Math.min(buttonRect.left - toolbarRect.left, maxLeft));
   };
-  const updateSelectedDrawingStyle = () => {
+
+  const toggleToolGroupMenu = (group: ToolGroup, button: HTMLButtonElement) => {
+    setToolMenuLeft(menuLeftForButton(button, 142));
+    toolGroupButtonRef.current = button;
+    drawingTooltip.hideTooltip();
+    setColorMenuOpen(false);
+    setOpenToolGroup((open) => open === group ? null : group);
+  };
+
+  const toggleColorMenu = (button: HTMLButtonElement) => {
     if (!selectedDrawing) {
       return;
     }
-    const defaultStyle = defaultDrawingStyle(selectedDrawing.type as DrawingEntity["type"], document.interactionState.trendLineExtension);
-    const nextToken = selectedDrawing.style.colorToken === "down" ? defaultStyle.colorToken : "down";
+    setColorMenuLeft(menuLeftForButton(button, 132));
+    colorButtonRef.current = button;
+    drawingTooltip.hideTooltip();
+    setOpenToolGroup(null);
+    setColorMenuOpen((open) => !open);
+  };
+
+  const updateSelectedDrawingStyle = (colorToken: DrawingPaletteToken) => {
+    if (!selectedDrawing) {
+      return;
+    }
+    const supportsPaletteFill = selectedDrawing.type === "rangeBox"
+      || selectedDrawing.type === "fibonacciRetracement"
+      || selectedDrawing.type === "horizontalParallelLines"
+      || selectedDrawing.type === "verticalParallelLines"
+      || selectedDrawing.type === "trendParallelLines";
+    const nextStyle = {
+      ...selectedDrawing.style,
+      color: undefined,
+      textColor: undefined,
+      colorToken,
+      textToken: colorToken,
+      ...(supportsPaletteFill ? { fillColor: undefined, fillToken: colorToken } : {})
+    };
     dispatchCommand("chart.drawing.update", {
       drawingId: selectedDrawing.id,
-      drawingPatch: { style: { ...selectedDrawing.style, color: undefined, textColor: undefined, colorToken: nextToken, textToken: nextToken } }
+      drawingPatch: { style: nextStyle }
     });
+    setColorMenuOpen(false);
   };
   const removeSelectedDrawing = () => {
     if (selectedDrawing) {
@@ -2408,34 +2658,151 @@ export function ChartDrawingDock({
     );
   };
 
+  const scrollDrawingTools = (direction: -1 | 1) => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    scroller.scrollBy({ left: direction * Math.max(120, scroller.clientWidth * 0.7), behavior: "smooth" });
+  };
+  const handleDrawingToolsWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !scrollState.hasOverflow) {
+      return;
+    }
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    scroller.scrollLeft += delta;
+    setOpenToolGroup(null);
+    setColorMenuOpen(false);
+    drawingTooltip.hideTooltip();
+  };
+
+  const selectedColorToken = normalizeDrawingPaletteToken(selectedDrawing?.style.colorToken);
+
+  const horizontalLabel = horizontalToolMode === "draw-horizontalParallelLines" ? "가격 평행선" : "수평선";
+  const verticalLabel = verticalToolMode === "draw-verticalParallelLines" ? "세로 평행선" : "세로선";
+  const groupMenu = openToolGroup === "horizontal"
+    ? {
+        ariaLabel: "가로선 종류",
+        options: [
+          { key: "draw-horizontalLine", label: "수평선", icon: <ToolIcon toolMode="draw-horizontalLine" /> },
+          { key: "draw-horizontalParallelLines", label: "가격 평행선", icon: <ToolIcon toolMode="draw-horizontalParallelLines" /> }
+        ]
+      }
+    : openToolGroup === "vertical"
+      ? {
+          ariaLabel: "세로선 종류",
+          options: [
+            { key: "draw-verticalMarker", label: "세로선", icon: <ToolIcon toolMode="draw-verticalMarker" /> },
+            { key: "draw-verticalParallelLines", label: "세로 평행선", icon: <ToolIcon toolMode="draw-verticalParallelLines" /> }
+          ]
+        }
+      : openToolGroup === "trend"
+        ? {
+            ariaLabel: "추세선 종류",
+            options: trendExtensionButtons.map(([extension, label]) => ({
+              key: extension,
+              label,
+              icon: <TrendExtensionIcon extension={extension} />
+            }))
+          }
+        : null;
+
+  const selectGroupOption = (key: string) => {
+    if (openToolGroup === "horizontal") {
+      const mode = key as GroupToolMode;
+      setHorizontalToolMode(mode);
+      setToolMode(mode);
+    } else if (openToolGroup === "vertical") {
+      const mode = key as GroupToolMode;
+      setVerticalToolMode(mode);
+      setToolMode(mode);
+    } else if (openToolGroup === "trend") {
+      setTrendLineExtension(key as ChartLineExtension);
+    }
+    setOpenToolGroup(null);
+  };
+
+  const groupedButton = (group: ToolGroup, label: string, icon: ReactNode, active: boolean) => (
+    <button
+      key={group}
+      type="button"
+      className={`${iconButtonClass(active)} chart-grouped-tool-button`}
+      aria-label={`${group === "horizontal" ? "가로선" : group === "vertical" ? "세로선" : "추세선"} 도구 (${label})`}
+      aria-haspopup="menu"
+      aria-expanded={openToolGroup === group}
+      onClick={(event) => toggleToolGroupMenu(group, event.currentTarget)}
+      {...drawingTooltip.tooltipProps(label)}
+    >
+      {icon}
+      <ChevronDown className="chart-trend-tool-chevron" size={10} aria-hidden="true" />
+    </button>
+  );
+
   return (
-    <div className="chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart drawing tools" onPointerDown={(event) => event.stopPropagation()}>
-      <button type="button" className="icon-button chart-drawing-dock-close" aria-label="그리기 도구 닫기" title="그리기 도구 닫기" onClick={closeDock}>
-        <X size={15} />
-      </button>
-      {drawingTools.flatMap((tool) => {
-        const controls = tool.mode === "draw-trendLine"
-          ? trendExtensionButtons.map(([extension, label]) => (
-            <button
-              key={`${tool.mode}-${extension}`}
-              type="button"
-              className={iconButtonClass(document.interactionState.mode === tool.mode && document.interactionState.trendLineExtension === extension)}
-              aria-label={`Trend ${label}`}
-              title={`Trend ${label}`}
-              onClick={() => setTrendLineExtension(extension)}
-            >
-              <TrendExtensionIcon extension={extension} />
-            </button>
-          ))
-          : tool.mode === "draw-trendParallelLines"
+    <div ref={toolbarRef} className="chart-drawing-dock" role="toolbar" aria-label="차트 그리기 도구" onPointerDown={(event) => event.stopPropagation()}>
+      {scrollState.hasOverflow && (
+        <button
+          type="button"
+          className="chart-drawing-scroll-button is-previous"
+          aria-label="이전 그리기 도구"
+          disabled={!scrollState.canScrollLeft}
+          onClick={() => scrollDrawingTools(-1)}
+          {...drawingTooltip.tooltipProps("이전 그리기 도구")}
+        >
+          <ChevronLeft size={15} aria-hidden="true" />
+        </button>
+      )}
+      <div
+        ref={scrollerRef}
+        className={`chart-drawing-dock-scroller ${scrollState.canScrollLeft ? "has-overflow-left" : ""} ${scrollState.canScrollRight ? "has-overflow-right" : ""}`}
+        onScroll={() => {
+          setOpenToolGroup(null);
+          setColorMenuOpen(false);
+          drawingTooltip.hideTooltip();
+        }}
+        onWheel={handleDrawingToolsWheel}
+      >
+        <div className="chart-drawing-dock-track">
+        {drawingTools.flatMap((tool) => {
+          if (tool.mode === "draw-horizontalParallelLines" || tool.mode === "draw-verticalParallelLines") {
+            return [];
+          }
+          const controls = tool.mode === "draw-horizontalLine"
+            ? [groupedButton(
+                "horizontal",
+                horizontalLabel,
+                <ToolIcon toolMode={horizontalToolMode} />,
+                document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines"
+              )]
+            : tool.mode === "draw-verticalMarker"
+              ? [groupedButton(
+                  "vertical",
+                  verticalLabel,
+                  <ToolIcon toolMode={verticalToolMode} />,
+                  document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines"
+                )]
+            : tool.mode === "draw-trendLine"
+            ? [groupedButton(
+                "trend",
+                trendExtensionLabel(document.interactionState.trendLineExtension),
+                <TrendExtensionIcon extension={document.interactionState.trendLineExtension} />,
+                document.interactionState.mode === "draw-trendLine"
+              )]
+            : tool.mode === "draw-trendParallelLines"
             ? [
               <button
                 key={tool.mode}
                 type="button"
                 className={iconButtonClass(document.interactionState.mode === tool.mode)}
                 aria-label={tool.label}
-                title={tool.label}
                 onClick={() => setToolMode(tool.mode)}
+                {...drawingTooltip.tooltipProps(tool.label)}
               >
                 <ToolIcon toolMode={tool.mode} />
               </button>,
@@ -2443,45 +2810,145 @@ export function ChartDrawingDock({
                 key={`${tool.mode}-line-count`}
                 className="chart-parallel-line-count"
                 aria-label="Parallel line count"
-                title="평행선 개수"
                 value={selectedDrawing?.type === "trendParallelLines"
                   ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
                   : normalizeParallelLineCount(document.interactionState.parallelLineCount)}
-                onChange={(event) => setParallelLineCount(Number(event.target.value))}
+                  onChange={(event) => setParallelLineCount(Number(event.target.value))}
+                {...drawingTooltip.tooltipProps("평행선 개수")}
               >
                 {Array.from({ length: 9 }, (_, index) => index + 2).map((count) => (
                   <option key={count} value={count}>{count}</option>
                 ))}
               </select>
             ]
-          : [(
+            : [(
+              <button
+                key={tool.mode}
+                type="button"
+                className={iconButtonClass(document.interactionState.mode === tool.mode)}
+                aria-label={tool.label}
+                onClick={() => setToolMode(tool.mode)}
+                {...drawingTooltip.tooltipProps(tool.label)}
+              >
+                <ToolIcon toolMode={tool.mode} />
+              </button>
+            )];
+          return tool.mode === "draw-horizontalLine"
+            ? [<span key="drawing-tools-line-separator" className="toolbar-separator" aria-hidden="true" />, ...controls]
+            : controls;
+        })}
+        <span className="toolbar-separator" aria-hidden="true" />
+        <button
+          ref={colorButtonRef}
+          type="button"
+          className={`${iconButtonClass(colorMenuOpen)} chart-drawing-color-button`}
+          aria-label="선택한 그리기 색상 변경"
+          aria-haspopup="menu"
+          aria-expanded={colorMenuOpen}
+          data-color-token={selectedDrawing ? selectedColorToken : undefined}
+          data-fill-token={selectedDrawing?.style.fillToken}
+          disabled={!selectedDrawing}
+          style={{ "--drawing-color": drawingPaletteOptions.find((option) => option.token === selectedColorToken)?.cssColor } as CSSProperties}
+          onClick={(event) => toggleColorMenu(event.currentTarget)}
+          {...drawingTooltip.tooltipProps("선택한 그리기 색상 변경")}
+        >
+          <Palette size={16} />
+          {selectedDrawing && <span className="chart-drawing-current-color" aria-hidden="true" />}
+        </button>
+        <button type="button" className={iconButtonClass()} aria-label="선택한 그리기 삭제" disabled={!selectedDrawing} onClick={removeSelectedDrawing} {...drawingTooltip.tooltipProps("선택한 그리기 삭제")}>
+          <Eraser size={16} />
+        </button>
+        <button type="button" className={iconButtonClass()} aria-label="모든 그리기 삭제" disabled={document.drawings.length === 0} onClick={clearAllDrawings} {...drawingTooltip.tooltipProps("모든 그리기 삭제")}>
+          <Trash2 size={16} />
+        </button>
+        </div>
+      </div>
+      {scrollState.hasOverflow && (
+        <button
+          type="button"
+          className="chart-drawing-scroll-button is-next"
+          aria-label="다음 그리기 도구"
+          disabled={!scrollState.canScrollRight}
+          onClick={() => scrollDrawingTools(1)}
+          {...drawingTooltip.tooltipProps("다음 그리기 도구")}
+        >
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+      )}
+      {groupMenu && (
+        <div
+          ref={toolGroupMenuRef}
+          className="chart-tool-group-menu surface-raised"
+          role="menu"
+          aria-label={groupMenu.ariaLabel}
+          style={{ left: toolMenuLeft }}
+        >
+          {groupMenu.options.map((option) => (
             <button
-              key={tool.mode}
+              key={option.key}
               type="button"
-              className={iconButtonClass(document.interactionState.mode === tool.mode)}
-              aria-label={tool.label}
-              title={tool.label}
-              onClick={() => setToolMode(tool.mode)}
+              role="menuitem"
+              className={(
+                openToolGroup === "trend"
+                  ? document.interactionState.mode === "draw-trendLine" && document.interactionState.trendLineExtension === option.key
+                  : document.interactionState.mode === option.key
+              ) ? "active" : ""}
+              onClick={() => selectGroupOption(option.key)}
             >
-              <ToolIcon toolMode={tool.mode} />
+              {option.icon}
+              <span>{option.label}</span>
             </button>
-          )];
-        return tool.mode === "draw-horizontalLine"
-          ? [<span key="drawing-tools-line-separator" className="toolbar-separator" aria-hidden="true" />, ...controls]
-          : controls;
-      })}
-      <span className="toolbar-separator" aria-hidden="true" />
-      <button type="button" className={iconButtonClass()} aria-label="Selected drawing color" title="Selected drawing color" disabled={!selectedDrawing} onClick={updateSelectedDrawingStyle}>
-        <Palette size={16} />
-      </button>
-      <button type="button" className={iconButtonClass()} aria-label="Delete selected drawing" title="Delete selected drawing" disabled={!selectedDrawing} onClick={removeSelectedDrawing}>
-        <Eraser size={16} />
-      </button>
-      <button type="button" className={iconButtonClass()} aria-label="Clear drawings" title="Clear drawings" disabled={document.drawings.length === 0} onClick={clearAllDrawings}>
-        <Trash2 size={16} />
-      </button>
+          ))}
+        </div>
+      )}
+      {colorMenuOpen && selectedDrawing && (
+        <div
+          ref={colorMenuRef}
+          className="chart-drawing-color-menu surface-raised"
+          role="menu"
+          aria-label="그리기 색상"
+          style={{ left: colorMenuLeft }}
+        >
+          {drawingPaletteOptions.map((option) => {
+            const active = selectedColorToken === option.token;
+            return (
+              <button
+                key={option.token}
+                type="button"
+                role="menuitemradio"
+                className={active ? "active" : ""}
+                aria-label={option.label}
+                aria-checked={active}
+                style={{ "--drawing-swatch-color": option.cssColor } as CSSProperties}
+                onClick={() => updateSelectedDrawingStyle(option.token)}
+                {...drawingTooltip.tooltipProps(option.label)}
+              >
+                <span className="chart-drawing-color-swatch" aria-hidden="true" />
+                {active && <Check size={12} aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {drawingTooltip.tooltipOverlay}
     </div>
   );
+}
+
+function trendExtensionLabel(extension: ChartLineExtension): string {
+  return trendExtensionButtons.find(([value]) => value === extension)?.[1] ?? "선분";
+}
+
+function normalizeDrawingPaletteToken(value: string | undefined): DrawingPaletteToken {
+  if (value === "up") {
+    return "bullish";
+  }
+  if (value === "down") {
+    return "bearish";
+  }
+  return drawingPaletteOptions.some((option) => option.token === value)
+    ? value as DrawingPaletteToken
+    : "drawing";
 }
 
 type ChartAddPlacement = "overlay" | "below";
@@ -2507,18 +2974,18 @@ type ChartLayerButtonStyle = CSSProperties & {
 };
 
 const chartAddLayers: ChartAddLayerConfig[] = [
-  { layer: "sma:5", label: "SMA 5", placement: "overlay", title: "SMA 5" },
-  { layer: "sma:20", label: "SMA 20", placement: "overlay", title: "SMA 20" },
-  { layer: "sma:60", label: "SMA 60", placement: "overlay", title: "SMA 60" },
-  { layer: "sma:120", label: "SMA 120", placement: "overlay", title: "SMA 120" },
-  { layer: "ema:20", label: "EMA 20", placement: "overlay", title: "EMA 20" },
-  { layer: "wma:20", label: "WMA 20", placement: "overlay", title: "WMA 20" },
-  { layer: "bollinger:20:2", label: "Bollinger Bands", placement: "overlay", title: "Bollinger Bands 20,2" },
-  { layer: "volume-profile", label: "Volume Profile", placement: "overlay", title: "Volume Profile" },
-  { layer: "volume", label: "VOL", placement: "below", title: "VOL" },
-  { layer: "rsi:14", label: "RSI 14", placement: "below", title: "RSI 14" },
-  { layer: "stochastic:14:3:3", label: "Stochastic", placement: "below", title: "Stochastic 14,3,3" },
-  { layer: "macd:12:26:9", label: "MACD", placement: "below", title: "MACD 12,26,9" }
+  { layer: "sma:5", label: "5기간 단순 이동평균선", placement: "overlay", title: "5기간 단순 이동평균선" },
+  { layer: "sma:20", label: "20기간 단순 이동평균선", placement: "overlay", title: "20기간 단순 이동평균선" },
+  { layer: "sma:60", label: "60기간 단순 이동평균선", placement: "overlay", title: "60기간 단순 이동평균선" },
+  { layer: "sma:120", label: "120기간 단순 이동평균선", placement: "overlay", title: "120기간 단순 이동평균선" },
+  { layer: "ema:20", label: "20기간 지수 이동평균선", placement: "overlay", title: "20기간 지수 이동평균선" },
+  { layer: "wma:20", label: "20기간 가중 이동평균선", placement: "overlay", title: "20기간 가중 이동평균선" },
+  { layer: "bollinger:20:2", label: "볼린저 밴드 (20, 2)", placement: "overlay", title: "볼린저 밴드 (20, 2)" },
+  { layer: "volume-profile", label: "거래량 프로파일", placement: "overlay", title: "거래량 프로파일" },
+  { layer: "volume", label: "거래량 막대 차트", placement: "below", title: "거래량 막대 차트" },
+  { layer: "rsi:14", label: "상대강도지수 (14)", placement: "below", title: "상대강도지수 (14)" },
+  { layer: "stochastic:14:3:3", label: "스토캐스틱 오실레이터 (14, 3, 3)", placement: "below", title: "스토캐스틱 오실레이터 (14, 3, 3)" },
+  { layer: "macd:12:26:9", label: "이동평균 수렴확산 (12, 26, 9)", placement: "below", title: "이동평균 수렴확산 (12, 26, 9)" }
 ];
 
 const chartLayerAccentByLayer: Partial<Record<ChartLayerKey, string>> = {
@@ -2551,6 +3018,7 @@ export function ChartAddDock({
   onChartRuntimeAction,
   onClose
 }: ChartAddDockProps) {
+  const indicatorTooltip = useImmediateChartTooltip();
   const target = useMemo(() => ({ panelId, chartDocumentId: document.id }), [document.id, panelId]);
   const activeBelowCount = documentBelowPaneOrder(document).length;
   const canAddBelow = activeBelowCount < maxBelowPaneCountForHeight(laneHeight);
@@ -2566,47 +3034,66 @@ export function ChartAddDock({
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
 
   return (
-    <div className="chart-add-dock chart-drawing-dock surface-flat" role="toolbar" aria-label="Chart add tools" onPointerDown={(event) => event.stopPropagation()}>
-      <button type="button" className="icon-button chart-drawing-dock-close" aria-label="차트 추가 도구 닫기" title="차트 추가 도구 닫기" onClick={onClose}>
-        <X size={15} />
-      </button>
-      {overlayLayers.map((item) => {
-        const active = Boolean(document.layers[item.layer]);
-        const disabled = !active && Boolean(item.disabledReason);
-        return (
-          <button
-            key={item.layer}
-            type="button"
-            className={`${iconButtonClass(active)} chart-add-layer-button`}
-            aria-label={item.label}
-            title={item.disabledReason ?? item.title}
-            disabled={disabled}
-            style={chartAddLayerButtonStyle(item.layer)}
-            onClick={() => dispatchLayer(item.layer, !active)}
-          >
-            <ChartAddLayerIcon layer={item.layer} />
-          </button>
-        );
-      })}
-      <span className="toolbar-separator" aria-hidden="true" />
-      {belowLayers.map((item) => {
-        const active = Boolean(document.layers[item.layer]);
-        const disabled = !active && (!canAddBelow || Boolean(item.disabledReason));
-        return (
-          <button
-            key={item.layer}
-            type="button"
-            className={`${iconButtonClass(active)} chart-add-layer-button`}
-            aria-label={item.label}
-            title={item.disabledReason ?? (canAddBelow ? item.title : "Below pane unavailable at this height")}
-            disabled={disabled}
-            style={chartAddLayerButtonStyle(item.layer)}
-            onClick={() => dispatchLayer(item.layer, !active)}
-          >
-            <ChartAddLayerIcon layer={item.layer} />
-          </button>
-        );
-      })}
+    <div
+      className="chart-add-dock surface-raised"
+      role="menu"
+      aria-label="차트 추가 도구"
+      style={{ maxHeight: Math.max(92, laneHeight - 50) }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="chart-add-dock-header">
+        <span>차트 추가</span>
+        <button type="button" className="icon-button chart-add-dock-close" aria-label="차트 추가 도구 닫기" onClick={onClose} {...indicatorTooltip.tooltipProps("차트 추가 도구 닫기")}>
+          <X size={15} />
+        </button>
+      </div>
+      <div className="chart-add-dock-group" role="group" aria-label="가격 오버레이">
+        {overlayLayers.map((item) => {
+          const active = Boolean(document.layers[item.layer]);
+          const disabled = !active && Boolean(item.disabledReason);
+          return (
+            <span key={item.layer} className="chart-add-layer-tooltip-anchor" {...indicatorTooltip.tooltipProps(item.disabledReason ?? item.label)}>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              className={`${iconButtonClass(active)} chart-add-layer-button`}
+              aria-label={item.label}
+              aria-checked={active}
+              disabled={disabled}
+              style={chartAddLayerButtonStyle(item.layer)}
+              onClick={() => dispatchLayer(item.layer, !active)}
+            >
+              <ChartAddLayerIcon layer={item.layer} />
+            </button>
+            </span>
+          );
+        })}
+      </div>
+      <span className="chart-add-dock-divider" aria-hidden="true" />
+      <div className="chart-add-dock-group" role="group" aria-label="하단 차트">
+        {belowLayers.map((item) => {
+          const active = Boolean(document.layers[item.layer]);
+          const disabled = !active && (!canAddBelow || Boolean(item.disabledReason));
+          const tooltipLabel = item.disabledReason ?? (canAddBelow ? item.label : "현재 패널 높이에서는 하단 차트를 더 추가할 수 없습니다");
+          return (
+            <span key={item.layer} className="chart-add-layer-tooltip-anchor" {...indicatorTooltip.tooltipProps(tooltipLabel)}>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              className={`${iconButtonClass(active)} chart-add-layer-button`}
+              aria-label={item.label}
+              aria-checked={active}
+              disabled={disabled}
+              style={chartAddLayerButtonStyle(item.layer)}
+              onClick={() => dispatchLayer(item.layer, !active)}
+            >
+              <ChartAddLayerIcon layer={item.layer} />
+            </button>
+            </span>
+          );
+        })}
+      </div>
+      {indicatorTooltip.tooltipOverlay}
     </div>
   );
 }
@@ -2614,31 +3101,31 @@ export function ChartAddDock({
 function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
   switch (layer) {
     case "sma:5":
-      return <>MA5</>;
+      return <span className="chart-layer-icon"><ChartSpline size={16} /><small>5</small></span>;
     case "sma:20":
-      return <>MA20</>;
+      return <span className="chart-layer-icon"><ChartSpline size={16} /><small>20</small></span>;
     case "sma:60":
-      return <>MA60</>;
+      return <span className="chart-layer-icon"><ChartSpline size={16} /><small>60</small></span>;
     case "sma:120":
-      return <>MA120</>;
+      return <span className="chart-layer-icon"><ChartSpline size={16} /><small>120</small></span>;
     case "ema:20":
-      return <>EMA</>;
+      return <span className="chart-layer-icon"><TrendingUp size={16} /><small>20</small></span>;
     case "wma:20":
-      return <>WMA</>;
+      return <span className="chart-layer-icon"><Waves size={16} /><small>20</small></span>;
     case "bollinger:20:2":
-      return <>BB</>;
+      return <AudioWaveform size={17} />;
     case "volume-profile":
-      return <>VP</>;
+      return <Activity size={17} />;
     case "volume":
-      return <>VOL</>;
+      return <ChartColumn size={17} />;
     case "rsi:14":
-      return <>RSI</>;
+      return <Gauge size={17} />;
     case "stochastic:14:3:3":
-      return <>STO</>;
+      return <Waves size={17} />;
     case "macd:12:26:9":
-      return <>MACD</>;
+      return <AudioWaveform size={17} />;
     default:
-      return <>{layer}</>;
+      return <ChartNoAxesCombined size={17} />;
   }
 }
 
@@ -2992,7 +3479,7 @@ function candleSourceInterval(interval: ChartInterval): ChartInterval {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W" || interval === "1M";
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W";
 }
 
 function latestClosedTimestamp(candles: CandleDto[]): string | null {
@@ -3090,7 +3577,7 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
   if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
     return null;
   }
-  const priceText = priceFormatter.format(price);
+  const priceText = formatPriceAxisValue(price);
   const isClosed = tradePrice === null ? latest.isClosed : false;
   const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, isClosed, scene.chart.streamState);
   const labelWidth = currentPriceMarkerLabelWidth(priceText, showClock);
@@ -3167,7 +3654,7 @@ function currentPriceIntervalCanShowClock(interval: ChartInterval): boolean {
 }
 
 function currentPriceMarkerLabelWidth(priceText: string, showClock: boolean): number {
-  return Math.max(82, Math.min(138, priceText.length * 8 + (showClock ? 38 : 24)));
+  return Math.min(138, priceAxisLabelWidth(priceText, showClock));
 }
 
 function clampNumber(value: number, min: number, max: number): number {

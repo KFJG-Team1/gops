@@ -86,8 +86,8 @@ const activePortfolioRefreshIntervalMs = DEMO_PORTFOLIO_ENABLED ? 1_000 : REFRES
 
 const portfolioMultiViews = [
   { id: "summary", title: "포트폴리오" },
-  { id: "flow", title: "Investment Flow" },
-  { id: "diversification", title: "Diversification" }
+  { id: "flow", title: "투자" },
+  { id: "diversification", title: "분산투자" }
 ] as const;
 
 type PortfolioHoldingsDataState = {
@@ -744,10 +744,10 @@ export function PortfolioMultiPanel() {
   );
 }
 
-function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; subtitle: string; aside?: string }) {
+function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; subtitle?: string; aside?: string }) {
   return (
     <header className="portfolio-multi-page-header">
-      <div><span>{title}</span><em>{subtitle}</em></div>
+      <div><span>{title}</span>{subtitle ? <em>{subtitle}</em> : null}</div>
       {aside ? <strong>{aside}</strong> : null}
     </header>
   );
@@ -767,7 +767,6 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
           <strong>{formatPanelMoney(dashboard.totalValue, "USD")}</strong>
           <span className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>
             {formatSignedPanelMoney(dashboard.totalPnl, "USD")} · {formatSignedPercentPlain(dashboard.totalPnlRate)}
-            <small>all time</small>
           </span>
         </div>
       </div>
@@ -818,7 +817,7 @@ function PortfolioMultiFlowView({ dashboard, positions }: { dashboard: Portfolio
   return (
     <article className="portfolio-multi-page portfolio-multi-flow-page">
       <div className="portfolio-multi-flow-head">
-        <PortfolioMultiPageHeader title={isDividend ? "Dividend" : "Invested"} subtitle={isDividend ? "예상 연간 배당 흐름" : "연도별 투입 원금과 누적 흐름"} aside={isDividend ? formatRatioPercent(dashboard.dividendYield) : formatCompactMoney(dashboard.investedValue ?? 0, "USD")} />
+        <PortfolioMultiPageHeader title={isDividend ? "배당" : "투자"} />
         <div className="portfolio-multi-flow-switch" role="tablist" aria-label="흐름 선택">
           <button type="button" role="tab" aria-selected={!isDividend} className={!isDividend ? "active" : ""} onClick={() => setFlowMode("invested")}>원금</button>
           <button type="button" role="tab" aria-selected={isDividend} className={isDividend ? "active" : ""} onClick={() => setFlowMode("dividend")}>배당</button>
@@ -849,10 +848,10 @@ function PortfolioMultiDiversificationView({ dashboard }: { dashboard: Portfolio
   const [mode, setMode] = useState<AllocationMode>("symbol");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const slices = dashboard.allocation[mode];
-  const activeSlice = slices.find((slice) => slice.key === activeKey) ?? slices[0];
+  const activeSlice = activeKey ? slices.find((slice) => slice.key === activeKey) : undefined;
   return (
     <article className="portfolio-multi-page portfolio-multi-diversification-page">
-      <PortfolioMultiPageHeader title="Diversification" subtitle="포트폴리오 구성 비중" aside={`${slices.length}개`} />
+      <PortfolioMultiPageHeader title="분산투자" />
       <div className="portfolio-multi-mode-tabs" role="tablist" aria-label="분산 기준">
         {(["asset", "symbol", "sector"] as AllocationMode[]).map((item) => (
           <button
@@ -884,7 +883,7 @@ function PortfolioMultiExplodedPie({
   activeSlice: AllocationSlice | undefined;
   onSelect: (key: string) => void;
 }) {
-  if (!slices.length || !activeSlice) {
+  if (!slices.length) {
     return <div className="portfolio-allocation-empty">구성 없음</div>;
   }
   const radius = 78;
@@ -892,45 +891,83 @@ function PortfolioMultiExplodedPie({
   const total = slices.reduce((sum, slice) => sum + slice.weight, 0) || 1;
   let cursor = -Math.PI / 2;
   return (
-    <section className="portfolio-multi-exploded-pie" aria-label="포트폴리오 분산 구성">
+    <section
+      className={`portfolio-multi-exploded-pie${activeSlice ? " has-selection" : ""}`}
+      aria-label="포트폴리오 분산 구성"
+    >
       <div className="portfolio-multi-exploded-pie-visual">
-        <svg viewBox="0 0 200 200" role="img" aria-label={`${activeSlice.label} 비중 ${activeSlice.weight.toFixed(1)}%`}>
-          {slices.map((slice) => {
+        <svg
+          viewBox="0 0 200 200"
+          role="img"
+          aria-label={activeSlice ? `${activeSlice.label} 비중 ${activeSlice.weight.toFixed(1)}%` : "포트폴리오 구성 비중을 선택하세요"}
+        >
+          {slices.map((slice, index) => {
             const span = (slice.weight / total) * Math.PI * 2;
-            const selected = activeSlice.key === slice.key;
-            const gap = selected ? Math.min(0.046, span * 0.18) : 0;
-            const startAngle = cursor + gap / 2;
-            const endAngle = cursor + span - gap / 2;
+            const selected = activeSlice?.key === slice.key;
+            const startAngle = cursor;
+            const endAngle = cursor + span;
             const midAngle = cursor + span / 2;
             cursor += span;
-            const explode = selected ? 8 : 0;
-            const translateX = Math.cos(midAngle) * explode;
-            const translateY = Math.sin(midAngle) * explode;
+            const selectDistance = 6;
+            const selectX = Math.cos(midAngle) * selectDistance;
+            const selectY = Math.sin(midAngle) * selectDistance;
             return (
-              <path
-                key={slice.key}
-                d={portfolioPieSlicePath(center, center, radius, startAngle, endAngle)}
-                className={`portfolio-multi-pie-slice${selected ? " is-selected" : ""}`}
-                style={{ fill: portfolioMultiPieColor(slice.tone), transform: `translate(${translateX}px, ${translateY}px)` }}
-                role="button"
-                tabIndex={0}
-                aria-label={`${slice.label} ${slice.weight.toFixed(1)}% 선택`}
-                onClick={() => onSelect(slice.key)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect(slice.key);
-                  }
-                }}
-              />
+              <g key={slice.key}>
+                {selected ? (
+                  <path
+                    d={portfolioPieSlicePath(center, center, radius, startAngle, endAngle)}
+                    className="portfolio-multi-pie-slice-underlay"
+                    style={{ fill: portfolioMultiPieColor(index) }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <path
+                  d={portfolioPieSlicePath(center, center, radius, startAngle, endAngle)}
+                  className={`portfolio-multi-pie-slice${selected ? " is-selected" : ""}`}
+                  style={{
+                    fill: portfolioMultiPieColor(index),
+                    transform: selected ? `translate(${selectX}px, ${selectY}px)` : "translate(0, 0)"
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${slice.label} ${slice.weight.toFixed(1)}% 선택`}
+                  onClick={() => onSelect(slice.key)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect(slice.key);
+                    }
+                  }}
+                />
+              </g>
             );
           })}
         </svg>
       </div>
-      <div className="portfolio-multi-exploded-pie-caption" aria-live="polite">
-        <span><i style={{ background: portfolioMultiPieColor(activeSlice.tone) }} aria-hidden="true" />{activeSlice.label}</span>
-        <strong>{activeSlice.weight.toFixed(1)}%</strong>
+      <div className="portfolio-multi-pie-legend" aria-label="포트폴리오 구성 범례">
+        {slices.map((slice, index) => {
+          const selected = activeSlice?.key === slice.key;
+          return (
+            <button
+              key={slice.key}
+              type="button"
+              className={selected ? "is-selected" : ""}
+              aria-pressed={selected}
+              onClick={() => onSelect(slice.key)}
+            >
+              <i style={{ background: portfolioMultiPieColor(index) }} aria-hidden="true" />
+              <span>{slice.label}</span>
+              <strong>{slice.weight.toFixed(1)}%</strong>
+            </button>
+          );
+        })}
       </div>
+      {activeSlice ? (
+        <div className="portfolio-multi-exploded-pie-caption" aria-live="polite">
+          <span><i style={{ background: portfolioMultiPieColor(slices.findIndex((slice) => slice.key === activeSlice.key)) }} aria-hidden="true" />{activeSlice.label}</span>
+          <strong>{activeSlice.weight.toFixed(1)}%</strong>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -957,22 +994,23 @@ function PortfolioMultiFlowChart({
   variant: "invested" | "dividend";
   wide?: boolean;
 }) {
-  const width = wide ? 720 : 340;
-  const height = wide ? 220 : 170;
-  const left = wide ? 34 : 18;
-  const right = wide ? 20 : 12;
-  const top = wide ? 20 : 18;
-  const bottom = wide ? 34 : 30;
+  const width = wide ? 720 : 620;
+  const height = wide ? 220 : 360;
+  const left = wide ? 34 : 64;
+  const right = 20;
+  const top = wide ? 20 : 10;
+  const bottom = 34;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
   const maxValue = Math.max(...points.map((point) => Math.max(point.invested, point.cumulative)), 1);
   const step = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
-  const barWidth = Math.min(wide ? 52 : 28, step * 0.42);
+  const barWidth = Math.min(wide ? 52 : 18, step * 0.42);
   const linePoints = points.map((point, index) => `${left + index * step},${top + plotHeight - (point.cumulative / maxValue) * plotHeight}`).join(" ");
+  const ticks = (wide ? [0, 1 / 3, 2 / 3, 1] : [0, 0.25, 0.5, 0.75, 1]).map((ratio) => maxValue * ratio);
   return (
     <div className={`portfolio-multi-flow-chart is-${variant}${wide ? " is-wide" : ""}`}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={variant === "invested" ? "투자 원금 누적 차트" : "배당 누적 차트"}>
-        {[0, 1, 2, 3].map((line) => { const y = top + (plotHeight / 3) * line; return <line key={line} className="grid" x1={left} x2={width - right} y1={y} y2={y} />; })}
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={variant === "invested" ? "투자 원금 누적 차트" : "배당 누적 차트"}>
+        {ticks.map((tick) => { const y = top + plotHeight - (tick / maxValue) * plotHeight; return <g key={tick}><line className="grid" x1={left} x2={width - right} y1={y} y2={y} />{wide ? null : <text className="axis-label" x={0} y={y + 5}>{formatCompactMoney(tick, "USD")}</text>}</g>; })}
         {points.map((point, index) => { const x = left + index * step; const barHeight = Math.max(4, (point.invested / maxValue) * plotHeight); return <g key={point.label}><rect className={index === points.length - 1 ? "bar is-current" : "bar"} x={x - barWidth / 2} y={top + plotHeight - barHeight} width={barWidth} height={barHeight} rx="5" /><text x={x} y={height - 9} textAnchor="middle">{point.label.slice(2)}</text></g>; })}
         <polyline className="line" points={linePoints} />
         {points.map((point, index) => { const x = left + index * step; const y = top + plotHeight - (point.cumulative / maxValue) * plotHeight; return <circle key={point.label} className="point" cx={x} cy={y} r="3" />; })}
@@ -1003,31 +1041,8 @@ export function PortfolioHoldingsOnlyPanel({
         <PortfolioHoldingsMatrix
           positions={positions}
           onSelectSymbol={onSelectSymbol}
+          showSummary={false}
         />
-      )}
-    </section>
-  );
-}
-
-export function PortfolioHoldingsCardsPanel({
-  onSelectSymbol
-}: {
-  onSelectSymbol: (symbol: string) => boolean;
-}) {
-  const { loading, error, positions } = usePortfolioHoldingsData();
-  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "보유종목이 없습니다");
-
-  return (
-    <section
-      className="portfolio-split-panel portfolio-holdings-split-panel portfolio-holdings-cards-split-panel portfolio-dashboard-panel"
-      aria-label="포트폴리오 보유종목 카드 패널"
-      onWheelCapture={handlePortfolioSplitPanelWheel}
-      onWheel={handlePortfolioSplitPanelWheel}
-    >
-      {statusMessage ? (
-        <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
-      ) : (
-        <PortfolioHoldingsBoard positions={positions} onSelectSymbol={onSelectSymbol} />
       )}
     </section>
   );
@@ -1350,10 +1365,12 @@ function PortfolioDividendHistory({ positions }: { positions: PortfolioPosition[
 
 function PortfolioHoldingsMatrix({
   positions,
-  onSelectSymbol
+  onSelectSymbol,
+  showSummary = true
 }: {
   positions: PortfolioPosition[];
   onSelectSymbol: (symbol: string) => boolean;
+  showSummary?: boolean;
 }) {
   const totals = positions.reduce(
     (summary, position) => {
@@ -1374,25 +1391,27 @@ function PortfolioHoldingsMatrix({
 
   return (
     <div className="portfolio-holdings-list" aria-label="보유 종목 지표">
-      <div className="portfolio-holdings-summary">
-        <span>
-          <em>보유 종목</em>
-          <b>{positions.length}</b>
-        </span>
-        <span>
-          <em>평가금</em>
-          <b>{formatPanelMoney(totals.marketValue, "USD")}</b>
-        </span>
-        <span className={directionClass(totalReturn)}>
-          <em>총 수익률</em>
-          <b>{formatSignedPercentPlain(totalReturn)}</b>
-          <small>{formatSignedPanelMoney(totals.gainValue, "USD")}</small>
-        </span>
-        <span>
-          <em>예상 배당</em>
-          <b>{formatCompactMoney(totals.dividend, "USD")}</b>
-        </span>
-      </div>
+      {showSummary && (
+        <div className="portfolio-holdings-summary">
+          <span>
+            <em>보유 종목</em>
+            <b>{positions.length}</b>
+          </span>
+          <span>
+            <em>평가금</em>
+            <b>{formatPanelMoney(totals.marketValue, "USD")}</b>
+          </span>
+          <span className={directionClass(totalReturn)}>
+            <em>총 수익률</em>
+            <b>{formatSignedPercentPlain(totalReturn)}</b>
+            <small>{formatSignedPanelMoney(totals.gainValue, "USD")}</small>
+          </span>
+          <span>
+            <em>예상 배당</em>
+            <b>{formatCompactMoney(totals.dividend, "USD")}</b>
+          </span>
+        </div>
+      )}
 
       <div className="portfolio-holdings-table-scroll">
         <div className="portfolio-holdings-table-head" aria-hidden="true">
@@ -1498,116 +1517,6 @@ function PortfolioHoldingsFlatBoard({
   );
 }
 
-function PortfolioHoldingsBoard({
-  positions,
-  onSelectSymbol
-}: {
-  positions: PortfolioPosition[];
-  onSelectSymbol: (symbol: string) => boolean;
-}) {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const lastWheelAt = useRef(0);
-  const totalMarketValue = positions.reduce((total, position) => (
-    total + (position.marketValueForeign ?? ((position.currentPrice ?? 0) * (position.quantity ?? 0)))
-  ), 0);
-
-  useEffect(() => {
-    setActiveIndex((current) => Math.min(current, Math.max(positions.length - 1, 0)));
-  }, [positions.length]);
-
-  const moveActiveCard = (direction: -1 | 1) => {
-    if (positions.length < 2) return;
-    setActiveIndex((current) => (current + direction + positions.length) % positions.length);
-  };
-
-  const handleDeckWheel = (event: WheelEvent<HTMLDivElement>) => {
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (Math.abs(delta) < 8 || positions.length < 2) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const now = Date.now();
-    if (now - lastWheelAt.current < 180) return;
-    lastWheelAt.current = now;
-    moveActiveCard(delta > 0 ? 1 : -1);
-  };
-
-  return (
-    <div
-      className="portfolio-holdings-board"
-      aria-label="3D 보유종목 카드 덱"
-      tabIndex={0}
-      onWheel={handleDeckWheel}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          moveActiveCard(-1);
-        }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          moveActiveCard(1);
-        }
-        if (event.key === "Enter") {
-          const activePosition = positions[activeIndex];
-          if (activePosition) {
-            selectPortfolioHoldingSymbol(activePosition.symbol);
-            onSelectSymbol(activePosition.symbol);
-          }
-        }
-      }}
-    >
-      {positions.map((position, index) => {
-        const dayTone = directionClass(position.dayPnlRate);
-        const offset = circularCardOffset(index, activeIndex, positions.length);
-        const distance = Math.abs(offset);
-        const isActive = index === activeIndex;
-        const angle = offset * 11.5;
-        const angleRadians = angle * (Math.PI / 180);
-        const arcX = Math.sin(angleRadians);
-        const arcDepth = 1 - Math.cos(angleRadians);
-        const cardStyle = {
-          "--card-x": `calc(${arcX.toFixed(4)} * clamp(560px, 110cqw, 1300px))`,
-          "--card-y": `calc(${arcDepth.toFixed(4)} * clamp(110px, 24cqh, 260px))`,
-          "--card-z": `calc(${-arcDepth.toFixed(4)} * clamp(480px, 92cqw, 1060px))`,
-          "--card-rotate": `${-angle}deg`,
-          "--card-scale": Math.max(0.58, 1 - distance * 0.045),
-          "--card-opacity": Math.max(0.16, 1 - distance * 0.105),
-          zIndex: positions.length + 2 - distance
-        } as CSSProperties;
-
-        return (
-          <article
-            key={position.symbol}
-            className={`portfolio-holding-column ${dayTone}${isActive ? " is-active" : ""}`}
-            style={cardStyle}
-          >
-            <button
-              type="button"
-              tabIndex={distance > 2 ? -1 : 0}
-              aria-current={isActive ? "true" : undefined}
-              aria-label={`${position.symbol} ${formatSignedPercentPlain(position.dayPnlRate)}${isActive ? ", 한 번 더 누르면 차트 열기" : ", 카드 앞으로 가져오기"}`}
-              onClick={() => {
-                selectPortfolioHoldingSymbol(position.symbol);
-                if (isActive) {
-                  onSelectSymbol(position.symbol);
-                } else {
-                  setActiveIndex(index);
-                }
-              }}
-            >
-              <PortfolioHoldingCardContent position={position} totalMarketValue={totalMarketValue} />
-            </button>
-          </article>
-        );
-      })}
-      <div className="portfolio-holdings-deck-index" aria-hidden="true">
-        {positions.map((position, index) => (
-          <i key={position.symbol} className={index === activeIndex ? "active" : undefined} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function PortfolioHoldingCardContent({
   position,
   totalMarketValue
@@ -1671,15 +1580,6 @@ function PortfolioHoldingCardContent({
       </div>
     </>
   );
-}
-
-function circularCardOffset(index: number, activeIndex: number, count: number): number {
-  if (count <= 1) return 0;
-  let offset = index - activeIndex;
-  const half = count / 2;
-  if (offset > half) offset -= count;
-  if (offset < -half) offset += count;
-  return offset;
 }
 
 function formatPercentPlain(value: number | null | undefined): string {
@@ -2201,18 +2101,28 @@ function allocationColor(tone: string): string {
   return colors[tone] ?? colors.neutral;
 }
 
-function portfolioMultiPieColor(tone: string): string {
-  const colors: Record<string, string> = {
-    "green-deep": "#177f69",
-    green: "#229c7a",
-    red: "#d46958",
-    "red-soft": "#b9665a",
-    neutral: "#7d91a5",
-    brass: "#d1a136",
-    "green-soft": "#49ad8a",
-    clay: "#c25d50"
-  };
-  return colors[tone] ?? colors.neutral;
+function portfolioMultiPieColor(index: number): string {
+  const colors = [
+    "var(--color-up)",
+    "var(--color-signal)",
+    "var(--color-down)",
+    "var(--color-point-orange)",
+    "var(--color-point-yellow)",
+    "var(--color-point-purple)",
+    "color-mix(in srgb, var(--color-up) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-signal) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-down) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-point-orange) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-point-yellow) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-point-purple) 72%, var(--color-text))",
+    "color-mix(in srgb, var(--color-up) 72%, var(--coinbase-canvas))",
+    "color-mix(in srgb, var(--color-signal) 72%, var(--coinbase-canvas))",
+    "color-mix(in srgb, var(--color-down) 72%, var(--coinbase-canvas))",
+    "color-mix(in srgb, var(--color-point-orange) 72%, var(--coinbase-canvas))",
+    "color-mix(in srgb, var(--color-point-yellow) 72%, var(--coinbase-canvas))",
+    "color-mix(in srgb, var(--color-point-purple) 72%, var(--coinbase-canvas))"
+  ];
+  return colors[Math.max(0, index) % colors.length] ?? "var(--color-muted-medium)";
 }
 
 function firstNumber(...values: Array<number | null | undefined>): number | null {
@@ -2266,7 +2176,7 @@ function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAss
       value: dashboard.stockValue,
       weight: stockWeight,
       progress: stockWeight,
-      color: "#ff255f"
+      color: "var(--color-down)"
     },
     {
       key: "cash",
@@ -2274,7 +2184,7 @@ function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAss
       value: dashboard.cashValue,
       weight: cashWeight,
       progress: cashWeight,
-      color: "#a4f400"
+      color: "var(--color-up)"
     },
     {
       key: "dividend",
@@ -2282,7 +2192,7 @@ function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAss
       value: dividendValue,
       weight: dividendWeight,
       progress: dividendValue > 0 ? Math.max(4, dividendWeight) : 0,
-      color: "#20c7ec"
+      color: "var(--color-signal)"
     }
   ];
 }

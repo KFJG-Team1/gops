@@ -223,7 +223,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioMulti",
-    title: "Dual Portfolio",
+    title: "듀얼 포트폴리오",
     agentPanelType: "portfolioMulti",
     minSpan: { colSpan: 2, rowSpan: 3 },
     readableMinSpan: { colSpan: 2, rowSpan: 3 },
@@ -234,7 +234,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioInvestment",
-    title: "US Portfolio",
+    title: "미국 포트폴리오",
     agentPanelType: "portfolioInvestment",
     minSpan: { colSpan: 2, rowSpan: 1 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
@@ -244,7 +244,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioPerformance",
-    title: "Performance",
+    title: "투자 성과",
     agentPanelType: "portfolioPerformance",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
@@ -254,7 +254,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioInvested",
-    title: "Investment Flow",
+    title: "투자 흐름",
     agentPanelType: "portfolioInvested",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
@@ -275,7 +275,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioDiversification",
-    title: "Diversification",
+    title: "분산 투자",
     agentPanelType: "portfolioDiversification",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
@@ -295,7 +295,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "portfolioHoldings",
-    title: "Holdings 표",
+    title: "보유 종목 표",
     agentPanelType: "portfolioHoldings",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
@@ -304,18 +304,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 40
   },
   {
-    kind: "portfolioHoldingsCards",
-    title: "Holdings 3D 덱",
-    agentPanelType: "portfolioHoldingsCards",
-    minSpan: { colSpan: 2, rowSpan: 2 },
-    readableMinSpan: { colSpan: 2, rowSpan: 2 },
-    minSizePx: { width: 320, height: 220 },
-    defaultSpan: { colSpan: 4, rowSpan: 2 },
-    defaultLayoutWeight: 39
-  },
-  {
     kind: "portfolioHoldingsFlatCards",
-    title: "Holdings 카드 목록",
+    title: "보유 종목 카드 목록",
     agentPanelType: "portfolioHoldingsFlatCards",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },

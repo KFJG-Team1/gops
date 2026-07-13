@@ -1,4 +1,3 @@
-import { Newspaper } from "lucide-react";
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
 import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
@@ -41,7 +40,6 @@ import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
-  PortfolioHoldingsCardsPanel,
   PortfolioHoldingsFlatCardsPanel,
   PortfolioHoldingsOnlyPanel,
   PortfolioInvestedPanel,
@@ -75,7 +73,6 @@ type PanelContentRendererProps = {
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
   chartLiveTrade?: TradeTickData;
-  chartDrawingActive: boolean;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
@@ -87,9 +84,7 @@ type PanelContentRendererProps = {
   onChartHoverChange: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
-  onChartDrawingToggle: () => void;
   onChartAddToggle: () => void;
-  onSyncPageSymbolFromChart: () => void;
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
@@ -116,7 +111,6 @@ export function PanelContentRenderer({
   chartStreamStatus,
   chartStreamMessage,
   chartLiveTrade,
-  chartDrawingActive,
   chartAddActive,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
@@ -128,9 +122,7 @@ export function PanelContentRenderer({
   onChartHoverChange,
   onHeaderChange,
   onChartHandleChange,
-  onChartDrawingToggle,
   onChartAddToggle,
-  onSyncPageSymbolFromChart,
   onUpdatePanelProps,
   onChangePanelChartSymbol,
   onSelectSymbol
@@ -325,17 +317,6 @@ export function PanelContentRenderer({
     );
   }
 
-  if (content.kind === "portfolioHoldingsCards") {
-    return (
-      <PortfolioHoldingsCardsPanel
-        onSelectSymbol={(nextSymbol) => {
-          onSelectSymbol(nextSymbol);
-          return true;
-        }}
-      />
-    );
-  }
-
   if (content.kind === "portfolioHoldingsFlatCards") {
     return (
       <PortfolioHoldingsFlatCardsPanel
@@ -428,66 +409,58 @@ export function PanelContentRenderer({
       {activeTab === "chart" ? "기업정보" : "차트"}
     </button>
   );
+  const chartNavigationLeading = (
+    <>
+      <div
+        className="chart-instance-symbol"
+        onPointerEnter={() => onChartHoverChange(true)}
+        onPointerMove={() => onChartHoverChange(true)}
+      >
+        <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
+          <div className="chart-instance-symbol-search-wrap">
+            <SymbolSearch
+              symbols={symbols}
+              className="chart-instance-symbol-search"
+              compact
+              selectedSymbol={selectedSymbol}
+              selectedLabel={selectedSymbol}
+              placeholder={selectedSymbol}
+              formatSelectedLabel={(symbolOption) => symbolOption.symbol}
+              onSelectSymbol={(nextSymbol) => onChangePanelChartSymbol(content.id, nextSymbol)}
+              onPointerActivity={() => onChartHoverChange(true)}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="chart-instance-view-controls">
+        <select
+          className="chart-instance-select chart-instance-chart-type"
+          value={chartType}
+          aria-label="Chart type"
+          onPointerDown={(event) => event.stopPropagation()}
+          onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
+        >
+          {chartTypes.map((nextChartType) => (
+            <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
+          ))}
+        </select>
+        <select
+          className="chart-instance-select chart-instance-interval"
+          value={chartIntervalValue}
+          aria-label="Interval"
+          onPointerDown={(event) => event.stopPropagation()}
+          onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
+        >
+          {chartIntervalOptions.map((nextInterval) => (
+            <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
 
   return (
     <div className="chart-instance is-editable-chart">
-      <div className="chart-instance-topbar">
-        <div
-          className="chart-instance-symbol"
-          onPointerEnter={() => onChartHoverChange(true)}
-          onPointerMove={() => onChartHoverChange(true)}
-        >
-          <div className="chart-instance-symbol-controls" onPointerDown={(event) => event.stopPropagation()}>
-            <div className="chart-instance-symbol-search-wrap">
-              <SymbolSearch
-                symbols={symbols}
-                className="chart-instance-symbol-search"
-                compact
-                selectedSymbol={selectedSymbol}
-                selectedLabel={selectedSymbol}
-                placeholder={selectedSymbol}
-                formatSelectedLabel={(symbolOption) => symbolOption.symbol}
-                onSelectSymbol={(nextSymbol) => onChangePanelChartSymbol(content.id, nextSymbol)}
-                onPointerActivity={() => onChartHoverChange(true)}
-              />
-            </div>
-            <button
-              type="button"
-              className="chart-instance-sync-page"
-              aria-label={`${selectedSymbol}을 현재 페이지 종목으로 설정`}
-              title="현재 페이지 종목으로 설정"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={onSyncPageSymbolFromChart}
-            >
-              <Newspaper size={13} />
-            </button>
-          </div>
-        </div>
-        <div className="chart-instance-view-controls">
-          <select
-            className="chart-instance-select chart-instance-chart-type"
-            value={chartType}
-            aria-label="Chart type"
-            onPointerDown={(event) => event.stopPropagation()}
-            onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
-          >
-            {chartTypes.map((nextChartType) => (
-              <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
-            ))}
-          </select>
-          <select
-            className="chart-instance-select chart-instance-interval"
-            value={chartIntervalValue}
-            aria-label="Interval"
-            onPointerDown={(event) => event.stopPropagation()}
-            onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
-          >
-            {chartIntervalOptions.map((nextInterval) => (
-              <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
-            ))}
-          </select>
-        </div>
-      </div>
       {activeTab === "chart" ? (
         <ChartPanel
           ref={setChartPanelHandle}
@@ -500,17 +473,16 @@ export function PanelContentRenderer({
           liveTrade={chartLiveTrade}
           symbols={symbols}
           laneHeight={laneHeight}
-          chartDrawingActive={chartDrawingActive}
           chartAddActive={chartAddActive}
           onChartRuntimeAction={onChartRuntimeAction}
-          onChartDrawingToggle={onChartDrawingToggle}
           onChartAddToggle={onChartAddToggle}
           onSemanticSelectionChange={setSemanticSelection}
           onAgentAsk={onAgentAsk}
           emphasizeSelection={emphasizeChartSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
-          toolbarLeading={companyToggleButton}
+          toolbarLeading={chartNavigationLeading}
+          toolbarTrailing={companyToggleButton}
         />
       ) : (
         <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>

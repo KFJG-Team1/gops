@@ -1,189 +1,88 @@
 import { useEffect, useState } from "react";
-import {
-  fetchAnalysisAssets,
-  subscribeAnalysisAssetsInvalidation,
-  type AnalysisAssetInterval
-} from "../chart/analysisAssetsApi";
-import {
-  analysisAssetPresentationDiagnostics,
-  formatAnalysisAssetAsOf
-} from "../chart/analysisAssetPresentation";
+import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { CandleDto, ChartInterval } from "../chart/types";
-import { GlossaryText } from "../glossary/GlossaryText";
 
-type CommentaryPanelState = "base" | "enriching" | "enriched";
-
-type ChartCommentaryPanelProps = {
+export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: {
   symbol: string;
   interval: ChartInterval;
   candles: CandleDto[];
   drawingIds: string[];
-};
-
-export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: ChartCommentaryPanelProps) {
+}) {
   const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
-  const [assetsRevision, setAssetsRevision] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [panelState] = useState<CommentaryPanelState>("base");
+  const [revision, setRevision] = useState(0);
   const normalizedSymbol = symbol.trim().toUpperCase();
 
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
       setAssets(null);
-      setAssetsRevision((current) => current + 1);
+      setRevision((current) => current + 1);
     }
   }), [normalizedSymbol]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setAssets((current) => current?.symbol === normalizedSymbol ? current : null);
-    fetchAnalysisAssets(normalizedSymbol)
-      .then((response) => {
-        if (active) {
-          setAssets(response);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setAssets(null);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [assetsRevision, normalizedSymbol]);
+    fetchAnalysisAssets(normalizedSymbol).then((response) => {
+      if (active) setAssets(response);
+    }).catch(() => {
+      if (active) setAssets(null);
+    });
+    return () => { active = false; };
+  }, [normalizedSymbol, revision]);
 
-  if (!isAnalysisAssetInterval(interval)) {
-    return <CommentaryEmpty text="일/주/월봉에서 제공됩니다" />;
-  }
+  if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
   const asset = assets?.assets[interval] ?? null;
-  if (loading && !assets) {
-    return <CommentaryEmpty text="분석 자산을 불러오는 중입니다" loading />;
-  }
-  if (!asset) {
-    return <CommentaryEmpty text="분석 자산이 준비되지 않았습니다" />;
-  }
+  if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
 
-  const presentation = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
-  const resolvedAsset = presentation.resolvedAsset;
-  const stale = presentation.stale;
-  const appliedDrawingIds = new Set(presentation.appliedDrawingIds);
-  const focusItems = (resolvedAsset.commentary.focusItems ?? []).flatMap((item) => {
-    return item.drawingIds.length > 0 && item.drawingIds.every((drawingId) => appliedDrawingIds.has(drawingId))
-      ? [item]
-      : [];
-  });
-  const keyLevels = (resolvedAsset.commentary.keyLevelsV2 ?? []).filter((level) => (
-    typeof level.drawingId === "string" && appliedDrawingIds.has(level.drawingId)
-  ));
-  const legacyKeyLevels = resolvedAsset.assetVersion === "v1" && !stale
-    ? resolvedAsset.commentary.keyLevels
-    : [];
-  const stateNotice = commentaryStateNotice(presentation.state);
-  const presentationBlocked = presentation.state === "stale_asset"
-    || presentation.state === "presentation_rejected";
-  const headline = stateNotice ?? resolvedAsset.commentary.headline;
-  const displayedConfidence = presentation.state === "ready"
-    ? resolvedAsset.commentary.confidence
-    : 0;
-  const invalidation = commentaryStateInvalidation(presentation.state)
-    ?? focusItems[0]?.invalidation
-    ?? resolvedAsset.commentary.invalidation;
-  const focusDrawing = (drawingIds: string[]) => {
-    window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
-      detail: { symbol: normalizedSymbol, interval, drawingIds }
-    }));
-  };
+  const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
+  const pattern = detectedPatternSummary(asset);
+  const focusDrawing = (ids: string[]) => window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
+    detail: { symbol: normalizedSymbol, interval, drawingIds: ids }
+  }));
   return (
-    <article className="chart-commentary-panel" data-enrichment-state={panelState}>
+    <article className="chart-commentary-panel">
       <header className="chart-commentary-meta">
         <span className="chart-commentary-badge">{interval}</span>
-        <span className={stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(resolvedAsset.asOf)}</span>
-        <span className="chart-commentary-confidence">
-          <span className={`bottom-chat-confidence-dot ${confidenceTone(displayedConfidence)}`} aria-hidden="true" />
-          신뢰도 {Math.round(displayedConfidence * 100)}%
-        </span>
-        {resolvedAsset.status === "degraded" && <span className="chart-commentary-badge is-muted">자동 생성(축약)</span>}
-        {stale && <span className="chart-commentary-badge is-stale">분석 자산 갱신 필요</span>}
+        <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
+        <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
       </header>
-      {headline && <h3 className="chart-commentary-headline"><GlossaryText text={headline} /></h3>}
-      {!presentationBlocked && resolvedAsset.commentary.regimeSummary && <p className="chart-commentary-text"><GlossaryText text={resolvedAsset.commentary.regimeSummary} /></p>}
-      {!presentationBlocked && focusItems.length > 0 && (
-        <section className="chart-commentary-focus" aria-label="주요 관찰">
-          <h3>주요 관찰</h3>
-          <ol>{focusItems.map((item, index) => (
-            <li key={`${item.candidateId ?? index}-${item.drawingIds.join("-")}`}>
-              <button type="button" onClick={() => focusDrawing(item.drawingIds)} disabled={!item.drawingIds.length}>
-                <strong><GlossaryText text={item.whatItShows} /></strong>
-                <span><GlossaryText text={item.whyItMatters} /></span>
-                <span><GlossaryText text={item.whatToWatch} /></span>
-              </button>
-            </li>
-          ))}</ol>
-        </section>
+      <h3 className="chart-commentary-headline">Geometry 분석</h3>
+      <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
+      {pattern && (
+        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
+          {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
+        </button>
       )}
-      {!presentationBlocked && !focusItems.length && !stateNotice && <p className="chart-commentary-text"><GlossaryText text={resolvedAsset.commentary.text} /></p>}
-      {!presentationBlocked && <section className="chart-commentary-levels" aria-label="핵심 레벨">
+      <section className="chart-commentary-levels" aria-label="핵심 레벨">
         <h3>핵심 레벨</h3>
-        {keyLevels.length ? (
-          <ul>
-            {keyLevels.map((level) => (
-              <li key={`${level.drawingId}-${level.role}-${level.price}`}><GlossaryText text={`${levelRoleLabel(level.role)} ${level.price.toFixed(2)} · ${level.reason}`} /></li>
-            ))}
-          </ul>
-        ) : legacyKeyLevels.length ? (
-          <ul>
-            {legacyKeyLevels.map((level, index) => (
-              <li key={`${index}-${level}`}><GlossaryText text={level} /></li>
-            ))}
-          </ul>
-        ) : (
-          <p>확인된 핵심 레벨이 없습니다</p>
-        )}
-      </section>}
-      <p className="chart-commentary-invalidation">
-        <span aria-hidden="true">⚠</span>
-        <GlossaryText text={`무효화: ${invalidation}`} />
-      </p>
+        <ul>
+          {[...asset.geometry.supports, ...asset.geometry.resistances].map((level) => (
+            <li key={level.id}>{level.role === "support" ? "지지" : "저항"} {level.price.toFixed(2)} · 접촉 {level.touches}회</li>
+          ))}
+        </ul>
+      </section>
+      <p className="chart-commentary-text">SMA60 {formatValue(asset.indicators.sma60)} · SMA120 {formatValue(asset.indicators.sma120)} · {crossName(asset.indicators.cross.direction)}</p>
+      {diagnostics.stale && <p className="chart-commentary-invalidation">새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다.</p>}
     </article>
   );
 }
 
-function CommentaryEmpty({ text, loading = false }: { text: string; loading?: boolean }) {
-  return (
-    <div className="chart-commentary-empty" role="status">
-      {loading && <span className="chart-commentary-spinner" aria-hidden="true" />}
-      <span>{text}</span>
-    </div>
-  );
+function Empty({ text }: { text: string }) {
+  return <div className="chart-commentary-empty" role="status"><span>{text}</span></div>;
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D" || interval === "1W" || interval === "1M";
+  return ["1m", "5m", "10m", "1h", "4h", "1D", "1W"].includes(interval);
 }
 
-function confidenceTone(value: number): "high" | "medium" | "low" {
-  return value >= 0.7 ? "high" : value >= 0.4 ? "medium" : "low";
+function patternName(kind: string): string {
+  return { ascending_triangle: "상승 삼각형", descending_triangle: "하락 삼각형", symmetrical_triangle: "대칭 삼각형" }[kind] ?? kind;
 }
 
-function commentaryStateNotice(state: ReturnType<typeof analysisAssetPresentationDiagnostics>["state"]): string | null {
-  if (state === "presentation_rejected") return "저장된 작도 일부 또는 전체가 현재 차트에 적용되지 않아 해설에서 제외했습니다.";
-  if (state === "stale_asset") return "새 완료 봉이 추가되어 저장된 작도를 현재 차트에 적용하지 않았습니다.";
-  return null;
+function formatValue(value: number | null): string {
+  return value === null ? "-" : value.toFixed(2);
 }
 
-function commentaryStateInvalidation(state: ReturnType<typeof analysisAssetPresentationDiagnostics>["state"]): string | null {
-  if (state === "stale_asset") return "자산을 갱신한 뒤 새 구조를 다시 평가하세요.";
-  if (state === "presentation_rejected") return "canonical 봉 연결을 복구한 뒤 적용된 구조만 다시 평가하세요.";
-  return null;
-}
-
-function levelRoleLabel(role: string): string {
-  return role === "support" ? "지지" : role === "resistance" ? "저항" : role;
+function crossName(direction: "golden" | "dead" | null | undefined): string {
+  return direction === "golden" ? "골든크로스" : direction === "dead" ? "데드크로스" : "교차 없음";
 }

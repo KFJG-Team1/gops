@@ -22,28 +22,28 @@
   pointer-events: none;
 }
 
-.chart-tool-dock-row .tool-glyph.horizontal-parallel-lines::before {
+.chart-drawing-dock .tool-glyph.horizontal-parallel-lines::before {
   width: 13px;
   height: 1px;
   transform: translateY(-3px);
   box-shadow: 0 6px currentColor;
 }
 
-.chart-tool-dock-row .tool-glyph.diagonal-parallel-lines::before {
+.chart-drawing-dock .tool-glyph.diagonal-parallel-lines::before {
   width: 13px;
   height: 1px;
   box-shadow: 0 -4px currentColor, 0 4px currentColor;
   transform: rotate(-42deg);
 }
 
-.chart-tool-dock-row .tool-glyph.vertical-parallel-lines::before {
+.chart-drawing-dock .tool-glyph.vertical-parallel-lines::before {
   width: 1px;
   height: 15px;
   transform: translateX(-3px);
   box-shadow: 6px 0 currentColor;
 }
 
-.chart-tool-dock-row .drawing-tool-svg {
+.chart-drawing-dock .drawing-tool-svg {
   width: 16px;
   height: 16px;
   overflow: visible;
@@ -52,12 +52,12 @@
   stroke-width: 1.2;
 }
 
-.chart-tool-dock-row .drawing-tool-svg .risk-reward-up {
+.chart-drawing-dock .drawing-tool-svg .risk-reward-up {
   fill: color-mix(in srgb, var(--color-up) 28%, transparent);
   stroke: none;
 }
 
-.chart-tool-dock-row .drawing-tool-svg .risk-reward-down {
+.chart-drawing-dock .drawing-tool-svg .risk-reward-down {
   fill: color-mix(in srgb, var(--color-down) 28%, transparent);
   stroke: none;
 }
@@ -633,35 +633,277 @@
   white-space: nowrap;
 }
 
-.chart-instance-sync-page {
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--color-text);
+.chart-panel-navigation {
+  position: absolute;
+  z-index: 36;
+  top: 7px;
+  right: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 30px;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.chart-panel-navigation-leading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  max-width: none;
+  min-width: 0;
+  height: 30px;
+}
+
+.chart-panel-navigation-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 30px;
+}
+
+.chart-panel-navigation .chart-instance-symbol {
+  flex: 0 0 auto;
+}
+
+.chart-panel-navigation .chart-instance-select {
+  pointer-events: auto;
+}
+
+.chart-panel-navigation .chart-content-toggle,
+.chart-panel-navigation .chart-add-target-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chart-panel-navigation.has-open-chart-menu {
+  z-index: 45;
+}
+
+.chart-navigation-action-separator {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.chart-drawing-draft-pill {
+  position: absolute;
+  z-index: 35;
+  top: 42px;
+  left: 10px;
 }
 
 .chart-drawing-dock {
-  flex-wrap: wrap;
-  justify-content: center;
+  position: relative;
+  z-index: 34;
   box-sizing: border-box;
-  max-width: calc(100vw - 28px);
+  display: flex;
+  flex: 1 1 0;
+  width: 0;
+  align-items: center;
+  min-width: 52px;
+  height: 30px;
+  padding: 0;
   overflow: visible;
+  pointer-events: auto;
 }
 
-.chart-tool-dock-row {
-  flex-wrap: wrap;
-  align-content: flex-end;
-  gap: 6px 16px;
-  width: calc(100vw - 28px);
+.chart-drawing-dock-scroller {
+  flex: 1 1 auto;
+  height: 28px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
 }
 
-.chart-tool-dock-row .chart-drawing-dock {
+.chart-drawing-dock-scroller.has-overflow-right:not(.has-overflow-left) {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+}
+
+.chart-drawing-dock-scroller.has-overflow-left:not(.has-overflow-right) {
+  mask-image: linear-gradient(to right, transparent 0, #000 18px, #000 100%);
+}
+
+.chart-drawing-dock-scroller.has-overflow-left.has-overflow-right {
+  mask-image: linear-gradient(to right, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+}
+
+.chart-drawing-dock-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.chart-drawing-dock-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  height: 28px;
+}
+
+.chart-drawing-dock-track > * {
   flex: 0 0 auto;
-  max-width: calc(100vw - 28px);
 }
 
-.chart-tool-dock-row .chart-drawing-dock:only-child {
-  max-width: calc(100vw - 28px);
+.chart-drawing-dock .icon-button {
+  background: transparent;
+}
+
+.chart-drawing-dock .icon-button:hover:not(:disabled),
+.chart-drawing-dock .icon-button:focus-visible,
+.chart-drawing-dock .icon-button.active {
+  background: var(--color-surface-strong);
+}
+
+.chart-grouped-tool-button {
+  position: relative;
+}
+
+.chart-trend-tool-chevron {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+}
+
+.chart-drawing-scroll-button {
+  display: inline-grid;
+  flex: 0 0 24px;
+  place-items: center;
+  width: 24px;
+  min-width: 24px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+.chart-drawing-scroll-button:disabled {
+  color: var(--color-muted);
+  cursor: default;
+  opacity: 0.38;
+}
+
+.chart-drawing-scroll-button.is-previous {
+  margin-right: 2px;
+}
+
+.chart-drawing-scroll-button.is-next {
+  margin-left: 2px;
+}
+
+.chart-tool-group-menu {
+  position: absolute;
+  z-index: 48;
+  top: 32px;
+  display: grid;
+  width: 142px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--color-surface-strong);
+  box-shadow: none;
+}
+
+.chart-tool-group-menu button {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.chart-tool-group-menu button:hover,
+.chart-tool-group-menu button:focus-visible,
+.chart-tool-group-menu button.active {
+  background: var(--color-surface);
+}
+
+.chart-tool-group-menu .trend-extension-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.chart-drawing-color-button {
+  position: relative;
+}
+
+.chart-drawing-current-color {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--color-surface-strong);
+  border-radius: 50%;
+  background: var(--drawing-color, var(--color-drawing));
+}
+
+.chart-drawing-color-menu {
+  position: absolute;
+  z-index: 48;
+  top: 32px;
+  display: grid;
+  grid-template-columns: repeat(4, 26px);
+  gap: 4px;
+  box-sizing: border-box;
+  width: 132px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 7px;
+  background: var(--color-surface-strong);
+  box-shadow: none;
+}
+
+.chart-drawing-color-menu button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.chart-drawing-color-menu button:hover,
+.chart-drawing-color-menu button:focus-visible,
+.chart-drawing-color-menu button.active {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.chart-drawing-color-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  border-radius: 50%;
+  background: var(--drawing-swatch-color);
+}
+
+.chart-drawing-color-menu svg {
+  position: absolute;
+  color: var(--color-surface-strong);
+  stroke-width: 3;
+  pointer-events: none;
 }
 
 .chart-parallel-line-count {
@@ -697,6 +939,134 @@
 .chart-add-dock .chart-add-layer-button.active {
   background: var(--chart-layer-accent, var(--color-preview));
   color: #ffffff;
+}
+
+.chart-add-dropdown-anchor {
+  position: absolute;
+  top: 31px;
+  right: 0;
+  z-index: 52;
+  width: min(244px, calc(100cqw - 16px));
+  pointer-events: auto;
+}
+
+.chart-add-control {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.chart-add-dock {
+  box-sizing: border-box;
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 7px;
+  background: var(--color-surface-strong);
+  box-shadow: none;
+}
+
+.chart-add-dock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  padding-left: 5px;
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.chart-add-dock-close {
+  background: transparent;
+}
+
+.chart-add-dock-group {
+  display: grid;
+  grid-template-columns: repeat(4, 30px);
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chart-add-layer-tooltip-anchor {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+}
+
+.chart-add-layer-tooltip-anchor .chart-add-layer-button {
+  width: 100%;
+  height: 100%;
+}
+
+.chart-immediate-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(280px, calc(100vw - 12px));
+  min-height: 24px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: 6px;
+  background: var(--color-surface-strong);
+  box-shadow: none;
+  color: var(--color-text);
+  font: var(--type-caption);
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chart-panel-navigation button,
+.chart-panel-navigation select,
+.chart-panel-navigation .symbol-search,
+.chart-panel-navigation .symbol-search input,
+.chart-panel-navigation .chart-tool-group-menu,
+.chart-panel-navigation .chart-add-dock,
+.chart-immediate-tooltip {
+  box-shadow: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+.chart-panel-navigation button:focus-visible,
+.chart-panel-navigation select:focus-visible,
+.chart-panel-navigation .symbol-search:focus-within {
+  border-color: var(--color-border);
+  outline: none;
+  box-shadow: none !important;
+}
+
+.chart-add-dock-divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.chart-add-layer-button {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  background: var(--color-surface);
+}
+
+.chart-layer-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
+.chart-layer-icon small {
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--color-surface-strong);
+  color: currentColor;
+  font-size: 7px;
+  line-height: 10px;
 }
 
 .chart-comparison-picker {

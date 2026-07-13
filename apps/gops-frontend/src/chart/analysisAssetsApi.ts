@@ -1,68 +1,69 @@
-import type { ChartLayerKey, DrawingEntity } from "./types";
+import type { DrawingEntity } from "./types";
 
-export type AnalysisAssetInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W" | "1M";
-export type AnalysisAssetStatus = "ready" | "degraded";
+export type AnalysisAssetInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W";
+export type AnalysisAssetStatus = "ready";
 
-export type AnalysisAssetCommentary = {
-  headline?: string;
-  regimeSummary?: string;
-  focusItems?: AnalysisAssetFocusItem[];
-  keyLevelsV2?: Array<{ drawingId?: string; role: string; price: number; reason: string }>;
-  higherTimeframeContext?: string;
-  counterEvidence?: string[];
-  dataCaveats?: string[];
-  confidenceV2?: { selection?: { score: number; reasons: string[]; penalties: string[] } };
-  text: string;
-  keyLevels: string[];
-  invalidation: string;
-  confidence: number;
-  enrichment: null;
+export type GeometryLevel = {
+  id: string;
+  role: "support" | "resistance";
+  price: number;
+  score: number;
+  touches: number;
+  anchors: Array<{ timestamp: string; price: number }>;
 };
 
-export type AnalysisAssetFocusItem = {
-  drawingIds: string[];
-  candidateId?: string | null;
-  featureIds?: string[];
-  whatItShows: string;
-  whyItMatters: string;
-  whatToWatch: string;
-  confirmation?: string | null;
-  invalidation?: string | null;
-  horizon?: string;
+export type GeometryTriangle = {
+  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+  state: "forming" | "confirmed" | "inactive" | "invalidated";
+  score: number;
+  touches: number;
+  geometryHash: string;
+  apexBarsFromAsOf?: number | null;
 };
-
-export type AnalysisAssetLayer = {
-  drawings: DrawingEntity[];
-  selected?: Array<Record<string, unknown>>;
-  emptyReason?: string | null;
-  meta?: Record<string, unknown>;
-};
-
-export type AnalysisAssetAgentLayer = AnalysisAssetLayer & Partial<{ degraded: boolean; rationale: string; model: string | null }>;
 
 export type ChartAnalysisAsset = {
-  assetVersion: "v1" | "v2";
+  assetVersion: "geometry";
+  algorithmVersion: string;
   symbol: string;
   interval: AnalysisAssetInterval;
+  sourceInterval: AnalysisAssetInterval;
   asOf: string;
   generatedAt: string;
   status: AnalysisAssetStatus;
-  layers: {
-    structure: AnalysisAssetLayer;
-    trend: AnalysisAssetLayer;
-    agent: AnalysisAssetAgentLayer;
+  inputDigest: string;
+  coverage: {
+    state: "full" | "partial";
+    targetBars: number;
+    actualBars: number;
+    contiguousBars: number;
+    missingBars: number;
+    lastExpectedClosedAt?: string | null;
+    lastActualClosedAt?: string | null;
+    qualityFlags?: string[];
   };
-  chartSetup: {
-    alwaysOn: ChartLayerKey[];
-    recommended: Array<{
-      layer: ChartLayerKey;
-      reason: string;
-      source: "rule" | "llm";
+  geometry: {
+    drawings: Array<DrawingEntity & {
+      symbol: string;
+      interval: AnalysisAssetInterval;
+      sourceInterval: AnalysisAssetInterval;
     }>;
+    supports: GeometryLevel[];
+    resistances: GeometryLevel[];
+    primaryTriangle: GeometryTriangle | null;
+    historicalTriangle: GeometryTriangle | null;
+    evidence?: Array<Record<string, unknown>>;
+    anchorResolutionErrors?: Array<{ drawingId: string; reason: string }>;
   };
-  commentary: AnalysisAssetCommentary;
-  coverage?: { lastActualClosedAt?: string | null; qualityFlags?: string[]; renderable?: boolean };
-  quality?: { state?: "eligible" | "insufficient_data" | "stale_input" | "contract_error"; score?: number };
+  indicators: {
+    sma60: number | null;
+    sma120: number | null;
+    cross: {
+      status: "crossed" | "none" | "insufficient_previous_bar" | "data_insufficient";
+      direction?: "golden" | "dead" | null;
+      timestamp?: string | null;
+      barsAgo?: number | null;
+    };
+  };
 };
 
 export type AnalysisAssetsResponse = {
@@ -80,41 +81,26 @@ let globalGeneration = 0;
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
   const cached = responseCache.get(normalized);
-  if (cached) {
-    return Promise.resolve(cached);
-  }
+  if (cached) return Promise.resolve(cached);
   const pending = inFlight.get(normalized);
-  if (pending) {
-    return pending;
-  }
+  if (pending) return pending;
   const requestGlobalGeneration = globalGeneration;
   const requestSymbolGeneration = symbolGenerations.get(normalized) ?? 0;
   let request: Promise<AnalysisAssetsResponse>;
   request = fetch(`/api/charts/analysis-assets?${new URLSearchParams({ symbol: normalized }).toString()}`, {
     headers: { Accept: "application/json" }
-  })
-    .then(async (response) => {
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const detail = typeof payload?.detail === "string" ? payload.detail : `HTTP ${response.status}`;
-        throw new Error(detail);
-      }
-      return normalizeAnalysisAssetsResponse(payload, normalized);
-    })
-    .then((payload) => {
-      if (
-        globalGeneration === requestGlobalGeneration
-        && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration
-      ) {
-        responseCache.set(normalized, payload);
-      }
-      return payload;
-    })
-    .finally(() => {
-      if (inFlight.get(normalized) === request) {
-        inFlight.delete(normalized);
-      }
-    });
+  }).then(async (response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof payload?.detail === "string" ? payload.detail : `HTTP ${response.status}`);
+    return normalizeAnalysisAssetsResponse(payload, normalized);
+  }).then((payload) => {
+    if (globalGeneration === requestGlobalGeneration && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration) {
+      responseCache.set(normalized, payload);
+    }
+    return payload;
+  }).finally(() => {
+    if (inFlight.get(normalized) === request) inFlight.delete(normalized);
+  });
   inFlight.set(normalized, request);
   return request;
 }
@@ -152,38 +138,27 @@ export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: 
       "1h": normalizeAsset(rawAssets["1h"], "1h"),
       "4h": normalizeAsset(rawAssets["4h"], "4h"),
       "1D": normalizeAsset(rawAssets["1D"], "1D"),
-      "1W": normalizeAsset(rawAssets["1W"], "1W"),
-      "1M": normalizeAsset(rawAssets["1M"], "1M")
+      "1W": normalizeAsset(rawAssets["1W"], "1W")
     },
     meta: asRecord(source.meta)
   };
 }
 
 function normalizeAsset(value: unknown, interval: AnalysisAssetInterval): ChartAnalysisAsset | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as ChartAnalysisAsset;
-  if ((source.assetVersion !== "v1" && source.assetVersion !== "v2") || source.interval !== interval || !source.layers || !source.chartSetup || !source.commentary) {
-    return null;
-  }
-  if (source.assetVersion === "v2") {
-    (["structure", "trend", "agent"] as const).forEach((layer) => {
-      source.layers[layer].drawings = source.layers[layer].drawings.map(normalizeV2AutomaticLabel);
-    });
-  }
+  if (
+    source.assetVersion !== "geometry" || source.interval !== interval || source.sourceInterval !== interval
+    || source.symbol.trim().length === 0 || !source.geometry || !Array.isArray(source.geometry.drawings)
+    || !source.coverage || !source.indicators
+  ) return null;
+  const symbol = source.symbol.trim().toUpperCase();
+  if (source.geometry.drawings.some((drawing) => (
+    drawing.symbol?.trim().toUpperCase() !== symbol
+    || drawing.interval !== interval
+    || drawing.sourceInterval !== interval
+  ))) return null;
   return source;
-}
-
-function normalizeV2AutomaticLabel(drawing: DrawingEntity): DrawingEntity {
-  if (drawing.type !== "horizontalLine" || !drawing.label || drawing.anchors[0]?.price === undefined) {
-    return drawing;
-  }
-  const price = Number(drawing.anchors[0].price);
-  const tokens = new Set([String(price), price.toFixed(2), price.toLocaleString("en-US", { maximumFractionDigits: 8 })]);
-  const label = [...tokens].sort((left, right) => right.length - left.length).reduce((text, token) => text.replaceAll(token, ""), drawing.label)
-    .replace(/\s*[·,:()-]\s*$/g, "").replace(/\s{2,}/g, " ").trim();
-  return { ...drawing, label };
 }
 
 function asRecord(value: unknown): Record<string, any> {

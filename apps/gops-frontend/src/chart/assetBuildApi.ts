@@ -3,8 +3,6 @@ import type { AnalysisAssetInterval, AnalysisAssetStatus } from "./analysisAsset
 export type ChartAssetBuildRequest = {
   symbols: string[] | "sp500";
   intervals: AnalysisAssetInterval[];
-  llmEnabled: boolean;
-  skipFreshHours: number;
   force?: boolean;
 };
 
@@ -12,7 +10,6 @@ export type ChartAssetBuildAccepted = {
   jobId: string;
   status: "queued";
   status_url: string;
-  stream_url: string;
 };
 
 export type ChartAssetBuildItem = {
@@ -54,8 +51,8 @@ export type ChartAssetCoverageItem = {
   interval: AnalysisAssetInterval;
   generatedAt: string;
   status: AnalysisAssetStatus;
-  assetVersion?: "v1" | "v2";
-  qualityState?: string | null;
+  assetVersion?: "geometry";
+  coverageState?: "full" | "partial";
   payloadBytes?: number;
   drawingCount?: number;
   storedDrawingCount?: number;

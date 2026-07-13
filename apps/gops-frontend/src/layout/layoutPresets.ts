@@ -329,7 +329,6 @@ const integratedPortfolioPanelKinds: readonly PanelContentKind[] = [
   "portfolioInvested",
   "portfolioHeatmap",
   "portfolioHoldings",
-  "portfolioHoldingsCards",
   "portfolioHoldingsFlatCards"
 ];
 

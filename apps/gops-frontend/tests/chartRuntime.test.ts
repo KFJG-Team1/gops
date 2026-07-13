@@ -69,6 +69,7 @@ import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform,
+  formatPriceAxisValue as formatFrontendPriceAxisValue,
   viewportAnchorRatioAtX,
   viewportSlotWidth
 } from "../src/chart/scene";
@@ -988,6 +989,23 @@ const multiBelowPaneScene = buildFrontendChartScene(frontendChartState({
 }), 800, 460);
 assert.deepEqual(multiBelowPaneScene.plot.belowPanes.map((pane) => pane.id), ["volume", "rsi:14", "macd:12:26:9"]);
 assert.ok(multiBelowPaneScene.plot.belowPanes[0].top < multiBelowPaneScene.plot.belowPanes[1].top);
+assert.equal(multiBelowPaneScene.plot.top, 42);
+assert.equal(multiBelowPaneScene.width - multiBelowPaneScene.plot.right, 68);
+assert.equal(formatFrontendPriceAxisValue(210), "210.00");
+assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
+assert.equal(formatFrontendPriceAxisValue(-12.3), "-12.30");
+assert.equal(formatFrontendPriceAxisValue(1.2345, 4), "1.2345");
+assert.equal(formatFrontendPriceAxisValue(Number.NaN), "-");
+const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
+  candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
+  visibleCount: 1
+}), 800, 360);
+assert.equal(fourDigitPriceScene.width - fourDigitPriceScene.plot.right, 68);
+const fiveDigitPriceScene = buildFrontendChartScene(frontendChartState({
+  candles: [{ ...semanticFutureCandles[0], open: 10_050, high: 10_100, low: 10_000, close: 10_075 } as CandleDto],
+  visibleCount: 1
+}), 800, 360);
+assert.ok(fiveDigitPriceScene.width - fiveDigitPriceScene.plot.right > 68);
 assert.equal(
   frontendDragDeltaToRightOffset(
     -frontendFutureEmptySlotCount(80),
@@ -3273,7 +3291,7 @@ assert.doesNotMatch(appSource, /hasChartCommandTarget/);
 assert.match(appSource, /onLogin=\{login\}/);
 assert.match(appSource, /onLogout=\{\(\) => void logout\(\)\}/);
 assert.match(appSource, /openSymbolPage/);
-assert.match(appSource, /syncPageSymbolFromChart/);
+assert.doesNotMatch(appSource, /syncPageSymbolFromChart/);
 assert.doesNotMatch(appSource, /chartCommandTargetContentId/);
 assert.match(appSource, /chartPanelHandlesRef/);
 assert.doesNotMatch(appSource, /showChartInCurrentPanel/);
@@ -3406,12 +3424,18 @@ assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
 assert.match(chartPanelSource, /chartStateFromDocument/);
 assert.match(chartPanelSource, /ChartDrawingDock/);
-assert.match(chartPanelSource, /Paintbrush/);
+assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
+assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
 assert.match(chartPanelSource, /liveTradePrice/);
-assert.doesNotMatch(chartPanelSource, /ChevronDown|ChevronUp/);
+assert.match(chartPanelSource, /ChevronDown/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
-assert.doesNotMatch(chartPanelSource, /trendMenuOpen|trend-menu/);
+assert.match(chartPanelSource, /openToolGroup|chart-tool-group-menu/);
+assert.match(chartPanelSource, /ResizeObserver/);
+assert.match(chartPanelSource, /clientWidth \* 0\.7/);
+assert.match(chartPanelSource, /useImmediateChartTooltip/);
+assert.match(chartPanelSource, /5기간 단순 이동평균선/);
+assert.match(chartPanelSource, /window\.document\.addEventListener\("pointerdown", closeOnOutsidePointer, true\)/);
 assert.doesNotMatch(chartPanelSource, /interval-stepper/);
 assert.match(chartPanelSource, /chart\.timeframe\.set/);
 assert.doesNotMatch(chartPanelSource, /chart\.comparison\.add/);
@@ -3465,6 +3489,8 @@ assert.doesNotMatch(chartCanvasSource, /function drawTimeGapUnit/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
+assert.match(chartCanvasSource, /context\.fillStyle = candleStrokeColor\(candle\.close >= candle\.open\)/);
+assert.match(chartCanvasSource, /function horizontalGuideRight[\s\S]*return scene\.plot\.right/);
 assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
 assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
 assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
@@ -3718,7 +3744,7 @@ assert.deepEqual(agentLayoutOrderPanel?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(agentLayoutOrderPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutOrderPanel ?? {}), false);
 const agentLayoutPortfolioPanel = expandedAgentLayoutPanels.find((panel) => panel.type === "portfolioHoldings");
-assert.equal(agentLayoutPortfolioPanel?.title, "Holdings 표");
+assert.equal(agentLayoutPortfolioPanel?.title, "보유 종목 표");
 assert.deepEqual(agentLayoutPortfolioPanel?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(agentLayoutPortfolioPanel?.maxSpan, { colSpan: 8, rowSpan: 6 });
 assert.equal("aliases" in (agentLayoutPortfolioPanel ?? {}), false);
@@ -3887,7 +3913,6 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*padding: 5px 0
 assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding-inline: var\(--layout-gutter\);/);
 assert.match(frontendStylesSource, /\.portfolio-holdings-list \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
 assert.match(frontendStylesSource, /\.portfolio-holdings-table-head,[\s\S]*\.portfolio-holding-row \{[\s\S]*display: grid;/);
-assert.match(frontendStylesSource, /\.portfolio-holdings-board \{[\s\S]*grid-auto-flow: column;/);
 assert.match(frontendStylesSource, /\.portfolio-multi-panel \{[\s\S]*display: flex;/);
 assert.match(frontendStylesSource, /Local dark-theme compatibility for the restored dev portfolio panels/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
@@ -4352,6 +4377,52 @@ if (drawingAddResult.ok) {
     assert.equal(undoDrawing.ok, true);
     if (undoDrawing.ok) {
       assert.equal(undoDrawing.document.drawings.length, 1);
+    }
+  }
+}
+
+const drawingPaletteDocument = createChartDocument("chart-doc-drawing-palette", "AAPL", "1m");
+const drawingPaletteAdd = executeChartCommand(
+  drawingPaletteDocument,
+  makeChartCommand("chart.drawing.add", "user", target("panel-palette", drawingPaletteDocument.id), {
+    drawingType: "rangeBox",
+    anchors: [anchorA, anchorB],
+    style: { colorToken: "drawing", textToken: "drawing", fillToken: "drawing", fillOpacity: 0.045 }
+  })
+);
+assert.equal(drawingPaletteAdd.ok, true);
+if (drawingPaletteAdd.ok) {
+  const drawingId = drawingPaletteAdd.document.drawings[0]?.id ?? "";
+  const drawingPaletteUpdate = executeChartCommand(
+    drawingPaletteAdd.document,
+    makeChartCommand("chart.drawing.update", "user", target("panel-palette", drawingPaletteDocument.id), {
+      drawingId,
+      drawingPatch: {
+        style: { colorToken: "signal", textToken: "signal", fillToken: "signal", fillOpacity: 0.045 }
+      }
+    })
+  );
+  assert.equal(drawingPaletteUpdate.ok, true);
+  if (drawingPaletteUpdate.ok) {
+    assert.equal(drawingPaletteUpdate.document.drawings[0]?.style.colorToken, "signal");
+    assert.equal(drawingPaletteUpdate.document.drawings[0]?.style.textToken, "signal");
+    assert.equal(drawingPaletteUpdate.document.drawings[0]?.style.fillToken, "signal");
+    const undoPalette = executeChartCommand(
+      drawingPaletteUpdate.document,
+      makeChartCommand("chart.undo", "user", target("panel-palette", drawingPaletteDocument.id))
+    );
+    assert.equal(undoPalette.ok, true);
+    if (undoPalette.ok) {
+      assert.equal(undoPalette.document.drawings[0]?.style.colorToken, "drawing");
+      const redoPalette = executeChartCommand(
+        undoPalette.document,
+        makeChartCommand("chart.redo", "user", target("panel-palette", drawingPaletteDocument.id))
+      );
+      assert.equal(redoPalette.ok, true);
+      if (redoPalette.ok) {
+        assert.equal(redoPalette.document.drawings[0]?.style.colorToken, "signal");
+        assert.equal(redoPalette.document.drawings[0]?.style.fillToken, "signal");
+      }
     }
   }
 }

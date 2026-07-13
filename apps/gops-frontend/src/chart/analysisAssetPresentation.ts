@@ -1,14 +1,7 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
 
-
-export type AnalysisAssetPresentationState =
-  | "ready"
-  | "quality_empty"
-  | "data_degraded"
-  | "presentation_rejected"
-  | "stale_asset";
-
+export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
 export type AnalysisAssetPresentationDiagnostics = {
   state: AnalysisAssetPresentationState;
   storedDrawingCount: number;
@@ -19,163 +12,90 @@ export type AnalysisAssetPresentationDiagnostics = {
   stale: boolean;
   resolvedAsset: ChartAnalysisAsset;
 };
-
-export type DetectedPatternSummary = {
-  kind: string;
-  state: "forming" | "confirmed";
-  score: number;
-  drawingCount: number;
-};
+export type DetectedPatternSummary = { kind: string; state: "forming" | "confirmed"; score: number; drawingCount: number };
 
 const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit"
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
 });
 
 export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAssetInterval): string | null {
   const parsed = new Date(timestamp);
   if (!Number.isFinite(parsed.getTime())) return null;
-  if (interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h") {
-    return parsed.toISOString();
-  }
-  const utcMidnight = parsed.getUTCHours() === 0
-    && parsed.getUTCMinutes() === 0
-    && parsed.getUTCSeconds() === 0
-    && parsed.getUTCMilliseconds() === 0;
+  if (["1m", "5m", "10m", "1h", "4h"].includes(interval)) return parsed.toISOString();
+  const utcMidnight = parsed.getUTCHours() === 0 && parsed.getUTCMinutes() === 0 && parsed.getUTCSeconds() === 0 && parsed.getUTCMilliseconds() === 0;
   const parts = utcMidnight
     ? { year: parsed.getUTCFullYear(), month: parsed.getUTCMonth() + 1, day: parsed.getUTCDate() }
     : marketDateParts(parsed);
   if (!parts) return null;
   const bucketDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
   if (interval === "1W") {
-    const daysSinceMonday = (bucketDate.getUTCDay() + 6) % 7;
-    bucketDate.setUTCDate(bucketDate.getUTCDate() - daysSinceMonday);
-  } else if (interval === "1M") {
-    bucketDate.setUTCDate(1);
+    bucketDate.setUTCDate(bucketDate.getUTCDate() - ((bucketDate.getUTCDay() + 6) % 7));
   }
-  const dayKey = bucketDate.toISOString().slice(0, 10);
-  return interval === "1M" ? dayKey.slice(0, 7) : dayKey;
+  return bucketDate.toISOString().slice(0, 10);
 }
 
 export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
-  if (!asset) return null;
-  const selected = asset.layers.trend.selected ?? [];
-  for (const item of selected) {
-    const kind = typeof item.patternKind === "string" ? item.patternKind : null;
-    const state = item.patternState === "forming" || item.patternState === "confirmed" ? item.patternState : null;
-    if (!kind || !state) continue;
-    const quality = item.quality && typeof item.quality === "object" && !Array.isArray(item.quality)
-      ? item.quality as Record<string, unknown>
-      : {};
-    const score = typeof quality.score === "number" && Number.isFinite(quality.score) ? quality.score : 0;
-    const drawingIds = Array.isArray(item.drawingIds)
-      ? item.drawingIds.filter((value): value is string => typeof value === "string")
-      : [];
-    return { kind, state, score, drawingCount: drawingIds.length };
-  }
-  return null;
+  const triangle = asset?.geometry.primaryTriangle;
+  if (!triangle || (triangle.state !== "forming" && triangle.state !== "confirmed")) return null;
+  const drawingCount = asset.geometry.drawings.filter((drawing) => drawing.id.includes(triangle.geometryHash)).length;
+  return { kind: triangle.kind, state: triangle.state, score: triangle.score, drawingCount };
 }
 
-export function isAnalysisAssetStale(
-  asOf: string,
-  candles: CandleDto[],
-  assetVersion: "v1" | "v2" = "v1",
-  interval?: AnalysisAssetInterval
-): boolean {
-  const threshold = assetVersion === "v2" ? 1 : 2;
+export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetVersion?: string, interval?: AnalysisAssetInterval): boolean {
   if (interval) {
     const asOfKey = candleKeyForTimestamp(asOf, interval);
-    if (asOfKey) {
-      const newerClosedKeys = new Set(candles.flatMap((candle) => {
-        if (candle.isClosed === false) return [];
-        const key = candleKeyForTimestamp(candle.timestamp, interval);
-        return key && key > asOfKey ? [key] : [];
-      }));
-      return newerClosedKeys.size >= threshold;
-    }
+    if (asOfKey) return candles.some((candle) => candle.isClosed !== false && (candleKeyForTimestamp(candle.timestamp, interval) ?? "") > asOfKey);
   }
   const asOfTime = Date.parse(asOf);
-  if (!Number.isFinite(asOfTime)) return false;
-  return candles.filter((candle) => (
-    candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime
-  )).length >= threshold;
+  return Number.isFinite(asOfTime) && candles.some((candle) => candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime);
 }
 
-export function resolveAnalysisAssetForCandles(
-  asset: ChartAnalysisAsset | null,
-  candles: CandleDto[]
-): ChartAnalysisAsset | null {
-  if (!asset || asset.assetVersion !== "v2") return asset;
+export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null, candles: CandleDto[]): ChartAnalysisAsset | null {
+  if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
-  const resolveLayer = <Key extends keyof ChartAnalysisAsset["layers"]>(key: Key): ChartAnalysisAsset["layers"][Key] => {
-    const errors: Array<{ drawingId: string; reason: string }> = [];
-    const drawings = asset.layers[key].drawings.flatMap((drawing) => {
-      const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey);
-      if (!resolved) {
-        errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
-        return [];
-      }
-      return [resolved];
-    });
-    return { ...asset.layers[key], drawings, meta: { ...asset.layers[key].meta, anchorResolutionErrors: errors } };
-  };
-  const layers: ChartAnalysisAsset["layers"] = {
-    structure: resolveLayer("structure"),
-    trend: resolveLayer("trend"),
-    agent: resolveLayer("agent")
-  };
-  return { ...asset, layers };
+  const errors: Array<{ drawingId: string; reason: string }> = [];
+  const drawings = asset.geometry.drawings.flatMap((drawing) => {
+    const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey);
+    if (!resolved) {
+      errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
+      return [];
+    }
+    return [resolved];
+  });
+  return { ...asset, geometry: { ...asset.geometry, drawings, anchorResolutionErrors: errors } };
 }
 
-export function analysisAssetPresentationDiagnostics(
-  asset: ChartAnalysisAsset,
-  candles: CandleDto[],
-  currentDrawingIds?: string[]
-): AnalysisAssetPresentationDiagnostics {
-  const storedDrawingCount = drawingCount(asset);
-  const resolvedAsset = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
-  const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
-  const resolvedDrawingIds = assetDrawingIds(resolvedAsset);
-  const currentIds = currentDrawingIds === undefined ? null : new Set(currentDrawingIds);
-  const appliedDrawingIds = stale
-    ? []
-    : currentIds === null
-      ? resolvedDrawingIds
-      : resolvedDrawingIds.filter((drawingId) => currentIds.has(drawingId));
-  const appliedDrawingCount = appliedDrawingIds.length;
-  const rejectedDrawingCount = Math.max(0, storedDrawingCount - appliedDrawingCount);
-  const rejectionReasons = stale
-    ? (storedDrawingCount ? { stale_asset: storedDrawingCount } : {})
-    : anchorRejectionReasons(resolvedAsset);
-  if (!stale && currentIds !== null) {
-    const notApplied = resolvedDrawingIds.length - appliedDrawingIds.length;
-    if (notApplied > 0) rejectionReasons.not_in_chart_document = notApplied;
-  }
-  // Asset status also reflects optional agent-layer failures.  A degraded LLM
-  // outcome does not make otherwise canonical, renderable candles degraded.
-  const degraded = asset.coverage?.renderable === false
-    || (asset.quality?.state !== undefined && asset.quality.state !== "eligible");
-  const state: AnalysisAssetPresentationState = stale
-    ? "stale_asset"
-    : rejectedDrawingCount > 0
-      ? "presentation_rejected"
-      : degraded
-        ? "data_degraded"
-        : storedDrawingCount === 0
-          ? "quality_empty"
-          : "ready";
+export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): ChartAnalysisAsset {
+  if (!stale) return asset;
   return {
-    state,
-    storedDrawingCount,
-    appliedDrawingCount,
-    rejectedDrawingCount,
-    appliedDrawingIds,
-    rejectionReasons,
-    stale,
-    resolvedAsset
+    ...asset,
+    geometry: {
+      ...asset.geometry,
+      drawings: asset.geometry.drawings.map((drawing) => ({
+        ...drawing,
+        style: { ...drawing.style, opacity: Math.min(0.45, drawing.style.opacity ?? 1) }
+      }))
+    }
   };
+}
+
+export function analysisAssetPresentationDiagnostics(asset: ChartAnalysisAsset, candles: CandleDto[], currentDrawingIds?: string[]): AnalysisAssetPresentationDiagnostics {
+  const storedDrawingCount = asset.geometry.drawings.length;
+  const resolved = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
+  const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
+  const resolvedAsset = staleAnalysisAsset(resolved, stale);
+  const resolvedDrawingIds = resolvedAsset.geometry.drawings.map((drawing) => drawing.id);
+  const currentIds = currentDrawingIds === undefined ? null : new Set(currentDrawingIds);
+  const appliedDrawingIds = currentIds === null ? resolvedDrawingIds : resolvedDrawingIds.filter((id) => currentIds.has(id));
+  const rejectedDrawingCount = Math.max(0, storedDrawingCount - appliedDrawingIds.length);
+  const rejectionReasons: Record<string, number> = {};
+  resolvedAsset.geometry.anchorResolutionErrors?.forEach(({ reason }) => { rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1; });
+  if (currentIds !== null && resolvedDrawingIds.length > appliedDrawingIds.length) rejectionReasons.not_in_chart_document = resolvedDrawingIds.length - appliedDrawingIds.length;
+  const state: AnalysisAssetPresentationState = stale ? "stale_asset"
+    : rejectedDrawingCount ? "presentation_rejected"
+      : asset.coverage.state === "partial" ? "data_degraded"
+        : storedDrawingCount ? "ready" : "quality_empty";
+  return { state, storedDrawingCount, appliedDrawingCount: appliedDrawingIds.length, rejectedDrawingCount, appliedDrawingIds, rejectionReasons, stale, resolvedAsset };
 }
 
 export function formatAnalysisAssetAsOf(value: string): string {
@@ -184,88 +104,42 @@ export function formatAnalysisAssetAsOf(value: string): string {
 }
 
 function marketDateParts(value: Date): { year: number; month: number; day: number } | null {
-  const parts = Object.fromEntries(
-    marketDateFormatter.formatToParts(value).map((part) => [part.type, part.value])
-  );
-  const year = Number(parts.year);
-  const month = Number(parts.month);
-  const day = Number(parts.day);
+  const parts = Object.fromEntries(marketDateFormatter.formatToParts(value).map((part) => [part.type, part.value]));
+  const year = Number(parts.year), month = Number(parts.month), day = Number(parts.day);
   return [year, month, day].every(Number.isFinite) ? { year, month, day } : null;
 }
 
-function canonicalTimestampByKey(
-  candles: CandleDto[],
-  interval: AnalysisAssetInterval
-): Map<string, string> {
+function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetInterval): Map<string, string> {
   const result = new Map<string, string>();
   candles.forEach((candle) => {
     const key = candleKeyForTimestamp(candle.timestamp, interval);
-    if (!key) return;
-    const current = result.get(key);
-    if (!current || prefersTimestamp(candle.timestamp, current, interval)) {
-      result.set(key, candle.timestamp);
-    }
+    if (key && !result.has(key)) result.set(key, candle.timestamp);
   });
   return result;
 }
 
-function prefersTimestamp(candidate: string, current: string, interval: AnalysisAssetInterval): boolean {
-  if (interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h" || interval === "4h" || interval === "1D") return false;
-  const candidateDate = new Date(candidate);
-  const currentDate = new Date(current);
-  const candidateUtcMidnight = candidateDate.getUTCHours() === 0 && candidateDate.getUTCMinutes() === 0;
-  const currentUtcMidnight = currentDate.getUTCHours() === 0 && currentDate.getUTCMinutes() === 0;
-  return candidateUtcMidnight && !currentUtcMidnight;
-}
-
-function resolveDrawingAnchors(
-  drawing: DrawingEntity,
-  interval: AnalysisAssetInterval,
-  timestampByKey: Map<string, string>
-): DrawingEntity | null {
+function resolveDrawingAnchors<T extends DrawingEntity>(drawing: T, interval: AnalysisAssetInterval, timestampByKey: Map<string, string>): T | null {
+  const visibleTimestamps = [...timestampByKey.values()].sort((left, right) => Date.parse(left) - Date.parse(right));
+  if (drawing.type === "horizontalLine" && visibleTimestamps.length) {
+    const anchors = drawing.anchors.map((anchor, index): DrawingAnchor => {
+      if (anchor.timestamp === undefined) return anchor;
+      const key = candleKeyForTimestamp(String(anchor.timestamp), interval);
+      const timestamp = key ? timestampByKey.get(key) : undefined;
+      if (timestamp) return timestamp === anchor.timestamp ? anchor : { ...anchor, timestamp };
+      const fallback = index === drawing.anchors.length - 1
+        ? visibleTimestamps[visibleTimestamps.length - 1]
+        : visibleTimestamps[0];
+      return { ...anchor, timestamp: fallback };
+    });
+    return { ...drawing, anchors } as T;
+  }
   let valid = true;
-  let changed = false;
   const anchors = drawing.anchors.map((anchor): DrawingAnchor => {
     if (anchor.timestamp === undefined) return anchor;
     const key = candleKeyForTimestamp(String(anchor.timestamp), interval);
-    const resolvedTimestamp = key ? timestampByKey.get(key) : undefined;
-    if (!resolvedTimestamp) {
-      valid = false;
-      return anchor;
-    }
-    if (resolvedTimestamp === anchor.timestamp) return anchor;
-    changed = true;
-    return { ...anchor, timestamp: resolvedTimestamp };
+    const timestamp = key ? timestampByKey.get(key) : undefined;
+    if (!timestamp) { valid = false; return anchor; }
+    return timestamp === anchor.timestamp ? anchor : { ...anchor, timestamp };
   });
-  if (!valid) return null;
-  return changed ? { ...drawing, anchors } : drawing;
-}
-
-function drawingCount(asset: ChartAnalysisAsset): number {
-  return asset.layers.structure.drawings.length
-    + asset.layers.trend.drawings.length
-    + asset.layers.agent.drawings.length;
-}
-
-function assetDrawingIds(asset: ChartAnalysisAsset): string[] {
-  return [
-    ...asset.layers.structure.drawings,
-    ...asset.layers.trend.drawings,
-    ...asset.layers.agent.drawings
-  ].map((drawing) => drawing.id);
-}
-
-function anchorRejectionReasons(asset: ChartAnalysisAsset): Record<string, number> {
-  const reasons: Record<string, number> = {};
-  (["structure", "trend", "agent"] as const).forEach((layer) => {
-    const errors = asset.layers[layer].meta?.anchorResolutionErrors;
-    if (!Array.isArray(errors)) return;
-    errors.forEach((error) => {
-      if (!error || typeof error !== "object") return;
-      const reason = (error as { reason?: unknown }).reason;
-      if (typeof reason !== "string" || !reason) return;
-      reasons[reason] = (reasons[reason] ?? 0) + 1;
-    });
-  });
-  return reasons;
+  return valid ? { ...drawing, anchors } as T : null;
 }

@@ -656,16 +656,6 @@ export function App() {
     navigateMainView(nextView, { replace: options.replace });
   }, [navigateMainView]);
 
-  const syncPageSymbolFromChart = useCallback((contentId: string) => {
-    const content = panelState.contents[contentId];
-    const document = content?.kind === "chart" ? chartRuntime.documents[chartDocumentIdForContent(content)] : null;
-    const normalizedSymbol = normalizeStoredSymbol(document?.symbol);
-    if (!content || content.kind !== "chart" || !document || !normalizedSymbol) {
-      return;
-    }
-    navigateMainView({ mode: "chart", symbol: normalizedSymbol });
-  }, [chartRuntime.documents, navigateMainView, panelState]);
-
   const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
     if (handle) {
       chartPanelHandlesRef.current.set(contentId, handle);
@@ -1317,7 +1307,6 @@ export function App() {
             onAgentAsk={handleAgentAsk}
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
-            onSyncPageSymbolFromChart={syncPageSymbolFromChart}
             onSelectSymbol={openSymbolPage}
             placementPickerOverlay={pendingPlacementPick ? (
               <PlacementPickerOverlay
@@ -1358,6 +1347,7 @@ export function App() {
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
+        onApplyLayoutProposal={applyAgentLayoutProposal}
       />
       <GlossaryTooltip />
     </main>
