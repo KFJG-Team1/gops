@@ -6,6 +6,7 @@ import { executeChartCommandGroup } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerToggleCommands, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
+import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
 import type { DrawingEntity } from "../src/chart/types";
 
 const now = "2026-07-10T20:00:00.000Z";
@@ -102,8 +103,13 @@ const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geo
 assert.equal(levelResult.ok, true);
 assert.equal(levelResult.document.drawings[0]?.anchors.length, 2);
 
+assert.deepEqual(defaultChartAssetBuildIntervals("5m"), ["5m"]);
+assert.deepEqual(defaultChartAssetBuildIntervals("1D"), ["1D"]);
+assert.deepEqual(defaultChartAssetBuildIntervals("1M"), ["1D"]);
+
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
+assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /SMA120/);
 assert.match(opsSource, /상승 페넌트/);
