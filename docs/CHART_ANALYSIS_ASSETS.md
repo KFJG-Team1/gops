@@ -3,6 +3,10 @@
 Chart Geometry Asset은 완료된 실제 OHLCV 봉에서 현재 지지·저항과 삼각형만 계산해
 차트에 적용하는 결정론적 자산이다. LLM 해설이나 다른 패턴을 생성하지 않는다.
 
+이 문서는 동결한 코드 기준점 `16e0fa5`의 **현재 구현 계약**이다. 전면 리팩터링 설계인
+czardas는 [czardas/README.md](czardas/README.md)에서 별도로 관리한다. czardas가
+실제로 rollout되기 전까지 이 문서의 runtime 사실이 우선한다.
+
 ## 지원 범위
 
 - interval: `1m`, `5m`, `10m`, `1h`, `4h`, `1D`, `1W`

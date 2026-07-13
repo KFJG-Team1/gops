@@ -348,8 +348,11 @@ market_data.sec_financial_facts
 market_data.sec_derived_metrics
 market_data.sec_frames
 market_data.sec_collection_runs
-market_data.chart_analysis_assets  # PostgreSQL cutover 전 compatibility/rollback projection
 ```
+
+Chart Geometry assets are not an agent ClickHouse provider. Their latest
+projection and build state live in PostgreSQL `chart_assets.geometry_*`; the
+legacy ClickHouse `chart_analysis_assets` table is not read by current runtime.
 
 Financial role contract:
 

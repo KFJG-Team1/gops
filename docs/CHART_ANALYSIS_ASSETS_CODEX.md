@@ -1,5 +1,9 @@
 # Chart Geometry Assets — Codex Reference
 
+이 문서는 동결한 코드 기준점 `16e0fa5`의 현재 Geometry 구현 기준이다. 다음 세대 엔진의
+구현 참조문서는 [czardas/README.md](czardas/README.md)를 읽는다. 목표 문서만 보고
+현재 API·schema·runtime이 이미 바뀌었다고 가정하지 않는다.
+
 ## 불변 조건
 
 - 지원 interval은 `1m/5m/10m/1h/4h/1D/1W`뿐이다.

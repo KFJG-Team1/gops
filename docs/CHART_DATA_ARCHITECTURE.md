@@ -170,13 +170,21 @@ The last real NYSE session close, including early close, determines whether a
 higher-timeframe bucket is complete. Serving, analysis, stale checks, and drawing
 anchor snapping share this identity rather than comparing raw timestamps.
 
-Only compact final v2 assets are written. Default deployments still use the
-ClickHouse compatibility table; guarded dual-write modes can move the single
-latest `(symbol, interval)` JSON projection to PostgreSQL. Canonical candles and
-repair materialization never move. Repair has no CronJob or candle-closed
-subscription. Redis is limited to the existing job status key and pub/sub
-channel. The development delete route removes explicit pairs from every active
-asset store; it is not retention or automatic cleanup.
+Only compact final Geometry assets are written to PostgreSQL
+`chart_assets.geometry_assets`, one latest JSON projection per
+`(symbol, interval)`. Build jobs, item queue/status, leases, progress, and logs
+also live in PostgreSQL. Canonical candles and repair materialization remain in
+ClickHouse. The active Geometry path has no ClickHouse asset read/write,
+dual-write mode, Redis job key, or Redis pub/sub channel. A legacy ClickHouse
+`chart_analysis_assets` table may still exist in initialized environments, but
+current Geometry code does not use it as a primary, shadow, or rollback store.
+The authenticated development delete route removes explicit pairs from
+PostgreSQL; it is not retention or automatic cleanup.
+
+The current implementation builds a fixed latest-window projection on a
+weekday CronJob or manual request. The proposed czardas refactor remains a
+design until implemented; its latest-window and OHLCV evidence contracts are in
+`docs/czardas/` and do not silently change this runtime path.
 
 The chart-analysis kernel may derive a daily MA60/MA120 crossing event from 121
 canonical completed closes. This is an asset-build feature, not a persisted
