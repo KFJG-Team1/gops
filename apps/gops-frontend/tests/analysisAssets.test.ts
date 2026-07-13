@@ -78,6 +78,13 @@ const levelAsset: ChartAnalysisAsset = {
   ...asset,
   geometry: { ...asset.geometry, drawings: [support], primaryTriangle: null }
 };
+const projectedLevelAsset = resolveAnalysisAssetForCandles(levelAsset, candles);
+assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
+assert.deepEqual(
+  projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
+  candles.map((candle) => candle.timestamp)
+);
+assert.equal(analysisAssetPresentationDiagnostics(levelAsset, candles, [support.id]).state, "ready");
 const levelCommands = analysisAssetApplyCommands(target, [], levelAsset, { geometry: true }, { mode: "pan" });
 const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geometry level asset");
 assert.equal(levelResult.ok, true);
