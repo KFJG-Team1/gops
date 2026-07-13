@@ -31,6 +31,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Layers,
   Trash2
 } from "lucide-react";
 import {
@@ -72,6 +73,14 @@ import {
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "../layout/panelLayout";
+import {
+  disableWildPanel,
+  enableWildPanel,
+  setWildPanelActivePage,
+  wildPanelBasePageId,
+  wildPanelPageIds,
+  wildPanelPages
+} from "../layout/wildPanel";
 import type { WorkspaceLayoutMode } from "../layout/responsivePanelLayout";
 import { workspaceBottomInset } from "../layout/workspaceMetrics";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
@@ -79,6 +88,7 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { boundaryStyle } from "./panelWorkspaceGeometry";
 import { WorkspacePanelFrame } from "./WorkspacePanelFrame";
+import { WildPanelAnswerPage } from "./WildPanelAnswerPage";
 
 type PanelWorkspaceProps = {
   panelState: TiledPanelState;
@@ -103,6 +113,8 @@ type PanelWorkspaceProps = {
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSelectSymbol: (symbol: string) => void;
+  selectedWildPanelSlotId: string | null;
+  onSelectWildPanel: (slotId: string | null) => void;
   presetDock?: ReactNode;
   placementPickerOverlay?: ReactNode;
 };
@@ -181,6 +193,8 @@ export function PanelWorkspace({
   onChartRuntimeAction,
   onChartHandleChange,
   onSelectSymbol,
+  selectedWildPanelSlotId,
+  onSelectWildPanel,
   presetDock,
   placementPickerOverlay
 }: PanelWorkspaceProps) {
@@ -720,6 +734,22 @@ export function PanelWorkspace({
     setPanelState((current) => setPanelContentProps(current, contentId, props));
   }, [setPanelState]);
 
+  const toggleWildPanel = useCallback((slotId: PanelSlotId) => {
+    const slot = panelStateRef.current.slots.find((item) => item.id === slotId);
+    if (!slot) {
+      return;
+    }
+    if (slot.wildPanel) {
+      setPanelState((current) => disableWildPanel(current, slotId));
+      if (selectedWildPanelSlotId === slotId) {
+        onSelectWildPanel(null);
+      }
+      return;
+    }
+    setPanelState((current) => enableWildPanel(current, slotId));
+    onSelectWildPanel(slotId);
+  }, [onSelectWildPanel, selectedWildPanelSlotId, setPanelState]);
+
   const renderPanelEditControls = (slotId: PanelSlotId, content: PanelContentInstance) => {
     if (!layoutEditMode) {
       return null;
@@ -790,6 +820,70 @@ export function PanelWorkspace({
       ? layoutPreview.gridRect
       : null;
     const effectiveGridRect = previewGridRect ?? slot.gridRect;
+    const wildPages = wildPanelPages(slot.wildPanel);
+    const wildPageIds = slot.wildPanel ? wildPanelPageIds(slot.wildPanel) : [wildPanelBasePageId];
+    const activePageId = slot.wildPanel?.activePageId ?? wildPanelBasePageId;
+    const activePageIndex = Math.max(0, wildPageIds.indexOf(activePageId));
+    const activeWildPage = wildPages.find((page) => page.id === activePageId) ?? null;
+    const activePageLabel = activeWildPage
+      ? activeWildPage.kind === "chartCommentary"
+        ? "차트 해설"
+        : `에이전트 답변 · ${activeWildPage.role}`
+      : content.title;
+    const selectWildPanel = (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.target instanceof Element && event.target.closest(".wild-panel-toggle")) {
+        return;
+      }
+      if (!layoutEditMode && slot.wildPanel && selectedWildPanelSlotId !== slot.id) {
+        onSelectWildPanel(slot.id);
+      }
+    };
+    const showWildPage = (index: number) => {
+      const pageId = wildPageIds[index];
+      if (!pageId) {
+        return;
+      }
+      setPanelState((current) => setWildPanelActivePage(current, slot.id, pageId));
+    };
+    const originalPanelContent = (
+      <PanelContentRenderer
+        slot={slot}
+        content={content}
+        symbol={contentSymbol}
+        symbols={symbols}
+        companyItem={companyItemsBySymbol.get(contentSymbol)}
+        companyItems={companyItems}
+        marketItems={marketItems}
+        laneHeight={Math.max(120, slot.rect.height)}
+        effectiveColSpan={effectiveGridRect.colSpan}
+        effectiveRowSpan={effectiveGridRect.rowSpan}
+        layoutResizeSuspended={Boolean(previewGridRect)}
+        chartHeaderSnapshot={chartHeaders[content.id]}
+        chartDocument={chartDocument}
+        chartCandles={chartCandles}
+        activeChartDocument={primaryChartDocument}
+        activeChartCandles={primaryChartCandles}
+        chartDataStatus={chartDataStatus}
+        chartStreamStatus={chartStreamStatus}
+        chartStreamMessage={chartStreamMessage}
+        chartLiveTrade={chartLiveTrade}
+        chartAddActive={chartAddTargetContentId === content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        emphasizeChartSelection={emphasizeChartSelection}
+        setSemanticSelection={setSemanticSelection}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
+        onChartRuntimeAction={onChartRuntimeAction}
+        onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
+        onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
+        onChartHandleChange={onChartHandleChange}
+        onChartAddToggle={() => toggleChartAddTarget(content.id)}
+        onUpdatePanelProps={updatePanelProps}
+        onChangePanelChartSymbol={changePanelChartSymbol}
+        onSelectSymbol={onSelectSymbol}
+      />
+    );
     return (
       <WorkspacePanelFrame
         key={slot.id}
@@ -802,6 +896,8 @@ export function PanelWorkspace({
           draggingSlotId === slot.id ? "is-panel-content-dragging" : "",
           movingSlotId === slot.id ? "is-panel-position-dragging" : "",
           isLayoutResizing ? "is-layout-resizing" : "",
+          slot.wildPanel ? "is-wild-panel" : "",
+          selectedWildPanelSlotId === slot.id ? "is-selected-wild-panel" : "",
           `is-layout-${layoutMode}`,
           layoutEditMode ? "is-layout-editing" : ""
         ].filter(Boolean).join(" ")}
@@ -816,45 +912,62 @@ export function PanelWorkspace({
             setChartSlotHover(slot.id, false);
           }
         }}
+        onPointerDownCapture={selectWildPanel}
+        onFocusCapture={() => {
+          if (!layoutEditMode && slot.wildPanel && selectedWildPanelSlotId !== slot.id) {
+            onSelectWildPanel(slot.id);
+          }
+        }}
+        frameActions={layoutEditMode ? (
+          <button
+            type="button"
+            className={`wild-panel-toggle ${slot.wildPanel ? "is-active" : ""}`}
+            aria-label={slot.wildPanel ? `${content.title} wild 상태 해제` : `${content.title} wild 상태로 전환`}
+            title={slot.wildPanel ? "Wild panel 해제" : "Wild panel로 전환"}
+            aria-pressed={Boolean(slot.wildPanel)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => toggleWildPanel(slot.id)}
+          >
+            <Layers size={15} aria-hidden="true" />
+          </button>
+        ) : null}
         editControls={renderPanelEditControls(slot.id, content)}
       >
-        <PanelContentRenderer
-          slot={slot}
-          content={content}
-          symbol={contentSymbol}
-          symbols={symbols}
-          companyItem={companyItemsBySymbol.get(contentSymbol)}
-          companyItems={companyItems}
-          marketItems={marketItems}
-          laneHeight={Math.max(120, slot.rect.height)}
-          effectiveColSpan={effectiveGridRect.colSpan}
-          effectiveRowSpan={effectiveGridRect.rowSpan}
-          layoutResizeSuspended={Boolean(previewGridRect)}
-          chartHeaderSnapshot={chartHeaders[content.id]}
-          chartDocument={chartDocument}
-          chartCandles={chartCandles}
-          activeChartDocument={primaryChartDocument}
-          activeChartCandles={primaryChartCandles}
-          chartDataStatus={chartDataStatus}
-          chartStreamStatus={chartStreamStatus}
-          chartStreamMessage={chartStreamMessage}
-          chartLiveTrade={chartLiveTrade}
-          chartAddActive={chartAddTargetContentId === content.id}
-          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-          emphasizeChartSelection={emphasizeChartSelection}
-          setSemanticSelection={setSemanticSelection}
-          onAgentReferenceSelect={onAgentReferenceSelect}
-          onAgentAsk={onAgentAsk}
-          onChartRuntimeAction={onChartRuntimeAction}
-          onChartHoverChange={(hovered) => setChartSlotHover(slot.id, hovered)}
-          onHeaderChange={isChart ? (header) => recordChartHeader(content, header) : undefined}
-          onChartHandleChange={onChartHandleChange}
-          onChartAddToggle={() => toggleChartAddTarget(content.id)}
-          onUpdatePanelProps={updatePanelProps}
-          onChangePanelChartSymbol={changePanelChartSymbol}
-          onSelectSymbol={onSelectSymbol}
-        />
+        <div className={`wild-panel-original-page ${activeWildPage ? "is-concealed" : ""}`} aria-hidden={Boolean(activeWildPage)}>
+          {originalPanelContent}
+        </div>
+        {activeWildPage && (
+          <div className="wild-panel-answer-layer">
+            <WildPanelAnswerPage page={activeWildPage} />
+          </div>
+        )}
+        {slot.wildPanel && wildPageIds.length > 1 && (
+          <>
+            <span className="wild-panel-page-indicator" aria-live="polite">
+              {activePageLabel} · {activePageIndex + 1}/{wildPageIds.length}
+            </span>
+            <button
+              type="button"
+              className="wild-panel-page-arrow previous"
+              aria-label="이전 wild panel 페이지"
+              disabled={activePageIndex === 0}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => showWildPage(activePageIndex - 1)}
+            >
+              <ChevronLeft size={18} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="wild-panel-page-arrow next"
+              aria-label="다음 wild panel 페이지"
+              disabled={activePageIndex === wildPageIds.length - 1}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => showWildPage(activePageIndex + 1)}
+            >
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          </>
+        )}
       </WorkspacePanelFrame>
     );
   };

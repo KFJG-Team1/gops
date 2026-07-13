@@ -3,6 +3,7 @@ import { gridGutter } from "./grid";
 import { almostEqual, clamp, rangesOverlap, rectBottom, rectRight, rectsOverlap, uniqueStrings } from "./panelGeometry";
 import { panelPaletteLabel, panelRegistry, panelRegistryEntry, type PanelRegistryEntry } from "./panelRegistry";
 import { workspaceBottomInset, workspaceTopInset } from "./workspaceMetrics";
+import { normalizeWildPanelState, type WildPanelState } from "./wildPanel";
 
 export type ViewportSize = {
   width: number;
@@ -38,6 +39,7 @@ export type PanelContentKind =
   | "portfolioHoldings"
   | "portfolioHoldingsFlatCards"
   | "orderFlow"
+  | "quickOrder"
   | "chartCommentary"
   | "chartAssetOps"
   | "trade";
@@ -93,6 +95,7 @@ export type PanelSlot = {
   id: PanelSlotId;
   contentId: PanelContentId;
   layoutPinned?: boolean;
+  wildPanel?: WildPanelState;
   gridRect: PanelGridRect;
   rect: PanelRect;
   minWidth: number;
@@ -1240,6 +1243,7 @@ export type StoredTiledPanelState = {
     id: PanelSlotId;
     contentId: PanelContentId;
     layoutPinned?: boolean;
+    wildPanel?: WildPanelState;
     gridRect: PanelGridRect;
   }>;
 };
@@ -1253,6 +1257,7 @@ export function serializeTiledPanelState(state: TiledPanelState): StoredTiledPan
       id: slot.id,
       contentId: slot.contentId,
       ...(slot.layoutPinned ? { layoutPinned: true } : {}),
+      ...(slot.wildPanel ? { wildPanel: slot.wildPanel } : {}),
       gridRect: slot.gridRect
     }))
   };
@@ -1293,6 +1298,7 @@ export function restoreTiledPanelStateSnapshot(
   }
 
   const slots: PanelSlot[] = [];
+  let restoredWildPanel = false;
   for (const rawSlot of value.slots) {
     if (!isRecord(rawSlot)) {
       return null;
@@ -1307,9 +1313,14 @@ export function restoreTiledPanelStateSnapshot(
     if (!canPlaceGridRect({ slots, contents, nextInstance: 1 }, gridRect, { kind: content.kind })) {
       return null;
     }
+    const wildPanel = restoredWildPanel ? null : normalizeWildPanelState(rawSlot.wildPanel);
+    if (wildPanel) {
+      restoredWildPanel = true;
+    }
     slots.push({
       ...createPanelSlot(id, content, gridRect, viewport, layoutMetrics),
-      ...(rawSlot.layoutPinned === true ? { layoutPinned: true } : {})
+      ...(rawSlot.layoutPinned === true ? { layoutPinned: true } : {}),
+      ...(wildPanel ? { wildPanel } : {})
     });
   }
   const nextInstance = typeof value.nextInstance === "number" && Number.isFinite(value.nextInstance)

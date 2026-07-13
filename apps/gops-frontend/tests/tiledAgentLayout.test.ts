@@ -13,6 +13,11 @@ const popularStocksCatalogEntry = buildTiledAgentLayoutContext({ slots: [], cont
   .find((entry) => entry.panelType === "popularStocks");
 assert.deepEqual(popularStocksCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(popularStocksCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 2 });
+const quickOrderCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "quickOrder");
+assert.deepEqual(quickOrderCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(quickOrderCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
 
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },
