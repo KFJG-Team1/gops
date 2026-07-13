@@ -78,13 +78,13 @@ export function AiInvestmentCoachPanel() {
   );
 }
 
-function PageTitle({ number, title, description }: { number: string; title: string; description: string }) {
+function PageTitle({ number, title, description }: { number: string; title: string; description?: string }) {
   return (
     <div className="ai-coach-page-title">
       <span>{number}</span>
       <div>
         <h2>{title}</h2>
-        <p>{description}</p>
+        {description && <p>{description}</p>}
       </div>
     </div>
   );
@@ -93,13 +93,12 @@ function PageTitle({ number, title, description }: { number: string; title: stri
 function TodayTradeCoachPage({ onSetAlert }: { onSetAlert: (id: string, enabled: boolean) => void }) {
   return (
     <>
-      <PageTitle number="01" title="오늘 거래 코칭" description="오늘의 선택을 과거 경험과 앞으로 볼 조건에 연결합니다." />
+      <PageTitle number="01" title="오늘 거래 코칭" />
 
       <section className="ai-coach-trade-row">
         <span className="ai-coach-symbol-avatar">NV</span>
         <div>
           <strong>NVDA 추가 매수</strong>
-          <p>$195.20 · 비중 12% → 18%</p>
         </div>
         <b>+1.2%</b>
       </section>
@@ -114,8 +113,8 @@ function TodayTradeCoachPage({ onSetAlert }: { onSetAlert: (id: string, enabled:
       <section className="ai-coach-similarity">
         <div className="ai-coach-similarity-head">
           <div>
-            <strong>과거와 84% 유사</strong>
-            <p>유사 거래 7건 · 수익 3 / 손실 4</p>
+            <strong>유사 거래 7건</strong>
+            <p>수익 3 · 손실 4 · 현재 조건과 84% 유사</p>
           </div>
           <button type="button">차트 보기</button>
         </div>
@@ -127,17 +126,23 @@ function TodayTradeCoachPage({ onSetAlert }: { onSetAlert: (id: string, enabled:
         </div>
       </section>
 
-      <section className="ai-coach-review-section">
-        <h3>보유 판단 재검토</h3>
-        <p>매도 지시가 아니라 다시 확인할 조건입니다.</p>
-        <ReviewCondition title="추세 훼손" detail="$190.80 아래 일봉 마감" onClick={() => onSetAlert("trend-break", true)} />
-        <ReviewCondition title="목표 구간" detail="다음 저항 $203~206 접근" onClick={() => onSetAlert("target-zone", true)} />
-        <ReviewCondition title="이벤트" detail="실적 발표 전날까지 보유 결정" onClick={() => onSetAlert("event", true)} />
+      <section className="ai-coach-outcome-review">
+        <OutcomeReview
+          tone="loss"
+          title="손실 4건에서 반복한 실수"
+          description="진입 직후 +2% 안팎의 반등이 있었지만 거래량 둔화를 무시했고, 지지 이탈 뒤에도 평균 2.6일 더 보유했습니다."
+          result="평균 MAE -5.1%"
+        />
+        <OutcomeReview
+          tone="profit"
+          title="수익 3건에서 효과가 있었던 조건"
+          description="시장과 반도체 업종이 함께 상승했고, 조정 뒤 상대 거래량이 회복된 구간에서는 목표 저항까지 분할 보유했습니다."
+          result="평균 MFE +6.8%"
+        />
       </section>
 
       <section className="ai-coach-impact">
         <h3>오늘 거래의 영향</h3>
-        <p>전체 분석이 아니라 오늘 바뀐 비중만 표시합니다.</p>
         <div>
           <ImpactCell label="NVDA" value="12 → 18%" />
           <ImpactCell label="반도체" value="54 → 61%" />
@@ -145,10 +150,20 @@ function TodayTradeCoachPage({ onSetAlert }: { onSetAlert: (id: string, enabled:
         </div>
       </section>
 
-      <aside className="ai-coach-memo">
-        <strong>코치 메모</strong>
-        <p>과거와 달리 시장과 업종이 함께 상승하고 있습니다. 다만 거래량 증가세가 둔화했고 반도체 집중도가 61%가 됐으므로 두 조건을 함께 주시하는 편이 좋습니다.</p>
-      </aside>
+      <section className="ai-coach-coaching-grid">
+        <CoachFinding label="오늘 놓친 점" value="RSI 72와 실적 D-3는 확인했지만, 고점 부근 상대 거래량 둔화와 반도체 합산 비중 61%를 함께 보지 않았습니다." />
+        <CoachFinding label="항상 가져갈 기준" value="시장·업종 동행, 상대 거래량 유지, 진입 무효화 가격을 한 세트로 확인합니다." />
+        <CoachFinding label="현재 시장 추세" value="시장과 반도체 업종은 상승 중이지만 NVDA는 추세 후반이며 모멘텀 과열 구간에 가깝습니다." />
+        <CoachFinding label="투자 후 볼 차트" value="일봉 EMA20, 상대 거래량, 실적 일정, 반도체 상관종목 합산 비중을 함께 봅니다." />
+      </section>
+
+      <section className="ai-coach-review-section">
+        <h3>보유 판단 재검토</h3>
+        <p>지금 팔라는 뜻이 아니라, 보유 판단이 달라지는 조건입니다.</p>
+        <ReviewCondition title="추세 훼손" detail="$190.80 아래 일봉 마감" onClick={() => onSetAlert("trend-break", true)} />
+        <ReviewCondition title="목표 구간" detail="다음 저항 $203~206 접근" onClick={() => onSetAlert("target-zone", true)} />
+        <ReviewCondition title="이벤트" detail="실적 발표 전날까지 보유 결정" onClick={() => onSetAlert("event", true)} />
+      </section>
     </>
   );
 }
@@ -168,6 +183,29 @@ function SimilarTradeChart() {
       <text x="177" y="18">진입</text>
     </svg>
   );
+}
+
+function OutcomeReview({
+  tone,
+  title,
+  description,
+  result
+}: {
+  tone: "profit" | "loss";
+  title: string;
+  description: string;
+  result: string;
+}) {
+  return (
+    <article className={`ai-coach-outcome ${tone}`}>
+      <div><strong>{title}</strong><em>{result}</em></div>
+      <p>{description}</p>
+    </article>
+  );
+}
+
+function CoachFinding({ label, value }: { label: string; value: string }) {
+  return <article><strong>{label}</strong><p>{value}</p></article>;
 }
 
 function ReviewCondition({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
