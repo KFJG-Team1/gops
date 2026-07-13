@@ -276,6 +276,7 @@ const unavailableQuote: LiveQuote = {
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
+const chartVolumeProfileBinCount = 10;
 const defaultOrderFlowPriceBinSize = 0.01;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "선분"],
@@ -478,15 +479,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           interval: chart.interval,
           from: visibleProfileRange.from,
           to: visibleProfileRange.to,
-          targetBins: 10,
-          priceBinSize: "auto"
+          targetBins: chartVolumeProfileBinCount,
+          priceBinSize: "auto",
+          priceMin: visibleProfileRange.priceMin,
+          priceMax: visibleProfileRange.priceMax
         })
       : ""
   ), [
     chart.interval,
     chart.symbol,
     visibleProfileRange?.from,
-    visibleProfileRange?.to
+    visibleProfileRange?.to,
+    visibleProfileRange?.priceMin,
+    visibleProfileRange?.priceMax
   ]);
   const orderFlowDemoContext = useMemo(() => {
     if (!isOrderFlowDemoRuntimeEnabled()) {
@@ -1278,7 +1283,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         interval: chart.interval,
         from: visibleProfileRange.from,
         to: visibleProfileRange.to,
-        targetBins: 10,
+        targetBins: chartVolumeProfileBinCount,
         priceMin: visibleProfileRange.priceMin,
         priceMax: visibleProfileRange.priceMax
       }, controller.signal)
