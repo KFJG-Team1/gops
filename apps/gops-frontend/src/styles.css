@@ -9038,23 +9038,116 @@ h2 {
   pointer-events: auto;
 }
 
-.chart-instance-select {
-  display: inline-block;
+.chart-toolbar-select {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
   height: 26px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  appearance: none;
-  -webkit-appearance: none;
-  background: none;
+  pointer-events: auto;
+}
+
+.chart-toolbar-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 4px;
+  background: var(--coinbase-canvas);
   color: var(--color-muted);
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);
   font: var(--type-caption);
   text-align: left;
   white-space: nowrap;
-  pointer-events: none;
-  transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.chart-toolbar-select-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart-toolbar-select-trigger > svg {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.chart-toolbar-select-trigger:hover,
+.chart-toolbar-select-trigger:focus-visible,
+.chart-toolbar-select-trigger.is-open {
+  border-color: var(--coinbase-primary);
+  background: var(--coinbase-panel-strong);
+  color: var(--coinbase-primary);
+}
+
+.chart-toolbar-select-trigger.is-open > svg {
+  transform: rotate(180deg);
+}
+
+.chart-toolbar-select-menu {
+  position: fixed;
+  z-index: 1100;
+  display: grid;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 8px;
+  background: var(--coinbase-panel-strong);
+  box-shadow: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.chart-toolbar-select-menu button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  text-align: left;
+  outline: none;
+}
+
+.chart-toolbar-select-menu button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-toolbar-select-menu button > svg {
+  color: var(--coinbase-primary);
+  stroke-width: 2.5;
+}
+
+.chart-toolbar-select-menu button:hover,
+.chart-toolbar-select-menu button.is-highlighted {
+  background: color-mix(in srgb, var(--coinbase-primary) 12%, var(--coinbase-panel-strong));
+}
+
+.chart-toolbar-select-menu button.is-selected {
+  background: var(--coinbase-primary-soft);
+  color: var(--coinbase-primary);
 }
 
 .chart-instance-chart-type {
@@ -9134,19 +9227,6 @@ h2 {
   opacity: 1;
 }
 
-.workspace-panel-frame.is-chart-hovered .chart-instance-select,
-.chart-lane-frame:hover .chart-instance-select,
-.chart-instance-symbol-controls:focus-within .chart-instance-select,
-.chart-instance-select:focus-visible {
-  padding: 0 22px 0 8px;
-  appearance: auto;
-  -webkit-appearance: auto;
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-  pointer-events: auto;
-}
-
 .chart-instance.is-editable-chart .chart-instance-symbol-search .symbol-search-menu {
   top: 30px;
   left: 0;
@@ -9160,9 +9240,48 @@ h2 {
   }
 
   .chart-instance-symbol {
-    flex-basis: 132px;
+    flex-basis: 78px;
+    width: 78px;
     min-width: 78px;
-    max-width: 150px;
+    max-width: 78px;
+  }
+
+  .chart-instance-chart-type {
+    width: 70px;
+  }
+
+  .chart-instance-interval {
+    width: 56px;
+  }
+
+  .chart-panel-navigation,
+  .chart-panel-navigation-leading,
+  .chart-panel-navigation-adjacent,
+  .chart-panel-navigation-right,
+  .chart-instance-view-controls {
+    gap: 4px;
+  }
+
+  .chart-panel-navigation .chart-content-toggle {
+    width: 68px;
+    min-width: 68px;
+    padding: 0 4px;
+    font: var(--type-caption);
+  }
+
+  .chart-panel-navigation .chart-add-target-button,
+  .chart-panel-navigation .chart-panel-navigation-reset {
+    width: 32px;
+    min-width: 32px;
+  }
+}
+
+@container (max-width: 500px) {
+  .chart-instance-symbol {
+    flex-basis: 62px;
+    width: 62px;
+    min-width: 62px;
+    max-width: 62px;
   }
 
   .chart-instance-chart-type {
@@ -9170,52 +9289,70 @@ h2 {
   }
 
   .chart-instance-interval {
-    width: 58px;
+    width: 50px;
   }
-}
 
-@container (max-width: 500px) {
-  .chart-instance-symbol {
-    flex-basis: 116px;
-    min-width: 70px;
-    max-width: 128px;
+  .chart-panel-navigation,
+  .chart-panel-navigation-leading,
+  .chart-panel-navigation-adjacent,
+  .chart-panel-navigation-right,
+  .chart-instance-view-controls {
+    gap: 3px;
   }
-}
 
-@container (max-width: 430px) {
-  .chart-instance-symbol {
-    flex-basis: 98px;
-    min-width: 62px;
-    max-width: 108px;
+  .chart-panel-navigation .chart-content-toggle {
+    width: 64px;
+    min-width: 64px;
+    padding: 0 4px;
+    font: var(--type-legal);
+  }
+
+  .chart-panel-navigation .chart-add-target-button,
+  .chart-panel-navigation .chart-panel-navigation-reset {
+    width: 30px;
+    min-width: 30px;
   }
 }
 
 @container (max-width: 360px) {
   .chart-panel-navigation,
   .chart-panel-navigation-leading,
-  .chart-panel-navigation-actions,
+  .chart-panel-navigation-adjacent,
+  .chart-panel-navigation-right,
   .chart-instance-view-controls {
-    gap: 3px;
+    gap: 2px;
   }
 
   .chart-instance-symbol {
-    flex-basis: 54px;
-    width: 54px;
-    min-width: 54px;
-    max-width: 54px;
+    flex-basis: 36px;
+    width: 36px;
+    min-width: 36px;
+    max-width: 36px;
   }
 
   .chart-instance-chart-type {
-    width: 48px;
+    width: 56px;
   }
 
   .chart-instance-interval {
-    width: 44px;
+    width: 42px;
   }
 
-  .chart-panel-navigation-actions .icon-button {
+  .chart-panel-navigation .chart-content-toggle {
+    width: 52px;
+    min-width: 52px;
+    padding: 0 1px;
+    font: 600 12px/1.2 var(--font-data-sans);
+  }
+
+  .chart-panel-navigation .chart-add-target-button,
+  .chart-panel-navigation .chart-panel-navigation-reset {
     width: 24px;
     min-width: 24px;
+  }
+
+  .chart-panel-navigation .chart-drawing-dock {
+    min-width: 50px;
   }
 }
 

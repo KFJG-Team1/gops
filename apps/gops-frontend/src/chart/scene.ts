@@ -9,7 +9,9 @@ import {
 } from "./orderFlow";
 import { normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
 import {
+  advanceTimestampByInterval,
   buildSemanticTimeline,
+  semanticNodeId,
   type SemanticExpansion,
   type SemanticExpansionRange,
   type SemanticRenderUnit,
@@ -37,10 +39,9 @@ export function priceAxisLabelWidth(label: string, showClock = false): number {
 }
 
 // The price axis is sized to the widest expected tick label so the plot can extend as close
-// to the numbers as possible without overlapping them. Labels are right-aligned 8px from the
-// panel edge (see drawPriceAxis), so width = right margin + estimated label width + a small
-// gap. Adaptive by magnitude: cheap 2-3 digit tickers get a tight axis, high-priced names
-// (e.g. BRK.A) keep enough room.
+// to the numbers as possible without overlapping them. Ticks and boxed labels share a fixed
+// right-side text column near the panel edge. Adaptive by magnitude: cheap 2-3 digit tickers
+// get a tight axis, while high-priced names (e.g. BRK.A) keep enough room.
 function priceAxisWidthForChart(chart: ChartState): number {
   const lookback = Math.max(1, Math.round(chart.visibleCount + Math.max(0, chart.rightOffset)));
   let maxPrice = 0;
@@ -592,6 +593,79 @@ export function hitTestSemanticNode(scene: ChartScene, x: number, y: number): Se
     }
   });
   return best;
+}
+
+export type CrosshairTimeTarget = {
+  kind: "semantic" | "future";
+  x: number;
+  timestamp: string;
+  interval: ChartInterval;
+  unit?: SemanticRenderUnit;
+  futureIndex?: number;
+};
+
+export function resolveCrosshairTimeTarget(
+  scene: ChartScene,
+  x: number,
+  y: number
+): CrosshairTimeTarget | null {
+  if (x < scene.plot.left || x > scene.plot.right || y < scene.plot.top || y > scene.plot.bottom) {
+    return null;
+  }
+
+  const semanticHit = hitTestSemanticNode(scene, x, y);
+  if (semanticHit) {
+    const bounds = unitBoundsX(scene, semanticHit);
+    const targetX = semanticHit.kind === "time-gap"
+      ? Math.max(bounds.left, Math.min(bounds.right, x))
+      : bounds.center;
+    return {
+      kind: "semantic",
+      x: targetX,
+      timestamp: semanticHit.kind === "candle"
+        ? semanticHit.timestamp
+        : timestampAtUnitX(scene, semanticHit, targetX),
+      interval: semanticHit.interval,
+      unit: semanticHit
+    };
+  }
+
+  const latestCandle = scene.allCandles.at(-1);
+  if (!latestCandle) {
+    return null;
+  }
+  const latestNodeId = semanticNodeId(scene.chart.symbol, scene.chart.interval, latestCandle.timestamp);
+  const latestExpansion = scene.semantic.expansionRanges.find((range) => range.parentNodeId === latestNodeId);
+  const latestUnit = scene.semantic.unitById.get(latestNodeId);
+  const latestSlotStart = latestExpansion?.slotStart ?? latestUnit?.slotStart;
+  const latestSlotEnd = latestExpansion?.slotEnd ?? latestUnit?.slotEnd;
+  if (latestSlotStart === undefined || latestSlotEnd === undefined) {
+    return null;
+  }
+
+  const latestStartX = slotCenterToX(scene, latestSlotStart);
+  const futureStartX = slotCenterToX(scene, latestSlotEnd);
+  const latestIsVisible = latestStartX < scene.plot.right && futureStartX > scene.plot.left;
+  if (!latestIsVisible || futureStartX >= scene.plot.right || x < futureStartX) {
+    return null;
+  }
+
+  const futureIndex = Math.max(0, Math.floor((x - futureStartX) / scene.scales.slotWidth));
+  const targetX = slotCenterToX(scene, latestSlotEnd + futureIndex + 0.5);
+  if (targetX < scene.plot.left || targetX > scene.plot.right) {
+    return null;
+  }
+  const timestamp = advanceTimestampByInterval(latestCandle.timestamp, scene.chart.interval, futureIndex + 1);
+  if (!timestamp) {
+    return null;
+  }
+  return {
+    kind: "future",
+    x: targetX,
+    timestamp,
+    interval: scene.chart.interval,
+    futureIndex
+  };
 }
 
 export function hitTestTimeAxisUnit(scene: ChartScene, x: number, y: number): SemanticRenderUnit | null {

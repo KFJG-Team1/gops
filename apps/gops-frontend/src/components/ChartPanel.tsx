@@ -243,7 +243,7 @@ type ChartPanelProps = {
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   toolbarLeading?: ReactNode;
-  toolbarTrailing?: ReactNode;
+  toolbarAfterViewControls?: ReactNode;
 };
 
 export type ChartPanelHandle = {
@@ -372,7 +372,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartHoverChange,
   onHeaderChange,
   toolbarLeading,
-  toolbarTrailing
+  toolbarAfterViewControls
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
@@ -2275,42 +2275,44 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       <div className={chartAddActive ? "chart-panel-navigation has-open-chart-menu" : "chart-panel-navigation"} aria-label="Chart controls">
         <div className="chart-panel-navigation-leading">
           {toolbarLeading}
-        </div>
-        <ChartDrawingDock
-          document={document}
-          panelId={panelId}
-          onChartRuntimeAction={onChartRuntimeAction}
-        />
-        <div className="chart-panel-navigation-actions">
-          {toolbarTrailing}
-          <div className="chart-add-control">
-          <button
-            ref={chartAddButtonRef}
-            type="button"
-            className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
-            aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
-            aria-pressed={chartAddActive}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onChartAddToggle}
-            {...chartControlTooltip.tooltipProps(chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기")}
-          >
-            <ChartNoAxesCombined size={16} />
-          </button>
-            {chartAddActive && (
-              <div ref={chartAddMenuRef} className="chart-add-dropdown-anchor">
-                <ChartAddDock
-                  document={document}
-                  panelId={panelId}
-                  laneHeight={laneHeight ?? 120}
-                  onChartRuntimeAction={onChartRuntimeAction}
-                  onClose={() => onChartAddToggle?.()}
-                />
-              </div>
-            )}
+          <div className="chart-panel-navigation-adjacent chart-panel-hover-controls">
+            {toolbarAfterViewControls}
+            <div className="chart-add-control">
+              <button
+                ref={chartAddButtonRef}
+                type="button"
+                className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
+                aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+                aria-pressed={chartAddActive}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={onChartAddToggle}
+                {...chartControlTooltip.tooltipProps(chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기")}
+              >
+                <ChartNoAxesCombined size={16} />
+              </button>
+              {chartAddActive && (
+                <div ref={chartAddMenuRef} className="chart-add-dropdown-anchor">
+                  <ChartAddDock
+                    document={document}
+                    panelId={panelId}
+                    laneHeight={laneHeight ?? 120}
+                    onChartRuntimeAction={onChartRuntimeAction}
+                    onClose={() => onChartAddToggle?.()}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+        </div>
+        <div className="chart-panel-navigation-right chart-panel-hover-controls">
+          <ChartDrawingDock
+            document={document}
+            panelId={panelId}
+            onChartRuntimeAction={onChartRuntimeAction}
+          />
           <span className="toolbar-separator chart-navigation-action-separator" aria-hidden="true" />
           <button
-            className={iconButtonClass()}
+            className={`${iconButtonClass()} chart-panel-navigation-reset`}
             onClick={resetChart}
             type="button"
             aria-label="차트 초기화"
