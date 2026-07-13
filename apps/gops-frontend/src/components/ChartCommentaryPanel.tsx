@@ -49,7 +49,7 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
       <h3 className="chart-commentary-headline">Geometry 분석</h3>
       <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
       {pattern && (
-        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
+        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
           {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
         </button>
       )}
@@ -76,7 +76,21 @@ function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisA
 }
 
 function patternName(kind: string): string {
-  return { ascending_triangle: "상승 삼각형", descending_triangle: "하락 삼각형", symmetrical_triangle: "대칭 삼각형" }[kind] ?? kind;
+  return {
+    ascending_triangle: "상승 삼각형",
+    descending_triangle: "하락 삼각형",
+    symmetrical_triangle: "대칭 삼각형",
+    bullish_flag: "상승 깃발형",
+    bearish_flag: "하락 깃발형",
+    bullish_pennant: "상승 페넌트",
+    bearish_pennant: "하락 페넌트",
+    bullish_rectangle: "상승 직사각형",
+    bearish_rectangle: "하락 직사각형",
+    rising_wedge: "상승 쐐기",
+    falling_wedge: "하락 쐐기",
+    descending_channel_breakout: "하락 채널 상단 돌파",
+    ascending_channel_breakdown: "상승 채널 하단 이탈"
+  }[kind] ?? kind;
 }
 
 function formatValue(value: number | null): string {

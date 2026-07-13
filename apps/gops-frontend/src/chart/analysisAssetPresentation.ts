@@ -1,5 +1,6 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
+import { buildTradeTimingDrawings, isTradeTimingDrawing } from "./tradeTimingOverlay";
 
 export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
 export type AnalysisAssetPresentationDiagnostics = {
@@ -35,10 +36,12 @@ export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAsset
 }
 
 export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
-  const triangle = asset?.geometry.primaryTriangle;
-  if (!triangle || (triangle.state !== "forming" && triangle.state !== "confirmed")) return null;
-  const drawingCount = asset.geometry.drawings.filter((drawing) => drawing.id.includes(triangle.geometryHash)).length;
-  return { kind: triangle.kind, state: triangle.state, score: triangle.score, drawingCount };
+  const geometry = asset?.geometry;
+  if (!geometry) return null;
+  const pattern = geometry.primaryPattern ?? geometry.primaryTriangle;
+  if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
+  const drawingCount = geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash)).length;
+  return { kind: pattern.kind, state: pattern.state, score: pattern.score, drawingCount };
 }
 
 export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetVersion?: string, interval?: AnalysisAssetInterval): boolean {
@@ -54,7 +57,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
   const errors: Array<{ drawingId: string; reason: string }> = [];
-  const drawings = asset.geometry.drawings.flatMap((drawing) => {
+  const drawings = asset.geometry.drawings.filter((drawing) => !isTradeTimingDrawing(drawing)).flatMap((drawing) => {
     const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey);
     if (!resolved) {
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
@@ -62,7 +65,8 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
     }
     return [resolved];
   });
-  return { ...asset, geometry: { ...asset.geometry, drawings, anchorResolutionErrors: errors } };
+  const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
+  return { ...asset, geometry: { ...asset.geometry, drawings: [...drawings, ...tradeTimingDrawings], anchorResolutionErrors: errors } };
 }
 
 export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): ChartAnalysisAsset {
@@ -80,7 +84,7 @@ export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): C
 }
 
 export function analysisAssetPresentationDiagnostics(asset: ChartAnalysisAsset, candles: CandleDto[], currentDrawingIds?: string[]): AnalysisAssetPresentationDiagnostics {
-  const storedDrawingCount = asset.geometry.drawings.length;
+  const storedDrawingCount = asset.geometry.drawings.filter((drawing) => !isTradeTimingDrawing(drawing)).length;
   const resolved = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
   const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
   const resolvedAsset = staleAnalysisAsset(resolved, stale);

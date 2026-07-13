@@ -10,6 +10,7 @@ export type ChartAssetBuildAccepted = {
   jobId: string;
   status: "queued";
   status_url: string;
+  coalesced: boolean;
 };
 
 export type ChartAssetBuildItem = {
@@ -26,6 +27,8 @@ export type ChartAssetBuildItem = {
 export type ChartAssetBuildStatus = {
   jobId: string;
   status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
+  source: "manual" | "scheduled";
+  priority: number;
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
   repair?: {
     checkedSymbols: number;

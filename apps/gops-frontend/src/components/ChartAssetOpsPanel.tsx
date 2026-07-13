@@ -17,10 +17,12 @@ import {
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
+import { defaultChartAssetBuildIntervals } from "../chart/chartAssetBuildPolicy";
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const assetIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const buildIntervals: AnalysisAssetInterval[] = ["1m", "1D"];
 
 export function ChartAssetOpsPanel({
   currentSymbol,
@@ -35,7 +37,7 @@ export function ChartAssetOpsPanel({
 }) {
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
-  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
+  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(() => defaultChartAssetBuildIntervals(currentInterval));
   const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
   const [job, setJob] = useState<ChartAssetBuildStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -150,10 +152,12 @@ export function ChartAssetOpsPanel({
     setError(null);
     setJob(null);
     try {
-      setAccepted(await submitChartAssetBuild({
+      const result = await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
         intervals
-      }));
+      });
+      setAccepted(result);
+      setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
     }
@@ -191,9 +195,10 @@ export function ChartAssetOpsPanel({
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
         </div>
         <div className="chart-asset-ops-options">
-          {allIntervals.map((interval) => (
+          {buildIntervals.map((interval) => (
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
+          <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>1m·1D 선택</button>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
@@ -206,7 +211,7 @@ export function ChartAssetOpsPanel({
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
@@ -285,14 +290,24 @@ function coverageStatus(item: ChartAssetCoverageItem): string {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return allIntervals.includes(interval as AnalysisAssetInterval);
+  return assetIntervals.includes(interval as AnalysisAssetInterval);
 }
 
 function patternKindLabel(kind: string): string {
   return {
     ascending_triangle: "상승 삼각형",
     descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형"
+    symmetrical_triangle: "대칭 삼각형",
+    bullish_flag: "상승 깃발형",
+    bearish_flag: "하락 깃발형",
+    bullish_pennant: "상승 페넌트",
+    bearish_pennant: "하락 페넌트",
+    bullish_rectangle: "상승 직사각형",
+    bearish_rectangle: "하락 직사각형",
+    rising_wedge: "상승 쐐기",
+    falling_wedge: "하락 쐐기",
+    descending_channel_breakout: "하락 채널 상단 돌파",
+    ascending_channel_breakdown: "상승 채널 하단 이탈"
   }[kind] ?? kind;
 }
 

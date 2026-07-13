@@ -12,13 +12,49 @@ export type GeometryLevel = {
   anchors: Array<{ timestamp: string; price: number }>;
 };
 
-export type GeometryTriangle = {
-  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+export type GeometryPatternKind =
+  | "ascending_triangle" | "descending_triangle" | "symmetrical_triangle"
+  | "bullish_flag" | "bearish_flag"
+  | "bullish_pennant" | "bearish_pennant"
+  | "bullish_rectangle" | "bearish_rectangle"
+  | "rising_wedge" | "falling_wedge"
+  | "descending_channel_breakout" | "ascending_channel_breakdown";
+
+export type GeometryPattern = {
+  kind: GeometryPatternKind;
   state: "forming" | "confirmed" | "inactive" | "invalidated";
+  bias?: "bullish" | "bearish" | "neutral";
+  breakoutDirection?: "up" | "down" | null;
   score: number;
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+};
+
+export type GeometryTriangle = GeometryPattern & {
+  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+};
+
+export type GeometryTradePlan = {
+  version: "pattern-trade-timing-v1";
+  symbol: string | null;
+  interval: AnalysisAssetInterval | null;
+  patternId: string;
+  patternKind: GeometryPatternKind;
+  patternState: GeometryPattern["state"];
+  action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
+  direction: "long" | "exit_long" | "short" | null;
+  signalAt: string | null;
+  entryTrigger: number | null;
+  entryPrice: number | null;
+  stopPrice: number | null;
+  targetPrice: number | null;
+  riskPerShare: number | null;
+  rewardPerShare: number | null;
+  rewardRiskRatio: number | null;
+  minimumRewardRisk: number;
+  projectionBars: number;
+  reasons: string[];
 };
 
 export type ChartAnalysisAsset = {
@@ -49,6 +85,9 @@ export type ChartAnalysisAsset = {
     }>;
     supports: GeometryLevel[];
     resistances: GeometryLevel[];
+    patterns?: GeometryPattern[];
+    primaryPattern?: GeometryPattern | null;
+    tradePlan?: GeometryTradePlan | null;
     primaryTriangle: GeometryTriangle | null;
     historicalTriangle: GeometryTriangle | null;
     evidence?: Array<Record<string, unknown>>;
