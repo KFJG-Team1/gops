@@ -1,8 +1,6 @@
 import {
   type CSSProperties,
-  type Dispatch,
   type FormEvent,
-  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -28,7 +26,6 @@ import {
 import {
   cancelAgentAnalysis,
   createAgentAnalysisRequestId,
-  formatAgentAnalysisForChat,
   isAgentRequestAbortError,
   requestAgentAnalysisPayload,
   resolveAgentChartShortcut,
@@ -37,8 +34,9 @@ import {
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
+import { agentReportCompletionMessage, type AgentHeaderNotice, type AgentHeaderNoticeTone } from "./agent/agentHeaderNotice";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type AgentSubmitResult, type ChatLogEntry } from "./components/BottomCommandBar";
+import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
@@ -86,14 +84,17 @@ import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
+import type { AgentAnalysisReport } from "./agents/agentAnalysis";
+import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
 
 
 type ActiveAgentRun = {
   requestId: string;
   controller: AbortController;
-  pendingEntryId: string;
   cancelRequested: boolean;
 };
+
+type AgentSubmitResult = "notice" | "chart-shortcut" | "ui-action" | "ignored";
 
 type InteractiveAgentContext = {
   chartContext: Record<string, unknown>;
@@ -109,8 +110,6 @@ const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   uiScale: appUiScale
 };
 const orderFlowDemoDefaultSymbol = "NVDA";
-
-let chatLogEntrySequence = 0;
 
 function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
@@ -248,9 +247,9 @@ function isLocalAgentDebugEnabled(): boolean {
     return enabled;
   }
   try {
-    return window.localStorage.getItem(agentDebugStorageKey) === "1";
+    return window.localStorage.getItem(agentDebugStorageKey) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -279,48 +278,6 @@ function publishLocalAgentDebugSnapshot(
   console.debug("[GOPS Agent Debug] snapshot", snapshot);
 }
 
-function formatAgentDebugSnapshot(
-  payload: Record<string, unknown>,
-  context: InteractiveAgentContext
-): string {
-  const chartContext = readObject(payload.chartContext);
-  const candles = readArray(chartContext?.candles);
-  const visibleRange = readObject(context.uiContext.visibleRange);
-  const selectedReference = context.references[0] ?? null;
-  const selectedLine = selectedReference ? formatAgentDebugReference(selectedReference) : "없음";
-  const referenceTypes = context.references.map((reference) => reference.type).join(", ") || "없음";
-  return [
-    "Agent Debug (local only)",
-    `selectedReference: ${selectedLine}`,
-    `references: ${context.references.length} (${referenceTypes})`,
-    `chartContext.candles: ${candles.length}${formatAgentDebugCandleRange(candles)}`,
-    `visibleRange: ${readString(visibleRange?.from) ?? "-"} -> ${readString(visibleRange?.to) ?? "-"}`,
-    `symbol: ${readString(payload.symbol) ?? "-"} / intent: ${readString(payload.intent) ?? "-"}`,
-    "raw payload: browser console에서 window.__GOPS_AGENT_LAST_REQUEST__ 확인"
-  ].join("\n");
-}
-
-function formatAgentDebugReference(reference: AgentReference): string {
-  const data = readObject(reference.data);
-  const timestamp = readString(data?.timestamp) ?? readString(data?.from) ?? "-";
-  const ohlc = ["open", "high", "low", "close"]
-    .map((key) => `${key[0]?.toUpperCase() ?? key}: ${formatAgentDebugNumber(readNumber(data?.[key]))}`)
-    .join(", ");
-  return `${reference.type} ${reference.displayLabel ?? ""} ${timestamp}${ohlc ? ` (${ohlc})` : ""}`.trim();
-}
-
-function formatAgentDebugCandleRange(candles: unknown[]): string {
-  const first = readObject(candles[0]);
-  const last = readObject(candles[candles.length - 1]);
-  const from = readString(first?.timestamp);
-  const to = readString(last?.timestamp);
-  return from && to ? ` (${from} -> ${to})` : "";
-}
-
-function formatAgentDebugNumber(value: number | null): string {
-  return value === null ? "-" : Number.isInteger(value) ? String(value) : value.toFixed(4);
-}
-
 export function App() {
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
@@ -335,19 +292,53 @@ export function App() {
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
   const [agentComposerRequest, setAgentComposerRequest] = useState(0);
-  const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
+  const [agentNotice, setAgentNotice] = useState<AgentHeaderNotice | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [layoutEditMode, setLayoutEditMode] = useState(false);
+  const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
+  const agentNoticeSequenceRef = useRef(0);
   const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
   const lastSavedAgentProposalRef = useRef<string | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
+
+  const showAgentNotice = useCallback((message: string, tone: AgentHeaderNoticeTone = "success") => {
+    agentNoticeSequenceRef.current += 1;
+    setAgentNotice({
+      id: `agent-notice-${Date.now()}-${agentNoticeSequenceRef.current}`,
+      message,
+      tone
+    });
+  }, []);
+
+  const dismissAgentNotice = useCallback((noticeId: string) => {
+    setAgentNotice((current) => current?.id === noticeId ? null : current);
+  }, []);
+
+  useEffect(() => {
+    const activeWildPanelSlotId = resolveWildPanelSlotId(panelState, selectedWildPanelSlotId);
+    if (selectedWildPanelSlotId !== activeWildPanelSlotId) {
+      setSelectedWildPanelSlotId(activeWildPanelSlotId);
+    }
+  }, [panelState, selectedWildPanelSlotId]);
+
+  const addReportToSelectedWildPanel = useCallback((report: AgentAnalysisReport) => {
+    if (report.status !== "completed" && report.status !== "deep_completed") {
+      return;
+    }
+    setPanelState((current) => {
+      const wildPanelSlotId = resolveWildPanelSlotId(current, selectedWildPanelSlotId);
+      return wildPanelSlotId
+        ? addAgentReportToWildPanel(current, wildPanelSlotId, report)
+        : current;
+    });
+  }, [selectedWildPanelSlotId]);
 
   const serializeCurrentLayout = useCallback(() => (
     serializeTiledPanelState(
@@ -668,23 +659,17 @@ export function App() {
     return applyLayoutLoadProposalToPresets(proposal, presetControls.presets, presetControls.applyPreset);
   }, [presetControls]);
 
-  const handlePresetLoadResult = useCallback((
-    result: LayoutLoadPresetResult,
-    options: { userEntry?: ChatLogEntry } = {}
-  ): LayoutLoadPresetResult["status"] => {
+  const handlePresetLoadResult = useCallback((result: LayoutLoadPresetResult): LayoutLoadPresetResult["status"] => {
     if (result.status === "applied") {
+      showAgentNotice("프리셋을 적용했습니다.");
       return "applied";
     }
     if (result.status === "missing") {
-      setChatLog((entries) => [
-        ...entries,
-        ...(options.userEntry ? [options.userEntry] : []),
-        createChatLogEntry("system", "프리셋을 찾지 못했습니다.")
-      ]);
+      showAgentNotice("프리셋을 찾지 못했습니다.", "error");
       return "missing";
     }
     return "none";
-  }, []);
+  }, [showAgentNotice]);
 
   const applyAgentLayoutProposal = useCallback((proposal: AgentLayoutProposal) => {
     const presetLoadResult = applyPresetLoadProposal(proposal);
@@ -694,10 +679,7 @@ export function App() {
     const preview = applyAgentLayoutWithHistory(panelState, proposal);
     if (preview.pendingPlacementPick) {
       setPendingPlacementPick(preview.pendingPlacementPick);
-      setChatLog((entries) => [
-        ...entries,
-        createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-      ]);
+      showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
       return;
     }
     setPanelState((current) => {
@@ -714,7 +696,7 @@ export function App() {
       }
       return next;
     });
-  }, [applyAgentLayoutWithHistory, applyPresetLoadProposal, handlePresetLoadResult, panelState]);
+  }, [applyAgentLayoutWithHistory, applyPresetLoadProposal, handlePresetLoadResult, panelState, showAgentNotice]);
 
   const handlePlacementPickSelect = useCallback((candidate: PlacementPickCandidate) => {
     const pick = pendingPlacementPick;
@@ -735,15 +717,13 @@ export function App() {
       return next;
     });
     setPendingPlacementPick(null);
-  }, [pendingPlacementPick]);
+    showAgentNotice(`${mainView.mode === "chart" ? `${mainView.symbol} ` : ""}패널 배치를 완료했습니다.`);
+  }, [mainView, pendingPlacementPick, showAgentNotice]);
 
   const handlePlacementPickCancel = useCallback(() => {
     setPendingPlacementPick(null);
-    setChatLog((current) => [
-      ...current,
-      createChatLogEntry("assistant", "배치를 취소했습니다.")
-    ]);
-  }, []);
+    showAgentNotice("배치를 취소했습니다.", "info");
+  }, [showAgentNotice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -807,12 +787,12 @@ export function App() {
     }
     run.cancelRequested = true;
     run.controller.abort();
-    replaceChatLogEntry(setChatLog, run.pendingEntryId, "Agent 분석을 중단했습니다.");
+    showAgentNotice("Agent 분석을 중단했습니다.", "info");
     setAgentBusy(false);
     void cancelAgentAnalysis(run.requestId).catch(() => {
       // Local abort already restored the UI; polling will also observe a stored cancel if the API accepted it.
     });
-  }, []);
+  }, [showAgentNotice]);
 
   const handleAgentReferenceSelect = useCallback((reference: AgentReference) => {
     const key = agentReferenceKey(reference);
@@ -825,6 +805,7 @@ export function App() {
   }, []);
 
   const handleAgentAsk = useCallback(() => {
+    setLayoutEditMode(false);
     setAgentComposerRequest((current) => current + 1);
   }, []);
 
@@ -854,15 +835,10 @@ export function App() {
     if (!prompt || agentBusy) {
       return "ignored";
     }
-    const userEntry = createChatLogEntry("user", prompt);
     setAgentInput("");
     if (!canUseAgent) {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.")
-      ]);
-      return "chat-log";
+      showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
+      return "notice";
     }
     if (isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)) {
       setAgentBusy(true);
@@ -884,18 +860,14 @@ export function App() {
         });
         if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
           const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-          const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+          const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
           if (presetLoadStatus !== "none") {
-            return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+            return presetLoadStatus === "applied" ? "ui-action" : "notice";
           }
         }
         if (layoutResolution?.status === "ui_clarify") {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "프리셋을 적용할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "프리셋을 적용할 수 없습니다.", "error");
+          return "notice";
         }
       } catch {
         // Fall back to the existing chart/entity flow when the fast preset resolve fails.
@@ -942,20 +914,16 @@ export function App() {
               throw new Error(`${addSymbol} 차트 패널을 추가할 수 없습니다.`);
             }
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
             if (presetLoadStatus !== "none") {
-              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+              return presetLoadStatus === "applied" ? "ui-action" : "notice";
             }
             const applyResult = applyAgentLayoutWithHistory(nextPanelState, layoutResolution.layoutProposal, true);
             if (applyResult.pendingPlacementPick) {
               const pick = applyResult.pendingPlacementPick;
               setPendingPlacementPick(pick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(pick))
-              ]);
-              return "chat-log";
+              showAgentNotice(placementPickMessage(pick), "info");
+              return "notice";
             }
             const problemMessage = layoutResolutionProblemMessage(layoutResolution, applyResult);
             if (problemMessage) {
@@ -971,21 +939,15 @@ export function App() {
             setPanelState(nextPanelState);
           }
           navigateMainView({ mode: "chart", symbol: primarySymbol });
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            ...(layoutProblems.length
-              ? [createChatLogEntry("assistant", [...new Set(layoutProblems)].join(" "))]
-              : [])
-          ]);
-          return layoutProblems.length ? "chat-log" : "ui-action";
+          if (layoutProblems.length) {
+            showAgentNotice([...new Set(layoutProblems)].join(" "), "error");
+            return "notice";
+          }
+          showAgentNotice(`${shortcutSymbols.join(" / ")} 비교 차트를 표시했습니다.`);
+          return "ui-action";
         } catch (error: unknown) {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } finally {
           setAgentBusy(false);
         }
@@ -1013,19 +975,15 @@ export function App() {
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
             if (presetLoadStatus !== "none") {
-              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+              return presetLoadStatus === "applied" ? "ui-action" : "notice";
             }
             const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
             if (preview.pendingPlacementPick) {
               setPendingPlacementPick(preview.pendingPlacementPick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-              ]);
-              return "chat-log";
+              showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
+              return "notice";
             }
             setPanelState((current) => {
               const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
@@ -1041,65 +999,42 @@ export function App() {
               return result.state;
             });
             const problemMessage = layoutResolutionProblemMessage(layoutResolution, preview);
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
-            ]);
-            return problemMessage ? "chat-log" : "ui-action";
+            if (problemMessage) {
+              showAgentNotice(problemMessage, "error");
+              return "notice";
+            }
+            showAgentNotice(`${shortcut.symbol} 차트를 추가했습니다.`);
+            return "ui-action";
           }
           if (layoutResolution?.status === "ui_clarify") {
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "차트 패널을 추가할 수 없습니다.")
-            ]);
-            return "chat-log";
+            showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "차트 패널을 추가할 수 없습니다.", "error");
+            return "notice";
           }
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", layoutResolution?.rationale || "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(layoutResolution?.rationale || "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } catch (error: unknown) {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } finally {
           setAgentBusy(false);
         }
       }
       if (mainView.mode === "chart") {
         openSymbolPage(shortcut.symbol);
-        setChatLog((current) => [
-          ...current,
-          userEntry,
-          createChatLogEntry("assistant", `${shortcut.symbol} 차트를 표시했습니다.`)
-        ]);
-        return "chat-log";
+        showAgentNotice(`${shortcut.symbol} 차트를 표시했습니다.`);
+        return "notice";
       }
       openSymbolPage(shortcut.symbol);
+      showAgentNotice(`${shortcut.symbol} 차트를 표시했습니다.`);
       return "chart-shortcut";
     }
     if (isLikelyChartOpenCommand(prompt)) {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", "종목명을 찾지 못했습니다. 예: 애플, 엔비디아, AAPL, NVDA")
-      ]);
-      return "chat-log";
+      showAgentNotice("종목명을 찾지 못했습니다. 예: 애플, 엔비디아, AAPL, NVDA", "error");
+      return "notice";
     }
     if (mainView.mode !== "chart") {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", "기업명/티커만 입력하면 차트를 열 수 있고, 분석은 차트 화면에서 가능합니다.")
-      ]);
-      return "chat-log";
+      showAgentNotice("기업명/티커만 입력하면 차트를 열 수 있고, 분석은 차트 화면에서 가능합니다.", "error");
+      return "notice";
     }
 
     const runChartPrompt = async () => {
@@ -1139,18 +1074,14 @@ export function App() {
           let layoutApplyResult: ApplyTiledAgentLayoutResult | undefined;
           if (layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            if (handlePresetLoadResult(presetLoadResult, { userEntry }) !== "none") {
+            if (handlePresetLoadResult(presetLoadResult) !== "none") {
               return;
             }
             const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
             layoutApplyResult = preview;
             if (preview.pendingPlacementPick) {
               setPendingPlacementPick(preview.pendingPlacementPick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-              ]);
+              showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
               return;
             }
             setPanelState((current) => {
@@ -1159,19 +1090,15 @@ export function App() {
             });
           }
           const problemMessage = layoutResolutionProblemMessage(layoutResolution, layoutApplyResult);
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
-          ]);
+          if (problemMessage) {
+            showAgentNotice(problemMessage, "error");
+          } else {
+            showAgentNotice(`${mainView.symbol} 레이아웃을 변경했습니다.`);
+          }
           return;
         }
         if (layoutResolution?.status === "ui_clarify") {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "화면 변경 요청을 확인하지 못했습니다.")
-          ]);
+          showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "화면 변경 요청을 확인하지 못했습니다.", "error");
           return;
         }
       } catch {
@@ -1180,7 +1107,6 @@ export function App() {
         setAgentBusy(false);
       }
 
-      const pendingEntry = createChatLogEntry("assistant", "Agent가 분석을 시작했습니다.", true);
       setAgentBusy(true);
       try {
         const interactiveContext = buildInteractiveAgentContext(
@@ -1194,7 +1120,6 @@ export function App() {
         const activeRun: ActiveAgentRun = {
           requestId,
           controller,
-          pendingEntryId: pendingEntry.id,
           cancelRequested: false
         };
         activeAgentRunRef.current = activeRun;
@@ -1216,15 +1141,6 @@ export function App() {
           )
         };
         publishLocalAgentDebugSnapshot(analysisRequestPayload, interactiveContext);
-        const debugEntry = isLocalAgentDebugEnabled()
-          ? createChatLogEntry("system", formatAgentDebugSnapshot(analysisRequestPayload, interactiveContext))
-          : null;
-        setChatLog((current) => [
-          ...current,
-          userEntry,
-          ...(debugEntry ? [debugEntry] : []),
-          pendingEntry
-        ]);
         const report = await requestAgentAnalysisPayload(analysisRequestPayload, {
           requestId,
           signal: controller.signal,
@@ -1235,31 +1151,34 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence, report);
+        addReportToSelectedWildPanel(report);
+        const reportStatus = report.status?.trim().toLowerCase();
+        if (reportStatus === "failed") {
+          showAgentNotice(report.summary || "Agent 요청에 실패했습니다.", "error");
+        } else if (reportStatus === "canceled") {
+          showAgentNotice("Agent 분석을 중단했습니다.", "info");
+        } else {
+          showAgentNotice(agentReportCompletionMessage(report, mainView.symbol));
+        }
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
         if (isAgentRequestAbortError(error) || activeRun?.cancelRequested) {
-          replaceChatLogEntry(setChatLog, pendingEntry.id, "Agent 분석을 중단했습니다.");
+          if (!activeRun?.cancelRequested) {
+            showAgentNotice("Agent 분석을 중단했습니다.", "info");
+          }
           return;
         }
-        replaceChatLogEntry(
-          setChatLog,
-          pendingEntry.id,
-          error instanceof Error ? error.message : "Agent 요청에 실패했습니다."
-        );
+        showAgentNotice(error instanceof Error ? error.message : "Agent 요청에 실패했습니다.", "error");
       } finally {
-        const activeRun = activeAgentRunRef.current;
-        if (!activeRun || activeRun.pendingEntryId === pendingEntry.id) {
-          activeAgentRunRef.current = null;
-          setAgentBusy(false);
-        }
+        activeAgentRunRef.current = null;
+        setAgentBusy(false);
       }
     };
 
     void runChartPrompt();
-    return "chat-log";
-  }, [agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, viewportSize]);
+    return "notice";
+  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, showAgentNotice, viewportSize]);
 
 
   return (
@@ -1308,6 +1227,8 @@ export function App() {
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
+            selectedWildPanelSlotId={selectedWildPanelSlotId}
+            onSelectWildPanel={setSelectedWildPanelSlotId}
             placementPickerOverlay={pendingPlacementPick ? (
               <PlacementPickerOverlay
                 pick={pendingPlacementPick}
@@ -1324,7 +1245,7 @@ export function App() {
         agentBusy={agentBusy}
         agentInput={agentInput}
         agentComposerRequest={agentComposerRequest}
-        chatLog={chatLog}
+        agentNotice={agentNotice}
         authEnabled={authEnabled}
         authLoading={authLoading}
         authUser={user}
@@ -1344,6 +1265,7 @@ export function App() {
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
+        onAgentNoticeDismiss={dismissAgentNotice}
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
@@ -1352,16 +1274,6 @@ export function App() {
       <GlossaryTooltip />
     </main>
   );
-}
-
-function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = false): ChatLogEntry {
-  chatLogEntrySequence += 1;
-  return {
-    id: `chat-${Date.now()}-${chatLogEntrySequence}`,
-    role,
-    text,
-    pending
-  };
 }
 
 function mergeTreeMapItems(
@@ -1488,18 +1400,6 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function readObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
 function initialMainView(): MainView {
   if (typeof window === "undefined") {
     return { mode: "treemap" };
@@ -1593,20 +1493,6 @@ function isLikelyChartOpenCommand(prompt: string): boolean {
   const hasAnalysisTerm = ["분석", "뉴스", "원인", "왜", "관계", "비교", "analysis", "analyze", "news", "why", "compare"].some((term) => compacted.includes(term));
   const possibleEntityText = compacted.replace(/차트|그래프|보여줘|보여|열어줘|열어|띄워줘|띄워|켜줘|켜|주세요|좀|chart|graph|show|open|please/g, "");
   return hasChartTerm && hasOpenTerm && !hasAnalysisTerm && possibleEntityText.length > 0;
-}
-
-function replaceChatLogEntry(
-  setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
-  entryId: string,
-  text: string,
-  confidence?: number,
-  analysisReport?: ChatLogEntry["analysisReport"]
-) {
-  setChatLog((current) => current.map((entry) => (
-    entry.id === entryId
-      ? { ...entry, text, pending: false, confidence, analysisReport }
-      : entry
-  )));
 }
 
 function currentViewportSize(container?: HTMLElement | null): ViewportSize {

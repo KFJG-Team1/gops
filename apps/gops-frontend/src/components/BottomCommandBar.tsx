@@ -1,4 +1,4 @@
-import { CandlestickChart, LogIn, MessagesSquare, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
+import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertToast } from "../alerts/AlertToast";
@@ -16,22 +16,12 @@ import {
   shouldShowMarketOpenReminder
 } from "../alerts/marketOpenReminder";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
-import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
+import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
 import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { SimulatorControl } from "../simulator/SimulatorControl";
-
-export type ChatLogEntry = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  pending?: boolean;
-  confidence?: number;
-  analysisReport?: AgentAnalysisReport | null;
-};
-export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ui-action" | "ignored";
 
 type AlertToastQueueState = {
   current: AlertToastQueueItem | null;
@@ -46,7 +36,7 @@ type BottomCommandBarProps = {
   agentBusy: boolean;
   agentInput: string;
   agentComposerRequest: number;
-  chatLog: ChatLogEntry[];
+  agentNotice: AgentHeaderNotice | null;
   authEnabled: boolean;
   authLoading: boolean;
   authUser: AuthUser | null;
@@ -59,7 +49,8 @@ type BottomCommandBarProps = {
   onAgentReferenceRemove: (key: string) => void;
   onAgentReferenceEmphasize: (keys: string[]) => void;
   onAgentInputChange: (value: string) => void;
-  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
+  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => unknown | Promise<unknown>;
+  onAgentNoticeDismiss: (noticeId: string) => void;
   onLogin: () => void;
   onLogout: () => void;
   onSelectSymbol: (symbol: string) => void;
@@ -74,7 +65,7 @@ export function BottomCommandBar({
   agentBusy,
   agentInput,
   agentComposerRequest,
-  chatLog,
+  agentNotice,
   authEnabled,
   authLoading,
   authUser,
@@ -88,17 +79,16 @@ export function BottomCommandBar({
   onAgentReferenceEmphasize,
   onAgentInputChange,
   onAgentSubmit,
+  onAgentNoticeDismiss,
   onLogin,
   onLogout,
   onSelectSymbol,
   onApplyLayoutProposal
 }: BottomCommandBarProps) {
-  const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
   const [marketOpenReminderEnabled] = useState(() => readMarketOpenReminderEnabled());
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const agentInputRef = useRef<HTMLInputElement>(null);
-  const hasFloatingPanel = chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
 
   const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
@@ -160,27 +150,6 @@ export function BottomCommandBar({
       // Opening the chart should not be blocked by a transient read-state failure.
     }
   };
-
-  useEffect(() => {
-    if (!hasFloatingPanel) {
-      return undefined;
-    }
-
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Element)) {
-        return;
-      }
-      if (event.target.closest(".bottom-chat-panel, .agent-dock, .symbol-search-menu, .workspace-top-nav")) {
-        return;
-      }
-      if (chatPanelOpen) {
-        setChatPanelOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handleOutsidePointerDown, true);
-    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
-  }, [chatPanelOpen, hasFloatingPanel]);
 
   useEffect(() => {
     if (!canUseAlerts) {
@@ -316,42 +285,26 @@ export function BottomCommandBar({
     };
   }, [marketOpenReminderEnabled]);
 
-  const closeFloatingPanels = () => {
-    setChatPanelOpen(false);
-  };
-
-  const toggleChatPanel = () => {
-    setChatPanelOpen((current) => !current);
-  };
-
   useEffect(() => {
     if (agentComposerRequest > 0 && !agentBusy) {
       agentInputRef.current?.focus();
     }
   }, [agentBusy, agentComposerRequest]);
 
+  useEffect(() => {
+    if (!agentNotice) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => onAgentNoticeDismiss(agentNotice.id), 3000);
+    return () => window.clearTimeout(timer);
+  }, [agentNotice, onAgentNoticeDismiss]);
+
   const submitAgentPrompt = async (event: FormEvent<HTMLFormElement>) => {
-    const hasPrompt = Boolean(agentInput.trim());
-    const result = await onAgentSubmit(event);
-    if (hasPrompt && result === "chart-shortcut") {
-      setChatPanelOpen(false);
-      return;
-    }
-    if (hasPrompt && result === "chat-log") {
-      setChatPanelOpen(true);
-    }
+    await onAgentSubmit(event);
   };
 
   return (
     <>
-      {hasFloatingPanel && (
-        <button
-          type="button"
-          className="bottom-menu-dismiss-layer"
-          aria-label="Close bottom floating panel"
-          onClick={closeFloatingPanels}
-        />
-      )}
       {alertToastState.current && (
         <AlertToast
           notification={alertToastState.current.notification}
@@ -369,7 +322,25 @@ export function BottomCommandBar({
           <span>GOPS</span>
         </div>
         <div className="workspace-top-center">
-          {topDock}
+          <div className={`workspace-top-center-flip ${agentNotice ? "is-notice" : ""}`}>
+            <div
+              className="workspace-top-center-face workspace-top-center-default"
+              aria-hidden={Boolean(agentNotice)}
+              inert={agentNotice ? true : undefined}
+            >
+              {topDock}
+            </div>
+            {agentNotice && (
+              <div
+                className={`workspace-top-center-face workspace-agent-notice is-${agentNotice.tone}`}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {agentNotice.message}
+              </div>
+            )}
+          </div>
         </div>
         <div className="workspace-top-actions">
           <SimulatorControl />
@@ -390,38 +361,7 @@ export function BottomCommandBar({
           the bottom band and provides its own 완료 (exit) button. */}
       {!layoutEditMode && <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <div className="bottom-command-slot is-agent">
-          <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
-            <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Agent log" aria-hidden={!chatPanelOpen}>
-              <header className="bottom-chat-header">
-                <div>
-                  <MessagesSquare size={15} aria-hidden="true" />
-                  <strong>AGENT LOG</strong>
-                  <span>{chatLog.length}</span>
-                </div>
-                <button type="button" aria-label="Agent log 닫기" title="Agent log 닫기" onClick={() => setChatPanelOpen(false)}>
-                  <X size={15} aria-hidden="true" />
-                </button>
-              </header>
-              <div className="bottom-chat-log" role="log" aria-live="polite">
-                {chatLog.length ? chatLog.map((entry) => (
-                  <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
-                    <span className="bottom-chat-message-role">
-                      {entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}
-                      {entry.role === "assistant" && typeof entry.confidence === "number" && !entry.pending && (
-                        <span
-                          className={`bottom-chat-confidence-dot ${confidenceTone(entry.confidence)}`}
-                          title={confidenceTitle(entry.confidence)}
-                          aria-label={confidenceTitle(entry.confidence)}
-                        />
-                      )}
-                    </span>
-                    <ChatMessageBody entry={entry} />
-                  </article>
-                )) : (
-                  <p className="bottom-chat-empty">선택한 뉴스나 캔들에 질문하면 이곳에 기록됩니다.</p>
-                )}
-              </div>
-            </section>
+          <div className="agent-dock">
             <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
               <AgentReferenceStrip
                 chips={agentReferenceChips}
@@ -447,16 +387,6 @@ export function BottomCommandBar({
                 {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
               </button>
             </form>
-            <button
-              type="button"
-              className={`agent-log-button ${chatPanelOpen ? "is-active" : ""}`}
-              aria-label={chatPanelOpen ? "Agent log 닫기" : "Agent log 열기"}
-              title={chatPanelOpen ? "Agent log 닫기" : "Agent log 열기"}
-              aria-expanded={chatPanelOpen}
-              onClick={toggleChatPanel}
-            >
-              <MessagesSquare size={15} aria-hidden="true" />
-            </button>
           </div>
         </div>
       </nav>}
@@ -522,78 +452,6 @@ function AgentReferenceStrip({
   );
 }
 
-function ChatMessageBody({ entry }: { entry: ChatLogEntry }) {
-  if (entry.role === "assistant" && !entry.pending && entry.analysisReport?.finalAnswer) {
-    return <AgentAnalysisChatMessage report={entry.analysisReport} fallbackText={entry.text} />;
-  }
-  return (
-    <p>
-      <span className="bottom-chat-message-text">{entry.text}</span>
-      {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
-    </p>
-  );
-}
-
-function AgentAnalysisChatMessage({ report, fallbackText }: { report: AgentAnalysisReport; fallbackText: string }) {
-  const finalAnswer = report.finalAnswer;
-  if (!finalAnswer) {
-    return <p><span className="bottom-chat-message-text">{fallbackText}</span></p>;
-  }
-  const sections = finalAnswer.sections.filter((section) => section.title && section.bullets.length);
-  const visibleSections = sections.filter((section) => !isCollapsibleAnalysisSection(section.title)).slice(0, 2);
-  const collapsedSections = sections.filter((section) => isCollapsibleAnalysisSection(section.title));
-  const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url)).slice(0, 5);
-  const timingSummary = formatAgentTimingSummary(report.timing);
-
-  return (
-    <div className="agent-analysis-message">
-      <p className="agent-analysis-title">{finalAnswer.title}</p>
-      <p className="agent-analysis-summary">{finalAnswer.summary}</p>
-      {visibleSections.map((section) => <AgentAnalysisSection key={section.title} section={section} />)}
-      {collapsedSections.map((section) => <AgentAnalysisDetails key={section.title} section={section} />)}
-      {linkedCitations.length > 0 && (
-        <details className="agent-analysis-details">
-          <summary>근거 링크</summary>
-          <ul>
-            {linkedCitations.map((citation) => (
-              <li key={`${citation.title}-${citation.url}`}>
-                {citation.url ? <a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a> : citation.title}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {timingSummary && <p className="agent-analysis-timing">{timingSummary}</p>}
-    </div>
-  );
-}
-
-function AgentAnalysisSection({ section }: { section: FinalAnswerSection }) {
-  return (
-    <section className="agent-analysis-section">
-      <h4>{section.title}</h4>
-      <ul>
-        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-      </ul>
-    </section>
-  );
-}
-
-function AgentAnalysisDetails({ section }: { section: FinalAnswerSection }) {
-  return (
-    <details className="agent-analysis-details">
-      <summary>{section.title}</summary>
-      <ul>
-        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-      </ul>
-    </details>
-  );
-}
-
-function isCollapsibleAnalysisSection(title: string): boolean {
-  return ["판단 근거", "분석한 지표", "반대로 볼 점"].includes(title.trim());
-}
-
 function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean): string {
   if (!canUseAgent) {
     return "로그인 후 Agent를 사용할 수 있습니다";
@@ -652,19 +510,4 @@ function clampReminderDelay(delayMs: number): number {
     return 60_000;
   }
   return Math.max(0, Math.min(delayMs, 60 * 60_000));
-}
-
-function confidenceTone(confidence: number): "high" | "medium" | "low" {
-  if (confidence >= 0.75) {
-    return "high";
-  }
-  if (confidence >= 0.5) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceTitle(confidence: number): string {
-  const percent = Math.round(Math.max(0, Math.min(1, confidence)) * 100);
-  return `신뢰도 ${percent}%`;
 }

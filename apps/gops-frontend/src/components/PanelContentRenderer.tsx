@@ -36,6 +36,7 @@ import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
+import { QuickOrderPanel } from "./QuickOrderPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
@@ -341,6 +342,19 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "quickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <QuickOrderPanel
+        symbol={readQuickOrderSymbol(content, symbol)}
+        savedQty={readQuickOrderQty(content)}
+        symbolOptions={watchlistSymbols}
+        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+      />
+    );
+  }
+
   if (content.kind === "trade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -530,6 +544,16 @@ function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: st
 function readOrderFlowSymbol(content: PanelContentInstance): string {
   const raw = content.props?.symbol;
   return typeof raw === "string" ? raw.trim().toUpperCase() : "";
+}
+
+function readQuickOrderSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.symbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readQuickOrderQty(content: PanelContentInstance): number {
+  const raw = content.props?.qty;
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : 1;
 }
 
 function readOrderFlowWindow(content: PanelContentInstance): OrderFlowWindow {

@@ -177,6 +177,131 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
   await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "빠른 주문" })).toBeVisible();
+});
+
+test("quick order keeps analysis context ahead of explicit submit", async ({ page }) => {
+  const submittedOrders: Array<{ headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/orders" && request.method() === "POST") {
+      submittedOrders.push({ headers: request.headers(), body: request.postDataJSON() });
+    }
+  });
+  await openFixtureLayout(page, quickOrderLayout());
+  const panel = page.locator(".quick-order-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("데이터 기준")).toHaveCount(0);
+  await expect(panel.locator(".quick-order-shortcuts button")).toHaveCount(4);
+  await expect(panel.getByRole("button", { name: "매수 우위 후보가" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "매도 우위 후보가" })).toBeVisible();
+  const symbolPicker = panel.locator(".quick-order-symbol-picker");
+  await expect.poll(() => panel.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft, style.borderRadius];
+  })).toEqual(["8px", "8px", "8px", "8px", "8px"]);
+  await expect.poll(() => panel.locator(".quick-order-symbol-search").evaluate((element) => getComputedStyle(element).borderRadius)).toBe("6px");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).borderRadius)).toBe("6px");
+  await expect.poll(() => panel.locator(".quick-order-status-layer").evaluate((element) => getComputedStyle(element).position)).toBe("absolute");
+  await expect.poll(async () => {
+    const [panelBox, pickerBox] = await Promise.all([panel.boundingBox(), symbolPicker.boundingBox()]);
+    return panelBox && pickerBox ? panelBox.x + panelBox.width - pickerBox.x - pickerBox.width : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(16);
+  const selectedNvda = panel.getByRole("button", { name: /선택 종목 NVDA/ });
+  await expect.poll(async () => {
+    const [buttonBox, tickerBox] = await Promise.all([
+      selectedNvda.boundingBox(),
+      selectedNvda.locator("strong").boundingBox()
+    ]);
+    return buttonBox && tickerBox ? buttonBox.x + buttonBox.width - tickerBox.x - tickerBox.width : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(9);
+  await expect(selectedNvda).not.toContainText(/Nvidia/i);
+  await selectedNvda.click();
+  const symbolSearch = panel.getByLabel("빠른 주문 종목 검색");
+  await expect(symbolSearch).toHaveAttribute("placeholder", "종목 검색");
+  await symbolSearch.fill("Apple");
+  await expect(panel.locator(".quick-order-symbol-search")).toHaveClass(/is-searching/);
+  await expect(panel.getByRole("option", { name: /AAPL Apple/i })).toBeVisible();
+  await panel.getByRole("option", { name: /AAPL Apple/i }).click();
+  const selectedApple = panel.getByRole("button", { name: /선택 종목 AAPL/ });
+  await expect(selectedApple).toBeVisible();
+  await selectedApple.click();
+  await expect(symbolSearch).toBeVisible();
+  await symbolSearch.fill("NVDA");
+  await panel.getByRole("option", { name: /NVDA Nvidia/i }).click();
+  await expect(panel.getByRole("button", { name: /선택 종목 NVDA/ })).toBeVisible();
+  await expect(panel.getByText("직접 입력하거나 주문 가능 금액 비율을 선택하세요.")).toHaveCount(0);
+  const bestBidButton = panel.getByRole("button", { name: /최우선 매수호가/ });
+  await expect(bestBidButton).toBeEnabled();
+  await expect.poll(() => bestBidButton.locator(":scope > span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).fontSize)).toBe("32px");
+  await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Asta Sans");
+  await expect(panel.locator(".quick-order-center-metrics .quick-order-metric")).toHaveCount(2);
+  await expect.poll(() => panel.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+  await expect(panel.getByRole("button", { name: "주문 전송" })).toBeDisabled();
+
+  const bidOffsetButton = panel.getByRole("button", { name: /매수호가 - 1틱/ });
+  const askOffsetButton = panel.getByRole("button", { name: /매도호가 \+ 1틱/ });
+  const buySignalButton = panel.getByRole("button", { name: "매수 우위 후보가" });
+  const quantityEditor = panel.locator(".quick-order-quantity-editor");
+  const ratioButtons = panel.locator(".quick-order-ratio-buttons");
+  await expect.poll(async () => {
+    const [offsetBox, quantityBox] = await Promise.all([bidOffsetButton.boundingBox(), quantityEditor.boundingBox()]);
+    return offsetBox && quantityBox ? Math.abs(offsetBox.y - quantityBox.y) : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(1);
+  await expect.poll(async () => {
+    const [signalBox, ratioBox] = await Promise.all([buySignalButton.boundingBox(), ratioButtons.boundingBox()]);
+    return signalBox && ratioBox ? Math.abs(signalBox.y - ratioBox.y) : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(1);
+  await expect.poll(() => bidOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => askOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => panel.getByRole("button", { name: "매수 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => panel.getByRole("button", { name: "매도 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await bidOffsetButton.click();
+  await expect.poll(() => bidOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bidOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  await askOffsetButton.click();
+  await expect.poll(() => askOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => askOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+
+  const bestAskButton = panel.getByRole("button", { name: /최우선 매도호가/ });
+  await bestAskButton.click();
+  await expect(bestAskButton).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => bestAskButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => bestAskButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+
+  await bestBidButton.click();
+  await expect(bestBidButton).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  await expect(panel.getByText("예상 주문액")).toBeVisible();
+  const reviewCompany = panel.locator(".quick-order-review-company");
+  await expect(reviewCompany).toHaveText(/Nvidia/i);
+  await expect.poll(() => reviewCompany.evaluate((element) => getComputedStyle(element).fontSize)).toBe("20px");
+  await expect.poll(async () => {
+    const [companyBox, amountBox] = await Promise.all([reviewCompany.boundingBox(), panel.getByText("예상 주문액").boundingBox()]);
+    return companyBox && amountBox ? companyBox.y < amountBox.y : false;
+  }).toBe(true);
+  await expect(panel.locator(".quick-order-total-value")).toHaveText("$159.98");
+  await expect(panel.getByText(/체결 보장 없음|주문 가능 조회 중|실시간 호가 기준/)).toHaveCount(0);
+  await expect(panel.getByText("유효한 최우선 매수·매도호가를 기다리는 중입니다.")).toHaveCount(0);
+  await expect(panel.getByText("이전 주문의 접수 결과를 기다리는 중입니다.")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "주문 전송" })).toBeEnabled();
+
+  const qtyInput = panel.getByLabel("주문 수량 직접 입력");
+  await qtyInput.fill("7");
+  await expect(qtyInput).toHaveValue("7");
+  await expect.poll(() => storedPanelProp(page, "content-quickOrder-2", "qty")).toBe(7);
+  await expect(panel.getByText("리스크 점검 통과")).toHaveCount(0);
+
+  await panel.getByRole("button", { name: "10%" }).click();
+  await expect(qtyInput).toHaveValue("6");
+  await expect.poll(() => storedPanelProp(page, "content-quickOrder-2", "qty")).toBe(6);
+
+  await panel.getByRole("button", { name: "주문 전송" }).click();
+  await expect.poll(() => submittedOrders.length).toBe(1);
+  expect(submittedOrders[0]?.headers["idempotency-key"]).toBeTruthy();
+  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.98", order_division: "00" });
+  await expect(panel.getByText("NVDA 주문이 접수되었습니다.")).toBeVisible();
 });
 
 test("order-flow panels stay intraday-only and keep the lower canvas wheelable", async ({ page }) => {
@@ -296,6 +421,16 @@ function orderFlowInteractionLayout(): Record<string, unknown> {
   ]);
 }
 
+function quickOrderLayout(): Record<string, unknown> {
+  return storedLayout([
+    content("chart", 1, { symbol: "NVDA", timeframe: "1m" }, "visual-chart-document"),
+    content("quickOrder", 2, { symbol: "NVDA", qty: 1 })
+  ], [
+    slot("chart", 1, 1, 1, 6, 6),
+    slot("quickOrder", 2, 7, 1, 2, 2)
+  ]);
+}
+
 function storedLayout(contents: Array<Record<string, unknown>>, slots: Array<Record<string, unknown>>): Record<string, unknown> {
   return {
     version: 1,
@@ -340,6 +475,7 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
   let payload: unknown = {};
+  let status = request.method() === "DELETE" ? 204 : 200;
   if (url.pathname === "/api/auth/me") {
     payload = { authEnabled: false, user: null };
   } else if (url.pathname === "/api/charts/symbols") {
@@ -376,13 +512,20 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
     payload = orderFlowIntradayPayload(url.searchParams.get("symbol") ?? "NVDA");
   } else if (url.pathname === "/api/charts/order-flow/daily") {
     payload = orderFlowDailyPayload(url.searchParams.get("symbol") ?? "NVDA");
+  } else if (url.pathname === "/api/risk/pretrade") {
+    payload = { risk: { verdict: "allow", requestedQty: "1", adjustedQty: null, triggeredRules: [] } };
+  } else if (url.pathname === "/api/orders/balance") {
+    payload = { currency: "USD", orderable_cash: "10000.00", orderable_qty: "62" };
+  } else if (url.pathname === "/api/orders" && request.method() === "POST") {
+    status = 202;
+    payload = { order_id: "ord-quick-fixture", status: "received", symbol: "NVDA", side: "buy", qty: "2", price: "159.98", simulation: true };
   } else if (url.pathname === "/api/watchlist") {
     payload = { symbols: [] };
   } else if (url.pathname === "/api/market/heatmap") {
     payload = { items: [] };
   }
   await route.fulfill({
-    status: request.method() === "DELETE" ? 204 : 200,
+    status,
     contentType: "application/json",
     body: request.method() === "DELETE" ? "" : JSON.stringify(payload)
   });

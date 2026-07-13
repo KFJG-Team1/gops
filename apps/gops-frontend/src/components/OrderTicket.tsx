@@ -3,6 +3,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
 import {
+  makeIdempotencyKey,
+  orderWebSocketUrl,
+  parseRiskDetail,
+  type OrderSide,
+  type OrderSnapshot,
+  type OrderSocketPayload,
+  type RiskRule,
+  type RiskVerdict
+} from "../orders/orderClient";
+import {
   fetchSimulatorStatus,
   requestPortfolioRefresh,
   simulatorStatusEvent,
@@ -10,7 +20,6 @@ import {
   type SimulatorStatus
 } from "../simulator/simulatorApi";
 
-type OrderSide = "buy" | "sell";
 type OrderMarket = "overseas";
 
 type OrderFormState = {
@@ -29,50 +38,11 @@ type OrderTicketProps = {
   onSymbolOptionsRequest: (query: string) => void;
 };
 
-type OrderSnapshot = {
-  order_id: string;
-  request_id: string;
-  client_order_id: string;
-  status: string;
-  symbol?: string;
-  side?: string;
-  qty?: string;
-  price?: string;
-  reason?: string | null;
-  simulation?: boolean;
-};
-
-type OrderSocketPayload = {
-  type: "snapshot" | "update" | "error";
-  order?: OrderSnapshot;
-  detail?: string;
-};
-
 type OrderBalance = {
   currency?: string;
   exchange?: string;
   orderable_cash?: string | null;
   orderable_qty?: string | null;
-};
-
-type RiskRule = {
-  ruleId: string;
-  action: "block" | "resize" | "warn" | "info";
-  title?: string;
-  explanation: string;
-  guidance?: string;
-  numbers?: Record<string, string>;
-  suggestedQty?: string;
-  suggestedPrice?: string;
-  suggestedActionLabel?: string;
-};
-
-type RiskVerdict = {
-  verdict: "allow" | "resize" | "block";
-  requestedQty?: string;
-  adjustedQty?: string | null;
-  triggeredRules: RiskRule[];
-  skippedRules?: { ruleId: string; reason: string }[];
 };
 
 function riskVerdictLabel(risk: RiskVerdict): string {
@@ -95,16 +65,6 @@ function riskBoxTone(risk: RiskVerdict): RiskVerdict["verdict"] | "warn" {
   return risk.verdict;
 }
 
-function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
-  if (detail && typeof detail === "object" && "risk" in detail) {
-    const risk = (detail as { risk?: unknown }).risk;
-    if (risk && typeof risk === "object" && "verdict" in risk) {
-      return risk as RiskVerdict;
-    }
-  }
-  return undefined;
-}
-
 const DEFAULT_FORM: OrderFormState = {
   market: "overseas",
   symbol: "AAPL",
@@ -123,18 +83,6 @@ const sideLabels: Record<OrderSide, string> = {
   buy: "매수",
   sell: "매도"
 };
-
-function makeIdempotencyKey() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function websocketUrl(orderId: string) {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/orders/${orderId}`;
-}
 
 function orderStatusLabel(status?: string): string {
   switch (status?.toLowerCase()) {
@@ -531,7 +479,7 @@ export function OrderTicket({
 
   const connectSocket = (orderId: string) => {
     socketRef.current?.close();
-    const socket = new WebSocket(websocketUrl(orderId));
+    const socket = new WebSocket(orderWebSocketUrl(orderId));
     socketRef.current = socket;
 
     socket.onerror = () => {

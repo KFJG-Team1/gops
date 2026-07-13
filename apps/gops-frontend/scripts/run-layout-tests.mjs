@@ -14,6 +14,14 @@ const testCases = [
   {
     entry: new URL("../tests/tiledAgentLayout.test.ts", import.meta.url),
     outfile: new URL("../.tmp/tiled-agent-layout-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/wildPanel.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/wild-panel-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/agentHeaderNotice.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/agent-header-notice-test.mjs", import.meta.url)
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
