@@ -17,6 +17,7 @@ import {
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
+import { defaultChartAssetBuildIntervals } from "../chart/chartAssetBuildPolicy";
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
@@ -35,7 +36,7 @@ export function ChartAssetOpsPanel({
 }) {
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
-  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
+  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(() => defaultChartAssetBuildIntervals(currentInterval));
   const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
   const [job, setJob] = useState<ChartAssetBuildStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -150,10 +151,12 @@ export function ChartAssetOpsPanel({
     setError(null);
     setJob(null);
     try {
-      setAccepted(await submitChartAssetBuild({
+      const result = await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
         intervals
-      }));
+      });
+      setAccepted(result);
+      setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
     }
@@ -194,6 +197,8 @@ export function ChartAssetOpsPanel({
           {allIntervals.map((interval) => (
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
+          <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>현재 주기만</button>
+          <button type="button" onClick={() => setIntervals(allIntervals)}>전체 주기</button>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
@@ -206,7 +211,7 @@ export function ChartAssetOpsPanel({
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
