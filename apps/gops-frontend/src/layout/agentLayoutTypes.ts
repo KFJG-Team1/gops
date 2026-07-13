@@ -29,6 +29,7 @@ export type AgentLayoutPanelType =
   | "portfolioDividend"
   | "portfolioDiversification"
   | "portfolioHeatmap"
+  | "aiCoach"
   | "orderFlowProfile"
   | "chartCommentary"
   | "chartAssetOps"

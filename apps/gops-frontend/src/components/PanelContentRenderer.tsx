@@ -25,6 +25,7 @@ import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./C
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
+import { AiInvestmentCoachPanel } from "./AiInvestmentCoachPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -344,6 +345,10 @@ export function PanelContentRenderer({
         }}
       />
     );
+  }
+
+  if (content.kind === "aiCoach") {
+    return <AiInvestmentCoachPanel />;
   }
 
   if (content.kind === "orderFlow") {

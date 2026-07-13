@@ -38,6 +38,7 @@ export type PanelContentKind =
   | "portfolioHoldings"
   | "portfolioHoldingsCards"
   | "portfolioHoldingsFlatCards"
+  | "aiCoach"
   | "orderFlow"
   | "chartCommentary"
   | "chartAssetOps"

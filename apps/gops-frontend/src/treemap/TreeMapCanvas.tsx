@@ -16,6 +16,7 @@ import { applyCanvasTypography, CANVAS_FONT_FAMILY, nearestTypeRole, TYPE_ROLE }
 
 type TreeMapCanvasProps = {
   items: Sp500UniverseItem[];
+  opacityDomain?: Array<number | undefined>;
   onSelectSymbol?: (symbol: string) => void;
   onHoverTileChange?: (tile: TreeMapTile | null) => void;
   highlightedSymbol?: string;
@@ -23,6 +24,7 @@ type TreeMapCanvasProps = {
   style?: CSSProperties;
   className?: string;
   interactive?: boolean;
+  compact?: boolean;
 };
 
 type CanvasSize = {
@@ -61,17 +63,20 @@ const categoryDividerLineWidth = tileGap * 2;
 type TreeMapHoverPanelModel = {
   panel: TreeMapRect;
   rows: TreeMapTile[];
+  compact: boolean;
 };
 
 export function TreeMapCanvas({
   items,
+  opacityDomain,
   onSelectSymbol,
   onHoverTileChange,
   highlightedSymbol,
   ariaLabel = "S&P 500 TreeMap",
   style,
   className,
-  interactive = true
+  interactive = true,
+  compact = false
 }: TreeMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tilesRef = useRef<TreeMapTile[]>([]);
@@ -99,10 +104,13 @@ export function TreeMapCanvas({
     width: Math.max(1, size.width - canvasPadding * 2),
     height: Math.max(1, size.height - canvasPadding * 2)
   }), [inputItems, size.height, size.width]);
-  const opacityScale = useMemo(() => createTreeMapOpacityScale(inputItems.map((item) => item.changePercent)), [inputItems]);
+  const opacityScale = useMemo(
+    () => createTreeMapOpacityScale(opacityDomain ?? inputItems.map((item) => item.changePercent)),
+    [inputItems, opacityDomain]
+  );
   const hoverPanel = useMemo(
-    () => buildHoverPanelModel(hoverState, tiles),
-    [hoverState, tiles]
+    () => buildHoverPanelModel(hoverState, tiles, compact),
+    [compact, hoverState, tiles]
   );
 
   useEffect(() => {
@@ -218,7 +226,7 @@ function TreeMapHoverPanel({ model, hoveredTile }: { model: TreeMapHoverPanelMod
 
   return (
     <aside
-      className="treemap-hover-panel"
+      className={`treemap-hover-panel${model.compact ? " is-compact" : ""}`}
       style={{
         left: model.panel.x,
         top: model.panel.y,
@@ -236,7 +244,7 @@ function TreeMapHoverPanel({ model, hoveredTile }: { model: TreeMapHoverPanelMod
         <div className="treemap-hover-featured-company">{hoveredTile.companyName || ""}</div>
         {detailText ? <div className="treemap-hover-featured-detail">{detailText}</div> : null}
       </div>
-      <div className="treemap-hover-rows">
+      {model.rows.length ? <div className="treemap-hover-rows">
         {model.rows.map((tile) => (
           <div
             key={tile.id}
@@ -250,7 +258,7 @@ function TreeMapHoverPanel({ model, hoveredTile }: { model: TreeMapHoverPanelMod
             </span>
           </div>
         ))}
-      </div>
+      </div> : null}
     </aside>
   );
 }
@@ -452,7 +460,8 @@ function categoryHighlightBounds(
 
 function buildHoverPanelModel(
   hoverState: TreeMapHoverState | null,
-  tiles: TreeMapTile[]
+  tiles: TreeMapTile[],
+  forceCompact: boolean
 ): TreeMapHoverPanelModel | null {
   if (!hoverState) {
     return null;
@@ -467,6 +476,7 @@ function buildHoverPanelModel(
     return null;
   }
 
+  const compact = forceCompact || panelSpace.width < 680 || panelSpace.height < 420;
   const symbolTiles = tiles.filter((tile) => tile.kind === "symbol");
   const industryTile = tiles.find((tile) => tile.kind === "industry" && tile.id === hoverState.tile.parentId);
   const categoryTiles = hoverCategorySymbolTiles(symbolTiles, industryTile, hoverState.tile);
@@ -474,11 +484,15 @@ function buildHoverPanelModel(
     (availableHeight - hoverPanelHeaderHeight - hoverPanelFeaturedHeight - hoverPanelVerticalPadding) / hoverPanelRowHeight
   );
   const maxRows = Math.max(2, Math.min(hoverPanelMaxRows, maxRowsByHeight));
-  const rows = hoverRowsForCategory(categoryTiles, hoverState.tile, maxRows);
-  const panelWidth = Math.min(clamp(panelSpace.width * 0.35, 320, 440), availableWidth);
-  const panelHeight = hoverPanelHeaderHeight + hoverPanelFeaturedHeight + rows.length * hoverPanelRowHeight + hoverPanelVerticalPadding;
+  const rows = compact ? [] : hoverRowsForCategory(categoryTiles, hoverState.tile, maxRows);
+  const panelWidth = compact
+    ? Math.min(clamp(panelSpace.width * 0.58, 210, 280), availableWidth)
+    : Math.min(clamp(panelSpace.width * 0.35, 320, 440), availableWidth);
+  const panelHeight = compact
+    ? 26 + 68
+    : hoverPanelHeaderHeight + hoverPanelFeaturedHeight + rows.length * hoverPanelRowHeight + hoverPanelVerticalPadding;
   const panel = positionHoverPanel(panelSpace, hoverState.panelX, hoverState.panelY, panelWidth, panelHeight);
-  return { panel, rows };
+  return { panel, rows, compact };
 }
 
 function hoverCategorySymbolTiles(
