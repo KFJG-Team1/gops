@@ -83,6 +83,7 @@ import {
   hitTestDrawing,
   isValidRiskRewardAnchors,
   makeDrawing,
+  nearestDrawingLineWidthStage,
   normalizeParallelLineCount,
   sourceIntervalForDrawingAnchors,
   type DrawingDraft,
@@ -2659,6 +2660,15 @@ export function ChartDrawingDock({
     });
     setOpenDrawingMenu(null);
   };
+  const updateSelectedDrawingLineWidth = (lineWidth: 1 | 2 | 3) => {
+    if (!selectedDrawing) {
+      return;
+    }
+    dispatchCommand("chart.drawing.update", {
+      drawingId: selectedDrawing.id,
+      drawingPatch: { style: { lineWidth } }
+    });
+  };
   const removeSelectedDrawing = () => {
     if (selectedDrawing) {
       dispatchCommand("chart.drawing.remove", { drawingId: selectedDrawing.id });
@@ -2697,6 +2707,7 @@ export function ChartDrawingDock({
   };
 
   const selectedColorToken = normalizeDrawingPaletteToken(selectedDrawing?.style.colorToken);
+  const selectedLineWidthStage = nearestDrawingLineWidthStage(selectedDrawing?.style.lineWidth);
 
   const horizontalLabel = horizontalToolMode === "draw-horizontalParallelLines" ? "가격 평행선" : "수평선";
   const verticalLabel = verticalToolMode === "draw-verticalParallelLines" ? "세로 평행선" : "세로선";
@@ -2757,6 +2768,28 @@ export function ChartDrawingDock({
               </button>
             );
           })}
+          <div className="chart-drawing-width-divider" aria-hidden="true" />
+          <div className="chart-drawing-width-options" role="group" aria-label="선 두께">
+            {([1, 2, 3] as const).map((lineWidth) => {
+              const active = selectedLineWidthStage === lineWidth;
+              return (
+                <button
+                  key={`width-${lineWidth}`}
+                  type="button"
+                  className={active ? "active" : ""}
+                  aria-label={`선 두께 ${lineWidth}`}
+                  aria-pressed={active}
+                  onClick={() => updateSelectedDrawingLineWidth(lineWidth)}
+                >
+                  <span
+                    className="chart-drawing-width-sample"
+                    style={{ height: lineWidth }}
+                    aria-hidden="true"
+                  />
+                </button>
+              );
+            })}
+          </div>
         </div>,
         window.document.body
       )

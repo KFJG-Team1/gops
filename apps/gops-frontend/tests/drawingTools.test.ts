@@ -24,6 +24,7 @@ import {
   drawingLabelLayout,
   drawingLabelPosition,
   hitTestDrawing,
+  nearestDrawingLineWidthStage,
   parallelBandsForDrawing,
   parallelLinesForDrawing,
   rangeResizeHandles,
@@ -78,6 +79,71 @@ const legacySnapshot = snapshotChartDocument(legacySnapshotSource);
 delete (legacySnapshot.interactionState as { parallelLineCount?: number }).parallelLineCount;
 const restoredLegacyDocument = restoreChartDocumentSnapshot(legacySnapshotSource, legacySnapshot);
 assert.equal(restoredLegacyDocument.interactionState.parallelLineCount, 3);
+
+assert.equal(nearestDrawingLineWidthStage(undefined), 1);
+assert.equal(nearestDrawingLineWidthStage(1.49), 1);
+assert.equal(nearestDrawingLineWidthStage(1.5), 2);
+assert.equal(nearestDrawingLineWidthStage(2.25), 2);
+assert.equal(nearestDrawingLineWidthStage(2.5), 3);
+
+const lineWidthDocument = createChartDocument("drawing-line-width-document", "AAPL", "1m");
+const lineWidthAdd = executeChartCommand(
+  lineWidthDocument,
+  makeChartCommand("chart.drawing.add", "user", chartTarget(lineWidthDocument.id), {
+    drawingType: "horizontalLine",
+    anchors: [drawingAnchor(1, 104)],
+    style: { colorToken: "drawing", lineWidth: 1.5 }
+  })
+);
+assert.equal(lineWidthAdd.ok, true);
+if (!lineWidthAdd.ok) {
+  assert.fail(lineWidthAdd.message);
+}
+const persistedLineWidthSnapshot = JSON.parse(
+  JSON.stringify(snapshotChartDocument(lineWidthAdd.document))
+) as ReturnType<typeof snapshotChartDocument>;
+const loadedOnePointFive = restoreChartDocumentSnapshot(lineWidthAdd.document, persistedLineWidthSnapshot);
+assert.equal(loadedOnePointFive.drawings[0]?.style.lineWidth, 1.5);
+persistedLineWidthSnapshot.drawings[0].style.lineWidth = 2.25;
+const loadedTwoPointTwoFive = restoreChartDocumentSnapshot(lineWidthAdd.document, persistedLineWidthSnapshot);
+assert.equal(loadedTwoPointTwoFive.drawings[0]?.style.lineWidth, 2.25);
+assert.equal(nearestDrawingLineWidthStage(loadedTwoPointTwoFive.drawings[0]?.style.lineWidth), 2);
+
+const lineWidthUpdate = executeChartCommand(
+  loadedTwoPointTwoFive,
+  makeChartCommand("chart.drawing.update", "user", chartTarget(lineWidthDocument.id), {
+    drawingId: loadedTwoPointTwoFive.drawings[0]?.id,
+    drawingPatch: { style: { lineWidth: 3 } }
+  })
+);
+assert.equal(lineWidthUpdate.ok, true);
+if (!lineWidthUpdate.ok) {
+  assert.fail(lineWidthUpdate.message);
+}
+assert.equal(lineWidthUpdate.document.drawings[0]?.style.lineWidth, 3);
+const undoLineWidth = executeChartCommand(
+  lineWidthUpdate.document,
+  makeChartCommand("chart.undo", "user", chartTarget(lineWidthDocument.id))
+);
+assert.equal(undoLineWidth.ok, true);
+if (!undoLineWidth.ok) {
+  assert.fail(undoLineWidth.message);
+}
+assert.equal(undoLineWidth.document.drawings[0]?.style.lineWidth, 2.25);
+const redoLineWidth = executeChartCommand(
+  undoLineWidth.document,
+  makeChartCommand("chart.redo", "user", chartTarget(lineWidthDocument.id))
+);
+assert.equal(redoLineWidth.ok, true);
+if (!redoLineWidth.ok) {
+  assert.fail(redoLineWidth.message);
+}
+assert.equal(redoLineWidth.document.drawings[0]?.style.lineWidth, 3);
+const reloadedLineWidth = restoreChartDocumentSnapshot(
+  redoLineWidth.document,
+  JSON.parse(JSON.stringify(snapshotChartDocument(redoLineWidth.document))) as ReturnType<typeof snapshotChartDocument>
+);
+assert.equal(reloadedLineWidth.drawings[0]?.style.lineWidth, 3);
 
 for (let lineCount = 2; lineCount <= 10; lineCount += 1) {
   const drawing = { type: "trendParallelLines" as const, parallelLineCount: lineCount };
