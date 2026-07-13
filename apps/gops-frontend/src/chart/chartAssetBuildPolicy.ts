@@ -1,10 +1,6 @@
-import type { AnalysisAssetInterval } from "./analysisAssetsApi";
 import type { ChartInterval } from "./types";
+import type { AnalysisAssetInterval } from "./analysisAssetsApi";
 
-const supportedIntervals = new Set<ChartInterval>(["1m", "5m", "10m", "1h", "4h", "1D", "1W"]);
-
-export function defaultChartAssetBuildIntervals(currentInterval: ChartInterval): AnalysisAssetInterval[] {
-  return supportedIntervals.has(currentInterval)
-    ? [currentInterval as AnalysisAssetInterval]
-    : ["1D"];
+export function defaultChartAssetBuildIntervals(_currentInterval: ChartInterval): AnalysisAssetInterval[] {
+  return ["1m", "1D"];
 }

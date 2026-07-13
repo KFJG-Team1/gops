@@ -21,7 +21,8 @@ import { defaultChartAssetBuildIntervals } from "../chart/chartAssetBuildPolicy"
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const assetIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const buildIntervals: AnalysisAssetInterval[] = ["1m", "1D"];
 
 export function ChartAssetOpsPanel({
   currentSymbol,
@@ -194,11 +195,10 @@ export function ChartAssetOpsPanel({
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
         </div>
         <div className="chart-asset-ops-options">
-          {allIntervals.map((interval) => (
+          {buildIntervals.map((interval) => (
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
-          <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>현재 주기만</button>
-          <button type="button" onClick={() => setIntervals(allIntervals)}>전체 주기</button>
+          <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>1m·1D 선택</button>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
@@ -290,7 +290,7 @@ function coverageStatus(item: ChartAssetCoverageItem): string {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return allIntervals.includes(interval as AnalysisAssetInterval);
+  return assetIntervals.includes(interval as AnalysisAssetInterval);
 }
 
 function patternKindLabel(kind: string): string {
