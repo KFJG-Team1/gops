@@ -110,12 +110,13 @@ assert.deepEqual(defaultChartAssetBuildIntervals("1D"), ["1m", "1D"]);
 assert.deepEqual(defaultChartAssetBuildIntervals("1M"), ["1m", "1D"]);
 
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
+const presentationSource = readFileSync(fileURLToPath(new URL("../src/chart/analysisAssetPresentation.ts", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.match(opsSource, /\["1m", "1D"\]/);
 assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /SMA120/);
-assert.match(opsSource, /상승 페넌트/);
+assert.match(presentationSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");

@@ -9,7 +9,7 @@ import {
   type ChartAssetBuildStatus,
   type ChartAssetCoverageItem
 } from "../chart/assetBuildApi";
-import { analysisAssetPresentationDiagnostics, detectedPatternSummary } from "../chart/analysisAssetPresentation";
+import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatDetectedPattern } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   invalidateAnalysisAssets,
@@ -236,7 +236,7 @@ export function ChartAssetOpsPanel({
             {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
             {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}
             {currentPattern && (
-              <p>감지 패턴 {patternKindLabel(currentPattern.kind)} · {currentPattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
+              <p>감지 패턴 {formatDetectedPattern(currentPattern)} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
             )}
             {Object.keys(currentDiagnostics.rejectionReasons).length > 0 && (
               <p>제외 사유 {Object.entries(currentDiagnostics.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>
@@ -251,12 +251,13 @@ export function ChartAssetOpsPanel({
         <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
         <div className="chart-asset-ops-table-wrap">
           <table>
-            <thead><tr><th>심볼</th><th>주기</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
+            <thead><tr><th>심볼</th><th>주기</th><th>감지 패턴</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
             <tbody>{coverage.map((item) => {
               const key = `${item.symbol}-${item.interval}`;
               return <tr key={key}>
                 <td>{item.symbol}</td>
                 <td>{item.interval}</td>
+                <td>{formatDetectedPattern(item.primaryPattern)}{item.primaryPattern ? ` · 점수 ${item.primaryPattern.score.toFixed(2)}` : ""}</td>
                 <td>{coverageStatus(item)}</td>
                 <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
                 <td>{formatGeneratedAt(item.generatedAt)}</td>
@@ -291,24 +292,6 @@ function coverageStatus(item: ChartAssetCoverageItem): string {
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
   return assetIntervals.includes(interval as AnalysisAssetInterval);
-}
-
-function patternKindLabel(kind: string): string {
-  return {
-    ascending_triangle: "상승 삼각형",
-    descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형",
-    bullish_flag: "상승 깃발형",
-    bearish_flag: "하락 깃발형",
-    bullish_pennant: "상승 페넌트",
-    bearish_pennant: "하락 페넌트",
-    bullish_rectangle: "상승 직사각형",
-    bearish_rectangle: "하락 직사각형",
-    rising_wedge: "상승 쐐기",
-    falling_wedge: "하락 쐐기",
-    descending_channel_breakout: "하락 채널 상단 돌파",
-    ascending_channel_breakdown: "상승 채널 하단 이탈"
-  }[kind] ?? kind;
 }
 
 function formatNumber(value: number | null): string {

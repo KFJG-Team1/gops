@@ -15,6 +15,22 @@ export type AnalysisAssetPresentationDiagnostics = {
 };
 export type DetectedPatternSummary = { kind: string; state: "forming" | "confirmed"; score: number; drawingCount: number };
 
+const patternKindLabels: Record<string, string> = {
+  ascending_triangle: "상승 삼각형",
+  descending_triangle: "하락 삼각형",
+  symmetrical_triangle: "대칭 삼각형",
+  bullish_flag: "상승 깃발형",
+  bearish_flag: "하락 깃발형",
+  bullish_pennant: "상승 페넌트",
+  bearish_pennant: "하락 페넌트",
+  bullish_rectangle: "상승 직사각형",
+  bearish_rectangle: "하락 직사각형",
+  rising_wedge: "상승 쐐기",
+  falling_wedge: "하락 쐐기",
+  descending_channel_breakout: "하락 채널 상단 돌파",
+  ascending_channel_breakdown: "상승 채널 하단 이탈"
+};
+
 const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
 });
@@ -42,6 +58,17 @@ export function detectedPatternSummary(asset: ChartAnalysisAsset | null): Detect
   if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
   const drawingCount = geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash)).length;
   return { kind: pattern.kind, state: pattern.state, score: pattern.score, drawingCount };
+}
+
+export function formatDetectedPattern(pattern: { kind: string; state: string } | null | undefined): string {
+  if (!pattern) return "감지 없음";
+  const state = {
+    forming: "형성 중",
+    confirmed: "돌파 확인",
+    inactive: "비활성",
+    invalidated: "무효화"
+  }[pattern.state] ?? pattern.state;
+  return `${patternKindLabels[pattern.kind] ?? pattern.kind} · ${state}`;
 }
 
 export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetVersion?: string, interval?: AnalysisAssetInterval): boolean {
