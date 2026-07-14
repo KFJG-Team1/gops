@@ -76,16 +76,43 @@
         "state": {"enum": ["forming", "confirmed", "inactive", "invalidated"]},
         "bias": {"enum": ["bullish", "bearish", "neutral"]},
         "breakoutDirection": {"enum": ["up", "down", null]},
+        "breakoutAt": {"type": ["string", "null"], "format": "date-time"},
+        "confirmedAt": {"type": ["string", "null"], "format": "date-time"},
+        "confirmationMethod": {"enum": ["volume", "hold", null]},
+        "volumeRatio": {"type": "number", "minimum": 0},
         "score": {"type": "number", "minimum": 0, "maximum": 1},
         "geometryHash": {"type": "string"}
+      }
+    },
+    "confirmationCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "boundary", "boundaryPrice", "triggerPrice", "bufferAtr", "rule"],
+      "properties": {
+        "direction": {"enum": ["up", "down"]},
+        "boundary": {"enum": ["upper", "lower"]},
+        "boundaryPrice": {"type": "number"},
+        "triggerPrice": {"type": "number"},
+        "bufferAtr": {"type": "number", "minimum": 0},
+        "rule": {"enum": ["completed_close_above", "completed_close_below"]}
       }
     },
     "tradePlan": {
       "type": "object",
       "additionalProperties": false,
       "required": ["version", "symbol", "interval", "patternId", "patternKind", "patternState", "action", "direction", "signalAt", "entryTrigger", "entryPrice", "stopPrice", "targetPrice", "riskPerShare", "rewardPerShare", "rewardRiskRatio", "minimumRewardRisk", "projectionBars", "reasons"],
+      "allOf": [
+        {
+          "if": {"properties": {"version": {"const": "pattern-trade-timing-v2"}}},
+          "then": {"required": ["confirmationConditions"]}
+        },
+        {
+          "if": {"properties": {"version": {"const": "pattern-trade-timing-v3"}}},
+          "then": {"required": ["confirmationConditions", "phase", "confirmationEvidence", "entryPlan", "stopPlan", "targets", "retest"]}
+        }
+      ],
       "properties": {
-        "version": {"const": "pattern-trade-timing-v1"},
+        "version": {"enum": ["pattern-trade-timing-v1", "pattern-trade-timing-v2", "pattern-trade-timing-v3"]},
         "symbol": {"type": ["string", "null"]},
         "interval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]},
         "patternId": {"type": "string", "minLength": 1},
@@ -93,8 +120,15 @@
         "patternState": {"type": "string", "minLength": 1},
         "action": {"enum": ["watch", "buy_candidate", "sell_candidate", "short_candidate", "no_trade"]},
         "direction": {"enum": ["long", "exit_long", "short", null]},
+        "phase": {"enum": ["forming", "confirmation_pending", "confirmed", "retest_confirmed", "t1_reached", "t2_reached", "invalidated", "expired"]},
         "signalAt": {"type": ["string", "null"], "format": "date-time"},
         "entryTrigger": {"type": ["number", "null"]},
+        "confirmationConditions": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/confirmationCondition"}},
+        "confirmationEvidence": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/confirmationEvidence"}]},
+        "entryPlan": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/entryPlan"}]},
+        "stopPlan": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/stopPlan"}]},
+        "targets": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/tradeTarget"}},
+        "retest": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/retest"}]},
         "entryPrice": {"type": ["number", "null"]},
         "stopPrice": {"type": ["number", "null"]},
         "targetPrice": {"type": ["number", "null"]},
@@ -104,6 +138,68 @@
         "minimumRewardRisk": {"type": "number", "minimum": 0},
         "projectionBars": {"type": "integer", "minimum": 1},
         "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "confirmationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "boundaryPrice", "triggerPrice", "breakoutAt", "confirmedAt", "method", "volumeRatio", "requiredVolumeRatio", "holdBars"],
+      "properties": {
+        "direction": {"enum": ["up", "down"]},
+        "boundaryPrice": {"type": "number"},
+        "triggerPrice": {"type": "number"},
+        "breakoutAt": {"type": "string", "format": "date-time"},
+        "confirmedAt": {"type": ["string", "null"], "format": "date-time"},
+        "method": {"enum": ["volume", "hold", null]},
+        "volumeRatio": {"type": "number", "minimum": 0},
+        "requiredVolumeRatio": {"type": "number", "minimum": 0},
+        "holdBars": {"type": "integer", "minimum": 1}
+      }
+    },
+    "entryPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "at", "price"],
+      "properties": {
+        "mode": {"enum": ["confirmation_close", "retest_close"]},
+        "at": {"type": "string", "format": "date-time"},
+        "price": {"type": "number"}
+      }
+    },
+    "stopPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initialPrice", "activePrice", "basis", "bufferAtr"],
+      "properties": {
+        "initialPrice": {"type": "number"},
+        "activePrice": {"type": "number"},
+        "basis": {"enum": ["pattern_structure", "breakout_boundary_atr", "retest_swing_atr"]},
+        "bufferAtr": {"type": "number", "minimum": 0}
+      }
+    },
+    "tradeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "price", "basis", "allocationPercent", "rMultiple"],
+      "properties": {
+        "id": {"enum": ["T1", "T2"]},
+        "price": {"type": "number"},
+        "basis": {"enum": ["one_r", "nearest_opposing_level", "measured_move"]},
+        "allocationPercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "rMultiple": {"type": "number", "minimum": 0}
+      }
+    },
+    "retest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "at", "zoneLow", "zoneHigh", "observedBars", "maxBars"],
+      "properties": {
+        "state": {"enum": ["pending", "confirmed", "expired"]},
+        "at": {"type": ["string", "null"], "format": "date-time"},
+        "zoneLow": {"type": ["number", "null"]},
+        "zoneHigh": {"type": ["number", "null"]},
+        "observedBars": {"type": "integer", "minimum": 0},
+        "maxBars": {"type": "integer", "minimum": 1}
       }
     },
     "triangle": {

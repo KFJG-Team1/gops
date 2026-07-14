@@ -365,6 +365,7 @@ export type ChartToolMode =
   | "draw-flagMarker"
   | "draw-rangeBox"
   | "draw-riskRewardBox"
+  | "draw-tradePlanBox"
   | "draw-fibonacciRetracement";
 
 export type DrawingType =
@@ -379,6 +380,7 @@ export type DrawingType =
   | "flagMarker"
   | "rangeBox"
   | "riskRewardBox"
+  | "tradePlanBox"
   | "fibonacciRetracement";
 
 export type DrawingAnchor = {

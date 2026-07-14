@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
+import type { AnalysisLayerVisibility } from "../chart/analysisLayerController";
+import { buildTradeScenarioPresentation } from "../chart/tradeScenarioPresentation";
 import type { CandleDto, ChartInterval } from "../chart/types";
 
-export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: {
+export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds, analysisLayerVisibility }: {
   symbol: string;
   interval: ChartInterval;
   candles: CandleDto[];
   drawingIds: string[];
+  analysisLayerVisibility: AnalysisLayerVisibility;
 }) {
   const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
   const [revision, setRevision] = useState(0);
@@ -36,6 +39,7 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
 
   const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
   const pattern = detectedPatternSummary(asset);
+  const scenario = buildTradeScenarioPresentation(asset);
   const focusDrawing = (ids: string[]) => window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
     detail: { symbol: normalizedSymbol, interval, drawingIds: ids }
   }));
@@ -46,23 +50,49 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
         <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
         <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
       </header>
-      <h3 className="chart-commentary-headline">Geometry 분석</h3>
-      <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
-      {pattern && (
-        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
-          {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
-        </button>
-      )}
-      <section className="chart-commentary-levels" aria-label="핵심 레벨">
-        <h3>핵심 레벨</h3>
+      <h3 className="chart-commentary-headline">작도 기반 대응 시나리오</h3>
+      <section className="chart-commentary-card is-interpretation" aria-label="현재 해석">
+        <header><span>현재 해석</span>{pattern && <strong>품질 {pattern.score.toFixed(2)}</strong>}</header>
+        {pattern ? (
+          <button className="chart-commentary-pattern" type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
+            {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"}
+          </button>
+        ) : <p>현재 활성 패턴이 없습니다.</p>}
+        <p>지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
         <ul>
           {[...asset.geometry.supports, ...asset.geometry.resistances].map((level) => (
             <li key={level.id}>{level.role === "support" ? "지지" : "저항"} {level.price.toFixed(2)} · 접촉 {level.touches}회</li>
           ))}
         </ul>
       </section>
-      <p className="chart-commentary-text">SMA60 {formatValue(asset.indicators.sma60)} · SMA120 {formatValue(asset.indicators.sma120)} · {crossName(asset.indicators.cross.direction)}</p>
-      {diagnostics.stale && <p className="chart-commentary-invalidation">새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다.</p>}
+      {analysisLayerVisibility.scenario && scenario?.available && scenario.responseTitle && (
+        <section className="chart-commentary-card is-scenario" aria-label="대응 시나리오">
+          <header><span>대응 시나리오</span><strong>{scenario.stateLabel}</strong></header>
+          <h4>{scenario.responseTitle}</h4>
+          {scenario.confirmationSummary && <p>{scenario.confirmationSummary}</p>}
+          {scenario.responseDetail && <p>{scenario.responseDetail}</p>}
+          {scenario.responseItems.length > 0 && (
+            <ul>{scenario.responseItems.map((item) => <li key={item}>{item}</li>)}</ul>
+          )}
+          {scenario.conditionLabels.length > 0 && (
+            <ul className="chart-commentary-conditions">
+              {scenario.conditionLabels.map((condition) => <li key={condition}>{condition}</li>)}
+            </ul>
+          )}
+        </section>
+      )}
+      {analysisLayerVisibility.scenario && scenario?.available && scenario.invalidation && (
+        <section className="chart-commentary-card is-invalidation" aria-label="무효화 조건">
+          <header><span>무효화 조건</span></header>
+          <p>{scenario.invalidation}</p>
+        </section>
+      )}
+      <section className="chart-commentary-card is-quality" aria-label="분석 품질">
+        <header><span>분석 품질</span><strong>{asset.coverage.state}</strong></header>
+        <p>{interval} · 기준 {formatAnalysisAssetAsOf(asset.asOf)} · {diagnostics.stale ? "이전 분석" : "최신 완료 봉 기준"}</p>
+        <p>SMA60 {formatValue(asset.indicators.sma60)} · SMA120 {formatValue(asset.indicators.sma120)} · {crossName(asset.indicators.cross.direction)}</p>
+        {diagnostics.stale && <p className="chart-commentary-invalidation">새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다.</p>}
+      </section>
     </article>
   );
 }

@@ -1,5 +1,5 @@
 import type { ChartCommandType, ChartToolMode, DrawingEntity, DrawingType } from "./types";
-import { riskRewardDirection } from "./drawingGeometry";
+import { riskRewardDirection, tradePlanDirection } from "./drawingGeometry";
 
 export type DrawingDefinition = {
   type: DrawingType;
@@ -27,6 +27,7 @@ export const drawingRegistry: Record<DrawingType, DrawingDefinition> = {
   rangeBox: { type: "rangeBox", label: "Range", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   ellipse: { type: "ellipse", label: "Ellipse", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" },
   riskRewardBox: { type: "riskRewardBox", label: "Risk", minAnchors: 3, maxAnchors: 3, commandType: "chart.drawing.add" },
+  tradePlanBox: { type: "tradePlanBox", label: "Trade Plan", minAnchors: 4, maxAnchors: 4, commandType: "chart.drawing.add" },
   fibonacciRetracement: { type: "fibonacciRetracement", label: "Fibo", minAnchors: 2, maxAnchors: 2, commandType: "chart.drawing.add" }
 };
 
@@ -43,6 +44,7 @@ export const chartToolRegistry: ChartToolDefinition[] = [
   { id: "draw-flagMarker", label: "Flag", drawingType: "flagMarker" },
   { id: "draw-rangeBox", label: "Range", drawingType: "rangeBox" },
   { id: "draw-riskRewardBox", label: "Risk/Reward", drawingType: "riskRewardBox" },
+  { id: "draw-tradePlanBox", label: "Trade Plan", drawingType: "tradePlanBox" },
   { id: "draw-fibonacciRetracement", label: "Fibonacci", drawingType: "fibonacciRetracement" }
 ];
 
@@ -106,6 +108,13 @@ export function isSupportedDrawing(entity: DrawingEntity): boolean {
     return entity.anchors.every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor)) &&
       prices.every((price): price is number => typeof price === "number") &&
       riskRewardDirection(prices[0], prices[1], prices[2]) !== null;
+  }
+  if (entity.type === "tradePlanBox") {
+    const [entry, stop, targetOne, targetTwo] = entity.anchors;
+    const prices = [entry?.price ?? entry?.value, stop?.price ?? stop?.value, targetOne?.price ?? targetOne?.value, targetTwo?.price ?? targetTwo?.value];
+    return entity.anchors.every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor)) &&
+      prices.every((price): price is number => typeof price === "number") &&
+      tradePlanDirection(prices[0], prices[1], prices[2], prices[3]) !== null;
   }
   return entity.anchors.every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor));
 }

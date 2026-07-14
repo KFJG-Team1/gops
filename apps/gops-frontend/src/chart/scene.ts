@@ -51,6 +51,9 @@ function priceAxisWidthForChart(chart: ChartState): number {
       maxPrice = candle.high;
     }
   }
+  for (const price of scenarioDrawingDomainValues(chart)) {
+    if (price > maxPrice) maxPrice = price;
+  }
   if (maxPrice <= 0) {
     maxPrice = chart.candles[chart.candles.length - 1]?.close ?? 0;
   }
@@ -735,8 +738,16 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), candleUnits))
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
+    .concat(scenarioDrawingDomainValues(chart))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return priceDomainFromValues(values, plotHeight);
+}
+
+export function scenarioDrawingDomainValues(chart: Pick<ChartState, "drawings">): number[] {
+  return chart.drawings
+    .filter((drawing) => drawing.visible !== false && drawing.sourceProposalId?.includes(":trade-timing") === true)
+    .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.price))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 function priceDomainFromValues(source: Array<number | undefined>, plotHeight: number): { min: number; max: number; ticks: number[] } {

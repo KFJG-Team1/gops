@@ -14,8 +14,10 @@ import {
 import {
   buildFibonacciLevelGeometry,
   buildRiskRewardGeometry,
+  buildTradePlanGeometry,
   fibonacciBandPolygons,
   riskRewardDirection,
+  tradePlanDirection,
   trendParallelBaseLineIndex
 } from "@gops/chart-engine";
 import { resolveDrawingRenderItems, type DrawingRenderItem } from "./drawingProjection";
@@ -1440,6 +1442,19 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
           context.fillStyle = colors.downSoft;
           fillDrawingPolygon(context, geometry.riskPolygon);
         }
+      } else if (drawing.type === "tradePlanBox" && points.length >= 4) {
+        const prices = drawing.anchors.slice(0, 4).map((anchor) => anchor.price);
+        if (prices.every((price): price is number => typeof price === "number")) {
+          const direction = tradePlanDirection(prices[0], prices[1], prices[2], prices[3]);
+          if (direction) {
+            const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+            context.globalAlpha = (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.075);
+            context.fillStyle = colors.upSoft;
+            fillDrawingPolygon(context, geometry.rewardPolygon);
+            context.fillStyle = colors.downSoft;
+            fillDrawingPolygon(context, geometry.riskPolygon);
+          }
+        }
       } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
         const levels = buildFibonacciLevelGeometry(points[0], points[1]);
         context.fillStyle = fill;
@@ -1534,14 +1549,24 @@ function drawDrawings(
 
     if (drawing.type === "horizontalLine" && points[0]) {
       drawPricePlotClipped(context, scene, () => line(context, scene.plot.left, points[0].y, horizontalGuideRight(scene), points[0].y));
-      drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+      if (!isDockedSystemAnalysisDrawing(drawing)) {
+        drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+      }
     } else if (drawing.type === "verticalMarker" && points[0]) {
       drawPricePlotClipped(context, scene, () => line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom));
       drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "trendLine" && points.length >= 2) {
       const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
       drawPricePlotClipped(context, scene, () => line(context, start.x, start.y, end.x, end.y));
-      drawDrawingLabel(context, drawing.label ?? lineMetricLabel(drawing), (start.x + end.x) / 2, (start.y + end.y) / 2 - 8, drawing);
+      if (!isDockedSystemAnalysisDrawing(drawing)) {
+        drawDrawingLabel(
+          context,
+          resolvedTrendLineLabel(drawing),
+          (start.x + end.x) / 2,
+          (start.y + end.y) / 2 - 8,
+          drawing
+        );
+      }
     } else if (
       drawing.type === "horizontalParallelLines" ||
       drawing.type === "verticalParallelLines" ||
@@ -1562,6 +1587,15 @@ function drawDrawings(
       drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "riskRewardBox" && points.length >= 2) {
       drawRiskRewardForeground(context, scene, drawing, points);
+    } else if (drawing.type === "tradePlanBox" && points.length >= 4) {
+      drawTradePlanForeground(
+        context,
+        scene,
+        drawing,
+        points,
+        !isSystemTradePlanDrawing(drawing),
+        drawings.some((candidate) => isScenarioProtectionDrawing(candidate))
+      );
     } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
       drawFibonacciForeground(context, scene, drawing, points);
     } else if (drawing.type === "textLabel" && points[0]) {
@@ -1575,7 +1609,14 @@ function drawDrawings(
       line(context, points[0].x, points[0].y, points[0].x, scene.plot.top + 7);
       context.setLineDash([]);
       circle(context, points[0].x, points[0].y, 3.5);
-      context.fill();
+      if (style.lineDash?.length) {
+        context.fillStyle = colors.surfaceStrong;
+        context.fill();
+        context.strokeStyle = strokeColor;
+        context.stroke();
+      } else {
+        context.fill();
+      }
       drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
       context.restore();
     }
@@ -1605,6 +1646,9 @@ function drawDrawings(
       drawCollapsedDrawing(context, scene, item, previewLayer);
     }
   });
+  if (!previewLayer) {
+    drawSystemAnalysisLabels(context, scene, drawings);
+  }
 }
 
 function drawTimeWarpedLine(
@@ -1640,8 +1684,14 @@ function drawTimeWarpedLine(
     context.stroke();
   });
   const midpoint = item.points[Math.floor((item.points.length - 1) / 2)];
-  if (midpoint) {
-    drawDrawingLabel(context, item.label ?? lineMetricLabel(drawing), midpoint.x + 5, midpoint.y - 8, drawing);
+  if (midpoint && !isDockedSystemAnalysisDrawing(drawing)) {
+    drawDrawingLabel(
+      context,
+      resolvedTrendLineLabel(drawing, item.label),
+      midpoint.x + 5,
+      midpoint.y - 8,
+      drawing
+    );
   }
   if (selected) {
     context.setLineDash([]);
@@ -1842,10 +1892,341 @@ function drawRiskRewardForeground(
   const targetPercent = ((targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice))) * 100;
   const stopPercent = ((stopPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice))) * 100;
   const ratio = Math.abs(targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice - stopPrice));
-  drawDrawingLabel(context, `Entry ${entryPrice.toFixed(2)}`, geometry.left + 5, geometry.entryY - 9, drawing);
-  drawDrawingLabel(context, `Target ${targetPercent >= 0 ? "+" : ""}${targetPercent.toFixed(2)}%`, geometry.left + 5, geometry.targetY - 9, drawing);
-  drawDrawingLabel(context, `Stop ${stopPercent >= 0 ? "+" : ""}${stopPercent.toFixed(2)}%`, geometry.left + 5, geometry.stopY + 9, drawing);
-  drawDrawingLabel(context, `R:R 1:${ratio.toFixed(2)}`, geometry.right - 72, geometry.entryY + 9, drawing);
+  if (drawing.sourceProposalId?.includes(":trade-timing")) {
+    drawDrawingLabel(context, `진입 ${entryPrice.toFixed(2)}`, geometry.right + 5, geometry.entryY + 11, drawing, colors.signal);
+    drawDrawingLabel(context, `목표 ${targetPrice.toFixed(2)}`, geometry.left + 5, geometry.targetY - 9, drawing, colors.up);
+    drawDrawingLabel(context, `무효화 ${stopPrice.toFixed(2)}`, geometry.left + 5, geometry.stopY + 10, drawing, colors.down);
+    drawDrawingLabel(context, `R:R ${ratio.toFixed(2)}`, geometry.right + 5, (geometry.entryY + geometry.targetY) / 2, drawing, colors.signal);
+  } else {
+    drawDrawingLabel(context, `Entry ${entryPrice.toFixed(2)}`, geometry.left + 5, geometry.entryY - 9, drawing);
+    drawDrawingLabel(context, `Target ${targetPercent >= 0 ? "+" : ""}${targetPercent.toFixed(2)}%`, geometry.left + 5, geometry.targetY - 9, drawing);
+    drawDrawingLabel(context, `Stop ${stopPercent >= 0 ? "+" : ""}${stopPercent.toFixed(2)}%`, geometry.left + 5, geometry.stopY + 9, drawing);
+    drawDrawingLabel(context, `R:R 1:${ratio.toFixed(2)}`, geometry.right - 72, geometry.entryY + 9, drawing);
+  }
+}
+
+type TradePlanDockLabel = {
+  key: "entry" | "stop" | "targetOne" | "targetTwo";
+  desiredY: number;
+  y: number;
+  label: string;
+  color: string;
+};
+
+function drawTradePlanForeground(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  points: Array<{ x: number; y: number }>,
+  drawLabels = true,
+  stopFaded = false
+) {
+  const prices = drawing.anchors.slice(0, 4).map((anchor) => anchor.price);
+  if (!prices.every((price): price is number => typeof price === "number")) {
+    return;
+  }
+  const direction = tradePlanDirection(prices[0], prices[1], prices[2], prices[3]);
+  if (!direction) {
+    return;
+  }
+  const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+  drawPricePlotClipped(context, scene, () => {
+    context.save();
+    context.strokeStyle = colors.signal;
+    context.setLineDash([]);
+    line(context, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
+    context.strokeStyle = colors.down;
+    context.globalAlpha = stopFaded ? 0.42 : 1;
+    line(context, geometry.left, geometry.stopY, geometry.right, geometry.stopY);
+    context.globalAlpha = 1;
+    context.strokeStyle = colors.up;
+    context.setLineDash([5, 4]);
+    line(context, geometry.left, geometry.targetOneY, geometry.right, geometry.targetOneY);
+    context.setLineDash([]);
+    line(context, geometry.left, geometry.targetTwoY, geometry.right, geometry.targetTwoY);
+    context.strokeStyle = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
+    line(context, geometry.left, Math.min(geometry.stopY, geometry.targetTwoY), geometry.left, Math.max(geometry.stopY, geometry.targetTwoY));
+    line(context, geometry.right, Math.min(geometry.stopY, geometry.targetTwoY), geometry.right, Math.max(geometry.stopY, geometry.targetTwoY));
+    context.restore();
+  });
+
+  if (!drawLabels) {
+    return;
+  }
+
+  const risk = Math.max(0.0000001, Math.abs(prices[0] - prices[1]));
+  const targetOneR = Math.abs(prices[2] - prices[0]) / risk;
+  const targetTwoR = Math.abs(prices[3] - prices[0]) / risk;
+  const compact = scene.plot.right - scene.plot.left < 520 || scene.plot.priceBottom - scene.plot.top < 260;
+  const labels = layoutTradePlanDockLabels([
+    { key: "entry", desiredY: geometry.entryY, y: geometry.entryY, label: `E ${prices[0].toFixed(2)}`, color: colors.signal },
+    { key: "stop", desiredY: geometry.stopY, y: geometry.stopY, label: compact ? `S ${prices[1].toFixed(2)}` : `S ${prices[1].toFixed(2)} · 무효화`, color: colors.down },
+    { key: "targetOne", desiredY: geometry.targetOneY, y: geometry.targetOneY, label: compact ? `T1 ${prices[2].toFixed(2)}` : `T1 ${prices[2].toFixed(2)} · 50% · ${targetOneR.toFixed(1)}R`, color: colors.up },
+    { key: "targetTwo", desiredY: geometry.targetTwoY, y: geometry.targetTwoY, label: compact ? `T2 ${prices[3].toFixed(2)}` : `T2 ${prices[3].toFixed(2)} · 50% · ${targetTwoR.toFixed(1)}R`, color: colors.up }
+  ], scene.plot.top + 12, scene.plot.priceBottom - 12);
+
+  context.save();
+  applyCanvasTypography(context, "labelMd", canvasFontFamily);
+  const tagHeight = 19;
+  const maximumWidth = Math.max(...labels.map((item) => context.measureText(item.label).width + 14));
+  const dockLeft = Math.max(
+    scene.plot.left + 4,
+    Math.min(geometry.right + 9, scene.plot.right - maximumWidth - 4)
+  );
+  labels.forEach((item) => {
+    const width = context.measureText(item.label).width + 14;
+    context.strokeStyle = item.color;
+    context.lineWidth = 1;
+    context.setLineDash([]);
+    context.beginPath();
+    context.moveTo(geometry.right, item.desiredY);
+    context.lineTo(dockLeft - 4, item.desiredY);
+    context.lineTo(dockLeft - 4, item.y);
+    context.stroke();
+    context.fillStyle = colors.surfaceStrong;
+    roundedRect(context, dockLeft, item.y - tagHeight / 2, width, tagHeight, 4);
+    context.fill();
+    context.stroke();
+    context.fillStyle = colors.text;
+    context.textAlign = "left";
+    context.textBaseline = "middle";
+    context.fillText(item.label, dockLeft + 7, item.y + 0.5);
+  });
+  context.restore();
+}
+
+type SystemAnalysisDockLabel = {
+  key: string;
+  desiredY: number;
+  y: number;
+  label: string;
+  color: string;
+  sourceX: number;
+  priority: number;
+  opacity: number;
+};
+
+function drawSystemAnalysisLabels(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawings: DrawingEntity[]
+) {
+  const systemDrawings = drawings.filter((drawing) => drawing.visible !== false && isDockedSystemAnalysisDrawing(drawing));
+  if (!systemDrawings.length) {
+    return;
+  }
+  const transform = createCoordinateTransform(scene);
+  const compact = scene.plot.right - scene.plot.left < 520 || scene.plot.priceBottom - scene.plot.top < 260;
+  const labels: SystemAnalysisDockLabel[] = [];
+  const protection = drawings.find((drawing) => drawing.visible !== false && isScenarioProtectionDrawing(drawing));
+  let planRight: number | null = null;
+
+  systemDrawings.forEach((drawing) => {
+    const points = drawing.anchors
+      .map((anchor) => transform.anchorToPoint(anchor))
+      .filter((point): point is { x: number; y: number } => Boolean(point));
+    const style = drawing.style ?? {};
+    const color = resolveDrawingColor(style, "textToken", "textColor", "drawing");
+    if (drawing.type === "tradePlanBox" && points.length >= 4) {
+      const prices = drawing.anchors.slice(0, 4).map((anchor) => anchor.price);
+      if (!prices.every((price): price is number => typeof price === "number")) {
+        return;
+      }
+      const direction = tradePlanDirection(prices[0], prices[1], prices[2], prices[3]);
+      if (!direction) {
+        return;
+      }
+      const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+      planRight = geometry.right;
+      const risk = Math.max(0.0000001, Math.abs(prices[0] - prices[1]));
+      const protectedEntry = Boolean(protection);
+      labels.push(
+        dockLabel("entry", geometry.entryY, protectedEntry && !compact ? `E ${prices[0].toFixed(2)} · 보호` : `E ${prices[0].toFixed(2)}`, colors.signal, geometry.right, 0, style.opacity),
+        dockLabel("stop", geometry.stopY, compact ? `S ${prices[1].toFixed(2)}` : `S ${prices[1].toFixed(2)} · ${protectedEntry ? "초기 무효화" : "무효화"}`, colors.down, geometry.right, 0, protectedEntry ? 0.5 : style.opacity),
+        dockLabel("targetOne", geometry.targetOneY, compact ? `T1 ${prices[2].toFixed(2)}` : `T1 ${prices[2].toFixed(2)} · 50% · ${(Math.abs(prices[2] - prices[0]) / risk).toFixed(1)}R`, colors.up, geometry.right, 0, style.opacity),
+        dockLabel("targetTwo", geometry.targetTwoY, compact ? `T2 ${prices[3].toFixed(2)}` : `T2 ${prices[3].toFixed(2)} · 50% · ${(Math.abs(prices[3] - prices[0]) / risk).toFixed(1)}R`, colors.up, geometry.right, 0, style.opacity)
+      );
+      return;
+    }
+    if (isScenarioProtectionDrawing(drawing)) {
+      return;
+    }
+    if (isSystemPatternBadgeDrawing(drawing)) {
+      return;
+    }
+    if (!points.length || compact && isSystemAnalysisLevelDrawing(drawing)) {
+      return;
+    }
+    const desiredY = drawing.type === "horizontalLine" ? points[0].y : points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const sourceX = drawing.type === "horizontalLine" ? scene.plot.right - 22 : Math.max(...points.map((point) => point.x));
+    labels.push(dockLabel(
+      drawing.id,
+      desiredY,
+      compact && isScenarioConditionDrawing(drawing)
+        ? `C ${(drawing.anchors[0]?.price ?? 0).toFixed(2)}`
+        : drawing.label?.trim() ?? "",
+      color,
+      sourceX,
+      isScenarioConditionDrawing(drawing) ? 1 : 2,
+      style.opacity
+    ));
+  });
+
+  const visibleLabels = labels.filter((item) => item.label);
+  if (visibleLabels.length) {
+    applyCanvasTypography(context, "labelMd", canvasFontFamily);
+    const tagHeight = 19;
+    const laidOut = layoutSystemAnalysisDockLabels(visibleLabels, scene.plot.top + 12, scene.plot.priceBottom - 12);
+    const maximumWidth = Math.max(...laidOut.map((item) => context.measureText(item.label).width + 14));
+    const preferredLeft = planRight === null ? scene.plot.right - maximumWidth - 28 : planRight + 9;
+    const dockLeft = Math.max(scene.plot.left + 4, Math.min(preferredLeft, scene.plot.right - maximumWidth - 4));
+    laidOut.forEach((item) => {
+      const width = context.measureText(item.label).width + 14;
+      const leaderStartX = Math.min(item.sourceX, dockLeft - 8);
+      context.save();
+      context.globalAlpha = item.opacity;
+      context.strokeStyle = item.color;
+      context.lineWidth = 1;
+      context.setLineDash([]);
+      context.beginPath();
+      context.moveTo(leaderStartX, item.desiredY);
+      context.lineTo(dockLeft - 4, item.desiredY);
+      context.lineTo(dockLeft - 4, item.y);
+      context.stroke();
+      context.fillStyle = colors.surfaceStrong;
+      roundedRect(context, dockLeft, item.y - tagHeight / 2, width, tagHeight, 4);
+      context.fill();
+      context.stroke();
+      context.fillStyle = colors.text;
+      context.textAlign = "left";
+      context.textBaseline = "middle";
+      context.fillText(item.label, dockLeft + 7, item.y + 0.5);
+      context.restore();
+    });
+  }
+
+  if (!compact) {
+    drawSystemPatternBadge(context, scene, systemDrawings.find(isSystemPatternBadgeDrawing));
+  }
+}
+
+function dockLabel(
+  key: string,
+  desiredY: number,
+  label: string,
+  color: string,
+  sourceX: number,
+  priority: number,
+  opacity = 1
+): SystemAnalysisDockLabel {
+  return { key, desiredY, y: desiredY, label, color, sourceX, priority, opacity };
+}
+
+function layoutSystemAnalysisDockLabels(
+  labels: SystemAnalysisDockLabel[],
+  top: number,
+  bottom: number
+): SystemAnalysisDockLabel[] {
+  const gap = 21;
+  const ordered = labels.slice().sort((left, right) => left.desiredY - right.desiredY || left.priority - right.priority);
+  ordered.forEach((item, index) => {
+    item.y = Math.max(top, item.desiredY, index ? ordered[index - 1].y + gap : top);
+  });
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const maximum = index === ordered.length - 1 ? bottom : ordered[index + 1].y - gap;
+    ordered[index].y = Math.min(ordered[index].y, maximum);
+  }
+  return ordered;
+}
+
+function drawSystemPatternBadge(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity | undefined
+) {
+  if (!drawing?.label?.trim()) {
+    return;
+  }
+  const points = drawing.anchors
+    .map((anchor) => createCoordinateTransform(scene).anchorToPoint(anchor))
+    .filter((point): point is { x: number; y: number } => Boolean(point));
+  if (points.length < 2) {
+    return;
+  }
+  const style = drawing.style ?? {};
+  const label = drawing.label.trim();
+  context.save();
+  context.globalAlpha = style.opacity ?? 1;
+  applyCanvasTypography(context, "labelMd", canvasFontFamily);
+  const width = Math.min(220, context.measureText(label).width + 18);
+  const height = 21;
+  const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+  const left = Math.max(scene.plot.left + 4, Math.min(scene.plot.right - width - 4, centerX - width / 2));
+  const top = Math.max(scene.plot.top + 4, Math.min(...points.map((point) => point.y)) - height - 12);
+  context.fillStyle = colors.surfaceStrong;
+  context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", "drawing");
+  context.lineWidth = 1;
+  roundedRect(context, left, top, width, height, 5);
+  context.fill();
+  context.stroke();
+  context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillText(label, left + 9, top + height / 2 + 0.5, width - 18);
+  context.restore();
+}
+
+function isDockedSystemAnalysisDrawing(drawing: DrawingEntity): boolean {
+  return isSystemTradePlanDrawing(drawing)
+    || isScenarioConditionDrawing(drawing)
+    || isScenarioProtectionDrawing(drawing)
+    || isSystemAnalysisLevelDrawing(drawing)
+    || isSystemPatternBadgeDrawing(drawing);
+}
+
+function isSystemTradePlanDrawing(drawing: DrawingEntity): boolean {
+  return drawing.type === "tradePlanBox" && drawing.createdBy === "system" && drawing.id.includes(":trade-timing:");
+}
+
+function isScenarioConditionDrawing(drawing: DrawingEntity): boolean {
+  return drawing.type === "trendLine" && drawing.createdBy === "system" && drawing.id.includes(":trade-timing:") && drawing.id.includes(":condition:");
+}
+
+function isScenarioProtectionDrawing(drawing: DrawingEntity): boolean {
+  return drawing.type === "horizontalLine" && drawing.createdBy === "system" && drawing.id.includes(":trade-timing:") && drawing.id.endsWith(":protect");
+}
+
+function isSystemAnalysisLevelDrawing(drawing: DrawingEntity): boolean {
+  const label = drawing.label?.trim() ?? "";
+  return drawing.type === "horizontalLine"
+    && drawing.createdBy === "system"
+    && drawing.sourceProposalId?.startsWith("chart-asset:") === true
+    && (label.startsWith("지지 ") || label.startsWith("저항 "));
+}
+
+function isSystemPatternBadgeDrawing(drawing: DrawingEntity): boolean {
+  return drawing.type === "trendLine"
+    && drawing.createdBy === "system"
+    && drawing.sourceProposalId?.startsWith("chart-asset:") === true
+    && !drawing.id.includes(":trade-timing:")
+    && drawing.label?.includes("품질") === true;
+}
+
+function layoutTradePlanDockLabels(
+  labels: TradePlanDockLabel[],
+  top: number,
+  bottom: number
+): TradePlanDockLabel[] {
+  const gap = 21;
+  const ordered = labels.slice().sort((left, right) => left.desiredY - right.desiredY);
+  ordered.forEach((item, index) => {
+    item.y = Math.max(top, item.desiredY, index ? ordered[index - 1].y + gap : top);
+  });
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const maximum = index === ordered.length - 1 ? bottom : ordered[index + 1].y - gap;
+    ordered[index].y = Math.min(ordered[index].y, maximum);
+  }
+  return ordered;
 }
 
 function drawFibonacciForeground(
@@ -1881,12 +2262,12 @@ function drawFibonacciForeground(
   context.restore();
 }
 
-function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | undefined, x: number, y: number, drawing: DrawingEntity) {
+function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | undefined, x: number, y: number, drawing: DrawingEntity, color?: string) {
   if (!label) {
     return;
   }
   const style = drawing.style ?? {};
-  context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
+  context.fillStyle = color ?? resolveDrawingColor(style, "textToken", "textColor", "drawing");
   applyCanvasTypography(
     context,
     nearestTypeRole(style.fontSize ?? TYPE_ROLE.bodyMd.size, "displayMd"),
@@ -1911,6 +2292,12 @@ function lineMetricLabel(drawing: DrawingEntity): string | undefined {
     ? Math.abs(end.logicalIndex - start.logicalIndex)
     : 0;
   return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} / ${percent >= 0 ? "+" : ""}${percent.toFixed(2)}% / ${bars}봉`;
+}
+
+function resolvedTrendLineLabel(drawing: DrawingEntity, projectedLabel?: string): string | undefined {
+  const explicit = projectedLabel?.trim() || drawing.label?.trim();
+  if (explicit) return explicit;
+  return drawing.sourceProposalId?.startsWith("chart-asset:") ? undefined : lineMetricLabel(drawing);
 }
 
 type TimeTick = {

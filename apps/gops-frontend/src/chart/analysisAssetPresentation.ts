@@ -1,6 +1,9 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
 import { buildTradeTimingDrawings, isTradeTimingDrawing } from "./tradeTimingOverlay";
+import { candleKeyForTimestamp } from "./analysisTimestamp";
+
+export { candleKeyForTimestamp } from "./analysisTimestamp";
 
 export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
 export type AnalysisAssetPresentationDiagnostics = {
@@ -31,26 +34,6 @@ const patternKindLabels: Record<string, string> = {
   descending_channel_breakout: "하락 채널 상단 돌파",
   ascending_channel_breakdown: "상승 채널 하단 이탈"
 };
-
-const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
-});
-
-export function candleKeyForTimestamp(timestamp: string, interval: AnalysisAssetInterval): string | null {
-  const parsed = new Date(timestamp);
-  if (!Number.isFinite(parsed.getTime())) return null;
-  if (["1m", "5m", "10m", "1h", "4h"].includes(interval)) return parsed.toISOString();
-  const utcMidnight = parsed.getUTCHours() === 0 && parsed.getUTCMinutes() === 0 && parsed.getUTCSeconds() === 0 && parsed.getUTCMilliseconds() === 0;
-  const parts = utcMidnight
-    ? { year: parsed.getUTCFullYear(), month: parsed.getUTCMonth() + 1, day: parsed.getUTCDate() }
-    : marketDateParts(parsed);
-  if (!parts) return null;
-  const bucketDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  if (interval === "1W") {
-    bucketDate.setUTCDate(bucketDate.getUTCDate() - ((bucketDate.getUTCDay() + 6) % 7));
-  }
-  return bucketDate.toISOString().slice(0, 10);
-}
 
 export function detectedPatternSummary(asset: ChartAnalysisAsset | null): DetectedPatternSummary | null {
   const geometry = asset?.geometry;
@@ -94,7 +77,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
       return [];
     }
-    return [levelDrawingIds.has(resolved.id) ? dashedAnalysisLevel(resolved) : resolved];
+    return [decorateAnalysisDrawing(levelDrawingIds.has(resolved.id) ? dashedAnalysisLevel(resolved) : resolved, asset)];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
   const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
@@ -148,12 +131,6 @@ export function formatAnalysisAssetAsOf(value: string): string {
   return match ? `${match[1]}-${match[2]}` : value.slice(0, 10);
 }
 
-function marketDateParts(value: Date): { year: number; month: number; day: number } | null {
-  const parts = Object.fromEntries(marketDateFormatter.formatToParts(value).map((part) => [part.type, part.value]));
-  const year = Number(parts.year), month = Number(parts.month), day = Number(parts.day);
-  return [year, month, day].every(Number.isFinite) ? { year, month, day } : null;
-}
-
 function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetInterval): Map<string, string> {
   const result = new Map<string, string>();
   candles.forEach((candle) => {
@@ -175,6 +152,29 @@ function analysisLevelDrawingIds(asset: ChartAnalysisAsset): Set<string> {
 
 function dashedAnalysisLevel<T extends DrawingEntity>(drawing: T): T {
   return { ...drawing, style: { ...drawing.style, lineDash: [6, 4] } };
+}
+
+function decorateAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: ChartAnalysisAsset): T {
+  const level = [...(asset.geometry.supports ?? []), ...(asset.geometry.resistances ?? [])]
+    .find((item) => drawing.id === item.id || drawing.id.endsWith(`:${item.id}`));
+  if (level) {
+    const role = level.role === "support" ? "지지" : "저항";
+    const colorToken = level.role === "support" ? "up" : "down";
+    return {
+      ...drawing,
+      style: { ...drawing.style, colorToken, textToken: colorToken },
+      label: `${role} ${level.price.toFixed(2)} · 접촉 ${level.touches}회`
+    };
+  }
+  const pattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
+  if (pattern && drawing.id.includes(pattern.geometryHash)) {
+    const colorToken = pattern.bias === "bearish" ? "down" : pattern.bias === "neutral" ? "pointOrange" : "up";
+    if (drawing.id.endsWith("-upper")) {
+      return { ...drawing, style: { ...drawing.style, colorToken, textToken: colorToken }, label: `${formatDetectedPattern(pattern)} · 품질 ${pattern.score.toFixed(2)}` };
+    }
+    return { ...drawing, style: { ...drawing.style, colorToken, textToken: colorToken }, label: " " };
+  }
+  return drawing;
 }
 
 function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {

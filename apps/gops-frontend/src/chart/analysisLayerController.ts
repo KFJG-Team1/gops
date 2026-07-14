@@ -1,10 +1,12 @@
 import { makeChartCommand, type ChartCommand } from "@gops/chart-engine";
 import type { ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { ChartToolMode, DrawingEntity } from "./types";
+import { isTradeTimingDrawing } from "./tradeTimingOverlay";
 
 export const chartAssetSourcePrefix = "chart-asset:";
-export type AnalysisLayerKey = "geometry";
+export type AnalysisLayerKey = "geometry" | "scenario";
 export type AnalysisLayerVisibility = Record<AnalysisLayerKey, boolean>;
+export const defaultAnalysisLayerVisibility: AnalysisLayerVisibility = { geometry: true, scenario: true };
 export type ChartCommandTarget = ChartCommand["target"];
 
 export function isChartAssetDrawing(drawing: Pick<DrawingEntity, "sourceProposalId">): boolean {
@@ -21,7 +23,7 @@ export function analysisAssetApplyCommands(
   const commands = removalCommands(target, currentDrawings);
   if (!asset) return commands;
   asset.geometry.drawings.forEach((drawing) => commands.push(externalCommand(target, "chart.drawing.add", {
-    drawing: { ...drawing, visible: visibility.geometry }
+    drawing: { ...drawing, visible: visibility[analysisLayerForDrawing(drawing)] }
   })));
   (["sma:60", "sma:120"] as const).forEach((layer) => commands.push(externalCommand(target, "chart.layer.visibility.set", { layer, visible: true })));
   if (asset.geometry.drawings.length) {
@@ -37,13 +39,21 @@ export function analysisLayerToggleCommands(
   target: ChartCommandTarget,
   currentDrawings: DrawingEntity[],
   asset: ChartAnalysisAsset,
-  _layer: AnalysisLayerKey,
+  layer: AnalysisLayerKey,
   visible: boolean
 ): ChartCommand[] {
   const currentById = new Map(currentDrawings.filter(isChartAssetDrawing).map((drawing) => [drawing.id, drawing]));
-  return asset.geometry.drawings.flatMap((drawing) => currentById.has(drawing.id)
+  return asset.geometry.drawings.filter((drawing) => analysisLayerForDrawing(drawing) === layer).flatMap((drawing) => currentById.has(drawing.id)
     ? [externalCommand(target, "chart.drawing.update", { drawingId: drawing.id, drawingPatch: { visible } })]
     : visible ? [externalCommand(target, "chart.drawing.add", { drawing: { ...drawing, visible } })] : []);
+}
+
+export function analysisLayerForDrawing(drawing: Pick<DrawingEntity, "id">): AnalysisLayerKey {
+  return isTradeTimingDrawing(drawing) ? "scenario" : "geometry";
+}
+
+export function analysisAssetHasLayer(asset: ChartAnalysisAsset | null, layer: AnalysisLayerKey): boolean {
+  return asset?.geometry.drawings.some((drawing) => analysisLayerForDrawing(drawing) === layer) === true;
 }
 
 export function analysisAssetRemovalCommands(target: ChartCommandTarget, drawings: DrawingEntity[]): ChartCommand[] {

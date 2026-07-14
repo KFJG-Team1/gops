@@ -52,6 +52,10 @@
           "then": { "properties": { "anchors": { "minItems": 3, "maxItems": 3 } } }
         },
         {
+          "if": { "required": ["drawingType"], "properties": { "drawingType": { "const": "tradePlanBox" } } },
+          "then": { "properties": { "anchors": { "minItems": 4, "maxItems": 4 } } }
+        },
+        {
           "if": { "required": ["drawingType"], "properties": { "drawingType": { "const": "fibonacciRetracement" } } },
           "then": { "properties": { "anchors": { "minItems": 2, "maxItems": 2 } } }
         }
@@ -82,6 +86,7 @@
             "measurement",
             "ellipse",
             "riskRewardBox",
+            "tradePlanBox",
             "fibonacciRetracement"
           ]
         },
@@ -166,6 +171,10 @@
           "then": { "properties": { "anchors": { "minItems": 3, "maxItems": 3 } } }
         },
         {
+          "if": { "properties": { "type": { "const": "tradePlanBox" } } },
+          "then": { "properties": { "anchors": { "minItems": 4, "maxItems": 4 } } }
+        },
+        {
           "if": { "properties": { "type": { "const": "fibonacciRetracement" } } },
           "then": { "properties": { "anchors": { "minItems": 2, "maxItems": 2 } } }
         }
@@ -188,6 +197,7 @@
             "measurement",
             "ellipse",
             "riskRewardBox",
+            "tradePlanBox",
             "fibonacciRetracement"
           ]
         },

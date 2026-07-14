@@ -18,6 +18,11 @@ export type RiskRewardGeometry = {
   rewardPolygon: DrawingPoint[];
 };
 
+export type TradePlanGeometry = RiskRewardGeometry & {
+  targetOneY: number;
+  targetTwoY: number;
+};
+
 export type FibonacciLevelGeometry = {
   level: number;
   y: number;
@@ -130,6 +135,22 @@ export function riskRewardDirection(
   return null;
 }
 
+export function tradePlanDirection(
+  entryPrice: number,
+  stopPrice: number,
+  targetOnePrice: number,
+  targetTwoPrice: number
+): RiskRewardDirection | null {
+  const direction = riskRewardDirection(entryPrice, stopPrice, targetTwoPrice);
+  if (direction === "long" && entryPrice < targetOnePrice && targetOnePrice < targetTwoPrice) {
+    return direction;
+  }
+  if (direction === "short" && targetTwoPrice < targetOnePrice && targetOnePrice < entryPrice) {
+    return direction;
+  }
+  return null;
+}
+
 export function buildRiskRewardGeometry(
   entry: DrawingPoint,
   stop: DrawingPoint,
@@ -153,6 +174,21 @@ export function buildRiskRewardGeometry(
     targetY: target.y,
     riskPolygon: rectangle(entry.y, stop.y),
     rewardPolygon: rectangle(entry.y, target.y)
+  };
+}
+
+export function buildTradePlanGeometry(
+  entry: DrawingPoint,
+  stop: DrawingPoint,
+  targetOne: DrawingPoint,
+  targetTwo: DrawingPoint,
+  direction: RiskRewardDirection
+): TradePlanGeometry {
+  const base = buildRiskRewardGeometry(entry, stop, targetTwo, direction);
+  return {
+    ...base,
+    targetOneY: targetOne.y,
+    targetTwoY: targetTwo.y
   };
 }
 

@@ -26,6 +26,7 @@ import {
 } from "react";
 import type { AgentReference } from "../agent/agentReferences";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import { defaultAnalysisLayerVisibility, type AnalysisLayerVisibility } from "../chart/analysisLayerController";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
@@ -254,6 +255,7 @@ export function PanelWorkspace({
     });
   }, []);
   const [chartHeaders, setChartHeaders] = useState<Record<string, ChartHeaderSnapshot>>({});
+  const [analysisLayerVisibilityByDocument, setAnalysisLayerVisibilityByDocument] = useState<Record<string, AnalysisLayerVisibility>>({});
   const [chartAddTargetContentId, setChartAddTargetContentId] = useState<string | null>(null);
   const dragRef = useRef<LayoutDrag | null>(null);
   const panelStateRef = useRef<TiledPanelState>(panelState);
@@ -805,6 +807,12 @@ export function PanelWorkspace({
   const primaryChartCandles = primaryChartDocument
     ? getCandlesForDocument(chartRuntime, primaryChartDocument) as CandleDto[]
     : [];
+  const analysisLayerVisibilityFor = (documentId: string | undefined): AnalysisLayerVisibility => (
+    documentId ? analysisLayerVisibilityByDocument[documentId] ?? defaultAnalysisLayerVisibility : defaultAnalysisLayerVisibility
+  );
+  const updateAnalysisLayerVisibility = (documentId: string, visibility: AnalysisLayerVisibility) => {
+    setAnalysisLayerVisibilityByDocument((current) => ({ ...current, [documentId]: visibility }));
+  };
   const renderWorkspacePanel = (slot: PanelSlot) => {
     const content = panelState.contents[slot.contentId];
     if (!content) {
@@ -871,6 +879,10 @@ export function PanelWorkspace({
         chartCandles={chartCandles}
         activeChartDocument={primaryChartDocument}
         activeChartCandles={primaryChartCandles}
+        analysisLayerVisibility={analysisLayerVisibilityFor(chartDocument?.id ?? primaryChartDocument?.id)}
+        onAnalysisLayerVisibilityChange={chartDocument
+          ? (visibility) => updateAnalysisLayerVisibility(chartDocument.id, visibility)
+          : undefined}
         chartDataStatus={chartDataStatus}
         chartStreamStatus={chartStreamStatus}
         chartStreamMessage={chartStreamMessage}

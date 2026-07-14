@@ -10,10 +10,11 @@ other intervals independently. The geometry payload stores active `patterns[]`,
 one `primaryPattern`, and compatibility `primaryTriangle` fields. It permits at
 most eight drawings so a pole plus two boundaries can coexist with level lines.
 The optional-compatible `tradePlan` field stores a deterministic, non-executable
-pattern scenario. New builders always emit it; older rows may omit it until rebuilt.
-The frontend derives an ephemeral `flagMarker` and, for new-position candidates,
-an ephemeral `riskRewardBox` from that plan without consuming the eight persisted
-geometry drawing slots.
+pattern scenario. New v3 builders emit exact completed-close conditions, breakout
+evidence, retest state, stop state, and a two-target response plan; v1/v2 rows remain
+readable until rebuilt. The frontend derives ephemeral event markers and a four-anchor
+`tradePlanBox` for v3 new-position candidates without consuming the eight persisted
+geometry drawing slots. Older candidates retain the three-anchor `riskRewardBox` overlay.
 
 Chart data storage and transport semantics are defined by
 `docs/CHART_DATA_ARCHITECTURE.md`. This contract covers UI/chart command shape;
@@ -51,9 +52,16 @@ Rules:
 - `riskRewardBox` uses exactly three canonical anchors in `[entry, stop, target]`
   order. Target time is normalized to Stop time; Stop and Target must remain on
   opposite sides of Entry.
+- `tradePlanBox` uses exactly four canonical anchors in `[entry, stop, target1, target2]`
+  order. Stop, T1, and T2 time are normalized together; T1 must be between Entry
+  and T2, while Stop remains on the opposite side of Entry.
 - A trade-plan overlay anchors Entry to the confirmed completed candle. Its
   non-persisted future Stop/Target edge may use logical index only; it must not
   invent or persist a candle timestamp.
+- A v2/v3 forming plan may emit one directional confirmation condition or two
+  symmetric conditions, but must keep entry, stop, target, and reward/risk null.
+- A v3 price-only breakout remains `confirmation_pending` until volume is at least
+  `1.5×` the preceding 20-bar median or the next completed candle holds outside.
 - `fibonacciRetracement` uses exactly two canonical swing anchors and fixed v1
   levels `0, 0.236, 0.382, 0.5, 0.618, 0.786, 1`.
 

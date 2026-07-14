@@ -3,6 +3,7 @@ import {
   buildHorizontalParallelLines,
   buildFibonacciLevelGeometry,
   buildRiskRewardGeometry,
+  buildTradePlanGeometry,
   buildTrendParallelLines,
   buildVerticalParallelLines,
   fibonacciBandPolygons,
@@ -11,6 +12,7 @@ import {
   parallelBandPolygons,
   projectTrendLine,
   riskRewardDirection,
+  tradePlanDirection,
   trendParallelBaseLineIndex,
   type DrawingLine,
   type DrawingPoint
@@ -315,6 +317,24 @@ function drawDrawingFills(ctx: CanvasRenderingContext2D, scene: RenderScene, dra
       }
       return;
     }
+    if (drawing.type === "tradePlanBox" && points.length >= 4) {
+      const prices = drawing.anchors.slice(0, 4).map((anchor) => anchor.price ?? anchor.value);
+      if (prices.every((price): price is number => typeof price === "number")) {
+        const direction = tradePlanDirection(prices[0], prices[1], prices[2], prices[3]);
+        if (direction) {
+          const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+          ctx.save();
+          clipToPricePlot(ctx, scene);
+          ctx.globalAlpha = clampOpacity(style.opacity, 1) * (preview ? 0.72 : 1) * clampOpacity(style.fillOpacity, 0.075);
+          ctx.fillStyle = scene.document.style.bullish;
+          fillPolygon(ctx, geometry.rewardPolygon);
+          ctx.fillStyle = scene.document.style.bearish;
+          fillPolygon(ctx, geometry.riskPolygon);
+          ctx.restore();
+        }
+      }
+      return;
+    }
     if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
       const levels = buildFibonacciLevelGeometry(points[0], points[1]);
       ctx.save();
@@ -427,6 +447,8 @@ function drawDrawingForeground(ctx: CanvasRenderingContext2D, scene: RenderScene
       drawDrawingLabel(ctx, scene, drawing.label, x + 5, y + 13, drawing);
     } else if (drawing.type === "riskRewardBox" && points.length >= 2) {
       drawRiskRewardForeground(ctx, scene, drawing, points);
+    } else if (drawing.type === "tradePlanBox" && points.length >= 4) {
+      drawTradePlanForeground(ctx, scene, drawing, points);
     } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
       drawFibonacciForeground(ctx, scene, drawing, points);
     } else if (drawing.type === "flagMarker" && points[0]) {
@@ -547,6 +569,20 @@ function drawFlagMarker(
   withPricePlotClip(ctx, scene, () => line(ctx, point.x, point.y, point.x, scene.plot.top + 5));
   ctx.restore();
 
+  ctx.save();
+  circle(ctx, point.x, point.y, 3.5);
+  if (drawing.style.lineDash?.length) {
+    ctx.fillStyle = scene.document.style.surfaceStrong;
+    ctx.fill();
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = strokeColor;
+    ctx.fill();
+  }
+  ctx.restore();
+
   const label = drawing.label?.trim() || "이벤트";
   const fontSize = nearestCanvasTypeSize(drawing.style.fontSize ?? canvasTypeSize.compact);
   ctx.save();
@@ -656,6 +692,41 @@ function drawRiskRewardForeground(
   drawDrawingLabel(ctx, scene, `Target ${targetPercent >= 0 ? "+" : ""}${targetPercent.toFixed(2)}%`, geometry.left + 5, geometry.targetY - 9, drawing);
   drawDrawingLabel(ctx, scene, `Stop ${stopPercent >= 0 ? "+" : ""}${stopPercent.toFixed(2)}%`, geometry.left + 5, geometry.stopY + 9, drawing);
   drawDrawingLabel(ctx, scene, `R:R 1:${ratio.toFixed(2)}`, geometry.right - 72, geometry.entryY + 9, drawing);
+}
+
+function drawTradePlanForeground(
+  ctx: CanvasRenderingContext2D,
+  scene: RenderScene,
+  drawing: DrawingEntity,
+  points: DrawingPoint[]
+) {
+  const prices = drawing.anchors.slice(0, 4).map((anchor) => anchor.price ?? anchor.value);
+  if (!prices.every((price): price is number => typeof price === "number")) {
+    return;
+  }
+  const direction = tradePlanDirection(prices[0], prices[1], prices[2], prices[3]);
+  if (!direction) {
+    return;
+  }
+  const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+  withPricePlotClip(ctx, scene, () => {
+    line(ctx, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
+    line(ctx, geometry.left, geometry.stopY, geometry.right, geometry.stopY);
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    line(ctx, geometry.left, geometry.targetOneY, geometry.right, geometry.targetOneY);
+    ctx.restore();
+    line(ctx, geometry.left, geometry.targetTwoY, geometry.right, geometry.targetTwoY);
+    line(ctx, geometry.left, Math.min(geometry.stopY, geometry.targetTwoY), geometry.left, Math.max(geometry.stopY, geometry.targetTwoY));
+    line(ctx, geometry.right, Math.min(geometry.stopY, geometry.targetTwoY), geometry.right, Math.max(geometry.stopY, geometry.targetTwoY));
+  });
+  const risk = Math.max(0.0000001, Math.abs(prices[0] - prices[1]));
+  const targetOneR = Math.abs(prices[2] - prices[0]) / risk;
+  const targetTwoR = Math.abs(prices[3] - prices[0]) / risk;
+  drawDrawingLabel(ctx, scene, `E ${prices[0].toFixed(2)}`, geometry.right + 5, geometry.entryY, drawing);
+  drawDrawingLabel(ctx, scene, `S ${prices[1].toFixed(2)}`, geometry.right + 5, geometry.stopY, drawing);
+  drawDrawingLabel(ctx, scene, `T1 ${prices[2].toFixed(2)} · ${targetOneR.toFixed(1)}R`, geometry.right + 5, geometry.targetOneY, drawing);
+  drawDrawingLabel(ctx, scene, `T2 ${prices[3].toFixed(2)} · ${targetTwoR.toFixed(1)}R`, geometry.right + 5, geometry.targetTwoY, drawing);
 }
 
 function drawFibonacciForeground(

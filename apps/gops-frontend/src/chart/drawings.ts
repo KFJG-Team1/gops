@@ -15,11 +15,13 @@ import {
   buildHorizontalParallelLines,
   buildFibonacciLevelGeometry,
   buildRiskRewardGeometry,
+  buildTradePlanGeometry,
   buildTrendParallelLines,
   buildVerticalParallelLines,
   normalizeParallelLineCount as normalizeEngineParallelLineCount,
   parallelBandPolygons,
   riskRewardDirection,
+  tradePlanDirection,
   trendParallelBaseLineIndex,
   type DrawingLine,
   type DrawingPoint
@@ -55,6 +57,7 @@ export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; labe
   { mode: "draw-flagMarker", type: "flagMarker", label: "플래그 마커" },
   { mode: "draw-rangeBox", type: "rangeBox", label: "범위 박스" },
   { mode: "draw-riskRewardBox", type: "riskRewardBox", label: "손익비 박스" },
+  { mode: "draw-tradePlanBox", type: "tradePlanBox", label: "거래 계획" },
   { mode: "draw-fibonacciRetracement", type: "fibonacciRetracement", label: "피보나치 되돌림" }
 ];
 
@@ -68,6 +71,9 @@ export function drawingNeedsTwoAnchors(type: DrawingType): boolean {
 }
 
 export function drawingRequiredAnchorCount(type: DrawingType): number {
+  if (type === "tradePlanBox") {
+    return 4;
+  }
   if (type === "trendParallelLines" || type === "riskRewardBox") {
     return 3;
   }
@@ -113,7 +119,11 @@ export function buildDraftPreviewDrawing(
   parallelLineCount = 3
 ): DrawingEntity {
   const anchors = normalizeDrawingAnchors(draft.type, [...draft.anchors, anchor]);
-  const riskValid = draft.type !== "riskRewardBox" || isValidRiskRewardAnchors(anchors);
+  const riskValid = (
+    draft.type !== "riskRewardBox" || isValidRiskRewardAnchors(anchors)
+  ) && (
+    draft.type !== "tradePlanBox" || isValidTradePlanAnchors(anchors)
+  );
   return {
     id: "drawing-draft-preview",
     type: draft.type,
@@ -135,6 +145,11 @@ export function buildDraftPreviewDrawing(
 }
 
 export function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
+  if (type === "tradePlanBox" && anchors.length >= 4) {
+    const [entry, stop, targetOne, targetTwo, ...rest] = anchors;
+    const projectionTime = drawingAnchorTime(stop);
+    return [entry, stop, { ...targetOne, ...projectionTime }, { ...targetTwo, ...projectionTime }, ...rest];
+  }
   if (type !== "riskRewardBox" || anchors.length < 3) {
     return anchors;
   }
@@ -154,6 +169,16 @@ export function isValidRiskRewardAnchors(anchors: DrawingAnchor[]): boolean {
   const [entry, stop, target] = anchors;
   return typeof entry.price === "number" && typeof stop.price === "number" && typeof target.price === "number" &&
     riskRewardDirection(entry.price, stop.price, target.price) !== null;
+}
+
+export function isValidTradePlanAnchors(anchors: DrawingAnchor[]): boolean {
+  if (anchors.length < 4) {
+    return false;
+  }
+  const [entry, stop, targetOne, targetTwo] = anchors;
+  return typeof entry.price === "number" && typeof stop.price === "number" &&
+    typeof targetOne.price === "number" && typeof targetTwo.price === "number" &&
+    tradePlanDirection(entry.price, stop.price, targetOne.price, targetTwo.price) !== null;
 }
 
 export function buildSingleAnchorPreviewDrawing(
@@ -180,7 +205,7 @@ export function defaultDrawingStyle(type: DrawingType, trendLineExtension: Chart
   if (type === "rangeBox" || type === "fibonacciRetracement") {
     return { colorToken: "drawing", fillToken: "drawing", fillOpacity: 0.045, lineWidth: 1.0 };
   }
-  if (type === "riskRewardBox") {
+  if (type === "riskRewardBox" || type === "tradePlanBox") {
     return { colorToken: "drawing", fillOpacity: 0.075, lineWidth: 1.0 };
   }
   if (type === "horizontalParallelLines" || type === "verticalParallelLines" || type === "trendParallelLines") {
@@ -208,6 +233,8 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
       return "이벤트";
     case "rangeBox":
       return "범위";
+    case "tradePlanBox":
+      return "거래 계획";
     default:
       return undefined;
   }
@@ -335,6 +362,9 @@ export function buildDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor, sc
   if (drag.drawing.type === "riskRewardBox" && drag.anchorIndex !== null) {
     return buildRiskRewardDraggedAnchors(drag, anchor);
   }
+  if (drag.drawing.type === "tradePlanBox" && drag.anchorIndex !== null) {
+    return buildTradePlanDraggedAnchors(drag, anchor);
+  }
   const timestampIndex = new Map(scene.allCandles.map((candle, index) => [candle.timestamp, index]));
   const dragStartLogical = anchorLogicalIndex(drag.anchor, timestampIndex);
   const dragEndLogical = anchorLogicalIndex(anchor, timestampIndex);
@@ -386,6 +416,46 @@ function buildRiskRewardDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor)
     return [entry, stop, { ...target, price: anchor.price, ...drawingAnchorTime(stop) }];
   }
   return drag.drawing.anchors;
+}
+
+function buildTradePlanDraggedAnchors(drag: DrawingDrag, anchor: DrawingAnchor): DrawingAnchor[] {
+  const [entry, stop, targetOne, targetTwo] = drag.drawing.anchors.slice(0, 4);
+  if (!entry || !stop || !targetOne || !targetTwo ||
+    typeof entry.price !== "number" || typeof stop.price !== "number" ||
+    typeof targetOne.price !== "number" || typeof targetTwo.price !== "number" ||
+    typeof anchor.price !== "number") {
+    return drag.drawing.anchors;
+  }
+  const originalDirection = tradePlanDirection(entry.price, stop.price, targetOne.price, targetTwo.price);
+  if (!originalDirection) {
+    return drag.drawing.anchors;
+  }
+  const next = [entry, stop, targetOne, targetTwo];
+  if (drag.anchorIndex === 0) {
+    if (tradePlanDirection(anchor.price, stop.price, targetOne.price, targetTwo.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    next[0] = { ...entry, ...drawingAnchorTime(anchor), price: anchor.price };
+  } else if (drag.anchorIndex === 1) {
+    if (tradePlanDirection(entry.price, anchor.price, targetOne.price, targetTwo.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    const projectionTime = drawingAnchorTime(anchor);
+    next[1] = { ...stop, ...projectionTime, price: anchor.price };
+    next[2] = { ...targetOne, ...projectionTime };
+    next[3] = { ...targetTwo, ...projectionTime };
+  } else if (drag.anchorIndex === 2) {
+    if (tradePlanDirection(entry.price, stop.price, anchor.price, targetTwo.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    next[2] = { ...targetOne, ...drawingAnchorTime(stop), price: anchor.price };
+  } else if (drag.anchorIndex === 3) {
+    if (tradePlanDirection(entry.price, stop.price, targetOne.price, anchor.price) !== originalDirection) {
+      return drag.drawing.anchors;
+    }
+    next[3] = { ...targetTwo, ...drawingAnchorTime(stop), price: anchor.price };
+  }
+  return next;
 }
 
 function timestampAtDrawingLogicalIndex(scene: ChartScene, logicalIndex: number): string | undefined {
@@ -576,7 +646,7 @@ export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, la
     return makeLayout(Math.min(points[0].x, points[1].x) + 5, Math.min(points[0].y, points[1].y) + 4);
   }
   if (drawing.type === "flagMarker") {
-    return makeLayout(points[0].x + 8, scene.plot.top + 3);
+    return makeLayout(points[0].x + 8, scene.plot.top + (drawing.id.includes(":retest") ? 28 : 3));
   }
   if (drawing.type === "textLabel") {
     return makeLayout(points[0].x + 7, points[0].y - height / 2);
@@ -673,6 +743,28 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): Drawing
           [{ x: geometry.left, y: geometry.targetY }, { x: geometry.right, y: geometry.targetY }],
           [{ x: geometry.left, y: Math.min(geometry.stopY, geometry.targetY) }, { x: geometry.left, y: Math.max(geometry.stopY, geometry.targetY) }],
           [{ x: geometry.right, y: Math.min(geometry.stopY, geometry.targetY) }, { x: geometry.right, y: Math.max(geometry.stopY, geometry.targetY) }]
+        ];
+        if (lines.some(([start, end]) => distanceToSegment(x, y, start, end) <= 7)) {
+          return { drawing, anchorIndex: null };
+        }
+      }
+    }
+    if (drawing.type === "tradePlanBox" && points.length >= 4) {
+      const direction = tradePlanDirection(
+        drawing.anchors[0].price ?? Number.NaN,
+        drawing.anchors[1].price ?? Number.NaN,
+        drawing.anchors[2].price ?? Number.NaN,
+        drawing.anchors[3].price ?? Number.NaN
+      );
+      if (direction) {
+        const geometry = buildTradePlanGeometry(points[0], points[1], points[2], points[3], direction);
+        const lines: DrawingLine[] = [
+          [{ x: geometry.left, y: geometry.entryY }, { x: geometry.right, y: geometry.entryY }],
+          [{ x: geometry.left, y: geometry.stopY }, { x: geometry.right, y: geometry.stopY }],
+          [{ x: geometry.left, y: geometry.targetOneY }, { x: geometry.right, y: geometry.targetOneY }],
+          [{ x: geometry.left, y: geometry.targetTwoY }, { x: geometry.right, y: geometry.targetTwoY }],
+          [{ x: geometry.left, y: Math.min(geometry.stopY, geometry.targetTwoY) }, { x: geometry.left, y: Math.max(geometry.stopY, geometry.targetTwoY) }],
+          [{ x: geometry.right, y: Math.min(geometry.stopY, geometry.targetTwoY) }, { x: geometry.right, y: Math.max(geometry.stopY, geometry.targetTwoY) }]
         ];
         if (lines.some(([start, end]) => distanceToSegment(x, y, start, end) <= 7)) {
           return { drawing, anchorIndex: null };

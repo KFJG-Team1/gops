@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 
 const localChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const serverPort = process.env.PLAYWRIGHT_PORT ?? "4173";
+const serverUrl = `http://127.0.0.1:${serverPort}`;
 
 export default defineConfig({
   testDir: "./tests/visual",
@@ -18,7 +20,7 @@ export default defineConfig({
     }
   },
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: serverUrl,
     browserName: "chromium",
     colorScheme: "light",
     locale: "en-US",
@@ -31,8 +33,8 @@ export default defineConfig({
     { name: "mobile", use: { viewport: { width: 390, height: 844 } } }
   ],
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
+    command: `npm run dev -- --host 127.0.0.1 --port ${serverPort}`,
+    url: serverUrl,
     reuseExistingServer: false,
     timeout: 120_000
   }

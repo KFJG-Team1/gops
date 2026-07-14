@@ -55,6 +55,7 @@ import {
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
 import { isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
+import { buildTradeScenarioPresentation } from "../chart/tradeScenarioPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -65,7 +66,9 @@ import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
+  analysisAssetHasLayer,
   isChartAssetDrawing,
+  defaultAnalysisLayerVisibility,
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
@@ -82,6 +85,7 @@ import {
   drawingTypeFromToolMode,
   hitTestDrawing,
   isValidRiskRewardAnchors,
+  isValidTradePlanAnchors,
   makeDrawing,
   nearestDrawingLineWidthStage,
   normalizeParallelLineCount,
@@ -150,6 +154,7 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import { ChartScenarioPhaseRail } from "./ChartScenarioPhaseRail";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import type { ThemeColorToken } from "../theme/colors";
 
@@ -251,6 +256,8 @@ type ChartPanelProps = {
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   toolbarLeading?: ReactNode;
   toolbarAfterViewControls?: ReactNode;
+  analysisLayerVisibility?: AnalysisLayerVisibility;
+  onAnalysisLayerVisibilityChange?: (visibility: AnalysisLayerVisibility) => void;
 };
 
 export type ChartPanelHandle = {
@@ -382,7 +389,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartHoverChange,
   onHeaderChange,
   toolbarLeading,
-  toolbarAfterViewControls
+  toolbarAfterViewControls,
+  analysisLayerVisibility = defaultAnalysisLayerVisibility,
+  onAnalysisLayerVisibilityChange
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
@@ -413,9 +422,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
-  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    geometry: true
-  });
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -669,6 +675,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeAnalysisAsset.assetVersion,
     activeAnalysisAsset.interval
   ) : false;
+  const activeTradeScenario = activeAnalysisAsset ? buildTradeScenarioPresentation(activeAnalysisAsset) : null;
+  const visibleTradeScenario = analysisLayerVisibility.scenario ? activeTradeScenario : null;
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
@@ -724,12 +732,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const visible = !analysisLayerVisibilityRef.current[layer];
     const next = { ...analysisLayerVisibilityRef.current, [layer]: visible };
     analysisLayerVisibilityRef.current = next;
-    setAnalysisLayerVisibility(next);
+    onAnalysisLayerVisibilityChange?.(next);
     dispatchExternalCommandGroup(
       analysisLayerToggleCommands(commandTarget, chartRef.current.drawings, activeAnalysisAsset, layer, visible),
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
-  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup, onAnalysisLayerVisibilityChange]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -1982,6 +1990,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           ]);
           return;
         }
+        if (drawingType === "tradePlanBox" && !isValidTradePlanAnchors(anchors)) {
+          setDrawingDraftError("T1은 진입과 T2 사이, T2는 손절 반대편에 지정하세요");
+          setTransientDrawings([
+            ...chart.drawings,
+            buildDraftPreviewDrawing(
+              { type: drawingType, anchors: anchors.slice(0, 3), sourceInterval: chart.interval },
+              anchor,
+              chart.trendLineExtension,
+              chart.parallelLineCount
+            )
+          ]);
+          return;
+        }
         const drawing = makeDrawing(drawingType, anchors, {
           trendLineExtension: chart.trendLineExtension,
           sourceInterval: sourceIntervalForDrawingAnchors(anchors, chart.interval),
@@ -2359,7 +2380,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       )}
       {chartControlTooltip.tooltipOverlay}
 
-      <div className="chart-wrap" ref={chartWrapRef}>
+      <div className={`chart-wrap ${visibleTradeScenario?.available ? "has-scenario-rail" : ""}`}>
+        <div className="chart-stage" ref={chartWrapRef}>
         <ChartCanvas
           chart={renderChart}
           expansions={renderExpansions}
@@ -2393,7 +2415,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            geometry: !activeAnalysisAsset?.geometry.drawings.length
+            geometry: !analysisAssetHasLayer(activeAnalysisAsset, "geometry"),
+            scenario: !analysisAssetHasLayer(activeAnalysisAsset, "scenario")
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}
@@ -2476,6 +2499,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             <X size={13} />
           </button>
         ))}
+        </div>
+        <ChartScenarioPhaseRail scenario={visibleTradeScenario} />
       </div>
 
     </section>
@@ -3933,6 +3958,15 @@ function ToolIcon({ toolMode }: { toolMode: ChartToolMode }) {
           <line x1="3" y1="9" x2="15" y2="9" />
           <path className="risk-reward-up" d="M4 4h10v4H4z" />
           <path className="risk-reward-down" d="M4 10h10v4H4z" />
+        </svg>
+      );
+    case "draw-tradePlanBox":
+      return (
+        <svg className="drawing-tool-svg" viewBox="0 0 18 18" aria-hidden="true">
+          <rect x="3" y="2" width="12" height="14" rx="1" />
+          <line x1="3" y1="6" x2="15" y2="6" />
+          <line x1="3" y1="10" x2="15" y2="10" />
+          <line x1="3" y1="13" x2="15" y2="13" />
         </svg>
       );
     case "draw-fibonacciRetracement":

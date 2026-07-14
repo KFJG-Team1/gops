@@ -10,6 +10,7 @@ import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/char
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
 import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
 import type { DrawingEntity } from "../src/chart/types";
+import { scenarioDrawingDomainValues } from "../src/chart/scene";
 
 const now = "2026-07-10T20:00:00.000Z";
 const target = { panelId: "panel-analysis", chartDocumentId: "doc-analysis" };
@@ -104,18 +105,44 @@ const deadCrossDrawing = resolveAnalysisAssetForCandles(deadCrossAsset, candles)
 assert.equal(deadCrossDrawing?.label, "데드크로스 · SMA60/120");
 assert.equal(deadCrossDrawing?.style.color, "#ef4444");
 assert.equal(resolveAnalysisAssetForCandles(asset, [])?.geometry.drawings.length, 0);
+assert.match(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.label ?? "", /품질 0\.92/);
 assert.equal(analysisAssetPresentationDiagnostics(asset, candles, [upper.id, lower.id]).state, "ready");
 const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...candles[0], timestamp: "2026-07-14T20:00:00.000Z" }]);
 assert.equal(stale.state, "stale_asset");
 assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .45);
 
 const userDrawing: DrawingEntity = { ...upper, id: "user", sourceProposalId: undefined, createdBy: "user" };
-const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, { geometry: true }, { mode: "pan" });
+const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, { geometry: true, scenario: true }, { mode: "pan" });
 assert.equal(commands.filter((command) => command.type === "chart.drawing.add").length, 3);
 assert.ok(commands.some((command) => command.type === "chart.drawing.add" && command.payload.drawing?.label === "골든크로스 · SMA60/120"));
 assert.equal(commands.filter((command) => command.type === "chart.layer.visibility.set").length, 2);
 assert.ok(commands.some((command) => command.type === "chart.layer.visibility.set" && command.payload.layer === "sma:120"));
 assert.equal(analysisLayerToggleCommands(target, [], resolved!, "geometry", true).length, 3);
+
+const scenarioDrawing: DrawingEntity = {
+  ...upper,
+  id: "chart-asset:AAPL:1D:trade-timing:pattern:condition:up:0",
+  anchors: [{ logicalIndex: 1, price: 182 }, { logicalIndex: 8, price: 182 }],
+  sourceProposalId: "chart-asset:AAPL:1D:trade-timing"
+};
+const scenarioAsset: ChartAnalysisAsset = {
+  ...resolved!,
+  geometry: { ...resolved!.geometry, drawings: [...resolved!.geometry.drawings, scenarioDrawing] }
+};
+const separatedCommands = analysisAssetApplyCommands(
+  target,
+  [],
+  scenarioAsset,
+  { geometry: false, scenario: true },
+  { mode: "pan" }
+);
+const addedDrawings = separatedCommands.filter((command) => command.type === "chart.drawing.add").map((command) => command.payload.drawing as DrawingEntity);
+assert.equal(addedDrawings.find((drawing) => drawing.id === scenarioDrawing.id)?.visible, true);
+assert.equal(addedDrawings.filter((drawing) => drawing.id !== scenarioDrawing.id).every((drawing) => drawing.visible === false), true);
+assert.equal(analysisLayerToggleCommands(target, scenarioAsset.geometry.drawings, scenarioAsset, "scenario", false).length, 1);
+assert.equal(analysisLayerToggleCommands(target, scenarioAsset.geometry.drawings, scenarioAsset, "geometry", false).length, 3);
+assert.deepEqual(scenarioDrawingDomainValues({ drawings: [scenarioDrawing, userDrawing] }), [182, 182]);
+assert.deepEqual(scenarioDrawingDomainValues({ drawings: [{ ...scenarioDrawing, visible: false }] }), []);
 
 const document = createChartDocument(target.chartDocumentId, "AAPL", "1D");
 const result = executeChartCommandGroup(document, commands, "Apply Geometry asset");
@@ -162,13 +189,14 @@ const levelAsset: ChartAnalysisAsset = {
 const projectedLevelAsset = resolveAnalysisAssetForCandles(levelAsset, candles);
 assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
 assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, [6, 4]);
+assert.equal(projectedLevelAsset?.geometry.drawings[0]?.label, "지지 245.70 · 접촉 3회");
 assert.deepEqual(
   projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
   candles.map((candle) => candle.timestamp)
 );
 assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.type === "trendLine")?.style.lineDash, undefined);
 assert.equal(analysisAssetPresentationDiagnostics(levelAsset, candles, [support.id]).state, "ready");
-const levelCommands = analysisAssetApplyCommands(target, [], levelAsset, { geometry: true }, { mode: "pan" });
+const levelCommands = analysisAssetApplyCommands(target, [], levelAsset, { geometry: true, scenario: true }, { mode: "pan" });
 const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geometry level asset");
 assert.equal(levelResult.ok, true);
 assert.equal(levelResult.document.drawings[0]?.anchors.length, 2);
@@ -199,4 +227,5 @@ assert.match(patternPanelSource, /활성 패턴이 있는 종목이 없습니다
 assert.match(patternPanelSource, /필터와 일치하는 종목이 없습니다/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
 assert.match(toggleSource, /Geometry 분석 레이어/);
+assert.match(toggleSource, /시나리오 분석 레이어/);
 assert.doesNotMatch(toggleSource, /인사이트|추세 분석 레이어/);

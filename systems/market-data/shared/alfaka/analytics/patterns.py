@@ -169,7 +169,7 @@ def _triangle_candidate(candles, highs, lows, *, atr, interval, search_span):
         for item in lows
     ]
 
-    state, breakout_direction, breakout_index = _breakout_state(
+    state, breakout_direction, breakout_index, breakout_evidence = _breakout_state(
         candles,
         upper_slope=upper_slope,
         upper_intercept=upper_intercept,
@@ -224,6 +224,7 @@ def _triangle_candidate(candles, highs, lows, *, atr, interval, search_span):
         "kind": kind,
         "state": state,
         "breakoutDirection": breakout_direction,
+        **breakout_evidence,
         "hardPass": hard_pass,
         "evidencePass": evidence_pass,
         "activePass": active_pass,
@@ -292,7 +293,7 @@ def _flag_candidates(candles, pivots, *, atr, interval):
                 retracement = (float(second["price"]) - min(float(row["low"]) for row in flag_rows)) / pole_move
             else:
                 retracement = (max(float(row["high"]) for row in flag_rows) - float(second["price"])) / pole_move
-            state, breakout_direction, breakout_index = _breakout_state(
+            state, breakout_direction, breakout_index, breakout_evidence = _breakout_state(
                 candles,
                 upper_slope=upper_slope,
                 upper_intercept=upper_intercept,
@@ -340,6 +341,7 @@ def _flag_candidates(candles, pivots, *, atr, interval):
                 "kind": kind,
                 "state": state,
                 "breakoutDirection": breakout_direction,
+                **breakout_evidence,
                 "hardPass": hard_pass,
                 "evidencePass": evidence_pass,
                 "activePass": active_pass,
@@ -397,7 +399,7 @@ def _continuation_candidates(candles, pivots, *, atr, interval):
                 retracement = (float(second["price"]) - min(float(row["low"]) for row in rows)) / pole_move
             else:
                 retracement = (max(float(row["high"]) for row in rows) - float(second["price"])) / pole_move
-            state, breakout_direction, _breakout_index = _breakout_state(
+            state, breakout_direction, _breakout_index, breakout_evidence = _breakout_state(
                 candles,
                 upper_slope=upper_slope,
                 upper_intercept=upper_intercept,
@@ -449,6 +451,7 @@ def _continuation_candidates(candles, pivots, *, atr, interval):
                 "kind": kind,
                 "state": state,
                 "breakoutDirection": breakout_direction,
+                **breakout_evidence,
                 "hardPass": hard_pass,
                 "evidencePass": evidence_pass,
                 "activePass": active_pass,
@@ -519,7 +522,7 @@ def _sloped_boundary_candidate(candles, highs, lows, *, atr, interval, search_sp
         abs(float(item["price"]) - _line(lower_slope, lower_intercept, int(item["barIndex"]))) / atr
         for item in lows
     ]
-    state, breakout_direction, breakout_index = _breakout_state(
+    state, breakout_direction, breakout_index, breakout_evidence = _breakout_state(
         candles,
         upper_slope=upper_slope,
         upper_intercept=upper_intercept,
@@ -570,6 +573,7 @@ def _sloped_boundary_candidate(candles, highs, lows, *, atr, interval, search_sp
         "kind": kind,
         "state": state,
         "breakoutDirection": breakout_direction,
+        **breakout_evidence,
         "hardPass": hard_pass,
         "evidencePass": evidence_pass,
         "activePass": active_pass,
@@ -657,8 +661,6 @@ def _breakout_state(
     inspect_from=None,
 ):
     start = max(0, int(inspect_from)) if inspect_from is not None else max(0, len(candles) - 2)
-    baseline_volumes = [float(row.get("volume") or 0) for row in candles[max(0, len(candles) - 21):-1]]
-    median_volume = statistics.median(baseline_volumes) if baseline_volumes else 0.0
     detected = None
     for index in range(start, len(candles)):
         close = float(candles[index]["close"])
@@ -669,19 +671,40 @@ def _breakout_state(
             detected = (index, direction)
             break
     if detected is None:
-        return "forming", None, None
+        return "forming", None, None, {}
     index, direction = detected
+    baseline_volumes = [float(row.get("volume") or 0) for row in candles[max(0, index - 20):index]]
+    median_volume = statistics.median(baseline_volumes) if baseline_volumes else 0.0
+    current_volume = float(candles[index].get("volume") or 0)
+    volume_ratio = current_volume / median_volume if median_volume > 0 else 0.0
+    breakout_at = str(candles[index]["timestamp"])
+    evidence = {
+        "breakoutAt": breakout_at,
+        "confirmedAt": None,
+        "confirmationMethod": None,
+        "volumeRatio": round(volume_ratio, 4),
+    }
     if expected not in {"either", direction}:
-        return "invalidated", direction, index
+        return "invalidated", direction, index, evidence
     held = index + 1 < len(candles) and (
         float(candles[index + 1]["close"]) > _line(upper_slope, upper_intercept, index + 1) + 0.25 * atr
         if direction == "up"
         else float(candles[index + 1]["close"]) < _line(lower_slope, lower_intercept, index + 1) - 0.25 * atr
     )
-    volume_confirmed = median_volume > 0 and float(candles[index].get("volume") or 0) >= 1.5 * median_volume
-    if held or volume_confirmed:
-        return "confirmed", direction, index
-    return "forming", None, None
+    volume_confirmed = median_volume > 0 and volume_ratio >= 1.5
+    if volume_confirmed:
+        return "confirmed", direction, index, {
+            **evidence,
+            "confirmedAt": breakout_at,
+            "confirmationMethod": "volume",
+        }
+    if held:
+        return "confirmed", direction, index, {
+            **evidence,
+            "confirmedAt": str(candles[index + 1]["timestamp"]),
+            "confirmationMethod": "hold",
+        }
+    return "forming", direction, index, evidence
 
 
 def _containment(candles, start, end, upper_slope, upper_intercept, lower_slope, lower_intercept, atr):

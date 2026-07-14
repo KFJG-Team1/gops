@@ -8,8 +8,8 @@
 - 분석 입력은 정규장·분할조정·완료된 canonical candle뿐이다.
 - `1W`는 canonical `1D`에서 기존 주봉 방식으로 생성한다.
 - 모든 timed anchor는 현재 asset interval의 실제 candle timestamp에 속한다.
-- `tradePlan`의 신호 anchor도 실제 완료 봉 timestamp여야 한다. 프런트가 만드는 임시
-  `riskRewardBox`의 미래 끝점은 저장하지 않으며 timestamp 없이 logical index로만 투영한다.
+- `tradePlan`의 신호·진입·리테스트 anchor도 실제 완료 봉 timestamp여야 한다. 프런트가
+  만드는 임시 `tradePlanBox`의 미래 끝점은 저장하지 않으며 timestamp 없이 logical index로만 투영한다.
 - `indicators.cross.status=crossed`이면 프런트는 실제 교차 완료 봉에 SMA60/120
   `flagMarker`를 만들고 Geometry 표시 상태를 따른다. 현재 candle 범위 밖이면 만들지 않는다.
 - 지지·저항 `horizontalLine`은 첫·마지막 접촉의 동일 가격 2-anchor를 저장하며,
@@ -20,8 +20,9 @@
 - 패턴 종류는 세 삼각형, 상승·하락 깃발형/페넌트/직사각형, 상승·하락 쐐기,
   하락 채널 상단 돌파, 상승 채널 하단 이탈이다. 채널 이탈은 `confirmed`만 hard-pass다.
 - geometry 계산에는 LLM을 사용하지 않는다.
-- `forming`은 `watch`, `confirmed`만 매매 후보이며 자동 주문으로 연결하지 않는다.
-- 돌파 buffer는 `0.25 ATR`, 전술 stop은 돌파 경계에서 `1 ATR`, 최소 신규 진입
+- `forming`은 `watch`이며 정확한 완료 봉 확인 가격만 표시한다. 가격만 돌파한 상태는
+  `confirmation_pending`, 거래량 `1.5×` 또는 다음 완료 봉 유지 뒤에는 `confirmed`다.
+- 돌파 buffer는 `0.25 ATR`, 리테스트 기한은 5봉, T1 최소 거리는 `0.75R`, T2 최소
   손익비는 `2.0`, 기본 포지션 정책은 long-only다.
 - chart asset payload/job은 PostgreSQL, candle은 ClickHouse에 저장한다.
 - 결측 보충은 Alpaca의 정확한 누락 range만 사용하며 S3·Redis·Kafka를 거치지 않는다.
@@ -60,7 +61,8 @@
 
 새 payload의 `assetVersion`은 숫자 개발 단계가 아니라 기존 응답 union을 구분하는
 semantic discriminator인 `geometry`다. `algorithmVersion`은 현재
-`ohlcv-consensus-pattern-families-v3`이며 분석 의미가 바뀔 때만 변경한다. 범용
+`ohlcv-consensus-pattern-families-v5`이며 분석 의미가 바뀔 때만 변경한다. 새 자산은
+`pattern-trade-timing-v3`를 생성하며 v1/v2/v3를 모두 읽는다. 범용
 `patterns[]`/`primaryPattern`이 없는 기존 geometry row는 프런트가 `primaryTriangle`로
 표시 호환하고, 다음 빌드에서 새 계약으로 교체한다. 기존 숫자형 자산 row는 읽기
 fallback이나 자동 변환에 사용하지 않는다.
@@ -89,6 +91,7 @@ index를 사용한다. 기존 설치는 명시적 migration Job을 재실행해
 .venv/bin/python -m pytest systems/api-server/tests/test_chart_assets_routes.py
 ```
 
-프론트는 `Geometry` 토글 하나만 제공하고, 현재 interval의 자산만 적용하며,
-SMA60·SMA120 overlay를 함께 활성화한다. 빌드 패널은 `1m/1D`만 제공하고 둘 다
-기본 선택한다.
+프론트는 `Geometry`와 `시나리오` 토글을 독립적으로 제공하고 현재 interval의 자산만
+적용한다. Geometry는 레벨·패턴·SMA 교차, 시나리오는 확인 구간/선·돌파/확인/리테스트
+마커·`tradePlanBox`·4단계 레일·대응 카드를 제어한다. 시스템 가격 라벨은 우측 사다리에
+정렬한다. 빌드 패널은 `1m/1D`만 제공하고 둘 다 기본 선택한다.

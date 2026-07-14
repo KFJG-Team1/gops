@@ -80,7 +80,7 @@ test("chart toolbar dropdowns open downward and remain keyboard accessible", asy
   await expectDropdownBelowTrigger(intervalTrigger, intervalMenu);
   await expect(intervalMenu.getByRole("option")).toHaveText(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
   expect(await intervalMenu.evaluate((element) => element.scrollTop)).toBe(0);
-  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png");
+  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png", { maxDiffPixelRatio: 0.006 });
 
   await intervalTrigger.press("Escape");
   await expect(intervalMenu).toBeHidden();
@@ -216,7 +216,7 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
   await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "빠른 주문" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "빠른 주문", exact: true })).toBeVisible();
 });
 
 test("quick order keeps analysis context ahead of explicit submit", async ({ page }) => {

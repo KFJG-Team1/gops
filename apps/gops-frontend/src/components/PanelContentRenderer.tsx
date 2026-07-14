@@ -4,6 +4,7 @@ import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import type { AnalysisLayerVisibility } from "../chart/analysisLayerController";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import {
   bidAskChartIntervals,
@@ -83,6 +84,8 @@ type PanelContentRendererProps = {
   chartCandles: CandleDto[];
   activeChartDocument?: ChartDocument;
   activeChartCandles: CandleDto[];
+  analysisLayerVisibility: AnalysisLayerVisibility;
+  onAnalysisLayerVisibilityChange?: (visibility: AnalysisLayerVisibility) => void;
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
@@ -123,6 +126,8 @@ export function PanelContentRenderer({
   chartCandles,
   activeChartDocument,
   activeChartCandles,
+  analysisLayerVisibility,
+  onAnalysisLayerVisibilityChange,
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
@@ -453,6 +458,7 @@ export function PanelContentRenderer({
         interval={normalizeChartInterval(activeChartDocument?.timeframe)}
         candles={activeChartCandles}
         drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+        analysisLayerVisibility={analysisLayerVisibility}
       />
     );
   }
@@ -589,6 +595,8 @@ export function PanelContentRenderer({
           onHeaderChange={onHeaderChange}
           toolbarLeading={chartNavigationLeading}
           toolbarAfterViewControls={companyToggleButton}
+          analysisLayerVisibility={analysisLayerVisibility}
+          onAnalysisLayerVisibilityChange={onAnalysisLayerVisibilityChange}
         />
       ) : (
         <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>

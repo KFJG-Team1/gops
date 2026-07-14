@@ -2,7 +2,7 @@ import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
 import { chartLayerMetadata, layerVisibilityAliases, normalizeChartLayerKey } from "./layers";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
-import { riskRewardDirection } from "./drawingGeometry";
+import { riskRewardDirection, tradePlanDirection } from "./drawingGeometry";
 import { normalizeSupportedSymbol } from "./symbols";
 import { clampRightOffset, latestCandleRightOffset } from "./viewport";
 import type {
@@ -626,6 +626,7 @@ function isToolMode(value: unknown): value is ChartDocument["interactionState"][
     value === "draw-flagMarker" ||
     value === "draw-rangeBox" ||
     value === "draw-riskRewardBox" ||
+    value === "draw-tradePlanBox" ||
     value === "draw-fibonacciRetracement";
 }
 
@@ -799,6 +800,11 @@ function anchorsMatchDrawingType(type: DrawingType, anchors: DrawingAnchor[]): b
     return prices.every((price): price is number => typeof price === "number") &&
       riskRewardDirection(prices[0], prices[1], prices[2]) !== null;
   }
+  if (type === "tradePlanBox") {
+    const prices = anchors.slice(0, 4).map((anchor) => anchor.price ?? anchor.value);
+    return prices.every((price): price is number => typeof price === "number") &&
+      tradePlanDirection(prices[0], prices[1], prices[2], prices[3]) !== null;
+  }
   return true;
 }
 
@@ -827,6 +833,17 @@ function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown
 }
 
 function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
+  if (type === "tradePlanBox" && anchors.length >= 4) {
+    const [entry, stop, targetOne, targetTwo, ...rest] = anchors;
+    const projectionTime = {
+      timestamp: stop.timestamp,
+      logicalIndex: stop.logicalIndex,
+      interval: stop.interval,
+      symbol: stop.symbol,
+      paneId: stop.paneId
+    };
+    return [entry, stop, { ...targetOne, ...projectionTime }, { ...targetTwo, ...projectionTime }, ...rest];
+  }
   if (type !== "riskRewardBox" || anchors.length < 3) {
     return anchors;
   }

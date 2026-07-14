@@ -10,6 +10,16 @@ export type GeometryLevel = {
   score: number;
   touches: number;
   anchors: Array<{ timestamp: string; price: number }>;
+  zoneLow?: number;
+  zoneHigh?: number;
+  reactionCount?: number;
+  lastTouchAgeBars?: number;
+  currentDistanceAtr?: number;
+  state?: string;
+  roleFlips?: number;
+  vpConfluence?: number;
+  roundNumber?: boolean;
+  evidence?: Array<Record<string, unknown>>;
 };
 
 export type GeometryPatternKind =
@@ -21,14 +31,47 @@ export type GeometryPatternKind =
   | "descending_channel_breakout" | "ascending_channel_breakdown";
 
 export type GeometryPattern = {
+  id?: string;
   kind: GeometryPatternKind;
   state: "forming" | "confirmed" | "inactive" | "invalidated";
   bias?: "bullish" | "bearish" | "neutral";
   breakoutDirection?: "up" | "down" | null;
+  breakoutAt?: string | null;
+  confirmedAt?: string | null;
+  confirmationMethod?: "volume" | "hold" | null;
+  volumeRatio?: number;
   score: number;
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+  upperTouches?: number;
+  lowerTouches?: number;
+  containment?: number;
+  convergenceRatio?: number;
+  parallelSlopeErrorAtr?: number;
+  maxResidualAtr?: number;
+  poleAtr?: number;
+  poleEfficiency?: number;
+  retracementRatio?: number;
+  channelWidthAtr?: number;
+  upper?: GeometryPatternBoundary;
+  lower?: GeometryPatternBoundary;
+  pole?: GeometryPatternBoundary;
+  evidence?: Array<Record<string, unknown>>;
+};
+
+export type GeometryPatternBoundary = {
+  start: { timestamp: string; price: number };
+  end: { timestamp: string; price: number };
+};
+
+export type GeometryConfirmationCondition = {
+  direction: "up" | "down";
+  boundary: "upper" | "lower";
+  boundaryPrice: number;
+  triggerPrice: number;
+  bufferAtr: number;
+  rule: "completed_close_above" | "completed_close_below";
 };
 
 export type GeometryTriangle = GeometryPattern & {
@@ -36,7 +79,7 @@ export type GeometryTriangle = GeometryPattern & {
 };
 
 export type GeometryTradePlan = {
-  version: "pattern-trade-timing-v1";
+  version: "pattern-trade-timing-v1" | "pattern-trade-timing-v2" | "pattern-trade-timing-v3";
   symbol: string | null;
   interval: AnalysisAssetInterval | null;
   patternId: string;
@@ -44,8 +87,47 @@ export type GeometryTradePlan = {
   patternState: GeometryPattern["state"];
   action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
   direction: "long" | "exit_long" | "short" | null;
+  phase?: "forming" | "confirmation_pending" | "confirmed" | "retest_confirmed" | "t1_reached" | "t2_reached" | "invalidated" | "expired";
   signalAt: string | null;
   entryTrigger: number | null;
+  confirmationConditions?: GeometryConfirmationCondition[];
+  confirmationEvidence?: {
+    direction: "up" | "down";
+    boundaryPrice: number;
+    triggerPrice: number;
+    breakoutAt: string;
+    confirmedAt: string | null;
+    method: "volume" | "hold" | null;
+    volumeRatio: number;
+    requiredVolumeRatio: number;
+    holdBars: number;
+  } | null;
+  entryPlan?: {
+    mode: "confirmation_close" | "retest_close";
+    at: string;
+    price: number;
+  } | null;
+  stopPlan?: {
+    initialPrice: number;
+    activePrice: number;
+    basis: "pattern_structure" | "breakout_boundary_atr" | "retest_swing_atr";
+    bufferAtr: number;
+  } | null;
+  targets?: Array<{
+    id: "T1" | "T2";
+    price: number;
+    basis: "one_r" | "nearest_opposing_level" | "measured_move";
+    allocationPercent: number;
+    rMultiple: number;
+  }>;
+  retest?: {
+    state: "pending" | "confirmed" | "expired";
+    at: string | null;
+    zoneLow: number | null;
+    zoneHigh: number | null;
+    observedBars: number;
+    maxBars: number;
+  } | null;
   entryPrice: number | null;
   stopPrice: number | null;
   targetPrice: number | null;

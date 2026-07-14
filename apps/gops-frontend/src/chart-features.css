@@ -72,6 +72,19 @@
 }
 
 .chart-wrap {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: clip;
+}
+
+.chart-wrap.has-scenario-rail {
+  grid-template-rows: minmax(0, 1fr) 42px;
+}
+
+.chart-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   overflow: clip;
 }
 
@@ -122,6 +135,11 @@
   color: var(--framer-accent-blue);
 }
 
+.chart-analysis-layer-buttons button.is-active.is-scenario {
+  background: rgb(var(--gops-caution-rgb) / 0.16);
+  color: var(--gops-caution);
+}
+
 .chart-analysis-layer-buttons button:disabled {
   color: var(--color-muted-soft);
   cursor: not-allowed;
@@ -145,6 +163,198 @@
   overflow: auto;
   padding: 16px;
   color: var(--color-text);
+}
+
+.chart-commentary-panel > .chart-commentary-headline {
+  margin-bottom: 12px;
+}
+
+.chart-commentary-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--coinbase-panel-muted) 82%, transparent);
+  color: var(--color-text);
+}
+
+.chart-commentary-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-muted);
+}
+
+.chart-commentary-card > header strong {
+  color: var(--framer-accent-blue);
+  font-weight: 500;
+}
+
+.chart-commentary-card.is-scenario {
+  border-color: rgb(var(--gops-caution-rgb) / 0.38);
+  background: rgb(var(--gops-caution-rgb) / 0.07);
+}
+
+.chart-commentary-card.is-scenario > header strong {
+  color: var(--gops-caution);
+}
+
+.chart-commentary-card.is-invalidation {
+  border-color: color-mix(in srgb, var(--color-down) 38%, var(--color-border));
+  background: color-mix(in srgb, var(--color-down) 7%, transparent);
+}
+
+.chart-commentary-card h4,
+.chart-commentary-card p {
+  margin: 0;
+}
+
+.chart-commentary-pattern {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-commentary-pattern:hover {
+  color: var(--framer-accent-blue);
+}
+
+.chart-commentary-card ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-muted);
+}
+
+.chart-commentary-conditions {
+  color: var(--gops-caution) !important;
+}
+
+.chart-scenario-phase-rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--coinbase-panel-strong) 86%, transparent);
+  color: var(--color-muted);
+}
+
+.chart-scenario-phase-rail ol {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0 14px;
+  list-style: none;
+}
+
+.chart-scenario-phase-rail li {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.chart-scenario-phase-rail li:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -11%;
+  width: 22%;
+  height: 1px;
+  background: var(--color-border);
+  content: "";
+}
+
+.chart-scenario-phase-rail li > span {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--coinbase-panel-strong);
+}
+
+.chart-scenario-phase-rail li strong {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-scenario-phase-rail li.is-current {
+  color: var(--gops-caution);
+}
+
+.chart-scenario-phase-rail li.is-current > span {
+  border-color: var(--gops-caution);
+  background: rgb(var(--gops-caution-rgb) / 0.14);
+}
+
+.chart-scenario-phase-rail li.is-complete {
+  color: var(--color-up);
+}
+
+.chart-scenario-phase-rail li.is-complete > span {
+  border-color: var(--color-up);
+}
+
+@container workspace-panel (max-width: 420px) {
+  .chart-scenario-phase-rail ol {
+    padding: 0 7px;
+  }
+
+  .chart-scenario-phase-rail li {
+    gap: 3px;
+  }
+
+  .chart-scenario-phase-rail li > span {
+    display: none;
+  }
+
+  .chart-scenario-phase-rail li:not(:last-child)::after {
+    right: -7%;
+    width: 14%;
+  }
+
+  .chart-commentary-panel {
+    padding: 12px;
+  }
+
+  .chart-commentary-card {
+    padding: 9px 10px;
+  }
+}
+
+@container workspace-panel (max-height: 300px) {
+  .chart-wrap.has-scenario-rail {
+    grid-template-rows: minmax(0, 1fr) 32px;
+  }
+
+  .chart-scenario-phase-rail ol {
+    padding: 0 7px;
+  }
+
+  .chart-scenario-phase-rail li {
+    gap: 3px;
+  }
+
+  .chart-scenario-phase-rail li > span {
+    display: none;
+  }
 }
 
 .chart-commentary-meta {

@@ -18,7 +18,7 @@ TARGET_BARS = {**{interval: 380 for interval in SUPPORTED_INTERVALS[:-1]}, "1W":
 WARMUP_BARS = {interval: 120 for interval in SUPPORTED_INTERVALS}
 EVALUATION_BARS = {**{interval: 260 for interval in SUPPORTED_INTERVALS[:-1]}, "1W": 192}
 MINIMUM_BARS = 120
-ALGORITHM_VERSION = "ohlcv-consensus-pattern-families-v3"
+ALGORITHM_VERSION = "ohlcv-consensus-pattern-families-v5"
 
 _ATR_PERIOD = 14
 _VOLUME_BASELINE = 20
@@ -54,6 +54,8 @@ def analyze_geometry(symbol: str, interval: str, candles: list[dict[str, Any]]) 
         atr=latest_atr,
         symbol=symbol,
         interval=interval,
+        supports=supports,
+        resistances=resistances,
     )
     triangle_candidates = _regression_triangle_candidates(rows, interval=interval)
     active = sorted(
@@ -362,8 +364,8 @@ def _public_triangle(value):
     return {key: value[key] for key in (
         "kind", "state", "breakoutDirection", "score", "touches", "upperTouches", "lowerTouches",
         "containment", "convergenceRatio", "maxResidualAtr", "geometryHash", "upper", "lower",
-        "apexBarsFromAsOf", "evidence",
-    )}
+        "apexBarsFromAsOf", "breakoutAt", "confirmedAt", "confirmationMethod", "volumeRatio", "evidence",
+    ) if key in value}
 
 
 def _public_pattern(value):
@@ -373,7 +375,7 @@ def _public_pattern(value):
         "id", "kind", "state", "breakoutDirection", "score", "touches", "upperTouches", "lowerTouches",
         "containment", "convergenceRatio", "parallelSlopeErrorAtr", "maxResidualAtr", "poleAtr",
         "poleEfficiency", "retracementRatio", "channelWidthAtr", "geometryHash", "pole", "upper", "lower",
-        "apexBarsFromAsOf", "evidence",
+        "apexBarsFromAsOf", "breakoutAt", "confirmedAt", "confirmationMethod", "volumeRatio", "evidence",
     )
     return {
         **{key: value[key] for key in keys if key in value},

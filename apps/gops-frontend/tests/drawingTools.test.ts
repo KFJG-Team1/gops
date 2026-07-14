@@ -11,6 +11,7 @@ import {
   fibonacciBandPolygons,
   parallelBandPolygons,
   riskRewardDirection,
+  tradePlanDirection,
   spatialTrendParallelOffsets,
   trendParallelOffsets
 } from "../../chart-engine/src/drawingGeometry";
@@ -23,6 +24,7 @@ import {
   buildDraggedAnchors,
   drawingLabelLayout,
   drawingLabelPosition,
+  drawingRequiredAnchorCount,
   hitTestDrawing,
   nearestDrawingLineWidthStage,
   parallelBandsForDrawing,
@@ -503,6 +505,10 @@ assert.equal(emptyFlagHit?.drawing.id, emptyFlagDrawing.id, "fallback flag tag m
 assert.equal(riskRewardDirection(100, 95, 112), "long");
 assert.equal(riskRewardDirection(100, 108, 90), "short");
 assert.equal(riskRewardDirection(100, 95, 90), null);
+assert.equal(tradePlanDirection(100, 95, 105, 112), "long");
+assert.equal(tradePlanDirection(100, 108, 95, 90), "short");
+assert.equal(tradePlanDirection(100, 95, 113, 112), null);
+assert.equal(drawingRequiredAnchorCount("tradePlanBox"), 4);
 
 for (const [id, prices] of [["long", [100, 95, 112]], ["short", [100, 108, 90]]] as const) {
   const document = createChartDocument(`risk-${id}`, "AAPL", "1m");
@@ -532,6 +538,34 @@ const invalidRiskResult = executeChartCommand(invalidRiskDocument, makeChartComm
   }
 }));
 assert.equal(invalidRiskResult.ok, false, "target on the stop side must be rejected");
+
+const tradePlanDocument = createChartDocument("trade-plan", "AAPL", "1m");
+const tradePlanResult = executeChartCommand(tradePlanDocument, makeChartCommand("chart.drawing.add", "user", chartTarget(tradePlanDocument.id), {
+  drawing: {
+    id: "trade-plan-long",
+    type: "tradePlanBox",
+    anchors: [drawingAnchor(0, 100), drawingAnchor(4, 95), drawingAnchor(2, 105), drawingAnchor(3, 112)],
+    style: {},
+    visible: true
+  }
+}));
+assert.equal(tradePlanResult.ok, true, "valid four-anchor trade plan must be accepted");
+if (!tradePlanResult.ok) assert.fail(tradePlanResult.message);
+assert.deepEqual(
+  tradePlanResult.document.drawings[0].anchors.slice(1).map(anchorTime),
+  [anchorTime(tradePlanResult.document.drawings[0].anchors[1]), anchorTime(tradePlanResult.document.drawings[0].anchors[1]), anchorTime(tradePlanResult.document.drawings[0].anchors[1])],
+  "Stop, T1, and T2 must share the projection time"
+);
+const invalidTradePlanResult = executeChartCommand(tradePlanDocument, makeChartCommand("chart.drawing.add", "user", chartTarget(tradePlanDocument.id), {
+  drawing: {
+    id: "trade-plan-invalid",
+    type: "tradePlanBox",
+    anchors: [drawingAnchor(0, 100), drawingAnchor(4, 95), drawingAnchor(4, 113), drawingAnchor(4, 112)],
+    style: {},
+    visible: true
+  }
+}));
+assert.equal(invalidTradePlanResult.ok, false, "T1 outside Entry-T2 must be rejected");
 
 const riskDrawing: DrawingEntity = {
   ...rangeDrawing,
@@ -567,6 +601,35 @@ const movedTarget = buildDraggedAnchors({
 }, drawingAnchor(1, 115), riskScene);
 assert.equal(movedTarget[2].price, 115);
 assert.deepEqual(anchorTime(movedTarget[2]), anchorTime(riskDrawing.anchors[1]), "Target drag changes price only");
+
+const tradePlanDrawing: DrawingEntity = {
+  ...rangeDrawing,
+  id: "trade-plan-drag",
+  type: "tradePlanBox",
+  anchors: [drawingAnchor(0, 100), drawingAnchor(4, 95), drawingAnchor(4, 105), drawingAnchor(4, 112)],
+  label: undefined
+};
+const tradePlanScene = drawingScene([tradePlanDrawing], tradePlanDrawing.id);
+const movedTargetOne = buildDraggedAnchors({
+  drawing: tradePlanDrawing,
+  anchor: tradePlanDrawing.anchors[2],
+  anchorIndex: 2,
+  startPoint: { x: 0, y: 0 },
+  moved: true
+}, drawingAnchor(2, 106), tradePlanScene);
+assert.equal(movedTargetOne[2].price, 106);
+assert.deepEqual(anchorTime(movedTargetOne[2]), anchorTime(tradePlanDrawing.anchors[1]));
+const rejectedTargetOne = buildDraggedAnchors({
+  drawing: tradePlanDrawing,
+  anchor: tradePlanDrawing.anchors[2],
+  anchorIndex: 2,
+  startPoint: { x: 0, y: 0 },
+  moved: true
+}, drawingAnchor(2, 113), tradePlanScene);
+assert.deepEqual(rejectedTargetOne, tradePlanDrawing.anchors, "T1 cannot cross T2");
+const tradePlanPoint = createCoordinateTransform(tradePlanScene).anchorToPoint(tradePlanDrawing.anchors[2]);
+assert.ok(tradePlanPoint);
+assert.equal(hitTestDrawing(tradePlanScene, tradePlanPoint.x, tradePlanPoint.y)?.drawing.id, tradePlanDrawing.id);
 
 const fibUp = buildFibonacciLevelGeometry({ x: 10, y: 100 }, { x: 110, y: 0 });
 const fibDown = buildFibonacciLevelGeometry({ x: 10, y: 0 }, { x: 110, y: 100 });

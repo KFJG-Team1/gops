@@ -1,4 +1,4 @@
-import { ChartNoAxesCombined } from "lucide-react";
+import { ChartNoAxesCombined, Route } from "lucide-react";
 import { formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysisLayerController";
 
@@ -25,6 +25,18 @@ export function ChartAnalysisLayerToggles({
           onClick={() => onToggle("geometry")}
         >
           <ChartNoAxesCombined size={14} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={visibility.scenario && !disabled.scenario ? "is-active is-scenario" : ""}
+          aria-label={`시나리오 분석 레이어 ${visibility.scenario ? "끄기" : "켜기"}`}
+          aria-pressed={visibility.scenario}
+          disabled={disabled.scenario}
+          title={disabled.scenario ? "대응 시나리오 없음" : "작도 대응 시나리오"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => onToggle("scenario")}
+        >
+          <Route size={14} aria-hidden="true" />
         </button>
       </div>
       {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAnalysisAssetAsOf(asOf)}{stale ? " · stale" : ""}</span>}

@@ -151,6 +151,7 @@ export const chartCapabilities: ChartCapability[] = [
             "flagMarker",
             "rangeBox",
             "riskRewardBox",
+            "tradePlanBox",
             "fibonacciRetracement"
           ]
         },
@@ -172,6 +173,7 @@ export const chartCapabilities: ChartCapability[] = [
       "trendParallelLines requires three anchors and parallelLineCount from 2 through 10",
       "horizontalParallelLines and verticalParallelLines require two anchors",
       "riskRewardBox requires entry, stop, and target anchors in that order",
+      "tradePlanBox requires entry, stop, target1, and target2 anchors in that order",
       "fibonacciRetracement requires two anchors",
       "pixel coordinates are rejected"
     ]
