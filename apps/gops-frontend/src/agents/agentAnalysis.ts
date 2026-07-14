@@ -5,6 +5,14 @@ import {
   type AgentLayoutProposal,
   type CommandActor
 } from "../layout/agentLayoutTypes";
+import type {
+  CoachActionCenter,
+  CoachReport,
+  DailyTradeReview,
+  HistoricalHabitsPage,
+  ImprovementPlan,
+  TradeCase
+} from "../components/ai-coach/types";
 
 export type AgentEvidenceItem = {
   provider: string;
@@ -163,6 +171,7 @@ export type AgentAnalysisReport = {
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: AgentLayoutProposal | null;
   timing?: AgentAnalysisTiming | null;
+  coachReport?: CoachReport | null;
 };
 
 export type AgentAnalysisMode = "auto" | "multi_agent";
@@ -178,6 +187,11 @@ export type AgentAnalysisRequestInput = {
   routerMode?: "hybrid" | "rules" | "strict-llm";
   analysisMode?: AgentAnalysisMode;
   agentIds?: string[];
+  coachRequest?: {
+    enabled: true;
+    selectedFillId?: string;
+    tradingDate?: string;
+  };
 };
 
 export type AgentAnalysisMessage = {
@@ -196,7 +210,8 @@ export function buildAgentAnalysisRequest({
   uiContext,
   routerMode = "hybrid",
   analysisMode = "auto",
-  agentIds = []
+  agentIds = [],
+  coachRequest
 }: AgentAnalysisRequestInput) {
   const request = {
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
@@ -207,7 +222,8 @@ export function buildAgentAnalysisRequest({
     uiContext: uiContext ?? {},
     routerMode,
     analysisMode,
-    agentIds
+    agentIds,
+    ...(coachRequest ? { coachRequest } : {})
   };
   return layoutContext === undefined ? request : { ...request, layoutContext };
 }
@@ -243,8 +259,200 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
     layoutProposal: normalizeLayoutProposal(source.layoutProposal),
-    timing: normalizeTiming(source.timing)
+    timing: normalizeTiming(source.timing),
+    coachReport: normalizeCoachReport(source.coachReport)
   };
+}
+
+function normalizeCoachReport(value: unknown): CoachReport | null {
+  const source = readObject(value);
+  const contractVersion = readString(source?.contractVersion);
+  const analysisId = readString(source?.analysisId);
+  if (!source || !contractVersion || !analysisId) return null;
+  const sourceAsOf = readObject(source.sourceAsOf) ?? {};
+  return {
+    contractVersion,
+    analysisId,
+    generatedAt: readString(source.generatedAt) ?? "",
+    sourceAsOf: Object.fromEntries(
+      Object.entries(sourceAsOf).map(([key, item]) => [key, readString(item)])
+    ),
+    page1: normalizeDailyTradeReview(source.page1),
+    page2: normalizeHistoricalHabitsPage(source.page2),
+    page3: normalizeImprovementPlan(source.page3),
+    page4: normalizeCoachActionCenter(source.page4),
+    snapshotRef: readString(source.snapshotRef),
+    snapshotDigest: readString(source.snapshotDigest),
+    missingData: readArray(source.missingData)
+      .map(readObject)
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => ({
+        source: readString(item.source) ?? undefined,
+        code: readString(item.code) ?? undefined,
+        message: readString(item.message) ?? undefined
+      })),
+    warnings: readArray(source.warnings)
+      .map(readString)
+      .filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeDailyTradeReview(value: unknown): DailyTradeReview | null {
+  const source = readObject(value);
+  if (!source) return null;
+  const currentCase = normalizeTradeCase(source.currentCase);
+  if (!currentCase) return null;
+  const trades = readArray(source.trades)
+    .map(readObject)
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((item) => {
+      const fillId = readString(item.fillId);
+      const symbol = readString(item.symbol);
+      return fillId && symbol ? [{ ...item, fillId, symbol }] : [];
+    }) as DailyTradeReview["trades"];
+  const assessment = readObject(source.decisionAssessment) ?? {};
+  const checklist = readObject(source.checklist) ?? {};
+  const reviewsSource = readObject(source.reviewsByFillId) ?? {};
+  const reviewsByFillId: NonNullable<DailyTradeReview["reviewsByFillId"]> = {};
+  for (const [fillId, reviewValue] of Object.entries(reviewsSource)) {
+    const review = normalizeTradeReviewBody(reviewValue);
+    if (fillId && review) reviewsByFillId[fillId] = review;
+  }
+  return {
+    selectedFillId: readString(source.selectedFillId),
+    trades,
+    decisionAssessment: {
+      ...(assessment as DailyTradeReview["decisionAssessment"]),
+      evidence: readArray(assessment.evidence).map(readString).filter((item): item is string => Boolean(item)),
+      sourceAsOf: normalizeSourceAsOf(assessment.sourceAsOf)
+    },
+    currentCase,
+    similarCases: readArray(source.similarCases).map(normalizeTradeCase).filter((item): item is TradeCase => Boolean(item)).slice(0, 6),
+    checklist: {
+      chart: normalizeObjectArray(checklist.chart) as DailyTradeReview["checklist"]["chart"],
+      news: normalizeObjectArray(checklist.news) as DailyTradeReview["checklist"]["news"],
+      fundamentals: normalizeObjectArray(checklist.fundamentals) as DailyTradeReview["checklist"]["fundamentals"],
+      market: normalizeObjectArray(checklist.market) as DailyTradeReview["checklist"]["market"]
+    },
+    portfolioImpact: readObject(source.portfolioImpact) ?? {},
+    watchConditions: normalizeObjectArray(source.watchConditions) as DailyTradeReview["watchConditions"],
+    proposedAlerts: normalizeObjectArray(source.proposedAlerts) as DailyTradeReview["proposedAlerts"],
+    confidence: (readObject(source.confidence) ?? {}) as DailyTradeReview["confidence"],
+    reviewsByFillId
+  };
+}
+
+function normalizeTradeReviewBody(value: unknown): NonNullable<DailyTradeReview["reviewsByFillId"]>[string] | null {
+  const source = readObject(value);
+  const currentCase = normalizeTradeCase(source?.currentCase);
+  if (!source || !currentCase) return null;
+  const assessment = readObject(source.decisionAssessment) ?? {};
+  const checklist = readObject(source.checklist) ?? {};
+  return {
+    decisionAssessment: assessment as DailyTradeReview["decisionAssessment"],
+    currentCase,
+    similarCases: readArray(source.similarCases).map(normalizeTradeCase).filter((item): item is TradeCase => Boolean(item)).slice(0, 6),
+    checklist: {
+      chart: normalizeObjectArray(checklist.chart) as DailyTradeReview["checklist"]["chart"],
+      news: normalizeObjectArray(checklist.news) as DailyTradeReview["checklist"]["news"],
+      fundamentals: normalizeObjectArray(checklist.fundamentals) as DailyTradeReview["checklist"]["fundamentals"],
+      market: normalizeObjectArray(checklist.market) as DailyTradeReview["checklist"]["market"]
+    },
+    portfolioImpact: readObject(source.portfolioImpact) ?? {},
+    watchConditions: normalizeObjectArray(source.watchConditions) as DailyTradeReview["watchConditions"],
+    proposedAlerts: normalizeObjectArray(source.proposedAlerts) as DailyTradeReview["proposedAlerts"],
+    confidence: (readObject(source.confidence) ?? {}) as DailyTradeReview["confidence"]
+  };
+}
+
+function normalizeTradeCase(value: unknown): TradeCase | null {
+  const source = readObject(value);
+  const caseId = readString(source?.caseId);
+  if (!source || !caseId) return null;
+  return {
+    ...(source as TradeCase),
+    caseId,
+    similarityComponents: readObject(source.similarityComponents) as Record<string, number> | null ?? undefined,
+    series: normalizeObjectArray(source.series) as TradeCase["series"],
+    missedChecks: normalizeObjectArray(source.missedChecks) as TradeCase["missedChecks"]
+  };
+}
+
+function normalizeHistoricalHabitsPage(value: unknown): HistoricalHabitsPage | null {
+  const source = readObject(value);
+  if (!source) return null;
+  const reportsByPeriod = readObject(source.reportsByPeriod) ?? {};
+  return {
+    ...(source as HistoricalHabitsPage),
+    availability: normalizeAvailability(source.availability),
+    defaultPeriod: source.defaultPeriod === "30d" || source.defaultPeriod === "1y" ? source.defaultPeriod : "90d",
+    reportsByPeriod: {
+      "30d": normalizeStageReports(reportsByPeriod["30d"]),
+      "90d": normalizeStageReports(reportsByPeriod["90d"]),
+      "1y": normalizeStageReports(reportsByPeriod["1y"])
+    }
+  };
+}
+
+function normalizeImprovementPlan(value: unknown): ImprovementPlan | null {
+  const source = readObject(value);
+  if (!source) return null;
+  return {
+    ...(source as ImprovementPlan),
+    availability: normalizeAvailability(source.availability),
+    summary: readString(source.summary) ?? undefined,
+    priorities: normalizeObjectArray(source.priorities) as ImprovementPlan["priorities"],
+    experiments: normalizeObjectArray(source.experiments) as ImprovementPlan["experiments"],
+    guardrails: normalizeObjectArray(source.guardrails) as ImprovementPlan["guardrails"]
+  };
+}
+
+function normalizeCoachActionCenter(value: unknown): CoachActionCenter | null {
+  const source = readObject(value);
+  if (!source) return null;
+  return {
+    availability: normalizeAvailability(source.availability),
+    activeExperiments: normalizeObjectArray(source.activeExperiments) as CoachActionCenter["activeExperiments"],
+    enabledGuardrails: normalizeObjectArray(source.enabledGuardrails) as CoachActionCenter["enabledGuardrails"],
+    recommendedAlerts: normalizeObjectArray(source.recommendedAlerts) as CoachActionCenter["recommendedAlerts"],
+    watchingAlerts: normalizeObjectArray(source.watchingAlerts) as CoachActionCenter["watchingAlerts"]
+  };
+}
+
+function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]> {
+  const source = readObject(value);
+  if (!source) return {};
+  return Object.fromEntries(
+    ["entry", "exit", "portfolio"].flatMap((stage) => {
+      const report = readObject(source[stage]);
+      if (!report) return [];
+      return [[stage, {
+        ...report,
+        stage,
+        availability: normalizeAvailability(report.availability),
+        sampleSize: readNumber(report.sampleSize) ?? 0,
+        confidence: ["low", "medium", "high"].includes(String(report.confidence)) ? report.confidence : "insufficient",
+        missingData: readArray(report.missingData).map(readString).filter((item): item is string => Boolean(item)),
+        behavior: normalizeObjectArray(report.behavior),
+        insights: normalizeObjectArray(report.insights)
+      }]];
+    })
+  ) as NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]>;
+}
+
+function normalizeAvailability(value: unknown): HistoricalHabitsPage["availability"] {
+  return ["ready", "insufficient_data", "insufficient_sample", "no_confirmation_record", "not_calculated", "pending", "observing", "low_confidence"].includes(String(value))
+    ? value as HistoricalHabitsPage["availability"]
+    : "insufficient_data";
+}
+
+function normalizeObjectArray(value: unknown): Record<string, unknown>[] {
+  return readArray(value).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function normalizeSourceAsOf(value: unknown): Record<string, string | null> {
+  const source = readObject(value) ?? {};
+  return Object.fromEntries(Object.entries(source).map(([key, item]) => [key, readString(item)]));
 }
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {

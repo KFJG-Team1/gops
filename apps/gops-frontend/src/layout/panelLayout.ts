@@ -39,6 +39,7 @@ export type PanelContentKind =
   | "portfolioHoldings"
   | "portfolioHoldingsFlatCards"
   | "orderFlow"
+  | "aiCoach"
   | "quickOrder"
   | "paperQuickOrder"
   | "paperTrade"
@@ -1273,10 +1274,13 @@ export type StoredTiledPanelState = {
 };
 
 export function serializeTiledPanelState(state: TiledPanelState): StoredTiledPanelState {
+  const contents = Object.fromEntries(Object.entries(state.contents).map(([contentId, content]) => (
+    [contentId, panelContentForStorage(content)]
+  ))) as Record<PanelContentId, PanelContentInstance>;
   return {
     version: 1,
     nextInstance: state.nextInstance,
-    contents: state.contents,
+    contents,
     slots: state.slots.map((slot) => ({
       id: slot.id,
       contentId: slot.contentId,
@@ -1308,6 +1312,9 @@ export function restoreTiledPanelStateSnapshot(
     if (!kind) {
       return null;
     }
+    const restoredProps = isRecord(rawContent.props)
+      ? panelPropsForStorage(kind, rawContent.props)
+      : undefined;
     contents[contentId] = {
       id: contentId,
       kind,
@@ -1317,7 +1324,7 @@ export function restoreTiledPanelStateSnapshot(
       instanceIndex,
       ...(kind === "chart" ? { chartDocumentId: readString(rawContent.chartDocumentId) ?? `${contentId}-document` } : {}),
       ...(typeof rawContent.layoutWeight === "number" ? { layoutWeight: rawContent.layoutWeight } : {}),
-      ...(isRecord(rawContent.props) ? { props: rawContent.props } : {})
+      ...(restoredProps && Object.keys(restoredProps).length ? { props: restoredProps } : {})
     };
   }
 
@@ -1351,6 +1358,26 @@ export function restoreTiledPanelStateSnapshot(
     ? Math.max(value.nextInstance, slots.length + 1)
     : slots.length + 1;
   return { contents, slots, nextInstance };
+}
+
+function panelContentForStorage(content: PanelContentInstance): PanelContentInstance {
+  if (!content.props) {
+    return content;
+  }
+  const { props: _props, ...withoutProps } = content;
+  const safeProps = panelPropsForStorage(content.kind, content.props);
+  return Object.keys(safeProps).length ? { ...withoutProps, props: safeProps } : withoutProps;
+}
+
+function panelPropsForStorage(
+  kind: PanelContentKind,
+  props: Record<string, unknown>
+): Record<string, unknown> {
+  if (kind !== "aiCoach") {
+    return props;
+  }
+  const { coachReport: _coachReport, ...safeProps } = props;
+  return safeProps;
 }
 
 function createPanelContent(

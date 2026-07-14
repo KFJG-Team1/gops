@@ -1,0 +1,535 @@
+.page {
+  container-name: habit-coach;
+  container-type: inline-size;
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+}
+
+.pageHeader {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  color: color-mix(in srgb, var(--color-signal) 72%, white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.pageHeader h2,
+.stageHeader h3,
+.sectionHeading h4,
+.insightCandidate h5 {
+  margin: 0;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.pageHeader h2 {
+  font-size: 20px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.pageHeader p,
+.stageHeader p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tabs,
+.periodControl {
+  display: grid;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.12);
+  border-radius: 7px;
+  background: rgb(var(--framer-ink-rgb) / 0.025);
+}
+
+.tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.periodControl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tabs button,
+.periodControl button {
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--color-muted);
+  background: transparent;
+  cursor: pointer;
+  font: 650 12px/1.25 var(--font-data-sans);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.tabs button:hover,
+.periodControl button:hover {
+  color: var(--color-text);
+  background: rgb(var(--framer-ink-rgb) / 0.055);
+}
+
+.tabs button:focus-visible,
+.periodControl button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 78%, white);
+  outline-offset: 2px;
+}
+
+.tabs button.selectedControl,
+.periodControl button.selectedControl {
+  border-color: color-mix(in srgb, var(--color-signal) 46%, transparent);
+  color: var(--coinbase-on-primary);
+  background: color-mix(in srgb, var(--color-signal) 82%, #1d1d1d);
+}
+
+.availabilityBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 9px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.availabilityBanner strong {
+  color: var(--color-text-medium);
+  font-size: 12px;
+  text-align: right;
+}
+
+.tabPanel {
+  min-width: 0;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0 16px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.stageHeader > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.stageHeader > div > span {
+  color: color-mix(in srgb, var(--color-signal) 68%, white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.stageHeader h3 {
+  font-size: 17px;
+  font-weight: 680;
+  line-height: 1.4;
+}
+
+.stageHeader em {
+  flex: 0 0 auto;
+  max-width: 42%;
+  padding-top: 2px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.summarySection,
+.metricSection,
+.planSection,
+.insightSection {
+  min-width: 0;
+  padding: 15px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+
+.sectionHeading > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sectionHeading > div > span {
+  color: color-mix(in srgb, var(--color-signal) 65%, white);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.sectionHeading h4 {
+  color: var(--color-text-medium);
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.4;
+}
+
+.sectionHeading small {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.summary,
+.unavailableCopy {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 610;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.unavailableCopy {
+  color: var(--color-muted);
+}
+
+.evidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  margin: 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.evidenceItem {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 62px;
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.evidenceItem dt,
+.insightCandidate dt {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.evidenceItem dd,
+.insightCandidate dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-medium);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.evidenceItem dd.muted,
+.unavailableValue {
+  color: var(--color-muted);
+}
+
+.evidenceItem dd.caution,
+.caution {
+  color: var(--color-caution);
+}
+
+.missingData {
+  grid-column: 1 / -1;
+  padding-right: 0;
+}
+
+.missingData ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.missingData li {
+  position: relative;
+  padding-left: 10px;
+}
+
+.missingData li::before {
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-muted);
+  content: "";
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
+  gap: 22px;
+}
+
+.metricList {
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.metricRow {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.72fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.metricRow > span,
+.planValue > span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.metricRow > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  justify-items: end;
+  text-align: right;
+}
+
+.metricRow strong,
+.planValue strong {
+  max-width: 100%;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.metricRow strong small,
+.planValue strong small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 550;
+}
+
+.metricRow p,
+.planValue p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.planValue {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.planValue > strong {
+  font-size: 18px;
+}
+
+.insightList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.insightCandidate {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  border-radius: 7px;
+  background: rgb(var(--framer-ink-rgb) / 0.025);
+}
+
+.insightCandidate::before {
+  position: absolute;
+  inset: -1px auto -1px -1px;
+  width: 2px;
+  border-radius: 7px 0 0 7px;
+  background: var(--color-muted);
+  content: "";
+}
+
+.insightCandidate.effective_candidate::before {
+  background: var(--color-up);
+}
+
+.insightCandidate.improvement_candidate::before {
+  background: var(--color-caution);
+}
+
+.insightCandidate header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.insightCandidate header > span {
+  color: var(--color-text-medium);
+  font-size: 10px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.effective_candidate header > span {
+  color: color-mix(in srgb, var(--color-up) 82%, white);
+}
+
+.improvement_candidate header > span {
+  color: var(--color-caution);
+}
+
+.insightCandidate header small {
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.insightCandidate h5 {
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.4;
+}
+
+.insightCandidate dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.insightCandidate dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.guardrailMarker {
+  margin: 1px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.emptyState {
+  margin: 0;
+  padding: 18px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+}
+
+@container habit-coach (max-width: 680px) {
+  .controls,
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insightList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container habit-coach (max-width: 440px) {
+  .periodControl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tabs button,
+  .periodControl button {
+    min-height: 44px;
+  }
+
+  .stageHeader,
+  .sectionHeading,
+  .insightCandidate header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .stageHeader em,
+  .sectionHeading small,
+  .insightCandidate header small {
+    max-width: none;
+    text-align: left;
+  }
+
+  .evidenceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metricRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .metricRow > div {
+    justify-items: start;
+    text-align: left;
+  }
+}

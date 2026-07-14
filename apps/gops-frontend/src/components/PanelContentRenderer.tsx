@@ -1,5 +1,5 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
@@ -27,6 +27,7 @@ import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
 import { ChartPatternListPanel } from "./ChartPatternListPanel";
+import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -38,7 +39,6 @@ import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
-import { PaperAccountPanel } from "./PaperAccountPanel";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import { QuickOrderPanel } from "./QuickOrderPanel";
 import {
@@ -55,6 +55,13 @@ import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
+
+const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
+  default: module.AiInvestmentCoachPanel
+})));
+const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
+  default: module.PaperAccountPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -349,6 +356,13 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "aiCoach") {
+    const coachReport = content.props?.coachReport;
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
+      <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
+    </Suspense>;
+  }
+
   if (content.kind === "quickOrder") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -402,7 +416,9 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "paperAccount") {
-    return <PaperAccountPanel />;
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상계좌를 불러오는 중입니다</div>}>
+      <PaperAccountPanel />
+    </Suspense>;
   }
 
   if (content.kind === "chartCommentary") {
