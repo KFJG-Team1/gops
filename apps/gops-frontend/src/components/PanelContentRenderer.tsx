@@ -1,5 +1,5 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { lazy, Suspense, useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
@@ -60,6 +60,9 @@ const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").the
 const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
   default: module.PaperAccountPanel
 })));
+const PriceConditionPanel = lazy(() => import("./PriceConditionPanel").then((module) => ({
+  default: module.PriceConditionPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -96,6 +99,7 @@ type PanelContentRendererProps = {
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  onOpenCompany: (symbol: string) => void;
 };
 
 export function PanelContentRenderer({
@@ -133,14 +137,23 @@ export function PanelContentRenderer({
   onUpdatePanelProps,
   onChangePanelChartSymbol,
   onSelectSymbol,
+  onOpenCompany
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
-  const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "company">(
+    content.kind === "chart" && content.props?.view === "company" ? "company" : "chart"
+  );
   const [openChartDropdown, setOpenChartDropdown] = useState<"chart-type" | "interval" | null>(null);
   const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
     chartPanelHandleRef.current = handle;
     onChartHandleChange(content.id, handle);
   }, [content.id, onChartHandleChange]);
+
+  useEffect(() => {
+    if (content.kind === "chart") {
+      setActiveTab(content.props?.view === "company" ? "company" : "chart");
+    }
+  }, [content.kind, content.props?.view]);
 
   if (content.kind === "company") {
     return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
@@ -357,6 +370,18 @@ export function PanelContentRenderer({
     </Suspense>;
   }
 
+  if (content.kind === "priceCondition") {
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가격 조건을 불러오는 중입니다</div>}>
+        <PriceConditionPanel
+          defaultSymbol={symbol.toUpperCase()}
+          symbols={symbols}
+          onOpenCompany={onOpenCompany}
+        />
+      </Suspense>
+    );
+  }
+
   if (content.kind === "quickOrder") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -468,7 +493,11 @@ export function PanelContentRenderer({
       aria-label={activeTab === "chart" ? `${selectedSymbol} 기업정보 보기` : `${selectedSymbol} 차트 보기`}
       title={activeTab === "chart" ? "기업정보 보기" : "차트 보기"}
       onPointerDown={(event) => event.stopPropagation()}
-      onClick={() => setActiveTab((current) => current === "chart" ? "company" : "chart")}
+      onClick={() => {
+        const nextTab = activeTab === "chart" ? "company" : "chart";
+        setActiveTab(nextTab);
+        onUpdatePanelProps(content.id, { view: nextTab });
+      }}
     >
       {activeTab === "chart" ? "기업정보" : "차트"}
     </button>

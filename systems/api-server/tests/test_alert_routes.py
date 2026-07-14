@@ -29,7 +29,8 @@ try:
     from fastapi.testclient import TestClient
 
     from app.alerts.notifications import InMemoryNotificationBroker
-    from app.alerts.repository import AlertCreate, InMemoryAlertRepository
+    from app.alerts.preferences import InMemoryNotificationPreferenceRepository
+    from app.alerts.repository import AlertCreate, InMemoryAlertRepository, PostgresAlertRepository
     from app.auth.config import AuthConfig
     from app.auth.models import AuthenticatedUser
     from app.auth.session_store import MemorySessionStore
@@ -59,6 +60,7 @@ def alert_app(monkeypatch: pytest.MonkeyPatch):
     app.state.alert_repository = InMemoryAlertRepository()
     app.state.alert_projection = FakeProjection()
     app.state.alert_notification_broker = InMemoryNotificationBroker()
+    app.state.notification_preferences_repository = InMemoryNotificationPreferenceRepository()
     app.state.alert_price_provider = lambda symbol: {"symbol": symbol, "price": Decimal("100")}
     return app
 
@@ -95,6 +97,73 @@ def test_create_alert_accepts_repeat_limit_options(alert_app) -> None:
     assert unlimited.status_code == 201
     assert unlimited.json()["alert"]["repeat"] is True
     assert unlimited.json()["alert"]["repeat_limit"] is None
+
+
+def test_create_alert_preserves_ai_coach_proposal_source(alert_app) -> None:
+    client = TestClient(alert_app)
+    created = client.post(
+        "/api/alerts",
+        json={"symbol": "nvda", "type": "price_cross", "targetPrice": "110", "proposalSource": "daily_trade"},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["alert"]["proposal_source"] == "daily_trade"
+    assert alert_app.state.alert_projection.upserted[0]["proposal_source"] == "daily_trade"
+    assert client.get("/api/alerts").json()["alerts"][0]["proposal_source"] == "daily_trade"
+
+    legacy = client.post(
+        "/api/alerts",
+        json={"symbol": "aapl", "type": "price_cross", "targetPrice": "90"},
+    )
+    assert legacy.status_code == 201
+    assert legacy.json()["alert"]["proposal_source"] is None
+
+    invalid = client.post(
+        "/api/alerts",
+        json={"symbol": "msft", "type": "price_cross", "targetPrice": "120", "proposalSource": "made_up"},
+    )
+    assert invalid.status_code == 422
+
+
+def test_postgres_alert_insert_includes_proposal_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.query = ""
+            self.params = ()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = tuple(params)
+            return self
+
+        def fetchone(self):
+            return {"id": 1, "proposal_source": "entry_habit"}
+
+        def commit(self):
+            return None
+
+    connection = FakeConnection()
+    repository = PostgresAlertRepository("postgresql://unused")
+    monkeypatch.setattr(repository, "_connect", lambda: connection)
+
+    created = repository.create_alert(AlertCreate(
+        user_sub="user-1",
+        symbol="NVDA",
+        type="price_cross",
+        direction="above",
+        target_price=Decimal("110"),
+        proposal_source="entry_habit",
+    ))
+
+    assert "proposal_source" in connection.query
+    assert connection.params[-2] == "entry_habit"
+    assert created["proposal_source"] == "entry_habit"
 
 
 def test_create_alert_rejects_unknown_repeat_limit(alert_app) -> None:
@@ -205,6 +274,72 @@ def test_read_notification_can_be_deleted(alert_app) -> None:
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
     assert client.get("/api/notifications").json()["notifications"] == []
+
+
+def test_notification_preferences_return_defaults_and_patch_individual_fields(alert_app) -> None:
+    client = TestClient(alert_app)
+
+    initial = client.get("/api/notification-preferences")
+    assert initial.status_code == 200
+    assert initial.json()["persisted"] is False
+    assert initial.json()["settings"]["master"] is True
+    assert initial.json()["settings"]["marketOpen"] is True
+
+    updated = client.patch(
+        "/api/notification-preferences",
+        json={
+            "settings": {"marketOpen": False, "targetPrice": False},
+            "companyOverrides": {"aapl": False},
+        },
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["persisted"] is True
+    assert updated.json()["settings"]["marketOpen"] is False
+    assert updated.json()["settings"]["targetPrice"] is False
+    assert updated.json()["settings"]["rapidMove"] is True
+    assert updated.json()["companyOverrides"] == {"AAPL": False}
+    assert client.get("/api/notification-preferences").json() == updated.json()
+
+
+def test_notification_preferences_reject_unknown_keys_and_empty_patches(alert_app) -> None:
+    client = TestClient(alert_app)
+
+    unknown = client.patch(
+        "/api/notification-preferences",
+        json={"settings": {"unknownSetting": True}},
+    )
+    empty = client.patch("/api/notification-preferences", json={})
+
+    assert unknown.status_code == 422
+    assert "unknownSetting" in unknown.json()["detail"]
+    assert empty.status_code == 422
+
+
+def test_notification_preferences_are_scoped_by_session_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("AUTH_SESSION_SECRET", "test-session-secret")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "google-client-id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "google-client-secret")
+
+    app = create_app()
+    config = AuthConfig.from_env()
+    store = MemorySessionStore(config)
+    app.state.auth_session_store = store
+    app.state.notification_preferences_repository = InMemoryNotificationPreferenceRepository()
+    client = TestClient(app)
+
+    client.cookies.set(config.session_cookie_name, store.create_session(AuthenticatedUser("user-1", "one@test.local", True)))
+    assert client.patch(
+        "/api/notification-preferences",
+        json={"settings": {"master": False}},
+    ).status_code == 200
+
+    client.cookies.set(config.session_cookie_name, store.create_session(AuthenticatedUser("user-2", "two@test.local", True)))
+    second_user = client.get("/api/notification-preferences").json()
+
+    assert second_user["persisted"] is False
+    assert second_user["settings"]["master"] is True
 
 
 def test_delete_all_alerts_only_removes_current_users_alerts(alert_app) -> None:

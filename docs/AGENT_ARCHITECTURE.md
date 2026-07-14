@@ -47,6 +47,13 @@ GOPS 에이전트는 사용자 질의를 받아 시장 데이터, 뉴스, 온톨
 에이전트는 절대 실주문을 실행하지 않는다. 주문 관련 의사결정이 필요하면
 분석 근거와 사용자 확인을 위한 UI 제안까지만 만든다.
 
+가격 예약 주문도 이 경계를 유지한다. 에이전트는 원문 답변에서 가격을 다시
+추출하지 않고, 인증된 분석 요청의 구조화된 차트 봉으로
+`tradeConditionProposals[]`를 결정론적으로 만든다. 이 제안에는 안정적인
+`proposalId`, 종목, 매수/매도, 발동 방향·가격, 지정가, 수량 누락 여부와 30분
+만료 시각만 담긴다. 후속 사용자 문장을 해석하고 조건을 저장하거나 주문을
+실행하는 책임은 API/order runtime에 있으며 AgentOrchestrator에는 없다.
+
 ## Runtime Flow
 
 `AnalysisReport` may include a versioned `coachReport`. The public request contains only
@@ -60,6 +67,9 @@ remain explicit and do not trigger role-specific refetches.
 `coach-report.v2` exposes four UI pages. Page 2 computes `entry`, `exit`, and
 `portfolio` reports independently for `30d`, `90d`, and `1y`; page 4 is the single
 action center that combines the former execution, guardrail, and alert-management pages.
+Daily-trade alert candidates preserve their deterministic condition value, threshold,
+operator, reason, recommended action, and support flag so page 4 can render the full
+condition without recomputing it in the browser. Page 1 renders only a compact preview.
 
 ```mermaid
 flowchart LR
@@ -94,6 +104,7 @@ Kafka queue, worker, Redis report store를 쓰는 async path다.
 | synthesis | evidence와 role finding을 기반으로 최종 답변과 리포트를 만든다. |
 | report store | `analysisId`별 리포트, latest report, idempotency mapping, cancel marker를 저장한다. |
 | delivery gateway | result topic을 Redis update channel로 fanout한다. |
+| trade condition proposal builder | 구조화된 최근 차트 봉에서 만료되는 매수·매도 가격 제안을 만든다. 주문은 실행하지 않는다. |
 
 UI-only layout 명령은 LLM 없이 `intent_understanding/ui_parser.py`의 lexicon/rule
 경로에서 먼저 판정한다. 새 action은 `intent_understanding/schema.py`와
@@ -273,7 +284,7 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 | `agent-intent-classifier` | no | ambiguous query를 위한 optional cheap classifier. |
 | `deep-analysis-worker` | no | opt-in deep analysis request를 처리한다. |
 | `event-detector` | no | market Kafka topics를 agent market events로 바꾼다. |
-| `notification-publisher` | no | notification decision을 Redis/WebSocket consumer에 fanout한다. |
+| `notification-publisher` | no | notification decision, market event, risk event를 Redis/WebSocket consumer에 fanout한다. market event는 `level`/`severity`가 watch 이상일 때 기본 toast 대상으로 승격된다. |
 | `graph-expansion-refresh` | no | GraphDB hint를 Redis/ClickHouse cache로 materialize한다. |
 | `sec-companyfacts-backfill` | no | SEC companyfacts bulk ZIP을 S3에 저장하고 ClickHouse/Redis fundamentals projection을 만든다. |
 | `sec-fundamentals-reconcile` | future | ClickHouse 최신 revision과 Redis cache를 비교해 stale cache를 재작성한다. Hot path stale check를 하지 않는다. |
@@ -322,6 +333,19 @@ dependency is removed later, create agent-owned provider interfaces first.
 
 ## Important Contracts
 
+완료 `AnalysisReport`는 선택적으로 다음 필드를 포함한다.
+
+```text
+tradeConditionProposals[]
+  proposalId, analysisId, symbol, exchange
+  side, direction, triggerPrice, limitPrice, quantity
+  executionEnabled, alertsEnabled, validity
+  missingFields, rationale, createdAt, expiresAt
+```
+
+프런트는 이 값을 가격 조건으로 직접 저장하지 않는다. 사용자의 명시적인 후속
+요청이 있을 때 API가 report owner와 proposal ID를 다시 검증해야 한다.
+
 Kafka topics:
 
 ```text
@@ -333,6 +357,10 @@ agents.query-understanding-events.v1
 agents.notification-decisions.v1
 agents.dlq.v1
 ```
+
+`NotificationDecision`은 선택적 `eventType`을 포함한다. 프런트는 이 값을
+가격 급등락, 거래량 급증 같은 사용자 알림 설정에 매핑하며, 알 수 없는 값은
+전체 알림과 기업별 알림 gate만 적용한다.
 
 Redis report keys and channels:
 

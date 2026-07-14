@@ -65,6 +65,16 @@ def test_alert_repeat_limit_migration_tracks_trigger_counts():
     assert "CONSTRAINT alerts_triggered_count_check" in sql
 
 
+def test_alert_proposal_source_migration_preserves_ai_coach_origin():
+    [migration] = [path for path in migration_files() if path.name == "0008_alert_proposal_source.sql"]
+    sql = migration.read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS proposal_source TEXT" in sql
+    assert "CONSTRAINT alerts_proposal_source_check" in sql
+    for source in ("daily_trade", "entry_habit", "exit_habit", "portfolio_risk"):
+        assert source in sql
+
+
 def test_recommendation_migration_declares_profile_runs_and_items():
     [migration] = [path for path in migration_files() if path.name == "0004_recommendations.sql"]
     sql = migration.read_text(encoding="utf-8")
@@ -91,3 +101,23 @@ def test_paper_trading_migration_declares_isolated_account_and_order_tables():
         assert f"CREATE TABLE IF NOT EXISTS {table_name}" in sql
     assert "UNIQUE (user_id, idempotency_key_hash)" in sql
     assert "WHERE status = 'pending'" in sql
+
+
+def test_trade_condition_migration_declares_durable_conditions_and_alert_delivery_flag():
+    [migration] = [path for path in migration_files() if path.name == "0008_trade_conditions.sql"]
+    sql = migration.read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS notifications_enabled" in sql
+    assert "CREATE TABLE IF NOT EXISTS trade_conditions" in sql
+    assert "trade_conditions_user_proposal_unique" in sql
+    assert "trade_conditions_trigger_event_unique" in sql
+
+
+def test_notification_preferences_migration_declares_user_scoped_json_settings():
+    [migration] = [path for path in migration_files() if path.name == "0009_notification_preferences.sql"]
+    sql = migration.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS user_notification_preferences" in sql
+    assert "user_sub TEXT PRIMARY KEY" in sql
+    assert "settings JSONB NOT NULL" in sql
+    assert "company_overrides JSONB NOT NULL" in sql

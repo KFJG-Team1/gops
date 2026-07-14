@@ -334,6 +334,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "priceCondition",
+    title: "가격 조건",
+    agentPanelType: "priceCondition",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 3 },
+    minSizePx: { width: 340, height: 300 },
+    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    defaultLayoutWeight: 52
+  },
+  {
     kind: "quickOrder",
     title: "빠른 주문",
     agentPanelType: "quickOrder",

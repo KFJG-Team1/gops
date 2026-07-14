@@ -340,6 +340,7 @@ function normalizeAgentAnalysisEnvelope(source: Record<string, unknown> | null):
     dailySummaries: [],
     notificationDecision: null,
     layoutProposal: null,
+    tradeConditionProposals: [],
     timing: null
   };
 }

@@ -113,6 +113,7 @@ type PanelWorkspaceProps = {
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSelectSymbol: (symbol: string) => void;
+  onOpenCompany: (symbol: string) => void;
   selectedWildPanelSlotId: string | null;
   onSelectWildPanel: (slotId: string | null) => void;
   presetDock?: ReactNode;
@@ -193,6 +194,7 @@ export function PanelWorkspace({
   onChartRuntimeAction,
   onChartHandleChange,
   onSelectSymbol,
+  onOpenCompany,
   selectedWildPanelSlotId,
   onSelectWildPanel,
   presetDock,
@@ -803,7 +805,10 @@ export function PanelWorkspace({
       return null;
     }
     const isChart = content.kind === "chart";
-    const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
+    const hidePanelNav = isChart
+      || content.kind === "indices"
+      || content.kind === "priceCondition"
+      || isPortfolioPanelKind(content.kind);
     const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
     const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
     const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;
@@ -878,6 +883,7 @@ export function PanelWorkspace({
         onUpdatePanelProps={updatePanelProps}
         onChangePanelChartSymbol={changePanelChartSymbol}
         onSelectSymbol={onSelectSymbol}
+        onOpenCompany={onOpenCompany}
       />
     );
     return (

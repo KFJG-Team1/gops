@@ -58,7 +58,15 @@ production build에는 debug snapshot을 노출하지 않는다.
 - provider 직접 호출
 - Kafka 직접 produce/consume
 - ClickHouse/GraphDB 직접 query
-- 주문 실행 자동화
+- 사용자 확인 없이 분석 결과만으로 주문을 실행하는 자동화
+
+완료 report에 `tradeConditionProposals[]`가 있으면 답변 하단에 가격·방향·지정가·
+수량 누락 여부를 표시할 수 있다. 사용자가 이어서 `이 가격에 예약매매랑 알림
+걸어줘`처럼 명시적으로 요청한 경우에만 프런트는 가격을 재구성하지 않고
+`analysisId`, `proposalId`, 원문 후속 문장을 `POST /api/trade-conditions/commands`로
+보낸다. API가 `clarify`를 반환하면 같은 proposal context를 유지해 수량 같은 누락
+필드를 받고, `created`일 때만 독립 가격 조건 패널을 invalidate/refetch한다. 관련
+없는 새 분석이 완료되면 이전 proposal context를 폐기한다.
 
 ## Chart Derived Profile
 
@@ -74,6 +82,27 @@ production build에는 debug snapshot을 노출하지 않는다.
 500ms와 1500ms 뒤 두 번 재시도한다. 계속 partial이면 다음 scene, range, candle
 변경까지 숨긴다. 0-volume bucket은 응답에 유지하지만 Canvas는 막대를 그리지 않아
 그 가격 슬롯의 빈 공간을 보존한다.
+## AI 투자 코치
+
+AI 투자 코치의 알람 생성 UI는 4페이지 `실행·알람 관리`에만 둔다. 1페이지의
+매도·관찰 조건은 조건명과 현재값·기준값만 보이는 단일 미리보기로 표시한다.
+좌우 화살표로 한 조건씩 전환하고 첫·마지막 항목에서는 해당 화살표를 비활성화한다.
+활성 항목을 누르면 API를 호출하지 않은 채 4페이지의 같은 후보로 이동해
+focus/highlight한다. 유사 사례의 `그때의 실수`, `오늘과 같은 점`, `오늘과 다른 점`도
+한 항목씩 같은 방식으로 전환한다. 현재값, 임계값, 연산자, 판단 사유, 추천 행동 같은 상세는
+4페이지에서 표시한다. 추천 후보는 `당일 거래에서 제안`, `진입 습관에서 제안`,
+`청산 습관에서 제안`, `포트폴리오 위험에서 제안` 네 출처 그룹을 고정 순서로
+표시한다. 사용자가 지원되는 후보의 `알람 추가`를 눌렀을 때만 `POST /api/alerts`를
+호출하며 RSI·거래량·집중도처럼 현재 alert API가 지원하지 않는 후보는 `미지원`으로
+남긴다. 저장된 알람의 출처가 null이면 `출처 기록 없음`으로 표시한다.
+
+1페이지의 여러 당일 체결은 종목명 tab row를 만들지 않고 활성 기업 정보 양옆의
+화살표로 전환한다. 현재 거래와 유사 사례도 차트 양옆 화살표로 전환하며 화면에는
+carousel 위치 숫자를 반복 표시하지 않는다. 화살표는 별도 좌우 column을 점유하지
+않고 콘텐츠 가장자리에 작은 overlay control로 표시하며 비활성 끝점은 숨긴다. 판단
+요약은 등급 제목이나 상태색 없이 한 문장으로 크게 표시한다. 확인 항목은 `차트`,
+`뉴스`, `재무`, `시장` 순서의 2열 overview로 렌더링하고, 기본 화면에는 분류명, 상태,
+최대 두 개 핵심 항목명만 크게 표시한다. 세부 수치·출처·기준시각은 tooltip에 둔다.
 
 ## User Flow
 
@@ -87,6 +116,9 @@ flowchart TD
   Report --> Answer["Wild panel final answer"]
   Report --> Evidence["evidence and role findings"]
   Report --> OptionalUI["optional layout/chart proposal"]
+  Report --> PriceProposal["optional price-condition proposal"]
+  PriceProposal --> Confirm["explicit user follow-up"]
+  Confirm --> ConditionAPI["trade-condition command API"]
 ```
 
 사용자 입력이 회사명/티커 단독이거나 `애플차트 보여줘`, `AAPL chart` 같은
@@ -285,6 +317,7 @@ Report에서 우선 렌더링할 영역:
 - warnings or no-data provider messages
 - optional `layoutProposal`
 - optional `chartProposal`
+- optional `tradeConditionProposals`
 
 Provider가 `status="no-data"` evidence를 반환하는 것은 정상적인 partial analysis다.
 예를 들어 GraphDB가 없으면 ontology evidence만 no-data가 되고 market/news 기반
@@ -466,14 +499,24 @@ workspace 좌표를 변환한다.
 `WS /ws/agent-alerts`는 notification publisher가 Redis에 publish한 alert를
 프런트에 전달하는 bridge다.
 
-현재 active App에는 alert WebSocket consumer가 붙어 있지 않다. 알림 UI를 붙일 때
-이 route를 사용하고, 그 전까지 agent 분석/레이아웃 흐름과 섞지 않는다.
+active App의 `BottomCommandBar`는 persisted notification용 `WS /ws/notifications`와
+broadcast agent alert용 `WS /ws/agent-alerts`를 함께 구독하고 하나의 toast queue로
+정규화한다. `NotificationPreferencesProvider`가 `/api/notification-preferences`에서
+읽은 전체/유형별/기업별 설정을 새 toast와 이미 대기 중인 toast에 모두 적용한다.
+설정을 꺼도 알림 이력과 unread count는 그대로 유지된다.
 
 프런트는 alert를 다음처럼 취급한다.
 
 - market-event explanation 또는 notification decision으로 표시한다.
 - 주문 실행으로 자동 연결하지 않는다.
 - 사용자가 보고 확인할 수 있는 UI action으로만 이어간다.
+
+가격조건 패널의 `알림` 탭은 사용자 알림 바 설정을 저장한다. 현재 지원되는
+본장 시작, 목표가 도달, 급등락, 거래량 급증 및 관심기업별 gate만 조작할 수 있고,
+생성 producer가 아직 없는 항목은 `준비 중`으로 비활성화한다. 가격 조건 행의
+개별 알림 토글은 별도의 condition delivery 상태이며 서버 감시와 예약 주문 실행
+여부도 분리한다. 패널 목록은 `/api/trade-conditions`가 source of truth이고 브라우저
+event는 refetch invalidation 용도로만 쓴다.
 
 ## Frontend Reference Files
 

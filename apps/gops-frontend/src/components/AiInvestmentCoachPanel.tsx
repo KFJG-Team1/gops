@@ -15,6 +15,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   const [page, setPage] = useState(0);
   const [fixture, setFixture] = useState<CoachReport | null>(null);
   const [planOverride, setPlanOverride] = useState<ImprovementPlan | null>(null);
+  const [focusedAlertCandidateId, setFocusedAlertCandidateId] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -31,7 +32,10 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
 
   const resolved = report ?? fixture;
   const plan = planOverride ?? resolved?.page3 ?? null;
-  useEffect(() => setPlanOverride(null), [resolved?.analysisId]);
+  useEffect(() => {
+    setPlanOverride(null);
+    setFocusedAlertCandidateId(null);
+  }, [resolved?.analysisId]);
   useLayoutEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -39,7 +43,18 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
     main.scrollLeft = 0;
   }, [page]);
 
-  const move = (delta: number) => setPage((current) => (current + delta + PAGES.length) % PAGES.length);
+  const showPage = (nextPage: number) => {
+    setFocusedAlertCandidateId(null);
+    setPage(nextPage);
+  };
+  const move = (delta: number) => {
+    setFocusedAlertCandidateId(null);
+    setPage((current) => (current + delta + PAGES.length) % PAGES.length);
+  };
+  const openAlertCenter = (condition: WatchCondition) => {
+    setFocusedAlertCandidateId(condition.id);
+    setPage(3);
+  };
   const updateExperiment = (experimentId: PlaybookExperiment["id"], status: "active" | "paused") => {
     if (!plan) return;
     setPlanOverride({ ...plan, experiments: plan.experiments.map((item) => item.id === experimentId ? { ...item, status } : item) });
@@ -48,12 +63,11 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
     if (!plan) return;
     setPlanOverride({ ...plan, guardrails: plan.guardrails.map((item) => item.id === guardrailId ? { ...item, enabled } : item) });
   };
-  const submitAlert = async (request: WatchCondition["alertRequest"]) => {
-    if (!request) return false;
-    await createAlert(request);
+  const submitCandidateAlert = async (candidate: CoachAlertCandidate) => {
+    if (!candidate.alertRequest) return false;
+    await createAlert({ ...candidate.alertRequest, proposalSource: candidate.proposalSource ?? undefined });
     return true;
   };
-  const submitCandidateAlert = (candidate: CoachAlertCandidate) => submitAlert(candidate.alertRequest);
   const updateServerAlert = async (candidate: CoachAlertCandidate, enabled: boolean) => {
     if (!candidate.serverAlertId) return false;
     await setAlertStatus(candidate.serverAlertId, enabled ? "active" : "disabled");
@@ -61,23 +75,20 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   };
 
   const content = (() => {
-    if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onAlertRequested={(condition) => submitAlert(condition.alertRequest)} />;
+    if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onOpenAlertCenter={openAlertCenter} />;
     if (page === 1) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[1]} />;
     if (page === 2) return plan ? <><ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /><p className={styles.sessionNote}>실험·가드레일 변경은 현재 패널 세션에 반영됩니다. 영구 저장 API가 연결되기 전에는 새 분석에서 초기화됩니다.</p></> : <Unavailable title={PAGES[2]} />;
     const center = resolved?.page4;
-    return center ? <CoachActionCenterPage key={resolved?.analysisId ?? "empty"} center={center} activeExperiments={plan?.experiments.filter((item) => item.status === "active")} enabledGuardrails={plan?.guardrails.filter((item) => item.enabled)} onCreateAlert={submitCandidateAlert} onWatchingAlertStatusChange={updateServerAlert} /> : <Unavailable title={PAGES[3]} />;
+    return center ? <CoachActionCenterPage key={resolved?.analysisId ?? "empty"} center={center} focusedCandidateId={focusedAlertCandidateId} activeExperiments={plan?.experiments.filter((item) => item.status === "active")} enabledGuardrails={plan?.guardrails.filter((item) => item.enabled)} onCreateAlert={submitCandidateAlert} onWatchingAlertStatusChange={updateServerAlert} /> : <Unavailable title={PAGES[3]} />;
   })();
 
   return (
     <section className={styles.shell} aria-label="AI 투자 코치" data-page={page + 1}>
-      <header>
-        <div><span>POST MARKET</span><strong>AI 투자 코치</strong>{DEV_FIXTURE_ENABLED && !report && fixture && <em>DEV FIXTURE</em>}</div>
-        <b>{page + 1} / {PAGES.length}</b>
-      </header>
+      <header><strong>{page === 0 ? "당일 거래" : PAGES[page]}</strong></header>
       <main ref={mainRef}><div className={styles.pageContent}>{content}</div></main>
       <footer>
         <button type="button" onClick={() => move(-1)} aria-label="이전 코칭"><ChevronLeft /></button>
-        <div>{PAGES.map((label, index) => <button type="button" key={label} aria-label={`${label} 보기`} aria-current={index === page ? "page" : undefined} className={index === page ? styles.active : undefined} onClick={() => setPage(index)} />)}</div>
+        <div>{PAGES.map((label, index) => <button type="button" key={label} aria-label={`${label} 보기`} aria-current={index === page ? "page" : undefined} className={index === page ? styles.active : undefined} onClick={() => showPage(index)} />)}</div>
         <button type="button" onClick={() => move(1)} aria-label="다음 코칭"><ChevronRight /></button>
       </footer>
     </section>

@@ -151,7 +151,22 @@ export type ImprovementPlan = { availability: CoachAvailability; summary?: strin
 export type AlertRequest =
   | { symbol: string; type: "price_cross"; targetPrice: string; repeatLimit: 1 | 3 | 5 | 10 }
   | { symbol: string; type: "spike"; direction: "above" | "below"; changePct: string; windowMin: number; repeatLimit: 1 | 3 | 5 | 10 };
-export type CoachAlertCandidate = { id: string; title: string; detail?: string; enabled: boolean; alertRequest?: AlertRequest; serverAlertId?: number };
+export type CoachAlertProposalSource = AlertProposalSource;
+export type CoachAlertCandidate = {
+  id: string;
+  symbol?: string | null;
+  title: string;
+  detail?: string;
+  currentValue?: string | number | null;
+  threshold?: string | number | null;
+  operator?: string | null;
+  recommendedAction?: string | null;
+  alertSupported?: boolean;
+  enabled: boolean;
+  proposalSource?: CoachAlertProposalSource | null;
+  alertRequest?: AlertRequest;
+  serverAlertId?: number;
+};
 export type CoachActionCenter = { availability: CoachAvailability; activeExperiments: PlaybookExperiment[]; enabledGuardrails: TradingGuardrail[]; recommendedAlerts: CoachAlertCandidate[]; watchingAlerts: CoachAlertCandidate[] };
 
 export type CoachReport = {
@@ -168,3 +183,4 @@ export type CoachReport = {
   missingData: MissingDataItem[];
   warnings: string[];
 };
+import type { AlertProposalSource } from "../../alerts/alertApi";

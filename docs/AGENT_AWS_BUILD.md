@@ -39,6 +39,13 @@ included that service, and otherwise reads the live primary Deployment image
 tag as the baseline. Use `FORCE_SERVICES=frontend,backend` to override
 detection, or `FORCE_SERVICES=all` to force every app image to rebuild. See
 `docs/LOCAL_EKS_DEPLOY.md` for the team runbook.
+The change detector and CI-overlay image-tag updater intentionally support the
+macOS system Bash 3.2 as well as the newer Bash used by GitHub Actions; do not
+reintroduce associative arrays in `scripts/aws/detect-changed-services.sh` or
+`scripts/aws/update-ci-image-tags.sh`.
+Changes under `infra/k8s/overlays/aws/scheduled/` must select the owning runtime
+service so the deployment workflow applies the updated CronJob instead of
+returning `has_services=false`.
 
 GitHub Actions dev/test deploy entrypoint `.github/workflows/deploy-dev.yml`
 remains a backup path. It deploys to the shared dev EKS environment only when an
@@ -148,6 +155,11 @@ systems/api-server/pods/api-server/gops-backend
 프로필이 저장된 사용자에 대해 정규장 09:45/12:45/15:45 ET 추천 슬롯을 멱등
 생성하고, 기존 notifications Redis/WebSocket 경로로 추천 변경 알림을 발행한다.
 
+같은 image는 `app.trade_conditions.executor`도 실행한다. 이 consumer는
+`alerts.triggered.v1`의 price-cross 이벤트를 `gops-trade-condition-executor-v1`
+group으로 읽고 PostgreSQL 조건을 점유한 뒤 기존 paper 또는 orders/outbox 계약으로
+한 번만 주문을 제출한다. Agent image나 LLM process에서는 실행하지 않는다.
+
 SEC companyfacts backfill은 `gops-agent-orchestrator`가 아니라
 `gops-market-storage` image에서 실행한다. 해당 image에는
 `systems/fundamentals`와 `systems/market-data/shared`가 포함되어야 한다.
@@ -212,6 +224,7 @@ infra/k8s/base/app/deployment-deep-analysis-worker.yaml
 infra/k8s/base/app/deployment-agent-event-detector.yaml
 infra/k8s/base/app/deployment-agent-notification-publisher.yaml
 infra/k8s/base/app/deployment-recommendation-worker.yaml
+infra/k8s/base/app/deployment-trade-condition-executor.yaml
 ```
 
 The AWS in-cluster overlay keeps `recommendation-worker` and
@@ -315,6 +328,12 @@ it must never query another user's rows. The local order migration gate is autom
 news rebuilds remain explicitly controlled by `RUN_CZARDAS_ASSET_MIGRATIONS=true` and
 `REBUILD_NEWS_CACHE=true`. Migration Jobs run after image push but before app apply.
 
+AI 코치 알람 출처를 저장하는 배포는 `0008_alert_proposal_source.sql`도 선행해야
+한다. 이 migration은 nullable `alerts.proposal_source`와 네 허용값 CHECK를 추가한다.
+updated API의 INSERT와 `agent-analysis-worker`의 snapshot SELECT가 모두 이 컬럼을
+사용하므로 migration Job 성공 전에 두 workload를 rollout하면 안 된다. 기존 알람은
+null로 호환되며 Redis projection, Kafka topic, evaluator schema 변경은 필요하지 않다.
+
 The holdings endpoint may be polled every minute. PostgreSQL always refreshes the latest
 observation, but appends portfolio history only when payload content differs after
 top-level `asOf`/`sourceAsOf` timestamps are removed. A per-user advisory transaction
@@ -324,6 +343,17 @@ history, while changed positions, cash, valuations, or transaction states remain
 Persistent paper trading requires `0006_paper_trading.sql`. Changes to
 `paper-order-matcher` select `order-worker`, so the same automatic migration gate
 applies the paper account schema before the matcher and backend workloads roll out.
+
+가격 조건 기능은 order migration `0008_trade_conditions.sql`이 필요하다. 이
+migration은 alert notification delivery flag와 사용자 소유 조건·proposal·trigger
+멱등 상태를 추가한다. backend/agent/order-worker image를 적용하기 전에 기존 자동
+order migration gate로 먼저 실행해야 한다. base ConfigMap은 실행 모드를 `off`로
+두고, 로컬 compose는 `sim`, AWS dev overlay는 KIS v1 제한에 맞춰 `demo`를 사용한다.
+`demo`도 사전 리스크 검사와 기존 orders/outbox/KIS demo adapter를 우회하지 않는다.
+
+사용자 알림 표시 설정은 order migration `0009_notification_preferences.sql`이
+필요하다. `user_notification_preferences`에 설정과 기업별 override를 저장하므로
+backend 적용 전에 같은 자동 order migration gate로 실행한다.
 
 Market processor deploys as two runtime units from the same
 `gops-market-processor` image. `alfaka-market-processor` handles trades, bars,
@@ -400,6 +430,10 @@ agents.notification-decisions.v1
 agents.dlq.v1
 ```
 
+`agent-notification-publisher`는 notification decision topic뿐 아니라
+`agents.market-events.v1`과 risk event topic도 소비한다. 따라서 deployment의
+`AGENT_MARKET_EVENTS_TOPIC`을 event detector와 같은 topic으로 유지해야 한다.
+
 Chart derived env:
 
 ```text
@@ -439,6 +473,16 @@ AGENT_NOTIFICATION_DECISIONS_TOPIC
 AGENT_MARKET_EVENTS_TOPIC
 AGENT_DLQ_TOPIC
 AGENT_PUBLISH_TO_KAFKA
+TRADE_CONDITION_TRIGGER_TOPIC
+TRADE_CONDITION_EXECUTOR_GROUP_ID
+```
+
+Price-condition execution env:
+
+```text
+TRADE_CONDITION_COMMANDS_ENABLED
+TRADE_CONDITION_EXECUTION_MODE   # off | sim | paper | demo
+TRADE_CONDITION_RISK_REQUIRED
 ```
 
 AWS stage는 MSK를 강제하지 않는다. 현 구조는 다음 staged path를 허용한다.
@@ -566,7 +610,9 @@ Create the schema from `infra/clickhouse/initdb/01-market-data.sql` and
 `infra/clickhouse/initdb/02-sec-fundamentals.sql`, then rebuild projections from
 the official sources: S3 final/manifest for chart history, SEC companyfacts for
 actual fundamentals, and the separate Yahoo estimates collector for consensus
-data. Redis reset must be targeted to fundamentals summary/peer keys and chart
+data. The normal `aws-incluster-app-ci` deploy overlay includes
+`alfaka-yahoo-estimates-sync` with live writes enabled so that this collector is
+not omitted from the shared dev EKS rollout. Redis reset must be targeted to fundamentals summary/peer keys and chart
 live/latest/coverage keys; do not flush agent reports, sessions, or unrelated
 caches.
 

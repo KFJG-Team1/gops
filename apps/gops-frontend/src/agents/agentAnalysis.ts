@@ -7,6 +7,8 @@ import {
 } from "../layout/agentLayoutTypes";
 import type {
   CoachActionCenter,
+  CoachAlertCandidate,
+  CoachAlertProposalSource,
   CoachReport,
   DailyTradeReview,
   HistoricalHabitsPage,
@@ -36,6 +38,7 @@ export type AgentFinding = {
 
 export type NotificationDecision = {
   level: string;
+  eventType?: string;
   title?: string;
   message?: string;
   reason?: string;
@@ -156,6 +159,25 @@ export type AgentAnalysisTiming = {
   finalAnswerMs?: number;
 };
 
+export type TradeConditionProposal = {
+  proposalId: string;
+  analysisId: string;
+  symbol: string;
+  exchange: string;
+  side: "buy" | "sell";
+  direction: "atOrBelow" | "atOrAbove";
+  triggerPrice: number;
+  limitPrice?: number;
+  quantity?: number;
+  executionEnabled: boolean;
+  alertsEnabled: boolean;
+  validity: string;
+  missingFields: string[];
+  rationale?: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
+
 export type AgentAnalysisReport = {
   analysisId: string;
   summary: string;
@@ -170,6 +192,7 @@ export type AgentAnalysisReport = {
   dailySummaries: AgentDailyNewsSummary[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: AgentLayoutProposal | null;
+  tradeConditionProposals: TradeConditionProposal[];
   timing?: AgentAnalysisTiming | null;
   coachReport?: CoachReport | null;
 };
@@ -259,6 +282,9 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
     layoutProposal: normalizeLayoutProposal(source.layoutProposal),
+    tradeConditionProposals: readArray(source.tradeConditionProposals)
+      .map(normalizeTradeConditionProposal)
+      .filter((item): item is TradeConditionProposal => Boolean(item)),
     timing: normalizeTiming(source.timing),
     coachReport: normalizeCoachReport(source.coachReport)
   };
@@ -414,9 +440,46 @@ function normalizeCoachActionCenter(value: unknown): CoachActionCenter | null {
     availability: normalizeAvailability(source.availability),
     activeExperiments: normalizeObjectArray(source.activeExperiments) as CoachActionCenter["activeExperiments"],
     enabledGuardrails: normalizeObjectArray(source.enabledGuardrails) as CoachActionCenter["enabledGuardrails"],
-    recommendedAlerts: normalizeObjectArray(source.recommendedAlerts) as CoachActionCenter["recommendedAlerts"],
-    watchingAlerts: normalizeObjectArray(source.watchingAlerts) as CoachActionCenter["watchingAlerts"]
+    recommendedAlerts: readArray(source.recommendedAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, true))
+      .filter((item): item is CoachAlertCandidate => Boolean(item)),
+    watchingAlerts: readArray(source.watchingAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, false))
+      .filter((item): item is CoachAlertCandidate => Boolean(item))
   };
+}
+
+function normalizeCoachAlertCandidate(value: unknown, legacyDailyTradeFallback: boolean): CoachAlertCandidate | null {
+  const source = readObject(value);
+  const id = readString(source?.id);
+  const title = readString(source?.title);
+  if (!source || !id || !title) return null;
+  const hasProposalSource = Object.prototype.hasOwnProperty.call(source, "proposalSource")
+    || Object.prototype.hasOwnProperty.call(source, "proposal_source");
+  const proposalSource = normalizeCoachAlertProposalSource(source.proposalSource ?? source.proposal_source);
+  if (hasProposalSource && !proposalSource && legacyDailyTradeFallback) return null;
+  return {
+    id,
+    symbol: readString(source.symbol),
+    title,
+    detail: readString(source.detail) ?? undefined,
+    currentValue: readString(source.currentValue) ?? readNumber(source.currentValue),
+    threshold: readString(source.threshold) ?? readNumber(source.threshold),
+    operator: readString(source.operator),
+    recommendedAction: readString(source.recommendedAction),
+    alertSupported: readBoolean(source.alertSupported) ?? undefined,
+    enabled: readBoolean(source.enabled) ?? false,
+    proposalSource: proposalSource ?? (legacyDailyTradeFallback && !hasProposalSource ? "daily_trade" : null),
+    alertRequest: (readObject(source.alertRequest) ?? undefined) as CoachAlertCandidate["alertRequest"],
+    serverAlertId: readNumber(source.serverAlertId) ?? undefined
+  };
+}
+
+function normalizeCoachAlertProposalSource(value: unknown): CoachAlertProposalSource | null {
+  const source = readString(value);
+  return source === "daily_trade" || source === "entry_habit" || source === "exit_habit" || source === "portfolio_risk"
+    ? source
+    : null;
 }
 
 function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]> {
@@ -462,6 +525,20 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     : report.agentAnswers.length ? formatAgentAnswers(report.agentAnswers) : [report.summary];
   if (report.finalAnswer && report.agentAnswers.length && !newsOnly) {
     lines.push("", ...formatAgentAnswers(report.agentAnswers, "세부 근거"));
+  }
+
+  if (report.tradeConditionProposals.length) {
+    lines.push("", "가격 조건 제안");
+    for (const proposal of report.tradeConditionProposals.slice(0, 3)) {
+      const sideLabel = proposal.side === "buy" ? "매수" : "매도";
+      const directionLabel = proposal.direction === "atOrBelow" ? "이하" : "이상";
+      const quantityLabel = proposal.quantity ? `${proposal.quantity}주` : "수량 입력 필요";
+      lines.push(`  - ${proposal.symbol} $${proposal.triggerPrice.toLocaleString()} ${directionLabel} 도달 시 ${sideLabel} · 지정가 $${proposal.limitPrice?.toLocaleString() ?? "미정"} · ${quantityLabel}`);
+      if (proposal.rationale) {
+        lines.push(`    ${proposal.rationale}`);
+      }
+    }
+    lines.push("  마음에 들면 ‘이 가격에 예약매매랑 알림 걸어줘’라고 요청하세요.");
   }
 
   const decision = report.notificationDecision;
@@ -546,6 +623,40 @@ function normalizeAgentAnswer(value: unknown): AgentAnswer | null {
     content,
     confidence: readNumber(source.confidence) ?? undefined,
     citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item))
+  };
+}
+
+function normalizeTradeConditionProposal(value: unknown): TradeConditionProposal | null {
+  const source = readObject(value);
+  const proposalId = readString(source?.proposalId);
+  const analysisId = readString(source?.analysisId);
+  const symbol = readString(source?.symbol)?.toUpperCase();
+  const side = readString(source?.side);
+  const direction = readString(source?.direction);
+  const triggerPrice = readNumber(source?.triggerPrice);
+  if (!source || !proposalId || !analysisId || !symbol || triggerPrice === null) {
+    return null;
+  }
+  if ((side !== "buy" && side !== "sell") || (direction !== "atOrBelow" && direction !== "atOrAbove")) {
+    return null;
+  }
+  return {
+    proposalId,
+    analysisId,
+    symbol,
+    exchange: readString(source.exchange)?.toUpperCase() ?? "NASD",
+    side,
+    direction,
+    triggerPrice,
+    limitPrice: readNumber(source.limitPrice) ?? undefined,
+    quantity: readNumber(source.quantity) ?? undefined,
+    executionEnabled: source.executionEnabled !== false,
+    alertsEnabled: source.alertsEnabled !== false,
+    validity: readString(source.validity) ?? "DAY",
+    missingFields: readArray(source.missingFields).map(readString).filter((item): item is string => Boolean(item)),
+    rationale: readString(source.rationale) ?? undefined,
+    createdAt: readString(source.createdAt) ?? undefined,
+    expiresAt: readString(source.expiresAt) ?? undefined
   };
 }
 
@@ -735,6 +846,7 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   }
   return {
     level,
+    eventType: readString(source.eventType) ?? undefined,
     title: readString(source.title) ?? undefined,
     message: readString(source.message) ?? undefined,
     reason: readString(source.reason) ?? undefined

@@ -12,9 +12,12 @@ import {
 import {
   createMarketOpenNotification,
   isMarketOpenNotification,
-  readMarketOpenReminderEnabled,
   shouldShowMarketOpenReminder
 } from "../alerts/marketOpenReminder";
+import {
+  shouldShowNotificationToast,
+  useNotificationPreferences
+} from "../alerts/notificationPreferences";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
 import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
@@ -85,13 +88,21 @@ export function BottomCommandBar({
   onSelectSymbol,
   onApplyLayoutProposal
 }: BottomCommandBarProps) {
+  const { preferences: notificationPreferences, ready: notificationPreferencesReady } = useNotificationPreferences();
   const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
-  const [marketOpenReminderEnabled] = useState(() => readMarketOpenReminderEnabled());
+  const notificationPreferencesRef = useRef(notificationPreferences);
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const agentInputRef = useRef<HTMLInputElement>(null);
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
+  const canReceiveAlerts = canUseAlerts && notificationPreferencesReady;
+  const marketOpenReminderEnabled = canReceiveAlerts
+    && notificationPreferences.settings.master
+    && notificationPreferences.settings.marketOpen;
 
   const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
+    if (!shouldShowNotificationToast(notification, notificationPreferencesRef.current)) {
+      return;
+    }
     const key = alertToastKey(notification);
     if (seenAlertToastKeysRef.current.has(key)) {
       return;
@@ -104,6 +115,16 @@ export function BottomCommandBar({
         : { current: item, queue: [] }
     ));
   };
+
+  useEffect(() => {
+    notificationPreferencesRef.current = notificationPreferences;
+    setAlertToastState((current) => {
+      const visible = [current.current, ...current.queue]
+        .filter((item): item is AlertToastQueueItem => Boolean(item))
+        .filter((item) => shouldShowNotificationToast(item.notification, notificationPreferences));
+      return { current: visible[0] ?? null, queue: visible.slice(1) };
+    });
+  }, [notificationPreferences]);
 
   const advanceAlertToast = () => {
     setAlertToastState((current) => {
@@ -152,7 +173,7 @@ export function BottomCommandBar({
   };
 
   useEffect(() => {
-    if (!canUseAlerts) {
+    if (!canReceiveAlerts) {
       return undefined;
     }
     const socket = new WebSocket(notificationSocketUrl());
@@ -169,10 +190,10 @@ export function BottomCommandBar({
       }
     };
     return () => socket.close();
-  }, [canUseAlerts]);
+  }, [canReceiveAlerts]);
 
   useEffect(() => {
-    if (!canUseAlerts) {
+    if (!canReceiveAlerts) {
       return undefined;
     }
     // Risk monitor / agent alerts arrive on a separate broadcast socket and are
@@ -190,7 +211,7 @@ export function BottomCommandBar({
       }
     };
     return () => socket.close();
-  }, [canUseAlerts]);
+  }, [canReceiveAlerts]);
 
   useEffect(() => {
     if (!alertToastState.current) {
