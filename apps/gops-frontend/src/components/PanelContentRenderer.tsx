@@ -1,5 +1,5 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
@@ -25,6 +25,7 @@ import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolba
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
+import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -52,6 +53,10 @@ import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
+
+const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
+  default: module.AiInvestmentCoachPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -342,6 +347,13 @@ export function PanelContentRenderer({
         onResolutionChange={(nextResolution) => onUpdatePanelProps(content.id, { resolution: nextResolution })}
       />
     );
+  }
+
+  if (content.kind === "aiCoach") {
+    const coachReport = content.props?.coachReport;
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
+      <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
+    </Suspense>;
   }
 
   if (content.kind === "quickOrder") {

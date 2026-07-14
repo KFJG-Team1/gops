@@ -314,6 +314,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 38
   },
   {
+    kind: "aiCoach",
+    title: "AI 투자 코치",
+    agentPanelType: "aiCoach",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 3, rowSpan: 3 },
+    minSizePx: { width: 520, height: 500 },
+    defaultSpan: { colSpan: 5, rowSpan: 4 },
+    defaultLayoutWeight: 72
+  },
+  {
     kind: "orderFlow",
     title: "오더플로우",
     agentPanelType: "orderFlowProfile",

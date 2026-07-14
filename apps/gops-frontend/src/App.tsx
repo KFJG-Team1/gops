@@ -51,6 +51,7 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
+  setPanelContentProps,
   setPrimaryChartSymbol,
   workspaceBounds,
   type TiledPanelState,
@@ -1138,7 +1139,10 @@ export function App() {
             undefined,
             chartDocumentSymbolsByPanelId,
             panelLayoutMetricsRef.current
-          )
+          ),
+          ...(Object.values(panelState.contents).some((content) => content.kind === "aiCoach")
+            ? { coachRequest: { enabled: true as const } }
+            : {})
         };
         publishLocalAgentDebugSnapshot(analysisRequestPayload, interactiveContext);
         const report = await requestAgentAnalysisPayload(analysisRequestPayload, {
@@ -1151,6 +1155,12 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
+        setPanelState((current) => Object.values(current.contents).reduce(
+          (next, content) => content.kind === "aiCoach"
+            ? setPanelContentProps(next, content.id, { ...content.props, coachReport: report.coachReport ?? null })
+            : next,
+          current
+        ));
         addReportToSelectedWildPanel(report);
         const reportStatus = report.status?.trim().toLowerCase();
         if (reportStatus === "failed") {

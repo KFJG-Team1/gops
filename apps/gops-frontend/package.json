@@ -10,6 +10,7 @@
     "test:chart": "node scripts/run-chart-tests.mjs",
     "test:simulator": "node scripts/run-simulator-tests.mjs",
     "test:layout": "node scripts/run-layout-tests.mjs",
+    "test:ai-coach": "node scripts/run-ai-coach-contract-tests.mjs",
     "test:chart-visual": "playwright test",
     "test:bundle-size": "node scripts/check-bundle-size.mjs"
   },
