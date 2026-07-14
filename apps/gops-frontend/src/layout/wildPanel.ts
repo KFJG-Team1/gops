@@ -311,7 +311,7 @@ function normalizePage(value: unknown): WildPanelPage | null {
   return null;
 }
 
-function userVisibleWarnings(values: string[]): string[] {
+export function userVisibleWarnings(values: string[]): string[] {
   const labels: Record<string, string> = {
     partial_data_used: "일부 데이터만 사용해 분석했습니다.",
     partial_chart_data: "차트 데이터 일부만 사용할 수 있습니다.",

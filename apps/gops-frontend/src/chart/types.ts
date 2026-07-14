@@ -405,6 +405,8 @@ export type DrawingStyle = {
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;
+  labelPlacement?: "inline" | "axis" | "none";
+  zoneSplit?: boolean;
 };
 
 export type DrawingEntity = {

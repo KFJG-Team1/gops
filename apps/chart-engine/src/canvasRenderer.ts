@@ -78,6 +78,7 @@ export function drawChartScene(
   drawDrawingSelectionHandles(ctx, scene);
   drawCrosshair(ctx, scene);
   drawAxes(ctx, scene);
+  drawDrawingAxisLabels(ctx, scene);
 }
 
 function drawState(ctx: CanvasRenderingContext2D, scene: RenderScene) {
@@ -307,10 +308,19 @@ function drawDrawingFills(ctx: CanvasRenderingContext2D, scene: RenderScene, dra
         ctx.save();
         clipToPricePlot(ctx, scene);
         ctx.globalAlpha = clampOpacity(style.opacity, 1) * (preview ? 0.72 : 1) * clampOpacity(style.fillOpacity, 0.075);
-        ctx.fillStyle = scene.document.style.bullish;
-        fillPolygon(ctx, geometry.rewardPolygon);
-        ctx.fillStyle = scene.document.style.bearish;
-        fillPolygon(ctx, geometry.riskPolygon);
+        if (style.zoneSplit) {
+          const left = planZoneLeft(scene, geometry.left, geometry.right);
+          const width = Math.max(0, geometry.right - left);
+          ctx.fillStyle = scene.document.style.bullish;
+          ctx.fillRect(left, Math.min(geometry.entryY, geometry.targetY), width, Math.abs(geometry.entryY - geometry.targetY));
+          ctx.fillStyle = scene.document.style.bearish;
+          ctx.fillRect(left, Math.min(geometry.entryY, geometry.stopY), width, Math.abs(geometry.entryY - geometry.stopY));
+        } else {
+          ctx.fillStyle = scene.document.style.bullish;
+          fillPolygon(ctx, geometry.rewardPolygon);
+          ctx.fillStyle = scene.document.style.bearish;
+          fillPolygon(ctx, geometry.riskPolygon);
+        }
         ctx.restore();
       }
       return;
@@ -642,6 +652,22 @@ function drawRiskRewardForeground(
     return;
   }
   const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+  if (drawing.style.zoneSplit) {
+    const zoneLeft = planZoneLeft(scene, geometry.left, geometry.right);
+    withPricePlotClip(ctx, scene, () => {
+      ctx.save();
+      ctx.strokeStyle = resolveDrawingColor(scene, drawing.style, "colorToken", "color", "proposal");
+      ctx.setLineDash([6, 4]);
+      line(ctx, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = scene.document.style.bullish;
+      line(ctx, zoneLeft, geometry.targetY, geometry.right, geometry.targetY);
+      ctx.strokeStyle = scene.document.style.bearish;
+      line(ctx, zoneLeft, geometry.stopY, geometry.right, geometry.stopY);
+      ctx.restore();
+    });
+    return;
+  }
   withPricePlotClip(ctx, scene, () => {
     line(ctx, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
     line(ctx, geometry.left, geometry.stopY, geometry.right, geometry.stopY);
@@ -692,6 +718,9 @@ function drawDrawingLabel(ctx: CanvasRenderingContext2D, scene: RenderScene, lab
     return;
   }
   const style = drawing.style ?? {};
+  if (style.labelPlacement === "axis" || style.labelPlacement === "none") {
+    return;
+  }
   ctx.fillStyle = resolveDrawingColor(scene, style, "textToken", "textColor", "drawing");
   ctx.font = `${nearestCanvasTypeSize(style.fontSize ?? canvasTypeSize.compact)}px ${canvasFontFamily}`;
   ctx.textAlign = "left";
@@ -754,11 +783,52 @@ function resolveDrawingColor(
   rawKey: "color" | "fillColor" | "textColor",
   fallback: keyof RenderScene["document"]["style"]
 ): string {
-  const raw = style[rawKey];
-  if (raw) {
-    return raw;
+  const token = style[tokenKey];
+  if (token && token in scene.document.style) {
+    return resolveChartStyleColor(scene.document.style, token, fallback);
   }
-  return resolveChartStyleColor(scene.document.style, style[tokenKey], fallback);
+  return style[rawKey] || resolveChartStyleColor(scene.document.style, undefined, fallback);
+}
+
+function planZoneLeft(scene: RenderScene, fallback: number, right: number): number {
+  const slotWidth = scene.scales.candleWidth + scene.scales.gap;
+  return Math.min(right, Math.max(fallback, scene.plot.right - slotWidth / 2));
+}
+
+function drawDrawingAxisLabels(ctx: CanvasRenderingContext2D, scene: RenderScene) {
+  scene.document.drawings.forEach((drawing) => {
+    if (drawing.visible === false || drawing.style.labelPlacement !== "axis") return;
+    if (drawing.type === "horizontalParallelLines" && drawing.anchors.length >= 2) {
+      const prices = drawing.anchors.slice(0, 2).map((anchor) => anchor.price).filter((price): price is number => typeof price === "number");
+      if (prices.length === 2) drawEngineAxisPill(ctx, scene, prices[0] + (prices[1] - prices[0]) / 2, resolveDrawingColor(scene, drawing.style, "colorToken", "color", "drawing"));
+    } else if (drawing.type === "trendLine") {
+      const price = drawing.anchors.at(-1)?.price;
+      if (typeof price === "number") drawEngineAxisPill(ctx, scene, price, resolveDrawingColor(scene, drawing.style, "colorToken", "color", "drawing"));
+    } else if (drawing.type === "riskRewardBox" && drawing.anchors.length >= 3) {
+      const [entry, stop, target] = drawing.anchors.map((anchor) => anchor.price);
+      if (typeof entry !== "number" || typeof stop !== "number" || typeof target !== "number") return;
+      drawEngineAxisPill(ctx, scene, entry, scene.document.style.proposal, `진입 ${entry.toFixed(2)}`);
+      drawEngineAxisPill(ctx, scene, target, scene.document.style.bullish, `목표 ${target.toFixed(2)}`);
+      drawEngineAxisPill(ctx, scene, stop, scene.document.style.bearish, `손절 ${stop.toFixed(2)}`);
+    }
+  });
+}
+
+function drawEngineAxisPill(ctx: CanvasRenderingContext2D, scene: RenderScene, price: number, color: string, text = price.toFixed(2)) {
+  const range = Math.max(0.0001, scene.scales.maxPrice - scene.scales.minPrice);
+  const y = scene.plot.priceBottom - ((price - scene.scales.minPrice) / range) * (scene.plot.priceBottom - scene.plot.top);
+  if (y < scene.plot.top || y > scene.plot.priceBottom) return;
+  ctx.save();
+  ctx.font = `${canvasTypeSize.micro}px ${canvasFontFamily}`;
+  const width = ctx.measureText(text).width + 10;
+  const left = scene.width - 4 - width;
+  ctx.fillStyle = color;
+  ctx.fillRect(left, y - 8, width, 16);
+  ctx.fillStyle = scene.document.style.background;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, scene.width - 9, y);
+  ctx.restore();
 }
 
 function drawAxes(ctx: CanvasRenderingContext2D, scene: RenderScene) {

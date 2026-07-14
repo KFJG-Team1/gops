@@ -216,7 +216,7 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
   await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "빠른 주문" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "빠른 주문", exact: true })).toBeVisible();
 });
 
 test("quick order keeps analysis context ahead of explicit submit", async ({ page }) => {
@@ -245,14 +245,14 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
     const [panelBox, pickerBox] = await Promise.all([panel.boundingBox(), symbolPicker.boundingBox()]);
     return panelBox && pickerBox ? panelBox.x + panelBox.width - pickerBox.x - pickerBox.width : Number.POSITIVE_INFINITY;
   }).toBeLessThanOrEqual(16);
-  const selectedNvda = panel.getByRole("button", { name: /선택 종목 NVDA/ });
-  await expect.poll(async () => {
-    const [buttonBox, tickerBox] = await Promise.all([
-      selectedNvda.boundingBox(),
-      selectedNvda.locator("strong").boundingBox()
-    ]);
-    return buttonBox && tickerBox ? buttonBox.x + buttonBox.width - tickerBox.x - tickerBox.width : Number.POSITIVE_INFINITY;
-  }).toBeLessThanOrEqual(9);
+  const selectedNvda = panel.locator(".quick-order-selected-symbol", { hasText: "NVDA" });
+  await expect(selectedNvda).toBeVisible();
+  const selectedSymbolLayout = await selectedNvda.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const tickerStyle = getComputedStyle(element.querySelector("strong")!);
+    return [style.display, style.paddingLeft, style.paddingRight, tickerStyle.justifySelf, tickerStyle.whiteSpace];
+  });
+  expect(selectedSymbolLayout).toEqual(["grid", "8px", "8px", "end", "nowrap"]);
   await expect(selectedNvda).not.toContainText(/Nvidia/i);
   await selectedNvda.click();
   const symbolSearch = panel.getByLabel("빠른 주문 종목 검색");
@@ -261,13 +261,13 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   await expect(panel.locator(".quick-order-symbol-search")).toHaveClass(/is-searching/);
   await expect(panel.getByRole("option", { name: /AAPL Apple/i })).toBeVisible();
   await panel.getByRole("option", { name: /AAPL Apple/i }).click();
-  const selectedApple = panel.getByRole("button", { name: /선택 종목 AAPL/ });
+  const selectedApple = panel.locator(".quick-order-selected-symbol", { hasText: "AAPL" });
   await expect(selectedApple).toBeVisible();
   await selectedApple.click();
   await expect(symbolSearch).toBeVisible();
   await symbolSearch.fill("NVDA");
   await panel.getByRole("option", { name: /NVDA Nvidia/i }).click();
-  await expect(panel.getByRole("button", { name: /선택 종목 NVDA/ })).toBeVisible();
+  await expect(panel.locator(".quick-order-selected-symbol", { hasText: "NVDA" })).toBeVisible();
   await expect(panel.getByText("직접 입력하거나 주문 가능 금액 비율을 선택하세요.")).toHaveCount(0);
   const bestBidButton = panel.getByRole("button", { name: /최우선 매수호가/ });
   await expect(bestBidButton).toBeEnabled();
@@ -824,7 +824,7 @@ function fixtureSymbols(): Array<Record<string, string>> {
 
 async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promise<void> {
   await expect(canvas).toBeVisible();
-  await expect.poll(async () => canvas.evaluate((element) => {
+  const semanticPixelCount = () => canvas.evaluate((element) => {
     const target = element as HTMLCanvasElement;
     const context = target.getContext("2d");
     if (!context || target.width < 10 || target.height < 10) {
@@ -844,7 +844,13 @@ async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promis
       }
     }
     return semanticDataPixels;
-  })).toBeGreaterThan(50);
+  });
+  await expect.poll(async () => {
+    const first = await semanticPixelCount();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const second = await semanticPixelCount();
+    return Math.min(first, second);
+  }).toBeGreaterThan(50);
 }
 
 async function expectLatestQuarterGap(chartPanel: Locator): Promise<void> {

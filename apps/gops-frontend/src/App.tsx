@@ -36,6 +36,13 @@ import {
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { agentReportCompletionMessage, type AgentHeaderNotice, type AgentHeaderNoticeTone } from "./agent/agentHeaderNotice";
+import {
+  attachChartCommentaryReport,
+  beginChartCommentaryRequest,
+  clearChartCommentaryPending,
+  updateChartCommentaryRequestId,
+  type ChartCommentaryRequestSnapshot
+} from "./agent/chartCommentaryHistory";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
@@ -98,6 +105,7 @@ type ActiveAgentRun = {
   requestId: string;
   controller: AbortController;
   cancelRequested: boolean;
+  chartDocumentId?: string;
 };
 
 type AgentSubmitResult = "notice" | "chart-shortcut" | "ui-action" | "ignored";
@@ -219,7 +227,13 @@ function buildInteractiveAgentContext(
     ...explicitReferences
   ];
   return {
-    chartContext: chart ? buildChartAnalysisContext(chart, selection, activeEntry?.[1].getAnalysisAssetIdentity(), activeEntry?.[0]) : {},
+    chartContext: chart ? buildChartAnalysisContext(
+      chart,
+      selection,
+      activeEntry?.[1].getAnalysisAssetIdentity(),
+      activeEntry?.[0],
+      activeEntry?.[1].getChartDocumentId()
+    ) : {},
     references,
     uiContext: {
       activePanelId: activeEntry?.[0] ?? preferredContentId ?? null,
@@ -234,6 +248,11 @@ function chartPanelHandleForSelection(
   handles: Map<string, ChartPanelHandle>,
   selection: SemanticSelectionSnapshot
 ): readonly [string, ChartPanelHandle] | null {
+  if (selection.chartDocumentId) {
+    for (const entry of handles.entries()) {
+      if (entry[1].getChartDocumentId() === selection.chartDocumentId) return entry;
+    }
+  }
   for (const entry of handles.entries()) {
     const chart = entry[1].getSnapshot();
     if (chart.symbol.toUpperCase() === selection.symbol.toUpperCase() && chart.interval === selection.interval) {
@@ -255,6 +274,42 @@ function chartContextSymbol(context: Record<string, unknown>): string | null {
   if (!document || typeof document !== "object") return null;
   const symbol = (document as { symbol?: unknown }).symbol;
   return typeof symbol === "string" && symbol.trim() ? symbol.trim().toUpperCase() : null;
+}
+
+function chartCommentaryRequestSnapshot(context: Record<string, unknown>): ChartCommentaryRequestSnapshot | null {
+  const document = context.chartDocument;
+  if (!document || typeof document !== "object") return null;
+  const chartDocument = document as Record<string, unknown>;
+  const chartDocumentId = readString(chartDocument.chartDocumentId);
+  const symbol = readString(chartDocument.symbol)?.toUpperCase();
+  const interval = readString(chartDocument.timeframe);
+  if (!chartDocumentId || !symbol || !interval) return null;
+  const identity = context.assetIdentity && typeof context.assetIdentity === "object"
+    ? context.assetIdentity as Record<string, unknown>
+    : {};
+  const analysisWindow = context.analysisWindow && typeof context.analysisWindow === "object"
+    ? context.analysisWindow as Record<string, unknown>
+    : {};
+  const asOf = readString(identity.asOf) ?? readString(analysisWindow.viewportTo);
+  return {
+    chartDocumentId,
+    ...(readString(chartDocument.sourcePanelId) ? { sourcePanelId: readString(chartDocument.sourcePanelId)! } : {}),
+    symbol,
+    interval,
+    ...(asOf ? { asOf } : {}),
+    assetVersion: readString(identity.assetVersion) ?? undefined,
+    algorithmVersion: readString(identity.algorithmVersion) ?? undefined,
+    inputDigest: readString(identity.inputDigest) ?? undefined
+  };
+}
+
+function isExplicitChartContextPrompt(prompt: string, references: AgentReference[]): boolean {
+  const compact = prompt.toLowerCase().replace(/\s+/g, "");
+  if (references.some((reference) => reference.type.startsWith("chart."))) return true;
+  return [
+    "차트분석", "이봉분석", "선택봉", "패턴", "지지", "저항", "진입가", "목표가", "손절", "손익비",
+    "골든크로스", "데드크로스", "sma"
+  ].some((keyword) => compact.includes(keyword));
 }
 
 function chartVisibleRange(chart: ChartState): { from: string; to: string } | null {
@@ -875,6 +930,9 @@ export function App() {
     }
     run.cancelRequested = true;
     run.controller.abort();
+    if (run.chartDocumentId) {
+      setPanelState((current) => clearChartCommentaryPending(current, run.chartDocumentId!));
+    }
     showAgentNotice("Agent 분석을 중단했습니다.", "info");
     setAgentBusy(false);
     void cancelAgentAnalysis(run.requestId).catch(() => {
@@ -1280,6 +1338,7 @@ export function App() {
       }
 
       setAgentBusy(true);
+      let commentarySource: ChartCommentaryRequestSnapshot | null = null;
       try {
         const interactiveContext = buildInteractiveAgentContext(
           chartPanelHandlesRef.current,
@@ -1289,10 +1348,23 @@ export function App() {
         );
         const controller = new AbortController();
         const requestId = createAgentAnalysisRequestId();
+        commentarySource = chartCommentaryRequestSnapshot(interactiveContext.chartContext);
+        const opensChartCommentary = Boolean(commentarySource && isExplicitChartContextPrompt(prompt, interactiveContext.references));
+        if (commentarySource && opensChartCommentary) {
+          setPanelState((current) => beginChartCommentaryRequest(
+            current,
+            commentarySource!,
+            requestId,
+            prompt,
+            viewportSizeRef.current,
+            panelLayoutMetricsRef.current
+          ).state);
+        }
         const activeRun: ActiveAgentRun = {
           requestId,
           controller,
-          cancelRequested: false
+          cancelRequested: false,
+          ...(commentarySource && opensChartCommentary ? { chartDocumentId: commentarySource.chartDocumentId } : {})
         };
         activeAgentRunRef.current = activeRun;
         const analysisRequestPayload = {
@@ -1321,6 +1393,14 @@ export function App() {
           signal: controller.signal,
           onAccepted: (accepted) => {
             activeRun.requestId = accepted.analysisId;
+            if (commentarySource && opensChartCommentary) {
+              setPanelState((current) => updateChartCommentaryRequestId(
+                current,
+                commentarySource!.chartDocumentId,
+                requestId,
+                accepted.analysisId
+              ));
+            }
           }
         });
         if (report.layoutProposal) {
@@ -1339,8 +1419,37 @@ export function App() {
             : next,
           current
         ));
-        addReportToSelectedWildPanel(report);
         const reportStatus = report.status?.trim().toLowerCase();
+        const isCompletedReport = reportStatus === "completed" || reportStatus === "deep_completed";
+        const isChartReport = Boolean(isCompletedReport && opensChartCommentary && commentarySource && report.chartExplanation && report.finalAnswer);
+        if (isChartReport && commentarySource) {
+          const preview = attachChartCommentaryReport(
+            panelState,
+            commentarySource,
+            report,
+            prompt,
+            viewportSizeRef.current,
+            panelLayoutMetricsRef.current
+          );
+          if (preview.contentId) {
+            setPanelState((current) => attachChartCommentaryReport(
+              current,
+              commentarySource!,
+              report,
+              prompt,
+              viewportSizeRef.current,
+              panelLayoutMetricsRef.current
+            ).state);
+          } else {
+            addReportToSelectedWildPanel(report);
+            showAgentNotice("차트 해설 패널을 배치할 공간이 없어 선택한 Wild 패널에 답변을 보냈습니다.", "info");
+          }
+        } else {
+          if (commentarySource) {
+            setPanelState((current) => clearChartCommentaryPending(current, commentarySource!.chartDocumentId));
+          }
+          addReportToSelectedWildPanel(report);
+        }
         if (reportStatus === "failed") {
           showAgentNotice(report.summary || "Agent 요청에 실패했습니다.", "error");
         } else if (reportStatus === "canceled") {
@@ -1351,6 +1460,9 @@ export function App() {
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
+        if (commentarySource) {
+          setPanelState((current) => clearChartCommentaryPending(current, commentarySource!.chartDocumentId));
+        }
         if (isAgentRequestAbortError(error) || activeRun?.cancelRequested) {
           if (!activeRun?.cancelRequested) {
             showAgentNotice("Agent 분석을 중단했습니다.", "info");

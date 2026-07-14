@@ -155,7 +155,8 @@ export function buildChartAnalysisContext(
   chart: ChartState,
   selection?: SemanticSelectionSnapshot | null,
   assetIdentity?: Record<string, unknown> | null,
-  sourcePanelId?: string
+  sourcePanelId?: string,
+  chartDocumentId?: string
 ): Record<string, unknown> {
   const viewportEndIndex = Math.max(0, chart.candles.length - 1 - Math.max(0, chart.rightOffset));
   const viewportStartIndex = Math.max(0, viewportEndIndex - Math.max(1, chart.visibleCount) + 1);
@@ -179,7 +180,8 @@ export function buildChartAnalysisContext(
     chartDocument: {
       symbol: chart.symbol,
       timeframe: chart.interval,
-      sourcePanelId
+      sourcePanelId,
+      chartDocumentId
     },
     analysisWindow: {
       viewportFrom: firstCandle?.timestamp,

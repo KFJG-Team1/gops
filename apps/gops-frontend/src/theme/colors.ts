@@ -28,6 +28,10 @@ export type ThemeColorToken =
   | "tileText"
   | "tileTextInverse"
   | "signal"
+  | "evidenceSupport"
+  | "evidenceResistance"
+  | "evidencePattern"
+  | "proposal"
   | "caution"
   | "purple"
   | "pointYellow"
@@ -66,6 +70,10 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   tileText: "--color-tile-text",
   tileTextInverse: "--color-tile-text-inverse",
   signal: "--color-signal",
+  evidenceSupport: "--color-evidence-support",
+  evidenceResistance: "--color-evidence-resistance",
+  evidencePattern: "--color-evidence-pattern",
+  proposal: "--color-proposal",
   caution: "--color-caution",
   purple: "--color-purple",
   pointYellow: "--color-point-yellow",
@@ -169,6 +177,10 @@ export function chartDocumentStyleFromTheme(theme: ThemeColors): ChartDocumentSt
     drawing: theme.drawing,
     preview: theme.preview,
     signal: theme.signal,
+    evidenceSupport: theme.evidenceSupport,
+    evidenceResistance: theme.evidenceResistance,
+    evidencePattern: theme.evidencePattern,
+    proposal: theme.proposal,
     caution: theme.caution,
     purple: theme.purple,
     pointYellow: theme.pointYellow,

@@ -633,6 +633,10 @@ function isLineExtension(value: unknown): value is ChartLineExtension {
   return value === "segment" || value === "ray" || value === "line";
 }
 
+function isLabelPlacement(value: unknown): value is NonNullable<DrawingStyle["labelPlacement"]> {
+  return value === "inline" || value === "axis" || value === "none";
+}
+
 function readDrawingType(value: unknown): DrawingType | null {
   return typeof value === "string" && drawingRegistry[value as DrawingType] ? value as DrawingType : null;
 }
@@ -693,7 +697,9 @@ function readStyle(value: unknown): DrawingStyle {
     textToken: readString(source.textToken) ?? (textColor || color ? undefined : "drawing"),
     fontSize: readNumber(source.fontSize) ?? 12,
     opacity: readNumber(source.opacity) ?? 1,
-    extension: isLineExtension(source.extension) ? source.extension : undefined
+    extension: isLineExtension(source.extension) ? source.extension : undefined,
+    labelPlacement: isLabelPlacement(source.labelPlacement) ? source.labelPlacement : undefined,
+    zoneSplit: typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined
   };
 }
 
@@ -720,6 +726,12 @@ function readStylePatch(value: unknown): DrawingStyle {
   }
   if ("extension" in source) {
     patch.extension = isLineExtension(source.extension) ? source.extension : undefined;
+  }
+  if ("labelPlacement" in source) {
+    patch.labelPlacement = isLabelPlacement(source.labelPlacement) ? source.labelPlacement : undefined;
+  }
+  if ("zoneSplit" in source) {
+    patch.zoneSplit = typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined;
   }
   return patch;
 }

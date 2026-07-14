@@ -81,7 +81,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
       return [];
     }
-    return [levelDrawingIds.has(resolved.id) ? dashedAnalysisLevel(resolved) : resolved];
+    return [presentAnalysisDrawing(resolved, asset, levelDrawingIds)];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
   const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
@@ -160,8 +160,70 @@ function analysisLevelDrawingIds(asset: ChartAnalysisAsset): Set<string> {
   ]));
 }
 
-function dashedAnalysisLevel<T extends DrawingEntity>(drawing: T): T {
-  return { ...drawing, style: { ...drawing.style, lineDash: [6, 4] } };
+function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: ChartAnalysisAsset, levelDrawingIds: Set<string>): T {
+  if (levelDrawingIds.has(drawing.id)) {
+    const level = [...(asset.geometry.supports ?? []), ...(asset.geometry.resistances ?? [])]
+      .find((candidate) => drawing.id === candidate.id || drawing.id.endsWith(`:${candidate.id}`));
+    if (!level || drawing.type !== "horizontalLine" || !validZone(level.zoneLow, level.zoneHigh)) {
+      return drawing;
+    }
+    const first = drawing.anchors[0];
+    const last = drawing.anchors[drawing.anchors.length - 1] ?? first;
+    return {
+      ...drawing,
+      type: "horizontalParallelLines",
+      anchors: [{ ...first, price: level.zoneLow }, { ...last, price: level.zoneHigh }],
+      style: evidenceStyle(
+        drawing.style,
+        level.role === "support" ? "evidenceSupport" : "evidenceResistance",
+        { fillOpacity: 0.08, lineDash: [], labelPlacement: "axis" }
+      )
+    } as T;
+  }
+  if (isPatternDrawing(drawing, asset)) {
+    return {
+      ...drawing,
+      style: evidenceStyle(drawing.style, "evidencePattern", {
+        opacity: Math.min(0.7, drawing.style.opacity ?? 1),
+        labelPlacement: "axis"
+      })
+    };
+  }
+  return drawing;
+}
+
+function evidenceStyle(
+  style: DrawingEntity["style"],
+  token: "evidenceSupport" | "evidenceResistance" | "evidencePattern",
+  patch: DrawingEntity["style"]
+): DrawingEntity["style"] {
+  return {
+    ...style,
+    color: undefined,
+    fillColor: undefined,
+    textColor: undefined,
+    colorToken: token,
+    fillToken: token,
+    textToken: token,
+    lineWidth: 1,
+    ...patch
+  };
+}
+
+function validZone(low: number | undefined, high: number | undefined): boolean {
+  return typeof low === "number" && Number.isFinite(low)
+    && typeof high === "number" && Number.isFinite(high)
+    && high > low;
+}
+
+function isPatternDrawing(drawing: Pick<DrawingEntity, "id">, asset: ChartAnalysisAsset): boolean {
+  const patterns = [
+    ...(asset.geometry.patterns ?? []),
+    asset.geometry.primaryPattern,
+    asset.geometry.primaryTriangle,
+    asset.geometry.historicalTriangle
+  ].filter(Boolean);
+  return patterns.some((pattern) => drawing.id.includes(pattern!.geometryHash));
 }
 
 function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {
@@ -186,7 +248,6 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     : calculated?.price;
   if (price === undefined || fraction === undefined || candleIndex < 1) return [];
   const golden = cross.direction === "golden";
-  const color = golden ? "#22c55e" : "#ef4444";
   const identity = crossKey.replace(/[^0-9A-Za-z]/g, "");
   return [{
     id: `chart-asset:${asset.symbol}:${asset.interval}:sma-cross:${cross.direction}:${identity}`,
@@ -201,7 +262,7 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     symbol: asset.symbol,
     interval: asset.interval,
     sourceInterval: asset.sourceInterval,
-    style: { color, textColor: color, lineWidth: 2, opacity: 0.98 },
+    style: { colorToken: "evidencePattern", textToken: "evidencePattern", lineWidth: 1.5, opacity: 0.82 },
     label: `${golden ? "골든크로스" : "데드크로스"} · SMA60/120`,
     locked: true,
     visible: true,

@@ -58,7 +58,11 @@ export function buildRenderScene({
     candle.ma5,
     candle.ma20,
     candle.ma60
-  ]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  ])
+    .concat(document.drawings
+      .filter((drawing) => drawing.visible !== false && drawing.type === "riskRewardBox" && drawing.style.zoneSplit === true)
+      .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.price)))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const rawMinPrice = prices.length ? Math.min(...prices) : 0;
   const rawMaxPrice = prices.length ? Math.max(...prices) : 1;
   const { minPrice, maxPrice } = padPriceRange(rawMinPrice, rawMaxPrice);

@@ -128,6 +128,34 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
 
 export const extraGlossary: GlossaryEntry[] = [
   {
+    id: "entry_price",
+    term: "진입가",
+    aliases: ["진입가", "진입 가격"],
+    description: "시나리오 조건이 확인됐을 때 새 포지션을 검토하는 기준 가격입니다.",
+    category: "general"
+  },
+  {
+    id: "target_price",
+    term: "목표가",
+    aliases: ["목표가", "목표 가격"],
+    description: "시나리오가 예상 방향으로 진행될 때 보상 구간을 평가하는 기준 가격입니다.",
+    category: "general"
+  },
+  {
+    id: "stop_loss",
+    term: "손절",
+    aliases: ["손절", "손절가", "손절 가격"],
+    description: "시나리오가 무효화되거나 허용 위험을 넘었을 때 손실 제한을 검토하는 가격 기준입니다.",
+    category: "general"
+  },
+  {
+    id: "reward_risk_ratio",
+    term: "손익비",
+    aliases: ["손익비", "보상 위험 비율", "reward risk ratio", "R:R"],
+    description: "감수하는 손실 가능 금액에 비해 기대하는 이익 가능 금액이 몇 배인지 나타낸 비율입니다.",
+    category: "general"
+  },
+  {
     id: "breakout_confirmation",
     term: "돌파 확인",
     aliases: ["돌파 확인", "상단 돌파 확인", "breakout confirmation"],

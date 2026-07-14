@@ -1,6 +1,7 @@
 import type { ChartAnalysisAsset, GeometryPatternKind, GeometryTradePlan } from "./analysisAssetsApi";
 import type { CandleDto, DrawingEntity } from "./types";
 import { chartSemanticCatalog, chartSemanticLabel } from "./chartSemanticCatalog";
+import { tradePlanDrawingIds } from "./tradePlanStore";
 
 type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
@@ -23,9 +24,9 @@ export function buildTradeTimingDrawings(
     return [];
   }
 
-  const idBase = `chart-asset:${asset.symbol}:${asset.interval}:trade-timing:${plan.patternId}`;
-  const sourceProposalId = `chart-asset:${asset.symbol}:${asset.interval}:trade-timing`;
-  const color = plan.action === "buy_candidate" ? "#22c55e" : "#ef4444";
+  const ids = tradePlanDrawingIds(asset);
+  if (!ids) return [];
+  const sourceProposalId = `chart-plan:${asset.symbol}:${asset.interval}:trade-timing`;
   const label = `${actionLabel(plan.action)} · ${patternNames[plan.patternKind]}`;
   const common = {
     symbol: asset.symbol,
@@ -48,28 +49,38 @@ export function buildTradeTimingDrawings(
   };
   const drawings: AnalysisAssetDrawing[] = [{
     ...common,
-    id: `${idBase}:signal`,
+    id: ids.signal,
     type: "flagMarker",
     anchors: [signalAnchor],
-    style: { color, textColor: color, lineWidth: 2, opacity: 0.98 },
+    style: { colorToken: "proposal", textToken: "proposal", lineWidth: 1.5, opacity: 0.98 },
     label
   }];
 
-  if (plan.action === "sell_candidate" || plan.stopPrice === null || plan.targetPrice === null) {
+  if (plan.action === "sell_candidate" || plan.stopPrice === null || plan.targetPrice === null || plan.rewardRiskRatio === null || plan.entryTrigger === null) {
     return drawings;
   }
-  const projectionIndex = signalIndex + Math.max(1, Math.round(plan.projectionBars));
+  const projectionIndex = Math.max(0, candles.length - 1) + Math.max(1, Math.round(plan.projectionBars));
   drawings.push({
     ...common,
-    id: `${idBase}:risk`,
+    id: ids.plan,
     type: "riskRewardBox",
     anchors: [
       signalAnchor,
       { logicalIndex: projectionIndex, price: plan.stopPrice, paneId: "price", symbol: asset.symbol, interval: asset.interval },
       { logicalIndex: projectionIndex, price: plan.targetPrice, paneId: "price", symbol: asset.symbol, interval: asset.interval }
     ],
-    style: { color, fillColor: color, fillOpacity: 0.12, lineWidth: 1.5, opacity: 0.92 },
-    label: `진입 ${formatPrice(plan.entryPrice)} · 손절 ${formatPrice(plan.stopPrice)} · 목표 ${formatPrice(plan.targetPrice)}`
+    style: {
+      colorToken: "proposal",
+      fillToken: "proposal",
+      textToken: "proposal",
+      fillOpacity: 0.08,
+      lineWidth: 1.5,
+      lineDash: [6, 4],
+      opacity: 0.92,
+      labelPlacement: "axis",
+      zoneSplit: true
+    },
+    label
   });
   return drawings;
 }
@@ -82,8 +93,4 @@ function isActionableAction(
   action: GeometryTradePlan["action"]
 ): action is "buy_candidate" | "sell_candidate" | "short_candidate" {
   return action === "buy_candidate" || action === "sell_candidate" || action === "short_candidate";
-}
-
-function formatPrice(value: number): string {
-  return value.toFixed(2);
 }

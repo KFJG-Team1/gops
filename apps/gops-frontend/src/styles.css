@@ -192,6 +192,10 @@
   --color-tile-text-inverse: var(--coinbase-on-dark);
   --color-signal: var(--coinbase-primary);
   --color-signal-soft: var(--coinbase-primary-soft);
+  --color-evidence-support: color-mix(in srgb, var(--color-up) 28%, var(--color-muted));
+  --color-evidence-resistance: color-mix(in srgb, var(--color-down) 28%, var(--color-muted));
+  --color-evidence-pattern: var(--color-muted);
+  --color-proposal: var(--color-signal);
   --color-caution: var(--coinbase-accent-yellow);
   --color-caution-soft: var(--coinbase-accent-yellow-glow);
   --color-purple: var(--coinbase-muted);

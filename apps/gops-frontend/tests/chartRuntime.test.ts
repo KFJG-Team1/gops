@@ -7,6 +7,9 @@ import "./uiScale.test";
 import "./glossary.test";
 import "./analysisAssets.test";
 import "./tradeTimingOverlay.test";
+import "./tradePlanStore.test";
+import "./commentaryModel.test";
+import "./chartCommentaryHistory.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
@@ -3172,6 +3175,30 @@ const drawingOutsideVisiblePriceRangeScene = buildFrontendChartScene(frontendCha
 }), 640, 360);
 assert.ok(drawingOutsideVisiblePriceRangeScene.scales.maxPrice < 1000);
 
+const proposalPriceRangeState = frontendChartState({
+  candles: [testCandle("2026-06-25T13:30:00.000Z", 100)],
+  visibleCount: 20,
+  drawings: [testDrawing({
+    id: "chart-plan:AAPL:1D:trade-timing:test:risk",
+    sourceProposalId: "chart-plan:AAPL:1D:trade-timing",
+    type: "riskRewardBox",
+    anchors: [
+      { logicalIndex: 0, price: 100, paneId: "price", symbol: "AAPL" },
+      { logicalIndex: 10, price: 80, paneId: "price", symbol: "AAPL" },
+      { logicalIndex: 10, price: 150, paneId: "price", symbol: "AAPL" }
+    ],
+    style: { colorToken: "proposal", zoneSplit: true, labelPlacement: "axis" }
+  })]
+});
+const proposalPriceRangeScene = buildFrontendChartScene(proposalPriceRangeState, 640, 360);
+assert.ok(proposalPriceRangeScene.scales.maxPrice >= 150);
+assert.ok(proposalPriceRangeScene.scales.minPrice <= 80);
+const hiddenProposalPriceRangeScene = buildFrontendChartScene({
+  ...proposalPriceRangeState,
+  drawings: proposalPriceRangeState.drawings.map((drawing) => ({ ...drawing, visible: false }))
+}, 640, 360);
+assert.ok(hiddenProposalPriceRangeScene.scales.maxPrice < 120);
+
 const continuousAnchorBaseScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [testCandle("2026-06-25T13:30:00Z", 100)],
@@ -3925,7 +3952,7 @@ assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
 assert.match(chartCanvasSource, /currentPriceForScene/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
-const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
+const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene,");
 const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, scene.chart.drawings");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");
 const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, scene, crosshair)");
@@ -3933,7 +3960,7 @@ assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
 assert.match(chartCanvasSource, /const axisLabelColor = resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
-assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 2);
+assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
@@ -4527,13 +4554,33 @@ const trendLineResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-a", documentA.id), {
     drawingType: "trendLine",
     anchors: [anchorA, anchorB],
-    style: { color: "#0a0b0d", lineWidth: 1.5, extension: "ray" },
+    style: { color: "#0a0b0d", lineWidth: 1.5, extension: "ray", labelPlacement: "axis", zoneSplit: true },
     label: "Trend ray"
   })
 );
 assert.equal(trendLineResult.ok, true);
 if (trendLineResult.ok) {
   assert.equal(trendLineResult.document.drawings[0]?.style.extension, "ray");
+  assert.equal(trendLineResult.document.drawings[0]?.style.labelPlacement, "axis");
+  assert.equal(trendLineResult.document.drawings[0]?.style.zoneSplit, true);
+  const stylePatchResult = executeChartCommand(
+    trendLineResult.document,
+    makeChartCommand("chart.drawing.update", "user", target("panel-a", documentA.id), {
+      drawingId: trendLineResult.document.drawings[0]?.id,
+      drawingPatch: { style: { labelPlacement: "inline", zoneSplit: false } }
+    })
+  );
+  assert.equal(stylePatchResult.ok, true);
+  if (stylePatchResult.ok) {
+    assert.equal(stylePatchResult.document.drawings[0]?.style.labelPlacement, "inline");
+    assert.equal(stylePatchResult.document.drawings[0]?.style.zoneSplit, false);
+    const styleUndo = executeChartCommand(
+      stylePatchResult.document,
+      makeChartCommand("chart.undo", "user", target("panel-a", documentA.id))
+    );
+    assert.equal(styleUndo.ok, true);
+    if (styleUndo.ok) assert.equal(styleUndo.document.drawings[0]?.style.labelPlacement, "axis");
+  }
 }
 
 const trendToolResult = executeChartCommand(

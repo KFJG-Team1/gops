@@ -280,6 +280,10 @@ export type ChartDocument = {
     drawing: string;
     preview: string;
     signal: string;
+    evidenceSupport: string;
+    evidenceResistance: string;
+    evidencePattern: string;
+    proposal: string;
     caution: string;
     purple: string;
     pointYellow: string;
@@ -434,6 +438,8 @@ export type DrawingStyle = {
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;
+  labelPlacement?: "inline" | "axis" | "none";
+  zoneSplit?: boolean;
 };
 
 export type DrawingEntity = {

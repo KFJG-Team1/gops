@@ -54,7 +54,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
+import { candleKeyForTimestamp, isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -66,9 +66,11 @@ import {
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
   isChartAssetDrawing,
+  hasAnalysisLayerDrawings,
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
+import { clearActiveTradePlan, projectActiveTradePlan, setActiveTradePlan } from "../chart/tradePlanStore";
 import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
@@ -256,6 +258,7 @@ type ChartPanelProps = {
 
 export type ChartPanelHandle = {
   getSnapshot: () => ChartState;
+  getChartDocumentId: () => string;
   getAnalysisAssetIdentity: () => Record<string, unknown> | null;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
@@ -417,8 +420,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    geometry: true
+    evidence: true,
+    proposal: true
   });
+  const [spotlightDrawingIds, setSpotlightDrawingIds] = useState<string[]>([]);
+  const [spotlightCandleTimestamp, setSpotlightCandleTimestamp] = useState<string | undefined>();
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -675,6 +681,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
 
   useEffect(() => {
+    setActiveTradePlan(document.id, projectActiveTradePlan(
+      activeAnalysisAsset,
+      chart.candles,
+      document.id,
+      activeAnalysisAssetStale ? "stale" : "active"
+    ));
+  }, [activeAnalysisAsset, activeAnalysisAssetStale, chart.candles, document.id]);
+
+  useEffect(() => () => clearActiveTradePlan(document.id), [document.id]);
+
+  useEffect(() => {
+    setSpotlightDrawingIds([]);
+  }, [activeAnalysisAsset?.generatedAt, chart.interval, chart.symbol, document.id]);
+
+  useEffect(() => {
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
     const rawAsset = supportedInterval
@@ -736,9 +757,36 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
-      const detail = (event as CustomEvent<{ symbol?: string; interval?: string; drawingIds?: string[] }>).detail;
-      if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
-      const drawingId = detail.drawingIds?.find((id) => chartRef.current.drawings.some((drawing) => drawing.id === id));
+      const detail = (event as CustomEvent<{
+        chartDocumentId?: string;
+        symbol?: string;
+        interval?: string;
+        drawingIds?: string[];
+        mode?: "select" | "spotlight" | "clear";
+        anchor?: { timestamp?: string | null } | null;
+      }>).detail;
+      if (detail?.chartDocumentId) {
+        if (detail.chartDocumentId !== document.id) return;
+      } else if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
+      if (detail.mode === "clear") {
+        setSpotlightDrawingIds([]);
+        setSpotlightCandleTimestamp(undefined);
+        return;
+      }
+      const analysisInterval = isAnalysisAssetInterval(chart.interval) ? chart.interval : null;
+      const anchorKey = detail.anchor?.timestamp && analysisInterval
+        ? candleKeyForTimestamp(detail.anchor.timestamp, analysisInterval)
+        : null;
+      const anchorCandle = anchorKey
+        ? chartRef.current.candles.find((candle) => candleKeyForTimestamp(candle.timestamp, analysisInterval!) === anchorKey)
+        : undefined;
+      setSpotlightCandleTimestamp(anchorCandle?.timestamp);
+      const validIds = detail.drawingIds?.filter((id) => chartRef.current.drawings.some((drawing) => drawing.id === id)) ?? [];
+      if (detail.mode === "spotlight") {
+        setSpotlightDrawingIds(validIds);
+        return;
+      }
+      const drawingId = validIds[0];
       if (!drawingId) return;
       dispatchExternalCommandGroup([
         makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
@@ -747,7 +795,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
     window.addEventListener("gops:chart-asset-focus", handleFocus);
     return () => window.removeEventListener("gops:chart-asset-focus", handleFocus);
-  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup]);
+  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup, document.id]);
+
+  useEffect(() => {
+    setSpotlightDrawingIds([]);
+    setSpotlightCandleTimestamp(undefined);
+  }, [chart.interval, chart.symbol, document.id]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
     if (!drawingSupportsTextEditing(drawing)) {
@@ -1395,8 +1448,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    onSemanticSelectionChange?.(selectedSemanticNode);
-  }, [onSemanticSelectionChange, selectedSemanticNode]);
+    onSemanticSelectionChange?.(selectedSemanticNode ? {
+      ...selectedSemanticNode,
+      chartDocumentId: document.id,
+      sourcePanelId: panelId
+    } : null);
+  }, [document.id, onSemanticSelectionChange, panelId, selectedSemanticNode]);
 
   useEffect(() => {
     if (typeof laneHeight !== "number") {
@@ -1747,6 +1804,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useImperativeHandle(ref, () => ({
     getSnapshot: () => chartRef.current,
+    getChartDocumentId: () => document.id,
     getAnalysisAssetIdentity: () => activeAnalysisAsset ? {
       assetVersion: activeAnalysisAsset.assetVersion,
       algorithmVersion: activeAnalysisAsset.algorithmVersion,
@@ -1760,7 +1818,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     // Lets the agent reference chip clear this chart's candle highlight when the
     // reference is removed from the input strip.
     clearSemanticSelection: () => setSelectedSemanticNode(null)
-  }), [activeAnalysisAsset, setChartType, setInterval]);
+  }), [activeAnalysisAsset, document.id, setChartType, setInterval]);
 
   const queueWheelViewport = useCallback((viewport: ChartViewport) => {
     wheelViewportRef.current = viewport;
@@ -2380,6 +2438,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           emphasizeSelectedNode={emphasizeSelection}
           crosshair={crosshair}
           editingDrawingId={labelEditor?.drawingId}
+          spotlightDrawingIds={spotlightDrawingIds}
+          spotlightCandleTimestamp={spotlightCandleTimestamp}
           onScene={handleScene}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
@@ -2404,7 +2464,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            geometry: !activeAnalysisAsset?.geometry.drawings.length
+            evidence: !hasAnalysisLayerDrawings(activeAnalysisAsset, "evidence"),
+            proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}

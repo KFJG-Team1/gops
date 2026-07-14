@@ -7,6 +7,9 @@ export type GeometryLevel = {
   id: string;
   role: "support" | "resistance";
   price: number;
+  zoneLow?: number;
+  zoneHigh?: number;
+  halfWidthAtr?: number;
   score: number;
   touches: number;
   anchors: Array<{ timestamp: string; price: number }>;

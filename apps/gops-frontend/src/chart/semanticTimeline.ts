@@ -108,6 +108,8 @@ export type SemanticTimeline = {
 
 export type SemanticSelectionSnapshot = {
   nodeId: string;
+  chartDocumentId?: string;
+  sourcePanelId?: string;
   kind: SemanticRenderUnit["kind"];
   symbol: string;
   interval: DigTargetInterval;

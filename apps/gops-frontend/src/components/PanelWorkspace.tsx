@@ -821,6 +821,15 @@ export function PanelWorkspace({
     const chartStreamStatus = chartDocument ? getStreamStatusForDocument(chartRuntime, chartDocument) : undefined;
     const chartStreamMessage = chartDocument ? getStreamMessageForDocument(chartRuntime, chartDocument) : undefined;
     const chartLiveTrade = chartDocument ? getLiveTradeForSymbol(chartRuntime, chartDocument.symbol) : undefined;
+    const boundCommentaryDocumentId = content.kind === "chartCommentary"
+      ? readString(content.props?.chartDocumentId)
+      : null;
+    const contextualChartDocument = boundCommentaryDocumentId
+      ? chartRuntime.documents[boundCommentaryDocumentId]
+      : primaryChartDocument;
+    const contextualChartCandles = contextualChartDocument
+      ? getCandlesForDocument(chartRuntime, contextualChartDocument) as CandleDto[]
+      : [];
     const contentSymbol = (readContentSymbol(content) ?? chartDocument?.symbol ?? activeSymbol).toUpperCase();
     const previewGridRect = layoutPreview?.mode === "resize"
       && layoutPreview.valid
@@ -869,8 +878,8 @@ export function PanelWorkspace({
         chartHeaderSnapshot={chartHeaders[content.id]}
         chartDocument={chartDocument}
         chartCandles={chartCandles}
-        activeChartDocument={primaryChartDocument}
-        activeChartCandles={primaryChartCandles}
+        activeChartDocument={content.kind === "chartCommentary" ? contextualChartDocument : primaryChartDocument}
+        activeChartCandles={content.kind === "chartCommentary" ? contextualChartCandles : primaryChartCandles}
         chartDataStatus={chartDataStatus}
         chartStreamStatus={chartStreamStatus}
         chartStreamMessage={chartStreamMessage}
@@ -1329,6 +1338,10 @@ function chartHeaderEquals(a: ChartHeaderSnapshot | null | undefined, b: ChartHe
 
 function readContentSymbol(content: PanelContentInstance): string | null {
   const value = content.props?.symbol;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

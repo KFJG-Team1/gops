@@ -22,6 +22,7 @@ import type {
   ImprovementPlan,
   TradeCase
 } from "../components/ai-coach/types";
+import { normalizeChartExplanation, type ChartExplanation } from "../agent/chartExplanation";
 
 export type AgentEvidenceItem = {
   provider: string;
@@ -201,7 +202,7 @@ export type AgentAnalysisReport = {
   layoutProposal?: AgentLayoutProposal | null;
   tradeConditionProposals: TradeConditionProposal[];
   timing?: AgentAnalysisTiming | null;
-  chartExplanation?: Record<string, unknown> | null;
+  chartExplanation?: ChartExplanation | null;
   coachReport?: CoachReport | null;
 };
 
@@ -294,7 +295,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
       .map(normalizeTradeConditionProposal)
       .filter((item): item is TradeConditionProposal => Boolean(item)),
     timing: normalizeTiming(source.timing),
-    chartExplanation: readObject(source.chartExplanation),
+    chartExplanation: normalizeChartExplanation(source.chartExplanation),
     coachReport: normalizeCoachReport(source.coachReport)
   };
 }
@@ -866,7 +867,7 @@ function normalizeRoute(value: unknown): IntentRoute | null {
   };
 }
 
-function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
+export function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
   const source = readObject(value);
   const title = readString(source?.title);
   const summary = readString(source?.summary);

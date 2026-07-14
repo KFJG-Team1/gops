@@ -453,12 +453,17 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "chartCommentary") {
+    const boundChartDocumentId = readString(content.props?.chartDocumentId) ?? activeChartDocument?.id;
     return (
       <ChartCommentaryPanel
+        chartDocumentId={boundChartDocumentId}
+        sourceAvailable={Boolean(activeChartDocument && (!boundChartDocumentId || activeChartDocument.id === boundChartDocumentId))}
         symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
         interval={normalizeChartInterval(activeChartDocument?.timeframe)}
         candles={activeChartCandles}
         drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+        commentaryState={content.props?.commentaryState}
+        onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, { commentaryState: state })}
       />
     );
   }
@@ -692,4 +697,8 @@ function normalizeCompareSymbols(values: string[]): string[] {
     }
   });
   return normalized.slice(0, 6);
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
