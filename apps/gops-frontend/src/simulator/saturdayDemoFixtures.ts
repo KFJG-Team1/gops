@@ -66,19 +66,19 @@ function saturdayDemoAnalysisAsset(interval: AnalysisAssetInterval): ChartAnalys
   const supportId = `chart-asset:IFF:${interval}:sim-support`;
   const resistanceId = `chart-asset:IFF:${interval}:sim-resistance`;
   const drawings = [
-    drawing(supportId, "horizontalLine", [{ price: 74.8, paneId: "price" }], "지지선 74.80", "#16a34a"),
-    drawing(resistanceId, "horizontalLine", [{ price: 76.2, paneId: "price" }], "저항선 76.20", "#dc2626"),
+    drawing(supportId, "horizontalLine", [{ price: 81.4, paneId: "price" }], "지지선 81.40", "#16a34a"),
+    drawing(resistanceId, "horizontalLine", [{ price: 82.6, paneId: "price" }], "저항선 82.60", "#dc2626"),
     drawing(
       `chart-asset:IFF:${interval}:sim-triangle:upper`,
       "trendLine",
-      [{ logicalIndex: 0, price: 76.7 }, { logicalIndex: 120, price: 76.2 }],
+      [{ logicalIndex: 0, price: 83.1 }, { logicalIndex: 120, price: 82.6 }],
       "삼각 수렴 상단",
       "#f59e0b"
     ),
     drawing(
       `chart-asset:IFF:${interval}:sim-triangle:lower`,
       "trendLine",
-      [{ logicalIndex: 0, price: 74.3 }, { logicalIndex: 120, price: 75.8 }],
+      [{ logicalIndex: 0, price: 80.7 }, { logicalIndex: 120, price: 82.2 }],
       "삼각 수렴 하단",
       "#f59e0b"
     )
@@ -105,18 +105,18 @@ function saturdayDemoAnalysisAsset(interval: AnalysisAssetInterval): ChartAnalys
       supports: [{
         id: supportId,
         role: "support",
-        price: 74.8,
+        price: 81.4,
         score: 0.9,
         touches: 3,
-        anchors: [{ timestamp: asOf, price: 74.8 }]
+        anchors: [{ timestamp: asOf, price: 81.4 }]
       }],
       resistances: [{
         id: resistanceId,
         role: "resistance",
-        price: 76.2,
+        price: 82.6,
         score: 0.92,
         touches: 3,
-        anchors: [{ timestamp: asOf, price: 76.2 }]
+        anchors: [{ timestamp: asOf, price: 82.6 }]
       }],
       patterns: [pattern],
       primaryPattern: pattern,
@@ -132,21 +132,21 @@ function saturdayDemoAnalysisAsset(interval: AnalysisAssetInterval): ChartAnalys
         action: "buy_candidate",
         direction: "long",
         signalAt: null,
-        entryTrigger: 76.2,
-        entryPrice: 76.3,
-        stopPrice: 74.6,
-        targetPrice: 81.0,
-        riskPerShare: 1.7,
-        rewardPerShare: 4.7,
-        rewardRiskRatio: 2.76,
+        entryTrigger: 82.6,
+        entryPrice: 82.7,
+        stopPrice: 81.1,
+        targetPrice: 87.5,
+        riskPerShare: 1.6,
+        rewardPerShare: 4.8,
+        rewardRiskRatio: 3,
         minimumRewardRisk: 2,
         projectionBars: 12,
-        reasons: ["76.20 저항 돌파 확인", "74.60 하향 이탈 시 무효화"]
+        reasons: ["82.60 저항 돌파 확인", "81.10 하향 이탈 시 무효화"]
       }
     },
     indicators: {
-      sma60: 75.18,
-      sma120: 74.92,
+      sma60: 82.18,
+      sma120: 81.92,
       cross: { status: "none", direction: null }
     }
   };
