@@ -7,6 +7,8 @@ import {
 } from "../layout/agentLayoutTypes";
 import type {
   CoachActionCenter,
+  CoachAlertCandidate,
+  CoachAlertProposalSource,
   CoachReport,
   DailyTradeReview,
   HistoricalHabitsPage,
@@ -414,9 +416,46 @@ function normalizeCoachActionCenter(value: unknown): CoachActionCenter | null {
     availability: normalizeAvailability(source.availability),
     activeExperiments: normalizeObjectArray(source.activeExperiments) as CoachActionCenter["activeExperiments"],
     enabledGuardrails: normalizeObjectArray(source.enabledGuardrails) as CoachActionCenter["enabledGuardrails"],
-    recommendedAlerts: normalizeObjectArray(source.recommendedAlerts) as CoachActionCenter["recommendedAlerts"],
-    watchingAlerts: normalizeObjectArray(source.watchingAlerts) as CoachActionCenter["watchingAlerts"]
+    recommendedAlerts: readArray(source.recommendedAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, true))
+      .filter((item): item is CoachAlertCandidate => Boolean(item)),
+    watchingAlerts: readArray(source.watchingAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, false))
+      .filter((item): item is CoachAlertCandidate => Boolean(item))
   };
+}
+
+function normalizeCoachAlertCandidate(value: unknown, legacyDailyTradeFallback: boolean): CoachAlertCandidate | null {
+  const source = readObject(value);
+  const id = readString(source?.id);
+  const title = readString(source?.title);
+  if (!source || !id || !title) return null;
+  const hasProposalSource = Object.prototype.hasOwnProperty.call(source, "proposalSource")
+    || Object.prototype.hasOwnProperty.call(source, "proposal_source");
+  const proposalSource = normalizeCoachAlertProposalSource(source.proposalSource ?? source.proposal_source);
+  if (hasProposalSource && !proposalSource && legacyDailyTradeFallback) return null;
+  return {
+    id,
+    symbol: readString(source.symbol),
+    title,
+    detail: readString(source.detail) ?? undefined,
+    currentValue: readString(source.currentValue) ?? readNumber(source.currentValue),
+    threshold: readString(source.threshold) ?? readNumber(source.threshold),
+    operator: readString(source.operator),
+    recommendedAction: readString(source.recommendedAction),
+    alertSupported: readBoolean(source.alertSupported) ?? undefined,
+    enabled: readBoolean(source.enabled) ?? false,
+    proposalSource: proposalSource ?? (legacyDailyTradeFallback && !hasProposalSource ? "daily_trade" : null),
+    alertRequest: (readObject(source.alertRequest) ?? undefined) as CoachAlertCandidate["alertRequest"],
+    serverAlertId: readNumber(source.serverAlertId) ?? undefined
+  };
+}
+
+function normalizeCoachAlertProposalSource(value: unknown): CoachAlertProposalSource | null {
+  const source = readString(value);
+  return source === "daily_trade" || source === "entry_habit" || source === "exit_habit" || source === "portfolio_risk"
+    ? source
+    : null;
 }
 
 function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]> {

@@ -91,6 +91,10 @@ const guardrails = [
   { id: "portfolio-guardrail", stage: "portfolio" as const, title: "섹터 집중도 확인", description: "거래 후 섹터 비중이 60%를 넘으면 비중 계획을 확인합니다.", trigger: { conditions: [{ metric: "sectorWeight", operator: ">", value: 60 }], matchMode: "all" as const }, severity: "risk" as const, intervention: "require_plan" as const, scope: "global" as const, enabled: false }
 ];
 
+function dailyTradeAlertCandidates(symbol: string, bundle: ReviewBundle) {
+  return bundle.watchConditions.map((item) => ({ id: item.id, symbol, title: item.label, detail: item.reason ?? undefined, currentValue: item.currentValue, threshold: item.threshold, operator: item.operator, recommendedAction: item.recommendedAction, alertSupported: item.alertSupported, enabled: false, proposalSource: "daily_trade" as const, alertRequest: item.alertRequest }));
+}
+
 export const AI_COACH_DEV_FIXTURE: CoachReport = {
   contractVersion: "coach-report.v2", analysisId: "dev-fixture", generatedAt: asOf,
   sourceAsOf: { fills: asOf, market: asOf, indicators: asOf, portfolio: asOf, news: asOf }, missingData: [], warnings: [],
@@ -108,7 +112,13 @@ export const AI_COACH_DEV_FIXTURE: CoachReport = {
   page3: { availability: "ready", summary: "저거래량 추격 진입은 먼저 보완하고, 계획된 분할 청산은 다음 거래에서도 재현합니다.", priorities: [priorityEntry, priorityExit, priorityPortfolio], experiments, guardrails },
   page4: {
     availability: "ready", activeExperiments: experiments.filter((item) => item.status === "active"), enabledGuardrails: guardrails.filter((item) => item.enabled),
-    recommendedAlerts: nvdaReview.watchConditions.filter((item) => item.alertRequest).map((item) => ({ id: item.id, title: item.label, detail: item.reason ?? undefined, enabled: false, alertRequest: item.alertRequest })),
-    watchingAlerts: [{ id: "watching-203", title: "NVDA $203 상향 돌파", detail: "목표 구간 접근 알람 · 현재 활성", enabled: true, serverAlertId: 203 }]
+    recommendedAlerts: [
+      ...dailyTradeAlertCandidates("NVDA", nvdaReview),
+      ...dailyTradeAlertCandidates("AMD", amdReview),
+      { id: `entry-habit-${priorityEntry.id}`, title: priorityEntry.title, detail: `${priorityEntry.condition} · ${priorityEntry.nextAction}`, enabled: false, proposalSource: "entry_habit" as const },
+      { id: `exit-habit-${priorityExit.id}`, title: priorityExit.title, detail: `${priorityExit.condition} · ${priorityExit.nextAction}`, enabled: false, proposalSource: "exit_habit" as const },
+      { id: `portfolio-risk-${priorityPortfolio.id}`, title: priorityPortfolio.title, detail: `${priorityPortfolio.condition} · ${priorityPortfolio.nextAction}`, enabled: false, proposalSource: "portfolio_risk" as const }
+    ],
+    watchingAlerts: [{ id: "watching-203", title: "NVDA $203 상향 돌파", detail: "목표 구간 접근 알람 · 현재 활성", enabled: true, proposalSource: "daily_trade", serverAlertId: 203 }]
   }
 };
