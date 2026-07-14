@@ -1,7 +1,7 @@
 import { Bell, CheckCheck, LoaderCircle, WifiOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { NotificationItem } from "./alertApi";
-import { formatNotificationToastMessage, notificationChartSymbol } from "./alertPresentation";
+import { formatNotificationToastMessage, notificationChartSymbol, notificationVisualTone } from "./alertPresentation";
 
 type HeaderNotificationMenuProps = {
   canUseAlerts: boolean;
@@ -110,6 +110,7 @@ export function HeaderNotificationMenu({
               {notifications.map((notification) => {
                 const presentation = formatNotificationToastMessage(notification);
                 const chartSymbol = notificationChartSymbol(notification);
+                const visualToneClass = notificationVisualTone(notification) === "geopolitical-risk" ? "is-geopolitical-risk" : "";
                 const actionLabel = chartSymbol
                   ? `${presentation.title}, ${chartSymbol} 차트 열기`
                   : `${presentation.title}, 알림 읽기`;
@@ -117,7 +118,7 @@ export function HeaderNotificationMenu({
                   <button
                     key={notification.id}
                     type="button"
-                    className={`workspace-notification-row ${notification.readAt ? "is-read" : "is-unread"}`}
+                    className={`workspace-notification-row ${visualToneClass} ${notification.readAt ? "is-read" : "is-unread"}`}
                     disabled={saving}
                     aria-label={actionLabel}
                     onClick={() => openNotification(notification)}

@@ -1180,6 +1180,21 @@ button {
   pointer-events: auto;
 }
 
+.alert-toast.is-geopolitical-risk {
+  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--color-border));
+  background: color-mix(in srgb, var(--color-background) 92%, var(--color-danger) 8%);
+}
+
+.alert-toast.is-geopolitical-risk::before {
+  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--color-border));
+}
+
+.alert-toast.is-geopolitical-risk .alert-toast-icon,
+.alert-toast.is-geopolitical-risk .alert-toast-chart-button {
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface-strong));
+  color: var(--color-danger);
+}
+
 .alert-toast.no-actions {
   grid-template-areas: "icon copy close";
 }
@@ -21852,6 +21867,10 @@ textarea:focus,
   background: color-mix(in srgb, var(--coinbase-primary) 7%, transparent);
 }
 
+.workspace-notification-row.is-geopolitical-risk.is-unread {
+  background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+}
+
 .workspace-notification-row:hover:not(:disabled),
 .workspace-notification-row:focus-visible {
   background: var(--color-surface-strong);
@@ -21868,6 +21887,10 @@ textarea:focus,
   margin-top: 5px;
   border-radius: 50%;
   background: var(--coinbase-primary);
+}
+
+.workspace-notification-row.is-geopolitical-risk.is-unread .workspace-notification-dot {
+  background: var(--color-danger);
 }
 
 .workspace-notification-row.is-read .workspace-notification-dot {
@@ -21983,4 +22006,24 @@ textarea:focus,
   .workspace-top-notification-popover {
     animation: none;
   }
+}
+
+/* Keep panel overflow regions scrollable without hiding the browser viewport scrollbar. */
+.workspace-panel-frame,
+.workspace-panel-frame * {
+  -ms-overflow-style: none !important;
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none !important;
+}
+
+.workspace-panel-frame::-webkit-scrollbar,
+.workspace-panel-frame *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.workspace-panel-frame .popular-stocks-panel.has-scroll-rule::after,
+.workspace-panel-frame .chart-compare-panel.has-scroll-rule::after {
+  display: none !important;
 }
