@@ -222,6 +222,20 @@ test("asset ops submits exactly one Czardas symbol and interval", async ({ page 
   await page.screenshot({ path: `/tmp/chart-assets-v4-ops-${testInfo.project.name}.png`, fullPage: true });
 });
 
+test("asset ops applies the selected asset to the primary chart", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const ops = page.locator(".chart-asset-ops-panel");
+  const apply = ops.getByRole("button", { name: "차트에 적용" });
+
+  await expect(apply).toBeEnabled();
+  await apply.click();
+
+  await expect(page.getByRole("combobox", { name: "Chart type" })).toContainText("Czardas");
+  await expect(page.getByRole("button", { name: "Czardas H-Line 끄기" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Czardas Trend 끄기" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Czardas Pattern 끄기" })).toBeEnabled();
+});
+
 test("Czardas Field paint stays within the 8ms P95 gate", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "one stable desktop benchmark is sufficient");
   await page.goto("/?symbol=NVDA");

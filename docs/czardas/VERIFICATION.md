@@ -93,7 +93,8 @@ derivation closure를 잘라 partial pack을 저장해서는 안 된다.
 1. 대상 symbol과 지원 interval 하나를 선택한다.
 2. build를 한 번 제출하고 반환된 `cza-` job만 polling한다.
 3. terminal 성공 후 GET entry의 freshness, `asOf`, input digest와 pack version을 확인한다.
-4. chart type을 Czardas로 바꿔 Field, H-Line, Trend, Pattern, hover와 편집을 확인한다.
+4. `차트에 적용`으로 선택 pair와 chart type을 Czardas로 바꾸고 Field, H-Line, Trend,
+   Pattern, hover와 편집을 확인한다.
 5. 실패 시 reason code와 canonical coverage를 확인한다. 자동 재build를 만들지 않는다.
 6. delete는 선택한 pair 하나에만 적용하며 active build 중에는 실행하지 않는다.
 

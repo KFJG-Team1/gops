@@ -1,4 +1,4 @@
-import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
+import { makeChartCommand, type ChartDataStatus, type ChartDocument, type ChartRuntimeAction, type StreamStatus, type TradeTickData } from "@gops/chart-engine";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
@@ -80,6 +80,7 @@ type PanelContentRendererProps = {
   chartDocument?: ChartDocument;
   chartCandles: CandleDto[];
   activeChartDocument?: ChartDocument;
+  activeChartPanelId?: string;
   chartDataStatus?: ChartDataStatus;
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
@@ -118,6 +119,7 @@ export function PanelContentRenderer({
   chartDocument,
   chartCandles,
   activeChartDocument,
+  activeChartPanelId,
   chartDataStatus,
   chartStreamStatus,
   chartStreamMessage,
@@ -454,6 +456,22 @@ export function PanelContentRenderer({
       <ChartAssetOpsPanel
         currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
         currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+        onApplyToChart={activeChartDocument && activeChartPanelId ? (nextSymbol, nextInterval) => {
+          const target = { panelId: activeChartPanelId, chartDocumentId: activeChartDocument.id };
+          const commands = [];
+          if (activeChartDocument.symbol !== nextSymbol) {
+            commands.push(makeChartCommand("chart.symbol.set", "user", target, { symbol: nextSymbol }));
+          }
+          if (activeChartDocument.timeframe !== nextInterval) {
+            commands.push(makeChartCommand("chart.timeframe.set", "user", target, { timeframe: nextInterval }));
+          }
+          if (activeChartDocument.chartType !== "czardas") {
+            commands.push(makeChartCommand("chart.type.set", "user", target, { chartType: "czardas" }));
+          }
+          if (commands.length) {
+            onChartRuntimeAction({ kind: "chart.command.group", commands, label: "Czardas 자산 적용" });
+          }
+        } : undefined}
       />
     );
   }

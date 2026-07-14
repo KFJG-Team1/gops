@@ -21,10 +21,12 @@ const terminalStatuses = new Set(["completed", "completed_with_errors", "failed"
 
 export function ChartAssetOpsPanel({
   currentSymbol,
-  currentInterval
+  currentInterval,
+  onApplyToChart
 }: {
   currentSymbol: string;
   currentInterval: ChartInterval;
+  onApplyToChart?: (symbol: string, interval: CzardasInterval) => void;
 }) {
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
   const [symbol, setSymbol] = useState(normalizedCurrentSymbol);
@@ -171,7 +173,7 @@ export function ChartAssetOpsPanel({
         <section className="chart-asset-ops-progress">
           <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
-          <p>{job.progress.current ?? "대기 중"}</p>
+          <p>{job.progress.current ?? (running ? "대기 중" : job.status === "completed" ? "완료" : job.status)}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
             <p>
               데이터 점검 {job.repair.checkedSymbols} · 복구 {job.repair.repairedSymbols} · 결측 {job.repair.missingBarsBefore}→{job.repair.missingBarsAfter} · 적재 {job.repair.materializedRows}
@@ -200,7 +202,16 @@ export function ChartAssetOpsPanel({
               <p>감지 패턴 {entry.pack.patternRelations.map((pattern) => patternName(pattern.kind)).join(" · ")}</p>
             )}
             <p>생성 {formatGeneratedAt(entry.generatedAt)}</p>
-            <button type="button" disabled={deleting || running} onClick={() => void removeAsset()}>{deleting ? "삭제 중" : "자산 삭제"}</button>
+            <div className="chart-asset-ops-actions">
+              <button
+                type="button"
+                disabled={!onApplyToChart || entry.freshness !== "current" || deleting || running}
+                onClick={() => onApplyToChart?.(normalizedSymbol, interval)}
+              >
+                차트에 적용
+              </button>
+              <button type="button" disabled={deleting || running} onClick={() => void removeAsset()}>{deleting ? "삭제 중" : "자산 삭제"}</button>
+            </div>
           </>
         ) : entry?.freshness === "incompatible" ? (
           <>

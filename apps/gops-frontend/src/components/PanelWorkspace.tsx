@@ -793,9 +793,8 @@ export function PanelWorkspace({
     width: scrollBounds.width,
     height: scrollBounds.top + scrollBounds.height + (layoutMetrics.bottomInset ?? workspaceBottomInset)
   };
-  const primaryChartContent = panelState.slots
-    .map((slot) => panelState.contents[slot.contentId])
-    .find((content) => content?.kind === "chart");
+  const primaryChartSlot = panelState.slots.find((slot) => panelState.contents[slot.contentId]?.kind === "chart");
+  const primaryChartContent = primaryChartSlot ? panelState.contents[primaryChartSlot.contentId] : undefined;
   const primaryChartDocument = primaryChartContent
     ? chartRuntime.documents[chartDocumentIdForContent(primaryChartContent)]
     : undefined;
@@ -864,6 +863,7 @@ export function PanelWorkspace({
         chartDocument={chartDocument}
         chartCandles={chartCandles}
         activeChartDocument={primaryChartDocument}
+        activeChartPanelId={primaryChartSlot?.id}
         chartDataStatus={chartDataStatus}
         chartStreamStatus={chartStreamStatus}
         chartStreamMessage={chartStreamMessage}

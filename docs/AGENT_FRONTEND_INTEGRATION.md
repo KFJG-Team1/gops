@@ -429,6 +429,9 @@ chart analysis asset 운영 패널은 `kind="chartAssetOps"`, 화면 표시는
 뿐 표시 게이트가 아니다. 로컬 Vite, Docker production build, 실제 배포 환경 모두
 레이아웃 수정 모드의 패널 추가 팔레트에 항상 노출하며 URL query나 localStorage로
 숨기지 않는다.
+현재 자산의 `차트에 적용`은 primary chart의 symbol, timeframe과 chart type을 선택한
+자산의 pair와 `czardas`로 한 번에 바꾼다. 자산 조회만으로 일반 Candle chart를 자동
+전환하지 않으며, current 자산이 없거나 incompatible/stale이면 적용할 수 없다.
 
 Czardas 화면·편집 계약은 [`czardas/README.md`](czardas/README.md)와
 [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md), 프런트 회귀 gate는
