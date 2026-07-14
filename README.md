@@ -128,9 +128,9 @@ Start the local stack:
 docker compose --env-file .env up -d --build --remove-orphans
 ```
 
-The default dependency graph runs `czardas-asset-migrations` once and requires
-its `004_czardas_assets.sql` migration to succeed before the Czardas worker
-starts. It never creates, reads, drops, or updates legacy Geometry tables.
+The default dependency graph runs the complete `czardas-asset-migrations` chain once and
+requires it to succeed before the Czardas worker starts. It never creates, reads, drops, or
+updates legacy Geometry tables.
 `--remove-orphans` removes containers for services no longer declared by this
 Compose project, including a previously created Geometry worker; named database
 volumes are not removed.
@@ -167,6 +167,11 @@ GET    /api/charts/czardas-assets/build/{cza_job_id}
 POST   /api/charts/czardas-assets/build/{cza_job_id}/cancel
 DELETE /api/charts/czardas-assets?symbol=AAPL&interval=1D
 ```
+
+Czardas product behavior, engine contracts, and permanent gates are documented in
+[`docs/czardas/README.md`](docs/czardas/README.md),
+[`docs/czardas/ENGINE_SPEC.md`](docs/czardas/ENGINE_SPEC.md), and
+[`docs/czardas/VERIFICATION.md`](docs/czardas/VERIFICATION.md).
 
 Deprecated chart backfill queue routes return `410 Gone`. `GET /api/charts/candles`
 is the single chart read/fill entrypoint and includes a `fill` trace when data is

@@ -5,6 +5,11 @@
 `AGENT_FRONTEND_INTEGRATION.md`, AWS 빌드와 배포는 `AGENT_AWS_BUILD.md`를
 따른다.
 
+Czardas는 interactive agent 분석과 분리된 deterministic asset runtime이다. 제품 계약은
+[`czardas/README.md`](czardas/README.md), 기술 계약과 운영 gate는
+[`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md)와
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
+
 ## 목적
 
 GOPS 에이전트는 사용자 질의를 받아 시장 데이터, 뉴스, 온톨로지 관계, SEC 재무

@@ -61,7 +61,7 @@ class Storage:
 
 def _content():
     return {
-        "algorithmVersion": "czardas-v3",
+        "algorithmVersion": "czardas-v4",
         "symbol": "NVDA",
         "interval": "1D",
         "drawings": [{"id": "one"}],

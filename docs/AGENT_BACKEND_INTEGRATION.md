@@ -439,6 +439,8 @@ polling/SSE semantics는 보존해야 한다.
 ## Czardas Asset Routes
 
 Czardas asset은 interactive agent report와 분리된 수동 단일-pair projection이다.
+Pack과 build의 기준은 [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md), 영구 API·repair gate는
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
 
 ```text
 GET    /api/charts/czardas-assets?symbol=NVDA[&interval=1D]

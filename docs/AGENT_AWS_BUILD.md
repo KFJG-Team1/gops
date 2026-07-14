@@ -857,6 +857,8 @@ CZARDAS_ASSET_STORAGE_MAINTENANCE
 AgentOrchestrator workflow에 참여하지 않는다. 개발 패널에서 수동 제출한 PostgreSQL
 queue item을 정확히 한 symbol/interval 단위로 처리하고 ClickHouse 완료 봉을 감사하며 누락
 range만 Alpaca로 보충한다.
+Czardas runtime과 수동 운영의 기준은 [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md)와
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
 미국 주식 `5m/10m` 보충은 Alpaca `1Min`, `1h/4h` 보충은 Alpaca `10Min`을
 사용한다. 실제 정규장 원본과 `bucket_policy=us_equity_regular_session` 파생 봉을
 함께 ClickHouse에 저장하며, 실시간 파생 봉은 계속 `1m`을 원본으로 사용한다.

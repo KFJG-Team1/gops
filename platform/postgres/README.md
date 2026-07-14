@@ -14,6 +14,10 @@ systems/agent-orchestration/jobs/czardas-asset-migrations
 Czardas is the only active automatic drawing subsystem. PostgreSQL owns its
 latest projection and queue:
 
+The pack and operational gates are defined in
+[`docs/czardas/ENGINE_SPEC.md`](../../docs/czardas/ENGINE_SPEC.md) and
+[`docs/czardas/VERIFICATION.md`](../../docs/czardas/VERIFICATION.md).
+
 ```text
 chart_assets.czardas_latest
 chart_assets.czardas_build_jobs

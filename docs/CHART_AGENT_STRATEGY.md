@@ -1,11 +1,12 @@
 # Chart Intelligence / Agent Strategy
 
-Status: design baseline; deterministic Czardas v4 asset kernel implemented independently of the LLM chart capability
+Status: current chart-intelligence strategy; deterministic Czardas v4 asset runtime operates independently of the LLM chart capability
 
 Owners: agent-orchestration, market-data, chart-engine, frontend
 
 Read with: `AGENT_ARCHITECTURE.md`, `AGENT_BACKEND_INTEGRATION.md`,
-`AGENT_FRONTEND_INTEGRATION.md`, `CHART_DATA_ARCHITECTURE.md`
+`AGENT_FRONTEND_INTEGRATION.md`, `CHART_DATA_ARCHITECTURE.md`,
+[`czardas/README.md`](czardas/README.md), [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md)
 
 ## 1. Executive Decision
 

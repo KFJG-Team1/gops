@@ -188,6 +188,8 @@ treats the configuration as one bucket-wide document.
 
 Czardas pack과 수동 build queue는 PostgreSQL만 사용한다. 배포 전 builder를
 중단하고 다음 schema migration을 실행한다.
+Pack, repair와 수동 build 검증은 [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md)와
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
 
 ```bash
 scripts/aws/run-czardas-asset-migrations-job.sh

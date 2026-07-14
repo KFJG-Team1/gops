@@ -397,6 +397,10 @@ chart analysis asset 운영 패널은 `kind="chartAssetOps"`, 화면 표시는
 레이아웃 수정 모드의 패널 추가 팔레트에 항상 노출하며 URL query나 localStorage로
 숨기지 않는다.
 
+Czardas 화면·편집 계약은 [`czardas/README.md`](czardas/README.md)와
+[`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md), 프런트 회귀 gate는
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
+
 Czardas chart는 `1m/5m/10m/1h/4h/1D/1W`를 지원하고 H-Line, Trend, Pattern 세 layer를
 독립적으로 토글한다. Shared candle 의미는 항상 남는다. Pattern은 감지된 relation의 실제
 fact를 잇는 `polyline`이며 별도 Pattern 종목 목록 panel은 없다.
@@ -408,9 +412,10 @@ analysis window에 clip하고 OLS, Trend, validation과 PatternTrace는 data-spa
 pan/zoom에서 screen-space에 고정되는 것은 hover text와 충돌 회피 label뿐이다.
 
 managed drawing의 최초 편집은 candidate 또는 relation 하나만 session fork/suppress한다.
-Triangle boundary atomic group과 `sourceGroupId`는 없다. user/LLM은 managed provenance와
-`czardas:` ID를 만들 수 없고 LLM polyline proposal도 거부한다. 공용 polyline 도구는 사용자가
-3~32 points를 만들고 모든 vertex/path drag, undo/redo와 snapshot 저장을 지원한다.
+boundary drawing은 candidate provenance, Pattern polyline은 relation provenance를 사용한다.
+user/LLM은 managed provenance와 `czardas:` ID를 만들 수 없고 LLM polyline proposal도 거부한다.
+공용 polyline 도구는 사용자가 3~32 points를 만들고 모든 vertex/path drag, undo/redo와 snapshot
+저장을 지원한다.
 
 hover는 `현재 240봉 기준`으로 pack의 factor/reason codebook 전체를 배경 없는 오른쪽 아래
 text overlay에 표시한다. H-Line/Trend toggle이 꺼지면 해당 설명만 약하게 표시한다. stale 또는

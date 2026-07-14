@@ -1,80 +1,78 @@
 # Czardas v4
 
-> Czardas v4는 exact-240의 모든 candle을 현재 시점에서 함께 보며, 가격 기억·회귀
-> 흐름·robust 경계와 그 관계를 하나의 Field로 해석해 H-Line, Trend와 편집 가능한
-> Pattern 꺾은선을 제안하는 결정론적 통계·기하 엔진이다.
+Czardas는 최신 완료봉 exact-240을 하나의 현재 장면으로 보고, 가격 기억·회귀 흐름·robust
+경계와 구조 관계를 같은 Field에서 해석해 H-Line, Trend와 Pattern을 제안하는 GOPS의
+결정론적 통계·기하 엔진이다.
 
-## 무엇을 보는가
+## 제품 정체성
 
-Czardas는 미래를 맞히는 점수기가 아니다. 최신 완료봉 240개를 하나의 현재 장면으로 보고
-각 candle의 형태, 주변 구조, 가격 기억 참여와 경계 관계를 설명한다. 새 봉이나 correction으로
-snapshot이 바뀌면 과거 candle의 현재적 의미도 바뀔 수 있다. live candle과 `asOf` 뒤 데이터는
-어느 단계에도 들어가지 않는다.
+- 모든 candle은 현재 240봉 안에서 Shared, H-Line, Trend 의미를 가진다.
+- 과거 candle의 의미도 해당 candle 당시의 판단이 아니라 현재 `asOf`에서 본 해석이다.
+- Pattern은 별도 candle 점수가 아니라 가격 기억, 회귀 흐름, 경계와 접촉 사실의 관계다.
+- Field, hover, 해설과 최종 drawing은 같은 inference와 provenance를 사용한다.
+- 결과가 약하면 과장하지 않는다. Trend와 Pattern은 abstain할 수 있고 약한 H-Line은
+  `baseline_memory`임을 드러낸다.
+- 결과는 확률, 매수·매도 신호 또는 수익 보장이 아니다.
 
-모든 candle에는 Shared, H-Line, Trend 의미가 있다. 화면용 `240봉 내 의미 백분위`는 세
-채널의 상대적 시각 강도를 합친 값이며 확률·매수·매도 점수가 아니고 inference에 되먹임되지
-않는다. Pattern은 네 번째 candle 점수가 아니라 Field primitive 사이의 관계다.
+## 엔진이 제안하는 것
 
-## 하나의 Field
+| 결과 | 현재 계약 |
+| --- | --- |
+| H-Line | `1..4`, 선호 2. 거래량 없이 성립하는 dominant PriceMemory를 최소 한 개 포함한다. |
+| Trend | `0..3`, 선호 2. endpoint fact에 robust fit한 가격 경계만 제안한다. |
+| Pattern | `0..2`. Triangle, Channel, Rectangle, Wedge, Flag, Pennant 관계 중 승격된 것만 그린다. |
+| Field | 240개 candle 의미, PriceMemory, OLS 흐름, 경계 근거, relation fact와 선택 closure를 보여준다. |
 
-```text
-canonical exact-240
-  → 전봉 Intrinsic Meaning
-  → adaptive StructuralDomainTree
-  → Structural Facts
-  → PriceMemoryField + RegressionFlow
-  → H-Line / Trend Boundary modes
-  → StructureRelation + PatternTrace
-  → joint scene selection
-  → CzardasInference
-  → deterministic CzardasSightPack
-```
+감지된 Pattern은 실제 contact·turn·impulse fact 3~16개를 시간순으로 이은 managed polyline
+하나와 이름 하나를 가진다. 승격되지 않은 대표 관계는 국소 marker와 짧은 connector로만
+표현될 수 있으며 Pattern 이름이나 drawing을 만들지 않는다.
 
-- PriceMemory는 OHLC 가격 점유, endpoint와 reaction을 연속 가격 구간에 누적한다.
-- OLS는 candle 집합의 중심 흐름을 설명한다. 최종 Trend를 대신하지 않는다.
-- Trend는 endpoint fact에 robust fit한 실제 상·하단 경계다.
-- Pattern은 기존 흐름·경계·접촉·impulse의 관계다. 별도 detector가 선을 다시 계산하지 않는다.
-- robust Trend와 OLS의 합의와 충돌은 모두 설명 가능한 사실이다.
+## Czardas 차트
 
-## 결과와 화면
+좌측 하단의 H-Line, Trend, Pattern 토글은 독립적이며 Shared 의미는 항상 남는다.
 
-- H-Line: `1..4`, 선호 2. 정상 Ready snapshot에는 volume 없이도 성립하는 dominant
-  PriceMemory가 최소 한 개 있다. 약하면 `baseline_memory`라고 솔직히 표시한다.
-- Trend: `0..3`, 선호 2. hard-valid 후보가 없으면 그리지 않는다.
-- Pattern: `0..2`. Triangle, Channel, Rectangle, Wedge, Flag, Pennant 관계를 수용하되
-  이름 수가 목표가 아니다. 감지된 relation만 실제 fact 3~16개를 이은 polyline 하나로 그린다.
-- 승격되지 않은 관계도 대표 접촉 순서 하나는 `PatternEvidence`로 남길 수 있다. 이는 국소 점과
-  짧은 connector일 뿐 Pattern 이름이나 managed polyline을 만들지 않는다.
-- managed drawing은 최대 9개이며 사용자가 편집·삭제·복원할 수 있다. 편집은 session fork이고
-  서버 inference를 바꾸지 않는다.
+- 확대 상태: candle 진하기는 Shared+Trend, 고점·저점 주변의 짧은 수평 흔적은
+  Shared+H-Line 의미다.
+- 축소 상태: 노란 강도는 활성 채널을 합친 240봉 내 의미 백분위다.
+- OLS 중심 흐름, robust 경계 후보, relation 근거와 최종 drawing은 명확한 시각적 위계를 가진다.
+- hover는 `현재 240봉 기준`으로 factor raw/normalized 값, reason, availability와 usage를
+  오른쪽 아래 text overlay에 펼쳐 보여준다.
+- candle, Basis, OLS, Trend와 PatternTrace는 모두 `timestamp+price` 좌표를 사용한다.
+  pan, zoom과 semantic expansion에서 근거와 drawing이 함께 이동한다.
 
-좌측 아래의 H-Line, Trend, Pattern 세 토글은 독립적이다. Shared 의미는 항상 남는다. 확대
-상태의 candle 진하기는 Shared+Trend, 짧은 수평 흔적은 Shared+H-Line, 축소 상태의 노랑은
-켜진 채널 전체 의미다. OLS, 후보 경계, Pattern fact, 최종 drawing은 실제 provenance와 같은
-timestamp+price 좌표를 사용한다.
-최종 Pattern이 없어도 투영 가능한 PatternEvidence가 있으면 Pattern 토글은 활성화된다. evidence
-closure가 Field 예산에 들어오지 않으면 고립된 일부만 남기지 않고 evidence 전체를 생략한다.
+managed drawing은 사용자가 편집·삭제·복원할 수 있다. 최초 편집은 해당 boundary 또는
+relation의 session fork를 만들며 서버 inference와 공용 자산은 바뀌지 않는다. H-Line과 Trend는
+일반 선 도구, Pattern은 3~32 anchors를 지원하는 공용 polyline 도구로 계속 편집할 수 있다.
 
-hover는 pack의 versioned factor/reason codebook을 읽어 모든 현재 근거를 접지 않고 표시한다.
-factor 목록은 프런트 상수가 아니다. stale 또는 input digest mismatch에서는 Field·hover·해설을
-현재 결과처럼 보여주지 않는다.
+## 데이터와 운영
 
-## 운영
+- 지원 interval: `1m`, `5m`, `10m`, `1h`, `4h`, `1D`, `1W`.
+- 입력: `canonicalVersion=v2`, `priceAdjustment=split`, `marketSession=regular`, 완료봉 exact-240.
+- live candle과 `asOf` 이후 row는 inference, Field, 설명과 provenance에 들어가지 않는다.
+- 입력 OHLCV와 production config는 q8 `ROUND_HALF_EVEN` 영역에서 검증·계산·digest된다.
+- Trend와 OLS는 volume-only 변경으로 geometry, rank 또는 Field 의미가 바뀌지 않는다.
+- 자산은 PostgreSQL에 `(symbol, interval)` 단위로 저장하며 모든 사용자가 같은 deterministic
+  content를 받는다.
+- build와 delete는 `작도 자산(개발)` 패널에서 한 번에 한 `symbol×interval`만 수동 실행한다.
+  chart-open, GET, candle event와 Cron은 build를 만들지 않는다.
+- ClickHouse coverage가 부족하면 neutral canonical repair가 Alpaca로 누락 범위를 보충한 뒤
+  exact-240을 다시 읽는다. 완전한 snapshot을 만들지 못하면 기존 successful asset을 보존한다.
 
-Czardas 자산은 PostgreSQL에 저장하며 모든 사용자에게 동일한 deterministic content를 보낸다.
-개발 단계에서는 `작도 자산(개발)` 패널로 정확히 한 `symbol×interval`만 수동 build/delete한다.
-chart-open, GET, candle event, Cron은 build를 만들지 않는다. ClickHouse exact-240이 부족하면
-중립 canonical repair가 Alpaca로 보충한 뒤 다시 읽는다.
+stale 또는 input digest mismatch 자산은 현재 candle 위에 Field, hover와 해설을 표시하지 않는다.
+버전·크기·provenance 검증을 통과하지 못한 pack도 저장하거나 전달하지 않는다.
 
-버전은 algorithm `czardas-v4`, config `czardas-config-v4`, Field `4`, Sight
-`czardas-sight-v3`다. v3 pack은 incompatible이며 필요한 pair만 수동 재분석한다.
+## 강점과 제약
 
-## 강점과 한계
+Czardas의 강점은 같은 통계·기하 근거가 전봉 의미, 후보, 경계, Pattern, drawing과 설명까지
+닫힌다는 점이다. q8 결정론, bounded 이상치 영향, volume-independent Trend, 정직한 abstention과
+편집 가능한 provenance가 제품 계약이다.
 
-강점은 같은 통계·기하 근거가 candle 의미, 후보, 경계, Pattern, drawing과 설명까지 닫히는
-것이다. 결정론, 이상치에 대한 bounded 영향, volume-independent Trend와 정직한 abstention을
-제품 계약으로 가진다.
+입력은 완료된 OHLCV 240봉으로 제한된다. tick/order-book Volume Profile, 뉴스, 재무, 주문 흐름과
+미래 데이터는 inference에 사용하지 않는다. 내부 estimated Volume Profile은 H-Line 후보를 최대
+0.05 보강할 뿐 선을 만들거나 hard gate를 우회하지 않는다. Pattern 이름은 구조 관계의 요약이고
+`baseline_memory`는 확정 지지·저항을 뜻하지 않는다.
 
-한계는 OHLCV 240봉의 현재 snapshot만 본다는 점이다. tick/order-book Volume Profile, 뉴스,
-재무와 미래 데이터는 사용하지 않는다. Pattern 이름은 구조 관계의 요약이지 예측 보증이 아니며,
-baseline H-Line도 확정 지지·저항을 뜻하지 않는다.
+## 기준 문서
+
+- [ENGINE_SPEC.md](ENGINE_SPEC.md): kernel, pack, provenance, chart runtime과 API의 기술 기준.
+- [VERIFICATION.md](VERIFICATION.md): 영구 회귀 gate, 성능·크기 한도와 수동 build 운영 검증.

@@ -4,6 +4,10 @@ This is the current source of truth for chart data from Alpaca ingress to
 frontend rendering. Platform-specific keys, tables, topics, and prefixes live
 in `platform/{kafka,redis,clickhouse,s3}/README.md`.
 
+Czardas는 이 data plane의 canonical completed exact-240만 소비한다. 분석 입력·repair·identity
+계약은 [`czardas/ENGINE_SPEC.md`](czardas/ENGINE_SPEC.md), 데이터 회귀 gate는
+[`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
+
 ## Invariants
 
 - A data-internal refactor must preserve visible geometry unless the task explicitly

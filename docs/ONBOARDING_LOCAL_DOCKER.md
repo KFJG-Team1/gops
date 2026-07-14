@@ -77,6 +77,7 @@ no extra profile or manual schema command is required. Both migrations are
 additive and never touch legacy Geometry data.
 `--remove-orphans` retires containers for deleted services such as the old
 Geometry worker without deleting Postgres or ClickHouse volumes.
+수동 Czardas build와 local 검증은 [`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
 
 Open:
 
