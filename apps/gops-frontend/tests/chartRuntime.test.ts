@@ -1440,6 +1440,22 @@ assert.equal(nextTradeCandles[1]?.low, 197.66);
 assert.equal(nextTradeCandles[1]?.close, 199.1);
 assert.equal(nextTradeCandles[1]?.volume, 0);
 
+const simulatorPollutedRuntime = chartRuntimeReducer(nextTradeRuntime, {
+  kind: "chart.ensureDocuments",
+  panels: [{ id: "panel-chart", type: "chart", props: { symbol: "NVDA", timeframe: "5m" } }]
+});
+const liveRestoredRuntime = chartRuntimeReducer(simulatorPollutedRuntime, {
+  kind: "chart.marketData.reset"
+} as never);
+assert.deepEqual(liveRestoredRuntime.documents, simulatorPollutedRuntime.documents);
+assert.deepEqual(liveRestoredRuntime.candlesByKey, {});
+assert.deepEqual(liveRestoredRuntime.candleKeyAccessOrder, []);
+assert.deepEqual(liveRestoredRuntime.liveTradesBySymbol, {});
+assert.deepEqual(liveRestoredRuntime.liveQuotesBySymbol, {});
+assert.deepEqual(liveRestoredRuntime.dataStatusByKey, {});
+assert.deepEqual(liveRestoredRuntime.streamStatusByKey, {});
+assert.deepEqual(liveRestoredRuntime.streamMessageByKey, {});
+
 assert.equal(isChartDataRenderable({
   state: "partial",
   message: "Sparse daily coverage should not render like a normal chart.",

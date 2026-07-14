@@ -6,6 +6,7 @@ import {
   basketForOrderSide,
   formatSimulatorClock,
   requestPortfolioRefresh,
+  shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh
 } from "../src/simulator/simulatorApi";
@@ -19,6 +20,9 @@ assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation"
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "live", state: "idle" }), 30_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: false, mode: "live", state: "idle" }), 30_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "paused" }), 30_000);
+assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), true);
+assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
+assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
