@@ -5745,6 +5745,21 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(candles[-1]["bucketPolicy"], "us_equity_extended_session")
         self.assertFalse(candles[-1]["isClosed"])
 
+    def test_clickhouse_premarket_query_keeps_full_contiguous_extended_chain(self):
+        provider = RecordingClickHouseProviderForAggregation(
+            [],
+            now=datetime(2026, 7, 14, 12, 30, tzinfo=timezone.utc),
+        )
+
+        provider.candles("MU", "10m", 5)
+
+        extended_query = provider.queries[-1][0]
+        self.assertIn("market_session = 'after'", extended_query)
+        self.assertIn("market_session = 'overnight'", extended_query)
+        self.assertIn("market_session = 'pre'", extended_query)
+        self.assertIn("2026-07-13T20:00:00.000Z", extended_query)
+        self.assertIn("2026-07-14T13:30:00.000Z", extended_query)
+
     def test_clickhouse_recomputes_stored_direct_interval_moving_averages(self):
         rows = [
             {

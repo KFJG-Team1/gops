@@ -31,7 +31,8 @@ Czardas는 이 data plane의 canonical completed exact-240만 소비한다. 분�
   `5m/10m/1h/4h` candles are materialized from regular-session data with
   `bucket_policy=us_equity_regular_session`. During an active pre, after, or
   overnight session, the API and live processor additionally aggregate retained
-  `1m` rows for the current extended session and its contiguous predecessor with
+  `1m` rows for the uninterrupted extended-session chain through the current
+  session (`after -> overnight -> pre`) with
   `bucket_policy=us_equity_extended_session`. Those read-time/live rows are
   anchored to each extended-session open, never cross a session boundary, and do
   not make old extended sessions part of historical chart serving. Bounded

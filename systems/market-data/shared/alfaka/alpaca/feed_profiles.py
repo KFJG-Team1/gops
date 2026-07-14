@@ -179,16 +179,15 @@ def active_extended_session_window(now: datetime | None = None, timezone=MARKET_
 
 
 def visible_extended_session_windows(now: datetime | None = None, timezone=MARKET_TIMEZONE):
-    """Chart serving에서 현재 live window로 함께 보여줄 extended 세션 범위를 반환합니다."""
+    """Chart serving에서 현재 세션까지 끊김 없이 이어지는 extended 범위를 반환합니다."""
     window = active_extended_session_window(now, timezone=timezone)
     if not window:
         return []
-    session, start, end = window
-    windows = []
-    previous = previous_contiguous_extended_session_window(session, start, timezone=timezone)
-    if previous:
-        windows.append(previous)
-    windows.append((session, start, end))
+    windows = [window]
+    session, start, _end = window
+    while previous := previous_contiguous_extended_session_window(session, start, timezone=timezone):
+        windows.insert(0, previous)
+        session, start, _end = previous
     return windows
 
 

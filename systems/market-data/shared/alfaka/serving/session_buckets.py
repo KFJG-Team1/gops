@@ -135,7 +135,7 @@ def aggregate_visible_extended_session_candles(
     now: datetime | None = None,
     source_interval: str = "1m",
 ) -> list[dict[str, Any]]:
-    """Aggregate only the current and contiguous visible extended sessions."""
+    """Aggregate the uninterrupted visible extended-session chain through now."""
     if interval not in INTRADAY_DERIVED_INTERVALS:
         raise ValueError(f"Extended-session aggregation does not support {interval}")
     reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
