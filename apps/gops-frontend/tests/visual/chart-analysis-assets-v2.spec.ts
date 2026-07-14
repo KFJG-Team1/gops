@@ -3,9 +3,11 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const candles = fixtureCandles();
 let postedSymbols: unknown = null;
+let densePatternCoverage = false;
 
 test.beforeEach(async ({ page }) => {
   postedSymbols = null;
+  densePatternCoverage = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   await page.addInitScript(({ key, layout }) => {
@@ -50,8 +52,19 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
 });
 
 test("pattern symbol panel filters active patterns and opens the matching chart interval", async ({ page }, testInfo) => {
+  densePatternCoverage = true;
   await page.goto("/?symbol=NVDA");
   const panel = page.locator(".chart-pattern-list-panel");
+  const groups = panel.locator(".chart-pattern-group");
+  await expect(groups).toHaveCount(50);
+  const firstGroupBox = await groups.nth(0).boundingBox();
+  const secondGroupBox = await groups.nth(1).boundingBox();
+  expect(firstGroupBox).not.toBeNull();
+  expect(secondGroupBox).not.toBeNull();
+  if (firstGroupBox && secondGroupBox) {
+    expect(firstGroupBox.height).toBeGreaterThan(40);
+    expect(secondGroupBox.y).toBeGreaterThanOrEqual(firstGroupBox.y + firstGroupBox.height);
+  }
   await expect(panel.getByText("AAPL", { exact: true })).toBeVisible();
   await expect(panel.getByText("상승 삼각형 · 돌파 확인", { exact: true })).toBeVisible();
   await panel.getByLabel("패턴 종목 검색").fill("MSFT");
@@ -74,7 +87,7 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
   else if (url.pathname === "/api/charts/analysis-assets") payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
-  else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse();
+  else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse(densePatternCoverage ? 48 : 0);
   else if (url.pathname === "/api/charts/analysis-assets/build" && request.method() === "POST") {
     postedSymbols = request.postDataJSON().symbols;
     status = 503;
@@ -90,15 +103,24 @@ function candlePayload(symbol: string, interval: string): Record<string, unknown
   return { symbol, interval, request: { limit: candles.length }, status: "ready", dataStatus: "ready", source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length, returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true } };
 }
 
-function patternCoverageResponse(): Record<string, unknown> {
+function patternCoverageResponse(extraSymbols = 0): Record<string, unknown> {
+  const extraItems = Array.from({ length: extraSymbols }, (_, index) => ({
+    symbol: `TEST${String(index + 1).padStart(2, "0")}`,
+    interval: "1D",
+    generatedAt: "2026-07-14T12:00:00.000Z",
+    status: "ready",
+    primaryPattern: { kind: "symmetrical_triangle", state: "forming", score: .8 - index / 1000 }
+  }));
+  const items = [
+    { symbol: "AAPL", interval: "1m", generatedAt: "2026-07-14T12:30:00.000Z", status: "ready", primaryPattern: { kind: "ascending_triangle", state: "confirmed", score: .94 } },
+    { symbol: "AAPL", interval: "1D", generatedAt: "2026-07-14T12:00:00.000Z", status: "ready", primaryPattern: { kind: "bullish_flag", state: "forming", score: .82 } },
+    { symbol: "MSFT", interval: "1D", generatedAt: "2026-07-14T11:30:00.000Z", status: "ready", primaryPattern: { kind: "falling_wedge", state: "forming", score: .88 } },
+    { symbol: "META", interval: "1D", generatedAt: "2026-07-14T11:00:00.000Z", status: "ready", primaryPattern: { kind: "rising_wedge", state: "inactive", score: .99 } },
+    ...extraItems
+  ];
   return {
-    items: [
-      { symbol: "AAPL", interval: "1m", generatedAt: "2026-07-14T12:30:00.000Z", status: "ready", primaryPattern: { kind: "ascending_triangle", state: "confirmed", score: .94 } },
-      { symbol: "AAPL", interval: "1D", generatedAt: "2026-07-14T12:00:00.000Z", status: "ready", primaryPattern: { kind: "bullish_flag", state: "forming", score: .82 } },
-      { symbol: "MSFT", interval: "1D", generatedAt: "2026-07-14T11:30:00.000Z", status: "ready", primaryPattern: { kind: "falling_wedge", state: "forming", score: .88 } },
-      { symbol: "META", interval: "1D", generatedAt: "2026-07-14T11:00:00.000Z", status: "ready", primaryPattern: { kind: "rising_wedge", state: "inactive", score: .99 } }
-    ],
-    total: 4
+    items,
+    total: items.length
   };
 }
 
