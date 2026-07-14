@@ -10,6 +10,14 @@ import {
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh
 } from "../src/simulator/simulatorApi";
+import {
+  simulatorBreakingNotification,
+  simulatorPhaseNotification
+} from "../src/simulator/simulatorNotifications";
+import {
+  formatNotificationToastMessage,
+  notificationUiProposals
+} from "../src/alerts/alertPresentation";
 
 
 assert.equal(basketForOrderSide("sell"), "semiconductor");
@@ -30,6 +38,52 @@ unsubscribeRefresh();
 requestPortfolioRefresh();
 assert.equal(refreshCalls, 1);
 
+const simulatorStatus = {
+  available: true,
+  mode: "simulation" as const,
+  state: "running" as const,
+  scenarioId: "saturday-demo-amd-iff-oke",
+  runId: "sim-test",
+  phase: "breaking-event",
+  phaseLabel: "지정학 이벤트",
+  phaseIndex: 1,
+  nextPhase: "market-close",
+  elapsedSeconds: 210,
+  durationSeconds: 300,
+  breakingNewsAtSeconds: 210,
+  breakingNewsReleased: true,
+  symbols: []
+};
+const breakingNotification = simulatorBreakingNotification({
+  id: "demo-breaking",
+  headline: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
+  summary: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다.",
+  source: "GOPS Simulator",
+  symbols: ["AMD", "OKE"]
+}, simulatorStatus);
+assert.equal(breakingNotification.type, "system.simulator_breaking_event");
+assert.deepEqual(formatNotificationToastMessage(breakingNotification), {
+  symbol: "AMD",
+  chartSymbol: "AMD",
+  title: "지정학 이벤트",
+  message: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
+  detail: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다."
+});
+assert.deepEqual(
+  notificationUiProposals(breakingNotification).map(({ panelType, symbol }) => ({ panelType, symbol })),
+  [
+    { panelType: "portfolioHoldings", symbol: undefined },
+    { panelType: "chart", symbol: "AMD" },
+    { panelType: "paperAccount", symbol: undefined },
+    { panelType: "priceCondition", symbol: "AMD" },
+    { panelType: "orderFlowProfile", symbol: "OKE" }
+  ]
+);
+const closeNotification = simulatorPhaseNotification({ ...simulatorStatus, phase: "market-close", phaseLabel: "장 마감·복기" });
+assert.ok(closeNotification);
+assert.equal(closeNotification?.type, "system.simulator_market_close");
+assert.equal(formatNotificationToastMessage(closeNotification!).title, "본장 종료");
+
 const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
   "utf-8"
@@ -38,14 +92,20 @@ const apiSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/simulatorApi.ts", import.meta.url)),
   "utf-8"
 );
+const bottomCommandBarSource = readFileSync(
+  fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
-assert.match(controlSource, /window\.open\(article\.url/);
+assert.match(controlSource, /onNotification/);
+assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);
 assert.match(controlSource, /document\.visibilityState === "hidden"/);
 assert.match(controlSource, /simulatorStatusPollIntervalMs\(latestStatusRef\.current\)/);
 assert.match(controlSource, /다음 시연 단계/);
 assert.match(controlSource, /setSimulatorPhase\(status\.nextPhase/);
 assert.match(apiSource, /\/api\/simulator\/phase/);
+assert.match(bottomCommandBarSource, /<SimulatorControl onNotification=\{enqueueAlertToast\}/);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
@@ -87,6 +147,8 @@ const stylesSource = readFileSync(
   fileURLToPath(new URL("../src/styles.css", import.meta.url)),
   "utf-8"
 );
+assert.doesNotMatch(stylesSource, /\.simulator-breaking-toast|\.simulator-phase-toast/);
+assert.match(stylesSource, /\.alert-toast\.surface-floating/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
