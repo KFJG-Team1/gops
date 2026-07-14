@@ -14,7 +14,11 @@ export type NotificationVisualTone = "default" | "geopolitical-risk";
 
 const NON_CHART_SYMBOLS = new Set(["PORTFOLIO", "MARKET", "UNKNOWN", "ALERT"]);
 
-const riskAlertTitles: Record<string, string> = {
+const agentAlertTitles: Record<string, string> = {
+  price_surge: "가격 급등 감지",
+  price_drop: "가격 급락 감지",
+  volatility_expansion: "변동성 확대",
+  volume_spike: "거래량 급증",
   risk_daily_loss_limit: "일일 손실 한도",
   risk_concentration_drift: "비중 쏠림 경고",
   risk_correlation_cluster: "상관 클러스터 경고",
@@ -115,13 +119,13 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
 
   const decision = notificationDecision(notification);
   const decisionSummary = asString(decision.summary);
-  if (decisionSummary) {
-    const eventType = asString(decision.eventType) ?? "";
+  const eventType = asString(decision.eventType) ?? "";
+  if (decisionSummary || eventType) {
     return {
       symbol,
       chartSymbol,
-      title: riskAlertTitles[eventType] ?? "리스크 알림",
-      message: decisionSummary,
+      title: agentAlertTitles[eventType] ?? (eventType.startsWith("risk_") ? "리스크 알림" : "시장 알림"),
+      message: localizedAgentAlertMessage(eventType, symbol, decision) ?? decisionSummary ?? "새로운 시장 알림이 도착했습니다.",
       detail: ""
     };
   }
@@ -201,6 +205,45 @@ function notificationWindowMin(notification: NotificationItem): number | undefin
   const payload = notification.payload;
   const alert = asRecord(payload.alert);
   return asNumber(payload.windowMin ?? alert.window_min ?? alert.windowMin);
+}
+
+function localizedAgentAlertMessage(
+  eventType: string,
+  symbol: string,
+  decision: Record<string, unknown>
+): string | undefined {
+  const metrics = asRecord(decision.metrics);
+  if (eventType === "price_surge" || eventType === "price_drop") {
+    const changePercent = asNumber(metrics.changePercent);
+    const direction = eventType === "price_surge" ? "상승" : "하락";
+    return changePercent === undefined
+      ? `${symbol} 가격 ${direction}이 감지되었습니다.`
+      : `${symbol} 가격이 직전 관측값 대비 ${formatNumber(Math.abs(changePercent))}% ${direction}했습니다.`;
+  }
+  if (eventType === "volatility_expansion") {
+    const rangePercent = asNumber(metrics.rangePercent);
+    return rangePercent === undefined
+      ? `${symbol} 가격 변동성 확대가 감지되었습니다.`
+      : `${symbol} 캔들의 고가·저가 범위가 시가 대비 ${formatNumber(rangePercent)}%로 확대되었습니다.`;
+  }
+  if (eventType === "volume_spike") {
+    const multiplier = asNumber(metrics.multiplier);
+    const interval = asString(metrics.interval);
+    const intervalText = interval ? `${intervalLabelKo(interval)} ` : "";
+    return multiplier === undefined
+      ? `${symbol} ${intervalText}거래량 급증이 감지되었습니다.`
+      : `${symbol} ${intervalText}거래량이 최근 평균의 ${formatNumber(multiplier)}배까지 증가했습니다.`;
+  }
+  return undefined;
+}
+
+function intervalLabelKo(interval: string): string {
+  if (interval === "1D") return "일봉";
+  if (interval === "1W") return "주봉";
+  if (interval === "1M") return "월봉";
+  const match = interval.match(/^(\d+)(m|h)$/i);
+  if (!match) return `${interval} 봉`;
+  return `${match[1]}${match[2].toLowerCase() === "m" ? "분봉" : "시간봉"}`;
 }
 
 function directionLabel(direction: unknown): string {

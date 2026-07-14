@@ -357,6 +357,41 @@ assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.")
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
 
+const volumeAgentNotification = {
+  id: -1,
+  eventId: "agent-volume-spike",
+  type: "AGENT_ALERT",
+  payload: {
+    symbol: "NVDA",
+    decision: {
+      symbol: "NVDA",
+      eventType: "volume_spike",
+      summary: "NVDA 1m candle volume rose 2.40x above its rolling baseline.",
+      metrics: { interval: "1m", multiplier: 2.4 }
+    }
+  }
+};
+const volumeAgentToast = formatNotificationToastMessage(volumeAgentNotification);
+assert.equal(volumeAgentToast.title, "거래량 급증");
+assert.equal(volumeAgentToast.message, "NVDA 1분봉 거래량이 최근 평균의 2.4배까지 증가했습니다.");
+
+const dailyLossAgentNotification = {
+  id: -1,
+  eventId: "agent-daily-loss",
+  type: "AGENT_ALERT",
+  payload: {
+    symbol: "PORTFOLIO",
+    decision: {
+      symbol: "PORTFOLIO",
+      eventType: "risk_daily_loss_limit",
+      summary: "오늘 손실이 설정한 일일 손실 보호 한도에 도달했습니다."
+    }
+  }
+};
+const dailyLossAgentToast = formatNotificationToastMessage(dailyLossAgentNotification);
+assert.equal(dailyLossAgentToast.title, "일일 손실 한도");
+assert.equal(dailyLossAgentToast.message, "오늘 손실이 설정한 일일 손실 보호 한도에 도달했습니다.");
+
 const originalAlertApiFetch = globalThis.fetch;
 try {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
