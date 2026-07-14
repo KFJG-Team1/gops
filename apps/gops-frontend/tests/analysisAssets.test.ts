@@ -106,15 +106,22 @@ const support: DrawingEntity = {
 };
 const levelAsset: ChartAnalysisAsset = {
   ...asset,
-  geometry: { ...asset.geometry, drawings: [support], primaryTriangle: null },
+  geometry: {
+    ...asset.geometry,
+    drawings: [support],
+    supports: [{ id: "support", role: "support", price: 245.7, score: .9, touches: 3, anchors: support.anchors as Array<{ timestamp: string; price: number }> }],
+    primaryTriangle: null
+  },
   indicators: { ...asset.indicators, cross: { status: "none", direction: null } }
 };
 const projectedLevelAsset = resolveAnalysisAssetForCandles(levelAsset, candles);
 assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
+assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, [6, 4]);
 assert.deepEqual(
   projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
   candles.map((candle) => candle.timestamp)
 );
+assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.type === "trendLine")?.style.lineDash, undefined);
 assert.equal(analysisAssetPresentationDiagnostics(levelAsset, candles, [support.id]).state, "ready");
 const levelCommands = analysisAssetApplyCommands(target, [], levelAsset, { geometry: true }, { mode: "pan" });
 const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geometry level asset");
