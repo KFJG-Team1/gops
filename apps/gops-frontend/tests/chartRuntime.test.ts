@@ -3970,6 +3970,19 @@ assert.match(chartCanvasSource, /drawSelectedCandleHighlight/);
 assert.match(chartCanvasSource, /selected \? colors\.caution/);
 assert.match(chartCanvasSource, /drawCurrentPriceMarker/);
 assert.match(chartCanvasSource, /currentPriceForScene/);
+const canvasCurrentPriceSource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("function currentPriceForScene"),
+  chartCanvasSource.indexOf("function drawAxes")
+);
+assert.match(canvasCurrentPriceSource, /const latestClose = scene\.chart\.candles\.at\(-1\)\?\.close;/);
+assert.doesNotMatch(canvasCurrentPriceSource, /liveTrade/);
+const panelCurrentPriceSource = chartPanelSource.slice(
+  chartPanelSource.indexOf("function currentPriceMarkerFromScene"),
+  chartPanelSource.indexOf("function currentPriceMarkerEquals")
+);
+assert.match(panelCurrentPriceSource, /const price = latest\.close;/);
+assert.match(panelCurrentPriceSource, /const isClosed = latest\.isClosed;/);
+assert.doesNotMatch(panelCurrentPriceSource, /liveTrade/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene)");
 const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, scene.chart.drawings");

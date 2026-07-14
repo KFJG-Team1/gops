@@ -2107,10 +2107,6 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
 }
 
 function currentPriceForScene(scene: ChartScene): number | null {
-  const liveTradePrice = scene.chart.streamState === "live" ? scene.chart.liveTrade?.price : undefined;
-  if (typeof liveTradePrice === "number" && Number.isFinite(liveTradePrice)) {
-    return liveTradePrice;
-  }
   const latestClose = scene.chart.candles.at(-1)?.close;
   return typeof latestClose === "number" && Number.isFinite(latestClose) ? latestClose : null;
 }

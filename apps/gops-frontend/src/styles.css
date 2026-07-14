@@ -1177,12 +1177,12 @@ button {
 }
 
 .alert-toast.is-geopolitical-risk {
-  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--color-border));
+  border-color: transparent;
   background: color-mix(in srgb, var(--color-background) 92%, var(--color-danger) 8%);
 }
 
 .alert-toast.is-geopolitical-risk::before {
-  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--color-border));
+  border-color: transparent;
 }
 
 .alert-toast.is-geopolitical-risk .alert-toast-icon,

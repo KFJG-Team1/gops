@@ -3664,14 +3664,13 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
   if (!latest || !Number.isFinite(latest.close)) {
     return null;
   }
-  const tradePrice = scene.chart.streamState === "live" ? liveTradePrice(scene.chart.liveTrade) : null;
-  const price = tradePrice ?? latest.close;
+  const price = latest.close;
   const y = priceToY(scene, price);
   if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
     return null;
   }
   const priceText = formatPriceAxisValue(price);
-  const isClosed = tradePrice === null ? latest.isClosed : false;
+  const isClosed = latest.isClosed;
   const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, isClosed, scene.chart.streamState);
   const labelWidth = currentPriceMarkerLabelWidth(priceText, showClock);
   const labelHeight = showClock ? 45 : 31;
