@@ -3958,8 +3958,17 @@ const orderFlowRendererBlock = panelContentRendererSource.slice(
 assert.match(orderFlowRendererBlock, /symbol=\{readOrderFlowSymbol\(content\)\}/);
 assert.doesNotMatch(orderFlowRendererBlock, /semanticSelection|defaultToPinnedSymbol|readPanelSymbol/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const treeMapCanvasSource = readFileSync(fileURLToPath(new URL("../src/treemap/TreeMapCanvas.tsx", import.meta.url)), "utf-8");
 const orderFlowRenderSource = readFileSync(fileURLToPath(new URL("../src/chart/orderFlowRender.ts", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
+const treeMapPointerSelectionSource = treeMapCanvasSource.slice(
+  treeMapCanvasSource.indexOf("const selectPointerTile"),
+  treeMapCanvasSource.indexOf("return (", treeMapCanvasSource.indexOf("const selectPointerTile"))
+);
+assert.match(treeMapPointerSelectionSource, /event: ReactPointerEvent<HTMLCanvasElement>/);
+assert.match(treeMapPointerSelectionSource, /hitTestTreeMapTile\(tilesRef\.current, x, y\)/);
+assert.match(treeMapCanvasSource, /onClick=\{interactive \? selectPointerTile : undefined\}/);
+assert.doesNotMatch(treeMapCanvasSource, /selectHoveredTile/);
 assert.doesNotMatch(chartCanvasSource, /chartForScene/);
 assert.match(chartCanvasSource, /drawCarryForwardGapCandles\(context, scene, "candle"\)/);
 assert.match(chartCanvasSource, /drawCarryForwardGapCandles\(context, scene, "ohlc"\)/);
