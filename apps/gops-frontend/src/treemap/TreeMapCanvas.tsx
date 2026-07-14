@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { sp500WeightValue } from "../market/sp500Universe.seed";
 import { hitTestTreeMapTile, layoutSp500TreeMap } from "./treemapLayout";
@@ -188,9 +196,18 @@ export function TreeMapCanvas({
     });
   };
 
-  const selectHoveredTile = () => {
-    if (interactive && hoverState?.tile.symbol && onSelectSymbol) {
-      onSelectSymbol(hoverState.tile.symbol);
+  const selectTileAtPointer = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (!interactive || !onSelectSymbol) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const tile = hitTestTreeMapTile(
+      tilesRef.current,
+      event.clientX - rect.left,
+      event.clientY - rect.top
+    );
+    if (tile?.symbol) {
+      onSelectSymbol(tile.symbol);
     }
   };
 
@@ -203,7 +220,7 @@ export function TreeMapCanvas({
         aria-label={`${ariaLabel} canvas`}
         onPointerMove={interactive ? updateHover : undefined}
         onPointerLeave={interactive ? clearHover : undefined}
-        onClick={interactive ? selectHoveredTile : undefined}
+        onClick={interactive ? selectTileAtPointer : undefined}
       />
       {hoverPanel && hoverState ? (
         <TreeMapHoverPanel model={hoverPanel} hoveredTile={hoverState.tile} />
