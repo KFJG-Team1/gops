@@ -47,8 +47,16 @@ const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
   "utf-8"
 );
+const saturdayDemoFixturesSource = readFileSync(
+  fileURLToPath(new URL("../src/simulator/saturdayDemoFixtures.ts", import.meta.url)),
+  "utf-8"
+);
 assert.match(chartCommentarySource, /GlossaryText/);
 assert.match(chartCommentarySource, /삼각 수렴 패턴/);
+assert.match(saturdayDemoFixturesSource, /entryTrigger: 82\.6/);
+assert.match(saturdayDemoFixturesSource, /entryPrice: 82\.7/);
+assert.match(saturdayDemoFixturesSource, /stopPrice: 81\.1/);
+assert.match(saturdayDemoFixturesSource, /targetPrice: 87\.5/);
 
 const orderTicketSource = readFileSync(
   fileURLToPath(new URL("../src/components/OrderTicket.tsx", import.meta.url)),
