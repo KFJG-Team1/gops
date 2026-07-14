@@ -13,6 +13,7 @@ import {
 import type { AgentLayoutProposal } from "./agentLayoutTypes";
 
 export type DefaultPresetId = "market" | "stock" | "chart" | "compare" | "asset";
+export type LayoutPresetRole = "incident-response";
 
 // Both default and custom presets are per-user editable. Defaults keep their built-in
 // arrangement unless the user saves an override `layout`; they can be renamed but not deleted.
@@ -21,6 +22,7 @@ export type LayoutPreset = {
   kind: "default" | "custom";
   name: string;
   layout?: StoredTiledPanelState;
+  role?: LayoutPresetRole;
 };
 
 export type AgentLayoutPresetSummary = {
@@ -426,12 +428,16 @@ export function createCustomPresetId(): string {
 }
 
 export function buildAgentLayoutPresetSummaries(presets: readonly LayoutPreset[]): AgentLayoutPresetSummary[] {
-  return presets.map((preset) => ({
+  return visibleLayoutPresets(presets).map((preset) => ({
     id: preset.id,
     kind: preset.kind,
     name: preset.name,
     aliases: presetAliasesForAgent(preset)
   }));
+}
+
+export function visibleLayoutPresets(presets: readonly LayoutPreset[]): LayoutPreset[] {
+  return presets.filter((preset) => preset.role !== "incident-response");
 }
 
 const presetLoadPromptSignals = [

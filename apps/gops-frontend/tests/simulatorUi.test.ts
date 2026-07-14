@@ -167,6 +167,11 @@ assert.match(alertToastSource, /alert-toast surface-floating/);
 assert.match(alertToastSource, /is-geopolitical-risk/);
 assert.match(headerNotificationSource, /is-geopolitical-risk/);
 assert.match(stylesSource, /\.alert-toast\.is-geopolitical-risk/);
+const geopoliticalToastStyle = stylesSource.slice(
+  stylesSource.indexOf(".alert-toast.is-geopolitical-risk {"),
+  stylesSource.indexOf(".alert-toast.is-geopolitical-risk .alert-toast-icon")
+);
+assert.equal((geopoliticalToastStyle.match(/border-color: transparent;/g) ?? []).length, 2);
 assert.match(stylesSource, /\.workspace-notification-row\.is-geopolitical-risk/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);

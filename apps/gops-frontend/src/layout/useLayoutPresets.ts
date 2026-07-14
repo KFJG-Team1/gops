@@ -6,8 +6,10 @@ import {
   createCustomPresetId,
   nextCustomPresetName,
   type DefaultPresetId,
-  type LayoutPreset
+  type LayoutPreset,
+  type LayoutPresetRole
 } from "./layoutPresets";
+import { incidentResponsePresetRole } from "./incidentResponsePreset";
 import type { StoredTiledPanelState, TiledPanelState } from "./panelLayout";
 
 const PRESETS_STORAGE_KEY = "gops:layout-presets:v1";
@@ -16,19 +18,39 @@ const PRESETS_ENDPOINT = "/api/charts/presets";
 const RETIRED_CHART_PRESET_ID = "chart";
 const LEGACY_CHART_CUSTOM_ID = "legacy-default-chart";
 
-type StoredPreset = { id: string; name: string; layout: Record<string, unknown> };
+type StoredPreset = { id: string; name: string; layout: Record<string, unknown>; role?: LayoutPresetRole };
 type DefaultOverride = { name?: string; layout?: StoredTiledPanelState };
 type DefaultOverrides = Partial<Record<DefaultPresetId, DefaultOverride>>;
-type CustomPreset = { id: string; kind: "custom"; name: string; layout: StoredTiledPanelState };
+type CustomPreset = {
+  id: string;
+  kind: "custom";
+  name: string;
+  layout: StoredTiledPanelState;
+  role?: LayoutPresetRole;
+};
+
+export type IncidentResponsePresetUpdateResult =
+  | { status: "updated"; presetId: string; enabled: boolean }
+  | { status: "missing" }
+  | { status: "invalid"; message: string };
+
+export type PresetLayoutSaveResult =
+  | { status: "updated"; presetId: string }
+  | { status: "missing" }
+  | { status: "invalid"; message: string };
 
 export type LayoutPresetControls = {
   presets: LayoutPreset[];
   activePresetId: string | null;
   applyPreset: (id: string) => void;
+  applyPreparedPreset: (id: string, state: TiledPanelState) => void;
   createCustomPreset: () => string | null;
+  createIncidentResponsePreset: () => string | null;
   renamePreset: (id: string, name: string) => void;
   deleteCustomPreset: (id: string) => void;
+  savePresetLayout: (id: string) => PresetLayoutSaveResult;
   saveActivePresetLayout: () => void;
+  setIncidentResponsePreset: (id: string, enabled: boolean) => IncidentResponsePresetUpdateResult;
 };
 
 const DEFAULT_ID_SET = new Set<string>(DEFAULT_PRESET_IDS);
@@ -73,6 +95,7 @@ function splitStoredPresets(list: unknown): { overrides: DefaultOverrides; custo
       return;
     }
     const layout = isStoredSnapshot(record.layout) ? (record.layout as StoredTiledPanelState) : undefined;
+    const role = record.role === incidentResponsePresetRole ? incidentResponsePresetRole : undefined;
     if (isDefaultId(id)) {
       overrides[id] = { name: migratedDefaultName(id, name), layout };
     } else if (id === RETIRED_CHART_PRESET_ID) {
@@ -85,7 +108,10 @@ function splitStoredPresets(list: unknown): { overrides: DefaultOverrides; custo
         });
       }
     } else if (layout) {
-      customs.push({ id, kind: "custom", name, layout });
+      const acceptedRole = role && !customs.some((preset) => preset.role === incidentResponsePresetRole)
+        ? role
+        : undefined;
+      customs.push({ id, kind: "custom", name, layout, ...(acceptedRole ? { role: acceptedRole } : {}) });
     }
   });
   return { overrides, customs };
@@ -100,7 +126,12 @@ function serializePresets(overrides: DefaultOverrides, customs: CustomPreset[]):
     }
   });
   customs.forEach((preset) => {
-    stored.push({ id: preset.id, name: preset.name, layout: preset.layout });
+    stored.push({
+      id: preset.id,
+      name: preset.name,
+      layout: preset.layout,
+      ...(preset.role ? { role: preset.role } : {})
+    });
   });
   return stored;
 }
@@ -282,6 +313,11 @@ export function useLayoutPresets({
     commitActivePresetId(id);
   }, [applyLayout, buildLayout, commitActivePresetId, presets]);
 
+  const applyPreparedPreset = useCallback((id: string, state: TiledPanelState) => {
+    applyLayout(state);
+    commitActivePresetId(id);
+  }, [applyLayout, commitActivePresetId]);
+
   const createCustomPreset = useCallback((): string | null => {
     const layout = serializeCurrentLayout();
     const name = nextCustomPresetName([
@@ -290,6 +326,37 @@ export function useLayoutPresets({
     ]);
     const preset: CustomPreset = { id: createCustomPresetId(), kind: "custom", name, layout };
     const nextCustoms = [...customPresets, preset];
+    setCustomPresets(nextCustoms);
+    persist(overrides, nextCustoms);
+    commitActivePresetId(preset.id);
+    return preset.id;
+  }, [commitActivePresetId, customPresets, overrides, persist, serializeCurrentLayout]);
+
+  const createIncidentResponsePreset = useCallback((): string | null => {
+    const layout = serializeCurrentLayout();
+    const takenNames = new Set([
+      ...DEFAULT_PRESETS.map((preset) => overrides[preset.id as DefaultPresetId]?.name ?? preset.name),
+      ...customPresets.map((preset) => preset.name)
+    ]);
+    let name = "대응 프리셋";
+    let suffix = 2;
+    while (takenNames.has(name)) {
+      name = `대응 프리셋 ${suffix}`;
+      suffix += 1;
+    }
+    const preset: CustomPreset = {
+      id: createCustomPresetId(),
+      kind: "custom",
+      name,
+      layout,
+      role: incidentResponsePresetRole
+    };
+    const nextCustoms = [
+      ...customPresets.map((item): CustomPreset => item.role === incidentResponsePresetRole
+        ? { ...item, role: undefined }
+        : item),
+      preset
+    ];
     setCustomPresets(nextCustoms);
     persist(overrides, nextCustoms);
     commitActivePresetId(preset.id);
@@ -324,29 +391,63 @@ export function useLayoutPresets({
     }
   }, [activePresetId, commitActivePresetId, customPresets, overrides, persist]);
 
-  const saveActivePresetLayout = useCallback(() => {
-    if (!activePresetId) {
-      return;
+  const savePresetLayout = useCallback((id: string): PresetLayoutSaveResult => {
+    if (!id) {
+      return { status: "missing" };
     }
     const layout = serializeCurrentLayout();
-    if (isDefaultId(activePresetId)) {
-      const nextOverrides: DefaultOverrides = { ...overrides, [activePresetId]: { ...overrides[activePresetId], layout } };
+    if (isDefaultId(id)) {
+      const nextOverrides: DefaultOverrides = { ...overrides, [id]: { ...overrides[id], layout } };
       setOverrides(nextOverrides);
       persist(nextOverrides, customPresets);
-      return;
+      return { status: "updated", presetId: id };
     }
-    const nextCustoms = customPresets.map((preset) => (preset.id === activePresetId ? { ...preset, layout } : preset));
+    const target = customPresets.find((preset) => preset.id === id);
+    if (!target) {
+      return { status: "missing" };
+    }
+    const nextCustoms = customPresets.map((preset) => (preset.id === id ? { ...preset, layout } : preset));
     setCustomPresets(nextCustoms);
     persist(overrides, nextCustoms);
-  }, [activePresetId, customPresets, overrides, persist, serializeCurrentLayout]);
+    return { status: "updated", presetId: id };
+  }, [customPresets, overrides, persist, serializeCurrentLayout]);
+
+  const saveActivePresetLayout = useCallback(() => {
+    if (activePresetId) {
+      savePresetLayout(activePresetId);
+    }
+  }, [activePresetId, savePresetLayout]);
+
+  const setIncidentResponsePreset = useCallback((id: string, enabled: boolean): IncidentResponsePresetUpdateResult => {
+    const target = customPresets.find((preset) => preset.id === id);
+    if (!target) {
+      return { status: "missing" };
+    }
+    const nextCustoms = customPresets.map((preset): CustomPreset => {
+      if (enabled && preset.id === id) {
+        return { ...preset, role: incidentResponsePresetRole };
+      }
+      if (preset.role === incidentResponsePresetRole) {
+        return { ...preset, role: undefined };
+      }
+      return preset;
+    });
+    setCustomPresets(nextCustoms);
+    persist(overrides, nextCustoms);
+    return { status: "updated", presetId: id, enabled };
+  }, [customPresets, overrides, persist]);
 
   return {
     presets,
     activePresetId,
     applyPreset,
+    applyPreparedPreset,
     createCustomPreset,
+    createIncidentResponsePreset,
     renamePreset,
     deleteCustomPreset,
-    saveActivePresetLayout
+    savePresetLayout,
+    saveActivePresetLayout,
+    setIncidentResponsePreset
   };
 }
