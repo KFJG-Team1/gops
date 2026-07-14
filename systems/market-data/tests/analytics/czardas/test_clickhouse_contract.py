@@ -44,3 +44,17 @@ def test_czardas_identity_reader_never_runs_schema_ddl(monkeypatch):
 
     assert isinstance(loader.provider, ClickHouseMarketDataProvider)
     assert calls == []
+
+
+def test_chart_serving_queries_project_canonical_provenance_for_snapshot_identity():
+    provider = RecordingProvider()
+
+    provider.stored_interval_candles("NVDA", "5m", limit=241)
+
+    assert "price_adjustment AS priceAdjustment" in provider.query
+    assert "canonical_version AS canonicalVersion" in provider.query
+
+    provider.daily_candles("NVDA", "1D", limit=241)
+
+    assert "price_adjustment AS priceAdjustment" in provider.query
+    assert "canonical_version AS canonicalVersion" in provider.query

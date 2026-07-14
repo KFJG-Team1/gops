@@ -70,6 +70,8 @@ derivation closure를 잘라 partial pack을 저장해서는 안 된다.
 ## 5. API·repair·저장 gate
 
 - GET은 repair, kernel, enqueue, PostgreSQL write를 수행하지 않는다.
+- ClickHouse direct·daily 차트 조회는 `canonicalVersion`과 `priceAdjustment`를 보존하고, exact-240
+  응답의 `canonicalSnapshot` identity가 같은 시점의 저장 pack과 일치한다.
 - build POST는 `Idempotency-Key`와 한 pair만 허용한다.
 - 동일 owner/key/body idempotency, 같은 owner/pair/force coalesce, pair busy, owner status/cancel,
   terminal cancel과 active-build delete 계약을 검증한다.

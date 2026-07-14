@@ -235,6 +235,8 @@ class ClickHouseMarketDataProvider:
           feed,
           feed_profile AS feedProfile,
           market_session AS marketSession,
+          price_adjustment AS priceAdjustment,
+          canonical_version AS canonicalVersion,
           source_event_id AS sourceEventId
         FROM (
           {source_query}
@@ -283,6 +285,8 @@ class ClickHouseMarketDataProvider:
           feed,
           feed_profile AS feedProfile,
           'regular' AS marketSession,
+          price_adjustment AS priceAdjustment,
+          canonical_version AS canonicalVersion,
           source_event_id AS sourceEventId
         FROM (
           {source_query}

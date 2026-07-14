@@ -229,6 +229,9 @@ POST   /api/charts/czardas-assets/build/{cza-job-id}/cancel
 DELETE /api/charts/czardas-assets?symbol=AAPL&interval=1D
 ```
 
+`GET /api/charts/candles`의 Czardas 지원 interval 응답은 명시적인 canonical provenance로 계산한
+exact-240 `canonicalSnapshot`을 제공해야 하며, 그 identity는 같은 시점의 저장 pack과 일치해야 한다.
+
 build는 `Idempotency-Key`와 정확히 한 `symbol×interval`을 요구한다. 동일 owner/key/body는 같은
 job을 반환하고 같은 owner/pair/force active 요청은 coalesce한다. 다른 owner 또는 force가 다른
 active pair 요청과 active build 중 DELETE는 `409`다. status/cancel은 submitter만 조회하며 terminal
