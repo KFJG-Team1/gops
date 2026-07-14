@@ -28,6 +28,12 @@ const patternListCatalogEntry = buildTiledAgentLayoutContext({ slots: [], conten
 assert.equal(patternListCatalogEntry?.title, "패턴 종목");
 assert.deepEqual(patternListCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(patternListCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
+const priceConditionCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "priceCondition");
+assert.equal(priceConditionCatalogEntry?.title, "가격 조건");
+assert.deepEqual(priceConditionCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 3 });
+assert.deepEqual(priceConditionCatalogEntry?.defaultSpan, { colSpan: 3, rowSpan: 3 });
 
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },

@@ -307,6 +307,7 @@ export function App() {
   const agentNoticeSequenceRef = useRef(0);
   const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
   const lastSavedAgentProposalRef = useRef<string | null>(null);
+  const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
@@ -858,6 +859,36 @@ export function App() {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
     }
+    const activeTradeProposal = activeTradeConditionProposalRef.current;
+    if (activeTradeProposal) {
+      setAgentBusy(true);
+      try {
+        const { publishTradeConditionsChanged, resolveTradeConditionCommand } = await import("./priceCondition/priceConditionApi");
+        const command = await resolveTradeConditionCommand({
+          text: prompt,
+          analysisId: activeTradeProposal.analysisId,
+          proposalId: activeTradeProposal.proposalId
+        });
+        if (command.status === "created") {
+          activeTradeConditionProposalRef.current = null;
+          publishTradeConditionsChanged();
+          const condition = command.condition;
+          showAgentNotice(condition
+            ? `${condition.symbol} ${condition.quantity}주 가격 조건과 알림을 등록했습니다.`
+            : "가격 조건과 알림을 등록했습니다.");
+          return "ui-action";
+        }
+        if (command.status === "clarify" || command.status === "rejected") {
+          showAgentNotice(command.clarification ?? "가격 조건을 등록하려면 조건을 더 알려주세요.", command.status === "rejected" ? "error" : "info");
+          return "notice";
+        }
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "가격 조건 명령을 처리하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
+    }
     if (isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)) {
       setAgentBusy(true);
       try {
@@ -1172,6 +1203,13 @@ export function App() {
         if (report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
+        const tradeProposal = report.tradeConditionProposals[0];
+        activeTradeConditionProposalRef.current = tradeProposal
+          ? {
+            analysisId: report.analysisId,
+            proposalId: tradeProposal.proposalId
+          }
+          : null;
         setPanelState((current) => Object.values(current.contents).reduce(
           (next, content) => content.kind === "aiCoach"
             ? setPanelContentProps(next, content.id, { ...content.props, coachReport: report.coachReport ?? null })

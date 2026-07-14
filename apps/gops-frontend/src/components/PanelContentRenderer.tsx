@@ -62,6 +62,9 @@ const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").the
 const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
   default: module.PaperAccountPanel
 })));
+const PriceConditionPanel = lazy(() => import("./PriceConditionPanel").then((module) => ({
+  default: module.PriceConditionPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -361,6 +364,18 @@ export function PanelContentRenderer({
     return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
       <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
     </Suspense>;
+  }
+
+  if (content.kind === "priceCondition") {
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가격 조건을 불러오는 중입니다</div>}>
+        <PriceConditionPanel
+          defaultSymbol={symbol.toUpperCase()}
+          symbols={symbols}
+          onSelectSymbol={onSelectSymbol}
+        />
+      </Suspense>
+    );
   }
 
   if (content.kind === "quickOrder") {

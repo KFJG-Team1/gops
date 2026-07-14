@@ -3506,6 +3506,17 @@ assert.match(alertMenuSource, /onOpenNotificationSymbol\(chartSymbol\)/);
 assert.match(alertMenuSource, /onClick=\{\(\) => void openNotification\(notification\)\}/);
 assert.doesNotMatch(alertMenuSource, /disabled=\{saving \|\| Boolean\(notification\.readAt\)\}/);
 
+const priceConditionPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PriceConditionPanel.tsx", import.meta.url)), "utf-8");
+assert.match(priceConditionPanelSource, /role="tablist"/);
+assert.match(priceConditionPanelSource, /가격조건/);
+assert.match(priceConditionPanelSource, /알림/);
+assert.match(priceConditionPanelSource, /관심 기업/);
+assert.match(priceConditionPanelSource, /role="tabpanel"/);
+assert.match(priceConditionPanelSource, /portalMenu=\{false\}/);
+assert.match(priceConditionPanelSource, /onOpenChart=\{onSelectSymbol\}/);
+assert.match(priceConditionPanelSource, /UI 프로토타입/);
+assert.doesNotMatch(priceConditionPanelSource, /localStorage/);
+
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
 assert.match(agentAnalysisClientSource, /\/api\/agents\/layout\/resolve/);
@@ -3541,6 +3552,7 @@ assert.match(panelContentRendererSource, /bidAskChartIntervals/);
 assert.match(panelContentRendererSource, /chartIntervalOptions\.map/);
 assert.doesNotMatch(panelContentRendererSource, /disabled=\{chartType === "bidask"\}/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
+assert.match(panelContentRendererSource, /PriceConditionPanel[\s\S]*symbols=\{symbols\}[\s\S]*onSelectSymbol=\{onSelectSymbol\}/);
 
 const chartToolbarSelectSource = readFileSync(fileURLToPath(new URL("../src/components/ChartToolbarSelect.tsx", import.meta.url)), "utf-8");
 assert.match(chartToolbarSelectSource, /createPortal/);
@@ -3687,6 +3699,7 @@ assert.match(panelLayoutSource, /normalizeFreeformRectsToGridLayout/);
 assert.match(panelLayoutSource, /const inheritsSymbol = item\.kind === "chart" \|\| item\.kind === "company" \|\| item\.kind === "compare";/);
 const panelWorkspaceSource = readFileSync(fileURLToPath(new URL("../src/components/PanelWorkspace.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelWorkspaceSource, /panel-boundary-add|panel-add-menu|insertPanelAtBoundary|canInsertPanelAtBoundary|beginPanelSwap|hitTestSwappableSlot|boundaryAddMenuPosition/);
+assert.match(panelWorkspaceSource, /content\.kind === "priceCondition"/);
 const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/components/WorkspacePanelFrame.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(workspacePanelFrameSource, /workspace-panel-close|canClose|onClose/);
 const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/panelRegistry.ts", import.meta.url)), "utf-8");

@@ -809,7 +809,10 @@ export function PanelWorkspace({
       return null;
     }
     const isChart = content.kind === "chart";
-    const hidePanelNav = isChart || content.kind === "indices" || isPortfolioPanelKind(content.kind);
+    const hidePanelNav = isChart
+      || content.kind === "indices"
+      || content.kind === "priceCondition"
+      || isPortfolioPanelKind(content.kind);
     const chartDocument = isChart ? chartRuntime.documents[chartDocumentIdForContent(content)] : undefined;
     const chartCandles = chartDocument ? getCandlesForDocument(chartRuntime, chartDocument) as CandleDto[] : [];
     const chartDataStatus = chartDocument ? getDataStatusForDocument(chartRuntime, chartDocument) : undefined;

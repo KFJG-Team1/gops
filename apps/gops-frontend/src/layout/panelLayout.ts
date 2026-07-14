@@ -40,6 +40,7 @@ export type PanelContentKind =
   | "portfolioHoldingsFlatCards"
   | "orderFlow"
   | "aiCoach"
+  | "priceCondition"
   | "quickOrder"
   | "paperQuickOrder"
   | "paperTrade"
