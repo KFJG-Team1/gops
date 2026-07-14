@@ -671,6 +671,8 @@ export type CzardasPatternDto = {
   boundaryCandidateIds: string[];
   domain: Record<string, unknown>;
   relationQuality: number;
+  presentRelevance: number;
+  selectionScore: number;
   traceRef: string;
   traceAnchorCount: number;
   traceFactCount: number;

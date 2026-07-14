@@ -128,7 +128,7 @@ test("Czardas asset renders independent H-Line, Trend and Pattern layers", async
   await expect(mutedHlineMeaning).toHaveClass(/is-muted/);
   await expect(mutedHlineMeaning.locator("[data-czardas-factor-key]")).toHaveCount(7);
   await page.getByRole("button", { name: "Czardas H-Line 켜기" }).click();
-  await page.screenshot({ path: `/tmp/chart-assets-v4-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v5-${testInfo.project.name}.png`, fullPage: true });
 
   const detailVisibleCount = Number(await chart.getAttribute("data-chart-visible-count"));
   await canvas.evaluate((element) => {
@@ -144,7 +144,27 @@ test("Czardas asset renders independent H-Line, Trend and Pattern layers", async
     }
   });
   await expect.poll(async () => Number(await chart.getAttribute("data-chart-visible-count"))).toBeGreaterThan(detailVisibleCount);
-  await page.screenshot({ path: `/tmp/chart-assets-v4-dense-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v5-dense-${testInfo.project.name}.png`, fullPage: true });
+});
+
+test("confirmed Czardas layers follow Candle, Line and OHLC but stay out of Bid/Ask", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const controls = page.locator(".chart-analysis-layer-controls");
+  await expect(controls).toBeVisible();
+  await expect(page.getByLabel("Czardas 시각 범례")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Czardas Pattern 끄기" }).click();
+  for (const chartType of ["line", "ohlc", "candle"] as const) {
+    await selectChartToolbarOption(page, "Chart type", chartType);
+    await expect(controls).toBeVisible();
+    await expect(page.getByRole("button", { name: "Czardas Pattern 켜기" })).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByLabel("Czardas 시각 범례")).toHaveCount(0);
+  }
+
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+  await expect(controls).toBeHidden();
+  await selectChartToolbarOption(page, "Chart type", "candle");
+  await expect(page.getByRole("button", { name: "Czardas Pattern 켜기" })).toHaveAttribute("aria-pressed", "false");
 });
 
 test("Czardas meaning overlay keeps all evidence visible in compact plots", async ({ page }, testInfo) => {
@@ -219,7 +239,7 @@ test("asset ops submits exactly one Czardas symbol and interval", async ({ page 
   await ops.getByLabel("Czardas 분석 심볼").fill("NVDA");
   await ops.getByRole("button", { name: "분석 시작" }).click();
   await expect.poll(() => postedBuild).toEqual({ symbol: "NVDA", interval: "1D", force: false });
-  await page.screenshot({ path: `/tmp/chart-assets-v4-ops-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v5-ops-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test("asset ops applies the selected asset to the primary chart", async ({ page }) => {
@@ -334,7 +354,7 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp ?? "";
   const windowFromTimestamp = candles[0].timestamp;
   const windowToTimestamp = candles[239].timestamp;
-  const inferenceId = "sha256:czardas-v4-fixture-inference";
+  const inferenceId = "sha256:czardas-v5-fixture-inference";
   const hline = czardasDrawing("support", "hline", [
     { timestamp: candles[40].timestamp, price: 158 },
     { timestamp: asOf, price: 158 }
@@ -348,8 +368,10 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
     { timestamp: asOf, price: 174 }
   ], inferenceId);
   const patternRelationId = "sha256:pattern-fixture";
-  const patternTraceIndexes = [55, 59, 63, 67];
-  const patternTracePrices = [177.5, 161.2, 176.5, 162.5];
+  const patternContactIndexes = [55, 59, 63, 67];
+  const patternContactPrices = [177.5, 161.2, 176.5, 162.5];
+  const patternTraceIndexes = [55, 90, 120, 150, 180, 210, 239];
+  const patternTracePrices = patternTraceIndexes.map((index) => candles[index].close);
   const pattern = czardasPatternDrawing(
     patternRelationId,
     patternTraceIndexes.map((index, offset) => ({ timestamp: candles[index].timestamp, price: patternTracePrices[offset] })),
@@ -448,20 +470,21 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
     rank: {
       rankScore: .8, responseBonus: 0, profileBonus: 0,
       integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
-      bodyPenetrationCount: 1, closePenetrationCount: 0
+      bodyPenetrationCount: 1, closePenetrationCount: 0,
+      presentRelevance: .75, selectionUtility: .78
     },
     line: { priceAtAsOf: price, slopePerBar: kind === "trend" ? .01 : 0, zoneHalfWidth: .5 },
     explanation: { claim: "현재 경계", because: ["구조적 근거"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
   });
   const pack = {
-    algorithmVersion: "czardas-v4",
-    configVersion: "czardas-config-v4",
+    algorithmVersion: "czardas-v5",
+    configVersion: "czardas-config-v5",
     inputContractVersion: "canonical-ohlcv-q8-v1",
     timeContractVersion: "market-time-v1",
     calendarVersion: "nyse-calendar-v1",
     inferenceConfigDigest: "sha256:inference-config",
     projectionConfigDigest: "sha256:projection-config",
-    sightProjectionVersion: "czardas-sight-v3",
+    sightProjectionVersion: "czardas-sight-v4",
     sightProjectionId: "sha256:sight-projection",
     symbol: "NVDA",
     interval: "1D",
@@ -480,21 +503,23 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
       kind: "triangle",
       displayName: "Triangle",
       boundaryCandidateIds: ["upper", "lower"],
-      domain: { domainId: "sha256:root-domain", fromTimestamp: candles[55].timestamp, toTimestamp: candles[180].timestamp },
+      domain: { domainId: "sha256:root-domain", fromTimestamp: candles[55].timestamp, toTimestamp: asOf },
       relationQuality: .82,
+      presentRelevance: .86,
+      selectionScore: .826,
       traceRef: patternRelationId,
       traceAnchorCount: patternTraceIndexes.length,
-      traceFactCount: patternTraceIndexes.length,
-      relationBars: 126,
+      traceFactCount: patternContactIndexes.length,
+      relationBars: 185,
       explanation: { claim: "수렴 구조", because: ["상·하단 경계 교대 접촉"], against: [], dataQualifier: "exact-240 OHLCV" }
     }],
     drawings: [hline, upper, lower, pattern],
     czardasField: {
-      schemaVersion: 4,
+      schemaVersion: 5,
       inputContractVersion: "canonical-ohlcv-q8-v1",
       inferenceConfigDigest: "sha256:inference-config",
       projectionConfigDigest: "sha256:projection-config",
-      sightProjectionVersion: "czardas-sight-v3",
+      sightProjectionVersion: "czardas-sight-v4",
       sightProjectionId: "sha256:sight-projection",
       sourceBars: 240,
       evaluationAsOf: asOf,
@@ -594,12 +619,18 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
       }],
       patternRelationGlyphs: [{
         relationId: patternRelationId,
-        kind: "triangle",
-        trace: {
-          indexes: patternTraceIndexes,
-          prices: patternTracePrices,
+        contactSequence: {
+          indexes: patternContactIndexes,
+          prices: patternContactPrices,
           roles: ["upper", "lower", "upper", "lower"],
-          episodeRefs: [[1, 0], [2, 0], [1, 1], [2, 1]]
+          sourceCodes: [0, 0, 0, 0],
+          episodeRefs: [[1, 0], [2, 0], [1, 1], [2, 1]],
+          interactionIds: [null, null, null, null]
+        },
+        priceTrace: {
+          method: "close-rdp-atr-v1",
+          indexes: patternTraceIndexes,
+          prices: patternTracePrices
         }
       }],
       patternEvidenceGlyphs: [],
@@ -609,7 +640,7 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
   };
   if (evidenceOnly) {
     const mutable = pack as any;
-    const trace = mutable.czardasField.patternRelationGlyphs[0].trace;
+    const contactSequence = mutable.czardasField.patternRelationGlyphs[0].contactSequence;
     mutable.selection.pattern.actualCount = 0;
     mutable.patternRelations = [];
     mutable.drawings = mutable.drawings.filter((item: any) => item.czardasLayer !== "pattern");
@@ -618,7 +649,7 @@ function czardasResponse(evidenceOnly = false): Record<string, unknown> {
       evidenceId: "sha256:pattern-evidence-fixture",
       kind: "trend_pair",
       boundaryCandidateIds: ["upper", "lower"],
-      trace
+      contactSequence
     }];
   }
   return {
@@ -632,7 +663,7 @@ function czardasDrawing(
   candidateId: string,
   layer: "hline" | "trend",
   anchors: Array<{ timestamp: string; price: number }>,
-  inferenceId = "sha256:czardas-v4-fixture-inference"
+  inferenceId = "sha256:czardas-v5-fixture-inference"
 ) {
   return {
     id: `czardas:${candidateId}:line`,

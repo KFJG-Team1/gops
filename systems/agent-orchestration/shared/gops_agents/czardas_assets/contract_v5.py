@@ -31,11 +31,11 @@ _HISTORICAL = {
 }
 
 
-class V4ContractError(ValueError):
+class V5ContractError(ValueError):
     pass
 
 
-def validate_v4_pack(pack: Any, *, expected_symbol=None, expected_interval=None) -> dict[str, Any]:
+def validate_v5_pack(pack: Any, *, expected_symbol=None, expected_interval=None) -> dict[str, Any]:
     root = _record(pack, "pack")
     _need(set(root) == _TOP, "pack has missing or unknown top-level keys")
     _reject_historical(root)
@@ -109,6 +109,9 @@ def _boundaries(values, as_of):
         line = _record(item.get("line"), f"{path}.line")
         _need(all(_finite(line.get(key)) for key in ("slopePerBar", "priceAtAsOf", "zoneHalfWidth")), f"{path}.line is invalid")
         _need(isinstance(item.get("explanation"), dict), f"{path}.explanation is missing")
+        rank = _record(item.get("rank"), f"{path}.rank")
+        for key in ("presentRelevance", "selectionUtility"):
+            _need(_finite(rank.get(key)) and 0 <= rank[key] <= 1, f"{path}.{key} is invalid")
         result[candidate_id] = item
     _need(1 <= sum(item["kind"] == "hline" for item in result.values()) <= 4, "Ready pack must have 1..4 H-Lines")
     _need(sum(item["kind"] == "trend" for item in result.values()) <= 3, "Trend limit exceeded")
@@ -145,12 +148,15 @@ def _relations(values, as_of):
             )
         _need(item.get("traceRef") == relation_id, f"{path}.traceRef is invalid")
         _need(3 <= item.get("traceAnchorCount", 0) <= 16, f"{path} trace anchor count is invalid")
+        _need(3 <= item.get("traceFactCount", 0) <= 16, f"{path} trace fact count is invalid")
+        for key in ("presentRelevance", "selectionScore"):
+            _need(_finite(item.get(key)) and 0 <= item[key] <= 1, f"{path}.{key} is invalid")
         result[relation_id] = item
     return result
 
 
 def _field(field, pack, boundaries, relations, as_of):
-    _need(field.get("schemaVersion") == 4, "Field schema is incompatible")
+    _need(field.get("schemaVersion") == 5, "Field schema is incompatible")
     for left, right in (
         ("inputContractVersion", "inputContractVersion"),
         ("inferenceConfigDigest", "inferenceConfigDigest"),
@@ -216,7 +222,7 @@ def _field(field, pack, boundaries, relations, as_of):
             try:
                 _need(len(base64.b64decode(encoded, validate=True)) == 480, f"{group} series must encode 240 int16 values")
             except Exception as exc:
-                raise V4ContractError(f"{group} contains invalid base64") from exc
+                raise V5ContractError(f"{group} contains invalid base64") from exc
     domains = _array(field.get("structuralDomains"), "structuralDomains")
     domain_ids = set()
     parent_domain_ids = set()
@@ -241,7 +247,7 @@ def _field(field, pack, boundaries, relations, as_of):
         key = (_digest(mode.get("fieldModeId"), "fieldModeId"), _digest(mode.get("derivationDigest"), "derivationDigest"))
         _need(key not in mode_by_key, "Field mode identity must be unique")
         mode_by_key[key] = mode
-    refs = _array(field.get("selectedModeRefs"), "selectedModeRefs", 11)
+    refs = _array(field.get("selectedModeRefs"), "selectedModeRefs", 13)
     candidate_refs = {}
     for value in refs:
         ref = _record(value, "selectedModeRef")
@@ -282,6 +288,7 @@ def _field(field, pack, boundaries, relations, as_of):
         item = _record(segment, "hlineResponseSegment")
         _need(item.get("windowFromTimestamp") == field.get("windowFromTimestamp") and item.get("windowToTimestamp") == field.get("windowToTimestamp"), "hlineResponseSegment window is inconsistent")
     timestamp_indexes = {value: index for index, value in enumerate(timestamps)}
+    interaction_ids = set()
     for glyph in _array(field.get("validationGlyphs"), "validationGlyphs"):
         item = _record(glyph, "validationGlyph")
         candidate_index = item.get("candidateIndex")
@@ -292,10 +299,24 @@ def _field(field, pack, boundaries, relations, as_of):
         _need(observed_index >= 0, "validation timestamp is outside exact-240")
         if item.get("kind") == "interaction":
             _need(observed_index > fit_confirmed[candidate_index], "interaction must start after fit evidence")
+            interaction_ids.add(_digest(item.get("interactionId"), "validation interactionId"))
     relation_glyphs = _array(field.get("patternRelationGlyphs"), "patternRelationGlyphs", 2)
     _need({item.get("relationId") for item in relation_glyphs} == set(relations), "Pattern Field closure is inconsistent")
     for glyph in relation_glyphs:
-        _pattern_trace(glyph.get("trace"), refs, counts)
+        relation_id = glyph.get("relationId")
+        contact_count = _contact_sequence(
+            glyph.get("contactSequence"), refs, counts, interaction_ids,
+        )
+        trace_indexes = _price_trace(glyph.get("priceTrace"))
+        relation = relations[relation_id]
+        _need(contact_count == relation["traceFactCount"], "Pattern contact count is inconsistent")
+        _need(len(trace_indexes) == relation["traceAnchorCount"], "Pattern price trace count is inconsistent")
+        domain = relation["domain"]
+        _need(
+            timestamps[trace_indexes[0]] == domain["fromTimestamp"]
+            and timestamps[trace_indexes[-1]] == domain["toTimestamp"],
+            "Pattern price trace domain is inconsistent",
+        )
     evidence_glyphs = _array(field.get("patternEvidenceGlyphs"), "patternEvidenceGlyphs", 1)
     evidence_ids = set()
     evidence_candidate_ids = set()
@@ -304,12 +325,12 @@ def _field(field, pack, boundaries, relations, as_of):
         evidence_id = _digest(item.get("evidenceId"), "patternEvidenceGlyph.evidenceId")
         _need(evidence_id not in evidence_ids, "Pattern evidence IDs must be unique")
         evidence_ids.add(evidence_id)
-        _need(item.get("kind") in {"trend_pair", "price_memory_pair"}, "Pattern evidence kind is invalid")
+        _need(item.get("kind") in {"trend_pair", "price_memory_pair", "mixed_triangle_pair"}, "Pattern evidence kind is invalid")
         boundary_ids = _array(item.get("boundaryCandidateIds"), "patternEvidenceGlyph.boundaryCandidateIds")
         _need(len(boundary_ids) == 2 and len(set(boundary_ids)) == 2, "Pattern evidence needs two boundaries")
         _need(all(candidate_id in candidate_refs for candidate_id in boundary_ids), "Pattern evidence boundary is missing")
         evidence_candidate_ids.update(boundary_ids)
-        _pattern_trace(item.get("trace"), refs, counts)
+        _contact_sequence(item.get("contactSequence"), refs, counts, interaction_ids)
     relation_candidate_ids = {candidate_id for relation in relations.values() for candidate_id in relation["boundaryCandidateIds"]}
     _need(
         {key for key, ref in candidate_refs.items() if ref["patternSupporting"]}
@@ -320,28 +341,55 @@ def _field(field, pack, boundaries, relations, as_of):
     return candidate_refs
 
 
-def _pattern_trace(value, refs, counts):
-    trace = _record(value, "pattern trace")
-    lengths = [len(_array(trace.get(key), f"pattern trace {key}")) for key in ("indexes", "prices", "roles")]
-    _need(len(set(lengths)) == 1 and 3 <= lengths[0] <= 16, "Pattern trace columns are inconsistent")
-    _need(all(isinstance(index, int) and 0 <= index < 240 for index in trace["indexes"]), "Pattern trace index is invalid")
-    _need(all(first < second for first, second in zip(trace["indexes"], trace["indexes"][1:])), "Pattern trace is not chronological")
-    _need(all(_finite(price) for price in trace["prices"]), "Pattern trace price is invalid")
+def _contact_sequence(value, refs, counts, interaction_ids):
+    trace = _record(value, "pattern contact sequence")
+    columns = ("indexes", "prices", "roles", "sourceCodes", "episodeRefs", "interactionIds")
+    lengths = [len(_array(trace.get(key), f"pattern contact {key}")) for key in columns]
+    _need(len(set(lengths)) == 1 and 3 <= lengths[0] <= 16, "Pattern contact columns are inconsistent")
+    _need(all(isinstance(index, int) and 0 <= index < 240 for index in trace["indexes"]), "Pattern contact index is invalid")
+    _need(all(first < second for first, second in zip(trace["indexes"], trace["indexes"][1:])), "Pattern contact sequence is not chronological")
+    _need(all(_finite(price) for price in trace["prices"]), "Pattern contact price is invalid")
     _need(
         all(role in {"support", "resistance", "lower", "upper"} for role in trace["roles"]),
-        "Pattern trace role is invalid",
+        "Pattern contact role is invalid",
     )
     _need(
         all(first != second for first, second in zip(trace["roles"], trace["roles"][1:])),
-        "Pattern trace roles must alternate",
+        "Pattern contact roles must alternate",
     )
-    episode_refs = _array(trace.get("episodeRefs"), "pattern episodeRefs")
-    _need(len(episode_refs) >= lengths[0], "Pattern trace is missing episode provenance")
     seen = set()
-    for candidate_index, ordinal in episode_refs:
-        _need(isinstance(candidate_index, int) and 0 <= candidate_index < len(refs) and isinstance(ordinal, int) and 0 <= ordinal < counts[candidate_index], "Pattern episode reference is invalid")
-        _need((candidate_index, ordinal) not in seen, "Pattern episode reference must be unique")
-        seen.add((candidate_index, ordinal))
+    for code, episode_ref, interaction_id in zip(
+        trace["sourceCodes"], trace["episodeRefs"], trace["interactionIds"], strict=True,
+    ):
+        _need(code in {0, 1}, "Pattern contact source code is invalid")
+        if code == 0:
+            _need(
+                isinstance(episode_ref, list) and len(episode_ref) == 2
+                and isinstance(episode_ref[0], int) and 0 <= episode_ref[0] < len(refs)
+                and isinstance(episode_ref[1], int) and 0 <= episode_ref[1] < counts[episode_ref[0]],
+                "Pattern episode reference is invalid",
+            )
+            _need(interaction_id is None, "Formation contact has an interaction reference")
+            source = ("formation", *episode_ref)
+        else:
+            _need(episode_ref is None, "Interaction contact has an episode reference")
+            source = ("interaction", _digest(interaction_id, "Pattern interaction reference"))
+            _need(source[1] in interaction_ids, "Pattern interaction reference is missing")
+        _need(source not in seen, "Pattern contact reference must be unique")
+        seen.add(source)
+    return lengths[0]
+
+
+def _price_trace(value):
+    trace = _record(value, "pattern price trace")
+    _need(trace.get("method") == "close-rdp-atr-v1", "Pattern price trace method is incompatible")
+    indexes = _array(trace.get("indexes"), "pattern price trace indexes")
+    prices = _array(trace.get("prices"), "pattern price trace prices")
+    _need(len(indexes) == len(prices) and 3 <= len(indexes) <= 16, "Pattern price trace columns are inconsistent")
+    _need(all(isinstance(index, int) and 0 <= index < 240 for index in indexes), "Pattern price trace index is invalid")
+    _need(all(first < second for first, second in zip(indexes, indexes[1:])), "Pattern price trace is not chronological")
+    _need(all(_finite(price) for price in prices), "Pattern price trace price is invalid")
+    return indexes
 
 
 def _drawings(values, boundaries, candidate_refs, relations, field, interval, inference_id, as_of):
@@ -366,7 +414,7 @@ def _drawings(values, boundaries, candidate_refs, relations, field, interval, in
             glyph = next(value for value in field["patternRelationGlyphs"] if value["relationId"] == relation_id)
             expected = [
                 (field["candleMeanings"]["timestamps"][index], price)
-                for index, price in zip(glyph["trace"]["indexes"], glyph["trace"]["prices"])
+                for index, price in zip(glyph["priceTrace"]["indexes"], glyph["priceTrace"]["prices"])
             ]
             _need([(anchor["timestamp"], anchor["price"]) for anchor in anchors] == expected, f"{path} does not match PatternTrace")
         else:
@@ -395,7 +443,7 @@ def pack_timestamp(value: datetime) -> str:
 
 def _size(value): return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode())
 def _need(condition, message):
-    if not condition: raise V4ContractError(message)
+    if not condition: raise V5ContractError(message)
 def _record(value, path): _need(isinstance(value, dict), f"{path} must be an object"); return value
 def _array(value, path, maximum=None):
     _need(isinstance(value, list), f"{path} must be an array")
@@ -407,7 +455,7 @@ def _finite(value): return isinstance(value, (int, float)) and not isinstance(va
 def _timestamp(value, path):
     value = _text(value, path); _need(value.endswith("Z"), f"{path} must be UTC Z")
     try: return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc: raise V4ContractError(f"{path} is invalid") from exc
+    except ValueError as exc: raise V5ContractError(f"{path} is invalid") from exc
 def _not_after(value, limit, path): result = _timestamp(value, path); _need(result <= limit, f"{path} is after asOf"); return result
 def _reject_historical(value):
     if isinstance(value, dict):

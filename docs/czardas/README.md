@@ -1,4 +1,4 @@
-# Czardas v4
+# Czardas v5
 
 Czardas는 최신 완료봉 exact-240을 하나의 현재 장면으로 보고, 가격 기억·회귀 흐름·robust
 경계와 구조 관계를 같은 Field에서 해석해 H-Line, Trend와 Pattern을 제안하는 GOPS의
@@ -23,22 +23,29 @@ Czardas는 최신 완료봉 exact-240을 하나의 현재 장면으로 보고, �
 | Pattern | `0..2`. Triangle, Channel, Rectangle, Wedge, Flag, Pennant 관계 중 승격된 것만 그린다. |
 | Field | 240개 candle 의미, PriceMemory, OLS 흐름, 경계 근거, relation fact와 선택 closure를 보여준다. |
 
-감지된 Pattern은 실제 contact·turn·impulse fact 3~16개를 시간순으로 이은 managed polyline
-하나와 이름 하나를 가진다. 승격되지 않은 대표 관계는 국소 marker와 짧은 connector로만
-표현될 수 있으며 Pattern 이름이나 drawing을 만들지 않는다.
+감지된 Pattern은 판정 provenance인 `contactSequence`와 화면용 `priceTrace`를 따로 가진다.
+`priceTrace`는 첫 확정 접촉부터 현재 봉까지의 종가를 3~16개 anchor로 단순화한 managed
+polyline이며 미래 apex로 연장하지 않는다. 승격되지 않은 대표 관계는 국소 marker와 짧은
+connector로만 표현될 수 있으며 Pattern 이름이나 drawing을 만들지 않는다.
 
 ## Czardas 차트
 
 좌측 하단의 H-Line, Trend, Pattern 토글은 독립적이며 Shared 의미는 항상 남는다.
 
-- 확대 상태: candle 진하기는 Shared+Trend, 고점·저점 주변의 짧은 수평 흔적은
-  Shared+H-Line 의미다.
+- 확대 상태: candle 진하기는 Shared+Trend다. 고점·저점의 국소 수평 흔적은 role 85%와
+  Shared 15%로 계산하며, 강할수록 더 길고 진하고 굵게 표시된다. support와 resistance는
+  서로 다른 signal/caution 색을 쓴다.
 - 축소 상태: 노란 강도는 활성 채널을 합친 240봉 내 의미 백분위다.
 - OLS 중심 흐름, robust 경계 후보, relation 근거와 최종 drawing은 명확한 시각적 위계를 가진다.
 - hover는 `현재 240봉 기준`으로 factor raw/normalized 값, reason, availability와 usage를
   오른쪽 아래 text overlay에 펼쳐 보여준다.
-- candle, Basis, OLS, Trend와 PatternTrace는 모두 `timestamp+price` 좌표를 사용한다.
+- candle, Basis, OLS, Trend와 `priceTrace`는 모두 `timestamp+price` 좌표를 사용한다.
   pan, zoom과 semantic expansion에서 근거와 drawing이 함께 이동한다.
+
+Czardas Field는 후보와 엔진의 시선을 보여주는 진단 화면이다. 확정 drawing과 함께 role별
+비선택 후보 한 개를 낮은 투명도의 점선으로 표시한다. 일반 Candle, Line, OHLC에는 current v5
+pack의 확정 H-Line, Trend, Pattern drawing과 같은 세 토글만 표시하며 Field 후보, OLS, Basis,
+candle meaning, PatternEvidence와 범례는 표시하지 않는다. Bid/Ask와 1M은 제외한다.
 
 managed drawing은 사용자가 편집·삭제·복원할 수 있다. 최초 편집은 해당 boundary 또는
 relation의 session fork를 만들며 서버 inference와 공용 자산은 바뀌지 않는다. H-Line과 Trend는

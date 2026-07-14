@@ -7,12 +7,12 @@ from .numeric import identity_digest, quantize_number
 
 @dataclass(frozen=True, slots=True)
 class CzardasConfig:
-    algorithm_version: str = "czardas-v4"
-    config_version: str = "czardas-config-v4"
+    algorithm_version: str = "czardas-v5"
+    config_version: str = "czardas-config-v5"
     input_contract_version: str = "canonical-ohlcv-q8-v1"
     time_contract_version: str = "market-time-v1"
     calendar_version: str = "nyse-calendar-v1"
-    sight_projection_version: str = "czardas-sight-v3"
+    sight_projection_version: str = "czardas-sight-v4"
     target_completed_bars: int = 240
     atr_period: int = 14
     volume_baseline: int = 20
@@ -34,6 +34,17 @@ class CzardasConfig:
     response_min_score: float = 0.45
     max_current_distance_atr: float = 3.0
     recent_evidence_bars: int = 120
+    selection_recency_half_life_bars: int = 48
+    selection_rank_weight: float = 0.84
+    selection_recency_weight: float = 0.12
+    selection_proximity_weight: float = 0.04
+    pattern_quality_weight: float = 0.85
+    pattern_recency_weight: float = 0.15
+    hline_role_diversity_bonus: float = 0.10
+    hline_bracketing_bonus: float = 0.08
+    hline_duplicate_penalty: float = 0.15
+    pattern_trace_residual_atr: float = 0.35
+    pattern_trace_max_protected_contacts: int = 6
     profile_target_bins: int = 48
     hline_display_count: int = 2
     trend_display_count: int = 2
@@ -88,6 +99,35 @@ class CzardasConfig:
             raise ValueError("feature_period_contract_mismatch")
         if self.recency_half_life_bars <= 0:
             raise ValueError("recency_half_life_must_be_positive")
+        if self.selection_recency_half_life_bars <= 0:
+            raise ValueError("selection_recency_half_life_must_be_positive")
+        if abs(
+            self.selection_rank_weight
+            + self.selection_recency_weight
+            + self.selection_proximity_weight
+            - 1.0
+        ) > 1e-12:
+            raise ValueError("selection_weights_must_sum_to_one")
+        if abs(self.pattern_quality_weight + self.pattern_recency_weight - 1.0) > 1e-12:
+            raise ValueError("pattern_weights_must_sum_to_one")
+        for key in (
+            "selection_rank_weight",
+            "selection_recency_weight",
+            "selection_proximity_weight",
+            "pattern_quality_weight",
+            "pattern_recency_weight",
+        ):
+            if not 0 <= getattr(self, key) <= 1:
+                raise ValueError(f"weight_out_of_range:{key}")
+        for key in (
+            "hline_role_diversity_bonus",
+            "hline_bracketing_bonus",
+            "hline_duplicate_penalty",
+        ):
+            if not 0 <= getattr(self, key) <= 1:
+                raise ValueError(f"selection_adjustment_out_of_range:{key}")
+        if self.pattern_trace_max_protected_contacts not in range(0, 15):
+            raise ValueError("pattern_trace_protected_contacts_out_of_range")
         if not (1 <= self.hline_display_count <= self.hline_max_count <= 4):
             raise ValueError("hline_count_out_of_range")
         if not (0 <= self.trend_display_count <= self.trend_max_count <= 3):
@@ -109,6 +149,7 @@ class CzardasConfig:
             self.break_close_atr,
             self.response_min_excursion_atr,
             self.max_current_distance_atr,
+            self.pattern_trace_residual_atr,
         ):
             if value < 0:
                 raise ValueError("negative_threshold")

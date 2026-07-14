@@ -90,7 +90,8 @@ def infer_czardas(
     hline = ensure_baseline_hline(tape, features, hline, price_memory, config)
     relations, relation_evidence = analyze_pattern_relations(
         tape, features, hline.candidates, trend.candidates,
-        domains, regression_flows, structural_facts, limit=config.pattern_max_count,
+        domains, regression_flows, structural_facts,
+        config=config, limit=config.pattern_max_count,
     )
     selected_hlines, selected_trends, reject_summary = select_boundaries(
         tape, features, hline.candidates, trend.candidates, config
@@ -148,7 +149,8 @@ def project_czardas_sight(inference: CzardasInference) -> Ready | AnalysisUnavai
     ])
     boundaries = [
         compile_boundary(
-            tape, inference.features, item, inference.inference_id, inference.regression_flows,
+            tape, inference.features, item, inference.inference_id, config,
+            inference.regression_flows,
         )
         for item in selected
     ]
@@ -205,6 +207,24 @@ def project_czardas_sight(inference: CzardasInference) -> Ready | AnalysisUnavai
         canonical_content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     payload_bytes = len(payload_encoded)
+    if payload_bytes > config.max_payload_bytes and inference.relation_evidence:
+        try:
+            field, field_bytes = build_field_view(
+                tape, inference.hline, inference.trend, selected, inference.relations, (),
+                inference.meanings, inference.inference_id, sight_projection_id, config,
+                domains=inference.domains,
+                regression_flows=inference.regression_flows,
+                price_memory=inference.price_memory,
+                _omitted_pattern_evidence_count=len(inference.relation_evidence),
+            )
+        except ValueError as exc:
+            return AnalysisUnavailable(str(exc))
+        content["czardasField"] = field
+        canonical_content = canonicalize(content)
+        payload_encoded = json.dumps(
+            canonical_content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        payload_bytes = len(payload_encoded)
     if payload_bytes > config.max_payload_bytes:
         return AnalysisUnavailable("payload_limit_exceeded", {"payloadBytes": payload_bytes})
     return Ready(canonical_content, {
@@ -238,13 +258,13 @@ def _unavailable_reason(message: str) -> str:
 
 
 def _project_relation(relation: dict) -> dict:
-    """Public relation metadata; the lossless trace lives once in Field schema 4."""
+    """Public relation metadata; lossless evidence and price trace live in Field."""
     return {
         key: value
         for key, value in relation.items()
-        if key != "trace"
+        if key not in {"contactSequence", "priceTrace"}
     } | {
         "traceRef": relation["relationId"],
-        "traceAnchorCount": len(relation["trace"]["anchors"]),
-        "traceFactCount": len(relation["trace"]["contributingEpisodeIds"]),
+        "traceAnchorCount": len(relation["priceTrace"]["anchors"]),
+        "traceFactCount": len(relation["contactSequence"]["anchors"]),
     }

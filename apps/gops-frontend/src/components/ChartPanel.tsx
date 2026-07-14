@@ -66,9 +66,11 @@ import {
   type CzardasAssetsResponse
 } from "../chart/czardasAssetsApi";
 import {
+  czardasDrawingsForChartType,
   czardasDeltaCommands,
   czardasRestoreCommands,
   czardasToggleCommands,
+  supportsCzardasManagedDrawings,
   type CzardasLayerKey,
   type CzardasLayerVisibility
 } from "../chart/czardasLayerController";
@@ -1622,7 +1624,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ...pane,
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
-    drawings: transientDrawings ?? chart.drawings
+    drawings: czardasDrawingsForChartType(transientDrawings ?? chart.drawings, chart.chartType)
   }), [activeCzardasEntry?.freshness, activeCzardasPack, activeCzardasStale, czardasLayerVisibility.hline, czardasLayerVisibility.pattern, czardasLayerVisibility.trend, chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const czardasMeaningTimestamp = hoverSnapshot?.kind === "candle"
     ? hoverSnapshot.timestamp ?? hoverSnapshot.from
@@ -2727,23 +2729,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onKeyDown={handleCzardasKeyDown}
           onFocus={() => focusCzardasCandle("current")}
         />
-        {renderChart.chartType === "czardas" && (
+        {(renderChart.chartType === "czardas" || (
+          activeCzardasPack
+          && supportsCzardasManagedDrawings(renderChart.chartType)
+        )) && (
           <CzardasLayerToggles
             visibility={czardasLayerVisibility}
+            showLegend={renderChart.chartType === "czardas"}
             patternEvidenceOnly={Boolean(
+              renderChart.chartType === "czardas"
+              &&
               !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "pattern")
               && activeCzardasPack?.czardasField.patternEvidenceGlyphs.length
             )}
             disabled={{
               hline: !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "hline")
-                && !(activeCzardasEntry?.freshness === "current" && (
+                && !(renderChart.chartType === "czardas" && activeCzardasEntry?.freshness === "current" && (
                   activeCzardasPack?.czardasField.hlineModes.length
                   || activeCzardasPack?.czardasField.hlineResponseSegments.length
                 )),
               trend: !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "trend")
-                && !(activeCzardasEntry?.freshness === "current" && activeCzardasPack?.czardasField.trendModes.length),
+                && !(renderChart.chartType === "czardas" && activeCzardasEntry?.freshness === "current" && activeCzardasPack?.czardasField.trendModes.length),
               pattern: !activeCzardasPack?.drawings.some((item) => item.czardasLayer === "pattern")
-                && !(activeCzardasEntry?.freshness === "current" && (
+                && !(renderChart.chartType === "czardas" && activeCzardasEntry?.freshness === "current" && (
                   activeCzardasPack?.czardasField.patternRelationGlyphs.length
                   || activeCzardasPack?.czardasField.patternEvidenceGlyphs.length
                 ))

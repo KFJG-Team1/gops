@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -28,6 +29,18 @@ def test_non_flat_market_pack_satisfies_authoritative_wire_contract():
     pack = valid_market_pack()
 
     assert validate_czardas_pack(pack, expected_symbol="MSFT", expected_interval="1D") is pack
+
+
+def test_shared_json_schema_pins_v5_relation_and_field_shapes():
+    schema = json.loads((ROOT / "shared" / "chart-contract" / "chart-czardas-pack.schema.json").read_text())
+
+    assert schema["properties"]["algorithmVersion"]["const"] == "czardas-v5"
+    assert schema["properties"]["configVersion"]["const"] == "czardas-config-v5"
+    assert schema["$defs"]["field"]["properties"]["schemaVersion"]["const"] == 5
+    assert set(schema["$defs"]["patternRelationGlyph"]["required"]) == {
+        "relationId", "contactSequence", "priceTrace",
+    }
+    assert schema["$defs"]["patternPriceTrace"]["properties"]["method"]["const"] == "close-rdp-atr-v1"
 
 
 @pytest.mark.parametrize(
@@ -164,4 +177,38 @@ def test_contract_rejects_pattern_impulse_that_does_not_precede_consolidation():
     relation["impulse"]["toTimestamp"] = relation["domain"]["fromTimestamp"]
 
     with pytest.raises(CzardasPackValidationError, match="must precede its consolidation"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_v4_pack_after_immediate_v5_cutover():
+    pack = valid_market_pack()
+    pack["algorithmVersion"] = "czardas-v4"
+
+    with pytest.raises(CzardasPackValidationError, match="algorithmVersion is incompatible"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_boundary_selection_scores_outside_unit_interval():
+    pack = valid_market_pack()
+    pack["boundaries"][0]["rank"]["presentRelevance"] = 1.01
+
+    with pytest.raises(CzardasPackValidationError, match="presentRelevance is invalid"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_pattern_drawing_that_does_not_match_price_trace():
+    pack = valid_market_pack()
+    drawing = next(item for item in pack["drawings"] if item["czardasLayer"] == "pattern")
+    drawing["anchors"][1]["price"] += 0.01
+
+    with pytest.raises(CzardasPackValidationError, match="does not match PatternTrace"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_legacy_or_missing_pattern_trace_shape():
+    pack = valid_market_pack()
+    glyph = pack["czardasField"]["patternRelationGlyphs"][0]
+    glyph["trace"] = glyph.pop("priceTrace")
+
+    with pytest.raises(CzardasPackValidationError, match="pattern price trace must be an object"):
         validate_czardas_pack(pack)

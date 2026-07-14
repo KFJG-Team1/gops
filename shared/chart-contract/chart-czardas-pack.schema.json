@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gops.local/contracts/chart-czardas-pack.schema.json",
-  "title": "GOPS Czardas v4 Present-Snapshot Field Pack",
+  "title": "GOPS Czardas v5 Present-Snapshot Field Pack",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,14 +12,14 @@
     "drawings", "czardasField", "rejectSummary"
   ],
   "properties": {
-    "algorithmVersion": {"const": "czardas-v4"},
-    "configVersion": {"const": "czardas-config-v4"},
+    "algorithmVersion": {"const": "czardas-v5"},
+    "configVersion": {"const": "czardas-config-v5"},
     "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
     "timeContractVersion": {"const": "market-time-v1"},
     "calendarVersion": {"const": "nyse-calendar-v1"},
     "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
     "projectionConfigDigest": {"$ref": "#/$defs/digest"},
-    "sightProjectionVersion": {"const": "czardas-sight-v3"},
+    "sightProjectionVersion": {"const": "czardas-sight-v4"},
     "sightProjectionId": {"$ref": "#/$defs/digest"},
     "inferenceId": {"$ref": "#/$defs/digest"},
     "symbol": {"type": "string", "pattern": "^[A-Z][A-Z0-9.-]*$"},
@@ -67,6 +67,26 @@
         "actualCount": {"type": "integer", "minimum": 0}
       }
     },
+    "boundaryRank": {
+      "type": "object",
+      "required": [
+        "rankScore", "responseBonus", "profileBonus", "integrityFactCount",
+        "integrityEffectiveFactCount", "integrityCoverage", "bodyPenetrationCount",
+        "closePenetrationCount", "presentRelevance", "selectionUtility"
+      ],
+      "properties": {
+        "rankScore": {"type": "number"},
+        "responseBonus": {"type": "number"},
+        "profileBonus": {"type": "number"},
+        "integrityFactCount": {"type": "integer", "minimum": 0},
+        "integrityEffectiveFactCount": {"type": "number", "minimum": 0},
+        "integrityCoverage": {"type": "number", "minimum": 0, "maximum": 1},
+        "bodyPenetrationCount": {"type": "integer", "minimum": 0},
+        "closePenetrationCount": {"type": "integer", "minimum": 0},
+        "presentRelevance": {"type": "number", "minimum": 0, "maximum": 1},
+        "selectionUtility": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
     "boundary": {
       "type": "object",
       "required": [
@@ -80,7 +100,7 @@
         "evidenceState": {"enum": ["formed", "response_supported", "baseline_memory"]},
         "isRelevantNow": {"type": "boolean"},
         "line": {"type": "object"}, "formation": {"type": "object"},
-        "responses": {"type": "object"}, "rank": {"type": "object"}, "explanation": {"type": "object"}
+        "responses": {"type": "object"}, "rank": {"$ref": "#/$defs/boundaryRank"}, "explanation": {"type": "object"}
       }
     },
     "patternRelation": {
@@ -91,7 +111,8 @@
       }],
       "required": [
         "relationId", "kind", "displayName", "boundaryCandidateIds", "domain",
-        "relationQuality", "traceRef", "traceAnchorCount", "traceFactCount", "explanation"
+        "relationQuality", "presentRelevance", "selectionScore",
+        "traceRef", "traceAnchorCount", "traceFactCount", "explanation"
       ],
       "properties": {
         "relationId": {"$ref": "#/$defs/digest"},
@@ -110,9 +131,11 @@
         },
         "impulse": {"$ref": "#/$defs/impulse"},
         "relationQuality": {"type": "number"},
+        "presentRelevance": {"type": "number", "minimum": 0, "maximum": 1},
+        "selectionScore": {"type": "number", "minimum": 0, "maximum": 1},
         "traceRef": {"$ref": "#/$defs/digest"},
         "traceAnchorCount": {"type": "integer", "minimum": 3, "maximum": 16},
-        "traceFactCount": {"type": "integer", "minimum": 3},
+        "traceFactCount": {"type": "integer", "minimum": 3, "maximum": 16},
         "explanation": {"type": "object"}
       }
     },
@@ -148,6 +171,64 @@
         "createdAt": {"$ref": "#/$defs/timestamp"}, "updatedAt": {"$ref": "#/$defs/timestamp"}
       }
     },
+    "patternContactSequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["indexes", "prices", "roles", "sourceCodes", "episodeRefs", "interactionIds"],
+      "properties": {
+        "indexes": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"type": "integer", "minimum": 0, "maximum": 239}},
+        "prices": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"type": "number"}},
+        "roles": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"enum": ["support", "resistance", "lower", "upper"]}},
+        "sourceCodes": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"enum": [0, 1]}},
+        "episodeRefs": {
+          "type": "array", "minItems": 3, "maxItems": 16,
+          "items": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}}
+            ]
+          }
+        },
+        "interactionIds": {
+          "type": "array", "minItems": 3, "maxItems": 16,
+          "items": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]}
+        }
+      }
+    },
+    "patternPriceTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "indexes", "prices"],
+      "properties": {
+        "method": {"const": "close-rdp-atr-v1"},
+        "indexes": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"type": "integer", "minimum": 0, "maximum": 239}},
+        "prices": {"type": "array", "minItems": 3, "maxItems": 16, "items": {"type": "number"}}
+      }
+    },
+    "patternRelationGlyph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relationId", "contactSequence", "priceTrace"],
+      "properties": {
+        "relationId": {"$ref": "#/$defs/digest"},
+        "contactSequence": {"$ref": "#/$defs/patternContactSequence"},
+        "priceTrace": {"$ref": "#/$defs/patternPriceTrace"}
+      }
+    },
+    "patternEvidenceGlyph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "kind", "boundaryCandidateIds", "contactSequence"],
+      "properties": {
+        "evidenceId": {"$ref": "#/$defs/digest"},
+        "kind": {"enum": ["trend_pair", "price_memory_pair", "mixed_triangle_pair"]},
+        "boundaryCandidateIds": {
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/digest"}
+        },
+        "contactSequence": {"$ref": "#/$defs/patternContactSequence"}
+      }
+    },
     "field": {
       "type": "object",
       "required": [
@@ -160,11 +241,11 @@
         "patternEvidenceGlyphs", "projection"
       ],
       "properties": {
-        "schemaVersion": {"const": 4}, "sourceBars": {"const": 240},
+        "schemaVersion": {"const": 5}, "sourceBars": {"const": 240},
         "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
         "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
         "projectionConfigDigest": {"$ref": "#/$defs/digest"},
-        "sightProjectionVersion": {"const": "czardas-sight-v3"},
+        "sightProjectionVersion": {"const": "czardas-sight-v4"},
         "sightProjectionId": {"$ref": "#/$defs/digest"},
         "evaluationAsOf": {"$ref": "#/$defs/timestamp"},
         "sourceInferenceId": {"$ref": "#/$defs/digest"},
@@ -175,10 +256,10 @@
         "regressionFlows": {"type": "array", "items": {"type": "object"}},
         "priceMemoryRidges": {"type": "array", "minItems": 1, "items": {"type": "object"}},
         "basisFacts": {"type": "object"}, "hlineModes": {"type": "array"},
-        "trendModes": {"type": "array"}, "selectedModeRefs": {"type": "array", "maxItems": 11},
+        "trendModes": {"type": "array"}, "selectedModeRefs": {"type": "array", "maxItems": 13},
         "derivationEpisodes": {"type": "object"}, "validationGlyphs": {"type": "array"},
-        "patternRelationGlyphs": {"type": "array", "maxItems": 2},
-        "patternEvidenceGlyphs": {"type": "array", "maxItems": 1},
+        "patternRelationGlyphs": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/patternRelationGlyph"}},
+        "patternEvidenceGlyphs": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/patternEvidenceGlyph"}},
         "projection": {"type": "object"}
       }
     }

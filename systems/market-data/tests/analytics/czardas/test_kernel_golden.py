@@ -79,9 +79,9 @@ def test_production_config_cannot_be_mutated_for_research_or_quota_filling():
     assert result.reason == "invalid_config"
 
 
-def test_sight_v3_changes_projection_identity_without_changing_inference_config_identity():
-    sight_v2 = replace(DEFAULT_CONFIG, sight_projection_version="czardas-sight-v2")
+def test_sight_v4_changes_projection_identity_without_changing_inference_config_identity():
+    sight_v3 = replace(DEFAULT_CONFIG, sight_projection_version="czardas-sight-v3")
 
-    assert DEFAULT_CONFIG.sight_projection_version == "czardas-sight-v3"
-    assert DEFAULT_CONFIG.inference_digest == sight_v2.inference_digest
-    assert DEFAULT_CONFIG.projection_digest != sight_v2.projection_digest
+    assert DEFAULT_CONFIG.sight_projection_version == "czardas-sight-v4"
+    assert DEFAULT_CONFIG.inference_digest == sight_v3.inference_digest
+    assert DEFAULT_CONFIG.projection_digest != sight_v3.projection_digest

@@ -1,4 +1,4 @@
-# Czardas v4 Engine Specification
+# Czardas v5 Engine Specification
 
 이 문서는 Czardas kernel, pack, provenance, Sight, chart runtime과 수동 자산 운영의 단일 기술
 기준이다. 구현의 wire 기준은 `shared/chart-contract/chart-czardas-pack.schema.json`과 Python
@@ -8,12 +8,13 @@ relational validator이며 둘을 함께 통과해야 한다.
 
 | 계약 | 값 |
 | --- | --- |
-| algorithm | `czardas-v4` |
-| config | `czardas-config-v4` |
+| algorithm | `czardas-v5` |
+| config | `czardas-config-v5` |
 | input | `canonical-ohlcv-q8-v1` |
 | time | `market-time-v1` |
 | calendar | `nyse-calendar-v1` |
-| Field schema | `4` |
+| Sight projection | `czardas-sight-v4` |
+| Field schema | `5` |
 
 Sight projection version은 inference version과 독립된 sealed config 값이며 pack schema와
 frontend validator가 같은 값을 강제한다. production `CzardasConfig`는 수정할 수 없고 저장 가능한
@@ -44,7 +45,8 @@ isClosed = true
 
 OHLCV는 kernel 진입 시 소수 8자리 `ROUND_HALF_EVEN`으로 양자화된다. validation, feature,
 geometry와 input digest는 양자화 값만 사용한다. config의 부동소수점 값도 같은 수치 영역에서
-검증한다.
+검증한다. full kernel은 매 실행마다 입력에서 inference와 Sight를 다시 계산하며 process-local
+memoization이나 이전 결과 적중을 성능 계약으로 사용하지 않는다.
 
 ## 3. 순수 데이터 흐름
 
@@ -56,7 +58,8 @@ Canonical exact-240
   → StructuralFactTape
   → PriceMemoryField + RegressionFlow
   → H-Line / Trend BoundaryMode
-  → StructureRelation + PatternTrace
+  → StructureRelation + contactSequence + priceTrace
+  → 현재성 평가
   → boundary/relation scene selection
   → CzardasInference
   → deterministic CzardasSightPack
@@ -123,10 +126,12 @@ robust lower/upper boundary를 fit하며 slope 방향을 강제하지 않는다.
 
 Trend inference slice와 RegressionFlow는 volume-only 입력 변경 전후 byte-identical해야 한다.
 
-## 6. StructureRelation과 PatternTrace
+## 6. StructureRelation과 Pattern 표현
 
 Pattern은 hard-valid boundary, contact sequence, containment, contraction과 impulse의 관계다.
-Pattern별 pivot, OLS 또는 boundary refit을 실행하지 않는다.
+Pattern별 pivot, OLS 또는 boundary refit을 실행하지 않는다. root와 현재 `asOf`까지 이어지는
+active structural domain 각각에서 관계를 평가하고, 같은 boundary pair의 시간 규모 중
+`relationQuality 85% + presentRelevance 15%` 선택 점수가 높은 결과를 남긴다.
 
 | kind | 관계 |
 | --- | --- |
@@ -137,13 +142,19 @@ Pattern별 pivot, OLS 또는 boundary refit을 실행하지 않는다.
 | Flag | impulse 뒤 반대 방향 또는 횡보 평행 consolidation |
 | Pennant | impulse 뒤 수렴 consolidation |
 
-family 우선순위는 없다. relation quality, domain scale과 provenance 중복으로 최대 두 관계를
-선택하고 같은 boundary는 하나의 presented relation에만 사용한다. Flag와 Pennant의 impulse는
-consolidation보다 앞서야 한다.
+Trend lower+upper와 H-Line support+resistance 외에 `lower Trend + resistance H-Line`,
+`support H-Line + upper Trend`를 Triangle 후보로 평가한다. interaction 접촉은
+`supported_response`만 확정 근거로 사용하며 pending, neutral과 confirmed break는 제외한다.
+family 우선순위는 없다. selection score와 provenance 중복으로 최대 두 관계를 선택하고 같은
+boundary는 하나의 presented relation에만 사용한다. Flag와 Pennant의 impulse는 consolidation보다
+앞서야 한다.
 
-PatternTrace는 실제 contact·turn·impulse fact를 timestamp 순으로 압축한 3~16개의
-`timestamp+price` anchor다. synthetic corner, future apex와 screen 좌표는 anchor가 될 수 없다.
-승격된 relation 하나는 managed polyline 하나와 1:1로 대응한다.
+`contactSequence`는 formation episode와 supported response를 시간순·역할 교대로 압축한 3~16개
+판정 provenance다. `priceTrace`는 별도 화면 계약이다. 첫 확정 접촉의 candle부터 현재 candle까지
+종가를 선형 보간 잔차로 단순화하고, 구간 median ATR의 `0.35`를 잔차 임계값으로 사용한다.
+첫점·현재점과 강한 접촉 최대 6개를 우선 보존한 뒤 큰 꺾임을 채워 총 3~16개 anchor를 만든다.
+모든 anchor 가격은 해당 index의 종가와 같아야 하고 smoothing, synthetic corner와 future apex는
+사용하지 않는다. 승격된 relation 하나는 이 `priceTrace` managed polyline 하나와 1:1로 대응한다.
 
 hard gate를 넘지 못한 관계 중 provenance가 닫힌 대표 하나는 `PatternEvidence`로 투영할 수 있다.
 이는 국소 marker와 짧은 connector만 가지며 이름, selected relation 또는 drawing을 만들지 않는다.
@@ -155,6 +166,14 @@ evidence closure는 Field 예산에서 원자적으로 포함하거나 전부 �
 - Trend: `0..3`, configured preference 2. hard-valid 후보가 있으면 최소 하나를 선택한다.
 - Pattern: `0..2`, configured quota 없음.
 - boundary drawing 최대 7, 전체 managed drawing 최대 9.
+
+boundary의 최신 확정 근거는 48봉 반감기로 `presentRelevance`를 계산한다. hard-valid,
+geometry와 integrity에는 현재성 점수를 사용하지 않는다. presentation 선택 utility는
+`rank 84% + presentRelevance 12% + 현재가 근접도 4%`다.
+
+H-Line subset에는 support/resistance 역할 다양성 `+0.10`, 현재가를 사이에 둔 조합 `+0.08`,
+모든 pair의 근접 중복도 합에 최대 계수 `-0.15`를 적용한다. 이는 반대편 선을 강제하는 quota가
+아니며 구조 점수가 현저히 약하면 같은 편의 강한 선을 유지한다.
 
 ```text
 inferenceId = hash(
@@ -170,7 +189,7 @@ sightProjectionId = hash(
 
 Boundary drawing은 `sourceInferenceId`, `sourceCandidateId`, `sourceFieldModeId`와 field derivation
 digest를 가진다. Pattern drawing은 `sourceInferenceId`, `sourceRelationId`와 relation derivation
-digest를 가진다. 모든 Pattern anchor는 PatternTrace fact와 일치해야 한다. managed drawing의
+digest를 가진다. 모든 Pattern anchor는 Field `priceTrace`와 일치해야 한다. managed drawing의
 `createdAt/updatedAt`은 pack `asOf`다.
 
 사용자와 LLM은 `czardas:` ID, `czardas-managed` ownership 또는 managed provenance를 생성하거나
@@ -179,12 +198,12 @@ digest를 가진다. 모든 Pattern anchor는 PatternTrace fact와 일치해야 
 ## 8. pack과 Field projection
 
 pack은 algorithm/config/input/time/calendar identity, exact coverage, selection counts, boundaries,
-`patternRelations`, drawings, `czardasField`와 reject summary를 포함한다. Field schema 4의 필수
+`patternRelations`, drawings, `czardasField`와 reject summary를 포함한다. Field schema 5의 필수
 bundle은 다음과 같다.
 
 - 240 CandleMeaning과 factor/reason codebook.
 - selected boundary의 mode, Basis, episode, interaction과 validation closure.
-- selected Pattern의 relation, trace, supporting boundary와 drawing provenance closure.
+- selected Pattern의 relation, `contactSequence`, `priceTrace`, supporting boundary와 drawing provenance closure.
 - structural domains, selected OLS flow와 PriceMemory projection.
 
 투영된 structural domain은 참조된 domain에서 root까지의 모든 `parentId` 조상을 포함해야 한다.
@@ -195,6 +214,11 @@ role별 비선택 mode 하나, representative Trend hypothesis 하나, H-Line re
 PatternEvidence 하나와 48-bin profile은 선택 projection이다. profile과 PatternEvidence closure는
 각각 전부 포함하거나 전부 생략한다.
 
+boundary rank에는 `presentRelevance/selectionUtility`, Pattern에는
+`presentRelevance/selectionScore`가 포함된다. v4 pack은 DB에서 삭제하지 않지만 current validator가
+`incompatible`로 처리해 표시하지 않는다. 같은 pair를 v5로 다시 build하면 latest row를 교체한다.
+dormant Geometry table과 자산은 읽거나 변경하지 않는다.
+
 - Field target: `77,824 bytes`.
 - Field hard limit: `81,920 bytes` (`80 KiB`).
 - pack hard limit: `98,304 bytes` (`96 KiB`).
@@ -203,17 +227,43 @@ PatternEvidence 하나와 48-bin profile은 선택 projection이다. profile과 
 저장하지 않고 `AnalysisUnavailable`을 반환한다. canonical JSON content digest는 wire bytes를,
 input digest는 양자화된 exact-240 identity를 식별한다.
 
+### 성능 정책
+
+성능보다 구조 생성, 현재성 평가, 후보 선택, 확정 작도와 Field 표현의 책임 분리, 정확성,
+결정론과 유지보수성을 우선한다. 벤치마크는 일반적인 미세 지연 차이를 PR 실패로 만드는 목표치가
+아니라 계산량이 비정상적으로 폭증했는지 탐지하는 안전장치다.
+
+- 실제 exact-240 full kernel을 매 iteration 새로 실행하며 결과 cache나 fixture 전용 분기를 쓰지 않는다.
+- PR 차단선은 P95 `250ms`, P99 `400ms`다. 44~70ms 범위의 차이는 report에만 기록한다.
+- Field `80 KiB`, pack `96 KiB` hard limit은 성능 한도와 독립적으로 계속 강제한다.
+- profiling에서 명백한 중복을 제거해 데이터 흐름도 단순해지는 경우에만 최적화한다. 후보,
+  active domain, provenance, `contactSequence` 또는 `priceTrace`를 줄여 시간을 맞추지 않는다.
+- 동일 장비·런타임의 안정적인 기준 자료가 마련되면 2배 이상 또는 `+100ms` 이상 회귀를 별도
+  경고할 수 있다. 현재 v5는 장비 간 편차가 큰 기준 비교 대신 절대 안전 한도만 사용한다.
+
 ## 9. chart runtime 계약
 
 - chart type `czardas`는 지원 interval에서만 선택할 수 있다.
 - H-Line, Trend, Pattern 세 toggle은 독립적이며 Shared candle 의미는 항상 보인다.
 - H-Line toggle은 PriceMemory 흔적·zone·drawing, Trend toggle은 Trend 의미·OLS·ribbon·drawing,
   Pattern toggle은 relation fact·trace·polyline·label을 제어한다.
-- candle, Basis, OLS, Trend, validation과 PatternTrace는 `timestamp+price` data-space다.
+- candle, Basis, OLS, Trend, validation과 `priceTrace`는 `timestamp+price` data-space다.
 - H-Line response와 zone은 exact-240 analysis window에 clip한다.
 - hover text와 충돌 회피 label만 screen-space다.
 - 모든 data primitive와 managed drawing은 같은 `timestampToX/priceToY` 변환을 쓴다.
 - stale 또는 input digest mismatch이면 Field, hover와 해설을 현재 inference처럼 표시하지 않는다.
+
+Czardas Field는 확정 mode를 선명한 실선, role별 비선택 landscape mode 하나를 낮은 투명도의
+점선으로 그린다. 비선택 mode는 managed drawing으로 승격하지 않는다. 확대 상태의 candle
+고저점 국소 H-Line은 `role 85% + Shared 15%` 강도로 계산하고 support는 signal,
+resistance는 caution 색을 사용한다. opacity는 `0.10..0.92`, 굵기는 `1..3px`, 반길이는
+`clamp(slotWidth × (0.55 + 2.45 × strength²), 3, 42px)`다. 약한 흔적부터 그리고 강한 흔적을
+마지막에 그리며 축소 상태에서는 생략한다.
+
+current v5 pack의 확정 managed drawing과 같은 세 toggle은 Candle, Line, OHLC에서도 보인다.
+일반 chart에는 Field 후보, OLS, Basis, candle meaning, PatternEvidence와 Czardas 범례를 표시하지
+않는다. Bid/Ask와 1M은 제외한다. chart type 전환은 toggle 상태와 suppression을 유지하며 같은
+drawing을 중복 생성하지 않는다.
 
 managed drawing의 최초 편집은 해당 candidate 또는 relation을 session fork/suppress한다. user
 polyline은 3~32 anchors, Czardas Pattern polyline은 3~16 anchors다. vertex/path drag, hit-test,

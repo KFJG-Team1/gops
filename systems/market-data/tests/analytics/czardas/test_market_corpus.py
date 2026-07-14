@@ -80,6 +80,16 @@ def test_real_daily_corpus_produces_complete_bounded_present_snapshot(symbol: st
     )
 
 
+def test_real_daily_corpus_does_not_regress_v4_pattern_coverage():
+    detected = 0
+    for symbol in SYMBOLS:
+        result = analyze_czardas(_daily(symbol)[-240:])
+        assert isinstance(result, Ready), getattr(result, "reason", None)
+        detected += len(result.content["patternRelations"])
+
+    assert detected >= 4
+
+
 @pytest.mark.parametrize("symbol", ("AAPL", "NVDA"))
 def test_real_weekly_corpus_is_deterministic_without_line_position_oracles(symbol: str):
     rows = _weekly(symbol)[-240:]

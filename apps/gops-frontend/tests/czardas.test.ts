@@ -7,12 +7,19 @@ import {
   normalizeCzardasAssetsResponse,
   type CzardasPackContent
 } from "../src/chart/czardasAssetsApi";
-import { czardasDeltaCommands, czardasRestoreCommands } from "../src/chart/czardasLayerController";
+import {
+  czardasDeltaCommands,
+  czardasDrawingsForChartType,
+  czardasRestoreCommands,
+  supportsCzardasManagedDrawings
+} from "../src/chart/czardasLayerController";
 import { candleMeaningAtTimestamp } from "../src/chart/czardasMeaning";
 import {
   czardasDetailedCandleStrength,
   czardasDenseCandleStrength,
   czardasHlineTraceHalfLength,
+  czardasHlineTraceLineWidth,
+  czardasHlineTraceOpacity,
   czardasHlineTraceStrength,
   czardasRenderableBasis,
   czardasSightMode,
@@ -24,7 +31,7 @@ import {
 import { buildChartScene, createCoordinateTransform, priceToY } from "../src/chart/scene";
 
 const timestamp = "2026-07-10T20:00:00.000Z";
-const inferenceId = "sha256:inference-v4";
+const inferenceId = "sha256:inference-v5";
 const target = { panelId: "panel-czardas", chartDocumentId: "doc-czardas" };
 
 const denseStrengths = { shared: 0.3, hline: 0.9, trend: 0.6, composite: 0.8 };
@@ -34,10 +41,12 @@ assert.equal(czardasSightMode(Number.NaN), "dense");
 assert.ok(Math.abs(czardasDetailedCandleStrength(denseStrengths, { trend: true }) - 0.45) < 1e-12);
 assert.equal(czardasDetailedCandleStrength(denseStrengths, { trend: false }), 0.3);
 assert.equal(czardasHlineTraceStrength(0.3, 0), 0);
-assert.ok(Math.abs(czardasHlineTraceStrength(0.3, 0.9) - 0.6) < 1e-12);
+assert.ok(Math.abs(czardasHlineTraceStrength(0.3, 0.9) - 0.81) < 1e-12);
 assert.equal(czardasHlineTraceHalfLength(0, 0), 3);
-assert.equal(czardasHlineTraceHalfLength(1_000, 1), 18);
-assert.ok(Math.abs(czardasHlineTraceHalfLength(6, 0.6) - 7.8) < 1e-12);
+assert.equal(czardasHlineTraceHalfLength(1_000, 1), 42);
+assert.ok(Math.abs(czardasHlineTraceHalfLength(6, 0.6) - 8.592) < 1e-12);
+assert.ok(czardasHlineTraceOpacity(0.9) > czardasHlineTraceOpacity(0.2));
+assert.ok(czardasHlineTraceLineWidth(0.9) > czardasHlineTraceLineWidth(0.2));
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: true, trend: true }), 0.8);
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: false, trend: false }), 0.3);
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: true, trend: false }), 0.6);
@@ -79,6 +88,12 @@ function managed(id: string, candidate: string, role: "hline" | "trend"): Drawin
 
 const upper = managed("czardas:upper:line", "upper", "trend");
 const lower = managed("czardas:lower:line", "lower", "trend");
+for (const chartType of ["czardas", "candle", "line", "ohlc"] as const) {
+  assert.equal(supportsCzardasManagedDrawings(chartType), true);
+  assert.equal(czardasDrawingsForChartType([upper], chartType).length, 1);
+}
+assert.equal(supportsCzardasManagedDrawings("bidask"), false);
+assert.equal(czardasDrawingsForChartType([upper], "bidask").length, 0);
 const patternDrawing: DrawingEntity = {
   id: "czardas:relation-channel:pattern",
   type: "polyline",
@@ -367,17 +382,18 @@ const boundary = (candidateId: "upper" | "lower" | "support", role: "upper" | "l
   rank: {
     rankScore: .8, responseBonus: 0, profileBonus: 0,
     integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
-    bodyPenetrationCount: 1, closePenetrationCount: 0
+    bodyPenetrationCount: 1, closePenetrationCount: 0,
+    presentRelevance: .75, selectionUtility: .78
   },
   line: { priceAtAsOf: price, slopePerBar: .01, zoneHalfWidth: .5 },
   explanation: { claim: "현재 경계", because: ["구조적 endpoint"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
 });
 const field = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   inputContractVersion: "canonical-ohlcv-q8-v1",
   inferenceConfigDigest: "sha256:inference-config",
   projectionConfigDigest: "sha256:projection-config",
-  sightProjectionVersion: "czardas-sight-v3",
+  sightProjectionVersion: "czardas-sight-v4",
   sightProjectionId: "sha256:sight-projection",
   sourceBars: 240,
   evaluationAsOf: timestamp,
@@ -471,14 +487,14 @@ const field = {
 };
 const support = managed("czardas:support:line", "support", "hline");
 const pack = {
-  algorithmVersion: "czardas-v4",
-  configVersion: "czardas-config-v4",
+  algorithmVersion: "czardas-v5",
+  configVersion: "czardas-config-v5",
   inputContractVersion: "canonical-ohlcv-q8-v1",
   timeContractVersion: "market-time-v1",
   calendarVersion: "nyse-calendar-v1",
   inferenceConfigDigest: "sha256:inference-config",
   projectionConfigDigest: "sha256:projection-config",
-  sightProjectionVersion: "czardas-sight-v3",
+  sightProjectionVersion: "czardas-sight-v4",
   sightProjectionId: "sha256:sight-projection",
   symbol: "NVDA",
   interval: "1D",
@@ -679,6 +695,14 @@ assert.equal(freshnessForPack({
   ...pack,
   sightProjectionVersion: "czardas-sight-v1"
 }), "incompatible");
+assert.equal(freshnessForPack({
+  ...pack,
+  algorithmVersion: "czardas-v4"
+}), "incompatible");
+assert.equal(freshnessForPack({
+  ...pack,
+  czardasField: { ...field, schemaVersion: 4 }
+} as CzardasPackContent), "incompatible");
 
 assert.equal(freshnessForPack({
   ...pack,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from .features import FeatureTape
+from .config import CzardasConfig
+from .select import boundary_present_relevance, boundary_selection_utility
 from .tape import CandleTape
 from .types import BoundaryCandidate
 
@@ -24,6 +26,7 @@ def compile_boundary(
     features: FeatureTape,
     candidate: BoundaryCandidate,
     _inference_id: str,
+    config: CzardasConfig,
     regression_flows=(),
 ) -> dict:
     responses = [item for item in candidate.interactions if item.outcome == "supported_response"]
@@ -58,6 +61,8 @@ def compile_boundary(
             "responseBonus": min(0.10, 0.05 * sum(item.response_score for item in responses)),
             "profileBonus": 0.05 * (candidate.profile_confluence or 0.0),
             "rankScore": candidate.rank_score,
+            "presentRelevance": boundary_present_relevance(candidate, current_index, config),
+            "selectionUtility": boundary_selection_utility(tape, features, candidate, config),
             "integrityFactCount": candidate.integrity_fact_count,
             "integrityEffectiveFactCount": candidate.integrity_effective_fact_count,
             "integrityCoverage": candidate.integrity_coverage,
@@ -108,7 +113,7 @@ def compile_pattern_drawing(tape: CandleTape, relation: dict, inference_id: str)
         "type": "polyline",
         "anchors": [
             {"timestamp": tape.candles[item["index"]].timestamp, "price": item["price"]}
-            for item in relation["trace"]["anchors"]
+            for item in relation["priceTrace"]["anchors"]
         ],
         "sourceInterval": tape.interval,
         "style": {"colorToken": "drawing", "lineWidth": 3, "extension": "none"},
@@ -131,8 +136,8 @@ def stable_relation_digest(relation: dict) -> str:
         "pattern-relation-derivation",
         relation["relationId"],
         relation["boundaryCandidateIds"],
-        relation["trace"]["contributingEpisodeIds"],
-        relation["trace"]["anchors"],
+        relation["contactSequence"],
+        relation["priceTrace"],
     )
 
 

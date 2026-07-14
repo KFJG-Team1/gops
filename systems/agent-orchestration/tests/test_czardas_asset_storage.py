@@ -39,7 +39,7 @@ def test_projection_rejects_generated_at_inside_pack():
         _pack_projection(pack, pack["generatedAt"])
 
 
-def test_storage_rejects_malformed_v4_pack_before_opening_a_transaction():
+def test_storage_rejects_malformed_v5_pack_before_opening_a_transaction():
     pack = _pack()
     pack["czardasField"]["candleMeanings"]["timestamps"].pop()
     connection = Connection(fetches=[])

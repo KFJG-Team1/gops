@@ -3,7 +3,7 @@
 This directory owns stable chart-command contracts and the Czardas pack schema shared by
 backend validation, PostgreSQL delivery, chart-engine execution, and frontend rendering.
 
-`chart-czardas-pack.schema.json` defines the Czardas v4 wire shape and Field schema 4. The
+`chart-czardas-pack.schema.json` defines the Czardas v5 wire shape and Field schema 5. The
 authoritative relational validator is
 `gops_agents.czardas_assets.contract.validate_czardas_pack`; schema-valid JSON alone is not
 sufficient to enter or leave storage. Both save and delivery validate identity, exact-240

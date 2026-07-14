@@ -343,7 +343,7 @@ function drawCzardasFieldInsidePlot(context: CanvasRenderingContext2D, scene: Ch
     drawCzardasHlineModes(
       context,
       scene,
-      field.hlineModes.filter((mode) => selectedModes.has(`${String(mode.fieldModeId)}:${String(mode.derivationDigest)}`)),
+      field.hlineModes,
       selectedModes,
       field.windowFromTimestamp,
       field.windowToTimestamp
@@ -354,7 +354,7 @@ function drawCzardasFieldInsidePlot(context: CanvasRenderingContext2D, scene: Ch
     drawCzardasTrendModes(
       context,
       scene,
-      field.trendModes.filter((mode) => selectedModes.has(`${String(mode.fieldModeId)}:${String(mode.derivationDigest)}`)),
+      field.trendModes,
       selectedModes
     );
   }
@@ -374,6 +374,13 @@ function drawCzardasCandleFacts(
   meanings?: CzardasCandleMeaningsDto,
   visibility: { hline: boolean; trend: boolean; pattern?: boolean } = { hline: true, trend: true, pattern: true }
 ) {
+  const localHlineTraces: Array<{
+    x: number;
+    y: number;
+    strength: number;
+    role: "support" | "resistance";
+    slotWidth: number;
+  }> = [];
   const meaningIndex = new Map(meanings?.timestamps.map((timestamp, index) => [timestamp, index]) ?? []);
   const sightMode = czardasSightMode(scene.scales.slotWidth);
   candleUnits(scene).forEach((unit) => {
@@ -416,9 +423,16 @@ function drawCzardasCandleFacts(
       context.strokeRect(center - width / 2, bodyTop, width, bodyHeight);
       if (index !== undefined && meanings) {
         if (visibility.hline) {
-          drawCzardasHlineCandleTraces(
-            context, center, high, low, scene.scales.slotWidth, shared, meanings, index
-          );
+          const support = boundedCzardasStrength(czardasScore(meanings, meanings.roles.support[index]));
+          const resistance = boundedCzardasStrength(czardasScore(meanings, meanings.roles.resistance[index]));
+          if (support > 0) localHlineTraces.push({
+            x: center, y: low, role: "support", slotWidth: scene.scales.slotWidth,
+            strength: czardasHlineTraceStrength(shared, support)
+          });
+          if (resistance > 0) localHlineTraces.push({
+            x: center, y: high, role: "resistance", slotWidth: scene.scales.slotWidth,
+            strength: czardasHlineTraceStrength(shared, resistance)
+          });
         }
       }
     }
@@ -431,30 +445,31 @@ function drawCzardasCandleFacts(
     }
     context.restore();
   });
+  localHlineTraces.sort((left, right) => (
+    left.strength - right.strength
+    || left.x - right.x
+    || left.role.localeCompare(right.role)
+  )).forEach((trace) => drawCzardasHlineCandleTrace(context, trace));
 }
 
-function drawCzardasHlineCandleTraces(
+function drawCzardasHlineCandleTrace(
   context: CanvasRenderingContext2D,
-  x: number,
-  highY: number,
-  lowY: number,
-  slotWidth: number,
-  shared: number,
-  meanings: CzardasCandleMeaningsDto,
-  index: number
+  trace: {
+    x: number;
+    y: number;
+    strength: number;
+    role: "support" | "resistance";
+    slotWidth: number;
+  }
 ) {
-  const support = boundedCzardasStrength(czardasScore(meanings, meanings.roles.support[index]));
-  const resistance = boundedCzardasStrength(czardasScore(meanings, meanings.roles.resistance[index]));
-  ([{ role: support, y: lowY }, { role: resistance, y: highY }]).forEach((item) => {
-    if (item.role <= 0) return;
-    const strength = czardasHlineTraceStrength(shared, item.role);
-    const halfLength = czardasHlineTraceHalfLength(slotWidth, strength);
-    context.strokeStyle = colors.pointYellow;
-    context.globalAlpha = 0.08 + strength * 0.56;
-    context.lineWidth = 1 + strength * 1.5;
-    context.lineCap = "round";
-    line(context, x - halfLength, item.y, x + halfLength, item.y);
-  });
+  const halfLength = czardasHlineTraceHalfLength(trace.slotWidth, trace.strength);
+  context.save();
+  context.strokeStyle = trace.role === "support" ? colors.signal : colors.caution;
+  context.globalAlpha = czardasHlineTraceOpacity(trace.strength);
+  context.lineWidth = czardasHlineTraceLineWidth(trace.strength);
+  context.lineCap = "round";
+  line(context, trace.x - halfLength, trace.y, trace.x + halfLength, trace.y);
+  context.restore();
 }
 
 function drawCzardasHlineModes(
@@ -473,7 +488,6 @@ function drawCzardasHlineModes(
     const modeId = recordString(mode, "fieldModeId");
     const digest = recordString(mode, "derivationDigest");
     const mass = recordNumber(mode, "supportMass") ?? 0;
-    const state = recordString(mode, "modeState");
     const opposition = recordNumber(mode, "oppositionMass") ?? 0;
     if (center === null || !modeId) return;
     const selected = Boolean(digest && selectedModes.has(`${modeId}:${digest}`));
@@ -491,7 +505,7 @@ function drawCzardasHlineModes(
     context.fillRect(window.fromX, top, window.toX - window.fromX, Math.max(1, bottom - top));
     context.globalAlpha = (selected ? 0.58 : 0.20) * Math.max(0.35, 1 - opposition);
     context.lineWidth = selected ? 1.5 : 1;
-    context.setLineDash(state === "weak" ? [4, 4] : state === "opposed" ? [2, 3] : []);
+    context.setLineDash(selected ? [] : [5, 5]);
     line(context, window.fromX, priceToY(scene, center), window.toX, priceToY(scene, center));
     context.restore();
   });
@@ -534,6 +548,7 @@ function drawCzardasTrendModes(
     context.strokeStyle = color;
     context.globalAlpha = selected ? 0.62 : 0.18;
     context.lineWidth = selected ? 1.5 : 1;
+    context.setLineDash(selected ? [] : [5, 5]);
     line(context, estimateLine.fromX, estimateLine.fromY, estimateLine.toX, estimateLine.toY);
     context.restore();
   });
@@ -691,7 +706,7 @@ function drawCzardasPatternRelations(
   field: CzardasFieldDto
 ) {
   field.patternRelationGlyphs.forEach((glyph) => {
-    const trace = asCanvasRecord(glyph.trace);
+    const trace = asCanvasRecord(glyph.contactSequence);
     const indexes = Array.isArray(trace.indexes) ? trace.indexes : [];
     const prices = Array.isArray(trace.prices) ? trace.prices : [];
     const points = indexes.map((value, index) => {
@@ -722,7 +737,7 @@ function drawCzardasPatternEvidence(
   field: CzardasFieldDto
 ) {
   field.patternEvidenceGlyphs.forEach((glyph) => {
-    const trace = asCanvasRecord(glyph.trace);
+    const trace = asCanvasRecord(glyph.contactSequence);
     const indexes = Array.isArray(trace.indexes) ? trace.indexes : [];
     const prices = Array.isArray(trace.prices) ? trace.prices : [];
     const points = indexes.map((value, index) => {
@@ -824,13 +839,21 @@ export function czardasHlineTraceStrength(shared: number, role: number): number 
   const roleStrength = boundedCzardasStrength(role);
   return roleStrength <= 0
     ? 0
-    : (boundedCzardasStrength(shared) + roleStrength) / 2;
+    : 0.15 * boundedCzardasStrength(shared) + 0.85 * roleStrength;
 }
 
 export function czardasHlineTraceHalfLength(slotWidth: number, strength: number): number {
   const safeSlotWidth = Number.isFinite(slotWidth) ? Math.max(0, slotWidth) : 0;
   const safeStrength = boundedCzardasStrength(strength);
-  return Math.max(3, Math.min(18, safeSlotWidth * (0.55 + 1.25 * safeStrength)));
+  return Math.max(3, Math.min(42, safeSlotWidth * (0.55 + 2.45 * safeStrength ** 2)));
+}
+
+export function czardasHlineTraceOpacity(strength: number): number {
+  return 0.10 + 0.82 * boundedCzardasStrength(strength) ** 1.4;
+}
+
+export function czardasHlineTraceLineWidth(strength: number): number {
+  return 1 + 2 * boundedCzardasStrength(strength) ** 1.5;
 }
 
 export function czardasDenseCandleStrength(

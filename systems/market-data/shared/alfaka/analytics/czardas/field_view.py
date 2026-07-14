@@ -192,7 +192,7 @@ def build_field_view(
                 "outcome": event.outcome,
             })
     field = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "inputContractVersion": config.input_contract_version,
         "inferenceConfigDigest": config.inference_digest,
         "projectionConfigDigest": config.projection_digest,
@@ -218,35 +218,22 @@ def build_field_view(
         "validationGlyphs": validation,
         "patternRelationGlyphs": [{
             "relationId": relation["relationId"],
-            "kind": relation["kind"],
-            "boundaryCandidateIds": relation["boundaryCandidateIds"],
-            "domain": relation["domain"],
-            "trace": {
-                "indexes": [item["index"] for item in relation["trace"]["anchors"]],
-                "prices": [item["price"] for item in relation["trace"]["anchors"]],
-                "roles": [item["role"] for item in relation["trace"]["anchors"]],
-                "episodeRefs": [
-                    episode_ref_by_id[episode_id]
-                    for episode_id in relation["trace"]["contributingEpisodeIds"]
-                    if episode_id in episode_ref_by_id
-                ],
+            "contactSequence": _contact_sequence_dto(
+                relation["contactSequence"], episode_ref_by_id,
+            ),
+            "priceTrace": {
+                "method": relation["priceTrace"]["method"],
+                "indexes": [item["index"] for item in relation["priceTrace"]["anchors"]],
+                "prices": [item["price"] for item in relation["priceTrace"]["anchors"]],
             },
-            "relationQuality": relation["relationQuality"],
         } for relation in relations],
         "patternEvidenceGlyphs": [{
             "evidenceId": evidence["evidenceId"],
             "kind": evidence["kind"],
             "boundaryCandidateIds": evidence["boundaryCandidateIds"],
-            "trace": {
-                "indexes": [item["index"] for item in evidence["trace"]["anchors"]],
-                "prices": [item["price"] for item in evidence["trace"]["anchors"]],
-                "roles": [item["role"] for item in evidence["trace"]["anchors"]],
-                "episodeRefs": [
-                    episode_ref_by_id[episode_id]
-                    for episode_id in evidence["trace"]["contributingEpisodeIds"]
-                    if episode_id in episode_ref_by_id
-                ],
-            },
+            "contactSequence": _contact_sequence_dto(
+                evidence["contactSequence"], episode_ref_by_id,
+            ),
         } for evidence in relation_evidence],
         "projection": {
             "truncated": False,
@@ -531,6 +518,25 @@ def _basis_facts_dto(items):
         "participations": [item.participation for item in items],
         "effectiveScales": [item.effective_scale for item in items],
         "roleCodebook": {"support": 0, "resistance": 1, "lower": 2, "upper": 3},
+    }
+
+
+def _contact_sequence_dto(sequence, episode_ref_by_id):
+    anchors = sequence["anchors"]
+    return {
+        "indexes": [item["index"] for item in anchors],
+        "prices": [item["price"] for item in anchors],
+        "roles": [item["role"] for item in anchors],
+        "sourceCodes": [0 if item["sourceKind"] == "formation" else 1 for item in anchors],
+        "episodeRefs": [
+            episode_ref_by_id.get(item["sourceId"])
+            if item["sourceKind"] == "formation" else None
+            for item in anchors
+        ],
+        "interactionIds": [
+            item["sourceId"] if item["sourceKind"] == "interaction" else None
+            for item in anchors
+        ],
     }
 
 

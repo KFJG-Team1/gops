@@ -61,7 +61,7 @@ class Storage:
 
 def _content():
     return {
-        "algorithmVersion": "czardas-v4",
+        "algorithmVersion": "czardas-v5",
         "symbol": "NVDA",
         "interval": "1D",
         "drawings": [{"id": "one"}],
@@ -170,7 +170,7 @@ def test_post_asof_completed_row_is_not_mixed_and_precommit_audit_rejects_save()
     assert storage.saved == []
 
 
-def test_unchanged_requires_valid_pack_and_all_v3_identity_fields():
+def test_unchanged_requires_valid_pack_and_all_v5_identity_fields():
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
     progress = _submitted_progress(envelope)
     pack = valid_flat_pack()

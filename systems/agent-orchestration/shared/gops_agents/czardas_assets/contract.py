@@ -4,10 +4,10 @@ import hashlib
 import json
 from typing import Any, Mapping
 
-from .contract_v4 import V4ContractError, validate_v4_pack
+from .contract_v5 import V5ContractError, validate_v5_pack
 
 
-FIELD_SCHEMA_VERSION = 4
+FIELD_SCHEMA_VERSION = 5
 TARGET_BARS = 240
 MAX_DRAWINGS = 9
 MAX_HLINES = 4
@@ -18,7 +18,7 @@ MAX_PACK_BYTES = 96 * 1024
 
 
 class CzardasPackValidationError(ValueError):
-    """The deterministic Czardas pack does not satisfy the v4 wire contract."""
+    """The deterministic Czardas pack does not satisfy the v5 wire contract."""
 
 
 def validate_czardas_pack(
@@ -28,12 +28,12 @@ def validate_czardas_pack(
     expected_interval: str | None = None,
 ) -> dict[str, Any]:
     try:
-        return validate_v4_pack(
+        return validate_v5_pack(
             pack,
             expected_symbol=expected_symbol,
             expected_interval=expected_interval,
         )
-    except V4ContractError as exc:
+    except V5ContractError as exc:
         raise CzardasPackValidationError(str(exc)) from exc
 
 

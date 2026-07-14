@@ -20,6 +20,8 @@
 - 가격 평행이동과 양수배에서 구조가 일관되고 zero ATR/volume에서도 유한한 값을 낸다.
 - isolated wick 영향은 bounded이고 지속 body/close penetration은 더 큰 integrity 손실을 낸다.
 - volume-only 변경 전후 Trend와 RegressionFlow semantic slice가 byte-identical하다.
+- 같은 구조 점수의 과거·최근 후보에서는 최근 후보의 selection utility가 높고, 강한 과거 후보는
+  약한 최근 후보에게 현재성만으로 역전되지 않는다. 48봉 전 확정 근거의 relevance는 0.5다.
 
 ## 2. 구조·선택·provenance gate
 
@@ -30,20 +32,27 @@
 - 선택 mode→domain→Basis→episode→interaction→relation→trace closure의 orphan이 0개다.
 - 투영된 structural domain의 모든 `parentId`가 같은 Field에 있고 interaction corridor의 부재는
   `corridorLow: null`, `corridorHigh: null`로 명시된다.
-- selected Pattern과 managed polyline은 1:1이고 모든 anchor가 PatternTrace fact와 일치한다.
+- selected Pattern과 managed polyline은 1:1이고 모든 anchor가 Field `priceTrace`와 일치한다.
 - Pattern이 없을 때 Pattern 이름과 managed polyline도 0개다.
 - PatternEvidence는 이름과 drawing을 만들지 않고 closure 전체가 원자적으로 포함·생략된다.
 - Flag와 Pennant impulse는 consolidation보다 앞서며 같은 boundary는 하나의 presented relation에만
   포함된다.
 - boundary drawing은 candidate provenance, Pattern drawing은 relation provenance를 사용한다.
 - user/LLM actor의 managed ownership, provenance와 `czardas:` ID 위조를 executor가 거부한다.
+- 근소하게 약한 반대편 H-Line이 역할 다양성과 현재가 bracket으로 선택되는 경우와, 현저히 약해
+  선택되지 않는 경우를 모두 검증한다.
+- 여섯 Pattern family, mixed-boundary Triangle, broken structure abstention과 현재 `asOf`까지 이어지는
+  active-domain 선택을 합성 fixture로 검증한다.
+- `contactSequence`는 formation과 supported response만 참조한다. `priceTrace`는 관계 구간 안의
+  종가와 정확히 일치하고 첫점·현재점을 포함하며 3..16개다.
+- AAPL, MSFT, NVDA, TSLA, SPY, TLT daily corpus의 Pattern 합계가 v4 기준 4개보다 작아지지 않는다.
 
 ## 3. 크기와 성능 gate
 
 | 항목 | hard gate |
 | --- | --- |
-| kernel corpus P95 | `<=50ms` |
-| kernel corpus P99 | `<=80ms` |
+| full kernel P95 안전 한도 | `<=250ms` |
+| full kernel P99 안전 한도 | `<=400ms` |
 | Field JSON | `<=80 KiB` |
 | 전체 pack JSON | `<=96 KiB` |
 | frontend parse+stable-ID delta P95 | `<=8ms` |
@@ -53,11 +62,22 @@
 mandatory Field bundle이 크기 한도를 넘으면 build는 실패해야 한다. CandleMeaning 또는 selected
 derivation closure를 잘라 partial pack을 저장해서는 안 된다.
 
+성능 gate는 exact-240 full kernel을 매 iteration 새로 실행해 비정상적인 계산량 폭증만 막는다.
+process-local memoization, fixture 전용 분기나 이전 결과 재사용으로 통과시키지 않는다. 44~70ms의
+일반적인 측정 차이는 출력만 하고 실패시키지 않으며, 로직의 명료성·정확성·결정론과 단계별 책임을
+미세 실행시간보다 우선한다. 현재는 실행 장비가 고정되지 않아 절대 안전 한도만 적용한다. 향후
+동일 장비의 안정적인 기준선을 운영할 수 있으면 2배 또는 `+100ms` 회귀를 별도 경고로 추가한다.
+성능을 이유로 Pattern 후보, active domain, provenance, `contactSequence`와 `priceTrace`를 축소해서는
+안 된다.
+
 ## 4. chart runtime gate
 
 - H-Line, Trend, Pattern toggle이 독립적이고 Shared 의미는 항상 유지된다.
-- 일반 chart type에 Czardas toggle, Field와 hover가 나타나지 않는다.
-- 확대/축소 시 candle 의미, 국소 PriceMemory, OLS, boundary, PatternTrace와 최종 drawing의 의미가
+- current v5 pack의 확정 H-Line, Trend, Pattern drawing과 세 toggle은 Candle, Line, OHLC에
+  나타나며 Bid/Ask와 1M에는 나타나지 않는다.
+- 일반 chart에는 Field 후보, OLS, Basis, candle meaning, PatternEvidence와 Czardas 범례가
+  나타나지 않는다. chart type을 바꿔도 toggle 상태와 suppression이 유지된다.
+- 확대/축소 시 candle 의미, 국소 PriceMemory, OLS, boundary, `priceTrace`와 최종 drawing의 의미가
   범례·hover와 일치한다.
 - exact-240 전체 pan/zoom과 우측 빈 공간에서 모든 data-space primitive가 candle과 함께 이동한다.
 - Pattern polyline의 draft, Enter/double-click 완료, Backspace, Escape, touch 완료·취소, 모든 segment
@@ -66,6 +86,9 @@ derivation closure를 잘라 partial pack을 저장해서는 안 된다.
 - stale 또는 input digest mismatch에서 Field, hover와 Czardas 해설을 숨긴다.
 - hover는 factor raw/normalized 값, 모든 reason, availability와 usage를 접기·스크롤 없이 보여준다.
 - LLM chart proposal은 polyline과 internal `chart.czardas.*` command를 실행할 수 없다.
+- Field의 확정 mode는 실선, role별 비선택 후보는 낮은 투명도 점선이며 후보는 managed drawing이
+  아니다. 강한 국소 H-Line은 약한 흔적보다 길고 진하고 굵으며 support/resistance 색이 다르다.
+- v4 또는 다른 schema pack은 `incompatible`로 숨기고 v5 재분석 전까지 fallback 표시하지 않는다.
 
 ## 5. API·repair·저장 gate
 
@@ -125,6 +148,7 @@ Repository root에서 실행한다.
 
 ```sh
 .venv/bin/python -m pytest -q systems/market-data/tests/analytics/czardas
+.venv/bin/python scripts/local/benchmark-czardas.py --iterations 200 --warmup 20
 .venv/bin/python -m pytest -q systems/agent-orchestration/tests -k czardas
 .venv/bin/python -m pytest -q systems/api-server/tests -k czardas
 ```

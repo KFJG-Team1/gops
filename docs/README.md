@@ -9,7 +9,7 @@ flowchart TD
   ARCH["AGENT_ARCHITECTURE.md<br/>에이전트 자체 설명"]
   POLICY["AGENT_ANALYSIS_QUERY_POLICY.md<br/>분석 쿼리/응답 정책"]
   CHARTAGENT["CHART_AGENT_STRATEGY.md<br/>차트 지능/에이전트 전략"]
-  CZARDAS["czardas/README.md<br/>Czardas v4 제품·운영 기준"]
+  CZARDAS["czardas/README.md<br/>Czardas v5 제품·운영 기준"]
   BE["AGENT_BACKEND_INTEGRATION.md<br/>백엔드 연동"]
   FE["AGENT_FRONTEND_INTEGRATION.md<br/>프런트 연동"]
   AWS["AGENT_AWS_BUILD.md<br/>AWS 빌드/배포"]
@@ -38,7 +38,7 @@ flowchart TD
 | `PRODUCT_CONTEXT.md` | Product direction and current/future scope boundary. |
 | `CHART_DATA_ARCHITECTURE.md` | Current chart fact ownership, compute placement, query path, API/WS, order-flow, and S3 contracts. |
 | `CHART_AGENT_STRATEGY.md` | 차트 지능의 투자적 역할, deterministic kernel, rule/LLM 경계, 작도 compiler, 데이터 사전 계산, orchestrator 통합, 단계별 구현 전략. |
-| `czardas/README.md` | Czardas v4의 제품 정체성, 기능, 화면·수동 운영과 제약. |
+| `czardas/README.md` | Czardas v5의 제품 정체성, 기능, 화면·수동 운영과 제약. |
 | `czardas/ENGINE_SPEC.md` | exact-240, PriceMemory·OLS·Boundary·Pattern, pack·provenance·runtime의 단일 기술 규격. |
 | `czardas/VERIFICATION.md` | 영구 회귀 gate, 성능·pack 크기, 수동 build와 legacy 분석 runtime 음성 gate. |
 | `CHART_DATA_OPERATIONS.md` | Validation, deployment observation, recovery, retention, Terraform ownership, and rollback runbook. |

@@ -2,11 +2,13 @@ import { Minus, TrendingUp, Waypoints } from "lucide-react";
 import type { CzardasLayerKey, CzardasLayerVisibility } from "../chart/czardasLayerController";
 
 export function CzardasLayerToggles({
-  visibility, disabled, patternEvidenceOnly = false, asOf, stale = false, onToggle
+  visibility, disabled, patternEvidenceOnly = false, showLegend = true,
+  asOf, stale = false, onToggle
 }: {
   visibility: CzardasLayerVisibility;
   disabled: Record<CzardasLayerKey, boolean>;
   patternEvidenceOnly?: boolean;
+  showLegend?: boolean;
   asOf?: string;
   stale?: boolean;
   onToggle: (layer: CzardasLayerKey) => void;
@@ -51,7 +53,7 @@ export function CzardasLayerToggles({
           <Waypoints size={14} aria-hidden="true" />
         </button>
       </div>
-      <div className="czardas-sight-legend" aria-label="Czardas 시각 범례">
+      {showLegend && <div className="czardas-sight-legend" aria-label="Czardas 시각 범례">
         <span title="확대 상태의 캔들 진하기">
           <b className="is-candle-tone" aria-hidden="true">▮</b> Shared+<i className={!visibility.trend ? "is-muted" : undefined}>Trend</i>
         </span>
@@ -64,7 +66,7 @@ export function CzardasLayerToggles({
         <span title="Field 관계 근거와 감지된 패턴 꺾은선">
           <b className="is-yellow-tone" aria-hidden="true">⌁</b> <i className={!visibility.pattern ? "is-muted" : undefined}>Pattern</i>
         </span>
-      </div>
+      </div>}
       {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAsOf(asOf)}{stale ? " · stale" : ""}</span>}
     </div>
   );

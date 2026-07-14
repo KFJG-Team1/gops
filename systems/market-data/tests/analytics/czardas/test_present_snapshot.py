@@ -23,10 +23,10 @@ def test_present_snapshot_emits_one_current_meaning_for_every_bar():
     content = result.content
     meanings = content["czardasField"]["candleMeanings"]
 
-    assert content["algorithmVersion"] == "czardas-v4"
-    assert content["configVersion"] == "czardas-config-v4"
+    assert content["algorithmVersion"] == "czardas-v5"
+    assert content["configVersion"] == "czardas-config-v5"
     assert content["inputContractVersion"] == "canonical-ohlcv-q8-v1"
-    assert content["czardasField"]["schemaVersion"] == 4
+    assert content["czardasField"]["schemaVersion"] == 5
     assert content["czardasField"]["sightProjectionId"] == content["sightProjectionId"]
     assert meanings["evaluationAsOf"] == content["asOf"]
     assert len(meanings["timestamps"]) == len(meanings["candleKeys"]) == 240

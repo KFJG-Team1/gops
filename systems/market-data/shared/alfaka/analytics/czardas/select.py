@@ -28,9 +28,12 @@ def select_boundaries(
         hline_bank,
         config.hline_display_count,
         require_both_roles=False,
+        config=config,
+        kind="hline",
     )
     selected_hlines = _extend_with_exceptionally_distinct(
         tape, features, selected_hlines, hline_bank, config.hline_max_count,
+        compare_across_roles=True,
     )
     if not selected_hlines:
         baseline = sorted(
@@ -42,7 +45,10 @@ def select_boundaries(
     if len(roles) == 1:
         # An honest one-sided Trend remains useful, but the other side is not
         # fabricated and the display target is not filled with duplicates.
-        selected_trends = _best_subset(tape, features, trend_bank, 1, require_both_roles=False)
+        selected_trends = _best_subset(
+            tape, features, trend_bank, 1,
+            require_both_roles=False, config=config, kind="trend",
+        )
     else:
         selected_trends = _best_subset(
             tape,
@@ -50,6 +56,8 @@ def select_boundaries(
             trend_bank,
             config.trend_display_count,
             require_both_roles=config.trend_display_count >= 2,
+            config=config,
+            kind="trend",
         )
     selected_trends = _extend_with_exceptionally_distinct(
         tape, features, selected_trends, trend_bank, config.trend_max_count,
@@ -67,7 +75,9 @@ def select_boundaries(
     return selected_hlines, selected_trends, {key: value for key, value in reasons.items() if value}
 
 
-def _extend_with_exceptionally_distinct(tape, features, selected, bank, limit):
+def _extend_with_exceptionally_distinct(
+    tape, features, selected, bank, limit, *, compare_across_roles=False,
+):
     """Two boundaries are the visual preference, not a hard production cap.
 
     Extra boundaries survive only when they are both strong and geometrically
@@ -85,7 +95,7 @@ def _extend_with_exceptionally_distinct(tape, features, selected, bank, limit):
         ):
             continue
         if any(
-            item.role == candidate.role
+            (compare_across_roles or item.role == candidate.role)
             and _near_duplicate_similarity(tape, features, item, candidate) >= 0.35
             for item in result
         ):
@@ -111,6 +121,8 @@ def _best_subset(
     limit: int,
     *,
     require_both_roles: bool,
+    config: CzardasConfig,
+    kind: str,
 ) -> tuple[BoundaryCandidate, ...]:
     if not bank or limit <= 0:
         return ()
@@ -119,14 +131,32 @@ def _best_subset(
         for subset in itertools.combinations(bank, size):
             if require_both_roles and {item.role for item in subset} != {"lower", "upper"}:
                 continue
-            utility = math.fsum(_candidate_utility(tape, features, item) for item in subset)
-            penalty = math.fsum(
-                _near_duplicate_similarity(tape, features, first, second)
-                for first, second in itertools.combinations(subset, 2)
-                if first.role == second.role
+            utility = math.fsum(
+                boundary_selection_utility(tape, features, item, config) for item in subset
             )
+            pairs = tuple(itertools.combinations(subset, 2))
+            if kind == "hline":
+                roles = {item.role for item in subset}
+                if roles == {"support", "resistance"}:
+                    utility += config.hline_role_diversity_bonus
+                current = tape.candles[-1].close
+                if (
+                    any(item.role == "support" and item.price_at_as_of < current for item in subset)
+                    and any(item.role == "resistance" and item.price_at_as_of > current for item in subset)
+                ):
+                    utility += config.hline_bracketing_bonus
+                penalty = config.hline_duplicate_penalty * math.fsum(
+                    _near_duplicate_similarity(tape, features, first, second)
+                    for first, second in pairs
+                )
+            else:
+                penalty = 0.10 * math.fsum(
+                    _near_duplicate_similarity(tape, features, first, second)
+                    for first, second in pairs
+                    if first.role == second.role
+                )
             ids = tuple(sorted(item.candidate_id for item in subset))
-            choices.append((utility - 0.10 * penalty, size, ids, subset))
+            choices.append((utility - penalty, size, ids, subset))
     if not choices:
         return ()
     # Higher utility wins. Exact ties prefer fewer primitives, then canonical IDs.
@@ -134,15 +164,39 @@ def _best_subset(
     return tuple(sorted(winner, key=lambda item: (item.kind, item.role, item.candidate_id)))
 
 
-def _candidate_utility(tape: CandleTape, features: FeatureTape, candidate: BoundaryCandidate) -> float:
+def boundary_present_relevance(
+    candidate: BoundaryCandidate,
+    current_index: int,
+    config: CzardasConfig,
+) -> float:
+    confirmed_indexes = [candidate.fit_evidence_confirmed_index]
+    confirmed_indexes.extend(item.confirmed_index for item in candidate.fit_episodes)
+    confirmed_indexes.extend(
+        item.terminal_index if item.terminal_index is not None else item.contact_index
+        for item in candidate.interactions
+        if item.outcome == "supported_response"
+    )
+    age = max(0, current_index - max(confirmed_indexes))
+    return 2.0 ** (-age / config.selection_recency_half_life_bars)
+
+
+def boundary_selection_utility(
+    tape: CandleTape,
+    features: FeatureTape,
+    candidate: BoundaryCandidate,
+    config: CzardasConfig,
+) -> float:
     current_index = len(tape.candles) - 1
     distance_atr = abs(candidate.price_at_as_of - tape.candles[-1].close) / features.atr_scale(
         current_index, tape.candles[-1].close
     )
-    normalized_distance = clamp(distance_atr / 3.0)
-    recent_contact = any(current_index - item.contact_index <= 8 for item in candidate.interactions)
-    relevant_now = distance_atr <= 1.0 or recent_contact
-    return candidate.rank_score + (0.05 if relevant_now else 0.0) + 0.03 * (1.0 - normalized_distance)
+    proximity = 1.0 - clamp(distance_atr / 3.0)
+    recency = boundary_present_relevance(candidate, current_index, config)
+    return (
+        config.selection_rank_weight * candidate.rank_score
+        + config.selection_recency_weight * recency
+        + config.selection_proximity_weight * proximity
+    )
 
 
 def _near_duplicate_similarity(

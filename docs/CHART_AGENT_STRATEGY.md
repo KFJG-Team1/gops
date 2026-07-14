@@ -1,6 +1,6 @@
 # Chart Intelligence / Agent Strategy
 
-Status: current chart-intelligence strategy; deterministic Czardas v4 asset runtime operates independently of the LLM chart capability
+Status: current chart-intelligence strategy; deterministic Czardas v5 asset runtime operates independently of the LLM chart capability
 
 Owners: agent-orchestration, market-data, chart-engine, frontend
 

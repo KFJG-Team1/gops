@@ -45,6 +45,8 @@ export type CzardasBoundary = {
     integrityCoverage: number;
     bodyPenetrationCount: number;
     closePenetrationCount: number;
+    presentRelevance: number;
+    selectionUtility: number;
   };
   line: { priceAtAsOf: number; slopePerBar: number; zoneHalfWidth: number };
   explanation: CzardasExplanation;
@@ -351,11 +353,11 @@ function normalizePack(value: unknown, fallbackSymbol: string, interval: Czardas
   const coverage = asRecord(pack.coverage);
   if (
     !symbol || symbol !== fallbackSymbol || pack.interval !== interval || pack.status !== "ready"
-    || pack.algorithmVersion !== "czardas-v4" || pack.configVersion !== "czardas-config-v4"
+    || pack.algorithmVersion !== "czardas-v5" || pack.configVersion !== "czardas-config-v5"
     || pack.inputContractVersion !== "canonical-ohlcv-q8-v1"
     || pack.timeContractVersion !== "market-time-v1" || pack.calendarVersion !== "nyse-calendar-v1"
     || !isNonEmptyString(pack.inferenceConfigDigest) || !isNonEmptyString(pack.projectionConfigDigest)
-    || pack.sightProjectionVersion !== "czardas-sight-v3" || !isNonEmptyString(pack.sightProjectionId)
+    || pack.sightProjectionVersion !== "czardas-sight-v4" || !isNonEmptyString(pack.sightProjectionId)
     || coverage.state !== "exact" || coverage.analysisBars !== 240
     || coverage.actualCompleted !== 240 || coverage.targetCompleted !== 240
     || !isNonEmptyString(pack.asOf) || !isNonEmptyString(pack.lastCandleKey) || !isNonEmptyString(pack.inputDigest)
@@ -439,7 +441,7 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
   const field = asRecord(value);
   const asOf = pack.asOf;
   if (
-    field.schemaVersion !== 4 || field.sourceBars !== 240
+    field.schemaVersion !== 5 || field.sourceBars !== 240
     || field.inputContractVersion !== pack.inputContractVersion
     || field.inferenceConfigDigest !== pack.inferenceConfigDigest
     || field.projectionConfigDigest !== pack.projectionConfigDigest
@@ -767,6 +769,7 @@ function candidateProvenanceIsClosed(pack: CzardasPackContent): boolean {
   if (!pack.patternRelations.every((relation) => (
     patternDrawings.has(relation.relationId)
     && relation.boundaryCandidateIds.every((candidateId) => refs.has(candidateId))
+    && patternDrawingMatchesField(pack, relation.relationId)
   ))) return false;
   return [...refs.keys()].every((candidateId) => {
     const reference = refs.get(candidateId);
@@ -784,6 +787,30 @@ function candidateProvenanceIsClosed(pack: CzardasPackContent): boolean {
       && mode.role === boundary.role
       && mode.viewRole === "landscape_and_selected";
   }) && derivationEpisodesAreClosed(pack, refs);
+}
+
+function patternDrawingMatchesField(pack: CzardasPackContent, relationId: string): boolean {
+  const relation = pack.patternRelations.find((item) => item.relationId === relationId);
+  const drawing = pack.drawings.find((item) => (
+    item.czardasLayer === "pattern" && item.sourceRelationId === relationId
+  ));
+  const glyph = pack.czardasField.patternRelationGlyphs.find((value) => (
+    String(asRecord(value).relationId) === relationId
+  ));
+  if (!relation || !drawing || !glyph) return false;
+  const fieldGlyph = asRecord(glyph);
+  const contact = asRecord(fieldGlyph.contactSequence);
+  const trace = asRecord(fieldGlyph.priceTrace);
+  if (
+    !Array.isArray(contact.indexes) || contact.indexes.length !== relation.traceFactCount
+    || !Array.isArray(trace.indexes) || trace.indexes.length !== relation.traceAnchorCount
+    || !Array.isArray(trace.prices) || trace.prices.length !== trace.indexes.length
+    || drawing.anchors.length !== trace.indexes.length
+  ) return false;
+  return drawing.anchors.every((anchor, index) => (
+    anchor.timestamp === pack.czardasField.candleMeanings.timestamps[trace.indexes[index]]
+    && anchor.price === trace.prices[index]
+  ));
 }
 
 function derivationEpisodesAreClosed(
@@ -843,6 +870,7 @@ function isBoundary(value: unknown): boolean {
     && isTimestamp(formation.lastFitObservedAt) && isTimestamp(formation.fitEvidenceConfirmedAt) && isFiniteNumber(formation.seedQuality)
     && isFiniteNumber(responses.completedCount) && isFiniteNumber(responses.pendingCount) && isFiniteNumber(responses.responseMass)
     && isFiniteNumber(rank.rankScore)
+    && isUnitInterval(rank.presentRelevance) && isUnitInterval(rank.selectionUtility)
     && isFiniteNumber(rank.responseBonus) && isFiniteNumber(rank.profileBonus)
     && Number.isInteger(rank.integrityFactCount) && rank.integrityFactCount >= 0
     && isFiniteNumber(rank.integrityEffectiveFactCount) && rank.integrityEffectiveFactCount >= 0
@@ -882,40 +910,37 @@ function isPatternRelation(value: unknown): boolean {
     && Date.parse(domain.fromTimestamp) <= Date.parse(domain.toTimestamp)
     && impulseValid
     && isFiniteNumber(pattern.relationQuality)
+    && isUnitInterval(pattern.presentRelevance)
+    && isUnitInterval(pattern.selectionScore)
     && pattern.traceRef === pattern.relationId
-    && Number.isInteger(pattern.traceAnchorCount) && pattern.traceAnchorCount >= 3 && pattern.traceAnchorCount <= 16;
+    && Number.isInteger(pattern.traceAnchorCount) && pattern.traceAnchorCount >= 3 && pattern.traceAnchorCount <= 16
+    && Number.isInteger(pattern.traceFactCount) && pattern.traceFactCount >= 3;
 }
 
 function isPatternRelationGlyph(value: unknown): boolean {
   const glyph = asRecord(value);
-  const trace = asRecord(glyph.trace);
-  const indexes = trace.indexes;
-  const prices = trace.prices;
-  const roles = trace.roles;
   return isNonEmptyString(glyph.relationId)
-    && ["triangle", "channel", "rectangle", "wedge", "flag", "pennant"].includes(String(glyph.kind))
-    && Array.isArray(indexes) && indexes.length >= 3 && indexes.length <= 16
-    && Array.isArray(prices) && prices.length === indexes.length && prices.every(isFiniteNumber)
-    && Array.isArray(roles) && roles.length === indexes.length
-    && indexes.every((item) => Number.isInteger(item) && item >= 0 && item < 240)
-    && indexes.every((item, index) => index === 0 || indexes[index - 1] < item);
+    && isPatternContactSequence(asRecord(glyph.contactSequence))
+    && isPatternPriceTrace(asRecord(glyph.priceTrace));
 }
 
 function isPatternEvidenceGlyph(value: unknown): boolean {
   const glyph = asRecord(value);
   const boundaryIds = glyph.boundaryCandidateIds;
   return isNonEmptyString(glyph.evidenceId)
-    && (glyph.kind === "trend_pair" || glyph.kind === "price_memory_pair")
+    && (glyph.kind === "trend_pair" || glyph.kind === "price_memory_pair" || glyph.kind === "mixed_triangle_pair")
     && Array.isArray(boundaryIds) && boundaryIds.length === 2 && boundaryIds.every(isNonEmptyString)
     && boundaryIds[0] !== boundaryIds[1]
-    && isPatternTrace(asRecord(glyph.trace));
+    && isPatternContactSequence(asRecord(glyph.contactSequence));
 }
 
-function isPatternTrace(trace: Record<string, any>): boolean {
+function isPatternContactSequence(trace: Record<string, any>): boolean {
   const indexes = trace.indexes;
   const prices = trace.prices;
   const roles = trace.roles;
+  const sourceCodes = trace.sourceCodes;
   const episodeRefs = trace.episodeRefs;
+  const interactionIds = trace.interactionIds;
   return Array.isArray(indexes) && indexes.length >= 3 && indexes.length <= 16
     && Array.isArray(prices) && prices.length === indexes.length && prices.every(isFiniteNumber)
     && Array.isArray(roles) && roles.length === indexes.length
@@ -923,11 +948,26 @@ function isPatternTrace(trace: Record<string, any>): boolean {
     && roles.every((role, index) => index === 0 || roles[index - 1] !== role)
     && indexes.every((item) => Number.isInteger(item) && item >= 0 && item < 240)
     && indexes.every((item, index) => index === 0 || indexes[index - 1] < item)
-    && Array.isArray(episodeRefs) && episodeRefs.length >= indexes.length
-    && episodeRefs.every((ref) => Array.isArray(ref) && ref.length === 2
-      && Number.isInteger(ref[0]) && ref[0] >= 0
-      && Number.isInteger(ref[1]) && ref[1] >= 0)
-    && new Set(episodeRefs.map((ref) => `${ref[0]}:${ref[1]}`)).size === episodeRefs.length;
+    && Array.isArray(sourceCodes) && sourceCodes.length === indexes.length
+    && Array.isArray(episodeRefs) && episodeRefs.length === indexes.length
+    && Array.isArray(interactionIds) && interactionIds.length === indexes.length
+    && sourceCodes.every((code, index) => (
+      code === 0
+        ? Array.isArray(episodeRefs[index]) && episodeRefs[index].length === 2
+          && episodeRefs[index].every((item: unknown) => Number.isInteger(item) && Number(item) >= 0)
+          && interactionIds[index] === null
+        : code === 1 && episodeRefs[index] === null && isNonEmptyString(interactionIds[index])
+    ));
+}
+
+function isPatternPriceTrace(trace: Record<string, any>): boolean {
+  const indexes = trace.indexes;
+  const prices = trace.prices;
+  return trace.method === "close-rdp-atr-v1"
+    && Array.isArray(indexes) && indexes.length >= 3 && indexes.length <= 16
+    && Array.isArray(prices) && prices.length === indexes.length && prices.every(isFiniteNumber)
+    && indexes.every((item) => Number.isInteger(item) && item >= 0 && item < 240)
+    && indexes.every((item, index) => index === 0 || indexes[index - 1] < item);
 }
 
 function isCandleMeanings(
@@ -1161,6 +1201,10 @@ function isRecordValue(value: unknown): boolean {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isUnitInterval(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
 }
 
 function isNonEmptyString(value: unknown): value is string {

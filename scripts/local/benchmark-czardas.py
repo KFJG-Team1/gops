@@ -19,6 +19,10 @@ if str(MARKET_DATA_SHARED) not in sys.path:
 from alfaka.analytics.czardas import Ready, analyze_czardas
 
 
+P95_SAFETY_LIMIT_MS = 250.0
+P99_SAFETY_LIMIT_MS = 400.0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=200)
@@ -39,9 +43,9 @@ def main() -> int:
     p95 = values[max(0, math.ceil(len(values) * 0.95) - 1)]
     p99 = values[max(0, math.ceil(len(values) * 0.99) - 1)]
     failures = []
-    if p95 > 50.0:
+    if p95 > P95_SAFETY_LIMIT_MS:
         failures.append("kernel_p95_exceeded")
-    if p99 > 80.0:
+    if p99 > P99_SAFETY_LIMIT_MS:
         failures.append("kernel_p99_exceeded")
     if last.debug["fieldBytes"] > 80 * 1024:
         failures.append("field_bytes_exceeded")
@@ -54,6 +58,9 @@ def main() -> int:
         "p50Ms": statistics.median(values),
         "p95Ms": p95,
         "p99Ms": p99,
+        "p95SafetyLimitMs": P95_SAFETY_LIMIT_MS,
+        "p99SafetyLimitMs": P99_SAFETY_LIMIT_MS,
+        "comparisonMode": "absolute_safety_limits_only",
         "fieldBytes": last.debug["fieldBytes"],
         "payloadBytes": last.debug["payloadBytes"],
         "contentDigest": last.debug["contentDigest"],

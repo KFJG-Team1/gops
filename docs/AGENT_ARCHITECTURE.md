@@ -279,7 +279,7 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 | --- | --- | --- |
 | `agent-orchestrator` | yes | HTTP compatibility endpoint and direct report lookup. |
 | `agent-analysis-worker` | yes | hot analysis request를 소비하고 report를 저장한다. |
-| `czardas-asset-builder` | no | 수동 제출된 단일 symbol/interval queue item만 처리한다. neutral canonical exact-240을 repair/re-read한 뒤 Czardas v4 PriceMemory·OLS·Boundary·Pattern relation pack을 PostgreSQL에 원자 저장한다. S3, Redis, Kafka, LLM과 자동 schedule을 사용하지 않으며 interactive orchestrator와 독립이다. |
+| `czardas-asset-builder` | no | 수동 제출된 단일 symbol/interval queue item만 처리한다. neutral canonical exact-240을 repair/re-read한 뒤 Czardas v5 PriceMemory·OLS·Boundary·Pattern relation pack을 PostgreSQL에 원자 저장한다. S3, Redis, Kafka, LLM과 자동 schedule을 사용하지 않으며 interactive orchestrator와 독립이다. |
 | `agent-delivery-gateway` | yes for async/SSE | result event를 Redis report update로 mirror한다. |
 | `agent-intent-classifier` | no | ambiguous query를 위한 optional cheap classifier. |
 | `deep-analysis-worker` | no | opt-in deep analysis request를 처리한다. |

@@ -438,13 +438,17 @@ Czardas 화면·편집 계약은 [`czardas/README.md`](czardas/README.md)와
 [`czardas/VERIFICATION.md`](czardas/VERIFICATION.md)를 따른다.
 
 Czardas chart는 `1m/5m/10m/1h/4h/1D/1W`를 지원하고 H-Line, Trend, Pattern 세 layer를
-독립적으로 토글한다. Shared candle 의미는 항상 남는다. Pattern은 감지된 relation의 실제
-fact를 잇는 `polyline`이며 별도 Pattern 종목 목록 panel은 없다.
+독립적으로 토글한다. Shared candle 의미는 항상 남는다. Pattern 판정은 `contactSequence`,
+managed polyline은 첫 확정 접촉부터 현재 봉까지 종가를 단순화한 `priceTrace`를 사용하며 별도
+Pattern 종목 목록 panel은 없다.
 승격되지 않은 대표 PatternEvidence는 국소 marker와 짧은 connector로만 보이며 이름과 managed
 polyline을 만들지 않는다. 이 evidence가 있으면 최종 Pattern이 없어도 Pattern toggle은 활성화된다.
+current v5 pack의 확정 managed drawing과 세 toggle은 Candle, Line, OHLC에도 표시한다. 이 일반
+chart에는 Field 후보, OLS, Basis, candle meaning, PatternEvidence와 Czardas 범례를 표시하지 않고
+Bid/Ask와 1M은 제외한다. chart type 전환은 toggle 상태와 suppression을 보존한다.
 
 Field primitive와 managed drawing은 같은 timestamp+price transform을 사용한다. H-Line은
-analysis window에 clip하고 OLS, Trend, validation과 PatternTrace는 data-space로 이동한다.
+analysis window에 clip하고 OLS, Trend, validation과 `priceTrace`는 data-space로 이동한다.
 pan/zoom에서 screen-space에 고정되는 것은 hover text와 충돌 회피 label뿐이다.
 
 managed drawing의 최초 편집은 candidate 또는 relation 하나만 session fork/suppress한다.

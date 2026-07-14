@@ -1,6 +1,6 @@
 import { makeChartCommand, type ChartCommand, type CzardasSuppression } from "@gops/chart-engine";
 import type { CzardasPackContent } from "./czardasAssetsApi";
-import type { ChartToolMode, DrawingEntity } from "./types";
+import type { ChartToolMode, ChartType, DrawingEntity } from "./types";
 
 export type CzardasLayerKey = "hline" | "trend" | "pattern";
 export type CzardasLayerVisibility = Record<CzardasLayerKey, boolean>;
@@ -8,6 +8,19 @@ type Target = ChartCommand["target"];
 
 export function isManagedCzardasDrawing(drawing: DrawingEntity): boolean {
   return drawing.ownership === "czardas-managed" && Boolean(drawing.sourceCandidateId || drawing.sourceRelationId);
+}
+
+export function supportsCzardasManagedDrawings(chartType: ChartType): boolean {
+  return chartType === "czardas" || chartType === "candle" || chartType === "line" || chartType === "ohlc";
+}
+
+export function czardasDrawingsForChartType(
+  drawings: DrawingEntity[],
+  chartType: ChartType
+): DrawingEntity[] {
+  return supportsCzardasManagedDrawings(chartType)
+    ? drawings
+    : drawings.filter((drawing) => !isManagedCzardasDrawing(drawing));
 }
 
 export function czardasDeltaCommands(
