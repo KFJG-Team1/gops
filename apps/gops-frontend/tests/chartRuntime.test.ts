@@ -3628,7 +3628,8 @@ assert.doesNotMatch(alertMenuSource, /disabled=\{saving \|\| Boolean\(notificati
 
 const priceConditionPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PriceConditionPanel.tsx", import.meta.url)), "utf-8");
 assert.match(priceConditionPanelSource, /role="tablist"/);
-assert.match(priceConditionPanelSource, /가격조건/);
+assert.match(priceConditionPanelSource, /view === "account" \? "가상계좌 가격 조건"/);
+assert.doesNotMatch(priceConditionPanelSource, /\{ id: "price", label:/);
 assert.match(priceConditionPanelSource, /알림/);
 assert.match(priceConditionPanelSource, /관심 기업/);
 assert.match(priceConditionPanelSource, /role="tabpanel"/);

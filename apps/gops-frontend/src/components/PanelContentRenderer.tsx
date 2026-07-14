@@ -380,6 +380,7 @@ export function PanelContentRenderer({
     return (
       <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가격 조건을 불러오는 중입니다</div>}>
         <PriceConditionPanel
+          view="settings"
           defaultSymbol={symbol.toUpperCase()}
           symbols={symbols}
           onOpenCompany={onOpenCompany}
@@ -442,7 +443,11 @@ export function PanelContentRenderer({
 
   if (content.kind === "paperAccount") {
     return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상계좌를 불러오는 중입니다</div>}>
-      <PaperAccountPanel />
+      <PaperAccountPanel
+        defaultSymbol={symbol.toUpperCase()}
+        symbols={symbols}
+        onOpenCompany={onOpenCompany}
+      />
     </Suspense>;
   }
 

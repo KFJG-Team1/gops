@@ -17867,6 +17867,10 @@ textarea:focus,
   background: color-mix(in srgb, var(--color-background) 46%, var(--color-surface));
 }
 
+.price-condition-hub.is-settings-view .price-condition-hub-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .price-condition-hub-tabs button {
   position: relative;
   min-width: 0;
@@ -20033,6 +20037,603 @@ textarea:focus,
   scrollbar-width: thin;
 }
 
+.paper-account-body > .price-condition-hub.is-paper-account-view {
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 540px;
+  background: transparent;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.price-condition-hub.is-paper-account-view .price-condition-tab-panel.is-price-tab {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-overview {
+  min-height: 42px;
+  align-items: center;
+  padding: 0 6px;
+  background: var(--coinbase-canvas);
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-overview-copy,
+.price-condition-hub.is-paper-account-view .auto-trade-status-counts,
+.price-condition-hub.is-paper-account-view .auto-trade-panel-footer {
+  display: none;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-overview-actions {
+  grid-column: 2;
+  justify-items: end;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-add-button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy-list {
+  gap: 0;
+  padding-right: 0;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy {
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy:nth-child(even) {
+  background: var(--coinbase-canvas);
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy:hover,
+.price-condition-hub.is-paper-account-view .auto-trade-strategy:focus-within,
+.price-condition-hub.is-paper-account-view .auto-trade-strategy.is-expanded {
+  border-color: var(--coinbase-hairline-strong);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy-main {
+  min-height: 54px;
+  border-radius: 0;
+  padding-block: 6px;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-strategy-actions {
+  border-left-color: var(--color-border);
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-icon-button {
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.price-condition-hub.is-paper-account-view .auto-trade-empty {
+  min-height: 120px;
+  border: 0;
+  border-radius: 0;
+}
+
+.paper-reservation-panel {
+  --paper-reservation-columns:
+    minmax(82px, .9fr)
+    minmax(72px, .72fr)
+    minmax(96px, .92fr)
+    minmax(96px, .92fr)
+    minmax(72px, .68fr)
+    minmax(104px, 1.12fr);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: calc(100% - (var(--panel-padding) * 2));
+  min-width: 540px;
+  height: 100%;
+  min-height: 0;
+  margin-inline: auto;
+  overflow: hidden;
+  background: transparent;
+  color: var(--color-text);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.paper-reservation-add-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 36px;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  padding: 0 6px;
+  background: var(--coinbase-canvas);
+}
+
+.paper-reservation-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.paper-reservation-add-button:hover,
+.paper-reservation-add-button:focus-visible {
+  background: var(--app-panel-glass-background);
+  color: var(--color-signal);
+  outline: none;
+}
+
+.paper-reservation-table {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden auto;
+  scrollbar-color: var(--color-muted) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.paper-reservation-table-head,
+.paper-reservation-row {
+  display: grid;
+  grid-template-columns: var(--paper-reservation-columns);
+  min-width: 100%;
+}
+
+.paper-reservation-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  min-height: 36px;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: var(--coinbase-canvas);
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.paper-reservation-table-head > span,
+.paper-reservation-row > div:not(.paper-reservation-detail) {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  min-width: 0;
+  border-right: 1px solid var(--color-border);
+  padding: 0 clamp(5px, .8cqw, 11px);
+}
+
+.paper-reservation-table-head > span {
+  justify-content: center;
+  text-align: center;
+}
+
+.paper-reservation-table-head > span:first-child {
+  justify-content: center;
+  text-align: center;
+}
+
+.paper-reservation-table-head > span:last-child,
+.paper-reservation-actions {
+  border-right: 0;
+}
+
+.paper-reservation-table-body {
+  min-height: 0;
+  overflow: visible;
+}
+
+.paper-reservation-row {
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.paper-reservation-row:nth-child(even) {
+  background: var(--coinbase-canvas);
+}
+
+.paper-reservation-row:hover,
+.paper-reservation-row:focus-within,
+.paper-reservation-row.is-expanded {
+  background: var(--app-panel-glass-background);
+}
+
+.paper-reservation-row:focus-visible {
+  outline: 1px solid var(--color-signal);
+  outline-offset: -1px;
+}
+
+.paper-reservation-row > div:not(.paper-reservation-detail) {
+  min-height: 48px;
+}
+
+.paper-reservation-instrument {
+  justify-content: center;
+  text-align: center;
+}
+
+.paper-reservation-order,
+.paper-reservation-validity,
+.paper-reservation-quantity {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.paper-reservation-instrument strong,
+.paper-reservation-side strong,
+.paper-reservation-order strong,
+.paper-reservation-validity strong,
+.paper-reservation-quantity strong,
+.paper-reservation-detail-item strong,
+.paper-reservation-review strong,
+.paper-reservation-delete-confirm strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-label-md-text-transform);
+  white-space: nowrap;
+}
+
+.paper-reservation-order span,
+.paper-reservation-validity span,
+.paper-reservation-detail-item span,
+.paper-reservation-review span,
+.paper-reservation-delete-confirm span {
+  overflow: hidden;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-caption-text-transform);
+  white-space: nowrap;
+}
+
+.paper-reservation-side {
+  justify-content: center;
+  text-align: center;
+}
+
+.paper-reservation-side.is-buy strong {
+  color: var(--color-up);
+}
+
+.paper-reservation-side.is-sell strong {
+  color: var(--color-down);
+}
+
+.paper-reservation-order,
+.paper-reservation-validity,
+.paper-reservation-quantity {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.paper-reservation-actions {
+  justify-content: center;
+  gap: 1px;
+  padding: 0 4px !important;
+}
+
+.paper-reservation-icon-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.paper-reservation-icon-button:hover,
+.paper-reservation-icon-button:focus-visible,
+.paper-reservation-icon-button.is-active,
+.paper-reservation-icon-button.is-triggered {
+  background: var(--coinbase-canvas);
+  color: var(--color-signal);
+  outline: none;
+}
+
+.paper-reservation-icon-button.is-watching {
+  color: var(--color-up);
+}
+
+.paper-reservation-icon-button.is-delete:hover,
+.paper-reservation-icon-button.is-delete:focus-visible {
+  color: var(--color-down);
+}
+
+.paper-reservation-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--coinbase-hairline-strong);
+  padding: 10px 12px 12px;
+  background: var(--coinbase-canvas);
+}
+
+.paper-reservation-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.paper-reservation-detail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.paper-reservation-review,
+.paper-reservation-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 10px;
+  border-top: 1px solid var(--coinbase-hairline-strong);
+  padding-top: 10px;
+}
+
+.paper-reservation-review {
+  color: var(--color-signal);
+}
+
+.paper-reservation-delete-confirm > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.paper-reservation-delete-confirm > div:last-child,
+.paper-reservation-builder > footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.paper-reservation-delete-confirm button,
+.paper-reservation-builder > footer button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: var(--app-panel-glass-background);
+  color: var(--color-text);
+  font: var(--type-button);
+  letter-spacing: var(--type-button-letter-spacing);
+  text-transform: var(--type-button-text-transform);
+}
+
+.paper-reservation-delete-confirm button:hover,
+.paper-reservation-delete-confirm button:focus-visible,
+.paper-reservation-builder > footer button:hover,
+.paper-reservation-builder > footer button:focus-visible {
+  color: var(--color-signal);
+  outline: 1px solid var(--color-signal);
+}
+
+.paper-reservation-delete-confirm button.is-danger {
+  color: var(--color-down);
+}
+
+.paper-reservation-message {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  min-height: 120px;
+  padding: 16px;
+  color: var(--color-muted);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-align: center;
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.paper-reservation-message.is-error {
+  flex: 0 0 auto;
+  min-height: 0;
+  border-bottom: 1px solid var(--color-down);
+  padding: 8px 10px;
+  color: var(--color-down);
+}
+
+.paper-reservation-builder-backdrop {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  overflow: hidden auto;
+  background: var(--coinbase-canvas);
+}
+
+.paper-reservation-builder {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  width: min(calc(100% - 96px), 1040px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 12px;
+  background: var(--coinbase-canvas);
+}
+
+.paper-reservation-builder > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  padding-bottom: 10px;
+}
+
+.paper-reservation-builder > header > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.paper-reservation-builder > header strong {
+  color: var(--color-text);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
+}
+
+.paper-reservation-builder > header span,
+.paper-reservation-builder-field > span {
+  color: var(--color-muted);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.paper-reservation-builder > header button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: var(--app-panel-glass-background);
+  color: var(--color-muted);
+}
+
+.paper-reservation-builder > header button:hover,
+.paper-reservation-builder > header button:focus-visible {
+  color: var(--color-signal);
+  outline: 1px solid var(--color-signal);
+}
+
+.paper-reservation-builder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.paper-reservation-builder-field {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.paper-reservation-builder-field input,
+.paper-reservation-builder-field select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--app-panel-glass-background);
+  color: var(--color-text);
+  font: var(--type-body-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.paper-reservation-builder-field input:focus,
+.paper-reservation-builder-field select:focus {
+  outline: 1px solid var(--color-signal);
+  outline-offset: 0;
+}
+
+.paper-reservation-side-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 3px;
+  background: var(--app-panel-glass-background);
+}
+
+.paper-reservation-side-options button {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted);
+  font: var(--type-button);
+  letter-spacing: var(--type-button-letter-spacing);
+  text-transform: var(--type-button-text-transform);
+}
+
+.paper-reservation-side-options button.is-buy.is-selected {
+  background: var(--coinbase-canvas);
+  color: var(--color-up);
+}
+
+.paper-reservation-side-options button.is-sell.is-selected {
+  background: var(--coinbase-canvas);
+  color: var(--color-down);
+}
+
+.paper-reservation-builder > footer {
+  border-top: 1px solid var(--coinbase-hairline-strong);
+  padding-top: 10px;
+}
+
+.paper-reservation-builder > footer button.is-primary {
+  background: var(--color-signal);
+  color: var(--coinbase-canvas);
+}
+
+.paper-reservation-builder > footer button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+@container (max-width: 860px) {
+  .paper-reservation-builder-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .paper-account-order-list {
   display: grid;
   align-content: start;
@@ -20088,20 +20689,20 @@ textarea:focus,
   display: flex;
   align-self: stretch;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   min-width: 0;
   border-right: 1px solid var(--color-border);
   padding: 0 clamp(5px, 0.8cqw, 11px);
   overflow: hidden;
-  text-align: right;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .paper-account-order-head > span:first-child,
 .paper-order-row > .paper-order-symbol {
-  justify-content: flex-start;
-  text-align: left;
+  justify-content: center;
+  text-align: center;
 }
 
 .paper-account-order-head > span:last-child,
@@ -20124,6 +20725,7 @@ textarea:focus,
 }
 
 .paper-order-row > .paper-order-status {
+  position: relative;
   justify-content: center;
   padding: 0;
 }
@@ -20156,7 +20758,7 @@ textarea:focus,
 .paper-position-row > .paper-order-status {
   grid-column: 5;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
 }
 
@@ -20186,9 +20788,10 @@ textarea:focus,
 }
 
 .paper-order-status > .paper-order-action {
+  position: absolute;
+  right: 0;
   display: inline-flex;
   flex: 0 0 auto;
-  margin-left: 6px;
   overflow: visible;
 }
 

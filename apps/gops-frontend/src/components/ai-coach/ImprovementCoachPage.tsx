@@ -1,4 +1,5 @@
-import { ChevronDown, CircleAlert, FlaskConical, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
+import { useState } from "react";
 import styles from "./ImprovementCoachPage.module.css";
 import {
   AVAILABILITY_LABELS,
@@ -109,6 +110,9 @@ export function ImprovementCoachPage({
   onExperimentStatusChange,
   onGuardrailEnabledChange
 }: ImprovementCoachPageProps) {
+  const [effectiveIndex, setEffectiveIndex] = useState(0);
+  const [improvementIndex, setImprovementIndex] = useState(0);
+  const [actionIndex, setActionIndex] = useState(0);
   const effectivePriorities = plan.priorities
     .filter((insight) => insight.kind === "effective_candidate")
     .slice(0, MAX_VISIBLE_PRIORITIES);
@@ -121,17 +125,41 @@ export function ImprovementCoachPage({
   const enabledGuardrailCount = plan.guardrails.filter(
     (guardrail) => guardrail.enabled
   ).length;
+  const experimentLimitReached = activeExperimentCount >= MAX_ACTIVE_EXPERIMENTS;
+  const guardrailLimitReached = enabledGuardrailCount >= MAX_ENABLED_GUARDRAILS;
+  const actionSlides = [
+    ...plan.experiments.map((experiment, index) => ({
+      id: `experiment-${experiment.id}`,
+      category: "개선 실험",
+      groupPosition: `${index + 1} / ${plan.experiments.length}`,
+      content: (
+        <ExperimentItem
+          experiment={experiment}
+          activationLimitReached={experimentLimitReached}
+          onStatusChange={onExperimentStatusChange}
+        />
+      )
+    })),
+    ...plan.guardrails.map((guardrail, index) => ({
+      id: `guardrail-${guardrail.id}`,
+      category: "통합 가드레일",
+      groupPosition: `${index + 1} / ${plan.guardrails.length}`,
+      content: (
+        <GuardrailItem
+          guardrail={guardrail}
+          enableLimitReached={guardrailLimitReached}
+          onEnabledChange={onGuardrailEnabledChange}
+        />
+      )
+    }))
+  ];
+  const activeEffectiveIndex = Math.min(effectiveIndex, Math.max(0, effectivePriorities.length - 1));
+  const activeImprovementIndex = Math.min(improvementIndex, Math.max(0, improvementPriorities.length - 1));
+  const activeActionIndex = Math.min(actionIndex, Math.max(0, actionSlides.length - 1));
+  const activeAction = actionSlides[activeActionIndex];
 
   return (
-    <section className={styles.page} aria-labelledby="improvement-coach-page-title">
-      <header className={styles.pageHeader}>
-        <span className={styles.pageNumber} aria-hidden="true">03 / 04</span>
-        <div>
-          <h2 id="improvement-coach-page-title">효과·보완 조건</h2>
-          <p>과거 판단에서 재현할 행동과 먼저 보완할 행동을 우선순위로 정리합니다.</p>
-        </div>
-      </header>
-
+    <section className={styles.page} aria-label="효과·보완 조건">
       {plan.availability !== "ready" && (
         <div className={styles.availabilityNotice} role="status">
           <CircleAlert size={16} aria-hidden="true" />
@@ -144,84 +172,153 @@ export function ImprovementCoachPage({
         <p>{plan.summary || missingLabel(plan.availability)}</p>
       </section>
 
-      <div className={styles.priorityGrid}>
-        <PrioritySection
-          id="effective-priorities-title"
-          title="효과가 있었던 조건"
+      <div className={styles.priorityPair}>
+        <PriorityCard
+          title="우선 재현"
           tone="effective"
           priorities={effectivePriorities}
+          activeIndex={activeEffectiveIndex}
           availability={plan.availability}
+          onChange={setEffectiveIndex}
         />
-        <PrioritySection
-          id="improvement-priorities-title"
-          title="보완할 조건"
+        <PriorityCard
+          title="우선 보완"
           tone="improvement"
           priorities={improvementPriorities}
+          activeIndex={activeImprovementIndex}
           availability={plan.availability}
+          onChange={setImprovementIndex}
         />
       </div>
 
-      <ExperimentsSection
-        experiments={plan.experiments}
-        activeCount={activeExperimentCount}
-        availability={plan.availability}
-        onStatusChange={onExperimentStatusChange}
-      />
+      {activeAction ? (
+        <section
+          className={styles.actionCarousel}
+          aria-label="개선 실험 및 가드레일"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "ArrowLeft") {
+              setActionIndex((current) => Math.max(0, current - 1));
+            }
+            if (event.key === "ArrowRight") {
+              setActionIndex((current) => Math.min(actionSlides.length - 1, current + 1));
+            }
+          }}
+        >
+          <div className={styles.carouselHeading}>
+            <div>
+              <span>{activeAction.category}</span>
+              <strong>{activeAction.groupPosition}</strong>
+            </div>
+            <small>{activeActionIndex + 1} / {actionSlides.length}</small>
+          </div>
+          <div className={styles.carouselViewport} key={activeAction.id}>
+            {activeAction.content}
+          </div>
+          <CarouselControls
+            label="개선 실행 전환"
+            itemLabel="개선 실행"
+            activeIndex={activeActionIndex}
+            itemIds={actionSlides.map((slide) => slide.id)}
+            onChange={setActionIndex}
+          />
+        </section>
+      ) : (
+        <EmptyState availability={plan.availability} />
+      )}
 
-      <GuardrailsSection
-        guardrails={plan.guardrails}
-        enabledCount={enabledGuardrailCount}
-        availability={plan.availability}
-        onEnabledChange={onGuardrailEnabledChange}
-      />
-
-      <p className={styles.safetyNote}>
-        실험과 가드레일은 결과를 보장하지 않으며 주문이나 매도를 자동 실행하지 않습니다.
-      </p>
     </section>
   );
 }
 
-function PrioritySection({
-  id,
+function PriorityCard({
   title,
   tone,
   priorities,
-  availability
+  activeIndex,
+  availability,
+  onChange
 }: {
-  id: string;
   title: string;
   tone: "effective" | "improvement";
   priorities: RankedConditionInsight[];
+  activeIndex: number;
   availability: CoachAvailability;
+  onChange: (index: number) => void;
+}) {
+  const activePriority = priorities[activeIndex];
+
+  return (
+    <section className={styles.priorityCard} aria-label={title}>
+      <div className={styles.priorityCardHeading}>
+        <strong>{title}</strong>
+        <small>{priorities.length ? `${activeIndex + 1} / ${priorities.length}` : "0 / 0"}</small>
+      </div>
+      <div className={styles.priorityCardViewport} key={activePriority?.id ?? `${tone}-empty`}>
+        {activePriority
+          ? <InsightItem insight={activePriority} tone={tone} compact />
+          : <EmptyState availability={availability} />}
+      </div>
+      <CarouselControls
+        label={`${title} 조건 전환`}
+        itemLabel={`${title} 조건`}
+        activeIndex={activeIndex}
+        itemIds={priorities.map((priority) => priority.id)}
+        onChange={onChange}
+        compact
+      />
+    </section>
+  );
+}
+
+function CarouselControls({
+  label,
+  itemLabel,
+  activeIndex,
+  itemIds,
+  onChange,
+  compact = false
+}: {
+  label: string;
+  itemLabel: string;
+  activeIndex: number;
+  itemIds: string[];
+  onChange: (index: number) => void;
+  compact?: boolean;
 }) {
   return (
-    <section className={styles.prioritySection} aria-labelledby={id}>
-      <div className={styles.sectionHeading}>
-        <h3 id={id}>{title}</h3>
-        <span>{priorities.length} / {MAX_VISIBLE_PRIORITIES}</span>
+    <div className={`${styles.carouselControls} ${compact ? styles.compactControls : ""}`.trim()} aria-label={label}>
+      <button type="button" aria-label={`이전 ${itemLabel}`} disabled={activeIndex === 0} onClick={() => onChange(Math.max(0, activeIndex - 1))}>
+        <ChevronLeft aria-hidden="true" />
+      </button>
+      <div>
+        {itemIds.map((id, index) => (
+          <button
+            type="button"
+            key={id}
+            aria-label={`${index + 1}번째 ${itemLabel} 보기`}
+            aria-current={index === activeIndex ? "step" : undefined}
+            className={index === activeIndex ? styles.activeDot : undefined}
+            onClick={() => onChange(index)}
+          />
+        ))}
       </div>
-      {priorities.length > 0 ? (
-        <ol className={styles.priorityList}>
-          {priorities.map((insight) => (
-            <li key={insight.id}>
-              <InsightItem insight={insight} tone={tone} />
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
+      <button type="button" aria-label={`다음 ${itemLabel}`} disabled={activeIndex >= itemIds.length - 1} onClick={() => onChange(Math.min(itemIds.length - 1, activeIndex + 1))}>
+        <ChevronRight aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
 function InsightItem({
   insight,
-  tone
+  tone,
+  compact = false
 }: {
   insight: RankedConditionInsight;
   tone: "effective" | "improvement";
+  compact?: boolean;
 }) {
   const metrics = METRIC_DEFINITIONS.flatMap((definition) => {
     const value = insight.metrics[definition.key];
@@ -231,7 +328,7 @@ function InsightItem({
   });
 
   return (
-    <article className={styles.insight}>
+    <article className={`${styles.insight} ${compact ? styles.compactInsight : ""}`.trim()}>
       <div className={styles.insightMeta}>
         <span className={priorityClassName(insight.priority)}>
           {PRIORITY_LABELS[insight.priority]}
@@ -265,7 +362,7 @@ function InsightItem({
           <strong>{CONFIDENCE_LABELS[insight.confidence]}</strong>
         </span>
       </div>
-      <details className={styles.evidenceDetails} open>
+      <details className={styles.evidenceDetails}>
         <summary>
           <span>근거 지표</span>
           <ChevronDown size={15} aria-hidden="true" />
@@ -284,56 +381,6 @@ function InsightItem({
         )}
       </details>
     </article>
-  );
-}
-
-function ExperimentsSection({
-  experiments,
-  activeCount,
-  availability,
-  onStatusChange
-}: {
-  experiments: PlaybookExperiment[];
-  activeCount: number;
-  availability: CoachAvailability;
-  onStatusChange: ImprovementCoachPageProps["onExperimentStatusChange"];
-}) {
-  const limitReached = activeCount >= MAX_ACTIVE_EXPERIMENTS;
-
-  return (
-    <section className={styles.actionSection} aria-labelledby="improvement-experiments-title">
-      <div className={styles.actionHeading}>
-        <div>
-          <FlaskConical size={17} aria-hidden="true" />
-          <h3 id="improvement-experiments-title">다음 5회 개선 실험</h3>
-        </div>
-        <span>활성 {activeCount} / {MAX_ACTIVE_EXPERIMENTS}</span>
-      </div>
-
-      {limitReached && (
-        <p className={styles.limitMessage} role="status">
-          {activeCount > MAX_ACTIVE_EXPERIMENTS
-            ? "활성 실험이 허용 한도를 초과했습니다. 먼저 활성 실험을 일시 정지하세요."
-            : "활성 한도에 도달했습니다. 다른 실험을 시작하려면 하나를 일시 정지하세요."}
-        </p>
-      )}
-
-      {experiments.length > 0 ? (
-        <ul className={styles.actionList}>
-          {experiments.map((experiment) => (
-            <li key={experiment.id}>
-              <ExperimentItem
-                experiment={experiment}
-                activationLimitReached={limitReached}
-                onStatusChange={onStatusChange}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
   );
 }
 
@@ -399,56 +446,6 @@ function ExperimentItem({
         </div>
       </details>
     </article>
-  );
-}
-
-function GuardrailsSection({
-  guardrails,
-  enabledCount,
-  availability,
-  onEnabledChange
-}: {
-  guardrails: TradingGuardrail[];
-  enabledCount: number;
-  availability: CoachAvailability;
-  onEnabledChange: ImprovementCoachPageProps["onGuardrailEnabledChange"];
-}) {
-  const limitReached = enabledCount >= MAX_ENABLED_GUARDRAILS;
-
-  return (
-    <section className={styles.actionSection} aria-labelledby="improvement-guardrails-title">
-      <div className={styles.actionHeading}>
-        <div>
-          <ShieldCheck size={17} aria-hidden="true" />
-          <h3 id="improvement-guardrails-title">통합 가드레일</h3>
-        </div>
-        <span>사용 {enabledCount} / {MAX_ENABLED_GUARDRAILS}</span>
-      </div>
-
-      {limitReached && (
-        <p className={styles.limitMessage} role="status">
-          {enabledCount > MAX_ENABLED_GUARDRAILS
-            ? "사용 중인 가드레일이 허용 한도를 초과했습니다. 먼저 가드레일을 끄세요."
-            : "사용 한도에 도달했습니다. 다른 가드레일을 켜려면 하나를 끄세요."}
-        </p>
-      )}
-
-      {guardrails.length > 0 ? (
-        <ul className={styles.actionList}>
-          {guardrails.map((guardrail) => (
-            <li key={guardrail.id}>
-              <GuardrailItem
-                guardrail={guardrail}
-                enableLimitReached={limitReached}
-                onEnabledChange={onEnabledChange}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
   );
 }
 

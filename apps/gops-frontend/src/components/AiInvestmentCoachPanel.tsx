@@ -77,7 +77,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   const content = (() => {
     if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onOpenAlertCenter={openAlertCenter} />;
     if (page === 1) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[1]} />;
-    if (page === 2) return plan ? <><ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /><p className={styles.sessionNote}>실험·가드레일 변경은 현재 패널 세션에 반영됩니다. 영구 저장 API가 연결되기 전에는 새 분석에서 초기화됩니다.</p></> : <Unavailable title={PAGES[2]} />;
+    if (page === 2) return plan ? <ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /> : <Unavailable title={PAGES[2]} />;
     const center = resolved?.page4;
     return center ? <CoachActionCenterPage key={resolved?.analysisId ?? "empty"} center={center} focusedCandidateId={focusedAlertCandidateId} activeExperiments={plan?.experiments.filter((item) => item.status === "active")} enabledGuardrails={plan?.guardrails.filter((item) => item.enabled)} onCreateAlert={submitCandidateAlert} onWatchingAlertStatusChange={updateServerAlert} /> : <Unavailable title={PAGES[3]} />;
   })();

@@ -43,6 +43,7 @@ type PriceConditionPanelProps = {
   defaultSymbol: string;
   symbols: ChartSymbolDto[];
   onOpenCompany: (symbol: string) => void;
+  view?: "account" | "settings";
 };
 
 type HubTab = "price" | "alerts" | "watchlist";
@@ -50,8 +51,7 @@ type HubTab = "price" | "alerts" | "watchlist";
 type PrototypeNotificationSetting = NotificationSettingKey;
 type PrototypeNotificationSettings = NotificationSettings;
 
-const hubTabs: Array<{ id: HubTab; label: string }> = [
-  { id: "price", label: "가격조건" },
+const settingsHubTabs: Array<{ id: HubTab; label: string }> = [
   { id: "alerts", label: "알림" },
   { id: "watchlist", label: "관심 기업" }
 ];
@@ -111,7 +111,7 @@ function initialConditionDraft(symbol: string): PriceConditionDraft {
   };
 }
 
-export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: PriceConditionPanelProps) {
+export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany, view = "settings" }: PriceConditionPanelProps) {
   const {
     preferences: notificationPreferences,
     canUse: canUseNotificationPreferences,
@@ -122,7 +122,8 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
     updateCompanyOverride
   } = useNotificationPreferences();
   const [initialWatchlist] = useState(() => initialPrototypeWatchlist(symbols, defaultSymbol));
-  const [activeHubTab, setActiveHubTab] = useState<HubTab>("price");
+  const [activeHubTab, setActiveHubTab] = useState<HubTab>(() => view === "account" ? "price" : "alerts");
+  const accountViewRef = useRef<HTMLElement | null>(null);
   const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [conditions, setConditions] = useState<PriceCondition[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -154,6 +155,10 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
   }, []);
 
   useEffect(() => {
+    if (view !== "account") {
+      setLoading(false);
+      return undefined;
+    }
     const controller = new AbortController();
     void loadConditions(controller.signal);
     const unsubscribe = subscribeTradeConditionsChanged(() => void loadConditions());
@@ -161,9 +166,13 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
       controller.abort();
       unsubscribe();
     };
-  }, [loadConditions]);
+  }, [loadConditions, view]);
 
   useEffect(() => {
+    if (view !== "settings") {
+      setWatchlistLoading(false);
+      return undefined;
+    }
     const controller = new AbortController();
     setWatchlistLoading(true);
     setWatchlistError(null);
@@ -187,7 +196,7 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
         }
       });
     return () => controller.abort();
-  }, [defaultSymbol]);
+  }, [defaultSymbol, view]);
 
   useEffect(() => {
     if (!builderOpen) {
@@ -223,6 +232,7 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
     () => companyForSymbol(symbols, selectedCompanySymbol),
     [selectedCompanySymbol, symbols]
   );
+  const panelLabel = view === "account" ? "가상계좌 가격 조건" : "알림 및 관심 기업 패널";
 
   const selectHubTab = (nextTab: HubTab) => {
     setActiveHubTab(nextTab);
@@ -239,9 +249,9 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
     const nextIndex = event.key === "Home"
       ? 0
       : event.key === "End"
-        ? hubTabs.length - 1
-        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + hubTabs.length) % hubTabs.length;
-    const nextTab = hubTabs[nextIndex];
+        ? settingsHubTabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + settingsHubTabs.length) % settingsHubTabs.length;
+    const nextTab = settingsHubTabs[nextIndex];
     if (!nextTab) return;
     selectHubTab(nextTab.id);
     tabButtonRefs.current[nextIndex]?.focus();
@@ -339,6 +349,7 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
   };
 
   const openConditionBuilder = () => {
+    accountViewRef.current?.closest(".paper-account-body")?.scrollTo({ left: 0 });
     setDraft(initialConditionDraft(defaultSymbol));
     setBuilderOpen(true);
     setPendingDeleteId(null);
@@ -372,10 +383,303 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
     }
   };
 
+  if (view === "account") {
+    return (
+      <section ref={accountViewRef} className="paper-reservation-panel" aria-label={panelLabel}>
+        {builderOpen && (
+          <div className="paper-reservation-builder-backdrop">
+            <form className="paper-reservation-builder" aria-label="예약 매매 조건 추가" onSubmit={addCondition}>
+              <header>
+                <div>
+                  <strong>예약 매매 조건 추가</strong>
+                  <span>가격 도달 시 제출할 지정가 주문을 설정합니다.</span>
+                </div>
+                <button type="button" aria-label="예약 매매 조건 추가 닫기" onClick={() => setBuilderOpen(false)}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="paper-reservation-builder-grid">
+                <label className="paper-reservation-builder-field">
+                  <span>종목</span>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    autoComplete="off"
+                    value={draft.symbol}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      symbol: event.target.value.toUpperCase()
+                    }))}
+                  />
+                </label>
+
+                <div className="paper-reservation-builder-field">
+                  <span>구분</span>
+                  <div className="paper-reservation-side-options" aria-label="매수 또는 매도 선택">
+                    <button
+                      type="button"
+                      className={draft.side === "buy" ? "is-buy is-selected" : "is-buy"}
+                      aria-pressed={draft.side === "buy"}
+                      onClick={() => setDraft((current) => ({ ...current, side: "buy" }))}
+                    >
+                      매수
+                    </button>
+                    <button
+                      type="button"
+                      className={draft.side === "sell" ? "is-sell is-selected" : "is-sell"}
+                      aria-pressed={draft.side === "sell"}
+                      onClick={() => setDraft((current) => ({ ...current, side: "sell" }))}
+                    >
+                      매도
+                    </button>
+                  </div>
+                </div>
+
+                <label className="paper-reservation-builder-field">
+                  <span>발동 조건</span>
+                  <select
+                    value={draft.direction}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      direction: event.target.value as PriceConditionDirection
+                    }))}
+                  >
+                    <option value="atOrBelow">가격 이하 도달</option>
+                    <option value="atOrAbove">가격 이상 도달</option>
+                  </select>
+                </label>
+
+                <label className="paper-reservation-builder-field">
+                  <span>발동 가격</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={draft.triggerPrice}
+                    onChange={(event) => setDraft((current) => ({ ...current, triggerPrice: event.target.value }))}
+                  />
+                </label>
+
+                <label className="paper-reservation-builder-field">
+                  <span>지정 가격</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={draft.limitPrice}
+                    onChange={(event) => setDraft((current) => ({ ...current, limitPrice: event.target.value }))}
+                  />
+                </label>
+
+                <label className="paper-reservation-builder-field">
+                  <span>수량</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={draft.quantity}
+                    onChange={(event) => setDraft((current) => ({ ...current, quantity: event.target.value }))}
+                  />
+                </label>
+
+                <label className="paper-reservation-builder-field">
+                  <span>유효기간</span>
+                  <select
+                    value={draft.validity}
+                    onChange={(event) => setDraft((current) => ({ ...current, validity: event.target.value }))}
+                  >
+                    <option value="당일">당일</option>
+                    <option value="직접 취소 전">직접 취소 전</option>
+                  </select>
+                </label>
+              </div>
+
+              <footer>
+                <button type="button" onClick={() => setBuilderOpen(false)}>취소</button>
+                <button type="submit" className="is-primary" disabled={!draftValid || submitting}>
+                  {submitting ? "등록 중" : "조건 추가"}
+                </button>
+              </footer>
+            </form>
+          </div>
+        )}
+
+        {error && <div className="paper-reservation-message is-error" role="alert">{error}</div>}
+
+        {loading ? (
+          <div className="paper-reservation-message" role="status">예약 매매 조건을 불러오는 중입니다.</div>
+        ) : conditions.length > 0 ? (
+          <div className="paper-reservation-table">
+            <div className="paper-reservation-table-head" aria-hidden="true">
+              <span>종목</span>
+              <span>구분</span>
+              <span>유효기간</span>
+              <span>지정가</span>
+              <span>수량</span>
+              <span>관리</span>
+            </div>
+            <div className="paper-reservation-table-body" role="list" aria-label="예약 매매 조건 목록">
+              {conditions.map((condition) => {
+                const expanded = expandedId === condition.id;
+                const deletePending = pendingDeleteId === condition.id;
+                const reviewing = reviewingId === condition.id;
+                const detailId = `paper-reservation-detail-${condition.id}`;
+                const sideLabel = condition.side === "buy" ? "매수" : "매도";
+                const directionOperator = condition.direction === "atOrBelow" ? "<=" : ">=";
+                return (
+                  <article
+                    key={condition.id}
+                    className={`paper-reservation-row ${expanded ? "is-expanded" : ""}`}
+                    data-status={condition.status}
+                    role="listitem"
+                    tabIndex={0}
+                    aria-label={`${condition.symbol} 예약 매매 상세 ${expanded ? "닫기" : "열기"}`}
+                    aria-expanded={expanded}
+                    aria-controls={detailId}
+                    onClick={() => toggleExpanded(condition.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleExpanded(condition.id);
+                      }
+                    }}
+                  >
+                    <div className="paper-reservation-instrument">
+                      <strong>{condition.symbol}</strong>
+                    </div>
+                    <div className={`paper-reservation-side is-${condition.side}`}>
+                      <strong>{sideLabel}</strong>
+                    </div>
+                    <div className="paper-reservation-validity">
+                      <strong>{condition.validity}</strong>
+                    </div>
+                    <div className="paper-reservation-order">
+                      <strong>US${formatPrice(condition.limitPrice)}</strong>
+                    </div>
+                    <div className="paper-reservation-quantity">
+                      <strong>{condition.quantity}주</strong>
+                    </div>
+                    <div className="paper-reservation-actions" onClick={(event) => event.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={`paper-reservation-icon-button ${condition.alertsEnabled ? "is-active" : ""}`}
+                        aria-label={`${condition.symbol} 가격 조건 알림 ${condition.alertsEnabled ? "끄기" : "켜기"}`}
+                        aria-pressed={condition.alertsEnabled}
+                        title={`알림 ${condition.alertsEnabled ? "끄기" : "켜기"}`}
+                        onClick={() => void toggleAlert(condition.id)}
+                      >
+                        <Bell size={15} fill={condition.alertsEnabled ? "currentColor" : "none"} aria-hidden="true" />
+                      </button>
+                      {condition.status === "triggered" ? (
+                        <button
+                          type="button"
+                          className="paper-reservation-icon-button is-triggered"
+                          aria-label={`${condition.symbol} 예약 주문 상태 보기`}
+                          aria-pressed={reviewing}
+                          title="주문 상태 보기"
+                          onClick={() => {
+                            setExpandedId(condition.id);
+                            setPendingDeleteId(null);
+                            setReviewingId((current) => current === condition.id ? null : condition.id);
+                          }}
+                        >
+                          <CheckCircle2 size={15} aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`paper-reservation-icon-button is-${condition.status}`}
+                          aria-label={`${condition.symbol} ${condition.status === "paused" ? "감시 재개" : "감시 중지"}`}
+                          title={condition.status === "paused" ? "감시 재개" : "감시 중지"}
+                          onClick={() => void toggleStatus(condition.id)}
+                        >
+                          {condition.status === "paused"
+                            ? <Play size={15} aria-hidden="true" />
+                            : <Pause size={15} aria-hidden="true" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="paper-reservation-icon-button is-delete"
+                        aria-label={`${condition.symbol} 가격 조건 삭제`}
+                        title="삭제"
+                        onClick={() => requestDelete(condition.id)}
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+
+                    {expanded && (
+                      <div className="paper-reservation-detail" id={detailId} onClick={(event) => event.stopPropagation()}>
+                        <div className="paper-reservation-detail-grid">
+                          <ReservationDetail label="발동 조건" value={`현재가 ${directionOperator} US$${formatPrice(condition.triggerPrice)}`} />
+                        </div>
+
+                        {reviewing && (
+                          <div className="paper-reservation-review" role="status">
+                            <span>예약 주문 처리 상태</span>
+                            <strong>{condition.orderId ? `주문번호 ${condition.orderId}` : condition.errorReason ?? condition.lastChecked}</strong>
+                          </div>
+                        )}
+
+                        {deletePending && (
+                          <div
+                            className="paper-reservation-delete-confirm"
+                            role="alertdialog"
+                            aria-labelledby={`paper-reservation-delete-title-${condition.id}`}
+                          >
+                            <div>
+                              <strong id={`paper-reservation-delete-title-${condition.id}`}>{condition.symbol} 예약 매매를 삭제할까요?</strong>
+                              <span>가격 감시와 예약 주문 조건이 함께 해제됩니다.</span>
+                            </div>
+                            <div>
+                              <button type="button" onClick={() => setPendingDeleteId(null)}>취소</button>
+                              <button type="button" className="is-danger" onClick={() => void deleteCondition(condition.id)}>삭제</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+            <div className="paper-reservation-add-row">
+              <button type="button" className="paper-reservation-add-button" onClick={openConditionBuilder}>
+                <Plus size={15} aria-hidden="true" />
+                조건 추가
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="paper-reservation-message" role="status">
+              등록된 예약 매매 조건이 없습니다.
+            </div>
+            <div className="paper-reservation-add-row">
+              <button type="button" className="paper-reservation-add-button" onClick={openConditionBuilder}>
+                <Plus size={15} aria-hidden="true" />
+                조건 추가
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    );
+  }
+
   return (
-    <section className="auto-trade-panel price-condition-hub" aria-label="가격조건, 알림 및 관심 기업 패널">
-      <header className="price-condition-hub-tabs" role="tablist" aria-label="가격조건 패널 메뉴">
-        {hubTabs.map((tab, index) => (
+    <section
+      className="auto-trade-panel price-condition-hub is-settings-view"
+      aria-label={panelLabel}
+    >
+      {view === "settings" && <header className="price-condition-hub-tabs" role="tablist" aria-label="알림 설정 패널 메뉴">
+        {settingsHubTabs.map((tab, index) => (
           <button
             key={tab.id}
             ref={(element) => { tabButtonRefs.current[index] = element; }}
@@ -392,7 +696,7 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
             {tab.label}
           </button>
         ))}
-      </header>
+      </header>}
 
       {activeHubTab === "price" && (
         <div
@@ -1027,6 +1331,15 @@ function companyForSymbol(symbols: ChartSymbolDto[], symbolValue: string): Chart
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="auto-trade-detail-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ReservationDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="paper-reservation-detail-item">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

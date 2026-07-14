@@ -31,7 +31,7 @@ assert.deepEqual(patternListCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 
 const priceConditionCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
   .panelCatalog
   .find((entry) => entry.panelType === "priceCondition");
-assert.equal(priceConditionCatalogEntry?.title, "가격 조건");
+assert.equal(priceConditionCatalogEntry?.title, "알림 설정");
 assert.deepEqual(priceConditionCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 3 });
 assert.deepEqual(priceConditionCatalogEntry?.defaultSpan, { colSpan: 3, rowSpan: 3 });
 
