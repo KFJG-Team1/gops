@@ -139,7 +139,7 @@ export function ChartAssetOpsPanel({
     : null;
   const currentPattern = detectedPatternSummary(currentAsset);
 
-  const runBuild = async (retrySymbols?: string[]) => {
+  const runBuild = async (retrySymbols?: string[], force = false) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
     if (!useSp500 && !symbols.length) {
       setError("빌드할 심볼을 입력하세요.");
@@ -154,7 +154,8 @@ export function ChartAssetOpsPanel({
     try {
       const result = await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
-        intervals
+        intervals,
+        force
       });
       setAccepted(result);
       setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
@@ -202,6 +203,16 @@ export function ChartAssetOpsPanel({
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
+          <button
+            type="button"
+            disabled={running || useSp500}
+            onClick={() => {
+              const selected = parseSymbols(symbolsText);
+              if (selected.length && window.confirm(`${selected.join(", ")} · ${intervals.join(", ")} 기존 자산을 수동 갱신할까요?`)) {
+                void runBuild(undefined, true);
+              }
+            }}
+          >선택 자산 수동 갱신</button>
           {running && <button type="button" onClick={() => accepted && void cancelChartAssetBuild(accepted.jobId).then(setJob).catch((reason) => setError(String(reason)))}>중단</button>}
           {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols)}>실패분 재실행</button>}
         </div>

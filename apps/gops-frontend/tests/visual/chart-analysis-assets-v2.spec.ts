@@ -5,17 +5,21 @@ const candles = fixtureCandles();
 let postedSymbols: unknown = null;
 let densePatternCoverage = false;
 let includeTradePlan = true;
+let includeConditionalEvidence = true;
 let delayAgentAnswer = false;
 
 test.beforeEach(async ({ page }, testInfo) => {
   postedSymbols = null;
   densePatternCoverage = false;
   includeTradePlan = true;
+  includeConditionalEvidence = true;
   delayAgentAnswer = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
     ? chartQuestionLayout()
+    : testInfo.title.includes("commentary chart selection")
+      ? chartLinkLayout()
     : testInfo.title.includes("evidence and proposal layers")
       ? analysisLayersLayout((page.viewportSize()?.width ?? 1440) < 900)
       : testInfo.title.includes("pattern symbol panel")
@@ -71,11 +75,27 @@ test("evidence and proposal layers render independently with commentary spotligh
 
 test("proposal toggle is disabled when the asset has no proposal drawings", async ({ page }) => {
   includeTradePlan = false;
+  includeConditionalEvidence = false;
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.getByRole("button", { name: "작도 분석 레이어 끄기" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toBeDisabled();
   await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
+});
+
+test("commentary chart selection targets one chart document at a time", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const charts = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await expect(charts).toHaveCount(2);
+  const selector = page.getByRole("button", { name: "차트 선택", exact: true });
+  await selector.click();
+  await expect(charts.nth(0)).toHaveClass(/is-chart-link-current/);
+  await expect(charts.nth(1)).toHaveClass(/is-chart-link-target/);
+  await charts.nth(1).click({ position: { x: 16, y: 16 } });
+  await expect(selector).toHaveAttribute("aria-pressed", "false");
+  await selector.click();
+  await expect(charts.nth(1)).toHaveClass(/is-chart-link-current/);
+  await charts.nth(1).click({ position: { x: 16, y: 16 } });
 });
 
 test("chart questions keep current commentary and attach the snapshot answer to the same chart", async ({ page }) => {
@@ -257,7 +277,9 @@ function assetResponse(): Record<string, unknown> {
     coverage: { state: "partial", targetBars: 380, actualBars: 140, contiguousBars: 140, missingBars: 240 },
     geometry: {
       drawings: [hline, upper, lower],
-      supports: [{ id: "support", role: "support", price: 164, zoneLow: 163.4, zoneHigh: 164.6, halfWidthAtr: .4, score: .8, touches: 2, anchors: hline.anchors }],
+      supports: includeConditionalEvidence
+        ? [{ id: "support", role: "support", price: 164, zoneLow: 163.4, zoneHigh: 164.6, halfWidthAtr: .4, score: .8, touches: 2, anchors: hline.anchors }]
+        : [],
       resistances: [], patterns: [], primaryPattern: null,
       primaryTriangle: { kind: "ascending_triangle", state: "confirmed", score: .9, touches: 5, geometryHash: "triangle" },
       historicalTriangle: null,
@@ -290,6 +312,22 @@ function chartQuestionLayout(): Record<string, unknown> {
     nextInstance: 2,
     contents: { [chart.id]: chart },
     slots: [slot("chart", 1, 1, 1, 6, 4)]
+  };
+}
+
+function chartLinkLayout(): Record<string, unknown> {
+  const first = content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart-a");
+  const second = content("chart", 2, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart-b");
+  const commentary = content("chartCommentary", 3, { chartDocumentId: "asset-visual-chart-a" });
+  return {
+    version: 1,
+    nextInstance: 4,
+    contents: { [first.id]: first, [second.id]: second, [commentary.id]: commentary },
+    slots: [
+      slot("chart", 1, 1, 1, 4, 3),
+      slot("chart", 2, 5, 1, 4, 3),
+      slot("chartCommentary", 3, 1, 4, 4, 2)
+    ]
   };
 }
 

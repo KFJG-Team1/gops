@@ -55,10 +55,10 @@ const asset = {
 const drawings = buildTradeTimingDrawings(asset, candles);
 assert.equal(drawings.length, 2);
 assert.equal(drawings[0].type, "flagMarker");
-assert.equal(drawings[0].label, "매수 검토 후보 · 상승 깃발형");
+assert.equal(drawings[0].label, "매수 후보 · 상승 깃발형");
 assert.equal(drawings[0].anchors[0].timestamp, candles[1].timestamp);
 assert.match(drawings[0].id, /^chart-plan:/);
-assert.equal(drawings[0].style.colorToken, "proposal");
+assert.equal(drawings[0].style.colorToken, "bullish");
 assert.equal(drawings[1].type, "riskRewardBox");
 assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.price), [98.5, 97, 108]);
 assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.logicalIndex), [1, 12, 12]);
@@ -81,8 +81,9 @@ const exitAsset: ChartAnalysisAsset = {
     tradePlan: { ...asset.geometry.tradePlan!, action: "sell_candidate", direction: "exit_long" }
   }
 };
-assert.equal(buildTradeTimingDrawings(exitAsset, candles).length, 1);
-assert.equal(buildTradeTimingDrawings(exitAsset, candles)[0].label, "매도·청산 후보 · 상승 깃발형");
+assert.equal(buildTradeTimingDrawings(exitAsset, candles).length, 2);
+assert.equal(buildTradeTimingDrawings(exitAsset, candles)[0].label, "매도 후보 · 상승 깃발형");
+assert.equal(buildTradeTimingDrawings(exitAsset, candles)[1].style.proposalAction, "sell_candidate");
 
 const watchAsset: ChartAnalysisAsset = {
   ...asset,
@@ -106,4 +107,62 @@ const shortAsset: ChartAnalysisAsset = {
     }
   }
 };
-assert.equal(buildTradeTimingDrawings(shortAsset, candles).length, 2);
+assert.equal(buildTradeTimingDrawings(shortAsset, candles).length, 0);
+
+const levelAsset: ChartAnalysisAsset = {
+  ...watchAsset,
+  interval: "1D",
+  sourceInterval: "1D",
+  geometry: {
+    ...watchAsset.geometry,
+    supports: [{ id: "support", role: "support", price: 90, score: .8, touches: 3, anchors: [{ timestamp: candles[0].timestamp, price: 90 }] }],
+    resistances: [{ id: "resistance", role: "resistance", price: 105, score: .8, touches: 3, anchors: [{ timestamp: candles[0].timestamp, price: 105 }] }]
+  }
+};
+const conditional = buildTradeTimingDrawings(levelAsset, candles);
+assert.equal(conditional.length, 1);
+assert.equal(conditional[0].type, "riskRewardBox");
+assert.equal(conditional[0].style.proposalKind, "conditional");
+assert.equal(conditional[0].anchors[0].timestamp, candles.at(-1)?.timestamp);
+assert.equal(conditional[0].anchors[1].timestamp, undefined);
+
+const amdCandles = [
+  ...candles.map((candle) => ({ ...candle, close: 535.1 })),
+  { ...candles[2], timestamp: "2026-07-14T00:00:00.000Z", close: 999, isClosed: false }
+];
+const amdAsset: ChartAnalysisAsset = {
+  ...watchAsset,
+  symbol: "AMD",
+  interval: "1D",
+  sourceInterval: "1D",
+  geometry: {
+    ...watchAsset.geometry,
+    supports: [],
+    resistances: [{ id: "resistance-546", role: "resistance", price: 546.44, score: .8, touches: 3, anchors: [{ timestamp: candles[0].timestamp, price: 546.44 }] }],
+    patterns: [],
+    primaryPattern: {
+      id: "amd-wedge",
+      kind: "rising_wedge",
+      state: "forming",
+      bias: "bearish",
+      score: .8,
+      touches: 6,
+      geometryHash: "amd-wedge-hash",
+      upper: { start: { timestamp: candles[0].timestamp, price: 570 }, end: { timestamp: candles[2].timestamp, price: 582.298117 } },
+      lower: { start: { timestamp: candles[0].timestamp, price: 510 }, end: { timestamp: candles[2].timestamp, price: 526.15809 } }
+    }
+  }
+};
+const amdConditional = buildTradeTimingDrawings(amdAsset, amdCandles);
+assert.equal(amdConditional.length, 1);
+assert.equal(amdConditional[0].style.proposalAction, "sell_candidate");
+assert.deepEqual(amdConditional[0].anchors.map((anchor) => anchor.price), [526.15809, 546.44, 485.59427]);
+assert.equal(amdConditional[0].anchors[0].logicalIndex, 2, "the projection starts at the real last completed candle");
+assert.equal(amdConditional[0].anchors[0].timestamp, candles[2].timestamp);
+assert.equal(amdConditional[0].anchors[1].logicalIndex, 12, "the future edge ignores an unclosed candle slot");
+
+const noEvidenceAsset: ChartAnalysisAsset = {
+  ...watchAsset,
+  geometry: { ...watchAsset.geometry, supports: [], resistances: [], primaryPattern: null, primaryTriangle: null }
+};
+assert.deepEqual(buildTradeTimingDrawings(noEvidenceAsset, candles), []);

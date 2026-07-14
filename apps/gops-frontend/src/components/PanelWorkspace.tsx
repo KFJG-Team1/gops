@@ -25,6 +25,10 @@ import {
   useState
 } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import {
+  chartCommentaryStateForDocument,
+  rememberChartCommentaryState
+} from "../agent/chartCommentaryHistory";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
@@ -217,7 +221,17 @@ export function PanelWorkspace({
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
   const [paletteStatus, setPaletteStatus] = useState<string | null>(null);
   const [paletteOverflow, setPaletteOverflow] = useState({ left: false, right: false });
+  const [chartLinkCommentaryContentId, setChartLinkCommentaryContentId] = useState<string | null>(null);
   const paletteScrollerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (
+      chartLinkCommentaryContentId
+      && panelState.contents[chartLinkCommentaryContentId]?.kind !== "chartCommentary"
+    ) {
+      setChartLinkCommentaryContentId(null);
+    }
+  }, [chartLinkCommentaryContentId, panelState.contents]);
 
   // Track horizontal overflow of the palette scroller so the < > arrows only
   // appear (and enable) when there is actually somewhere to scroll.
@@ -811,6 +825,33 @@ export function PanelWorkspace({
   const primaryChartCandles = primaryChartDocument
     ? getCandlesForDocument(chartRuntime, primaryChartDocument) as CandleDto[]
     : [];
+  const chartLinkOptions = panelState.slots.flatMap((panelSlot) => {
+    const panelContent = panelState.contents[panelSlot.contentId];
+    if (panelContent?.kind !== "chart") return [];
+    const chartDocumentId = chartDocumentIdForContent(panelContent);
+    const chartDocument = chartRuntime.documents[chartDocumentId];
+    return chartDocument ? [{ chartDocumentId, symbol: chartDocument.symbol, interval: chartDocument.timeframe }] : [];
+  });
+  const chartLinkCurrentDocumentId = chartLinkCommentaryContentId
+    ? readString(panelState.contents[chartLinkCommentaryContentId]?.props?.chartDocumentId)
+    : null;
+  const rebindCommentaryChart = (contentId: string, chartDocumentId: string) => {
+    const commentary = panelState.contents[contentId];
+    if (commentary?.kind !== "chartCommentary") return;
+    const currentDocumentId = readString(commentary.props?.chartDocumentId);
+    const history = currentDocumentId
+      ? rememberChartCommentaryState(
+        commentary.props?.commentaryHistoryByDocument,
+        currentDocumentId,
+        commentary.props?.commentaryState
+      )
+      : commentary.props?.commentaryHistoryByDocument;
+    updatePanelProps(contentId, {
+      chartDocumentId,
+      commentaryState: chartCommentaryStateForDocument(history, chartDocumentId),
+      commentaryHistoryByDocument: history
+    });
+  };
   const renderWorkspacePanel = (slot: PanelSlot) => {
     const content = panelState.contents[slot.contentId];
     if (!content) {
@@ -854,6 +895,13 @@ export function PanelWorkspace({
         : `에이전트 답변 · ${activeWildPage.role}`
       : content.title;
     const selectWildPanel = (event: ReactPointerEvent<HTMLElement>) => {
+      if (chartLinkCommentaryContentId && isChart && chartDocument) {
+        event.preventDefault();
+        event.stopPropagation();
+        rebindCommentaryChart(chartLinkCommentaryContentId, chartDocument.id);
+        setChartLinkCommentaryContentId(null);
+        return;
+      }
       if (event.target instanceof Element && event.target.closest(".wild-panel-toggle")) {
         return;
       }
@@ -910,6 +958,13 @@ export function PanelWorkspace({
         onSelectRecommendationReference={onSelectRecommendationReference}
         onOpenCompany={onOpenCompany}
         onSelectPatternAsset={onSelectPatternAsset}
+        chartLinkOptions={chartLinkOptions}
+        chartSelectionActive={chartLinkCommentaryContentId === content.id}
+        onChartSelectionToggle={(contentId) => setChartLinkCommentaryContentId((current) => current === contentId ? null : contentId)}
+        onCommentaryChartChange={(contentId, chartDocumentId) => {
+          rebindCommentaryChart(contentId, chartDocumentId);
+          setChartLinkCommentaryContentId(null);
+        }}
       />
     );
     return (
@@ -926,6 +981,8 @@ export function PanelWorkspace({
           isLayoutResizing ? "is-layout-resizing" : "",
           slot.wildPanel ? "is-wild-panel" : "",
           selectedWildPanelSlotId === slot.id ? "is-selected-wild-panel" : "",
+          chartLinkCommentaryContentId && isChart ? "is-chart-link-target" : "",
+          chartLinkCommentaryContentId && isChart && chartDocument?.id === chartLinkCurrentDocumentId ? "is-chart-link-current" : "",
           `is-layout-${layoutMode}`,
           layoutEditMode ? "is-layout-editing" : ""
         ].filter(Boolean).join(" ")}

@@ -9,6 +9,7 @@ import {
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval, type ChartAnalysisAsset } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryModel } from "../chart/commentaryModel";
+import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
@@ -23,6 +24,10 @@ type ChartCommentaryPanelProps = {
   drawingIds: string[];
   commentaryState?: unknown;
   onCommentaryStateChange?: (state: ChartCommentaryState) => void;
+  chartOptions?: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
+  chartSelectionActive?: boolean;
+  onChartSelectionToggle?: () => void;
+  onChartDocumentChange?: (chartDocumentId: string) => void;
 };
 
 export function ChartCommentaryPanel({
@@ -33,7 +38,11 @@ export function ChartCommentaryPanel({
   candles,
   drawingIds,
   commentaryState: rawCommentaryState,
-  onCommentaryStateChange
+  onCommentaryStateChange,
+  chartOptions = [],
+  chartSelectionActive = false,
+  onChartSelectionToggle,
+  onChartDocumentChange
 }: ChartCommentaryPanelProps) {
   const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
   const [revision, setRevision] = useState(0);
@@ -84,6 +93,13 @@ export function ChartCommentaryPanel({
 
   return (
     <article className="chart-commentary-shell">
+      <header className="chart-commentary-source">
+        <strong>{normalizedSymbol} · {interval}</strong>
+        <button type="button" className={chartSelectionActive ? "is-active" : ""} aria-pressed={chartSelectionActive} onClick={onChartSelectionToggle}>차트 선택</button>
+        {chartSelectionActive && chartOptions.length > 1 && <select aria-label="연결할 차트" value={chartDocumentId ?? ""} onChange={(event) => onChartDocumentChange?.(event.target.value)}>
+          {chartOptions.map((option) => <option key={option.chartDocumentId} value={option.chartDocumentId}>{option.symbol} · {option.interval}</option>)}
+        </select>}
+      </header>
       <nav className="chart-commentary-view-nav" aria-label="차트 해설 보기">
         <button
           type="button"
@@ -128,13 +144,13 @@ export function ChartCommentaryPanel({
           candles={candles}
           drawingIds={drawingIds}
           asset={asset}
-          activePlan={activePlan}
+          availableAssets={assets?.assets}
         />}
     </article>
   );
 }
 
-function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, activePlan }: {
+function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets }: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
   symbol: string;
@@ -142,20 +158,21 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   candles: CandleDto[];
   drawingIds: string[];
   asset: ChartAnalysisAsset | null;
-  activePlan: ActiveTradePlan | null;
+  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
 }) {
   if (!sourceAvailable) return <Empty text="원본 차트 없음" />;
   if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
   if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
-  const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
-  const model = buildChartCommentaryModel(diagnostics.resolvedAsset, activePlan);
+  const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets);
+  const setup = projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets);
+  const model = buildChartCommentaryModel(diagnostics.resolvedAsset, setup);
   const focusDrawing = (ids: string[], mode: FocusMode) => {
     if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, ids, mode);
   };
   return (
     <article className="chart-commentary-panel">
       <header className="chart-commentary-meta">
-        <span className="chart-commentary-badge">{interval}</span>
+        <span className="chart-commentary-badge">{symbol} · {interval}</span>
         <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
         <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
       </header>
@@ -257,13 +274,20 @@ function FocusButton({ drawingIds, anchor, onFocus, children }: {
   onFocus: (ids: string[], mode: FocusMode, anchor?: ChartExplanationAnchor | null) => void;
   children: ReactNode;
 }) {
+  const [pinned, setPinned] = useState(false);
   return <button
+    className={pinned ? "is-pinned" : undefined}
+    aria-pressed={pinned}
     type="button"
     onMouseEnter={() => onFocus(drawingIds, "spotlight", anchor)}
-    onMouseLeave={() => onFocus([], "clear")}
+    onMouseLeave={() => { if (!pinned) onFocus([], "clear"); }}
     onFocus={() => onFocus(drawingIds, "spotlight", anchor)}
-    onBlur={() => onFocus([], "clear")}
-    onClick={() => onFocus(drawingIds, "select", anchor)}
+    onBlur={() => { if (!pinned) onFocus([], "clear"); }}
+    onClick={() => {
+      const next = !pinned;
+      setPinned(next);
+      onFocus(next ? drawingIds : [], next ? "select" : "clear", anchor);
+    }}
   >{children}</button>;
 }
 

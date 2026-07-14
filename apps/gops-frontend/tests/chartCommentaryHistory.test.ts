@@ -5,10 +5,12 @@ import { normalizeChartExplanation, chartExplanationMatchesAsset, chartExplanati
 import {
   attachChartCommentaryReport,
   beginChartCommentaryRequest,
+  chartCommentaryStateForDocument,
   chartCommentaryHistoryLimit,
   clearChartCommentaryPending,
   ensureChartCommentaryPanel,
   normalizeChartCommentaryState,
+  rememberChartCommentaryState,
   type ChartCommentaryRequestSnapshot
 } from "../src/agent/chartCommentaryHistory";
 import type { AgentAnalysisReport } from "../src/agents/agentAnalysis";
@@ -71,6 +73,16 @@ assert.equal(answerState.answers.length, chartCommentaryHistoryLimit);
 assert.equal(answerState.answers[0]?.analysisId, "analysis-2");
 assert.equal(answerState.activeView, `analysis-${chartCommentaryHistoryLimit + 1}`);
 assert.equal(answerState.pending, null);
+
+const perDocumentHistory = rememberChartCommentaryState(undefined, "doc-a", answerState);
+const docBState = chartCommentaryStateForDocument(perDocumentHistory, "doc-b");
+assert.equal(docBState.answers.length, 0, "another chart starts with isolated commentary history");
+const withDocB = rememberChartCommentaryState(perDocumentHistory, "doc-b", {
+  ...docBState,
+  pending: { requestId: "doc-b-request", question: "이 봉 분석해줘", requestedAt: source.asOf, snapshot: { ...source, chartDocumentId: "doc-b" } }
+});
+assert.equal(chartCommentaryStateForDocument(withDocB, "doc-a").answers.length, chartCommentaryHistoryLimit);
+assert.equal(chartCommentaryStateForDocument(withDocB, "doc-b").pending?.requestId, "doc-b-request");
 
 const restored = restoreTiledPanelStateSnapshot(serializeTiledPanelState(withAnswers), viewport);
 const restoredContent = Object.values(restored?.contents ?? {}).find((item) => item.kind === "chartCommentary");

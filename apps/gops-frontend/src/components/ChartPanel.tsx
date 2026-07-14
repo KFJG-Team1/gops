@@ -671,7 +671,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
     : null;
-  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
+  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles, analysisAssets?.assets);
   const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
     activeAnalysisAsset.asOf,
     chart.candles,
@@ -703,7 +703,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
       ? analysisAssets.assets[interval]
       : null;
-    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
+    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles, analysisAssets?.assets);
     const asset = resolvedAsset
       ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
           resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
@@ -788,6 +788,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       const drawingId = validIds[0];
       if (!drawingId) return;
+      setSpotlightDrawingIds(validIds);
       dispatchExternalCommandGroup([
         makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
         makeChartCommand("chart.drawing.select", "system", commandTarget, { drawingId }, undefined, "external")
@@ -1696,6 +1697,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     dispatchDocumentCommand("chart.viewport.set", nextViewport, "user", historyScope);
   }, [dispatchDocumentCommand, loadOlderCandles]);
+
+  useEffect(() => {
+    const lastCandleIndex = chart.candles.length - 1;
+    const projectionBars = chart.drawings
+      .filter((drawing) => drawing.visible !== false && drawing.style.zoneSplit === true)
+      .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.logicalIndex))
+      .filter((logicalIndex): logicalIndex is number => typeof logicalIndex === "number" && Number.isFinite(logicalIndex))
+      .reduce((maximum, logicalIndex) => Math.max(maximum, logicalIndex - lastCandleIndex), 0);
+    if (projectionBars <= 0 || chart.rightOffset < 0) return;
+    const sceneVisibleCount = sceneRef.current?.visibleSlotCount ?? chart.visibleCount;
+    const futureSlots = Math.max(projectionBars + 2, Math.floor(sceneVisibleCount / 4));
+    applyViewport({ visibleCount: chart.visibleCount, rightOffset: -futureSlots }, "external");
+  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount]);
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
@@ -2761,7 +2775,7 @@ export function ChartDrawingDock({
     });
     setOpenDrawingMenu(null);
   };
-  const updateSelectedDrawingLineWidth = (lineWidth: 1 | 2 | 3) => {
+  const updateSelectedDrawingLineWidth = (lineWidth: number) => {
     if (!selectedDrawing) {
       return;
     }
@@ -2871,25 +2885,17 @@ export function ChartDrawingDock({
           })}
           <div className="chart-drawing-width-divider" aria-hidden="true" />
           <div className="chart-drawing-width-options" role="group" aria-label="선 두께">
-            {([1, 2, 3] as const).map((lineWidth) => {
-              const active = selectedLineWidthStage === lineWidth;
-              return (
-                <button
-                  key={`width-${lineWidth}`}
-                  type="button"
-                  className={active ? "active" : ""}
-                  aria-label={`선 두께 ${lineWidth}`}
-                  aria-pressed={active}
-                  onClick={() => updateSelectedDrawingLineWidth(lineWidth)}
-                >
-                  <span
-                    className="chart-drawing-width-sample"
-                    style={{ height: lineWidth }}
-                    aria-hidden="true"
-                  />
-                </button>
-              );
-            })}
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="0.5"
+              value={selectedLineWidthStage}
+              aria-label="선 두께 1에서 5"
+              aria-valuetext={`${selectedLineWidthStage}`}
+              onChange={(event) => updateSelectedDrawingLineWidth(Number(event.target.value))}
+            />
+            <output aria-live="polite">{selectedLineWidthStage.toFixed(1)}</output>
           </div>
         </div>,
         window.document.body

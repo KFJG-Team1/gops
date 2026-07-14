@@ -68,7 +68,11 @@ export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetV
   return Number.isFinite(asOfTime) && candles.some((candle) => candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime);
 }
 
-export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null, candles: CandleDto[]): ChartAnalysisAsset | null {
+export function resolveAnalysisAssetForCandles(
+  asset: ChartAnalysisAsset | null,
+  candles: CandleDto[],
+  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
+): ChartAnalysisAsset | null {
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
   const levelDrawingIds = analysisLevelDrawingIds(asset);
@@ -84,7 +88,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
     return [presentAnalysisDrawing(resolved, asset, levelDrawingIds)];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
-  const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
+  const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles, availableAssets);
   return {
     ...asset,
     geometry: {
@@ -109,11 +113,16 @@ export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): C
   };
 }
 
-export function analysisAssetPresentationDiagnostics(asset: ChartAnalysisAsset, candles: CandleDto[], currentDrawingIds?: string[]): AnalysisAssetPresentationDiagnostics {
+export function analysisAssetPresentationDiagnostics(
+  asset: ChartAnalysisAsset,
+  candles: CandleDto[],
+  currentDrawingIds?: string[],
+  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
+): AnalysisAssetPresentationDiagnostics {
   const storedDrawingCount = asset.geometry.drawings.filter((drawing) => (
     !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
   )).length;
-  const resolved = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
+  const resolved = resolveAnalysisAssetForCandles(asset, candles, availableAssets) ?? asset;
   const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
   const resolvedAsset = staleAnalysisAsset(resolved, stale);
   const resolvedDrawingIds = resolvedAsset.geometry.drawings.map((drawing) => drawing.id);
@@ -164,19 +173,13 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
   if (levelDrawingIds.has(drawing.id)) {
     const level = [...(asset.geometry.supports ?? []), ...(asset.geometry.resistances ?? [])]
       .find((candidate) => drawing.id === candidate.id || drawing.id.endsWith(`:${candidate.id}`));
-    if (!level || drawing.type !== "horizontalLine" || !validZone(level.zoneLow, level.zoneHigh)) {
-      return drawing;
-    }
-    const first = drawing.anchors[0];
-    const last = drawing.anchors[drawing.anchors.length - 1] ?? first;
+    if (!level || drawing.type !== "horizontalLine") return drawing;
     return {
       ...drawing,
-      type: "horizontalParallelLines",
-      anchors: [{ ...first, price: level.zoneLow }, { ...last, price: level.zoneHigh }],
       style: evidenceStyle(
         drawing.style,
         level.role === "support" ? "evidenceSupport" : "evidenceResistance",
-        { fillOpacity: 0.08, lineDash: [], labelPlacement: "axis" }
+        { lineWidth: 2.5, labelPlacement: "axis" }
       )
     } as T;
   }
@@ -184,8 +187,9 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
     return {
       ...drawing,
       style: evidenceStyle(drawing.style, "evidencePattern", {
-        opacity: Math.min(0.7, drawing.style.opacity ?? 1),
-        labelPlacement: "axis"
+        lineWidth: 3.5,
+        opacity: Math.min(0.9, drawing.style.opacity ?? 1),
+        labelPlacement: drawing.id.endsWith("-upper") ? "inline" : drawing.id.endsWith("-lower") ? "axis" : "none"
       })
     };
   }
@@ -205,15 +209,8 @@ function evidenceStyle(
     colorToken: token,
     fillToken: token,
     textToken: token,
-    lineWidth: 1,
     ...patch
   };
-}
-
-function validZone(low: number | undefined, high: number | undefined): boolean {
-  return typeof low === "number" && Number.isFinite(low)
-    && typeof high === "number" && Number.isFinite(high)
-    && high > low;
 }
 
 function isPatternDrawing(drawing: Pick<DrawingEntity, "id">, asset: ChartAnalysisAsset): boolean {

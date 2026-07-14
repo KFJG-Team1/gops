@@ -217,9 +217,9 @@ export function normalizeParallelLineCount(value: unknown): number {
   return normalizeEngineParallelLineCount(value, 3);
 }
 
-export function nearestDrawingLineWidthStage(value: number | undefined): 1 | 2 | 3 {
+export function nearestDrawingLineWidthStage(value: number | undefined): number {
   const width = typeof value === "number" && Number.isFinite(value) ? value : 1;
-  return width < 1.5 ? 1 : width < 2.5 ? 2 : 3;
+  return Math.max(1, Math.min(5, Math.round(width * 2) / 2));
 }
 
 export function drawingSupportsTextEditing(drawing: Pick<DrawingEntity, "type" | "label">): boolean {

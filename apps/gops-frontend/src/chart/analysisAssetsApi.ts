@@ -11,6 +11,7 @@ export type GeometryLevel = {
   zoneLow?: number;
   zoneHigh?: number;
   halfWidthAtr?: number;
+  selectionTier?: "confirmed" | "contextual";
   score: number;
   touches: number;
   anchors: Array<{ timestamp: string; price: number }>;
@@ -33,6 +34,8 @@ export type GeometryPattern = {
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+  upper?: GeometryPatternBoundary;
+  lower?: GeometryPatternBoundary;
   confirmation?: {
     breakoutAt: string;
     confirmedAt: string;
@@ -41,6 +44,11 @@ export type GeometryPattern = {
     penetrationAtr: number;
     relativeVolume: number | null;
   } | null;
+};
+
+export type GeometryPatternBoundary = {
+  start?: { timestamp?: string; price?: number };
+  end?: { timestamp?: string; price?: number };
 };
 
 export type GeometryTriangle = GeometryPattern & {

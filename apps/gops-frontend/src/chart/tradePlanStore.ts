@@ -120,8 +120,8 @@ export function clearActiveTradePlan(chartDocumentId: string): void {
 }
 
 function isNewPositionPlan(plan: NonNullable<ChartAnalysisAsset["geometry"]["tradePlan"]>): plan is typeof plan & {
-  direction: "long" | "short";
-  action: "buy_candidate" | "short_candidate";
+  direction: "long";
+  action: "buy_candidate";
   entryPrice: number;
   targetPrice: number;
   stopPrice: number;
@@ -129,9 +129,7 @@ function isNewPositionPlan(plan: NonNullable<ChartAnalysisAsset["geometry"]["tra
   rewardRiskRatio: number;
   signalAt: string;
 } {
-  const actionDirectionMatches = (plan.action === "buy_candidate" && plan.direction === "long")
-    || (plan.action === "short_candidate" && plan.direction === "short");
-  return actionDirectionMatches
+  return plan.action === "buy_candidate" && plan.direction === "long"
     && [plan.entryPrice, plan.targetPrice, plan.stopPrice, plan.entryTrigger, plan.rewardRiskRatio]
       .every((value) => typeof value === "number" && Number.isFinite(value))
     && typeof plan.signalAt === "string";

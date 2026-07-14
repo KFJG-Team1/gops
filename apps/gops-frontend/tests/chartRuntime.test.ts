@@ -4005,7 +4005,7 @@ const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, sc
 assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
-assert.match(chartCanvasSource, /const axisLabelColor = resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
@@ -4660,7 +4660,10 @@ const trendLineResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-a", documentA.id), {
     drawingType: "trendLine",
     anchors: [anchorA, anchorB],
-    style: { color: "#0a0b0d", lineWidth: 1.5, extension: "ray", labelPlacement: "axis", zoneSplit: true },
+    style: {
+      color: "#0a0b0d", lineWidth: 6, extension: "ray", labelPlacement: "axis", zoneSplit: true,
+      proposalAction: "buy_candidate", proposalKind: "confirmed"
+    },
     label: "Trend ray"
   })
 );
@@ -4669,23 +4672,37 @@ if (trendLineResult.ok) {
   assert.equal(trendLineResult.document.drawings[0]?.style.extension, "ray");
   assert.equal(trendLineResult.document.drawings[0]?.style.labelPlacement, "axis");
   assert.equal(trendLineResult.document.drawings[0]?.style.zoneSplit, true);
+  assert.equal(trendLineResult.document.drawings[0]?.style.lineWidth, 5);
+  assert.equal(trendLineResult.document.drawings[0]?.style.proposalAction, "buy_candidate");
+  assert.equal(trendLineResult.document.drawings[0]?.style.proposalKind, "confirmed");
   const stylePatchResult = executeChartCommand(
     trendLineResult.document,
     makeChartCommand("chart.drawing.update", "user", target("panel-a", documentA.id), {
       drawingId: trendLineResult.document.drawings[0]?.id,
-      drawingPatch: { style: { labelPlacement: "inline", zoneSplit: false } }
+      drawingPatch: {
+        style: {
+          labelPlacement: "inline", zoneSplit: false,
+          proposalAction: "sell_candidate", proposalKind: "conditional"
+        }
+      }
     })
   );
   assert.equal(stylePatchResult.ok, true);
   if (stylePatchResult.ok) {
     assert.equal(stylePatchResult.document.drawings[0]?.style.labelPlacement, "inline");
     assert.equal(stylePatchResult.document.drawings[0]?.style.zoneSplit, false);
+    assert.equal(stylePatchResult.document.drawings[0]?.style.proposalAction, "sell_candidate");
+    assert.equal(stylePatchResult.document.drawings[0]?.style.proposalKind, "conditional");
     const styleUndo = executeChartCommand(
       stylePatchResult.document,
       makeChartCommand("chart.undo", "user", target("panel-a", documentA.id))
     );
     assert.equal(styleUndo.ok, true);
-    if (styleUndo.ok) assert.equal(styleUndo.document.drawings[0]?.style.labelPlacement, "axis");
+    if (styleUndo.ok) {
+      assert.equal(styleUndo.document.drawings[0]?.style.labelPlacement, "axis");
+      assert.equal(styleUndo.document.drawings[0]?.style.proposalAction, "buy_candidate");
+      assert.equal(styleUndo.document.drawings[0]?.style.proposalKind, "confirmed");
+    }
   }
 }
 

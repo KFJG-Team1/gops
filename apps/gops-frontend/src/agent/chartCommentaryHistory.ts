@@ -233,7 +233,27 @@ export function normalizeChartCommentaryState(value: unknown, chartDocumentId: s
   };
 }
 
-function emptyChartCommentaryState(chartDocumentId: string): ChartCommentaryState {
+export function chartCommentaryStateForDocument(
+  value: unknown,
+  chartDocumentId: string
+): ChartCommentaryState {
+  const history = readObject(value);
+  return normalizeChartCommentaryState(history?.[chartDocumentId], chartDocumentId);
+}
+
+export function rememberChartCommentaryState(
+  value: unknown,
+  chartDocumentId: string,
+  state: unknown
+): Record<string, unknown> {
+  const history = readObject(value) ?? {};
+  return {
+    ...history,
+    [chartDocumentId]: normalizeChartCommentaryState(state, chartDocumentId)
+  };
+}
+
+export function emptyChartCommentaryState(chartDocumentId: string): ChartCommentaryState {
   return {
     version: "chart-commentary-history.v1",
     chartDocumentId,

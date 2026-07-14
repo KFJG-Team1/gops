@@ -2,6 +2,7 @@ import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
+import { rememberChartCommentaryState } from "../agent/chartCommentaryHistory";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
@@ -117,6 +118,10 @@ type PanelContentRendererProps = {
   onSelectRecommendationReference: (reference: AgentReference | null) => void;
   onOpenCompany: (symbol: string) => void;
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
+  chartLinkOptions: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
+  chartSelectionActive: boolean;
+  onChartSelectionToggle: (contentId: string) => void;
+  onCommentaryChartChange: (contentId: string, chartDocumentId: string) => void;
 };
 
 export function PanelContentRenderer({
@@ -159,7 +164,11 @@ export function PanelContentRenderer({
   selectedRecommendationSymbol,
   onSelectRecommendationReference,
   onOpenCompany,
-  onSelectPatternAsset
+  onSelectPatternAsset,
+  chartLinkOptions,
+  chartSelectionActive,
+  onChartSelectionToggle,
+  onCommentaryChartChange
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">(
@@ -507,7 +516,20 @@ export function PanelContentRenderer({
           candles={activeChartCandles}
           drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
           commentaryState={content.props?.commentaryState}
-          onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, { commentaryState: state })}
+          onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, {
+            commentaryState: state,
+            commentaryHistoryByDocument: boundChartDocumentId
+              ? rememberChartCommentaryState(
+                content.props?.commentaryHistoryByDocument,
+                boundChartDocumentId,
+                state
+              )
+              : content.props?.commentaryHistoryByDocument
+          })}
+          chartOptions={chartLinkOptions}
+          chartSelectionActive={chartSelectionActive}
+          onChartSelectionToggle={() => onChartSelectionToggle(content.id)}
+          onChartDocumentChange={(chartDocumentId) => onCommentaryChartChange(content.id, chartDocumentId)}
         />
       </Suspense>
     );
