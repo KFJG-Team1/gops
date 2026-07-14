@@ -102,6 +102,15 @@ export type ChartBelowPanePlot = {
   bottom: number;
 };
 
+export function paneSeparatorYs(plot: ChartPlot): number[] {
+  return plot.belowPanes.map((pane, index) => {
+    const previousBottom = index === 0
+      ? plot.priceBottom
+      : plot.belowPanes[index - 1].bottom;
+    return (previousBottom + pane.top) / 2;
+  });
+}
+
 export type ChartScene = {
   width: number;
   height: number;

@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -247,6 +247,7 @@ function drawChart(
     () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
     () => standardLayersVisible && drawBelowIndicatorPanes(context, scene),
+    () => standardLayersVisible && drawPaneSeparators(context, scene),
     () => drawExpansionParentSummaries(context, scene),
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
@@ -549,16 +550,21 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
       line(context, scene.plot.left, volumeY(scene, volume), right, volumeY(scene, volume));
     });
   }
-  if (scene.plot.belowPanes.length) {
-    context.save();
-    context.strokeStyle = colors.border;
-    context.lineWidth = 1.2;
-    line(context, scene.plot.left, scene.plot.priceBottom, right, scene.plot.priceBottom);
-    scene.plot.belowPanes.slice(1).forEach((pane) => {
-      line(context, scene.plot.left, pane.top - 3, right, pane.top - 3);
-    });
-    context.restore();
+  context.restore();
+}
+
+function drawPaneSeparators(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const separatorYs = paneSeparatorYs(scene.plot);
+  if (!separatorYs.length) {
+    return;
   }
+  context.save();
+  context.strokeStyle = colors.axis;
+  context.globalAlpha = 0.38;
+  context.lineWidth = 1;
+  separatorYs.forEach((y) => {
+    line(context, scene.plot.left, y, scene.width, y);
+  });
   context.restore();
 }
 

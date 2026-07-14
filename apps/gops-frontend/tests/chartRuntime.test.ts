@@ -77,6 +77,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
+  paneSeparatorYs,
   resolveCrosshairTimeTarget,
   viewportAnchorRatioAtX,
   viewportSlotWidth
@@ -1120,6 +1121,15 @@ const multiBelowPaneScene = buildFrontendChartScene(frontendChartState({
 }), 800, 460);
 assert.deepEqual(multiBelowPaneScene.plot.belowPanes.map((pane) => pane.id), ["volume", "rsi:14", "macd:12:26:9"]);
 assert.ok(multiBelowPaneScene.plot.belowPanes[0].top < multiBelowPaneScene.plot.belowPanes[1].top);
+const multiBelowPaneSeparatorYs = paneSeparatorYs(multiBelowPaneScene.plot);
+assert.equal(multiBelowPaneSeparatorYs.length, multiBelowPaneScene.plot.belowPanes.length);
+multiBelowPaneSeparatorYs.forEach((separatorY, index) => {
+  const previousBottom = index === 0
+    ? multiBelowPaneScene.plot.priceBottom
+    : multiBelowPaneScene.plot.belowPanes[index - 1].bottom;
+  const paneTop = multiBelowPaneScene.plot.belowPanes[index].top;
+  assert.ok(separatorY > previousBottom && separatorY < paneTop);
+});
 assert.equal(multiBelowPaneScene.plot.top, 42);
 assert.equal(multiBelowPaneScene.width - multiBelowPaneScene.plot.right, 68);
 assert.equal(formatFrontendPriceAxisValue(210), "210.00");
@@ -3877,6 +3887,7 @@ assert.match(chartCanvasSource, /if \(!Number\.isFinite\(bucket\.volume\) \|\| b
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /context\.fillStyle = candleStrokeColor\(candle\.close >= candle\.open\)/);
 assert.match(chartCanvasSource, /function horizontalGuideRight[\s\S]*return scene\.plot\.right/);
+assert.match(chartCanvasSource, /function drawPaneSeparators[\s\S]*context\.strokeStyle = colors\.axis;[\s\S]*context\.globalAlpha = 0\.38;[\s\S]*line\(context, scene\.plot\.left, y, scene\.width, y\)/);
 assert.match(chartCanvasSource, /const volumeProfileAlpha = \{[\s\S]*poc: 0\.28[\s\S]*valueAreaBase: 0\.12[\s\S]*valueAreaScale: 0\.1[\s\S]*tailBase: 0\.08[\s\S]*tailScale: 0\.06[\s\S]*pocLine: 0\.34/);
 assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
 assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
