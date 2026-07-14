@@ -220,6 +220,7 @@ class ClickHouseMarketDataProvider:
         """, include_live=include_live)
         query = f"""
         SELECT
+          {{symbol:String}} AS symbol,
           formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
           open,
           high,
@@ -273,6 +274,7 @@ class ClickHouseMarketDataProvider:
         """)
         query = f"""
         SELECT
+          {{symbol:String}} AS symbol,
           formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
           open,
           high,

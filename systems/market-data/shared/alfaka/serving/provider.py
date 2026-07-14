@@ -250,7 +250,7 @@ class MarketDataProvider:
 
 def merge_candles(*groups, now=None):
     rows = [candle for group in groups for candle in group if candle]
-    intervals = {normalize_chart_interval(row.get("interval", "1m")) for row in rows}
+    intervals = {_candle_interval(row) for row in rows}
     if rows and len(intervals) == 1 and intervals.issubset({"1D", "1W", "1M"}):
         from alfaka.candles import merge_canonical_candles
         interval = next(iter(intervals))
@@ -284,7 +284,7 @@ def merge_timestamp_key(candle):
     if not timestamp:
         return None
     try:
-        interval = normalize_chart_interval(candle.get("interval", "1m"))
+        interval = _candle_interval(candle)
     except ValueError:
         interval = "1m"
     if interval not in {"1D", "1W", "1M"}:
@@ -293,6 +293,10 @@ def merge_timestamp_key(candle):
 
     normalized = canonicalize_candle_identity(candle, interval)
     return normalized.get("timestamp") if normalized else timestamp
+
+
+def _candle_interval(candle):
+    return normalize_chart_interval(candle.get("interval") or candle.get("timeframe") or "1m")
 
 
 def filter_candles_for_requested_window(candles, before=None, from_time=None, to_time=None):

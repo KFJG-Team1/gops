@@ -7125,6 +7125,32 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(merged[0]["canonicalVersion"], "v2")
         self.assertEqual(merged[0]["priceAdjustment"], "split")
 
+    def test_daily_merge_uses_public_timeframe_identity_after_snapshot_conversion(self):
+        merged = merge_candles(
+            [],
+            [{
+                "symbol": "NVDA",
+                "timeframe": "1D",
+                "timestamp": "2026-07-10T04:00:00.000Z",
+                "close": 210.96,
+                "isClosed": True,
+                "canonicalVersion": "v2",
+                "priceAdjustment": "split",
+                "marketSession": "regular",
+            }, {
+                "symbol": "NVDA",
+                "timeframe": "1D",
+                "timestamp": "2026-07-10T04:00:00.000Z",
+                "close": 210.96,
+                "isClosed": True,
+                "marketSession": "regular",
+            }],
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["canonicalVersion"], "v2")
+        self.assertEqual(merged[0]["priceAdjustment"], "split")
+
     def test_weekly_chart_merge_dedupes_utc_and_market_midnight_rows(self):
         merged = merge_candles(
             [{
