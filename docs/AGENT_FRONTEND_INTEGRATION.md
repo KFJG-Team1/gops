@@ -23,6 +23,34 @@
 5초 속보는 기사 링크만 열 수 있으며 차트를 자동 배치하지 않는다. 주문 패널의
 반도체 매도/에너지 매수 바스켓은 사용자가 해당 버튼을 직접 누를 때만 전송하고,
 SIM 표시가 있는 주문은 실제 브로커 WebSocket에 연결하지 않는다.
+시뮬레이터 상태는 실행 중에만 1초 간격으로 확인하고 LIVE, 일시정지, 완료,
+연결 불가 상태에서는 30초 간격으로 낮춘다. 이전 요청이 끝난 뒤 다음 요청을
+예약하며, 브라우저 탭이 백그라운드에 있으면 polling을 중단하고 다시 보일 때 즉시
+한 번 갱신한다.
+
+`빠른 주문` 패널도 자동 주문 경로가 아니다. 최우선 매수·매도호가, 1틱 오프셋,
+estimated order-flow imbalance는 `side + price` 주문 의도를 선택하는 입력이며,
+사용자가 패널 하단의 주문 전송 버튼을 눌러야만 기존 `POST /api/orders`를 호출한다.
+`202` 응답은 접수로 표시하고 체결은 `/ws/orders/{order_id}`의 terminal event로
+확인한다. 빠른 주문은 호가 이벤트 시각을 연결 상태 판단 기준으로 사용하지 않는다.
+Bid/Ask 구조가 유효하지 않거나 chart WebSocket이 연결 오류 상태이거나 order-flow
+미지원 종목일 때만 전송을 비활성화한다. 로컬 SIM의 지정가 체결가는 replay engine 기준이며 실제 지정가
+matching을 의미하지 않는다.
+
+패널 팔레트의 `가상 빠른 주문`, `가상 주문`, `가상계좌`는 기존 레이아웃에 자동
+추가하지 않는다. 두 가상 주문 패널은 KIS 주문 컴포넌트의 형태를 재사용하지만
+`/api/paper/*`와 `/ws/paper/*`만 호출하며 LIVE/SIM 토글의 영향을 받지 않는다.
+가상 빠른 주문은 `/api/paper/symbols/search`의 전체 활성 미국 주식/ETF를 선택할 수 있고 유효한 bid/ask가
+없으면 전송을 비활성화한다. 일반 가상 주문은 호가가 없어도 지정가를 대기 주문으로
+접수한다. `가상계좌`는 현금, 평가손익, 보유종목, 미체결 취소, 거래내역, 새 시작금을
+받는 명시적 계좌 초기화를 제공한다.
+
+Agent 인증 진입은 상단 global navigation의 `Login` 버튼을 사용한다. 별도 `Agents`
+버튼은 표시하지 않으며, 인증 후 하단 Agent 입력을 직접 사용한다. 로컬 Vite DEV에서는
+Agent debug가 기본으로 켜지고 분석 prompt를 보내면 request snapshot을 browser
+console과 `window.__GOPS_AGENT_LAST_REQUEST__`에 기록한다. `?agentDebug=0`은 해당
+브라우저의 localStorage에 opt-out을 저장하고, `?agentDebug=1`은 다시 켠다.
+production build에는 debug snapshot을 노출하지 않는다.
 
 프런트가 담당하지 않는 것:
 
@@ -35,12 +63,12 @@ SIM 표시가 있는 주문은 실제 브로커 WebSocket에 연결하지 않는
 
 ```mermaid
 flowchart TD
-  User["User question"] --> FE["Frontend chat"]
+  User["User question"] --> FE["Frontend Agent input"]
   FE --> Submit["POST /api/agents/analyze"]
   Submit --> Queued["202 queued + analysisId"]
   Queued --> Wait["SSE stream or polling"]
   Wait --> Report["AnalysisReport"]
-  Report --> Answer["final answer"]
+  Report --> Answer["Wild panel final answer"]
   Report --> Evidence["evidence and role findings"]
   Report --> OptionalUI["optional layout/chart proposal"]
 ```
@@ -59,14 +87,14 @@ panel proposal을 적용한다. `엔비디아 뉴스`,
 `엔비디아 분석해줘`, `엔비디아 차트 분석해줘`, 관계 질문, chart registry 미지원
 symbol은 기존 분석 흐름을 유지한다.
 
-티커 shortcut이 아니면 프런트는 분석 pending 메시지를 띄우기 전에
+티커 shortcut이 아니면 프런트는 분석 API를 호출하기 전에
 `POST /api/agents/layout/resolve`로 UI-only layout command인지 확인한다.
 응답이 `status="ui_layout"`이고 `layoutProposal`이 있으면 즉시 적용하고
 사용자에게 `summary`만 표시한다. `status="not_ui"`이거나 route가 실패하면
 기존 `/api/agents/analyze` 흐름으로 fallback한다.
 `status="ui_clarify"`이면 패널/레이아웃 관련 표현은 맞지만 대상이나 동작이
-불명확한 것이므로 `/api/agents/analyze`로 fallback하지 않고 `summary`를 채팅에
-표시한다.
+불명확한 것이므로 `/api/agents/analyze`로 fallback하지 않고 `summary`를 상단
+Agent 결과 알림으로 표시한다.
 
 ## Submit Request
 
@@ -147,7 +175,7 @@ drawing command로 저장하고, 해당 봉은 canvas에서 만료 시간이 있
 Drawing anchor는 pixel이 아니라 canonical `timestamp`/`price`를 사용하고
 `logicalIndex`는 현재 candle 배열에서 계산 가능한 보조 cache로만 취급한다.
 `horizontalLine`은 수동 작도의 단일 anchor와 Czardas H-Line의 동일 가격 2-anchor
-접촉 구간을 모두 허용한다. 2-anchor 형식의 각 timestamp도 실제 candle key여야 한다.
+analysis window를 모두 허용한다. 2-anchor 형식의 각 timestamp도 실제 candle key여야 한다.
 지원하는 평행선 계약은 2-anchor `horizontalParallelLines`/`verticalParallelLines`, 3-anchor
 `trendParallelLines`이며 추세 평행선의 `parallelLineCount`는 2..10이다. 이벤트 설명은
 `flagMarker`의 editable label을 사용한다. `rangeBox`와 평행선 band fill은 candle/지표
@@ -210,12 +238,25 @@ Async response:
 넣어야 한다. 사용자가 중단하면 현재 fetch/SSE/polling을 `AbortController`로
 닫고 `POST /api/agents/reports/{analysis_id}/cancel`을 호출한다.
 
-Cancel 후에는 pending 메시지를 중단됨으로 바꾸고 입력을 다시 연다. 서버가
+Cancel 후에는 상단 Agent 결과 알림에 중단됨을 표시하고 입력을 다시 연다. 서버가
 `canceled` report를 반환하거나 polling/SSE에서 같은 status를 받으면 terminal로
 처리한다. 이미 completed/deep_completed/failed가 도착한 뒤의 cancel 응답은 기존
 terminal report를 유지할 수 있다.
 
 ## Report Rendering
+
+When present, one `coach-report.v2` is passed from the workspace container into the AI
+coach panel. The panel has four pages: (1) today's trade review, (2) habit review with
+independent `entry`/`exit`/`portfolio` tabs and `30d`/`90d`/`1y` periods, (3) improvement
+priorities, and (4) one action center combining execution experiments, guardrails, and
+alert management. Page sections receive props only and never call the analysis API.
+
+On page 1, the selected fill and similar-case index are local UI state. A fill switch
+selects one `reviewsByFillId` object so chart, missed checks, outcome, portfolio impact,
+and conditions change atomically. Price, volume, RSI, and MACD share the `T-60..T+20`
+relative axis, and today's path ends at its latest observation without a forecast.
+The dev fixture is loaded only by a DEV-only dynamic import when
+`VITE_AI_COACH_DEV_FIXTURE=true`; production has no fixture fallback.
 
 Report에서 우선 렌더링할 영역:
 
@@ -237,6 +278,38 @@ Provider가 `status="no-data"` evidence를 반환하는 것은 정상적인 part
 role 답변이 함께 온 경우에도 사용자 화면의 첫 문장은 `finalAnswer.summary`의 종합
 판단이어야 하며, role별 답변은 세부 근거로 뒤에 붙인다.
 
+### Wild Panel Answer Pages
+
+현재 `gops-frontend`에서는 workspace 전체에서 한 panel만 Wild가 될 수 있다. Wild
+아이콘은 layout edit mode에서만 panel header에 표시한다. 사용자가 다른 panel의 Wild
+아이콘을 누르면 기존 Wild panel은 저장된 answer page를 모두 지우고 fixed panel로
+돌아가며 새 panel이 Wild destination이 된다. edit mode를 나가면 아이콘만 숨고 Wild
+page와 navigation은 유지된다. Wild panel은 원래 content를 base page로 유지한다.
+Wild panel이 있는 동안 완료된 Agent report는 해당 panel의 다음 page로 자동 추가한다.
+`AGENT LOG` button과 drawer는 표시하지 않는다. report 완료 시 Wild panel이 없으면
+상단의 3초 결과 알림만 표시하고 상세 report를 나중에 연결하기 위해 보관하지 않는다.
+자동 panel 생성이나 placement picker는 사용하지 않는다.
+
+저장 순서는 base content, `finalAnswer` 기반 `차트 해설`, role별 `에이전트 답변`이다.
+다만 새 report를 추가한 직후에는 사용자가 요청한 Wild UX 예외로 첫 role 답변을
+활성화하고, role 답변이 없을 때만 `차트 해설`을 활성화한다. 같은 `analysisId`를
+같은 panel에 다시 추가하지 않으며 이미 저장된 첫 role page로 이동한다.
+
+Agent 동작이 끝나면 top navigation의 center preset dock을 한 줄 결과 알림으로
+flip한다. 진행 중 메시지는 표시하지 않고 완료·취소·clarification·실패 결과만
+표시한다. 분석 결과는 `MSFT 뉴스를 가져왔습니다.`, `MSFT 차트 분석을 완료했습니다.`
+처럼 symbol과 action을 사용한 deterministic 문구이며 3초 뒤 preset dock으로 돌아간다.
+알림은 display-only `role="status"`이고 새 결과가 오면 기존 알림을 즉시 교체한다.
+
+Wild state와 answer snapshot은 layout localStorage에 저장하고 panel당 최신 report
+10개만 유지한다. fixed state로 되돌리면 별도 확인이나 개별 page 삭제 없이 저장된
+Wild page를 모두 제거한다. workspace에 Wild panel이 하나뿐이므로 reload 후에도 해당
+panel을 report destination으로 자동 복원한다.
+Wild answer payload는 backend `layoutContext`에 넣지 않으며 API/report 계약을 바꾸지
+않는다. 기존 `chartCommentary` layout kind는 저장 layout 호환을 위해 유지하되 내용은
+Czardas boundary·formation/response·Pattern 해설이다. Wild 전환은 다른 분석 page를 자동
+추가하지 않는다.
+
 ## Layout And Chart Proposals
 
 에이전트가 `layoutProposal` 또는 `chartProposal`을 반환할 수 있다. 프런트가
@@ -257,14 +330,13 @@ save, panel group open을 `layoutProposal.commands`로 반환한다. 프런트�
 `layout.undo`용 최근 agent layout 이력을 유지하고, `layout.panel.pin/unpin`을
 slot의 `layoutPinned`에 보존하며, `layout.save`는 현재 layout을 custom preset으로
 저장한다. `layout.panels.arrange`가 충돌 때문에 일부 생략되거나 readable span으로
-정규화되면 적용 결과의 `appliedWithChanges/reason`을 채팅에 표시해야 하며 backend
+정규화되면 적용 결과의 `appliedWithChanges/reason`을 상단 결과 알림에 표시해야 하며 backend
 rationale만으로 성공을 단정하면 안 된다.
 
-UI-only layout 명령이 프런트에 정상 적용되면 assistant 성공 메시지는 채팅에
-추가하지 않는다. 사용자 명령만 기록하고, `ui_clarify`, `autoApply=false`, undo
-이력 없음, placement 선택 필요, 충돌·부분 적용처럼 사용자의 확인이나 조치가
-필요한 경우에만 assistant 메시지를 표시한다. Placement picker에서 후보 적용이
-성공한 뒤에도 별도의 "적용했습니다" 메시지를 만들지 않는다.
+UI-only layout 명령이 프런트에 정상 적용되면 symbol-aware 완료 문구를 상단 결과
+알림으로 표시한다. `ui_clarify`, `autoApply=false`, undo 이력 없음, placement 선택
+필요, 충돌·부분 적용처럼 사용자의 확인이나 조치가 필요한 경우도 같은 알림 영역을
+사용하며 placement 후보 적용이 끝나면 완료 문구를 표시한다.
 
 `layoutContext.selectedPanelId`는 "이거", "이 패널", "여기" 같은 지시어의 대상이다.
 선택된 패널이 없으면 backend는 임의 패널을 고르지 않고 clarification을 반환한다.
@@ -303,61 +375,34 @@ symbol을 보낸다. 필수 투자 설정은 하단 `VI: 설정`의 `추천 설�
 전환까지만 수행하고 주문 실행으로 연결하지 않는다. 추천 행의 섹터도
 `sectorLabelKo` 한글 라벨을 사용한다.
 
-Czardas asset 운영 패널은 저장 레이아웃 호환을 위해 `kind="chartAssetOps"`, 화면 표시는
+chart analysis asset 운영 패널은 `kind="chartAssetOps"`, 화면 표시는
 `작도 자산(개발)`로 표현한다. 이름의 `(개발)`은 수동 운영 도구임을 나타내는 라벨일
 뿐 표시 게이트가 아니다. 로컬 Vite, Docker production build, 실제 배포 환경 모두
 레이아웃 수정 모드의 패널 추가 팔레트에 항상 노출하며 URL query나 localStorage로
 숨기지 않는다.
 
-Czardas는 `/api/charts/czardas-assets` GET/build/poll/delete route만 사용한다. 운영
-패널은 `1m/5m/10m/1h/4h/1D/1W` 중 정확히 한 symbol×interval을 수동
-build/delete하고 Geometry kind, S&P500 batch, 다중 interval 선택을 제공하지 않는다.
-build request마다 `Idempotency-Key`를 보내며 coalesced job도 같은 poll flow로 처리한다.
-timed anchor는 현재 interval의 canonical candle timestamp로만 snap하며 대응 봉이
-없으면 해당 drawing을 제외한다. 완료·삭제 시 generation을 올려 같은 symbol cache를
-무효화하고 열린 chart/panel을 즉시 재조회한다. 무효화 전 시작한 늦은 응답은 새 cache를
-되살릴 수 없다. build 상태와 repair 집계는 PostgreSQL polling으로 읽으며
-SSE와 Redis pub/sub은 사용하지 않는다.
+Czardas chart는 `1m/5m/10m/1h/4h/1D/1W`를 지원하고 H-Line, Trend, Pattern 세 layer를
+독립적으로 토글한다. Shared candle 의미는 항상 남는다. Pattern은 감지된 relation의 실제
+fact를 잇는 `polyline`이며 별도 Pattern 종목 목록 panel은 없다.
+승격되지 않은 대표 PatternEvidence는 국소 marker와 짧은 connector로만 보이며 이름과 managed
+polyline을 만들지 않는다. 이 evidence가 있으면 최종 Pattern이 없어도 Pattern toggle은 활성화된다.
 
-`czardas` chart type은 v3 pack의 `asOf`에서 exact-240 전체를 본 현재 해석을 그린다.
-240개 candle 모두 Shared/H-Line/Trend 의미를 가진다. `czardas-sight-v2` 기본 canvas는 확대
-상태에서 Shared+Trend를 candle 전체 진하기로, Shared+H-Line을 최대 36px의 고저점 국소 수평
-흔적으로 표현한다. Trend upper/lower candle glyph는 없고 ribbon/Basis도 같은 Trend 색을 쓴다.
-축소 상태의 노란 candle은 Shared와 켜진 channel 전체 의미다. selected zone/ribbon,
-selected Basis/validation, managed drawing과 실제 Triangle은 유지한다. response/profile/non-selected
-mode/hypothesis는 pack의 제한적 diagnostics일 수 있지만 기본 canvas에는 그리지 않는다.
+Field primitive와 managed drawing은 같은 timestamp+price transform을 사용한다. H-Line은
+analysis window에 clip하고 OLS, Trend, validation과 PatternTrace는 data-space로 이동한다.
+pan/zoom에서 screen-space에 고정되는 것은 hover text와 충돌 회피 label뿐이다.
 
-hover는 우측 하단 배경 없는 text overlay에서 `240봉 내 전체 의미 백분위`, 시각 문법,
-21개 raw/normalized
-factor, 모든 availability/phase/reason을 생략·접기·스크롤 없이 보여준다. same-candle pointer
-movement는 overlay를 다시 렌더링하지 않고 전체 overlay에는 `aria-live`를 두지 않는다.
-keyboard focus와 tap-lock용 짧은 안내만 별도 live region을 사용한다. 이는 과거 판단 replay가
-아니다. Basis, selected mode/ribbon과 drawing은 `inferenceId`/`sightProjectionId` 및
-derivation provenance를 사용한다. 기존 MA·indicator·comparison·Volume Profile은
-paint와 하단 pane만 숨기고 설정은 보존한다. `1M` option은 disabled이고 저장된
-`czardas+1M`만 load 시 candle로 정규화한다.
+managed drawing의 최초 편집은 candidate 또는 relation 하나만 session fork/suppress한다.
+Triangle boundary atomic group과 `sourceGroupId`는 없다. user/LLM은 managed provenance와
+`czardas:` ID를 만들 수 없고 LLM polyline proposal도 거부한다. 공용 polyline 도구는 사용자가
+3~32 points를 만들고 모든 vertex/path drag, undo/redo와 snapshot 저장을 지원한다.
 
-`Czardas 해설`은 claim, because, against, invalidation과 data qualifier를 표시하고
-`구조 우선순위`가 확률·매매 신호가 아님을 명시한다. chart/commentary/focus event는
-`inferenceId+asOf+inputDigest`가 일치해야 하며 candidate provenance가 맞지 않으면 focus를
-거부한다. drawing label은 `Czardas 원본|내 수정본`을 구분한다.
+hover는 `현재 240봉 기준`으로 pack의 factor/reason codebook 전체를 배경 없는 오른쪽 아래
+text overlay에 표시한다. H-Line/Trend toggle이 꺼지면 해당 설명만 약하게 표시한다. stale 또는
+inputDigest mismatch에서는 Field, hover와 해설을 현재 inference처럼 표시하지 않는다.
 
-H-Line과 Trend는 별도 toggle이고 managed drawing은 사용자가 편집할 수 있다. 첫 편집은
-session-only fork, 삭제는 suppression이며 reload 시 서버 공통 제안이 복원된다. Triangle
-두 Trend의 편집·삭제·복원은 한 command transaction이다. 선 두께 UI는 1/2/3 px만
-제공한다. `chart.czardas.*` command는 internal capability라 LLM chart proposal
-whitelist에 넣지 않는다. stale drawing은 낮은 opacity로 유지할 수 있지만 stale 또는
-incompatible Field, candle meaning hover와 Triangle badge는 최신 candle 위에
-투영하지 않는다. 모든 Field 좌표는 canonical timestamp/price를 사용하며 pan/zoom
-때 viewport 좌우에 고정되는 screen-space 추론 선을 만들지 않는다.
-
-candle API의 `canonicalSnapshot`을 pack identity와 비교한다. 브라우저는 Python q8,
-HALF_EVEN 또는 input digest를 재구현하지 않는다. snapshot metadata가 없거나 mismatch면
-Field, hover와 해설을 현재 inference로 표시하지 않는다.
-
-Geometry engine, release switch, API adapter, cache, controller, presentation은 없다.
-Czardas가 unavailable이면 이전 엔진으로 fallback하지 않고 자동 작도 없이 차트를
-정상 렌더링한다.
+개발 패널은 정확히 한 `symbol×interval`의 수동 build/delete/status만 제공한다. build 완료와
+삭제는 같은 symbol cache를 무효화한다. 자동 polling은 제출한 job 상태에만 사용하며 chart-open,
+asset GET과 candle event가 build를 제출해서는 안 된다.
 
 지원하지 않는 경우 정책:
 

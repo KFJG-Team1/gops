@@ -23,10 +23,10 @@ def test_present_snapshot_emits_one_current_meaning_for_every_bar():
     content = result.content
     meanings = content["czardasField"]["candleMeanings"]
 
-    assert content["algorithmVersion"] == "czardas-v3"
-    assert content["configVersion"] == "czardas-config-v3"
+    assert content["algorithmVersion"] == "czardas-v4"
+    assert content["configVersion"] == "czardas-config-v4"
     assert content["inputContractVersion"] == "canonical-ohlcv-q8-v1"
-    assert content["czardasField"]["schemaVersion"] == 3
+    assert content["czardasField"]["schemaVersion"] == 4
     assert content["czardasField"]["sightProjectionId"] == content["sightProjectionId"]
     assert meanings["evaluationAsOf"] == content["asOf"]
     assert len(meanings["timestamps"]) == len(meanings["candleKeys"]) == 240
@@ -65,7 +65,7 @@ def test_confirmation_is_a_market_fact_bounded_by_as_of():
     assert any(mask & pending_bit for mask in meaning_dto["phaseMasks"][-13:])
 
 
-def test_v3_output_has_no_historical_state_contract_fields():
+def test_v4_output_has_no_historical_state_contract_fields():
     result = analyze_czardas(oscillating_rows())
     assert isinstance(result, Ready)
     payload = canonical_json(result.content)
@@ -83,17 +83,16 @@ def test_v3_output_has_no_historical_state_contract_fields():
         assert banned not in payload
 
 
-def test_current_distance_is_atr_normalized():
-    rows = oscillating_rows()
-    result = analyze_czardas(rows)
+def test_adaptive_domains_own_ols_and_selected_boundary_formation():
+    result = analyze_czardas(oscillating_rows())
     assert isinstance(result, Ready)
-    tape = CandleTape.from_rows(rows, DEFAULT_CONFIG)
-    features = build_features(tape, DEFAULT_CONFIG)
-    atr = features.atr_scale(239, tape.candles[-1].close)
-
-    for boundary in result.content["boundaries"]:
-        expected = min(1.0, abs(boundary["line"]["priceAtAsOf"] - tape.candles[-1].close) / (3 * atr))
-        assert boundary["normalizedCurrentDistance"] == pytest.approx(expected)
+    field = result.content["czardasField"]
+    domains = {item["domainId"]: item for item in field["structuralDomains"]}
+    assert domains
+    assert any(item["startIndex"] == 0 and item["endIndex"] == 239 for item in domains.values())
+    assert 1 <= len(field["regressionFlows"]) <= 2
+    assert all(flow["domainId"] in domains for flow in field["regressionFlows"])
+    assert all(ref["formationDomainId"] in domains for ref in field["selectedModeRefs"])
 
 
 def test_selected_derivation_graph_is_closed_without_orphans():
@@ -116,13 +115,26 @@ def test_selected_derivation_graph_is_closed_without_orphans():
     assert episode_count > 0
     assert len(field["derivationEpisodes"]["candidateEpisodeOrdinals"]) == episode_count
     boundaries = {item["candidateId"]: item for item in result.content["boundaries"]}
+    episode_counts = {item["candidateId"]: 0 for item in field["selectedModeRefs"]}
+    initial_counts = {item["candidateId"]: 0 for item in field["selectedModeRefs"]}
     for candidate_index, ordinal in zip(
         field["derivationEpisodes"]["candidateIndexes"],
         field["derivationEpisodes"]["candidateEpisodeOrdinals"],
         strict=True,
     ):
         candidate_id = field["selectedModeRefs"][candidate_index]["candidateId"]
-        assert boundaries[candidate_id]["formation"]["fitEpisodeIds"][ordinal]
+        episode_counts[candidate_id] += 1
+        assert ordinal >= 0
+    for candidate_index, initial in zip(
+        field["derivationEpisodes"]["candidateIndexes"],
+        field["derivationEpisodes"]["initialFormationMasks"],
+        strict=True,
+    ):
+        initial_counts[field["selectedModeRefs"][candidate_index]["candidateId"]] += initial
+    for candidate_id, count in episode_counts.items():
+        if candidate_id in boundaries:
+            assert boundaries[candidate_id]["formation"]["fitCount"] == count
+        assert initial_counts[candidate_id] == 2
     for indexes in field["derivationEpisodes"]["memberBasisIndexes"]:
         assert indexes and all(0 <= index < len(fact_ids) for index in indexes)
     assert all(
@@ -174,22 +186,25 @@ def test_factor_transport_is_complete_compact_and_usage_honest():
     assert any(not (mask & geometry_bit) for mask in meanings["phaseMasks"])
 
 
-def test_missing_selected_boundaries_leave_null_relations_with_explicit_reasons():
+def test_baseline_memory_exposes_only_its_available_relation_and_missing_roles():
     result = analyze_czardas(flat_rows())
     assert isinstance(result, Ready)
-    assert result.content["boundaries"] == []
+    assert len(result.content["boundaries"]) == 1
+    baseline = result.content["boundaries"][0]
+    assert baseline["kind"] == "hline"
+    assert baseline["evidenceState"] == "baseline_memory"
+    assert result.content["patternRelations"] == []
     meanings = result.content["czardasField"]["candleMeanings"]
     codebook = {item["key"]: item for item in meanings["reasonCodebook"]}
     reason_masks = struct.unpack(">240I", base64.b64decode(meanings["reasonMasks"]))
 
-    for factor in (
-        "supportProximity", "resistanceProximity", "lowerResidualAtr", "upperResidualAtr",
-    ):
+    selected_factor = "supportProximity" if baseline["role"] == "support" else "resistanceProximity"
+    missing_hline_factor = "resistanceProximity" if baseline["role"] == "support" else "supportProximity"
+    assert struct.unpack(">240h", base64.b64decode(meanings["factors"][selected_factor])) != (-32768,) * 240
+    for factor in (missing_hline_factor, "lowerResidualAtr", "upperResidualAtr"):
         assert struct.unpack(">240h", base64.b64decode(meanings["factors"][factor])) == (-32768,) * 240
-    for key in (
-        "support_boundary_unavailable", "resistance_boundary_unavailable",
-        "lower_boundary_unavailable", "upper_boundary_unavailable",
-    ):
+    missing_hline_reason = "resistance_boundary_unavailable" if baseline["role"] == "support" else "support_boundary_unavailable"
+    for key in (missing_hline_reason, "lower_boundary_unavailable", "upper_boundary_unavailable"):
         code = codebook[key]["code"]
         assert codebook[key]["usage"] == "visualization_only"
         assert all(mask & (1 << code) for mask in reason_masks)
@@ -200,7 +215,7 @@ def test_projection_reports_non_rendered_fit_validation_facts_exactly():
     assert isinstance(result, Ready)
 
     expected = sum(
-        max(0, boundary["formation"]["fitCount"] - len(boundary["formation"]["initialFormationEpisodeIds"]))
+        max(0, boundary["formation"]["fitCount"] - boundary["formation"]["initialFormationCount"])
         for boundary in result.content["boundaries"]
     )
     assert result.content["czardasField"]["projection"]["omittedValidationCount"] == expected

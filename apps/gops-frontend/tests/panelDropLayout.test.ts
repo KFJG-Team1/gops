@@ -12,6 +12,8 @@ import {
   resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
   resolvePanelMoveWithPush,
+  setPrimaryChartSelection,
+  setPrimaryChartSymbol,
   type PanelContentKind,
   type PanelGridRect,
   type TiledPanelState
@@ -70,6 +72,21 @@ assert.deepEqual(
 assert.equal(resolveFirstAvailableRecommendedGridRect(fullState, "chart"), null);
 assert.equal(panelPaletteEntryLabel("compare"), "비교");
 assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "보유 종목 표");
+
+const selectedPatternChart = setPrimaryChartSelection(firstAvailableState, " aapl ", "4h", viewport);
+const selectedPatternChartSlot = selectedPatternChart.slots.find((slot) => selectedPatternChart.contents[slot.contentId]?.kind === "chart");
+const selectedPatternChartContent = selectedPatternChartSlot ? selectedPatternChart.contents[selectedPatternChartSlot.contentId] : undefined;
+assert.equal(selectedPatternChartContent?.props?.symbol, "AAPL");
+assert.equal(selectedPatternChartContent?.props?.timeframe, "4h");
+const selectedPatternWithoutChart = setPrimaryChartSelection(emptyState, "nvda", "1m", viewport);
+const createdPatternChartSlot = selectedPatternWithoutChart.slots.find((slot) => selectedPatternWithoutChart.contents[slot.contentId]?.kind === "chart");
+const createdPatternChartContent = createdPatternChartSlot ? selectedPatternWithoutChart.contents[createdPatternChartSlot.contentId] : undefined;
+assert.equal(createdPatternChartContent?.kind, "chart");
+assert.equal(createdPatternChartContent?.props?.symbol, "NVDA");
+assert.equal(createdPatternChartContent?.props?.timeframe, "1m");
+const symbolOnlySelection = setPrimaryChartSymbol(selectedPatternChart, "MSFT", viewport);
+const symbolOnlyChartSlot = symbolOnlySelection.slots.find((slot) => symbolOnlySelection.contents[slot.contentId]?.kind === "chart");
+assert.equal(symbolOnlyChartSlot ? symbolOnlySelection.contents[symbolOnlyChartSlot.contentId]?.props?.timeframe : undefined, "1D");
 
 const committedState = addPanelSlotAtGridRect(
   blockedTargetState,

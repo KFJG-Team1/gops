@@ -57,8 +57,6 @@ export function ChartCommentaryPanel({ symbol, interval }: {
       inputDigest: pack.inputDigest,
     }
   }));
-  const pattern = pack.presentationPattern;
-
   return (
     <article className="chart-commentary-panel">
       <header className="chart-commentary-meta">
@@ -68,16 +66,24 @@ export function ChartCommentaryPanel({ symbol, interval }: {
       </header>
       <h3 className="chart-commentary-headline">Czardas가 본 차트</h3>
       <p className="chart-commentary-text">
-        240개 완료봉에서 H-Line {pack.selection.hline.actualCount}개와 Trend {pack.selection.trend.actualCount}개를 선택했습니다.
+        240개 완료봉에서 H-Line {pack.selection.hline.actualCount}개, Trend {pack.selection.trend.actualCount}개,
+        Pattern {pack.selection.pattern.actualCount}개를 선택했습니다.
       </p>
-      {pattern && (
-        <button type="button" onClick={() => focusDrawings([
-          pattern.upperDrawingId ?? `czardas:${pattern.upperCandidateId}:line`,
-          pattern.lowerDrawingId ?? `czardas:${pattern.lowerCandidateId}:line`
-        ], [pattern.upperCandidateId, pattern.lowerCandidateId])}>
-          {patternName(pattern.kind)} · 두 Trend의 수렴 관계
-        </button>
-      )}
+      {pack.patternRelations.map((pattern) => (
+        <section key={pattern.relationId} className="chart-commentary-pattern">
+          <button type="button" onClick={() => focusDrawings(
+            [`czardas:${pattern.relationId}:pattern`],
+            pattern.boundaryCandidateIds
+          )}>
+            {pattern.displayName} · 구조 관계 {pattern.relationQuality.toFixed(2)}
+          </button>
+          <span>{pattern.explanation?.claim ?? `${patternName(pattern.kind)} 관계`}</span>
+          <span>근거: {pattern.explanation?.because?.join(" · ") || "공통 Field 경계와 접촉 순서"}</span>
+          <span>반대 근거: {pattern.explanation?.against?.join(" · ") || "관측된 반대 근거 없음"}</span>
+          <span>무효화: 관계를 지탱하는 경계의 지속 종가 이탈</span>
+          <span>데이터 조건: {pattern.explanation?.dataQualifier ?? "exact-240 현재 관점이며 매매 신호가 아님"}</span>
+        </section>
+      ))}
       <section className="chart-commentary-levels" aria-label="Czardas 경계 해석">
         <h3>선택 근거</h3>
         {pack.boundaries.length ? (
@@ -120,7 +126,14 @@ function boundaryName(boundary: CzardasBoundary): string {
 }
 
 function patternName(kind: string): string {
-  return { ascending_triangle: "상승 삼각형", descending_triangle: "하락 삼각형", symmetrical_triangle: "대칭 삼각형" }[kind] ?? kind;
+  return {
+    triangle: "삼각형",
+    channel: "채널",
+    rectangle: "직사각형",
+    wedge: "쐐기",
+    flag: "플래그",
+    pennant: "페넌트"
+  }[kind] ?? kind;
 }
 
 function formatAsOf(value: string): string {

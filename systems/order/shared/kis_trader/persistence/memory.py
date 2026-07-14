@@ -45,6 +45,7 @@ class InMemoryOrderRepository:
         idempotency_key_hash: str,
         body_hash: str,
         command: OrderCommand,
+        user_sub: str | None = None,
     ) -> OrderCreationResult:
         with self._lock:
             existing = self.idempotency_requests.get(idempotency_key_hash)
@@ -73,6 +74,7 @@ class InMemoryOrderRepository:
                 "reason": None,
                 "occurred_at": command.occurred_at,
                 "updated_at": utc_now_iso(),
+                "user_sub": user_sub,
             }
             self.orders[command.order_id] = order
             self._append_order_event(command.order_id, OrderStatus.RECEIVED, None, command)
@@ -124,6 +126,13 @@ class InMemoryOrderRepository:
                 "updated_at": utc_now_iso(),
             }
             self._append_order_event(command.order_id, OrderStatus.PUBLISHED, "reconstructed from command", command)
+
+    def find_idempotent_response(self, idempotency_key_hash: str, body_hash: str) -> dict[str, Any] | None:
+        with self._lock:
+            existing = self.idempotency_requests.get(idempotency_key_hash)
+            if existing is None or existing["body_hash"] != body_hash:
+                return None
+            return dict(existing["response"])
 
     def get_order(self, order_id: str) -> dict[str, Any] | None:
         with self._lock:

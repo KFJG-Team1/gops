@@ -35,13 +35,13 @@ def test_non_flat_market_pack_satisfies_authoritative_wire_contract():
     [
         (lambda pack: pack.update(inferenceId="sha256:" + "0" * 64), "inferenceId"),
         (lambda pack: pack.update(sightProjectionVersion="czardas-sight-v1"), "sightProjectionVersion"),
-        (lambda pack: pack["coverage"].update(actualCompleted=239), "actualCompleted"),
+        (lambda pack: pack["coverage"].update(actualCompleted=239), "exact-240"),
         (lambda pack: pack["czardasField"].update(fieldRevision=1), "historical"),
         (lambda pack: pack["czardasField"].update(originFieldModeId="legacy"), "historical"),
         (lambda pack: pack["czardasField"].update(roleMassAtRevision=0.5), "historical"),
         (lambda pack: pack["czardasField"].update(verificationCount=1), "historical"),
-        (lambda pack: pack["czardasField"]["candleMeanings"]["timestamps"].pop(), "exact-240"),
-        (lambda pack: pack["czardasField"]["candleMeanings"]["factors"].update(rangeAtr="AAAA"), "240 values"),
+        (lambda pack: pack["czardasField"]["candleMeanings"]["timestamps"].pop(), "240 values"),
+        (lambda pack: pack["czardasField"]["candleMeanings"]["factors"].update(rangeAtr="AAAA"), "invalid base64"),
     ],
 )
 def test_contract_rejects_identity_history_and_meaning_corruption(mutate, message):
@@ -64,7 +64,7 @@ def test_contract_rejects_unknown_selected_mode_provenance():
         "sourceFieldDerivationDigest": "sha256:" + "3" * 64,
     })
 
-    with pytest.raises(CzardasPackValidationError, match="cover every boundary"):
+    with pytest.raises(CzardasPackValidationError, match="missing mode"):
         validate_czardas_pack(pack)
 
 
@@ -73,7 +73,7 @@ def test_raw_factor_scale_range_and_normalized_bounds_are_enforced():
     meanings = pack["czardasField"]["candleMeanings"]
     meanings["rawFactorScales"]["rangeAtr"] += 1
 
-    with pytest.raises(CzardasPackValidationError, match="rawFactorScales.rangeAtr"):
+    with pytest.raises(CzardasPackValidationError, match="factorCodebook transport is inconsistent"):
         validate_czardas_pack(pack)
 
 
@@ -107,16 +107,16 @@ def test_contract_rejects_hline_response_outside_exact_window():
         "windowToTimestamp": "2099-01-02T00:00:00.000Z",
     }]
 
-    with pytest.raises(CzardasPackValidationError, match="windowFromTimestamp"):
+    with pytest.raises(CzardasPackValidationError, match="window is inconsistent"):
         validate_czardas_pack(pack)
 
 
-def test_contract_rejects_missing_selected_candidate_validation_closure():
+def test_contract_rejects_missing_selected_candidate_formation_closure():
     pack = valid_market_pack()
     assert pack["boundaries"]
-    pack["czardasField"]["validationGlyphs"] = []
+    pack["czardasField"]["derivationEpisodes"]["initialFormationMasks"][0] = 0
 
-    with pytest.raises(CzardasPackValidationError, match="cover every selected initial formation episode"):
+    with pytest.raises(CzardasPackValidationError, match="two initial formation episodes"):
         validate_czardas_pack(pack)
 
 
@@ -129,4 +129,15 @@ def test_contract_rejects_interaction_before_fit_watermark():
     interaction["observedAt"] = pack["czardasField"]["windowFromTimestamp"]
 
     with pytest.raises(CzardasPackValidationError, match="after fit evidence"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_pattern_impulse_that_does_not_precede_consolidation():
+    pack = valid_market_pack()
+    relation = pack["patternRelations"][0]
+    assert relation["impulse"]
+    relation["kind"] = "flag"
+    relation["impulse"]["toTimestamp"] = relation["domain"]["fromTimestamp"]
+
+    with pytest.raises(CzardasPackValidationError, match="must precede its consolidation"):
         validate_czardas_pack(pack)

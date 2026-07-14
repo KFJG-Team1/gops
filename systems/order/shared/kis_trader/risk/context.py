@@ -31,6 +31,8 @@ class SymbolMetrics:
     last_price: Decimal | None = None
     average_daily_volume: Decimal | None = None
     sector: str | None = None
+    price_source: str | None = None
+    price_observed_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class RiskContext:
     positions: tuple[PositionSnapshot, ...] = ()
     metrics: SymbolMetrics = field(default_factory=SymbolMetrics)
     daily_pnl: Decimal | None = None
+    # 오늘 매수 누적 금액 (daily_buy_budget 룰 입력, 접수 기준 근사)
+    daily_buy_notional: Decimal | None = None
 
 
 def decimal_or_none(value: Any) -> Decimal | None:
@@ -74,10 +78,13 @@ def risk_context_from_dict(payload: dict[str, Any]) -> RiskContext:
         last_price=decimal_or_none(metrics_payload.get("lastPrice")),
         average_daily_volume=decimal_or_none(metrics_payload.get("averageDailyVolume")),
         sector=(str(metrics_payload["sector"]) if metrics_payload.get("sector") else None),
+        price_source=(str(metrics_payload["priceSource"]) if metrics_payload.get("priceSource") else None),
+        price_observed_at=(str(metrics_payload["priceObservedAt"]) if metrics_payload.get("priceObservedAt") else None),
     )
     return RiskContext(
         account_equity=decimal_or_none(payload.get("accountEquity")),
         positions=tuple(positions),
         metrics=metrics,
         daily_pnl=decimal_or_none(payload.get("dailyPnl")),
+        daily_buy_notional=decimal_or_none(payload.get("dailyBuyNotional")),
     )

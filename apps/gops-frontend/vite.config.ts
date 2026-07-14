@@ -55,6 +55,14 @@ export default defineConfig(({ mode }) => {
             if (id.includes("/src/recommendations/")) {
               return "feature-recommendations";
             }
+            if (
+              id.includes("/src/chart/czardas")
+              || id.endsWith("/src/components/CzardasLayerToggles.tsx")
+              || id.endsWith("/src/components/ChartAssetOpsPanel.tsx")
+              || id.endsWith("/src/components/ChartCommentaryPanel.tsx")
+            ) {
+              return "feature-czardas";
+            }
             if (id.includes("/src/layout/")) {
               return "workspace-layout";
             }

@@ -31,7 +31,15 @@ export type SimulatorNewsArticle = {
 };
 
 export const simulatorStatusEvent = "gops:simulator-status";
+export const simulatorActivePollIntervalMs = 1_000;
+export const simulatorIdlePollIntervalMs = 30_000;
 const portfolioRefreshListeners = new Set<() => void>();
+
+export function simulatorStatusPollIntervalMs(status: Pick<SimulatorStatus, "available" | "mode" | "state">): number {
+  return status.available && status.mode === "simulation" && status.state === "running"
+    ? simulatorActivePollIntervalMs
+    : simulatorIdlePollIntervalMs;
+}
 
 export function subscribePortfolioRefresh(listener: () => void): () => void {
   portfolioRefreshListeners.add(listener);

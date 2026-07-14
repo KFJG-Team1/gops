@@ -391,6 +391,7 @@ export type ChartToolMode =
   | "draw-horizontalLine"
   | "draw-horizontalParallelLines"
   | "draw-trendLine"
+  | "draw-polyline"
   | "draw-trendParallelLines"
   | "draw-verticalMarker"
   | "draw-verticalParallelLines"
@@ -404,6 +405,7 @@ export type DrawingType =
   | "horizontalLine"
   | "horizontalParallelLines"
   | "trendLine"
+  | "polyline"
   | "trendParallelLines"
   | "verticalMarker"
   | "verticalParallelLines"
@@ -424,7 +426,7 @@ export type DrawingAnchor = {
   interval?: string;
 };
 
-export type ChartLineExtension = "segment" | "ray" | "line";
+export type ChartLineExtension = "segment" | "ray" | "line" | "none";
 
 export type DrawingStyle = {
   color?: string;
@@ -454,12 +456,13 @@ export type DrawingEntity = {
   createdBy: ChartCommandActor;
   sourceProposalId?: string;
   ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
-  czardasLayer?: "hline" | "trend";
+  czardasLayer?: "hline" | "trend" | "pattern";
   sourceInferenceId?: string;
   sourceCandidateId?: string;
   sourceFieldModeId?: string;
   sourceFieldDerivationDigest?: string;
-  sourceGroupId?: string;
+  sourceRelationId?: string;
+  sourceRelationDerivationDigest?: string;
   forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
@@ -467,10 +470,10 @@ export type DrawingEntity = {
 
 export type CzardasSuppression = {
   suppressionSetId: string;
-  sourceKind: "candidate" | "group";
+  sourceKind: "candidate" | "relation";
   sourceId: string;
   sourceCandidateId?: string;
-  sourceGroupId?: string;
+  sourceRelationId?: string;
   reason: "forked" | "deleted";
   createdAt: string;
 };

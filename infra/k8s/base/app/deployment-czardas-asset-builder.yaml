@@ -32,3 +32,9 @@ spec:
             - secretRef:
                 name: alfaka-order-db-secret
                 optional: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi

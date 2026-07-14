@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from .compiler import compile_boundary, compile_drawing
+from .compiler import compile_boundary, compile_drawing, compile_pattern_drawing
 from .config import CzardasConfig, DEFAULT_CONFIG
 from .evidence import build_evidence
 from .features import build_features
@@ -14,11 +14,21 @@ from .field_view import build_field_view
 from .hline import detect_hlines
 from .numeric import canonicalize, identity_digest
 from .meaning import CandleMeaningTape, build_base_candle_meanings, finalize_candle_meanings
-from .relations import select_triangle_relation
+from .relations import analyze_pattern_relations
 from .select import select_boundaries
 from .tape import CandleTape
 from .trend import detect_trends
 from .types import AnalysisUnavailable, BoundaryCandidate, DetectorResult, Ready, RoleBasis
+from .structure import (
+    PriceMemoryRidge,
+    RegressionFlow,
+    StructuralFactTape,
+    StructuralDomain,
+    build_price_memory,
+    build_structural_facts,
+    build_structural_domains,
+    ensure_baseline_hline,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +43,12 @@ class CzardasInference:
     trend: DetectorResult
     selected_hlines: tuple[BoundaryCandidate, ...]
     selected_trends: tuple[BoundaryCandidate, ...]
-    relation: dict[str, Any] | None
+    domains: tuple[StructuralDomain, ...]
+    regression_flows: tuple[RegressionFlow, ...]
+    price_memory: tuple[PriceMemoryRidge, ...]
+    structural_facts: StructuralFactTape
+    relations: tuple[dict[str, Any], ...]
+    relation_evidence: tuple[dict[str, Any], ...]
     reject_summary: dict[str, int]
     inference_id: str
     config: CzardasConfig
@@ -65,15 +80,22 @@ def infer_czardas(
     except (TypeError, ValueError) as exc:
         return AnalysisUnavailable(_unavailable_reason(str(exc)), {"message": str(exc)})
     features = build_features(tape, config)
+    domains, regression_flows = build_structural_domains(tape, features)
+    price_memory = build_price_memory(tape, features)
     base_meanings = build_base_candle_meanings(tape, features, config)
     clusters, basis = build_evidence(tape, features, config, base_meanings)
-    hline = detect_hlines(tape, features, basis, config)
-    trend = detect_trends(tape, features, basis, config)
+    structural_facts = build_structural_facts(tape, features, basis)
+    hline = detect_hlines(tape, features, structural_facts.basis, config, domains)
+    trend = detect_trends(tape, features, structural_facts.basis, config, domains)
+    hline = ensure_baseline_hline(tape, features, hline, price_memory, config)
+    relations, relation_evidence = analyze_pattern_relations(
+        tape, features, hline.candidates, trend.candidates,
+        domains, regression_flows, structural_facts, limit=config.pattern_max_count,
+    )
     selected_hlines, selected_trends, reject_summary = select_boundaries(
         tape, features, hline.candidates, trend.candidates, config
     )
     selected = (*selected_hlines, *selected_trends)
-    relation = select_triangle_relation(tape, features, selected_trends)
     inference_id = identity_digest([
         config.algorithm_version,
         config.config_version,
@@ -98,7 +120,12 @@ def infer_czardas(
         trend=trend,
         selected_hlines=selected_hlines,
         selected_trends=selected_trends,
-        relation=relation,
+        domains=domains,
+        regression_flows=regression_flows,
+        price_memory=price_memory,
+        structural_facts=structural_facts,
+        relations=relations,
+        relation_evidence=relation_evidence,
         reject_summary=reject_summary,
         inference_id=inference_id,
         config=config,
@@ -119,12 +146,22 @@ def project_czardas_sight(inference: CzardasInference) -> Ready | AnalysisUnavai
         config.sight_projection_version,
         config.projection_digest,
     ])
-    boundaries = [compile_boundary(tape, inference.features, item, inference.inference_id) for item in selected]
-    drawings = [compile_drawing(tape, item, inference.relation, inference.inference_id) for item in selected]
+    boundaries = [
+        compile_boundary(
+            tape, inference.features, item, inference.inference_id, inference.regression_flows,
+        )
+        for item in selected
+    ]
+    drawings = [compile_drawing(tape, item, inference.inference_id) for item in selected]
+    drawings.extend(compile_pattern_drawing(tape, item, inference.inference_id) for item in inference.relations)
     try:
         field, field_bytes = build_field_view(
-            tape, inference.hline, inference.trend, selected, inference.relation,
+            tape, inference.hline, inference.trend, selected, inference.relations,
+            inference.relation_evidence,
             inference.meanings, inference.inference_id, sight_projection_id, config,
+            domains=inference.domains,
+            regression_flows=inference.regression_flows,
+            price_memory=inference.price_memory,
         )
     except ValueError as exc:
         return AnalysisUnavailable(str(exc))
@@ -155,9 +192,10 @@ def project_czardas_sight(inference: CzardasInference) -> Ready | AnalysisUnavai
         "selection": {
             "hline": {"configuredCount": config.hline_display_count, "actualCount": len(inference.selected_hlines)},
             "trend": {"configuredCount": config.trend_display_count, "actualCount": len(inference.selected_trends)},
+            "pattern": {"configuredCount": None, "actualCount": len(inference.relations)},
         },
         "boundaries": boundaries,
-        "presentationPattern": inference.relation,
+        "patternRelations": [_project_relation(item) for item in inference.relations],
         "drawings": drawings,
         "czardasField": field,
         "rejectSummary": inference.reject_summary,
@@ -197,3 +235,16 @@ def _unavailable_reason(message: str) -> str:
     if "canonical" in message or "adjustment" in message or "session" in message:
         return "calendar_contract_mismatch"
     return "invalid_candle_identity"
+
+
+def _project_relation(relation: dict) -> dict:
+    """Public relation metadata; the lossless trace lives once in Field schema 4."""
+    return {
+        key: value
+        for key, value in relation.items()
+        if key != "trace"
+    } | {
+        "traceRef": relation["relationId"],
+        "traceAnchorCount": len(relation["trace"]["anchors"]),
+        "traceFactCount": len(relation["trace"]["contributingEpisodeIds"]),
+    }

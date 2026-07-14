@@ -23,16 +23,20 @@ def detect_trends(
     features: FeatureTape,
     all_basis: tuple[RoleBasis, ...],
     config: CzardasConfig,
+    domains=(),
 ) -> DetectorResult:
     modes: list[FieldMode] = []
     candidates: list[BoundaryCandidate] = []
     retained: list[RoleBasis] = []
     for role in ("lower", "upper"):
+        integrity_probe_count = 0
         anchors = [
             item for item in all_basis
             if item.role == role and (item.effective_scale >= 5 or item.geometry_score >= 0.75)
         ]
-        anchors = _stratified_anchors(anchors, len(tape.candles), config.trend_anchor_cap_per_side)
+        anchors = _stratified_anchors(
+            anchors, len(tape.candles), config.trend_anchor_cap_per_side, domains,
+        )
         retained.extend(anchors)
         if len(anchors) < 2:
             continue
@@ -153,8 +157,18 @@ def detect_trends(
                     probe=probe,
                 ))
                 continue
+            # Integrity is the expensive all-candle probe. Preserve the full
+            # mode landscape, but probe only a sparse canonical bank per side;
+            # downstream output can show at most three Trends.
+            if integrity_probe_count >= 6:
+                modes.append(_trend_mode(
+                    tape, mode_id, role, medoid, group, compatible, episodes, "weak", dual_scale,
+                    probe=probe,
+                ))
+                continue
+            integrity_probe_count += 1
             integrity_eval = integrity_for_domain(
-                tape, features, probe, 0, len(tape.candles) - 1, config
+                tape, features, probe, start, len(tape.candles) - 1, config
             )
             integrity = integrity_eval.integrity
             body_integrity = integrity_eval.body_integrity
@@ -271,24 +285,49 @@ def _trend_mode(
     )
 
 
-def _stratified_anchors(anchors, candle_count, cap):
-    """Keep structural coverage across the current snapshot, not just recent endpoints."""
+def _stratified_anchors(anchors, candle_count, cap, domains=()):
+    """Select high-quality endpoints with adaptive temporal coverage.
+
+    There are no fixed early/middle/late buckets. Each next anchor maximizes
+    distance from the already retained set while preserving endpoint quality.
+    """
     if cap <= 0:
         return []
     ordered = sorted(
         anchors,
         key=lambda item: (-item.geometry_score, -item.effective_scale, -item.bar_index, item.basis_id),
     )
-    strata = 3
-    per_stratum = min(4, max(1, cap // strata))
+    if len(ordered) <= cap:
+        return sorted(ordered, key=lambda item: (item.bar_index, item.basis_id))
     chosen = []
-    for stratum in range(strata):
-        start = stratum * candle_count // strata
-        end = (stratum + 1) * candle_count // strata
-        values = [item for item in ordered if start <= item.bar_index < end]
-        for item in values[:per_stratum]:
-            chosen.append(item)
-    return sorted(chosen[:cap], key=lambda item: (item.bar_index, item.basis_id))
+    chosen_ids = set()
+    for domain in sorted((item for item in domains if item.active), key=lambda item: (
+        item.depth, item.start_index, item.domain_id,
+    )):
+        values = [item for item in ordered if domain.start_index <= item.bar_index <= domain.end_index]
+        if values and values[0].basis_id not in chosen_ids:
+            chosen.append(values[0])
+            chosen_ids.add(values[0].basis_id)
+        if len(chosen) == cap:
+            break
+    if not chosen:
+        chosen = [ordered[0]]
+        chosen_ids.add(ordered[0].basis_id)
+    remaining = [item for item in ordered if item.basis_id not in chosen_ids]
+    scale = max(1, candle_count - 1)
+    while remaining and len(chosen) < cap:
+        winner = max(remaining, key=lambda item: (
+            0.55 * min(abs(item.bar_index - current.bar_index) for current in chosen) / scale
+            + 0.30 * item.geometry_score
+            + 0.15 * min(1.0, item.effective_scale / 13.0),
+            item.geometry_score,
+            item.effective_scale,
+            item.bar_index,
+            item.basis_id,
+        ))
+        chosen.append(winner)
+        remaining.remove(winner)
+    return sorted(chosen, key=lambda item: (item.bar_index, item.basis_id))
 
 
 def _median_atr(tape, features, start, end):

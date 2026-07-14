@@ -13,6 +13,7 @@ market_data.quote_ticks
 market_data.market_events
 market_data.market_status_events
 market_data.order_flow_profile_daily
+market_data.chart_analysis_assets
 market_data.backfill_jobs
 market_data.storage_object_audit
 market_data.load_audit
@@ -23,13 +24,16 @@ non-replicated insert-deduplication tokens per table. The tick loader derives a
 token from Kafka topic/partition/offset metadata, commits only offsets included
 in a successful insert, and keeps a bounded recent `sourceEventId` cache for
 short replays that cross insert batch boundaries. `chart_candles` and
-`order_flow_profile_daily` have no deletion TTL. Initialized environments may
-still contain the legacy no-TTL `chart_analysis_assets` table. It is dormant:
-runtime, migrations, APIs and operators must not read, write, recreate or use it
-as fallback. Fresh environments do not create it; dropping existing data
-requires a separate explicit operator migration. Existing
-environments apply the tick TTL and deduplication window through the
-operator-reviewed, idempotent migration:
+`order_flow_profile_daily` have no deletion TTL. The compatibility
+`chart_analysis_assets` table also has no TTL while the PostgreSQL latest-row
+migration is in progress.
+`chart_analysis_assets` uses `ReplacingMergeTree(inserted_at)` ordered by
+`(symbol, interval)`; readers use `FINAL` or `argMax` so each pair serves only
+the latest prebuilt asset. The current single-replica builder serializes
+`generatedAt + canonical payload digest` compare-and-insert so a delayed older
+build is suppressed; dual modes also warn if a monotonic no-op leaves the two
+stores divergent. Existing environments apply the tick TTL and deduplication
+window through the operator-reviewed, idempotent migration:
 
 ```text
 scripts/local/migrate-chart-tick-retention.sql
@@ -38,26 +42,21 @@ scripts/local/migrate-chart-tick-retention.sql
 `chart_candles.bucket_policy` separates incompatible intraday bucket identities.
 Legacy/native clock rows use `clock_aligned`; new US-equity derived rows use
 `us_equity_regular_session`. Readers select only the latter for
-`5m/10m/1h/4h`. The source `1m` and session-derived rows are both persisted, so
-chart serving, Czardas, and SMA share the same OHLCV facts.
-
-Fresh `chart_candles` tables include `canonical_version` and
-`price_adjustment` in the `ReplacingMergeTree` sorting key. Runtime schema
-ensure and rebuild scripts never issue `MODIFY ORDER BY` against a populated
-table. Existing AWS tables must be audited with `SHOW CREATE TABLE`; upgrading
-their key requires a separately reviewed table-copy migration, not a rollout
-side effect. Until that migration, canonical repair uses a dedicated
-`*-canonical-split-repair` feed profile so split/v2 rows remain physically
-distinct under the legacy key. Existing rows and dormant Geometry tables are
-not altered.
-
-Czardas uses the dedicated `canonical_completed_rows()` read boundary. Its SQL
-always filters `canonical_version=v2`, `price_adjustment=split`,
-`market_session=regular`, `is_closed=1`, and the compatible bucket policy,
-independent of permissive serving flags. A manual Czardas build audits the exact
-latest 240 expected keys; bounded Alpaca repair writes only real missing rows and
-the builder re-reads ClickHouse before inference. Weekly input is derived from
-at most 1,300 canonical daily rows. Czardas pack/job state is PostgreSQL-only.
+`5m/10m/1h/4h`. Realtime source `1m`, historical hourly-repair source `10m`,
+and session-derived rows are persisted. The `10m` recovery rows use
+`source_native`; target `1h/4h` rows use `us_equity_regular_session`. Hourly
+read fallback is stored target, then `10m` aggregation, then legacy `1m`
+aggregation, so chart serving, Czardas exact-240, and SMA share the same OHLCV facts.
+While a pre, after, or overnight session is active, readers also query only the
+bounded current and contiguous prior session's `1m` rows and expose a
+session-anchored `us_equity_extended_session` aggregate. This aggregate is a
+serving result, not an additional historical `chart_candles` persistence path;
+old extended sessions remain excluded.
+`bucket_policy_key` mirrors that value only for the ReplacingMergeTree sorting
+key. Writers set both fields explicitly; the key intentionally has no default
+expression because ClickHouse forbids adding such a column to an existing sorting
+key. Adding it in the same migration statement as the sorting-key change lets an
+existing table adopt the new identity without deleting legacy rows.
 
 The operator migration and one-year rebuild entrypoint is:
 
@@ -65,9 +64,9 @@ The operator migration and one-year rebuild entrypoint is:
 APPLY=true WAIT_FOR_JOB=false scripts/aws/run-session-candle-rebuild-job.sh
 ```
 
-The script adds the bucket-policy column idempotently before starting the rebuild
-Job. It does not rewrite the sorting key or delete legacy rows; readers exclude
-them by policy and a future table-copy migration requires separate approval.
+The script adds the column idempotently before starting the rebuild Job. It never
+deletes legacy rows; readers exclude them by policy and an operator may clean them
+only after validation and the rollback window.
 
 Optional indicators and candle volume profile are calculated by the API and
 cached in Redis; ClickHouse does not store request-hash artifacts. The retired
@@ -86,13 +85,21 @@ infra/k8s/base/platform/clickhouse-initdb/01-market-data.sql
 the two market-data DDL copies. Environment headers and the declared local-only
 agent table are the only allowed difference.
 
-## Dormant Chart Analysis Asset Table
+## Chart Analysis Assets
 
-Czardas reads canonical completed candles from `market_data.chart_candles` and
-persists pack/job state only in PostgreSQL `chart_assets.czardas_*`. Existing
-`market_data.chart_analysis_assets` rows are historical dormant data, not an
-active, mirrored, or rollback source. The init DDL intentionally omits the
-table. Do not add readers, writers or automatic creation back.
+`market_data.chart_analysis_assets` stores compact final v1 or v2 JSON payloads
+as the default and rollback source until the guarded PostgreSQL cutover finishes.
+The v2 rollout reuses the existing `asset_version` column and table: there is no
+new table, TTL, or candidate ledger. A builder insert is skipped when the final
+`assetContentDigest` is unchanged; raw candles, rejected candidates, prompts,
+and provider responses are never persisted here. Latest reads continue to use
+`argMax(payload, inserted_at)` during mixed v1/v2 rollout.
+In `dual_clickhouse_read` and `dual_postgres_read`, writes are mirrored while
+only one store serves reads. Canonical candles and request-scoped repair
+materialization always stay in ClickHouse; only the latest final asset JSON moves.
+The authenticated development route can explicitly delete selected
+`(symbol, interval)` histories with a synchronous mutation. This exists for
+iteration and recovery only; it does not add a TTL or background cleanup.
 
 ## SEC Fundamentals Tables
 

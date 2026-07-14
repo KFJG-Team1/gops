@@ -50,6 +50,7 @@ export const drawingTools: Array<{ mode: ChartToolMode; type?: DrawingType; labe
   { mode: "draw-verticalMarker", type: "verticalMarker", label: "시간 마커" },
   { mode: "draw-verticalParallelLines", type: "verticalParallelLines", label: "시간 평행선" },
   { mode: "draw-trendLine", type: "trendLine", label: "추세선" },
+  { mode: "draw-polyline", type: "polyline", label: "꺾은선" },
   { mode: "draw-trendParallelLines", type: "trendParallelLines", label: "추세 평행선" },
   { mode: "draw-textLabel", type: "textLabel", label: "텍스트" },
   { mode: "draw-flagMarker", type: "flagMarker", label: "플래그 마커" },
@@ -68,6 +69,9 @@ export function drawingNeedsTwoAnchors(type: DrawingType): boolean {
 }
 
 export function drawingRequiredAnchorCount(type: DrawingType): number {
+  if (type === "polyline") {
+    return 3;
+  }
   if (type === "trendParallelLines" || type === "riskRewardBox") {
     return 3;
   }
@@ -189,6 +193,9 @@ export function defaultDrawingStyle(type: DrawingType, trendLineExtension: Chart
   if (type === "trendLine") {
     return { colorToken: "drawing", lineWidth: 1.0, extension: trendLineExtension };
   }
+  if (type === "polyline") {
+    return { colorToken: "drawing", lineWidth: 1.0, extension: "none" };
+  }
   return { colorToken: "drawing", lineWidth: 1.0 };
 }
 
@@ -208,6 +215,8 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
       return "이벤트";
     case "rangeBox":
       return "범위";
+    case "polyline":
+      return "패턴";
     default:
       return undefined;
   }
@@ -215,6 +224,11 @@ export function defaultDrawingLabel(type?: DrawingType): string | undefined {
 
 export function normalizeParallelLineCount(value: unknown): number {
   return normalizeEngineParallelLineCount(value, 3);
+}
+
+export function nearestDrawingLineWidthStage(value: number | undefined): 1 | 2 | 3 {
+  const width = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return width < 1.5 ? 1 : width < 2.5 ? 2 : 3;
 }
 
 export function drawingSupportsTextEditing(drawing: Pick<DrawingEntity, "type" | "label">): boolean {
@@ -618,6 +632,14 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): Drawing
     if (drawing.type === "trendLine" && points.length >= 2) {
       const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(drawing.style.extension));
       if (distanceToSegment(x, y, start, end) <= 7) {
+        return { drawing, anchorIndex: null };
+      }
+    }
+    if (drawing.type === "polyline" && points.length >= 3) {
+      const lineHit = points.some((point, index) => (
+        index > 0 && distanceToSegment(x, y, points[index - 1], point) <= 7
+      ));
+      if (lineHit) {
         return { drawing, anchorIndex: null };
       }
     }

@@ -54,6 +54,7 @@ class PostgresOrderRepository:
         idempotency_key_hash: str,
         body_hash: str,
         command: OrderCommand,
+        user_sub: str | None = None,
     ) -> OrderCreationResult:
         with self._connect() as conn:
             with conn.transaction():
@@ -73,9 +74,10 @@ class PostgresOrderRepository:
                     """
                     INSERT INTO orders (
                         order_id, request_id, client_order_id, account_alias, market, symbol, side,
-                        qty, price, exchange, order_division, status, broker_order_id, reason, occurred_at
+                        qty, price, exchange, order_division, status, broker_order_id, reason, occurred_at,
+                        user_sub
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s)
                     """,
                     (
                         command.order_id,
@@ -92,6 +94,7 @@ class PostgresOrderRepository:
                         OrderStatus.RECEIVED.value,
                         command.broker_order_id,
                         command.occurred_at,
+                        user_sub,
                     ),
                 )
                 self._append_order_event(conn, command.order_id, OrderStatus.RECEIVED, None)
@@ -120,6 +123,16 @@ class PostgresOrderRepository:
                 )
                 order = conn.execute("SELECT * FROM orders WHERE order_id = %s", (command.order_id,)).fetchone()
                 return OrderCreationResult(True, False, dict(order), response, outbox_event_id)
+
+    def find_idempotent_response(self, idempotency_key_hash: str, body_hash: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT body_hash, response FROM idempotency_requests WHERE key_hash = %s",
+                (idempotency_key_hash,),
+            ).fetchone()
+            if row is None or row["body_hash"] != body_hash:
+                return None
+            return dict(row["response"] or {})
 
     def get_order(self, order_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:

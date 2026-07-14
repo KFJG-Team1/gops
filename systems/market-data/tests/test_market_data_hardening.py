@@ -46,15 +46,24 @@ from alfaka.common.runtime_health import read_component_health, write_component_
 from alfaka.common.runtime_config import has_placeholder_value, validate_required_values
 from alfaka.common.s3_client import create_s3_client
 from alfaka.common.secrets import load_alpaca_credentials, resolve_alpaca_credential_source
-from alfaka.backfill.runner import BackfillRunner, BackfillUnavailable, fetch_alpaca_bars, raw_bar_to_processed_candle, raw_bars_to_processed_candles, repair_daily_bar_outliers
+from alfaka.backfill.runner import (
+    BackfillRunner,
+    BackfillUnavailable,
+    canonical_historical_candles,
+    fetch_alpaca_bars,
+    persist_historical_source_candles,
+    raw_bar_to_processed_candle,
+    raw_bars_to_processed_candles,
+    repair_daily_bar_outliers,
+)
 from alfaka.backfill.gapfill import TradingCalendar, detect_gapfill_ranges
 from alfaka.backfill.status import RedisBackfillStore, default_backfill_range, redis_response_error_type
 from alfaka.serving.clickhouse_provider import ClickHouseMarketDataProvider, clickhouse_param_value, merge_candle_rows
 from alfaka.serving.cursors import timestamp_from_cursor
 from alfaka.serving.dto import cursor_for, market_status_event, snapshot, websocket_event
 from alfaka.serving.hot_symbols import build_hot_symbols_payload, dollar_volume_from_candle
-from alfaka.serving.intervals import candle_count_for_1y, candle_count_for_24h, historical_target_bars, redis_closed_candle_cap, resolve_candle_limit
-from alfaka.serving.provider import MarketDataProvider, filter_stock_chart_candles, has_more_before_target, merge_candles, target_range_from_for_interval
+from alfaka.serving.intervals import candle_count_for_1y, candle_count_for_24h, historical_source_interval_for, historical_target_bars, redis_closed_candle_cap, resolve_candle_limit
+from alfaka.serving.provider import MarketDataProvider, filter_stock_chart_candles, has_more_before_target, merge_candles, requested_source_bar_target, target_range_from_for_interval
 from alfaka.serving.redis_provider import RedisMarketDataProvider
 from alfaka.serving.news_hot_cache import (
     company_daily_summary_coverage_valid,
@@ -223,8 +232,15 @@ class FailingClickHouseProvider(FakeClickHouseProvider):
 
 
 class RecordingClickHouseProviderForAggregation(ClickHouseMarketDataProvider):
-    def __init__(self, rows):
-        super().__init__(url="http://clickhouse.local:8123", database="market_data", user="u", password="p")
+    def __init__(self, rows, now=None):
+        reference = now or datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+        super().__init__(
+            url="http://clickhouse.local:8123",
+            database="market_data",
+            user="u",
+            password="p",
+            now_provider=lambda: reference,
+        )
         self.rows = rows
         self.queries = []
 
@@ -1397,6 +1413,23 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertFalse(should_ensure_schema_on_start({"CLICKHOUSE_ENSURE_SCHEMA_ON_START": "false"}))
         self.assertTrue(should_ensure_schema_on_start({"CLICKHOUSE_ENSURE_SCHEMA_ON_START": "true"}))
 
+    def test_clickhouse_bucket_policy_sort_key_uses_new_migration_column(self):
+        client = object.__new__(ClickHouseHttpClient)
+        client.database = "market_data"
+        statements = []
+        client.execute = lambda query, parameters=None: statements.append(" ".join(str(query).split()))
+
+        client.ensure_market_data_schema()
+
+        migration = next(statement for statement in statements if "bucket_policy_key" in statement)
+        self.assertIn("ADD COLUMN IF NOT EXISTS bucket_policy_key LowCardinality(String) AFTER bucket_policy", migration)
+        self.assertNotIn("bucket_policy_key LowCardinality(String) DEFAULT", migration)
+        self.assertIn("MODIFY ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy_key)", migration)
+        self.assertFalse(any(
+            "MODIFY ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy)" in statement
+            for statement in statements
+        ))
+
     def test_processor_runtime_config_rejects_placeholders(self):
         with self.assertRaisesRegex(RuntimeError, "placeholder"):
             processor_runtime_config({
@@ -1959,6 +1992,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
             "low": 189,
             "close": 190.5,
             "volume": 100,
+            "tradeCount": "10",
             "isClosed": True,
             "source": "alpaca.bars",
             "feed": "sip",
@@ -1975,6 +2009,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
             "low": 179,
             "close": 185,
             "volume": 1000,
+            "tradeCount": "20",
             "isClosed": True,
             "source": "alpaca.dailyBars",
             "feed": "sip",
@@ -2000,8 +2035,10 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(recovered["closed"]["1D"], 1)
         self.assertEqual(live_5m["open"], 190)
         self.assertEqual(live_5m["volume"], 110)
+        self.assertEqual(live_5m["tradeCount"], 11)
         self.assertEqual(live_1w["open"], 180)
         self.assertEqual(live_1w["close"], 195.2)
+        self.assertEqual(live_1w["tradeCount"], 31)
 
     def test_processor_recovers_provisional_state_from_clickhouse_when_enabled(self):
         producer = RecordingProducer()
@@ -2833,6 +2870,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
             "low": 189,
             "close": 194,
             "volume": 110,
+            "tradeCount": "12",
             "isClosed": False,
             "source": "derived.live",
             "sourceInterval": "1m",
@@ -2843,11 +2881,13 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         provider.keys = keys
 
         with mock.patch.dict(os.environ, {"LIVE_CANDLE_STALE_SECONDS": "0"}):
+            candle = provider.live_candle("AAPL", "5m")
             event = provider.live_event("AAPL", "5m")
 
         self.assertEqual(event["interval"], "5m")
         self.assertEqual(event["source"], "derived.live")
         self.assertEqual(event["sourceInterval"], "1m")
+        self.assertEqual(candle["tradeCount"], 12)
         self.assertEqual(event["data"]["updatedAt"], "2026-06-25T10:17:20.250Z")
 
     def test_redis_provider_allows_newer_daily_live_candle_for_same_closed_bucket(self):
@@ -4760,7 +4800,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(result["source"], "alpaca")
         self.assertEqual(result["gapRanges"], [{"start": "2026-06-25T13:31:00.000Z", "end": "2026-06-25T13:33:00.000Z", "missingCount": 2}])
 
-    def test_backfill_runner_derives_hourly_bars_from_regular_session_minutes(self):
+    def test_backfill_runner_derives_hourly_bars_from_regular_session_ten_minute_bars(self):
         record = {
             "requestId": "backfill:AAPL:1h:test",
             "symbol": "AAPL",
@@ -4788,14 +4828,59 @@ class MarketDataHardeningContractTest(unittest.TestCase):
             with mock.patch("alfaka.backfill.runner.fetch_alpaca_bars", side_effect=fake_fetch):
                 result = runner._run(record)
 
-        self.assertEqual(calls[0]["timeframe"], "1Min")
+        self.assertEqual(calls[0]["timeframe"], "10Min")
         self.assertEqual(result["source"], "alpaca")
         self.assertIn("/interval=1h/", result["processedObjects"][0])
         self.assertEqual(result["processedRowCount"], 1)
         self.assertEqual(result["sourceStoredRowCount"], 2)
         source_rows = runner.clickhouse_client.inserts[0][1]
-        self.assertEqual({row["interval"] for row in source_rows}, {"1m"})
+        self.assertEqual({row["interval"] for row in source_rows}, {"10m"})
         self.assertEqual({row["bucket_policy"] for row in source_rows}, {"source_native"})
+
+    def test_hourly_historical_fill_uses_ten_minute_source_counts(self):
+        self.assertEqual(historical_source_interval_for("1h"), "10m")
+        self.assertEqual(historical_source_interval_for("4h"), "10m")
+        self.assertEqual(historical_source_interval_for("10m"), "1m")
+        self.assertEqual(requested_source_bar_target("1h", 120, source_interval="10m"), 720)
+        self.assertEqual(requested_source_bar_target("4h", 120, source_interval="10m"), 2880)
+
+    def test_ten_minute_historical_source_materializes_session_aligned_hour(self):
+        raw_rows = [
+            alpaca_raw_bar(
+                (datetime(2026, 7, 10, 13, 30, tzinfo=timezone.utc) + timedelta(minutes=index * 10))
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z"),
+                open_price=100 + index,
+                index=index,
+            )
+            for index in range(6)
+        ]
+
+        source_candles, target_candles = canonical_historical_candles(
+            "AAPL",
+            raw_rows,
+            interval="1h",
+            source_interval="10m",
+            completed_through=datetime(2026, 7, 10, 14, 30, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(len(source_candles), 6)
+        self.assertEqual({candle["interval"] for candle in source_candles}, {"10m"})
+        self.assertEqual(len(target_candles), 1)
+        self.assertEqual(target_candles[0]["timestamp"], "2026-07-10T13:30:00.000Z")
+        self.assertEqual(target_candles[0]["sourceInterval"], "10m")
+
+        client = RecordingClickHouseClient()
+        stored = persist_historical_source_candles(
+            client,
+            source_candles,
+            source_interval="10m",
+            interval="1h",
+        )
+
+        self.assertEqual(stored, 6)
+        self.assertEqual({row["interval"] for row in client.inserts[0][1]}, {"10m"})
+        self.assertEqual({row["bucket_policy"] for row in client.inserts[0][1]}, {"source_native"})
 
     def test_fetch_alpaca_bars_forces_split_adjustment_and_retries_rate_limits(self):
         responses = [
@@ -5374,7 +5459,7 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(candle_row["volume"], 0.013)
         self.assertEqual(candle_row["market_session"], "crypto")
 
-    def test_clickhouse_query_time_minute_aggregation_uses_1m_source_and_attaches_ma(self):
+    def test_clickhouse_query_time_minute_aggregation_uses_preferred_source_and_attaches_ma(self):
         start = datetime(2026, 6, 25, 13, 30, tzinfo=timezone.utc)
         rows = [
             {
@@ -5399,9 +5484,75 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(candles[-1]["interval"], "5m")
         self.assertEqual(candles[-1]["ma5"], 15.0)
 
-        hourly = provider.aggregated_minute_candles("AAPL", "1h", 5)
-        self.assertNotIn("toStartOfInterval", provider.queries[-1][0])
-        self.assertEqual(hourly[-1]["timestamp"], "2026-06-25T13:30:00.000Z")
+        hourly_rows = [
+            {
+                "timestamp": (start + timedelta(minutes=index * 10)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "open": index + 1,
+                "high": index + 1,
+                "low": index + 1,
+                "close": index + 1,
+                "volume": 100 + index,
+                "isClosed": 1,
+                "source": "alpaca.bars",
+                "feed": "sip",
+            }
+            for index in range(30)
+        ]
+        hourly_provider = RecordingClickHouseProviderForAggregation(hourly_rows)
+        hourly = hourly_provider.aggregated_minute_candles("AAPL", "1h", 5)
+        self.assertIn("AND interval = {sourceInterval:String}", hourly_provider.queries[0][0])
+        self.assertEqual(hourly_provider.queries[0][1]["sourceInterval"], "10m")
+        self.assertNotIn("toStartOfInterval", hourly_provider.queries[0][0])
+        self.assertEqual(hourly[-1]["timestamp"], "2026-06-25T17:30:00.000Z")
+        self.assertEqual(hourly[-1]["sourceInterval"], "10m")
+
+    def test_clickhouse_hourly_aggregation_falls_back_to_existing_one_minute_history(self):
+        start = datetime(2026, 6, 25, 13, 30, tzinfo=timezone.utc)
+        minute_rows = [
+            {
+                "timestamp": (start + timedelta(minutes=index)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "open": index + 1,
+                "high": index + 1,
+                "low": index + 1,
+                "close": index + 1,
+                "volume": 100 + index,
+                "isClosed": 1,
+                "source": "alpaca.bars",
+                "feed": "sip",
+            }
+            for index in range(60)
+        ]
+
+        class SourceAwareProvider(RecordingClickHouseProviderForAggregation):
+            def query_json_each_row(self, query, params=None):
+                self.queries.append((query, params or {}))
+                return [] if (params or {}).get("sourceInterval") == "10m" else list(self.rows)
+
+        provider = SourceAwareProvider(minute_rows)
+
+        candles = provider.aggregated_minute_candles("AAPL", "1h", 1)
+
+        self.assertEqual(len(provider.queries), 2)
+        self.assertEqual(provider.queries[0][1]["sourceInterval"], "10m")
+        self.assertIn("AND interval = '1m'", provider.queries[1][0])
+        self.assertEqual(candles[0]["sourceInterval"], "1m")
+
+    def test_clickhouse_crypto_hourly_coverage_keeps_one_minute_source(self):
+        provider = ClickHouseMarketDataProvider(
+            url="http://clickhouse.local:8123",
+            database="market_data",
+            user="u",
+            password="p",
+        )
+        with mock.patch.object(provider, "stored_interval_coverage", side_effect=[
+            {"rowCount": 0, "availableFrom": None, "availableTo": None},
+            {"rowCount": 60, "availableFrom": "2026-07-10T13:30:00.000Z", "availableTo": "2026-07-10T14:29:00.000Z"},
+        ]) as coverage:
+            result = provider.candle_coverage("BTCUSD", "1h")
+
+        self.assertEqual(result["sourceInterval"], "1m")
+        self.assertEqual(coverage.call_args_list[1].args[1], "1m")
+        self.assertEqual(coverage.call_count, 2)
 
     def test_clickhouse_query_time_weekly_monthly_aggregation_uses_daily_source(self):
         rows = [
@@ -5499,6 +5650,78 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(provider.queries[0][1]["interval"], "1h")
         self.assertEqual(len(provider.queries), 1)
         self.assertEqual(candles[-1]["interval"], "1h")
+
+    def test_clickhouse_adds_current_extended_candle_when_direct_history_is_full(self):
+        direct_rows = [
+            {
+                "timestamp": f"2026-07-08T{13 + index:02d}:00:00.000Z",
+                "open": index + 1,
+                "high": index + 2,
+                "low": index,
+                "close": index + 1.5,
+                "volume": 100 + index,
+                "isClosed": 1,
+                "source": "derived.regular-session",
+                "feed": "sip",
+                "marketSession": "regular",
+            }
+            for index in range(5)
+        ]
+        extended_rows = [
+            {
+                "timestamp": "2026-07-09T04:01:00.000Z",
+                "symbol": "AAPL",
+                "open": 100,
+                "high": 102,
+                "low": 99,
+                "close": 101,
+                "volume": 10,
+                "isClosed": 1,
+                "source": "alpaca.bars",
+                "feed": "boats",
+                "marketSession": "overnight",
+                "priceAdjustment": "split",
+                "canonicalVersion": "v2",
+            },
+            {
+                "timestamp": "2026-07-09T05:15:00.000Z",
+                "symbol": "AAPL",
+                "open": 101,
+                "high": 106,
+                "low": 100,
+                "close": 105,
+                "volume": 20,
+                "isClosed": 1,
+                "source": "alpaca.bars",
+                "feed": "boats",
+                "marketSession": "overnight",
+                "priceAdjustment": "split",
+                "canonicalVersion": "v2",
+            },
+        ]
+
+        class ExtendedAwareProvider(RecordingClickHouseProviderForAggregation):
+            def query_json_each_row(self, query, params=None):
+                self.queries.append((query, params or {}))
+                if "AND interval = '1m'" in query and "market_session = 'overnight'" in query:
+                    return list(extended_rows)
+                return list(self.rows)
+
+        provider = ExtendedAwareProvider(
+            direct_rows,
+            now=datetime(2026, 7, 9, 5, 30, tzinfo=timezone.utc),
+        )
+
+        candles = provider.candles("AAPL", "4h", 5)
+
+        self.assertEqual(len(provider.queries), 2)
+        self.assertIn("market_session = 'overnight'", provider.queries[1][0])
+        self.assertIn("price_adjustment IN ('split', 'live')", provider.queries[1][0])
+        self.assertEqual(candles[-1]["timestamp"], "2026-07-09T04:00:00.000Z")
+        self.assertEqual(candles[-1]["close"], 105)
+        self.assertEqual(candles[-1]["marketSession"], "overnight")
+        self.assertEqual(candles[-1]["bucketPolicy"], "us_equity_extended_session")
+        self.assertFalse(candles[-1]["isClosed"])
 
     def test_clickhouse_recomputes_stored_direct_interval_moving_averages(self):
         rows = [
@@ -6546,6 +6769,37 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(len(clickhouse.calls), 2)
         self.assertIsNotNone(clickhouse.calls[0]["from_time"])
         self.assertIsNone(clickhouse.calls[1]["from_time"])
+
+    def test_provider_reads_latest_hourly_rows_without_calendar_window_truncation(self):
+        start = datetime(2026, 3, 1, 13, 30, tzinfo=timezone.utc)
+        candles = [
+            {
+                "timestamp": (start + timedelta(days=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                "interval": "4h",
+                "open": index + 1,
+                "high": index + 2,
+                "low": index,
+                "close": index + 1,
+                "volume": 100,
+                "isClosed": True,
+                "marketSession": "regular",
+            }
+            for index in range(120)
+        ]
+        clickhouse = RecordingRangeClickHouseProvider(candles=candles)
+        provider = MarketDataProvider(
+            redis_provider=FakeRedisProvider(),
+            clickhouse_provider=clickhouse,
+        )
+
+        with mock.patch("alfaka.serving.provider.datetime") as fake_datetime:
+            fake_datetime.now.return_value = datetime(2026, 7, 14, 0, 0, tzinfo=timezone.utc)
+            fake_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            payload = provider.candle_snapshot("ANET", "4h", 120, ma_windows=())
+
+        self.assertEqual(len(payload["candles"]), 120)
+        self.assertEqual(len(clickhouse.calls), 1)
+        self.assertIsNone(clickhouse.calls[0]["from_time"])
 
     def test_provider_does_not_mix_previous_session_when_default_window_has_current_rows(self):
         previous_start = datetime(2026, 7, 2, 14, 0, tzinfo=timezone.utc)

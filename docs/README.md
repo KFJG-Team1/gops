@@ -35,12 +35,13 @@ flowchart TD
 
 | File | Purpose |
 | --- | --- |
+| `../CZARDAS_DEV_MERGE_PLAN.md` | 최신 dev를 로컬 ABC로 통합하는 경계와 Geometry 음성 gate. |
 | `PRODUCT_CONTEXT.md` | Product direction and current/future scope boundary. |
 | `CHART_DATA_ARCHITECTURE.md` | Current chart fact ownership, compute placement, query path, API/WS, order-flow, and S3 contracts. |
 | `CHART_AGENT_STRATEGY.md` | 차트 지능의 투자적 역할, deterministic kernel, rule/LLM 경계, 작도 compiler, 데이터 사전 계산, orchestrator 통합, 단계별 구현 전략. |
-| `czardas/README.md` | Czardas v3의 exact-240 현재 시선, Inference/Sight, 작도와 수동 운영의 시작점. |
-| `czardas/ENGINE_SPEC.md` | q8 입력, H-Line·Trend, Field schema 3, identity, API·queue·offline 평가의 단일 규격. |
-| `czardas/IMPLEMENTATION_PLAN.md` | Czardas v3 구현 경계, 단계별 변경과 회귀·성능 gate. |
+| `czardas/README.md` | Czardas v4의 exact-240 현재 시선, 세 작도 layer와 제품 계약. |
+| `czardas/ENGINE_SPEC.md` | PriceMemory·OLS·robust Boundary·Pattern relation, Field schema 4와 provenance의 단일 규격. |
+| `czardas/IMPLEMENTATION_PLAN.md` | dev 통합 상태, v4 단계와 회귀·성능·Geometry 음성 gate. |
 | `CHART_DATA_OPERATIONS.md` | Validation, deployment observation, recovery, retention, Terraform ownership, and rollback runbook. |
 | `STRUCTURE_GUIDE.md` | Folder placement rules for future code. |
 | `ARCHITECTURE.md` | Current system, pod/job, and platform relationships. |
@@ -56,6 +57,8 @@ flowchart TD
 | `AGENT_BACKEND_INTEGRATION.md` | Backend API, idempotency, Kafka async path, Redis report store, polling/SSE/WebSocket 계약. |
 | `AGENT_FRONTEND_INTEGRATION.md` | 프런트 request shape, `analysisId`, polling/SSE, report rendering, layout/chart proposal 처리. |
 | `AGENT_AWS_BUILD.md` | `gops-agent-orchestrator` image, ECR/EKS, Kafka, Redis/Valkey, ClickHouse, GraphDB, S3, secrets, smoke checks. |
+| `ai-coach/CODEX_TASK_PROMPT.md` | 이 작업에 사용한 AI 투자 코치 1페이지 구현·검증 원문 프롬프트. |
+| `ai-coach/HANDOFF.md` | AI 투자 코치 4페이지 계약, 결정론적 계산, snapshot, AWS 흐름 및 외부 데이터 의존성. |
 | `../AGENTS.md` | Codex/contributor rules for this repo. |
 
 Supplementary current documents include `ALERT_SYSTEM_DESIGN.md`, `ODC.md`,

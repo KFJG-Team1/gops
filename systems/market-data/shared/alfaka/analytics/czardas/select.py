@@ -29,6 +29,15 @@ def select_boundaries(
         config.hline_display_count,
         require_both_roles=False,
     )
+    selected_hlines = _extend_with_exceptionally_distinct(
+        tape, features, selected_hlines, hline_bank, config.hline_max_count,
+    )
+    if not selected_hlines:
+        baseline = sorted(
+            (item for item in hlines if item.evidence_state == "baseline_memory"),
+            key=lambda item: (-item.rank_score, item.candidate_id),
+        )
+        selected_hlines = tuple(baseline[:1])
     roles = {item.role for item in trend_bank}
     if len(roles) == 1:
         # An honest one-sided Trend remains useful, but the other side is not
@@ -42,6 +51,9 @@ def select_boundaries(
             config.trend_display_count,
             require_both_roles=config.trend_display_count >= 2,
         )
+    selected_trends = _extend_with_exceptionally_distinct(
+        tape, features, selected_trends, trend_bank, config.trend_max_count,
+    )
     reasons = {
         "selection.display_score_below_threshold": sum(
             item.rank_score < config.display_min_rank_score for item in (*hlines, *trends)
@@ -53,6 +65,34 @@ def select_boundaries(
         ),
     }
     return selected_hlines, selected_trends, {key: value for key, value in reasons.items() if value}
+
+
+def _extend_with_exceptionally_distinct(tape, features, selected, bank, limit):
+    """Two boundaries are the visual preference, not a hard production cap.
+
+    Extra boundaries survive only when they are both strong and geometrically
+    non-redundant, keeping the configured maximum honest without filling quota.
+    """
+    result = list(selected)
+    selected_ids = {item.candidate_id for item in result}
+    for candidate in sorted(bank, key=lambda item: (-item.rank_score, item.candidate_id)):
+        if len(result) >= limit:
+            break
+        if (
+            candidate.candidate_id in selected_ids
+            or candidate.rank_score < 0.72
+            or len(candidate.fit_episode_ids) < 3
+        ):
+            continue
+        if any(
+            item.role == candidate.role
+            and _near_duplicate_similarity(tape, features, item, candidate) >= 0.35
+            for item in result
+        ):
+            continue
+        result.append(candidate)
+        selected_ids.add(candidate.candidate_id)
+    return tuple(sorted(result, key=lambda item: (item.kind, item.role, item.candidate_id)))
 
 
 def _role_cap(candidates: list[BoundaryCandidate], caps: dict[str, int]) -> tuple[BoundaryCandidate, ...]:

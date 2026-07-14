@@ -34,6 +34,10 @@ SECRET_TEXT_RE = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|bearer|secret|appsecret|app_secret)"
     r"\b\s*[:=]?\s*[A-Za-z0-9._~+/=-]{8,}"
 )
+OPAQUE_MACHINE_ID_RE = re.compile(
+    r"(?:[a-z][a-z0-9-]*-[0-9a-f]{16}|sha256:[0-9a-f]{64})",
+    re.IGNORECASE,
+)
 
 PROFANITY_RE = re.compile(
     r"(?i)(fuck|shit|bitch|asshole|시\s*발|씨\s*발|개\s*새\s*끼|병\s*신|좆|꺼\s*져)"
@@ -134,6 +138,14 @@ def sanitize_value(value: Any, *, key: str | None = None) -> SanitizationResult:
             return SanitizationResult(value, [])
         return SanitizationResult(ACCOUNT_TOKEN, [PII_REDACTED_WARNING])
     if isinstance(value, str):
+        # Deterministic namespaced IDs and digests are opaque identifiers, not
+        # free text. A hex suffix can accidentally contain a Korean phone
+        # shape; redacting that substring corrupts Redis keys and provenance.
+        if (
+            normalized_key.endswith(("id", "digest", "hash"))
+            and OPAQUE_MACHINE_ID_RE.fullmatch(value)
+        ):
+            return SanitizationResult(value, [])
         if normalized_key and _is_url_key(normalized_key):
             return sanitize_url(value)
         return sanitize_text(value)

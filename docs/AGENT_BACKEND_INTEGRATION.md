@@ -5,6 +5,13 @@
 
 ## Backend Role
 
+AI coach remains on the existing analyze/report contract. `POST /api/agents/analyze`
+accepts only a bounded `coachRequest` (`enabled`, optional `selectedFillId`, optional
+`tradingDate`). A client-supplied `coachInputSnapshot` is stripped. The authenticated
+`agent-analysis-worker` builds one trusted snapshot after consuming the Kafka envelope,
+and completed polling/SSE reports may contain optional `coachReport`. The backend does
+not create per-page jobs or call `AgentOrchestrator.analyze()` in the request handler.
+
 백엔드는 에이전트 요청의 ingress와 report delivery를 담당한다.
 
 - HTTP request validation
@@ -26,6 +33,33 @@
 시뮬레이터의 메모리 원장으로 보내며, 이 경로에서는 KIS 주문 outbox를 만들지 않는다.
 바스켓 주문도 사용자의 명시적인 버튼 입력과 `Idempotency-Key`가 있어야 실행한다.
 속보 수신은 주문이나 차트 레이아웃 변경을 자동으로 실행하지 않는다.
+
+## Persistent Paper Trading Boundary
+
+영구 가상투자는 전역 LIVE/SIM 상태와 무관하며 사용자 `sub`로 격리한다.
+`POST /api/paper/orders`는 `Idempotency-Key`를 필수로 받고 Postgres의 가상 현금과
+보유수량만 예약한다. KIS 주문 테이블, Outbox, broker adapter는 호출하지 않는다.
+
+```text
+GET  /api/paper/symbols/search
+GET  /api/paper/account
+POST /api/paper/account/reset
+GET  /api/paper/account/balance
+POST /api/paper/risk/pretrade
+GET  /api/paper/orders
+POST /api/paper/orders
+GET  /api/paper/orders/{order_id}
+GET  /api/paper/orders/{order_id}/events
+POST /api/paper/orders/{order_id}/cancel
+WS   /ws/paper/orders/{order_id}
+WS   /ws/paper/account
+```
+
+`paper-order-matcher`는 `market.layer.quotes.v1`의 모든 market session quote를
+사용한다. 매수는 ask, 매도는 bid 최우선호가로 전량 체결하며 부분체결, 수수료,
+공매도는 지원하지 않는다. 모든 HTTP와 WebSocket 조회는 주문 소유자를 검사한다.
+가상투자 심볼 검색은 ClickHouse의 전체 symbol registry를 직접 조회하며
+`active`, `tradable`인 미국 주식/ETF만 노출한다.
 
 ## Runtime Flow
 
@@ -160,6 +194,22 @@ body 초과는 JSON 파싱 전에 `413`을 반환한다. `messages`는 최대 50
 }
 ```
 
+To request the coach report, the frontend adds:
+
+```json
+{
+  "coachRequest": {
+    "enabled": true,
+    "selectedFillId": null,
+    "tradingDate": "2026-07-14"
+  }
+}
+```
+
+The request body never carries fills, positions, portfolio snapshots, indicators, or
+historical cases. These are server-owned inputs and are too large and too sensitive for
+the public 64 KiB request contract.
+
 백엔드는 모르는 agent context field를 worker envelope로 전달하되 `userId`,
 `idempotencyKey`, `submittedAt`, `maxLlmCalls`, `maxInputTokens`,
 `maxOutputTokens`, `llmBudgetOwner` 같은 서버 소유 필드는 제거한다.
@@ -288,6 +338,10 @@ agent.reports:{analysisId}
 Report persistence failure는 가능하면 analysis generation을 막지 않도록 fail
 open한다. 단, polling/SSE 품질은 Redis store 상태에 의존한다.
 
+AWS overlays explicitly set `AGENT_ANALYSIS_QUEUE_BACKEND=kafka` and
+`AGENT_REPORT_STORE_BACKEND=redis`. Explicit backends fail closed during initialization;
+process-local queue/report fallback is reserved for local `auto` configuration.
+
 ## Compatibility Mode
 
 `AGENT_ASYNC_ANALYSIS_ENABLED=false`이면 백엔드는 Kafka enqueue 대신
@@ -328,6 +382,7 @@ KAFKA_BOOTSTRAP_SERVERS
 AGENT_ANALYSIS_REQUESTS_TOPIC
 AGENT_ANALYSIS_RESULTS_TOPIC
 AGENT_DLQ_TOPIC
+AGENT_OUTPUT_KAFKA_REQUIRED
 REDIS_URL
 ```
 
@@ -350,6 +405,15 @@ OPENAI_API_KEY
 AGENT_OPERATION_PLANNER_PROVIDER
 AGENT_OPERATION_PLANNER_MODEL
 AGENT_OPERATION_PLANNER_TIMEOUT_SECONDS
+DATABASE_HOST
+DATABASE_PORT
+DATABASE_NAME
+DATABASE_USER
+DATABASE_PASSWORD
+AI_COACH_SNAPSHOT_ARCHIVE_ENABLED
+AI_COACH_SNAPSHOT_ARCHIVE_REQUIRED
+AI_COACH_SNAPSHOT_S3_BUCKET
+AI_COACH_SNAPSHOT_S3_PREFIX
 ```
 
 `AGENT_OPERATION_PLANNER_PROVIDER=openai` enables the slow-path structured
@@ -374,55 +438,29 @@ polling/SSE semantics는 보존해야 한다.
 
 ## Czardas Asset Routes
 
-Czardas asset은 interactive agent report와 분리된 수동 build projection이다.
+Czardas asset은 interactive agent report와 분리된 수동 단일-pair projection이다.
 
 ```text
 GET    /api/charts/czardas-assets?symbol=NVDA[&interval=1D]
 POST   /api/charts/czardas-assets/build
-GET    /api/charts/czardas-assets/build/{cza_job_id}
-POST   /api/charts/czardas-assets/build/{cza_job_id}/cancel
+GET    /api/charts/czardas-assets/build/{cza-job-id}
+POST   /api/charts/czardas-assets/build/{cza-job-id}/cancel
 DELETE /api/charts/czardas-assets?symbol=NVDA&interval=1D
 ```
 
-Build body는 `{symbol, interval, force}` 한 쌍만 받고 `Idempotency-Key` header가 필수다.
-latest pack과 queue는
-PostgreSQL `chart_assets.czardas_latest`, `czardas_build_jobs`,
-`czardas_build_items`에 저장하고 job ID는 `cza-`로 시작한다. 자동 TTL, broad cleanup,
-Redis pub/sub, SSE, Kafka queue는 사용하지 않는다.
+build body는 정확히 한 `symbol×interval`과 `force`만 받고 `Idempotency-Key`가 필수다.
+동일 owner/key/body는 같은 job, 동일 owner/pair/force active 요청은 coalesce한다. 다른
+사용자 또는 force가 다른 동일 pair active build는 `409 czardas_pair_busy`다. status/cancel은
+owner만 조회하며 terminal cancel은 no-op이다. active build 중 DELETE는 409다.
 
-`submit_once()`는 idempotency 확인, active pair 확인과 job/item insert를 한 PostgreSQL
-transaction에서 처리한다. 같은 owner/key/body 또는 같은 owner/pair/force active job은 기존
-job과 `coalesced=true`를 반환한다. force가 다르거나 다른 owner가 같은 pair를 실행 중이면
-`409 czardas_pair_busy`다. status/cancel은 owner에게만 보이고 타인은 404다. terminal cancel은
-bytes와 상태를 바꾸지 않으며 active pair DELETE는 409다.
+GET은 PostgreSQL과 read-only ClickHouse identity만 읽고 repair, kernel, enqueue와 write를
+수행하지 않는다. entry는 `current|stale|missing|incompatible`와 freshnessReason을 가진다.
+수동 개발 패널 이외 chart-open, GET, candle event와 Cron은 job을 생성하지 않는다. worker는
+neutral canonical repair, lease, 최대 2회 claim과 pre-commit snapshot audit를 수행하고 실패 시
+기존 successful asset을 보존한다.
 
-GET은 `{symbol, assets, meta}`를 반환하며 optional interval이면 해당 entry만 읽는다. entry는
-`current|stale|missing|incompatible` 중 하나다. 이 요청은 read-only PostgreSQL과
-read-only ClickHouse identity 비교만 수행하며 repair, kernel, enqueue, PostgreSQL
-write를 절대 실행하지 않는다. 현재 identity를 증명할 수 없으면 보수적으로 `stale`이다.
-`freshnessReason`은 `identity_match|input_changed|identity_unavailable|asset_missing|
-contract_incompatible`다. 별도 coverage route와 `assetKind` dispatch는 없다.
-
-v3 pack은 완료봉 exact-240 전체의 단일 present-snapshot 해석이다. OHLCV는 q8로 봉인하고
-`inferenceId`와 `sightProjectionId`를 분리한다. deterministic content에는 240개 compact
-CandleMeaning과 revision-free selected derivation을 포함하며 `generatedAt`은 계속 DB/API
-envelope에만 둔다. 저장 guard는
-Field 80 KiB, 전체 pack 96 KiB이고 partial mandatory bundle은 저장하지 않는다.
-현재 projection은 `czardas-sight-v2`다. Sight v1과 v2/null v3 identity row는 삭제하지 않지만
-incompatible이며 필요한 pair만 수동 재분석한다. Sight 변경은 inferenceId를 바꾸지 않는다.
-
-정확한 completed-240 candle response에는 backend가 계산한 `canonicalSnapshot` metadata를
-붙인다. frontend가 Python q8/input digest를 재구현해서는 안 된다. unexpected exception
-원문은 job DB/API에 저장하지 않고 stable reason code와 안전한 문장만 기록한다.
-
-DELETE는 인증된 개발 패널이 명시한 단일 pair만 삭제한다. build 완료·삭제 후 요청한
-프런트는 generation을 올려 해당 symbol cache를 무효화하고 열린 chart를 재조회한다.
-기존 `/api/charts/analysis-assets` route는 제거하며 Geometry payload나 DB row를
-fallback으로 읽지 않는다.
-
-chart-open, GET, candle event와 Cron은 Czardas build job을 만들지 않는다. 자동 schedule이
-없다는 뜻이며, 수동 panel과 worker를 AWS에 배포할 수 없다는 뜻은 아니다. 이번 v3 변경에서는
-AWS migration과 배포를 실행하지 않는다.
+Geometry asset API, coverage route, `assetKind`, `cab-` dispatch와 fallback은 없다. old endpoint는
+404여야 하며 기존 Geometry DB row는 휴면 데이터로만 남는다.
 
 ## Failure Policy
 
@@ -430,6 +468,9 @@ AWS migration과 배포를 실행하지 않는다.
 - Redis report store가 없으면 polling/SSE는 degrade를 명시해야 한다.
 - Provider no-data는 backend error가 아니다.
 - `agent-analysis-worker` failure는 DLQ 또는 report status로 드러나야 한다.
+- AWS에서 `AGENT_OUTPUT_KAFKA_REQUIRED=true`이면 completed result publish/flush
+  실패를 성공 처리하거나 request offset을 commit하지 않는다. 로컬 기본값만
+  `false`로 유지한다.
 - API는 order/account/broker flow를 agent report 생성과 섞지 않는다.
 
 ## Validation

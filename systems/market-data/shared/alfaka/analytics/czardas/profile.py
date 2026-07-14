@@ -27,7 +27,9 @@ def estimated_volume_profile(tape: CandleTape, config: CzardasConfig) -> tuple[d
             volumes[index] += candle.volume
             continue
         span = candle.high - candle.low
-        for index in range(count):
+        first_bin = min(count - 1, max(0, int((candle.low - low) / bin_width)))
+        last_bin = min(count - 1, max(0, int((candle.high - low) / bin_width)))
+        for index in range(first_bin, last_bin + 1):
             bin_low = low + index * bin_width
             bin_high = high if index == count - 1 else bin_low + bin_width
             overlap = max(0.0, min(candle.high, bin_high) - max(candle.low, bin_low))

@@ -60,28 +60,35 @@ def test_integrity_recency_mass_is_a_capped_simplex():
     assert max(weights) <= 0.15 + 1e-12
 
 
-def test_trend_anchor_selection_caps_each_exact_80_bar_third_at_four():
+def test_trend_anchor_selection_uses_adaptive_domains_without_fixed_time_buckets():
+    bars = [*range(5, 80, 5), 90, 95, 170, 175]
     anchors = [
         SimpleNamespace(
-            basis_id=f"basis-{third}-{ordinal}",
-            bar_index=third * 80 + 5 + ordinal,
-            geometry_score=1.0 - ordinal / 100.0,
+            basis_id=f"basis-{ordinal}",
+            bar_index=bar_index,
+            geometry_score=0.98 - ordinal * 0.005,
             effective_scale=13,
         )
-        for third in range(3)
-        for ordinal in range(7)
+        for ordinal, bar_index in enumerate(bars)
+    ]
+    domains = [
+        SimpleNamespace(
+            domain_id="root", active=True, depth=0, start_index=0, end_index=239,
+        ),
+        SimpleNamespace(
+            domain_id="recent-local", active=True, depth=1, start_index=160, end_index=239,
+        ),
     ]
 
-    selected = _stratified_anchors(anchors, candle_count=240, cap=12)
+    selected = _stratified_anchors(anchors, candle_count=240, cap=12, domains=domains)
 
     assert len(selected) == 12
-    for third in range(3):
-        selected_in_third = [
-            item for item in selected if third * 80 <= item.bar_index < (third + 1) * 80
-        ]
-        assert [item.basis_id for item in selected_in_third] == [
-            f"basis-{third}-{ordinal}" for ordinal in range(4)
-        ]
+    assert [item.bar_index for item in selected] == sorted(item.bar_index for item in selected)
+    assert any(item.bar_index >= 160 for item in selected)
+    # The input is intentionally uneven. A fixed 80/80/80 contract would cap
+    # the first region at four; adaptive coverage is allowed to retain its
+    # genuinely denser endpoint landscape.
+    assert sum(item.bar_index < 80 for item in selected) > 4
 
 
 def test_weighted_linf_medoid_uses_hypothesis_id_for_a_deterministic_tie():

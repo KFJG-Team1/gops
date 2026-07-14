@@ -5,6 +5,7 @@ from .meaning import CandleMeaningTape
 from .numeric import canonical_digest, canonical_json, median
 from .tape import CandleTape
 from .types import BoundaryCandidate, DetectorResult, FieldMode, RoleBasis
+from .structure import domains_to_dto, flows_to_dto, memory_to_dto
 
 
 ROLE_ORDER = {"support": 0, "resistance": 1, "lower": 2, "upper": 3}
@@ -16,14 +17,59 @@ def build_field_view(
     hline: DetectorResult,
     trend: DetectorResult,
     selected: tuple[BoundaryCandidate, ...],
-    relation: dict | None,
+    relations: tuple[dict, ...],
+    relation_evidence: tuple[dict, ...],
     meanings: CandleMeaningTape,
     inference_id: str,
     sight_projection_id: str,
     config: CzardasConfig,
-) -> dict:
+    *,
+    domains=(),
+    regression_flows=(),
+    price_memory=(),
+    _omitted_pattern_evidence_count=0,
+) -> tuple[dict, int]:
+    projected_flows = _projected_regression_flows(regression_flows, len(tape.candles) - 1)
+    projected_domain_ids = {item.domain_id for item in projected_flows}
+    projected_domain_ids.update(
+        domain_id
+        for relation in relations
+        for domain_id in relation["domain"].get("domainIds", ())
+    )
+    candidates_by_id = {
+        item.candidate_id: item
+        for item in (*hline.candidates, *trend.candidates)
+    }
+    supporting_ids = {
+        candidate_id
+        for relation in relations
+        for candidate_id in relation["boundaryCandidateIds"]
+    }
+    supporting_ids.update(
+        candidate_id
+        for evidence in relation_evidence
+        for candidate_id in evidence["boundaryCandidateIds"]
+    )
+    derivation_candidates = list(selected)
+    derivation_candidates.extend(
+        candidates_by_id[item]
+        for item in sorted(supporting_ids)
+        if item in candidates_by_id and item not in {candidate.candidate_id for candidate in selected}
+    )
+    derivation_candidates = tuple(derivation_candidates)
+    candidate_domain_by_id = {
+        item.candidate_id: _formation_domain_id(item, domains)
+        for item in derivation_candidates
+    }
+    projected_domain_ids.update(filter(None, candidate_domain_by_id.values()))
+    projected_domains = tuple(item for item in domains if item.domain_id in projected_domain_ids)
+    episode_ref_by_id = {
+        episode_id: [candidate_index, ordinal]
+        for candidate_index, candidate in enumerate(derivation_candidates)
+        for ordinal, episode_id in enumerate(candidate.fit_episode_ids)
+    }
     selected_modes = {
-        (item.source_field_mode_id, item.source_field_derivation_digest) for item in selected
+        (item.source_field_mode_id, item.source_field_derivation_digest) for item in derivation_candidates
     }
     all_basis = _dedupe_basis((*hline.basis, *trend.basis))
     basis_by_id = {item.basis_id: item for item in all_basis}
@@ -35,7 +81,7 @@ def build_field_view(
     }
     required_basis.update(
         basis_id
-        for candidate in selected
+        for candidate in derivation_candidates
         for episode in candidate.fit_episodes
         for basis_id in episode.member_basis_ids
     )
@@ -43,7 +89,7 @@ def build_field_view(
     # canonical initial formation contributions actually painted on the chart.
     priority_glyph_basis = {
         episode.contribution_basis_id
-        for candidate in selected
+        for candidate in derivation_candidates
         for episode in candidate.fit_episodes
         if episode.episode_id in candidate.initial_episode_ids
     }
@@ -76,11 +122,13 @@ def build_field_view(
         )
     selected_refs = [{
         "candidateId": item.candidate_id,
-        "sourceInferenceId": inference_id,
         "kind": item.kind,
         "sourceFieldModeId": item.source_field_mode_id,
         "sourceFieldDerivationDigest": item.source_field_derivation_digest,
-    } for item in selected]
+        "presentationSelected": item.candidate_id in {candidate.candidate_id for candidate in selected},
+        "patternSupporting": item.candidate_id in supporting_ids,
+        "formationDomainId": candidate_domain_by_id[item.candidate_id],
+    } for item in derivation_candidates]
     validation = []
     derivation_episodes = {
         "candidateIndexes": [],
@@ -96,7 +144,7 @@ def build_field_view(
         "corridorHighs": [],
         "initialFormationMasks": [],
     }
-    for candidate_index, candidate in enumerate(selected):
+    for candidate_index, candidate in enumerate(derivation_candidates):
         episodes = {item.episode_id: item for item in candidate.fit_episodes}
         for candidate_episode_ordinal, episode_id in enumerate(candidate.fit_episode_ids):
             episode = episodes[episode_id]
@@ -116,20 +164,9 @@ def build_field_view(
             episode_index = len(derivation_episodes["candidateIndexes"]) - 1
             if not initial:
                 continue
-            validation.append({
-                "validationId": canonical_digest([candidate.candidate_id, episode_id, "formation" if initial else "fit"]),
-                "candidateIndex": candidate_index,
-                "episodeIndex": episode_index,
-                "candidateKind": candidate.kind,
-                "role": candidate.role,
-                "kind": "formation" if initial else "fit",
-                "observedAt": tape.candles[episode.contribution_index].timestamp,
-                "confirmedAt": tape.candles[episode.confirmed_index].timestamp,
-                "endpointPrice": episode.contribution_price,
-                "corridorLow": episode.corridor_low,
-                "corridorHigh": episode.corridor_high,
-                "initialFormation": initial,
-            })
+            # Formation glyphs are reconstructed from the mandatory SoA
+            # derivationEpisodes closure.  Duplicating them as object records
+            # would spend the Field budget without adding provenance.
         for event in candidate.interactions:
             validation.append({
                 "validationId": canonical_digest([candidate.candidate_id, event.interaction_id, "interaction"]),
@@ -153,7 +190,7 @@ def build_field_view(
                 "outcome": event.outcome,
             })
     field = {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "inputContractVersion": config.input_contract_version,
         "inferenceConfigDigest": config.inference_digest,
         "projectionConfigDigest": config.projection_digest,
@@ -165,6 +202,9 @@ def build_field_view(
         "windowFromTimestamp": tape.candles[0].timestamp,
         "windowToTimestamp": tape.candles[-1].timestamp,
         "candleMeanings": meanings.to_dto(tape),
+        "structuralDomains": domains_to_dto(tape, projected_domains),
+        "regressionFlows": flows_to_dto(tape, projected_flows),
+        "priceMemoryRidges": memory_to_dto(price_memory),
         "basisFacts": _basis_facts_dto(basis_facts),
         "basisGlyphs": [_basis_dto(item) for item in basis_sorted],
         "hlineResponseSegments": rendered_hline_response_segments,
@@ -174,13 +214,38 @@ def build_field_view(
         "selectedModeRefs": selected_refs,
         "derivationEpisodes": derivation_episodes,
         "validationGlyphs": validation,
-        "relationGlyph": None if relation is None else {
-            "triangleId": relation["triangleId"],
-            "upperCandidateId": relation["upperCandidateId"],
-            "lowerCandidateId": relation["lowerCandidateId"],
-            "relationFrom": relation["relationFrom"],
-            "contractionRatio": relation["contractionRatio"],
-        },
+        "patternRelationGlyphs": [{
+            "relationId": relation["relationId"],
+            "kind": relation["kind"],
+            "boundaryCandidateIds": relation["boundaryCandidateIds"],
+            "domain": relation["domain"],
+            "trace": {
+                "indexes": [item["index"] for item in relation["trace"]["anchors"]],
+                "prices": [item["price"] for item in relation["trace"]["anchors"]],
+                "roles": [item["role"] for item in relation["trace"]["anchors"]],
+                "episodeRefs": [
+                    episode_ref_by_id[episode_id]
+                    for episode_id in relation["trace"]["contributingEpisodeIds"]
+                    if episode_id in episode_ref_by_id
+                ],
+            },
+            "relationQuality": relation["relationQuality"],
+        } for relation in relations],
+        "patternEvidenceGlyphs": [{
+            "evidenceId": evidence["evidenceId"],
+            "kind": evidence["kind"],
+            "boundaryCandidateIds": evidence["boundaryCandidateIds"],
+            "trace": {
+                "indexes": [item["index"] for item in evidence["trace"]["anchors"]],
+                "prices": [item["price"] for item in evidence["trace"]["anchors"]],
+                "roles": [item["role"] for item in evidence["trace"]["anchors"]],
+                "episodeRefs": [
+                    episode_ref_by_id[episode_id]
+                    for episode_id in evidence["trace"]["contributingEpisodeIds"]
+                    if episode_id in episode_ref_by_id
+                ],
+            },
+        } for evidence in relation_evidence],
         "projection": {
             "truncated": False,
             "omittedBasisCount": max(0, len(all_basis) - len(basis_sorted)),
@@ -193,13 +258,74 @@ def build_field_view(
                 max(0, len(item.fit_episode_ids) - len(item.initial_episode_ids))
                 for item in selected
             ),
+            "omittedPatternSupportingValidationCount": sum(
+                max(0, len(item.fit_episode_ids) - len(item.initial_episode_ids))
+                for item in derivation_candidates
+                if item.candidate_id not in {candidate.candidate_id for candidate in selected}
+            ),
+            "omittedPatternEvidenceCount": _omitted_pattern_evidence_count,
         },
     }
-    field_bytes = _fit_budget(
-        field, priority_glyph_basis, selected_modes,
-        config.target_field_bytes, config.max_field_bytes,
-    )
+    try:
+        field_bytes = _fit_budget(
+            field, priority_glyph_basis, selected_modes,
+            config.target_field_bytes, config.max_field_bytes,
+        )
+    except ValueError:
+        if relation_evidence:
+            # PatternEvidence is a representative diagnostic projection. Its
+            # entire candidate/mode/episode closure is atomic: when that
+            # closure cannot fit, rebuild without it instead of leaving an
+            # orphan or truncating fact provenance.
+            return build_field_view(
+                tape, hline, trend, selected, relations, (), meanings,
+                inference_id, sight_projection_id, config,
+                domains=domains,
+                regression_flows=regression_flows,
+                price_memory=price_memory,
+                _omitted_pattern_evidence_count=(
+                    _omitted_pattern_evidence_count + len(relation_evidence)
+                ),
+            )
+        raise
     return field, field_bytes
+
+
+def _projected_regression_flows(flows, as_of_index):
+    """Keep the Sight hierarchy to one global and one current local OLS flow.
+
+    Inference and Pattern relations still use the complete adaptive flow set;
+    this is only the deterministic visual projection promised by Sight.
+    """
+    if not flows:
+        return ()
+    root = min(flows, key=lambda item: (
+        item.start_index, -item.end_index, item.domain_id,
+    ))
+    local_candidates = [
+        item for item in flows
+        if item.flow_id != root.flow_id and item.end_index == as_of_index
+    ]
+    if not local_candidates:
+        return (root,)
+    local = min(local_candidates, key=lambda item: (
+        item.end_index - item.start_index, -item.start_index, item.flow_id,
+    ))
+    return (root, local)
+
+
+def _formation_domain_id(candidate, domains):
+    covering = [
+        item for item in domains
+        if item.active
+        and item.start_index <= candidate.observed_from_index
+        and item.end_index >= candidate.observed_to_index
+    ]
+    if not covering:
+        return None
+    return min(covering, key=lambda item: (
+        item.end_index - item.start_index, -item.depth, item.domain_id,
+    )).domain_id
 
 
 def _fit_budget(field, required_basis, selected_modes, target_budget, hard_budget):
@@ -302,10 +428,10 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fac
                 if selected and basis_id in basis_fact_index
             ],
             "independentEpisodeCount": len(mode.episode_ids),
-            "representativeContributions": [{
+            "representativeContributions": [] if selected else [{
                 "basisId": basis_id,
                 "roleMassAtAsOf": basis_by_id[basis_id].role_mass,
-            } for basis_id in contribution_ids[:(3 if selected else 1)] if basis_id in basis_by_id],
+            } for basis_id in contribution_ids[:1] if basis_id in basis_by_id],
         }
         if mode.kind == "hline":
             common.update({
@@ -341,7 +467,7 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fac
                     "lowerToPrice": mode.center_end - end_width,
                     "upperToPrice": mode.center_end + end_width,
                 },
-                "representativeHypotheses": [
+                "representativeHypotheses": [] if selected else [
                     {
                         "hypothesisId": item["hypothesisId"],
                         "sourceBasisIds": item["sourceBasisIds"],

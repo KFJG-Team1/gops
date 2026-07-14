@@ -16,9 +16,10 @@ def test_kernel_is_deterministic_and_emits_bounded_editable_lines():
     digests = {canonical_digest(item.content) for item in results if isinstance(item, Ready)}
     assert len(digests) == 1
     content = results[0].content
-    assert 0 <= content["selection"]["hline"]["actualCount"] <= 4
+    assert 1 <= content["selection"]["hline"]["actualCount"] <= 4
     assert 0 <= content["selection"]["trend"]["actualCount"] <= 3
-    assert len(content["drawings"]) <= 7
+    assert 0 <= content["selection"]["pattern"]["actualCount"] <= 2
+    assert len(content["drawings"]) <= 9
     assert all(item["ownership"] == "czardas-managed" for item in content["drawings"])
     assert all(item["sourceInferenceId"] == content["inferenceId"] for item in content["drawings"])
     assert results[0].debug["fieldBytes"] <= 81_920
@@ -51,10 +52,17 @@ def test_q8_quantization_seals_input_before_every_inference_stage():
     assert original.content["inputDigest"] != different.content["inputDigest"]
 
 
-def test_ready_no_draw_keeps_a_field_and_is_not_unavailable():
+def test_flat_snapshot_keeps_field_and_honest_baseline_price_memory():
     result = analyze_czardas(flat_rows())
     assert isinstance(result, Ready)
-    assert result.content["drawings"] == []
+    assert result.content["selection"] == {
+        "hline": {"actualCount": 1, "configuredCount": 2},
+        "pattern": {"actualCount": 0, "configuredCount": None},
+        "trend": {"actualCount": 0, "configuredCount": 2},
+    }
+    assert len(result.content["drawings"]) == 1
+    assert result.content["boundaries"][0]["evidenceState"] == "baseline_memory"
+    assert result.content["patternRelations"] == []
     assert result.content["czardasField"]["sourceBars"] == 240
 
 
@@ -71,9 +79,9 @@ def test_production_config_cannot_be_mutated_for_research_or_quota_filling():
     assert result.reason == "invalid_config"
 
 
-def test_sight_v2_changes_projection_identity_without_changing_inference_config_identity():
-    sight_v1 = replace(DEFAULT_CONFIG, sight_projection_version="czardas-sight-v1")
+def test_sight_v3_changes_projection_identity_without_changing_inference_config_identity():
+    sight_v2 = replace(DEFAULT_CONFIG, sight_projection_version="czardas-sight-v2")
 
-    assert DEFAULT_CONFIG.sight_projection_version == "czardas-sight-v2"
-    assert DEFAULT_CONFIG.inference_digest == sight_v1.inference_digest
-    assert DEFAULT_CONFIG.projection_digest != sight_v1.projection_digest
+    assert DEFAULT_CONFIG.sight_projection_version == "czardas-sight-v3"
+    assert DEFAULT_CONFIG.inference_digest == sight_v2.inference_digest
+    assert DEFAULT_CONFIG.projection_digest != sight_v2.projection_digest

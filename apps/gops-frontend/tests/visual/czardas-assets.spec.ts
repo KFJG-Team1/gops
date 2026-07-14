@@ -1,11 +1,13 @@
-import { expect, test, type Route } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const candles = fixtureCandles();
 let postedBuild: unknown = null;
+let patternEvidenceOnly = false;
 
 test.beforeEach(async ({ page }) => {
   postedBuild = null;
+  patternEvidenceOnly = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   await page.addInitScript(({ key, layout }) => {
@@ -15,11 +17,12 @@ test.beforeEach(async ({ page }) => {
   }, { key: layoutStorageKey, layout: assetLayout() });
 });
 
-test("Czardas asset renders independent H-Line and Trend layers", async ({ page }, testInfo) => {
+test("Czardas asset renders independent H-Line, Trend and Pattern layers", async ({ page }, testInfo) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "240");
+  await selectChartToolbarOption(page, "Chart type", "czardas");
   await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
   const sightLegend = page.getByLabel("Czardas 시각 범례");
   await expect(sightLegend).toBeVisible();
@@ -28,8 +31,10 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   await expect(sightLegend.getByTitle("축소 상태에서 켜진 채널의 전체 의미")).toContainText("전체(축소)");
   const hline = page.getByRole("button", { name: "Czardas H-Line 끄기" });
   const trend = page.getByRole("button", { name: "Czardas Trend 끄기" });
+  const pattern = page.getByRole("button", { name: "Czardas Pattern 끄기" });
   await expect(hline).toBeEnabled();
   await expect(trend).toBeEnabled();
+  await expect(pattern).toBeEnabled();
   await hline.click();
   await expect(page.getByRole("button", { name: "Czardas H-Line 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(sightLegend.getByText("H-Line", { exact: true })).toHaveClass(/is-muted/);
@@ -39,8 +44,15 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   await expect(page.getByRole("button", { name: "Czardas Trend 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(sightLegend.getByText("Trend", { exact: true })).toHaveClass(/is-muted/);
   await page.getByRole("button", { name: "Czardas Trend 켜기" }).click();
-  await page.getByLabel("Chart type").selectOption("czardas", { force: true });
-  await expect(page.getByLabel("Interval").locator('option[value="1M"]')).toBeDisabled();
+  await pattern.click();
+  await expect(page.getByRole("button", { name: "Czardas Pattern 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(sightLegend.getByText("Pattern", { exact: true })).toHaveClass(/is-muted/);
+  await expect(hline).toHaveAttribute("aria-pressed", "true");
+  await expect(trend).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Czardas Pattern 켜기" }).click();
+  await page.getByRole("combobox", { name: "Interval" }).click();
+  await expect(page.getByRole("listbox", { name: "Interval options" }).locator('[data-value="1M"]')).toBeDisabled();
+  await page.getByRole("combobox", { name: "Interval" }).press("Escape");
   await expect(canvas).toBeVisible();
   await canvas.focus();
   await canvas.press("End");
@@ -51,7 +63,9 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   await expect(meaningOverlay.getByText("진하기 Shared+Trend", { exact: true })).toBeVisible();
   await expect(meaningOverlay.getByText("짧은 수평 Shared+H-Line", { exact: true })).toBeVisible();
   await expect(meaningOverlay.getByText("축소 노랑 켜진 채널 전체", { exact: true })).toBeVisible();
-  await expect(meaningOverlay.locator("[data-czardas-factor-key]")).toHaveCount(21);
+  const factorCount = (czardasResponse() as any).assets["1D"].pack
+    .czardasField.candleMeanings.factorCodebook.length;
+  await expect(meaningOverlay.locator("[data-czardas-factor-key]")).toHaveCount(factorCount);
   await expect(meaningOverlay.locator("[data-czardas-reason-code]")).toHaveCount(1);
   await expect(meaningOverlay.locator("details")).toHaveCount(0);
   await expect(meaningOverlay.locator("summary")).toHaveCount(0);
@@ -114,7 +128,7 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   await expect(mutedHlineMeaning).toHaveClass(/is-muted/);
   await expect(mutedHlineMeaning.locator("[data-czardas-factor-key]")).toHaveCount(7);
   await page.getByRole("button", { name: "Czardas H-Line 켜기" }).click();
-  await page.screenshot({ path: `/tmp/chart-assets-v3-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v4-${testInfo.project.name}.png`, fullPage: true });
 
   const detailVisibleCount = Number(await chart.getAttribute("data-chart-visible-count"));
   await canvas.evaluate((element) => {
@@ -130,7 +144,7 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
     }
   });
   await expect.poll(async () => Number(await chart.getAttribute("data-chart-visible-count"))).toBeGreaterThan(detailVisibleCount);
-  await page.screenshot({ path: `/tmp/chart-assets-v3-dense-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v4-dense-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test("Czardas meaning overlay keeps all evidence visible in compact plots", async ({ page }, testInfo) => {
@@ -138,12 +152,14 @@ test("Czardas meaning overlay keeps all evidence visible in compact plots", asyn
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   const canvas = chart.locator(".chart-canvas");
-  await page.getByLabel("Chart type").selectOption("czardas", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "czardas");
   await expect(page.getByRole("button", { name: "Czardas H-Line 끄기" })).toBeEnabled();
   await canvas.focus();
   await canvas.press("End");
   const meaningOverlay = page.getByLabel("현재 240봉 기준 Czardas 캔들 해석");
   await expect(meaningOverlay).toBeVisible();
+  const factorCount = (czardasResponse() as any).assets["1D"].pack
+    .czardasField.candleMeanings.factorCodebook.length;
 
   for (const size of [{ width: 520, height: 240 }, { width: 328, height: 110 }]) {
     await chart.evaluate((element, nextSize) => {
@@ -155,7 +171,7 @@ test("Czardas meaning overlay keeps all evidence visible in compact plots", asyn
       width: (element as HTMLElement).clientWidth,
       height: (element as HTMLElement).clientHeight
     }))).toEqual(size);
-    await expect(meaningOverlay.locator("[data-czardas-factor-key]")).toHaveCount(21);
+    await expect(meaningOverlay.locator("[data-czardas-factor-key]")).toHaveCount(factorCount);
     const layout = await meaningOverlay.evaluate((element) => {
       const canvas = document.querySelector(".chart-canvas")?.getBoundingClientRect();
       const overlay = element.getBoundingClientRect();
@@ -182,6 +198,20 @@ test("Czardas meaning overlay keeps all evidence visible in compact plots", asyn
   }
 });
 
+test("Pattern evidence keeps its layer available without claiming a detected Pattern", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one desktop project is sufficient");
+  patternEvidenceOnly = true;
+  await page.goto("/?symbol=NVDA");
+  await selectChartToolbarOption(page, "Chart type", "czardas");
+  const pattern = page.getByRole("button", { name: "Czardas Pattern 끄기" });
+  await expect(pattern).toBeEnabled();
+  await expect(pattern).toHaveAttribute("title", "Czardas Pattern 근거");
+  const response = czardasResponse(true) as any;
+  expect(response.assets["1D"].pack.patternRelations).toHaveLength(0);
+  expect(response.assets["1D"].pack.drawings.filter((item: any) => item.czardasLayer === "pattern")).toHaveLength(0);
+  expect(response.assets["1D"].pack.czardasField.patternEvidenceGlyphs).toHaveLength(1);
+});
+
 test("asset ops submits exactly one Czardas symbol and interval", async ({ page }, testInfo) => {
   await page.goto("/?symbol=NVDA");
   const ops = page.locator(".chart-asset-ops-panel");
@@ -189,7 +219,7 @@ test("asset ops submits exactly one Czardas symbol and interval", async ({ page 
   await ops.getByLabel("Czardas 분석 심볼").fill("NVDA");
   await ops.getByRole("button", { name: "분석 시작" }).click();
   await expect.poll(() => postedBuild).toEqual({ symbol: "NVDA", interval: "1D", force: false });
-  await page.screenshot({ path: `/tmp/chart-assets-v3-ops-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v4-ops-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test("Czardas Field paint stays within the 8ms P95 gate", async ({ page }, testInfo) => {
@@ -219,8 +249,7 @@ test("Czardas Field paint stays within the 8ms P95 gate", async ({ page }, testI
       comparisons: [],
       streamState: "idle",
       czardasField: fixturePack.czardasField,
-      czardasVisibility: { hline: true, trend: true },
-      czardasPattern: fixturePack.presentationPattern,
+      czardasVisibility: { hline: true, trend: true, pattern: true },
       czardasAssetState: "current"
     } as any;
     const scene = buildChartScene(chart, 960, 520);
@@ -253,7 +282,7 @@ async function fulfillApi(route: Route): Promise<void> {
   if (url.pathname === "/api/auth/me") payload = { authEnabled: false, user: null };
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload();
-  else if (url.pathname === "/api/charts/czardas-assets") payload = czardasResponse();
+  else if (url.pathname === "/api/charts/czardas-assets") payload = czardasResponse(patternEvidenceOnly);
   else if (url.pathname === "/api/charts/czardas-assets/build" && request.method() === "POST") {
     const body = request.postDataJSON();
     postedBuild = body;
@@ -287,23 +316,31 @@ function fixtureCandles() {
   });
 }
 
-function czardasResponse(): Record<string, unknown> {
+function czardasResponse(evidenceOnly = false): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp ?? "";
   const windowFromTimestamp = candles[0].timestamp;
   const windowToTimestamp = candles[239].timestamp;
-  const inferenceId = "sha256:czardas-v3-fixture-inference";
+  const inferenceId = "sha256:czardas-v4-fixture-inference";
   const hline = czardasDrawing("support", "hline", [
     { timestamp: candles[40].timestamp, price: 158 },
     { timestamp: asOf, price: 158 }
-  ], undefined, inferenceId);
+  ], inferenceId);
   const upper = czardasDrawing("upper", "trend", [
     { timestamp: candles[40].timestamp, price: 178 },
     { timestamp: asOf, price: 176 }
-  ], "triangle-fixture", inferenceId);
+  ], inferenceId);
   const lower = czardasDrawing("lower", "trend", [
     { timestamp: candles[40].timestamp, price: 158 },
     { timestamp: asOf, price: 174 }
-  ], "triangle-fixture", inferenceId);
+  ], inferenceId);
+  const patternRelationId = "sha256:pattern-fixture";
+  const patternTraceIndexes = [55, 59, 63, 67];
+  const patternTracePrices = [177.5, 161.2, 176.5, 162.5];
+  const pattern = czardasPatternDrawing(
+    patternRelationId,
+    patternTraceIndexes.map((index, offset) => ({ timestamp: candles[index].timestamp, price: patternTracePrices[offset] })),
+    inferenceId
+  );
   const trendLine = (fromPrice: number, toPrice: number) => ({
     fromTimestamp: windowFromTimestamp,
     fromPrice,
@@ -378,28 +415,24 @@ function czardasResponse(): Record<string, unknown> {
     return Buffer.from(bytes).toString("base64");
   };
   const selectedRefs = [
-    { candidateId: "support", sourceInferenceId: inferenceId, kind: "hline", sourceFieldModeId: "mode-support", sourceFieldDerivationDigest: "sha256:mode-support" },
-    { candidateId: "upper", sourceInferenceId: inferenceId, kind: "trend", sourceFieldModeId: "mode-upper", sourceFieldDerivationDigest: "sha256:mode-upper" },
-    { candidateId: "lower", sourceInferenceId: inferenceId, kind: "trend", sourceFieldModeId: "mode-lower", sourceFieldDerivationDigest: "sha256:mode-lower" }
+    { candidateId: "support", kind: "hline", sourceFieldModeId: "mode-support", sourceFieldDerivationDigest: "sha256:mode-support", presentationSelected: true, patternSupporting: false, formationDomainId: "sha256:root-domain" },
+    { candidateId: "upper", kind: "trend", sourceFieldModeId: "mode-upper", sourceFieldDerivationDigest: "sha256:mode-upper", presentationSelected: true, patternSupporting: true, formationDomainId: "sha256:root-domain" },
+    { candidateId: "lower", kind: "trend", sourceFieldModeId: "mode-lower", sourceFieldDerivationDigest: "sha256:mode-lower", presentationSelected: true, patternSupporting: true, formationDomainId: "sha256:root-domain" }
   ];
   const boundary = (candidateId: "support" | "upper" | "lower", kind: "hline" | "trend", role: "support" | "upper" | "lower", price: number) => ({
     candidateId,
-    sourceInferenceId: inferenceId,
-    sourceFieldModeId: `mode-${candidateId}`,
-    sourceFieldDerivationDigest: `sha256:mode-${candidateId}`,
     kind,
     role,
     evidenceState: "formed",
     isRelevantNow: true,
     formation: {
-      initialFormationEpisodeIds: [`episode-${candidateId}-1`, `episode-${candidateId}-2`],
-      fitEpisodeIds: [`episode-${candidateId}-1`, `episode-${candidateId}-2`],
+      initialFormationCount: 2,
       fitCount: 2,
       lastFitObservedAt: candles[80].timestamp, fitEvidenceConfirmedAt: candles[82].timestamp, seedQuality: .8
     },
-    responses: { completedCount: 0, pendingCount: 0, lastInteractionAt: null, responseMass: 0 },
+    responses: { completedCount: 0, pendingCount: 0, responseMass: 0 },
     rank: {
-      rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0,
+      rankScore: .8, responseBonus: 0, profileBonus: 0,
       integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
       bodyPenetrationCount: 1, closePenetrationCount: 0
     },
@@ -407,14 +440,14 @@ function czardasResponse(): Record<string, unknown> {
     explanation: { claim: "현재 경계", because: ["구조적 근거"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
   });
   const pack = {
-    algorithmVersion: "czardas-v3",
-    configVersion: "czardas-config-v3",
+    algorithmVersion: "czardas-v4",
+    configVersion: "czardas-config-v4",
     inputContractVersion: "canonical-ohlcv-q8-v1",
     timeContractVersion: "market-time-v1",
     calendarVersion: "nyse-calendar-v1",
     inferenceConfigDigest: "sha256:inference-config",
     projectionConfigDigest: "sha256:projection-config",
-    sightProjectionVersion: "czardas-sight-v2",
+    sightProjectionVersion: "czardas-sight-v3",
     sightProjectionId: "sha256:sight-projection",
     symbol: "NVDA",
     interval: "1D",
@@ -426,23 +459,28 @@ function czardasResponse(): Record<string, unknown> {
     inferenceId,
     status: "ready",
     coverage: { state: "exact", targetCompleted: 240, actualCompleted: 240, analysisBars: 240, qualityFlags: [] },
-    selection: { hline: { configuredCount: 2, actualCount: 1 }, trend: { configuredCount: 2, actualCount: 2 } },
+    selection: { hline: { configuredCount: 2, actualCount: 1 }, trend: { configuredCount: 2, actualCount: 2 }, pattern: { configuredCount: null, actualCount: 1 } },
     boundaries: [boundary("support", "hline", "support", 158), boundary("upper", "trend", "upper", 176), boundary("lower", "trend", "lower", 174)],
-    presentationPattern: {
-      triangleId: "triangle-fixture",
-      kind: "ascending_triangle",
-      upperCandidateId: "upper",
-      lowerCandidateId: "lower",
-      upperDrawingId: upper.id,
-      lowerDrawingId: lower.id
-    },
-    drawings: [hline, upper, lower],
+    patternRelations: [{
+      relationId: patternRelationId,
+      kind: "triangle",
+      displayName: "Triangle",
+      boundaryCandidateIds: ["upper", "lower"],
+      domain: { domainId: "sha256:root-domain", fromTimestamp: candles[55].timestamp, toTimestamp: candles[180].timestamp },
+      relationQuality: .82,
+      traceRef: patternRelationId,
+      traceAnchorCount: patternTraceIndexes.length,
+      traceFactCount: patternTraceIndexes.length,
+      relationBars: 126,
+      explanation: { claim: "수렴 구조", because: ["상·하단 경계 교대 접촉"], against: [], dataQualifier: "exact-240 OHLCV" }
+    }],
+    drawings: [hline, upper, lower, pattern],
     czardasField: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       inputContractVersion: "canonical-ohlcv-q8-v1",
       inferenceConfigDigest: "sha256:inference-config",
       projectionConfigDigest: "sha256:projection-config",
-      sightProjectionVersion: "czardas-sight-v2",
+      sightProjectionVersion: "czardas-sight-v3",
       sightProjectionId: "sha256:sight-projection",
       sourceBars: 240,
       evaluationAsOf: asOf,
@@ -451,6 +489,16 @@ function czardasResponse(): Record<string, unknown> {
       windowToTimestamp,
       candleMeanings: {
         evaluationAsOf: asOf,
+        codebookVersion: "czardas-factor-codebook-v4",
+        factorCodebook: Object.keys(rawFactorScales).map((key) => ({
+          key,
+          label: key,
+          channel: ["volumeRank", "volumeZ", "participation", "supportProximity", "resistanceProximity", "hlinePenetrationAtr", "reclaimStrength"].includes(key)
+            ? "hline"
+            : ["lowerResidualAtr", "upperResidualAtr", "trendPenetrationAtr"].includes(key) ? "trend" : "shared",
+          scale: rawFactorScales[key as keyof typeof rawFactorScales],
+          transform: rawFactorTransforms[key]
+        })),
         rawFactorScales,
         rawFactorTransforms,
         normalizedFactorScale: 1000,
@@ -496,7 +544,7 @@ function czardasResponse(): Record<string, unknown> {
       ],
       hlineResponseSegments: [{ segmentId: "response-h", role: "support", lowPrice: 157.5, highPrice: 158.5, responseMass: 2.4, activeBasisCount: 3, windowFromTimestamp, windowToTimestamp }],
       hlineProfileBins: [{ lowPrice: 157, highPrice: 159, normalizedVolume: .8 }],
-      hlineModes: [{ fieldModeId: "mode-support", derivationDigest: "sha256:mode-support", role: "support", modeState: "coherent", viewRole: "landscape_and_selected", centerPrice: 158, zoneHalfWidth: .45, ridge: { lowPrice: 157.5, highPrice: 158.5 }, supportMass: 2.4, oppositionMass: .1, contributorBasisIndexes: [0], contributorCount: 1, windowFromTimestamp, windowToTimestamp }],
+      hlineModes: [{ fieldModeId: "mode-support", derivationDigest: "sha256:mode-support", role: "support", modeState: "coherent", geometryState: "refined", originSeedBasisIds: ["basis-h"], viewRole: "landscape_and_selected", centerPrice: 158, zoneHalfWidth: .45, ridge: { lowPrice: 157.5, highPrice: 158.5 }, supportMass: 2.4, oppositionMass: .1, contributorBasisIndexes: [0], contributorCount: 1, independentEpisodeCount: 2, representativeContributions: [], dispersionAtr: .1, windowFromTimestamp, windowToTimestamp }],
       trendModes: [
         trendMode("upper", 178, 176),
         trendMode("lower", 158, 174)
@@ -507,20 +555,58 @@ function czardasResponse(): Record<string, unknown> {
         candidateEpisodeOrdinals: [0, 1, 0, 1, 0, 1],
         contributionBasisIndexes: [0, 0, 1, 1, 2, 2],
         memberBasisIndexes: [[0], [0], [1], [1], [2], [2]],
-        observedFromIndexes: [40, 44, 55, 59, 60, 64],
-        observedToIndexes: [40, 44, 55, 59, 60, 64],
-        confirmedIndexes: [42, 46, 57, 61, 62, 66],
-        contributionIndexes: [40, 44, 55, 59, 60, 64],
-        contributionPrices: [158, 158, 177.5, 177.5, 161.2, 161.2],
-        corridorLows: [157.7, 157.7, 177.2, 177.2, 160.9, 160.9],
-        corridorHighs: [158.3, 158.3, 177.8, 177.8, 161.5, 161.5],
+        observedFromIndexes: [40, 44, 55, 63, 59, 67],
+        observedToIndexes: [40, 44, 55, 63, 59, 67],
+        confirmedIndexes: [42, 46, 57, 65, 61, 69],
+        contributionIndexes: [40, 44, 55, 63, 59, 67],
+        contributionPrices: [158, 158, 177.5, 176.5, 161.2, 162.5],
+        corridorLows: [157.7, 157.7, 177.2, 176.2, 160.9, 162.2],
+        corridorHighs: [158.3, 158.3, 177.8, 176.8, 161.5, 162.8],
         initialFormationMasks: [1, 1, 1, 1, 1, 1]
       },
       validationGlyphs: [],
-      relationGlyph: { triangleId: "triangle-fixture", upperCandidateId: "upper", lowerCandidateId: "lower", relationFrom: candles[40].timestamp, contractionRatio: .4 }
+      structuralDomains: [{
+        domainId: "sha256:root-domain", parentId: null, fromTimestamp: windowFromTimestamp,
+        toTimestamp: windowToTimestamp, startIndex: 0, endIndex: 239, depth: 0, active: true, fitLoss: 1
+      }],
+      regressionFlows: [{
+        flowId: "sha256:ols-root", domainId: "sha256:root-domain", fromTimestamp: windowFromTimestamp,
+        toTimestamp: windowToTimestamp, startPrice: 151, endPrice: 178, slopePerBar: .113,
+        corridorHalfWidth: 2.1, residualMad: 1.05, leverageMax: .017
+      }],
+      priceMemoryRidges: [{
+        ridgeId: "sha256:memory-support", lowPrice: 157.5, highPrice: 158.5, centerPrice: 158,
+        responseMass: 2.4, contributorCount: 2, contributorIndexes: [40, 44]
+      }],
+      patternRelationGlyphs: [{
+        relationId: patternRelationId,
+        kind: "triangle",
+        trace: {
+          indexes: patternTraceIndexes,
+          prices: patternTracePrices,
+          roles: ["upper", "lower", "upper", "lower"],
+          episodeRefs: [[1, 0], [2, 0], [1, 1], [2, 1]]
+        }
+      }],
+      patternEvidenceGlyphs: [],
+      projection: { truncated: false }
     },
     rejectSummary: {}
   };
+  if (evidenceOnly) {
+    const mutable = pack as any;
+    const trace = mutable.czardasField.patternRelationGlyphs[0].trace;
+    mutable.selection.pattern.actualCount = 0;
+    mutable.patternRelations = [];
+    mutable.drawings = mutable.drawings.filter((item: any) => item.czardasLayer !== "pattern");
+    mutable.czardasField.patternRelationGlyphs = [];
+    mutable.czardasField.patternEvidenceGlyphs = [{
+      evidenceId: "sha256:pattern-evidence-fixture",
+      kind: "trend_pair",
+      boundaryCandidateIds: ["upper", "lower"],
+      trace
+    }];
+  }
   return {
     symbol: "NVDA",
     assets: { "1D": { freshness: "current", freshnessReason: "identity_match", generatedAt: asOf, pack } },
@@ -532,17 +618,14 @@ function czardasDrawing(
   candidateId: string,
   layer: "hline" | "trend",
   anchors: Array<{ timestamp: string; price: number }>,
-  groupId?: string,
-  inferenceId = "sha256:czardas-v3-fixture-inference"
+  inferenceId = "sha256:czardas-v4-fixture-inference"
 ) {
   return {
     id: `czardas:${candidateId}:line`,
     type: layer === "hline" ? "horizontalLine" : "trendLine",
     anchors,
-    symbol: "NVDA",
-    interval: "1D",
     sourceInterval: "1D",
-    style: { colorToken: "drawing", lineWidth: groupId ? 3 : 2, extension: layer === "hline" ? "line" : "ray" },
+    style: { colorToken: "drawing", lineWidth: 2, extension: layer === "hline" ? "line" : "ray" },
     label: "",
     locked: false,
     visible: true,
@@ -553,10 +636,42 @@ function czardasDrawing(
     sourceCandidateId: candidateId,
     sourceFieldModeId: `mode-${candidateId}`,
     sourceFieldDerivationDigest: `sha256:mode-${candidateId}`,
-    sourceGroupId: groupId,
-    createdAt: candles[40].timestamp,
+    createdAt: candles.at(-1)?.timestamp,
     updatedAt: candles.at(-1)?.timestamp
   };
+}
+
+function czardasPatternDrawing(
+  relationId: string,
+  anchors: Array<{ timestamp: string; price: number }>,
+  inferenceId: string
+) {
+  return {
+    id: `czardas:${relationId}:pattern`,
+    type: "polyline",
+    anchors,
+    sourceInterval: "1D",
+    style: { colorToken: "drawing", lineWidth: 3, extension: "none" },
+    label: "Triangle",
+    locked: false,
+    visible: true,
+    createdBy: "system",
+    ownership: "czardas-managed",
+    czardasLayer: "pattern",
+    sourceInferenceId: inferenceId,
+    sourceRelationId: relationId,
+    sourceRelationDerivationDigest: "sha256:pattern-fixture-derivation",
+    createdAt: candles.at(-1)?.timestamp,
+    updatedAt: candles.at(-1)?.timestamp
+  };
+}
+
+async function selectChartToolbarOption(page: Page, ariaLabel: "Chart type" | "Interval", value: string): Promise<void> {
+  await page.getByRole("combobox", { name: ariaLabel }).click({ force: true });
+  const listbox = page.getByRole("listbox", { name: `${ariaLabel} options` });
+  await expect(listbox).toBeVisible();
+  await listbox.locator(`[data-value="${value}"]`).click();
+  await expect(listbox).toBeHidden();
 }
 
 function assetLayout(): Record<string, unknown> {

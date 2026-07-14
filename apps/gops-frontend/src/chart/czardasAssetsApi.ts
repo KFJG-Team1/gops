@@ -1,4 +1,4 @@
-import { czardasMeaningFactorKeys, type CzardasFieldDto, type CzardasPatternDto, type DrawingEntity } from "./types";
+import { type CzardasFieldDto, type CzardasPatternDto, type DrawingEntity } from "./types";
 
 export const czardasIntervals = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"] as const;
 export type CzardasInterval = typeof czardasIntervals[number];
@@ -17,33 +17,27 @@ export type CzardasExplanation = {
   claim: string;
   because: string[];
   against: string[];
-  state: "formed" | "response_supported";
+  state: "formed" | "response_supported" | "baseline_memory";
   invalidationCondition: string;
   dataQualifier: string;
 };
 
 export type CzardasBoundary = {
   candidateId: string;
-  sourceInferenceId: string;
-  sourceFieldModeId: string;
-  sourceFieldDerivationDigest: string;
   kind: "hline" | "trend";
   role: "support" | "resistance" | "lower" | "upper";
-  evidenceState: "formed" | "response_supported";
+  evidenceState: "formed" | "response_supported" | "baseline_memory";
   isRelevantNow: boolean;
   formation: {
-    initialFormationEpisodeIds: string[];
-    fitEpisodeIds: string[];
+    initialFormationCount: number;
     fitCount: number;
     lastFitObservedAt: string;
     fitEvidenceConfirmedAt: string;
     seedQuality: number;
   };
-  responses: { completedCount: number; pendingCount: number; lastInteractionAt: string | null; responseMass: number };
+  responses: { completedCount: number; pendingCount: number; responseMass: number };
   rank: {
     rankScore: number;
-    responseCount: number;
-    responseMass: number;
     responseBonus: number;
     profileBonus: number;
     integrityFactCount: number;
@@ -77,9 +71,10 @@ export type CzardasPackContent = {
   selection: {
     hline: { configuredCount: number; actualCount: number };
     trend: { configuredCount: number; actualCount: number };
+    pattern: { configuredCount: number | null; actualCount: number };
   };
   boundaries: CzardasBoundary[];
-  presentationPattern: CzardasPatternDto | null;
+  patternRelations: CzardasPatternDto[];
   drawings: DrawingEntity[];
   czardasField: CzardasFieldDto;
   rejectSummary?: Record<string, unknown>;
@@ -356,17 +351,18 @@ function normalizePack(value: unknown, fallbackSymbol: string, interval: Czardas
   const coverage = asRecord(pack.coverage);
   if (
     !symbol || symbol !== fallbackSymbol || pack.interval !== interval || pack.status !== "ready"
-    || pack.algorithmVersion !== "czardas-v3" || pack.configVersion !== "czardas-config-v3"
+    || pack.algorithmVersion !== "czardas-v4" || pack.configVersion !== "czardas-config-v4"
     || pack.inputContractVersion !== "canonical-ohlcv-q8-v1"
     || pack.timeContractVersion !== "market-time-v1" || pack.calendarVersion !== "nyse-calendar-v1"
     || !isNonEmptyString(pack.inferenceConfigDigest) || !isNonEmptyString(pack.projectionConfigDigest)
-    || pack.sightProjectionVersion !== "czardas-sight-v2" || !isNonEmptyString(pack.sightProjectionId)
+    || pack.sightProjectionVersion !== "czardas-sight-v3" || !isNonEmptyString(pack.sightProjectionId)
     || coverage.state !== "exact" || coverage.analysisBars !== 240
     || coverage.actualCompleted !== 240 || coverage.targetCompleted !== 240
     || !isNonEmptyString(pack.asOf) || !isNonEmptyString(pack.lastCandleKey) || !isNonEmptyString(pack.inputDigest)
     || !isNonEmptyString(pack.inferenceId)
     || !Array.isArray(pack.boundaries) || pack.boundaries.length > 7 || !pack.boundaries.every(isBoundary)
-    || !Array.isArray(pack.drawings) || pack.drawings.length > 7
+    || !Array.isArray(pack.drawings) || pack.drawings.length > 9
+    || !Array.isArray(pack.patternRelations) || pack.patternRelations.length > 2 || !pack.patternRelations.every(isPatternRelation)
     || !isCzardasField(pack.czardasField, pack)
     || jsonUtf8Size(pack.czardasField) > MAX_CZARDAS_FIELD_BYTES
     || jsonUtf8Size(pack) > MAX_CZARDAS_PACK_BYTES
@@ -375,16 +371,16 @@ function normalizePack(value: unknown, fallbackSymbol: string, interval: Czardas
   ) return null;
   const hlines = pack.drawings.filter((item) => item.czardasLayer === "hline");
   const trends = pack.drawings.filter((item) => item.czardasLayer === "trend");
+  const patterns = pack.drawings.filter((item) => item.czardasLayer === "pattern");
   if (
-    hlines.length > 4 || trends.length > 3 || hlines.length + trends.length !== pack.drawings.length
+    hlines.length < 1 || hlines.length > 4 || trends.length > 3 || patterns.length > 2
+    || hlines.length + trends.length + patterns.length !== pack.drawings.length
     || pack.selection?.hline?.actualCount !== hlines.length
     || pack.selection?.trend?.actualCount !== trends.length
+    || pack.selection?.pattern?.actualCount !== patterns.length
     || pack.drawings.some((drawing) => !isManagedDrawing(drawing, interval, pack.inferenceId))
-    || pack.boundaries.some((boundary) => boundary.sourceInferenceId !== pack.inferenceId)
     || new Set(pack.drawings.map((drawing) => drawing.id)).size !== pack.drawings.length
-    || new Set(pack.drawings.map((drawing) => drawing.sourceCandidateId)).size !== pack.drawings.length
     || !candidateProvenanceIsClosed(pack)
-    || !isPresentationPattern(pack.presentationPattern, pack.drawings)
   ) return null;
   return pack;
 }
@@ -412,7 +408,7 @@ function czardasAssetsGeneration(normalized: string): string {
 function isManagedDrawing(value: unknown, interval: CzardasInterval, inferenceId: string): value is DrawingEntity {
   const drawing = asRecord(value);
   const layer = drawing.czardasLayer;
-  const expectedType = layer === "hline" ? "horizontalLine" : layer === "trend" ? "trendLine" : null;
+  const expectedType = layer === "hline" ? "horizontalLine" : layer === "trend" ? "trendLine" : layer === "pattern" ? "polyline" : null;
   const anchors = Array.isArray(drawing.anchors) ? drawing.anchors : [];
   const style = asRecord(drawing.style);
   return expectedType !== null
@@ -422,12 +418,13 @@ function isManagedDrawing(value: unknown, interval: CzardasInterval, inferenceId
     && drawing.createdBy === "system"
     && isNonEmptyString(drawing.id) && drawing.id.startsWith("czardas:")
     && drawing.sourceInferenceId === inferenceId
-    && isNonEmptyString(drawing.sourceCandidateId)
-    && isNonEmptyString(drawing.sourceFieldModeId)
-    && isNonEmptyString(drawing.sourceFieldDerivationDigest)
-    && anchors.length === 2 && anchors.every(isPriceAnchor)
+    && (layer === "pattern"
+      ? isNonEmptyString(drawing.sourceRelationId) && isNonEmptyString(drawing.sourceRelationDerivationDigest)
+      : isNonEmptyString(drawing.sourceCandidateId) && isNonEmptyString(drawing.sourceFieldModeId) && isNonEmptyString(drawing.sourceFieldDerivationDigest))
+    && (layer === "pattern" ? anchors.length >= 3 && anchors.length <= 16 : anchors.length === 2)
+    && anchors.every(isPriceAnchor)
     && isFiniteNumber(style.lineWidth) && [1, 2, 3].includes(style.lineWidth)
-    && style.extension === (layer === "hline" ? "line" : "ray")
+    && style.extension === (layer === "hline" ? "line" : layer === "trend" ? "ray" : "none")
     && drawing.visible === true
     && isNonEmptyString(drawing.createdAt)
     && isNonEmptyString(drawing.updatedAt);
@@ -442,7 +439,7 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
   const field = asRecord(value);
   const asOf = pack.asOf;
   if (
-    field.schemaVersion !== 3 || field.sourceBars !== 240
+    field.schemaVersion !== 4 || field.sourceBars !== 240
     || field.inputContractVersion !== pack.inputContractVersion
     || field.inferenceConfigDigest !== pack.inferenceConfigDigest
     || field.projectionConfigDigest !== pack.projectionConfigDigest
@@ -454,6 +451,9 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
     || Date.parse(field.windowFromTimestamp) > Date.parse(field.windowToTimestamp)
     || field.windowToTimestamp !== asOf
     || !isCandleMeanings(field.candleMeanings, asOf, field.windowFromTimestamp, field.windowToTimestamp)
+    || !Array.isArray(field.structuralDomains) || !field.structuralDomains.length || !field.structuralDomains.every(isStructuralDomain)
+    || !Array.isArray(field.regressionFlows) || field.regressionFlows.length > 2 || !field.regressionFlows.every(isRegressionFlow)
+    || !Array.isArray(field.priceMemoryRidges) || field.priceMemoryRidges.length < 1 || !field.priceMemoryRidges.every(isPriceMemoryRidge)
     || !isBasisFacts(field.basisFacts)
     || !Array.isArray(field.basisGlyphs) || !field.basisGlyphs.every(isBasisGlyph)
     || !Array.isArray(field.hlineResponseSegments) || !field.hlineResponseSegments.every((item) => isWindowScopedRecord(item, field))
@@ -465,7 +465,10 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
     || !Array.isArray(field.validationGlyphs) || !field.validationGlyphs.every((item) => (
       isValidationGlyph(item, field.selectedModeRefs.length, field.derivationEpisodes.candidateIndexes.length)
     ))
-    || !(field.relationGlyph === undefined || field.relationGlyph === null || isRecordValue(field.relationGlyph))
+    || !Array.isArray(field.patternRelationGlyphs) || field.patternRelationGlyphs.length > 2
+    || !field.patternRelationGlyphs.every(isPatternRelationGlyph)
+    || !Array.isArray(field.patternEvidenceGlyphs) || field.patternEvidenceGlyphs.length > 1
+    || !field.patternEvidenceGlyphs.every(isPatternEvidenceGlyph)
     || !(field.projection === undefined || isRecordValue(field.projection))
   ) return false;
   const modeKeys = new Set([
@@ -475,7 +478,21 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
   const selectedModeKeys = new Set(field.selectedModeRefs.map((reference) => (
     `${String(reference.sourceFieldModeId)}:${String(reference.sourceFieldDerivationDigest)}`
   )));
-  return field.selectedModeRefs.every((reference) => modeKeys.has(
+  const domainIds = new Set(field.structuralDomains.map((value) => String(asRecord(value).domainId)));
+  const relationIds = new Set(pack.patternRelations.map((relation) => relation.relationId));
+  const patternSupportingIds = new Set([
+    ...pack.patternRelations.flatMap((relation) => relation.boundaryCandidateIds),
+    ...field.patternEvidenceGlyphs.flatMap((value) => {
+      const ids = asRecord(value).boundaryCandidateIds;
+      return Array.isArray(ids) ? ids.map(String) : [];
+    })
+  ]);
+  return field.structuralDomains.every((value) => {
+    const domain = asRecord(value);
+    return domain.parentId === null || domainIds.has(String(domain.parentId));
+  }) && field.regressionFlows.every((value) => domainIds.has(String(asRecord(value).domainId)))
+    && field.selectedModeRefs.every((reference) => domainIds.has(String(reference.formationDomainId)))
+    && field.selectedModeRefs.every((reference) => modeKeys.has(
     `${String(reference.sourceFieldModeId)}:${String(reference.sourceFieldDerivationDigest)}`
   )) && [...field.hlineModes, ...field.trendModes].every((mode) => (
     modeBasisIndexesAreValid(
@@ -487,6 +504,11 @@ function isCzardasField(value: unknown, pack: CzardasPackContent): value is Czar
     Date.parse(basis.observedAt) <= Date.parse(basis.confirmedAt)
     && Date.parse(basis.confirmedAt) <= Date.parse(asOf)
   )) && field.trendModes.every((mode) => trendModeInsideWindow(mode, field))
+    && new Set(field.patternRelationGlyphs.map((value) => String(asRecord(value).relationId))).size === relationIds.size
+    && field.patternRelationGlyphs.every((value) => relationIds.has(String(asRecord(value).relationId)))
+    && field.selectedModeRefs.every((value) => (
+      Boolean(asRecord(value).patternSupporting) === patternSupportingIds.has(String(asRecord(value).candidateId))
+    ))
     && field.validationGlyphs.every((glyph) => (
       Date.parse(glyph.observedAt) <= Date.parse(glyph.confirmedAt ?? asOf)
       && Date.parse(glyph.confirmedAt ?? asOf) <= Date.parse(asOf)
@@ -684,10 +706,45 @@ function trendModeInsideWindow(modeValue: unknown, field: Record<string, any>): 
 function isSelectedModeRef(value: unknown): boolean {
   const item = asRecord(value);
   return isNonEmptyString(item.candidateId)
-    && isNonEmptyString(item.sourceInferenceId)
     && (item.kind === "hline" || item.kind === "trend")
     && isNonEmptyString(item.sourceFieldModeId)
-    && isNonEmptyString(item.sourceFieldDerivationDigest);
+    && isNonEmptyString(item.sourceFieldDerivationDigest)
+    && isNonEmptyString(item.formationDomainId)
+    && typeof item.presentationSelected === "boolean"
+    && typeof item.patternSupporting === "boolean";
+}
+
+function isStructuralDomain(value: unknown): boolean {
+  const item = asRecord(value);
+  return isNonEmptyString(item.domainId)
+    && (item.parentId === null || isNonEmptyString(item.parentId))
+    && Number.isInteger(item.startIndex) && item.startIndex >= 0
+    && Number.isInteger(item.endIndex) && item.endIndex >= item.startIndex && item.endIndex < 240
+    && Number.isInteger(item.depth) && item.depth >= 0
+    && typeof item.active === "boolean"
+    && isTimestamp(item.fromTimestamp) && isTimestamp(item.toTimestamp)
+    && Date.parse(item.fromTimestamp) <= Date.parse(item.toTimestamp)
+    && isFiniteNumber(item.fitLoss);
+}
+
+function isRegressionFlow(value: unknown): boolean {
+  const item = asRecord(value);
+  return isNonEmptyString(item.flowId) && isNonEmptyString(item.domainId)
+    && isTimestamp(item.fromTimestamp) && isTimestamp(item.toTimestamp)
+    && Date.parse(item.fromTimestamp) <= Date.parse(item.toTimestamp)
+    && ["startPrice", "endPrice", "slopePerBar", "corridorHalfWidth", "residualMad", "leverageMax"]
+      .every((key) => isFiniteNumber(item[key]));
+}
+
+function isPriceMemoryRidge(value: unknown): boolean {
+  const item = asRecord(value);
+  return isNonEmptyString(item.ridgeId)
+    && isFiniteNumber(item.lowPrice) && isFiniteNumber(item.highPrice) && isFiniteNumber(item.centerPrice)
+    && item.lowPrice <= item.centerPrice && item.centerPrice <= item.highPrice
+    && isFiniteNumber(item.responseMass) && item.responseMass >= 0
+    && Number.isInteger(item.contributorCount) && item.contributorCount >= 1
+    && Array.isArray(item.contributorIndexes) && item.contributorIndexes.length === item.contributorCount
+    && item.contributorIndexes.every((index: unknown) => Number.isInteger(index) && Number(index) >= 0 && Number(index) < 240);
 }
 
 function candidateProvenanceIsClosed(pack: CzardasPackContent): boolean {
@@ -696,80 +753,74 @@ function candidateProvenanceIsClosed(pack: CzardasPackContent): boolean {
     return [String(item.candidateId), item];
   }));
   const boundaries = new Map(pack.boundaries.map((boundary) => [boundary.candidateId, boundary]));
-  const drawings = new Map(pack.drawings.map((drawing) => [drawing.sourceCandidateId ?? "", drawing]));
+  const boundaryDrawings = new Map(pack.drawings.filter((drawing) => drawing.czardasLayer !== "pattern").map((drawing) => [drawing.sourceCandidateId ?? "", drawing]));
+  const patternDrawings = new Map(pack.drawings.filter((drawing) => drawing.czardasLayer === "pattern").map((drawing) => [drawing.sourceRelationId ?? "", drawing]));
   const modes = new Map([...pack.czardasField.hlineModes, ...pack.czardasField.trendModes].map((mode) => [
     `${String(mode.fieldModeId)}:${String(mode.derivationDigest)}`,
     mode
   ]));
   if (refs.size !== pack.czardasField.selectedModeRefs.length
     || boundaries.size !== pack.boundaries.length
-    || drawings.size !== pack.drawings.length) return false;
-  const ids = [...refs.keys()].sort();
-  if (JSON.stringify(ids) !== JSON.stringify([...boundaries.keys()].sort())
-    || JSON.stringify(ids) !== JSON.stringify([...drawings.keys()].sort())) return false;
-  return ids.every((candidateId) => {
+    || boundaryDrawings.size !== pack.boundaries.length
+    || patternDrawings.size !== pack.patternRelations.length) return false;
+  if (![...boundaries.keys()].every((candidateId) => refs.has(candidateId) && boundaryDrawings.has(candidateId))) return false;
+  if (!pack.patternRelations.every((relation) => (
+    patternDrawings.has(relation.relationId)
+    && relation.boundaryCandidateIds.every((candidateId) => refs.has(candidateId))
+  ))) return false;
+  return [...refs.keys()].every((candidateId) => {
     const reference = refs.get(candidateId);
     const boundary = boundaries.get(candidateId);
-    const drawing = drawings.get(candidateId);
+    const drawing = boundaryDrawings.get(candidateId);
     const mode = reference ? modes.get(`${String(reference.sourceFieldModeId)}:${String(reference.sourceFieldDerivationDigest)}`) : null;
-    if (!reference || !boundary || !drawing || !mode) return false;
-    return reference.sourceInferenceId === pack.inferenceId
-      && boundary.sourceInferenceId === pack.inferenceId
-      && drawing.sourceInferenceId === pack.inferenceId
-      && reference.sourceFieldModeId === boundary.sourceFieldModeId
-      && reference.sourceFieldModeId === drawing.sourceFieldModeId
-      && reference.sourceFieldDerivationDigest === boundary.sourceFieldDerivationDigest
-      && reference.sourceFieldDerivationDigest === drawing.sourceFieldDerivationDigest
+    if (!reference || !mode) return false;
+    if (!boundary) return reference.patternSupporting === true;
+    return Boolean(drawing)
+      && drawing?.sourceInferenceId === pack.inferenceId
+      && reference.sourceFieldModeId === drawing?.sourceFieldModeId
+      && reference.sourceFieldDerivationDigest === drawing?.sourceFieldDerivationDigest
       && reference.kind === boundary.kind
-      && reference.kind === drawing.czardasLayer
+      && reference.kind === drawing?.czardasLayer
       && mode.role === boundary.role
       && mode.viewRole === "landscape_and_selected";
-  }) && derivationEpisodesCloseOverBoundaries(pack, refs, boundaries);
+  }) && derivationEpisodesAreClosed(pack, refs);
 }
 
-function derivationEpisodesCloseOverBoundaries(
+function derivationEpisodesAreClosed(
   pack: CzardasPackContent,
-  refs: Map<string, Record<string, any>>,
-  boundaries: Map<string, CzardasBoundary>
+  refs: Map<string, Record<string, any>>
 ): boolean {
   const episodes = pack.czardasField.derivationEpisodes;
-  const resolvedByCandidate = new Map<string, Set<string>>();
-  const initialByCandidate = new Map<string, Set<string>>();
+  const columnLengths = [
+    episodes.candidateIndexes, episodes.candidateEpisodeOrdinals, episodes.contributionBasisIndexes,
+    episodes.memberBasisIndexes, episodes.observedFromIndexes, episodes.observedToIndexes,
+    episodes.confirmedIndexes, episodes.contributionIndexes, episodes.contributionPrices,
+    episodes.corridorLows, episodes.corridorHighs, episodes.initialFormationMasks
+  ].map((column) => column.length);
+  if (new Set(columnLengths).size !== 1) return false;
+  const seen = new Set<string>();
+  const candidateCount = refs.size;
   for (let index = 0; index < episodes.candidateIndexes.length; index += 1) {
     const candidateIndex = episodes.candidateIndexes[index];
-    const reference = pack.czardasField.selectedModeRefs[candidateIndex];
-    if (!reference) return false;
-    const candidateId = String(asRecord(reference).candidateId ?? "");
-    const boundary = boundaries.get(candidateId);
-    if (!refs.has(candidateId) || !boundary) return false;
     const ordinal = episodes.candidateEpisodeOrdinals[index];
-    const episodeId = boundary.formation.fitEpisodeIds[ordinal];
-    if (!episodeId) return false;
-    const expectedRoleCode = asRecord(pack.czardasField.basisFacts.roleCodebook)[boundary.role];
+    if (!Number.isInteger(candidateIndex) || candidateIndex < 0 || candidateIndex >= candidateCount || !Number.isInteger(ordinal) || ordinal < 0) return false;
+    const key = `${candidateIndex}:${ordinal}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const reference = asRecord(pack.czardasField.selectedModeRefs[candidateIndex]);
+    const mode = [...pack.czardasField.hlineModes, ...pack.czardasField.trendModes].find((item) => (
+      item.fieldModeId === reference.sourceFieldModeId && item.derivationDigest === reference.sourceFieldDerivationDigest
+    ));
+    if (!mode) return false;
+    const expectedRoleCode = asRecord(pack.czardasField.basisFacts.roleCodebook)[String(mode.role)];
     const members = episodes.memberBasisIndexes[index];
     if (!Number.isInteger(expectedRoleCode) || !members.every((basisIndex) => (
       pack.czardasField.basisFacts.roleCodes[basisIndex] === expectedRoleCode
     ))) return false;
-    const resolved = resolvedByCandidate.get(candidateId) ?? new Set<string>();
-    if (resolved.has(episodeId)) return false;
-    resolved.add(episodeId);
-    resolvedByCandidate.set(candidateId, resolved);
-    if (episodes.initialFormationMasks[index] === 1) {
-      const initials = initialByCandidate.get(candidateId) ?? new Set<string>();
-      initials.add(episodeId);
-      initialByCandidate.set(candidateId, initials);
-    }
   }
-  return [...refs.keys()].every((candidateId) => {
-    const boundary = boundaries.get(candidateId);
-    if (!boundary) return false;
-    const resolved = [...(resolvedByCandidate.get(candidateId) ?? [])].sort();
-    const expected = [...boundary.formation.fitEpisodeIds].sort();
-    const initials = [...(initialByCandidate.get(candidateId) ?? [])].sort();
-    const expectedInitials = [...boundary.formation.initialFormationEpisodeIds].sort();
-    return JSON.stringify(resolved) === JSON.stringify(expected)
-      && JSON.stringify(initials) === JSON.stringify(expectedInitials);
-  });
+  return [...Array(candidateCount).keys()].every((candidateIndex) => (
+    episodes.candidateIndexes.includes(candidateIndex)
+  ));
 }
 
 function isBoundary(value: unknown): boolean {
@@ -780,28 +831,18 @@ function isBoundary(value: unknown): boolean {
   const line = asRecord(item.line);
   const explanation = asRecord(item.explanation);
   return isNonEmptyString(item.candidateId)
-    && isNonEmptyString(item.sourceInferenceId)
-    && isNonEmptyString(item.sourceFieldModeId)
-    && isNonEmptyString(item.sourceFieldDerivationDigest)
     && (item.kind === "hline" || item.kind === "trend")
     && (
       (item.kind === "hline" && (item.role === "support" || item.role === "resistance"))
       || (item.kind === "trend" && (item.role === "lower" || item.role === "upper"))
     )
-    && (item.evidenceState === "formed" || item.evidenceState === "response_supported")
+    && (item.evidenceState === "formed" || item.evidenceState === "response_supported" || item.evidenceState === "baseline_memory")
     && typeof item.isRelevantNow === "boolean"
-    && Array.isArray(formation.initialFormationEpisodeIds) && formation.initialFormationEpisodeIds.length === 2
-    && formation.initialFormationEpisodeIds.every(isNonEmptyString)
-    && new Set(formation.initialFormationEpisodeIds).size === 2
-    && Array.isArray(formation.fitEpisodeIds) && formation.fitEpisodeIds.length >= 2
-    && formation.fitEpisodeIds.every(isNonEmptyString)
-    && new Set(formation.fitEpisodeIds).size === formation.fitEpisodeIds.length
-    && formation.initialFormationEpisodeIds.every((id: string) => formation.fitEpisodeIds.includes(id))
-    && isFiniteNumber(formation.fitCount) && formation.fitCount === formation.fitEpisodeIds.length
+    && Number.isInteger(formation.initialFormationCount) && formation.initialFormationCount === 2
+    && Number.isInteger(formation.fitCount) && formation.fitCount >= 2
     && isTimestamp(formation.lastFitObservedAt) && isTimestamp(formation.fitEvidenceConfirmedAt) && isFiniteNumber(formation.seedQuality)
     && isFiniteNumber(responses.completedCount) && isFiniteNumber(responses.pendingCount) && isFiniteNumber(responses.responseMass)
-    && (responses.lastInteractionAt === null || isTimestamp(responses.lastInteractionAt))
-    && isFiniteNumber(rank.rankScore) && isFiniteNumber(rank.responseCount) && isFiniteNumber(rank.responseMass)
+    && isFiniteNumber(rank.rankScore)
     && isFiniteNumber(rank.responseBonus) && isFiniteNumber(rank.profileBonus)
     && Number.isInteger(rank.integrityFactCount) && rank.integrityFactCount >= 0
     && isFiniteNumber(rank.integrityEffectiveFactCount) && rank.integrityEffectiveFactCount >= 0
@@ -811,27 +852,82 @@ function isBoundary(value: unknown): boolean {
     && isFiniteNumber(line.priceAtAsOf) && isFiniteNumber(line.slopePerBar) && isFiniteNumber(line.zoneHalfWidth)
     && isNonEmptyString(explanation.claim)
     && isStringArray(explanation.because) && isStringArray(explanation.against)
-    && (explanation.state === "formed" || explanation.state === "response_supported")
+    && (explanation.state === "formed" || explanation.state === "response_supported" || explanation.state === "baseline_memory")
     && isNonEmptyString(explanation.invalidationCondition)
     && isNonEmptyString(explanation.dataQualifier);
 }
 
-function isPresentationPattern(value: unknown, drawings: DrawingEntity[]): boolean {
-  if (value === null) return true;
+function isPatternRelation(value: unknown): boolean {
   const pattern = asRecord(value);
-  if (
-    !isNonEmptyString(pattern.triangleId)
-    || !(pattern.kind === "ascending_triangle" || pattern.kind === "descending_triangle" || pattern.kind === "symmetrical_triangle")
-    || !isNonEmptyString(pattern.upperCandidateId)
-    || !isNonEmptyString(pattern.lowerCandidateId)
-  ) return false;
-  const expectedIds = [
-    asString(pattern.upperDrawingId) ?? `czardas:${pattern.upperCandidateId}:line`,
-    asString(pattern.lowerDrawingId) ?? `czardas:${pattern.lowerCandidateId}:line`
-  ];
-  return expectedIds.every((id) => drawings.some((drawing) => (
-    drawing.id === id && drawing.czardasLayer === "trend" && drawing.sourceGroupId === pattern.triangleId
-  )));
+  const boundaryIds = pattern.boundaryCandidateIds;
+  const domain = asRecord(pattern.domain);
+  const impulse = pattern.impulse === undefined ? null : asRecord(pattern.impulse);
+  const impulseRequired = pattern.kind === "flag" || pattern.kind === "pennant";
+  const impulseValid = impulse === null ? !impulseRequired : (
+    isTimestamp(impulse.fromTimestamp) && isTimestamp(impulse.toTimestamp)
+    && Date.parse(impulse.fromTimestamp) <= Date.parse(impulse.toTimestamp)
+    && isTimestamp(domain.fromTimestamp)
+    && Date.parse(impulse.toTimestamp) < Date.parse(domain.fromTimestamp)
+    && (impulse.direction === -1 || impulse.direction === 1)
+    && isFiniteNumber(impulse.normalizedMove)
+    && isFiniteNumber(impulse.pathEfficiency)
+    && impulse.pathEfficiency >= 0 && impulse.pathEfficiency <= 1
+  );
+  return isNonEmptyString(pattern.relationId)
+    && ["triangle", "channel", "rectangle", "wedge", "flag", "pennant"].includes(String(pattern.kind))
+    && isNonEmptyString(pattern.displayName)
+    && Array.isArray(boundaryIds) && boundaryIds.length === 2
+    && boundaryIds.every(isNonEmptyString) && boundaryIds[0] !== boundaryIds[1]
+    && isTimestamp(domain.fromTimestamp) && isTimestamp(domain.toTimestamp)
+    && Date.parse(domain.fromTimestamp) <= Date.parse(domain.toTimestamp)
+    && impulseValid
+    && isFiniteNumber(pattern.relationQuality)
+    && pattern.traceRef === pattern.relationId
+    && Number.isInteger(pattern.traceAnchorCount) && pattern.traceAnchorCount >= 3 && pattern.traceAnchorCount <= 16;
+}
+
+function isPatternRelationGlyph(value: unknown): boolean {
+  const glyph = asRecord(value);
+  const trace = asRecord(glyph.trace);
+  const indexes = trace.indexes;
+  const prices = trace.prices;
+  const roles = trace.roles;
+  return isNonEmptyString(glyph.relationId)
+    && ["triangle", "channel", "rectangle", "wedge", "flag", "pennant"].includes(String(glyph.kind))
+    && Array.isArray(indexes) && indexes.length >= 3 && indexes.length <= 16
+    && Array.isArray(prices) && prices.length === indexes.length && prices.every(isFiniteNumber)
+    && Array.isArray(roles) && roles.length === indexes.length
+    && indexes.every((item) => Number.isInteger(item) && item >= 0 && item < 240)
+    && indexes.every((item, index) => index === 0 || indexes[index - 1] < item);
+}
+
+function isPatternEvidenceGlyph(value: unknown): boolean {
+  const glyph = asRecord(value);
+  const boundaryIds = glyph.boundaryCandidateIds;
+  return isNonEmptyString(glyph.evidenceId)
+    && (glyph.kind === "trend_pair" || glyph.kind === "price_memory_pair")
+    && Array.isArray(boundaryIds) && boundaryIds.length === 2 && boundaryIds.every(isNonEmptyString)
+    && boundaryIds[0] !== boundaryIds[1]
+    && isPatternTrace(asRecord(glyph.trace));
+}
+
+function isPatternTrace(trace: Record<string, any>): boolean {
+  const indexes = trace.indexes;
+  const prices = trace.prices;
+  const roles = trace.roles;
+  const episodeRefs = trace.episodeRefs;
+  return Array.isArray(indexes) && indexes.length >= 3 && indexes.length <= 16
+    && Array.isArray(prices) && prices.length === indexes.length && prices.every(isFiniteNumber)
+    && Array.isArray(roles) && roles.length === indexes.length
+    && roles.every((role) => ["support", "resistance", "lower", "upper"].includes(String(role)))
+    && roles.every((role, index) => index === 0 || roles[index - 1] !== role)
+    && indexes.every((item) => Number.isInteger(item) && item >= 0 && item < 240)
+    && indexes.every((item, index) => index === 0 || indexes[index - 1] < item)
+    && Array.isArray(episodeRefs) && episodeRefs.length >= indexes.length
+    && episodeRefs.every((ref) => Array.isArray(ref) && ref.length === 2
+      && Number.isInteger(ref[0]) && ref[0] >= 0
+      && Number.isInteger(ref[1]) && ref[1] >= 0)
+    && new Set(episodeRefs.map((ref) => `${ref[0]}:${ref[1]}`)).size === episodeRefs.length;
 }
 
 function isCandleMeanings(
@@ -855,9 +951,13 @@ function isCandleMeanings(
   const availabilityCodebook = meanings.availabilityCodebook;
   const phaseCodebook = meanings.phaseCodebook;
   const reasonCodebook = meanings.reasonCodebook;
+  const factorCodebook = meanings.factorCodebook;
   const reasonMasks = meanings.reasonMasks;
   if (
     meanings.evaluationAsOf !== asOf
+    || meanings.codebookVersion !== "czardas-factor-codebook-v4"
+    || !Array.isArray(factorCodebook) || factorCodebook.length < 1 || factorCodebook.length > 64
+    || !factorCodebook.every(isFactorCode)
     || meanings.normalizedFactorScale !== CZARDAS_RAW_FACTOR_SCALE
     || meanings.scoreScale !== CZARDAS_RAW_FACTOR_SCALE
     || meanings.rawFactorEncoding !== "int16-base64-be"
@@ -877,16 +977,37 @@ function isCandleMeanings(
     || !Array.isArray(reasonCodebook) || !reasonCodebook.every(isReasonCode)
     || meanings.reasonEncoding !== "uint32-bitmask-base64-be"
   ) return false;
-  if (!czardasMeaningFactorKeys.every((key) => (
-    rawFactorScales[key] === CZARDAS_RAW_FACTOR_SCALE
-    && (rawFactorTransforms[key] === "linear" || rawFactorTransforms[key] === "log1p")
-    && isFactorRange(rawFactorRanges[key], rawFactorScales[key], rawFactorTransforms[key])
-    && isEncodedFactorSeries(factors[key])
-    && isEncodedFactorSeries(normalizedFactors[key])
-  ))) return false;
+  const factorKeys = factorCodebook.map((item) => item.key);
+  if (new Set(factorKeys).size !== factorKeys.length
+    || !sameKeys(rawFactorScales, factorKeys)
+    || !sameKeys(rawFactorTransforms, factorKeys)
+    || !sameKeys(rawFactorRanges, factorKeys)
+    || !sameKeys(factors, factorKeys)
+    || !sameKeys(normalizedFactors, factorKeys)
+    || !factorCodebook.every((factor) => (
+      rawFactorScales[factor.key] === factor.scale
+      && rawFactorTransforms[factor.key] === factor.transform
+      && isFactorRange(rawFactorRanges[factor.key], rawFactorScales[factor.key], rawFactorTransforms[factor.key])
+      && isEncodedFactorSeries(factors[factor.key])
+      && isEncodedFactorSeries(normalizedFactors[factor.key])
+    ))) return false;
   const reasonCodes = new Set(reasonCodebook.map((item) => asRecord(item).code));
   if (reasonCodes.size !== reasonCodebook.length) return false;
   return isEncodedReasonMasks(reasonMasks, reasonCodes as Set<number>);
+}
+
+function isFactorCode(value: unknown): boolean {
+  const item = asRecord(value);
+  return isNonEmptyString(item.key) && isNonEmptyString(item.label)
+    && ["shared", "hline", "trend"].includes(String(item.channel))
+    && isFiniteNumber(item.scale) && item.scale > 0
+    && (item.transform === "linear" || item.transform === "log1p");
+}
+
+function sameKeys(value: Record<string, any>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
 function isFactorRange(value: unknown, scale: number, transform: unknown): boolean {

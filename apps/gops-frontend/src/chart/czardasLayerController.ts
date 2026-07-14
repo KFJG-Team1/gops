@@ -2,12 +2,12 @@ import { makeChartCommand, type ChartCommand, type CzardasSuppression } from "@g
 import type { CzardasPackContent } from "./czardasAssetsApi";
 import type { ChartToolMode, DrawingEntity } from "./types";
 
-export type CzardasLayerKey = "hline" | "trend";
+export type CzardasLayerKey = "hline" | "trend" | "pattern";
 export type CzardasLayerVisibility = Record<CzardasLayerKey, boolean>;
 type Target = ChartCommand["target"];
 
 export function isManagedCzardasDrawing(drawing: DrawingEntity): boolean {
-  return drawing.ownership === "czardas-managed" && Boolean(drawing.sourceCandidateId);
+  return drawing.ownership === "czardas-managed" && Boolean(drawing.sourceCandidateId || drawing.sourceRelationId);
 }
 
 export function czardasDeltaCommands(
@@ -22,10 +22,12 @@ export function czardasDeltaCommands(
   const current = currentDrawings.filter(isManagedCzardasDrawing);
   const currentById = new Map(current.map((drawing) => [drawing.id, drawing]));
   const suppressed = new Set(suppressions.flatMap((item) => (
-    item.sourceKind === "candidate" ? [item.sourceCandidateId ?? item.sourceId] : []
+    item.sourceKind === "candidate" ? [item.sourceCandidateId ?? item.sourceId]
+      : item.sourceKind === "relation" ? [item.sourceRelationId ?? item.sourceId] : []
   )));
   const desired = (pack?.drawings ?? []).filter((drawing) => (
-    drawing.sourceCandidateId && !suppressed.has(drawing.sourceCandidateId)
+    (drawing.sourceCandidateId || drawing.sourceRelationId)
+    && !suppressed.has(drawing.sourceCandidateId ?? drawing.sourceRelationId ?? "")
   )).map((drawing) => ({
     ...drawing,
     visible: visibility[drawing.czardasLayer ?? "trend"],
@@ -58,7 +60,8 @@ export function czardasDeltaCommands(
           sourceCandidateId: drawing.sourceCandidateId,
           sourceFieldModeId: drawing.sourceFieldModeId,
           sourceFieldDerivationDigest: drawing.sourceFieldDerivationDigest,
-          sourceGroupId: drawing.sourceGroupId,
+          sourceRelationId: drawing.sourceRelationId,
+          sourceRelationDerivationDigest: drawing.sourceRelationDerivationDigest,
           updatedAt: drawing.updatedAt
         }
       }));
@@ -95,30 +98,24 @@ export function czardasRestoreCommands(
   pack: CzardasPackContent | null
 ): ChartCommand[] {
   if (!pack || !suppressions.length) return [];
-  const activeCandidates = new Set(pack.drawings.flatMap((drawing) => (
-    drawing.sourceCandidateId ? [drawing.sourceCandidateId] : []
+  const activeSources = new Set(pack.drawings.flatMap((drawing) => (
+    drawing.sourceCandidateId ? [drawing.sourceCandidateId]
+      : drawing.sourceRelationId ? [drawing.sourceRelationId] : []
   )));
   const activeSetIds = new Set(suppressions.filter((item) => (
-    item.sourceKind === "candidate" && activeCandidates.has(item.sourceCandidateId ?? item.sourceId)
+    (item.sourceKind === "candidate" && activeSources.has(item.sourceCandidateId ?? item.sourceId))
+    || (item.sourceKind === "relation" && activeSources.has(item.sourceRelationId ?? item.sourceId))
   )).map((item) => item.suppressionSetId));
   const commands: ChartCommand[] = [];
   [...activeSetIds].sort().forEach((setId) => {
     const members = suppressions.filter((item) => item.suppressionSetId === setId);
-    const group = members.find((item) => item.sourceKind === "group");
-    if (group) {
-      commands.push(makeChartCommand("chart.czardas.restoreManaged", "system", target, {
-        sourceKind: "group",
-        sourceId: group.sourceId,
-        sourceGroupId: group.sourceGroupId ?? group.sourceId
-      }));
-      return;
-    }
-    members.filter((item) => item.sourceKind === "candidate")
+    members.filter((item) => item.sourceKind === "candidate" || item.sourceKind === "relation")
       .sort((left, right) => left.sourceId.localeCompare(right.sourceId))
       .forEach((item) => commands.push(makeChartCommand("chart.czardas.restoreManaged", "system", target, {
-        sourceKind: "candidate",
+        sourceKind: item.sourceKind,
         sourceId: item.sourceId,
-        sourceCandidateId: item.sourceCandidateId ?? item.sourceId
+        sourceCandidateId: item.sourceCandidateId,
+        sourceRelationId: item.sourceRelationId
       })));
   });
   return commands;
@@ -135,7 +132,8 @@ function drawingDigest(drawing: DrawingEntity): string {
     drawing.sourceCandidateId,
     drawing.sourceFieldModeId,
     drawing.sourceFieldDerivationDigest,
-    drawing.sourceGroupId,
+    drawing.sourceRelationId,
+    drawing.sourceRelationDerivationDigest,
     drawing.updatedAt
   ]);
 }

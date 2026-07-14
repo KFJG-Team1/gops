@@ -13,7 +13,15 @@ const popularStocksCatalogEntry = buildTiledAgentLayoutContext({ slots: [], cont
   .find((entry) => entry.panelType === "popularStocks");
 assert.deepEqual(popularStocksCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(popularStocksCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 2 });
-
+const quickOrderCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "quickOrder");
+assert.deepEqual(quickOrderCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(quickOrderCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
+const paperCatalog = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport).panelCatalog;
+assert.equal(paperCatalog.find((entry) => entry.panelType === "paperQuickOrder")?.title, "가상 빠른 주문");
+assert.equal(paperCatalog.find((entry) => entry.panelType === "paperOrderTicket")?.title, "가상 주문");
+assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.defaultSpan, { colSpan: 4, rowSpan: 3 });
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },
   { col: 5, row: 1, colSpan: 2, rowSpan: 2 }

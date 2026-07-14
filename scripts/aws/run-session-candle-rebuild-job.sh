@@ -12,6 +12,7 @@ MAX_SYMBOLS="${MAX_SYMBOLS:-0}"
 APPLY="${APPLY:-false}"
 WAIT_FOR_JOB="${WAIT_FOR_JOB:-false}"
 JOB_TIMEOUT_SECONDS="${JOB_TIMEOUT_SECONDS:-21600}"
+BATCH_NODEPOOL="${BATCH_NODEPOOL:-batch-warm}"
 IMAGE="${IMAGE:-$(kubectl -n "${NAMESPACE}" get deployment/alfaka-market-processor -o jsonpath='{.spec.template.spec.containers[0].image}')}"
 
 if [[ "${APPLY}" == "true" ]]; then
@@ -19,10 +20,11 @@ if [[ "${APPLY}" == "true" ]]; then
     clickhouse-client \
       --user "$CLICKHOUSE_USER" \
       --password "$CLICKHOUSE_PASSWORD" \
-      --query "ALTER TABLE market_data.chart_candles ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT '\''clock_aligned'\'' AFTER canonical_version"
-    # A populated ReplacingMergeTree sorting key is never rewritten by this
-    # rebuild helper. Audit SHOW CREATE TABLE and run a separately reviewed
-    # table-copy migration when the canonical identity key must be upgraded.
+      --query "ALTER TABLE market_data.chart_candles ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT '\''clock_aligned'\'' AFTER price_adjustment"
+    clickhouse-client \
+      --user "$CLICKHOUSE_USER" \
+      --password "$CLICKHOUSE_PASSWORD" \
+      --query "ALTER TABLE market_data.chart_candles ADD COLUMN IF NOT EXISTS bucket_policy_key LowCardinality(String) AFTER bucket_policy"
   '
 fi
 
@@ -57,7 +59,7 @@ spec:
       restartPolicy: Never
       serviceAccountName: alfaka-market-data-sa
       nodeSelector:
-        karpenter.sh/nodepool: batch
+        karpenter.sh/nodepool: ${BATCH_NODEPOOL}
       tolerations:
         - key: gops.io/dedicated
           operator: Equal
@@ -98,7 +100,7 @@ YAML
 
 kubectl apply -f "${tmp_file}"
 echo "created job/${JOB_NAME} in ${NAMESPACE}"
-echo "image=${IMAGE} apply=${APPLY} intervals=${INTERVALS} lookbackDays=${LOOKBACK_DAYS} symbols=${SYMBOLS:-<sp500>}"
+echo "image=${IMAGE} apply=${APPLY} intervals=${INTERVALS} lookbackDays=${LOOKBACK_DAYS} symbols=${SYMBOLS:-<sp500>} nodepool=${BATCH_NODEPOOL}"
 
 if [[ "${WAIT_FOR_JOB}" != "true" ]]; then
   echo "watch: kubectl -n ${NAMESPACE} logs -f job/${JOB_NAME}"

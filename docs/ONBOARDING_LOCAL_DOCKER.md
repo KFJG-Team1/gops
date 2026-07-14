@@ -71,9 +71,10 @@ docker compose --env-file .env up -d --build --remove-orphans
 ```
 
 Default startup includes the one-shot `czardas-asset-migrations` service.
-`czardas-asset-builder` waits for that service to apply only
-`004_czardas_assets.sql` successfully; no extra profile or manual schema command
-is required. The migration is additive and never touches legacy Geometry data.
+`czardas-asset-builder` waits for that service to apply
+`004_czardas_assets.sql` and `005_czardas_v3_identity_and_ops.sql` in order;
+no extra profile or manual schema command is required. Both migrations are
+additive and never touch legacy Geometry data.
 `--remove-orphans` retires containers for deleted services such as the old
 Geometry worker without deleting Postgres or ClickHouse volumes.
 

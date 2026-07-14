@@ -130,7 +130,7 @@ class BoundaryCandidate:
     candidate_id: str
     kind: Literal["hline", "trend"]
     role: Role
-    evidence_state: Literal["formed", "response_supported"]
+    evidence_state: Literal["formed", "response_supported", "baseline_memory"]
     source_field_mode_id: str
     source_field_derivation_digest: str
     slope_per_bar: float

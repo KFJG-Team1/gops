@@ -12,22 +12,17 @@ from alfaka.common.env import load_dotenv
 from alfaka.common.canonical import CANONICAL_VERSION, HISTORICAL_SERVING_PRICE_ADJUSTMENTS, SERVING_PRICE_ADJUSTMENTS
 from alfaka.common.symbols import is_crypto_symbol
 from alfaka.serving.dto import snapshot
-from alfaka.serving.intervals import INTRADAY_DERIVED_INTERVALS, INTRADAY_INTERVAL_MINUTES, max_request_bars, normalize_chart_interval, resolve_candle_limit
+from alfaka.serving.intervals import INTRADAY_DERIVED_INTERVALS, INTRADAY_INTERVAL_MINUTES, historical_source_interval_for, max_request_bars, normalize_chart_interval, resolve_candle_limit
 from alfaka.serving.moving_average import attach_moving_averages
-from alfaka.serving.session_buckets import BUCKET_POLICY_REGULAR_SESSION, aggregate_regular_session_candles
+from alfaka.serving.session_buckets import (
+    BUCKET_POLICY_REGULAR_SESSION,
+    aggregate_regular_session_candles,
+    aggregate_visible_extended_session_candles,
+)
 
 
 class ClickHouseMarketDataProvider:
-    def __init__(
-        self,
-        url=None,
-        database=None,
-        user=None,
-        password=None,
-        now_provider=None,
-        *,
-        ensure_schema=None,
-    ):
+    def __init__(self, url=None, database=None, user=None, password=None, now_provider=None, ensure_schema=None):
         """ClickHouse HTTP API 접속 정보를 환경변수 또는 인자로 초기화합니다."""
         load_dotenv()
         self.url = (url or os.getenv("CLICKHOUSE_HTTP_URL", "http://localhost:8123")).rstrip("/")
@@ -45,64 +40,31 @@ class ClickHouseMarketDataProvider:
 
     @classmethod
     def read_only(cls, **kwargs):
-        """Construct a provider that can never run schema DDL.
-
-        Read paths such as Czardas freshness checks must remain mutation-free
-        even when the surrounding API pod enables legacy schema bootstrapping.
-        """
+        """Construct a provider whose read path can never run schema DDL."""
         kwargs["ensure_schema"] = False
         return cls(**kwargs)
 
-    def candles(self, symbol, interval, limit=None, before=None, from_time=None, to_time=None):
-        """요청 interval에 맞는 캔들 목록을 ClickHouse에서 조회합니다."""
-        interval = normalize_chart_interval(interval)
-        limit = resolve_candle_limit(interval, limit)
-        if interval in INTRADAY_DERIVED_INTERVALS:
-            return self.direct_or_aggregated_candles(
-                symbol,
-                interval,
-                limit,
-                aggregate=self.aggregated_minute_candles,
-                before=before,
-                from_time=from_time,
-                to_time=to_time,
-            )
-        if interval == "1D":
-            return self.daily_candles(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time)
-        if interval in {"1W", "1M"}:
-            return self.direct_or_aggregated_candles(
-                symbol,
-                interval,
-                limit,
-                aggregate=self.aggregated_daily_candles,
-                before=before,
-                from_time=from_time,
-                to_time=to_time,
-            )
-        return self.stored_interval_candles(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time)
-
     def canonical_completed_rows(self, symbol, interval, limit=240, before=None):
-        """Read the deterministic Czardas inference window.
+        """Read canonical v2, split-adjusted, regular-session completed rows.
 
-        Unlike the chart-serving path this contract is deliberately independent
-        from serving environment flags.  Eligibility is fixed in SQL to
-        canonical v2, split-adjusted, regular-session, completed rows.  Weekly
-        candles are the sole exception: they are derived from at most 1,300
-        canonical daily rows so their NYSE calendar identity stays code-owned.
+        This is the neutral inference snapshot boundary shared by chart data
+        consumers. It is deliberately independent from chart-serving flags.
         """
         interval = normalize_chart_interval(interval)
         if interval == "1M" or interval not in {*INTRADAY_INTERVAL_MINUTES, "1D", "1W"}:
-            raise ValueError(f"Unsupported Czardas interval: {interval}")
+            raise ValueError(f"Unsupported canonical interval: {interval}")
         requested_limit = int(limit)
         if requested_limit < 1:
-            raise ValueError("Czardas candle limit must be positive")
+            raise ValueError("Canonical candle limit must be positive")
         if interval == "1W":
-            from alfaka.candles import aggregate_canonical_candles
             from alfaka.backfill.gapfill import TradingCalendar
+            from alfaka.candles import aggregate_canonical_candles
 
-            daily = self.canonical_completed_rows(symbol, "1D", limit=min(1300, max(1, requested_limit * 6)), before=before)
+            daily = self.canonical_completed_rows(
+                symbol, "1D", limit=min(1300, max(1, requested_limit * 6)), before=before,
+            )
             weekly = aggregate_canonical_candles(
-                daily, "1W", now=self.now_provider(), calendar=TradingCalendar()
+                daily, "1W", now=self.now_provider(), calendar=TradingCalendar(),
             )
             return weekly[-requested_limit:]
 
@@ -144,11 +106,7 @@ class ClickHouseMarketDataProvider:
           {repr(interval)} AS interval,
           formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
           formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS candleKey,
-          open,
-          high,
-          low,
-          close,
-          volume,
+          open, high, low, close, volume,
           1 AS isClosed,
           'regular' AS marketSession,
           'split' AS priceAdjustment,
@@ -163,6 +121,34 @@ class ClickHouseMarketDataProvider:
         """
         return list(reversed(self.query_json_each_row(query, params)))
 
+    def candles(self, symbol, interval, limit=None, before=None, from_time=None, to_time=None):
+        """요청 interval에 맞는 캔들 목록을 ClickHouse에서 조회합니다."""
+        interval = normalize_chart_interval(interval)
+        limit = resolve_candle_limit(interval, limit)
+        if interval in INTRADAY_DERIVED_INTERVALS:
+            return self.direct_or_aggregated_candles(
+                symbol,
+                interval,
+                limit,
+                aggregate=self.aggregated_minute_candles,
+                before=before,
+                from_time=from_time,
+                to_time=to_time,
+            )
+        if interval == "1D":
+            return self.daily_candles(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time)
+        if interval in {"1W", "1M"}:
+            return self.direct_or_aggregated_candles(
+                symbol,
+                interval,
+                limit,
+                aggregate=self.aggregated_daily_candles,
+                before=before,
+                from_time=from_time,
+                to_time=to_time,
+            )
+        return self.stored_interval_candles(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time)
+
     def direct_or_aggregated_candles(self, symbol, interval, limit=None, aggregate=None, before=None, from_time=None, to_time=None):
         """저장된 direct interval 캔들을 우선 쓰고, 비어 있으면 기존 source 집계로 보강합니다."""
         interval = normalize_chart_interval(interval)
@@ -174,7 +160,20 @@ class ClickHouseMarketDataProvider:
         )
         direct_rows = with_higher_timeframe_closed_state(direct_rows, interval, now=reference)
         if len(direct_rows) >= limit:
-            return attach_moving_averages(direct_rows[-limit:], overwrite=True)
+            if interval not in INTRADAY_DERIVED_INTERVALS or is_crypto_symbol(symbol) or not visible_extended_session_windows(reference):
+                return attach_moving_averages(direct_rows[-limit:], overwrite=True)
+            extended_rows = self._aggregated_visible_extended_session_candles(
+                symbol,
+                interval,
+                limit,
+                before=before,
+                from_time=from_time,
+                to_time=to_time,
+            )
+            return attach_moving_averages(
+                merge_candle_rows(direct_rows, extended_rows, interval=interval)[-limit:],
+                overwrite=True,
+            )
         aggregate_rows = aggregate(symbol, interval, limit, before=before, from_time=from_time, to_time=to_time) if aggregate else []
         aggregate_rows = with_higher_timeframe_closed_state(aggregate_rows, interval, now=reference)
         return attach_moving_averages(
@@ -293,17 +292,72 @@ class ClickHouseMarketDataProvider:
         return attach_moving_averages(list(reversed(rows)), overwrite=True)
 
     def aggregated_minute_candles(self, symbol, interval, limit=None, before=None, from_time=None, to_time=None):
-        """1분봉을 intraday 파생 주기로 묶어 차트용 캔들을 만듭니다."""
+        """선호 intraday 원본 봉을 파생 주기로 묶고, 기존 1분봉을 fallback으로 사용합니다."""
         interval = normalize_chart_interval(interval)
         limit = resolve_candle_limit(interval, limit)
         if is_crypto_symbol(symbol):
             return self._clock_aligned_minute_candles(
                 symbol, interval, limit, before=before, from_time=from_time, to_time=to_time,
             )
+        source_interval = historical_source_interval_for(interval)
+        preferred = self._aggregated_regular_session_candles_from_source(
+            symbol,
+            interval,
+            source_interval,
+            limit,
+            before=before,
+            from_time=from_time,
+            to_time=to_time,
+        )
+        if source_interval == "1m" or len(preferred) >= limit:
+            regular_rows = preferred
+        else:
+            fallback = self._aggregated_regular_session_candles_from_source(
+                symbol,
+                interval,
+                "1m",
+                limit,
+                before=before,
+                from_time=from_time,
+                to_time=to_time,
+            )
+            regular_rows = merge_candle_rows(fallback, preferred, interval=interval)
+        extended_rows = self._aggregated_visible_extended_session_candles(
+            symbol,
+            interval,
+            limit,
+            before=before,
+            from_time=from_time,
+            to_time=to_time,
+        )
+        return attach_moving_averages(
+            merge_candle_rows(regular_rows, extended_rows, interval=interval)[-limit:],
+            overwrite=True,
+        )
+
+    def _aggregated_regular_session_candles_from_source(
+        self,
+        symbol,
+        interval,
+        source_interval,
+        limit,
+        *,
+        before=None,
+        from_time=None,
+        to_time=None,
+    ):
         bucket_minutes = INTRADAY_INTERVAL_MINUTES[interval]
+        source_minutes = INTRADAY_INTERVAL_MINUTES[source_interval]
         time_filter = ""
-        source_limit = min(max_request_bars("1m"), max(int(limit) * bucket_minutes + 390, int(limit)))
+        source_bars_per_target = max(1, (bucket_minutes + source_minutes - 1) // source_minutes)
+        session_padding = (390 + source_minutes - 1) // source_minutes
+        source_limit = min(
+            max_request_bars(source_interval),
+            max(int(limit) * source_bars_per_target + session_padding, int(limit)),
+        )
         params = {"symbol": symbol, "limit": int(source_limit)}
+        if source_interval != "1m":
+            params["sourceInterval"] = source_interval
         if from_time:
             time_filter += "\n          AND event_time >= parseDateTime64BestEffort({fromTime:String})"
             params["fromTime"] = from_time
@@ -314,10 +368,11 @@ class ClickHouseMarketDataProvider:
             time_filter += "\n          AND event_time < parseDateTime64BestEffort({before:String})"
             params["before"] = before
 
-        session_filter = self.market_session_filter_sql(symbol)
+        session_filter = "market_session = 'regular'"
+        interval_filter = "interval = '1m'" if source_interval == "1m" else "interval = {sourceInterval:String}"
         source_query = self.latest_chart_candles_source(f"""
             symbol = {{symbol:String}}
-            AND interval = '1m'
+            AND {interval_filter}
             AND {session_filter}
             {time_filter}
         """, include_live=include_live_stored_candles("1m"))
@@ -348,9 +403,86 @@ class ClickHouseMarketDataProvider:
         """
         rows = list(reversed(self.query_json_each_row(query, params)))
         for row in rows:
+            row["interval"] = source_interval
+        return aggregate_regular_session_candles(
+            rows,
+            interval,
+            now=self.now_provider(),
+            source_interval=source_interval,
+        )[-limit:]
+
+    def _aggregated_visible_extended_session_candles(
+        self,
+        symbol,
+        interval,
+        limit,
+        *,
+        before=None,
+        from_time=None,
+        to_time=None,
+    ):
+        reference = self.now_provider()
+        windows = visible_extended_session_windows(reference)
+        if not windows:
+            return []
+
+        time_filter = ""
+        source_limit = min(
+            max_request_bars("1m"),
+            max(1, sum(int((end - start).total_seconds() // 60) for _session, start, end in windows)),
+        )
+        params = {"symbol": symbol, "limit": int(source_limit)}
+        if from_time:
+            time_filter += "\n          AND event_time >= parseDateTime64BestEffort({fromTime:String})"
+            params["fromTime"] = from_time
+        if to_time:
+            time_filter += "\n          AND event_time <= parseDateTime64BestEffort({toTime:String})"
+            params["toTime"] = to_time
+        if before:
+            time_filter += "\n          AND event_time < parseDateTime64BestEffort({before:String})"
+            params["before"] = before
+
+        session_filter = self.extended_market_session_filter_sql(windows)
+        source_query = self.latest_chart_candles_source(f"""
+            symbol = {{symbol:String}}
+            AND interval = '1m'
+            AND {session_filter}
+            {time_filter}
+        """, include_live=True)
+        query = f"""
+        SELECT
+          formatDateTime(event_time, '%Y-%m-%dT%H:%i:%S.000Z', 'UTC') AS timestamp,
+          symbol,
+          open,
+          high,
+          low,
+          close,
+          volume,
+          is_closed AS isClosed,
+          correction_type AS correctionType,
+          source,
+          feed,
+          feed_profile AS feedProfile,
+          market_session AS marketSession,
+          price_adjustment AS priceAdjustment,
+          canonical_version AS canonicalVersion,
+          source_event_id AS sourceEventId
+        FROM (
+          {source_query}
+        )
+        ORDER BY event_time DESC
+        LIMIT {{limit:UInt32}}
+        FORMAT JSONEachRow
+        """
+        rows = list(reversed(self.query_json_each_row(query, params)))
+        for row in rows:
             row["interval"] = "1m"
-        aggregated = aggregate_regular_session_candles(rows, interval, now=self.now_provider())
-        return attach_moving_averages(aggregated[-limit:], overwrite=True)
+        return aggregate_visible_extended_session_candles(
+            rows,
+            interval,
+            now=reference,
+            source_interval="1m",
+        )[-limit:]
 
     def _clock_aligned_minute_candles(self, symbol, interval, limit, *, before=None, from_time=None, to_time=None):
         bucket_minutes = INTRADAY_INTERVAL_MINUTES[interval]
@@ -525,18 +657,35 @@ class ClickHouseMarketDataProvider:
         """backfill 판단에 필요한 저장 캔들 개수와 가용 기간을 계산합니다."""
         interval = normalize_chart_interval(interval)
         if interval in {*INTRADAY_DERIVED_INTERVALS, "1W", "1M"}:
-            direct = self.stored_interval_coverage(symbol, interval)
+            direct_bucket_policy = (
+                BUCKET_POLICY_REGULAR_SESSION
+                if interval in INTRADAY_DERIVED_INTERVALS and not is_crypto_symbol(symbol)
+                else None
+            )
+            direct = self.stored_interval_coverage(symbol, interval, bucket_policy=direct_bucket_policy)
             if int(direct.get("rowCount") or 0) > 0:
                 return {**direct, "sourceInterval": interval}
-        stored_interval = "1m" if interval in INTRADAY_DERIVED_INTERVALS else "1D" if interval in {"1W", "1M"} else interval
-        return {**self.stored_interval_coverage(symbol, stored_interval), "sourceInterval": stored_interval}
+        stored_interval = (
+            "1m"
+            if is_crypto_symbol(symbol) and interval in INTRADAY_DERIVED_INTERVALS
+            else historical_source_interval_for(interval)
+        )
+        source_coverage = self.stored_interval_coverage(symbol, stored_interval)
+        if int(source_coverage.get("rowCount") or 0) > 0 or stored_interval == "1m":
+            return {**source_coverage, "sourceInterval": stored_interval}
+        fallback = self.stored_interval_coverage(symbol, "1m")
+        return {**fallback, "sourceInterval": "1m"}
 
-    def stored_interval_coverage(self, symbol, stored_interval):
+    def stored_interval_coverage(self, symbol, stored_interval, bucket_policy=None):
         stored_interval = normalize_chart_interval(stored_interval)
         interval_filter = "interval IN ('1D', '1d')" if stored_interval == "1D" else "interval = {interval:String}"
         params = {"symbol": symbol}
         if stored_interval != "1D":
             params["interval"] = stored_interval
+        bucket_policy_filter = ""
+        if bucket_policy:
+            params["bucketPolicy"] = bucket_policy
+            bucket_policy_filter = "\n            AND bucket_policy = {bucketPolicy:String}"
         if is_crypto_symbol(symbol):
             if stored_interval == "1D":
                 row_count_expr = "uniqExact(toDate(event_time))"
@@ -559,6 +708,7 @@ class ClickHouseMarketDataProvider:
         source_query = self.latest_chart_candles_source(f"""
             symbol = {{symbol:String}}
             AND {interval_filter}
+            {bucket_policy_filter}
         """, include_live=include_live_stored_candles(stored_interval))
         query = f"""
         SELECT
@@ -1076,8 +1226,11 @@ class ClickHouseMarketDataProvider:
             "ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment, "
             "ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT 'clock_aligned' AFTER canonical_version"
         )
-        # Sorting-key changes are an operator migration, never a runtime
-        # bootstrap side effect. Existing tables may contain years of data.
+        self.execute(
+            f"ALTER TABLE {self.table('chart_candles')} "
+            "ADD COLUMN IF NOT EXISTS bucket_policy_key LowCardinality(String) AFTER bucket_policy, "
+            "MODIFY ORDER BY (symbol, interval, event_time, feed_profile, market_session, bucket_policy_key)"
+        )
         # Crypto 체결/거래량은 소수 단위가 자연스럽기 때문에 조회 스키마도 Float64로 맞춥니다.
         for table, column, column_type in (
             ("trade_ticks", "size", "Nullable(Float64)"),
@@ -1094,7 +1247,11 @@ class ClickHouseMarketDataProvider:
         windows = visible_extended_session_windows(now)
         if not windows:
             return "market_session = 'regular'"
-        clauses = ["market_session = 'regular'"]
+        return f"(market_session = 'regular' OR {self.extended_market_session_filter_sql(windows, column=column)})"
+
+    def extended_market_session_filter_sql(self, windows, column="event_time"):
+        """지정된 extended session window만 통과시키는 ClickHouse 조건을 만듭니다."""
+        clauses = []
         for session, start, end in windows:
             start_literal = clickhouse_string_literal(start.strftime("%Y-%m-%dT%H:%M:%S.000Z"))
             end_literal = clickhouse_string_literal(end.strftime("%Y-%m-%dT%H:%M:%S.000Z"))
@@ -1104,7 +1261,7 @@ class ClickHouseMarketDataProvider:
                 f"AND {column} >= parseDateTime64BestEffort({start_literal}) "
                 f"AND {column} < parseDateTime64BestEffort({end_literal}))"
             )
-        return f"({' OR '.join(clauses)})"
+        return f"({' OR '.join(clauses)})" if clauses else "0 = 1"
 
     def canonical_candle_filter_sql(self, *, include_live=False):
         if os.getenv("CLICKHOUSE_REQUIRE_CANONICAL_CANDLES", "true").lower() not in {"1", "true", "yes"}:

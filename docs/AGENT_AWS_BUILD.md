@@ -27,11 +27,12 @@ flowchart LR
 ```
 
 The default dev deploy entrypoint is `scripts/aws/deploy-dev-local.sh`. It runs
-from an operator's local machine but always deploys the latest remote
-`origin/dev` commit, not local uncommitted changes. It records successful
+from an operator's local machine and deploys the latest remote `origin/dev`
+commit by default, not local uncommitted changes. An explicit `REMOTE_BRANCH`
+may select another remote branch for a validation deploy. It records successful
 deploy state per app image in EKS `ConfigMap/gops-dev-deploy-state` using
 `service.<name>.lastSuccessfulSha`, then compares each service's own deployed
-baseline with `origin/dev`. This prevents a backend-only deploy from hiding an
+baseline with the selected remote target. This prevents a backend-only deploy from hiding an
 older undeployed frontend change. For legacy state migration, the script falls
 back to the old global `lastSuccessfulSha` only when `lastSuccessfulServices`
 included that service, and otherwise reads the live primary Deployment image
@@ -73,6 +74,14 @@ rotations. `VITE_LOGO_DEV_ATTRIBUTION`/`LOGO_DEV_ATTRIBUTION` defaults to
 the visible attribution.
 
 ## Image
+
+The existing `gops-agent-orchestrator` image also contains the trusted coach snapshot
+builder, deterministic coach analytics, and the S3 snapshot archive adapter. Coach
+analysis uses the existing request topic, `agent-analysis-worker`, Redis report store,
+polling, and SSE delivery; it adds no Kafka topic or deployment. The worker builds one
+snapshot from authenticated PostgreSQL rows and ClickHouse candles. When archive is
+enabled it writes that snapshot once, with a canonical SHA-256 digest and
+`If-None-Match: *`, before orchestration.
 
 Agent runtime image:
 
@@ -203,7 +212,6 @@ infra/k8s/base/app/deployment-deep-analysis-worker.yaml
 infra/k8s/base/app/deployment-agent-event-detector.yaml
 infra/k8s/base/app/deployment-agent-notification-publisher.yaml
 infra/k8s/base/app/deployment-recommendation-worker.yaml
-infra/k8s/base/app/deployment-czardas-asset-builder.yaml
 ```
 
 The AWS in-cluster overlay keeps `recommendation-worker` and
@@ -285,12 +293,37 @@ scripts/aws/create-pvc-ebs-snapshots.sh
 scripts/aws/restore-graphdb-pvc.sh
 ```
 
-The dev deploy workflow does not run cache rebuilds or SQL migrations
-automatically. For one-off maintenance during a manual build, set
-`run_order_migrations=true` with `order-worker` in `services`, or
-`rebuild_news_cache=true` with `market-storage` in `services`. Run
-`scripts/aws/run-order-migrations-job.sh` directly only when SQL migrations must
-be applied outside the deploy workflow.
+The dev deploy workflow automatically runs the idempotent order migration Job before
+app apply whenever `order-worker` is selected. Selecting `agent-orchestrator` also
+selects `order-worker`, so a new coach worker cannot roll out ahead of its order-owned
+schema. The legacy `run_order_migrations=true` input remains only as an explicit force
+switch and cannot run without the migration image. Other one-off maintenance remains
+explicit: set `run_czardas_asset_migrations=true` with `agent-orchestrator`, or
+`rebuild_news_cache=true` with `market-storage`.
+
+AI coach requires order migration `0006_ai_coach.sql` before the new worker is rolled
+out. It adds order ownership, change-only append portfolio snapshot history, and decision-check
+events; `0007_ai_coach_execution_index.sql` adds the `(order_id, created_at)` execution
+lookup index used by the point-in-time fill joins. GitHub Actions and the local deploy
+entrypoint apply all pending order migrations automatically before app rollout when the
+order or coach analytics image set is selected. Deploy the backend/order writers that
+populate `orders.user_sub` before relying on user-scoped coach history. Existing rows
+without ownership remain unavailable rather than being guessed or assigned. The snapshot
+builder intentionally returns missing-data states when historical rows do not yet exist;
+it must never query another user's rows. The local order migration gate is automatic;
+`RUN_ORDER_MIGRATIONS=true` is retained only for compatibility. Chart migrations and
+news rebuilds remain explicitly controlled by `RUN_CZARDAS_ASSET_MIGRATIONS=true` and
+`REBUILD_NEWS_CACHE=true`. Migration Jobs run after image push but before app apply.
+
+The holdings endpoint may be polled every minute. PostgreSQL always refreshes the latest
+observation, but appends portfolio history only when payload content differs after
+top-level `asOf`/`sourceAsOf` timestamps are removed. A per-user advisory transaction
+lock serializes the compare/upsert operation: poll-only timestamp changes do not grow RDS
+history, while changed positions, cash, valuations, or transaction states remain durable.
+
+Persistent paper trading requires `0006_paper_trading.sql`. Changes to
+`paper-order-matcher` select `order-worker`, so the same automatic migration gate
+applies the paper account schema before the matcher and backend workloads roll out.
 
 Market processor deploys as two runtime units from the same
 `gops-market-processor` image. `alfaka-market-processor` handles trades, bars,
@@ -338,7 +371,15 @@ The market and quote processors use per-workload `DoNotSchedule` topology spread
 constraints with `minDomains=3`, so their three replicas cannot collapse onto
 one node. Their
 readiness/liveness probes check a local heartbeat updated after every bounded
-Kafka poll. The order outbox and KIS adapter use the same loop-heartbeat pattern.
+Kafka poll. The order outbox, paper-order matcher, and KIS adapter use the same
+loop-heartbeat pattern. `paper-order-matcher` is a single-replica consumer of
+`market.layer.quotes.v1` in group `gops-paper-order-matcher-v1`; it uses the
+existing `gops-order-worker` image and creates no additional Kafka topic.
+Because that image now includes `systems/market-data/shared` for Kafka and
+subscription contracts, market-data shared changes also rebuild `order-worker`.
+The matcher reconciles pending-order and current-position subscription cohorts
+from Postgres every `PAPER_SUBSCRIPTION_SYNC_SECONDS` (default 5 seconds), so a
+temporary API-to-Redis synchronization failure heals without a new order.
 
 Scheduled batch Jobs declare resource requests/limits. Failed Job and Pod
 evidence is retained for seven days. The `batch-warm` NodePool is static with
@@ -640,6 +681,40 @@ scripts/aws/restore-graphdb-pvc.sh --replace-pending-pvc
 S3는 agent가 직접 final report serving을 하는 저장소가 아니라 market/news
 source data와 replay evidence를 보관하는 durable storage다.
 
+AI coach audit snapshots are the exception to the market-data bucket rule: Terraform
+creates a dedicated private, versioned, AES-256 encrypted bucket named
+`alfaka-dev-ai-coach-snapshots-{account}-{region}`. The lifecycle expires current
+versions under `ai-coach/snapshots/` after `ai_coach_snapshot_retention_days` (90 days
+by default), then makes the resulting noncurrent version eligible for permanent deletion
+after `ai_coach_snapshot_noncurrent_retention_days` (1 day by default, constrained to
+1-7 days). Default snapshot bytes are therefore eligible for deletion at about day 91,
+not day 180. S3 lifecycle processing is asynchronous and is not an exact deletion-time
+SLA. A dedicated IRSA role grants `ai-coach-worker-sa` access only to
+`s3:PutObject` under that prefix; it has no bucket-list or object-read permission. The
+application object key is:
+
+```text
+ai-coach/snapshots/v1/date=YYYY-MM-DD/{analysisId}.json
+```
+
+Writes use `If-None-Match: *`, so a Kafka retry cannot replace an existing immutable
+snapshot. On a 412 response the write-only worker reports
+`already_exists_unverified`, keeps the existing object authoritative, and leaves the
+digest unset rather than claiming it verified data it cannot read.
+
+`AI_COACH_SNAPSHOT_KMS_KEY_ID` is optional in code but is not configured by the current
+Terraform module. If KMS encryption is enabled later, add the matching KMS key policy and
+`kms:Encrypt` permission before setting the env value.
+
+AWS overlays set archive `ENABLED=true` and `REQUIRED=true`: audit retention is
+fail-closed, so an S3 failure fails the coach analysis instead of producing an
+unarchived report. After an agent rollout,
+`scripts/aws/verify-ai-coach-snapshot-s3.sh` executes inside the deployed analysis worker
+and writes one non-sensitive immutable canary through the same IRSA identity. The deploy
+fails if the service account, required-mode environment, bucket, or `PutObject` path is
+invalid. The put-only role still cannot list, read, verify, or delete account snapshots;
+the canary is removed by the same lifecycle policy.
+
 현재 AWS bucket:
 
 ```text
@@ -726,11 +801,25 @@ AGENT_SHARED_REPORT_STORE_ENABLED
 AGENT_ANALYSIS_QUEUE_BACKEND
 AGENT_REPORT_STORE_BACKEND
 AGENT_REPORT_STREAM_REDIS_ENABLED
+AGENT_OUTPUT_KAFKA_REQUIRED
 AGENT_REPORT_OWNER_KEY_PREFIX
 AGENT_RATE_LIMIT_ENABLED
 AGENT_RATE_LIMIT_REQUESTS
 AGENT_RATE_LIMIT_WINDOW_SECONDS
+AI_COACH_SNAPSHOT_ARCHIVE_ENABLED
+AI_COACH_SNAPSHOT_ARCHIVE_REQUIRED
+AI_COACH_SNAPSHOT_S3_BUCKET
+AI_COACH_SNAPSHOT_S3_PREFIX
 ```
+
+AWS overlays set queue/report backends explicitly to `kafka` and `redis`; they must not
+use `auto`, because `auto` may fall back to process-local memory and break polling across
+pods. They also set `AGENT_OUTPUT_KAFKA_REQUIRED=true`, so a result publish/flush failure
+prevents the consumed analysis request from being acknowledged as successfully delivered.
+The analysis worker also needs the ClickHouse, OpenAI, and order database Secrets.
+`ai-coach-worker-sa` must carry the Terraform output
+`ai_coach_worker_irsa_role_arn`, and the ConfigMap bucket must equal Terraform output
+`ai_coach_snapshot_s3_bucket`.
 
 Provider and LLM:
 
@@ -758,50 +847,31 @@ GRAPHDB_REPOSITORY
 SEC_USER_AGENT
 ```
 
-Czardas asset builder is an independent optional runtime.
-`czardas-asset-builder`는 `gops-agent-orchestrator` image를 공유하지만 interactive
-AgentOrchestrator workflow에 참여하지 않는다. `cza-` PostgreSQL queue에서 명시적
-symbol×interval 한 쌍만 처리하며 지원 interval마다 최신 완료봉 정확히 240개를
-요구한다. 한 round 최대 8 missing range, 최대 2 round만
-Alpaca→ClickHouse→canonical re-read한다. `5m/10m/1h/4h` repair는 Alpaca `1Min`,
-`1W`는 canonical `1D`를 사용한다. S3, Redis, Kafka, OpenAI, 자동 schedule/Cron,
-candle-event trigger는 사용하지 않는다.
+Chart-analysis asset builder (independent optional runtime):
 
-로컬 Compose는 untracked `.env`의 `APCA_API_KEY_ID/APCA_API_SECRET_KEY`와
-`ALPACA_CREDENTIAL_SOURCE=local-env`를 사용한다. AWS/EKS는 IRSA와 Secrets Manager
-`dev/alpaca`를 사용하므로 별도 Kubernetes Alpaca Secret을 필수로 요구하지 않는다.
-ClickHouse와 PostgreSQL Secret은 필수다. schema는
-`job-czardas-asset-migrations.yaml`과
-`run-czardas-asset-migrations-job.sh`로 `004_czardas_assets.sql` 다음
-`005_czardas_v3_identity_and_ops.sql`을 명시 적용하며
-runtime은 table을 만들지 않는다.
-
-v3는 자동 schedule이 없다는 뜻이지 AWS에서 수동 builder를 운영하지 않는다는 뜻이 아니다.
-다만 v3 코드 변경 자체는 AWS migration, image build와 deployment를 실행하지 않는다. 별도
-승인된 배포에서 migration 005를 먼저 적용하고 worker→backend→frontend 순으로 전환한다.
-
-기존 Geometry worker, weekday CronJob, Kafka topic, migration은 배포하지 않는다.
-기존 PostgreSQL `geometry_*`와 ClickHouse `chart_analysis_assets` 데이터는 삭제하지
-않지만 모든 runtime과 운영 도구에서 read/write 금지이며 신규 환경에 생성하지 않는다.
-
-최초 Czardas 전환은 일반 `kubectl apply`가 삭제된 manifest를 prune한다고 가정하면 안
-된다. 기존 `chart-geometry-build` CronJob이 있다면 먼저 suspend하고 진행 중인 legacy
-Job과 queue가 없음을 확인한다. Czardas migration과 worker/backend/frontend 배포 및
-수동 symbol×interval 검증이 끝난 뒤 다음 preview를 검토하고 명시적으로 적용한다.
-
-```bash
-kubectl patch cronjob/chart-geometry-build -n alfaka-market-data \
-  --type=merge -p '{"spec":{"suspend":true}}'
-kubectl get jobs -n alfaka-market-data \
-  -l 'app in (chart-geometry-build,chart-geometry-build-manual)'
-scripts/aws/retire-legacy-chart-geometry.sh
-scripts/aws/retire-legacy-chart-geometry.sh --apply
+```text
+CZARDAS_ASSET_STORAGE_MAINTENANCE
 ```
 
-이 script는 `deployment/chart-asset-builder`와 `cronjob/chart-geometry-build`만
-`--ignore-not-found`로 제거하며 어떤 PostgreSQL/ClickHouse table도 조회·수정·삭제하지
-않는다. 장애 rollback은 이전 Geometry image나 manifest를 복구하지 않고 기본 candle
-chart의 `no asset` 상태 또는 마지막 검증된 Czardas image로만 수행한다.
+`czardas-asset-builder`는 `gops-agent-orchestrator` image를 공유하지만 interactive
+AgentOrchestrator workflow에 참여하지 않는다. 개발 패널에서 수동 제출한 PostgreSQL
+queue item을 정확히 한 symbol/interval 단위로 처리하고 ClickHouse 완료 봉을 감사하며 누락
+range만 Alpaca로 보충한다.
+미국 주식 `5m/10m` 보충은 Alpaca `1Min`, `1h/4h` 보충은 Alpaca `10Min`을
+사용한다. 실제 정규장 원본과 `bucket_policy=us_equity_regular_session` 파생 봉을
+함께 ClickHouse에 저장하며, 실시간 파생 봉은 계속 `1m`을 원본으로 사용한다.
+stream processor가 Redis/ClickHouse에서 캔들을 복구할 때는 legacy JSON의 문자열
+`tradeCount`를 정수로 정규화한 뒤 provisional state에 넣는다. 이 경계가 깨지면
+1m→상위 interval 합산에서 processor 전체가 재시작할 수 있으므로 복구·집계·Redis
+쓰기와 조회가 같은 숫자 계약을 사용해야 한다.
+`1W`는 underlying `1D` 결측만 보충한 뒤 기존 주봉 집계를 사용한다. 이 하위 시스템은
+S3, Redis, Kafka, OpenAI를 사용하지 않는다.
+
+AWS overlay의 `czardas-asset-builder`는 memory request `512Mi`, limit `1Gi`로 실행한다.
+자동 schedule과 S&P500 batch는 없다. PostgreSQL schema는
+`job-czardas-asset-migrations.yaml`과 `run-czardas-asset-migrations-job.sh`로 명시 적용하며
+runtime은 자동 생성하지 않는다. one-shot migration Job은 PostgreSQL Secret이 없으면
+시작하지 않는다. 기존 Geometry table은 휴면 데이터이며 migration/read/write 대상이 아니다.
 
 Financial final-answer synthesis is enabled with
 `AGENT_FINANCIAL_FINAL_ANSWER_PROVIDER=openai`. The orchestrator still reads SEC
@@ -875,6 +945,16 @@ Kubernetes manifests:
 ```sh
 kubectl kustomize infra/k8s/base >/tmp/gops-k8s-base.yaml
 kubectl kustomize infra/k8s/overlays/aws >/tmp/gops-k8s-aws.yaml
+kubectl kustomize infra/k8s/overlays/aws-incluster-app >/tmp/gops-k8s-incluster.yaml
+kubectl kustomize infra/k8s/overlays/aws-incluster-app-ci >/tmp/gops-k8s-ci.yaml
+```
+
+Terraform source validation (requires Terraform 1.6+):
+
+```sh
+terraform -chdir=infra/aws/terraform fmt -check
+terraform -chdir=infra/aws/terraform init -backend=false
+terraform -chdir=infra/aws/terraform validate
 ```
 
 Runtime acceptance:
@@ -887,4 +967,16 @@ Kafka agents.analysis-results.v1 receives the result
 agent-delivery-gateway publishes Redis update
 GET /api/agents/reports/{analysis_id} returns completed report
 SSE stream emits updates or frontend polling works
+coach request report contains coach-report.v2 pages 1..4
+agent-analysis-worker trace reports coachSnapshot.archiveStatus=stored
+the S3 object SHA-256 metadata matches coachReport.snapshotDigest
+another authenticated user cannot read the report or contribute account rows
+the post-rollout IRSA canary gate reports archiveStatus=stored
 ```
+
+Static render/build success proves source and image compatibility only. The automatic
+post-rollout canary proves that the deployed worker can assume IRSA and perform an
+encrypted conditional S3 write, but it does not prove an authenticated API request,
+RDS/ClickHouse reachability, Kafka topic health, Redis persistence, or report delivery.
+Those still require a staging EKS request plus report, worker log, Redis, and S3 evidence
+after Terraform apply and migration execution.

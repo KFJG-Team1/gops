@@ -1,8 +1,8 @@
-import type { FocusEventHandler, KeyboardEventHandler, PointerEventHandler, WheelEventHandler } from "react";
+import type { FocusEventHandler, KeyboardEventHandler, MouseEventHandler, PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, CzardasCandleMeaningsDto, CzardasFieldDto, CzardasValidationGlyphDto, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, timestampAtUnitX, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -63,6 +63,7 @@ type ChartCanvasProps = {
   onPointerUp?: PointerEventHandler<HTMLCanvasElement>;
   onPointerCancel?: PointerEventHandler<HTMLCanvasElement>;
   onLostPointerCapture?: PointerEventHandler<HTMLCanvasElement>;
+  onDoubleClick?: MouseEventHandler<HTMLCanvasElement>;
   onKeyDown?: KeyboardEventHandler<HTMLCanvasElement>;
   onFocus?: FocusEventHandler<HTMLCanvasElement>;
   onBlur?: FocusEventHandler<HTMLCanvasElement>;
@@ -72,6 +73,8 @@ let colors: ThemeColors;
 const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 const bollingerFillAlpha = 0.1;
+const rightAxisOuterInset = 4;
+const axisPillHorizontalPadding = 5;
 const volumeProfileAlpha = {
   poc: 0.28,
   valueAreaBase: 0.12,
@@ -102,6 +105,7 @@ export function ChartCanvas({
   onPointerUp,
   onPointerCancel,
   onLostPointerCapture,
+  onDoubleClick,
   onKeyDown,
   onFocus,
   onBlur
@@ -210,6 +214,7 @@ export function ChartCanvas({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onLostPointerCapture={onLostPointerCapture}
+      onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
       onBlur={onBlur}
@@ -322,7 +327,7 @@ export function drawCzardasField(context: CanvasRenderingContext2D, scene: Chart
 
 function drawCzardasFieldInsidePlot(context: CanvasRenderingContext2D, scene: ChartScene) {
   const field = scene.chart.czardasField;
-  const visibility = scene.chart.czardasVisibility ?? { hline: true, trend: true };
+  const visibility = scene.chart.czardasVisibility ?? { hline: true, trend: true, pattern: true };
   if (!field) {
     drawCzardasCandleFacts(context, scene);
     drawCzardasEmpty(context, scene);
@@ -344,25 +349,30 @@ function drawCzardasFieldInsidePlot(context: CanvasRenderingContext2D, scene: Ch
       field.windowToTimestamp
     );
   }
-  if (visibility.trend) drawCzardasTrendModes(
-    context,
-    scene,
-    field.trendModes.filter((mode) => selectedModes.has(`${String(mode.fieldModeId)}:${String(mode.derivationDigest)}`)),
-    selectedModes
-  );
+  if (visibility.trend) {
+    drawCzardasRegressionFlows(context, scene, field.regressionFlows);
+    drawCzardasTrendModes(
+      context,
+      scene,
+      field.trendModes.filter((mode) => selectedModes.has(`${String(mode.fieldModeId)}:${String(mode.derivationDigest)}`)),
+      selectedModes
+    );
+  }
   drawCzardasBasis(context, scene, czardasRenderableBasis(field).filter((item) => (
     item.role === "support" || item.role === "resistance" ? visibility.hline : visibility.trend
   )));
   drawCzardasValidation(context, scene, field.validationGlyphs, visibility);
-  if (visibility.trend) drawCzardasRelation(context, scene, field.relationGlyph);
-  if (visibility.trend) drawCzardasPatternBadge(context, scene);
+  if (visibility.pattern) {
+    drawCzardasPatternEvidence(context, scene, field);
+    drawCzardasPatternRelations(context, scene, field);
+  }
 }
 
 function drawCzardasCandleFacts(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   meanings?: CzardasCandleMeaningsDto,
-  visibility: { hline: boolean; trend: boolean } = { hline: true, trend: true }
+  visibility: { hline: boolean; trend: boolean; pattern?: boolean } = { hline: true, trend: true, pattern: true }
 ) {
   const meaningIndex = new Map(meanings?.timestamps.map((timestamp, index) => [timestamp, index]) ?? []);
   const sightMode = czardasSightMode(scene.scales.slotWidth);
@@ -652,66 +662,104 @@ function drawCzardasValidation(
   });
 }
 
-function drawCzardasRelation(
+function drawCzardasRegressionFlows(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
-  relation: Record<string, unknown> | null | undefined
+  flows: Array<Record<string, unknown>>
 ) {
-  const geometry = czardasRelationGeometry(scene, relation);
-  if (!geometry) return;
-  const { x, upperY, lowerY } = geometry;
-  context.save();
-  context.strokeStyle = colors.pointYellow;
-  context.fillStyle = colors.pointYellow;
-  context.globalAlpha = 0.48;
-  context.lineWidth = 1;
-  context.setLineDash([3, 3]);
-  line(context, x, upperY, x, lowerY);
-  context.setLineDash([]);
-  context.beginPath();
-  context.moveTo(x - 3, (upperY + lowerY) / 2);
-  context.lineTo(x + 4, (upperY + lowerY) / 2 - 4);
-  context.lineTo(x + 4, (upperY + lowerY) / 2 + 4);
-  context.closePath();
-  context.fill();
-  context.restore();
+  flows.slice(0, 2).forEach((flow, index) => {
+    const geometry = czardasTimestampPriceLine(scene, {
+      fromTimestamp: recordString(flow, "fromTimestamp"),
+      toTimestamp: recordString(flow, "toTimestamp"),
+      fromPrice: recordNumber(flow, "startPrice"),
+      toPrice: recordNumber(flow, "endPrice")
+    });
+    if (!geometry) return;
+    context.save();
+    context.strokeStyle = colors.pointYellow;
+    context.globalAlpha = index === 0 ? 0.32 : 0.2;
+    context.lineWidth = 1;
+    context.setLineDash(index === 0 ? [6, 4] : [3, 5]);
+    line(context, geometry.fromX, geometry.fromY, geometry.toX, geometry.toY);
+    context.restore();
+  });
 }
 
-export function czardasRelationGeometry(
+function drawCzardasPatternRelations(
+  context: CanvasRenderingContext2D,
   scene: ChartScene,
-  relation: Record<string, unknown> | null | undefined
-): { x: number; upperY: number; lowerY: number } | null {
-  if (!relation) return null;
-  const upperCandidateId = recordString(relation, "upperCandidateId");
-  const lowerCandidateId = recordString(relation, "lowerCandidateId");
-  const relationFrom = recordString(relation, "relationFrom");
-  if (!upperCandidateId || !lowerCandidateId || !relationFrom) return null;
-  const upper = scene.chart.drawings.find((drawing) => (
-    drawing.ownership === "czardas-managed" && drawing.sourceCandidateId === upperCandidateId && drawing.visible
-  ));
-  const lower = scene.chart.drawings.find((drawing) => (
-    drawing.ownership === "czardas-managed" && drawing.sourceCandidateId === lowerCandidateId && drawing.visible
-  ));
-  if (!upper || !lower) return null;
-  const transform = createCoordinateTransform(scene);
-  const x = transform.timestampToX(relationFrom);
-  const upperY = drawingYAtTimestampX(transform, upper, x);
-  const lowerY = drawingYAtTimestampX(transform, lower, x);
-  return x === null || upperY === null || lowerY === null ? null : { x, upperY, lowerY };
+  field: CzardasFieldDto
+) {
+  field.patternRelationGlyphs.forEach((glyph) => {
+    const trace = asCanvasRecord(glyph.trace);
+    const indexes = Array.isArray(trace.indexes) ? trace.indexes : [];
+    const prices = Array.isArray(trace.prices) ? trace.prices : [];
+    const points = indexes.map((value, index) => {
+      const candleIndex = typeof value === "number" ? value : -1;
+      const price = prices[index];
+      const timestamp = field.candleMeanings.timestamps[candleIndex];
+      return typeof timestamp === "string" && typeof price === "number"
+        ? czardasTimestampPricePoint(scene, timestamp, price)
+        : null;
+    }).filter((point): point is { x: number; y: number } => point !== null);
+    if (points.length < 3) return;
+    context.save();
+    context.strokeStyle = colors.pointYellow;
+    context.globalAlpha = 0.24;
+    context.lineWidth = 1;
+    context.setLineDash([3, 4]);
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.stroke();
+    context.restore();
+  });
 }
 
-function drawingYAtTimestampX(
-  transform: ReturnType<typeof createCoordinateTransform>,
-  drawing: DrawingEntity,
-  x: number | null
-): number | null {
-  if (x === null || drawing.anchors.length < 2) return null;
-  const start = transform.anchorToPoint(drawing.anchors[0]);
-  const end = transform.anchorToPoint(drawing.anchors[1]);
-  if (!start || !end) return null;
-  const dx = end.x - start.x;
-  if (Math.abs(dx) < 1e-9) return start.y;
-  return start.y + ((x - start.x) / dx) * (end.y - start.y);
+function drawCzardasPatternEvidence(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  field: CzardasFieldDto
+) {
+  field.patternEvidenceGlyphs.forEach((glyph) => {
+    const trace = asCanvasRecord(glyph.trace);
+    const indexes = Array.isArray(trace.indexes) ? trace.indexes : [];
+    const prices = Array.isArray(trace.prices) ? trace.prices : [];
+    const points = indexes.map((value, index) => {
+      const candleIndex = typeof value === "number" ? value : -1;
+      const price = prices[index];
+      const timestamp = field.candleMeanings.timestamps[candleIndex];
+      return typeof timestamp === "string" && typeof price === "number"
+        ? czardasTimestampPricePoint(scene, timestamp, price)
+        : null;
+    }).filter((point): point is { x: number; y: number } => point !== null);
+    if (points.length < 3) return;
+    context.save();
+    context.strokeStyle = colors.pointYellow;
+    context.fillStyle = colors.pointYellow;
+    context.globalAlpha = 0.16;
+    context.lineWidth = 1;
+    points.forEach((point) => {
+      context.beginPath();
+      context.arc(point.x, point.y, 2, 0, Math.PI * 2);
+      context.fill();
+    });
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1];
+      const to = points[index];
+      // A failed relation remains a local connector between facts, never a
+      // completed Pattern outline. The central third makes that distinction
+      // visible even when many contacts exist.
+      line(
+        context,
+        from.x + (to.x - from.x) * 0.34,
+        from.y + (to.y - from.y) * 0.34,
+        from.x + (to.x - from.x) * 0.66,
+        from.y + (to.y - from.y) * 0.66
+      );
+    }
+    context.restore();
+  });
 }
 
 export function czardasWindowX(
@@ -809,26 +857,6 @@ export function czardasValidationTone(outcome: string | null | undefined): "brea
 
 function czardasScore(meanings: CzardasCandleMeaningsDto | undefined, value: number | undefined): number {
   return meanings && typeof value === "number" ? value / meanings.scoreScale : 0;
-}
-
-function drawCzardasPatternBadge(context: CanvasRenderingContext2D, scene: ChartScene) {
-  const pattern = scene.chart.czardasPattern;
-  if (!pattern) return;
-  const label = pattern.kind === "ascending_triangle" ? "상승 삼각형"
-    : pattern.kind === "descending_triangle" ? "하락 삼각형"
-      : "대칭 삼각형";
-  context.save();
-  applyCanvasTypography(context, "caption", canvasFontFamily);
-  const width = context.measureText(label).width + 18;
-  const x = scene.plot.right - width - 8;
-  const y = scene.plot.top + 8;
-  context.fillStyle = colors.surfaceStrong;
-  context.globalAlpha = 0.88;
-  context.fillRect(x, y, width, 24);
-  context.fillStyle = colors.text;
-  context.globalAlpha = 0.95;
-  context.fillText(label, x + 9, y + 16);
-  context.restore();
 }
 
 function drawCzardasEmpty(context: CanvasRenderingContext2D, scene: ChartScene) {
@@ -2101,6 +2129,15 @@ function drawDrawings(
     } else if (drawing.type === "verticalMarker" && points[0]) {
       drawPricePlotClipped(context, scene, () => line(context, points[0].x, scene.plot.top, points[0].x, scene.plot.priceBottom));
       drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
+    } else if (drawing.type === "polyline" && points.length >= 3) {
+      drawPricePlotClipped(context, scene, () => {
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.stroke();
+      });
+      const middle = points[Math.floor(points.length / 2)];
+      drawDrawingLabel(context, drawing.label, middle.x + 5, middle.y - 8, drawing);
     } else if (drawing.type === "trendLine" && points.length >= 2) {
       const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
       drawPricePlotClipped(context, scene, () => line(context, start.x, start.y, end.x, end.y));
@@ -2575,25 +2612,26 @@ function drawDarkAxisPill(
   text: string,
   x: number,
   y: number,
-  align: "center" | "left" | "right"
+  align: "center" | "left" | "right",
+  color: string
 ) {
   context.save();
   applyCanvasTypography(context, "caption", canvasFontFamily);
   const metrics = context.measureText(text);
-  const width = metrics.width + 10;
+  const width = metrics.width + axisPillHorizontalPadding * 2;
   const height = 17;
   const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
   const top = y - height / 2;
-  context.fillStyle = colors.drawing;
-  context.strokeStyle = colors.drawing;
+  context.fillStyle = color;
+  context.strokeStyle = color;
   context.lineWidth = 1;
   roundedRect(context, left, top, width, height, 4);
   context.fill();
   context.stroke();
   context.fillStyle = colors.background;
-  context.textAlign = "center";
+  context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, left + width / 2, y + 0.5);
+  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
   context.restore();
 }
 
@@ -2613,13 +2651,14 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
     if (!anchor) {
       return;
     }
+    const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
 
     if (drawing.type === "horizontalLine" || drawing.type === "horizontalParallelLines") {
       const anchors = drawing.type === "horizontalLine" ? [anchor] : drawing.anchors.slice(0, 2);
       anchors.forEach((lineAnchor) => {
         const pt = transform.anchorToPoint(lineAnchor);
         if (typeof lineAnchor.price === "number" && pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
-          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), scene.width - 8, pt.y, "right");
+          drawDarkAxisPill(context, lineAnchor.price.toFixed(2), rightAxisPillX(scene), pt.y, "right", axisLabelColor);
         }
       });
     } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
@@ -2628,7 +2667,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
         const pt = transform.anchorToPoint(lineAnchor);
         const label = lineAnchor.timestamp ? formatSemanticTimestamp(lineAnchor.timestamp, scene.chart.interval) : "";
         if (pt && pt.x >= scene.plot.left && pt.x <= scene.plot.right && label) {
-          drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center");
+          drawDarkAxisPill(context, label, pt.x, timeAxisY(scene), "center", axisLabelColor);
         }
       });
     }
@@ -2657,7 +2696,7 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
   context.globalAlpha = 1;
   context.setLineDash([]);
-  drawAxisPill(context, price.toFixed(2), scene.width - 8, y, "right", "currentPrice");
+  drawAxisPill(context, price.toFixed(2), rightAxisPillX(scene), y, "right", "currentPrice");
   context.restore();
 }
 
@@ -2927,7 +2966,7 @@ function drawPriceAxis(context: CanvasRenderingContext2D, scene: ChartScene) {
   scene.scales.priceTicks.forEach((price) => {
     context.fillText(
       formatPriceAxisValue(price, scene.scales.bidAskPriceGrid?.decimalPlaces ?? 0),
-      scene.width - 8,
+      rightAxisTextX(scene),
       priceToY(scene, price)
     );
   });
@@ -2945,7 +2984,7 @@ function drawVolumeAxisLabels(context: CanvasRenderingContext2D, scene: ChartSce
   context.textAlign = "right";
   context.textBaseline = "middle";
   scene.scales.volumeTicks.forEach((volume) => {
-    context.fillText(formatVolumeAxisValue(volume), scene.width - 8, volumeY(scene, volume));
+    context.fillText(formatVolumeAxisValue(volume), rightAxisTextX(scene), volumeY(scene, volume));
   });
   context.restore();
 }
@@ -2975,20 +3014,15 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   if (!crosshair || crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
     return;
   }
-  const semanticHit = hitTestSemanticNode(scene, crosshair.x, crosshair.y);
-  if (!semanticHit) {
+  const timeTarget = resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y);
+  if (!timeTarget) {
     return;
   }
-  const gapBounds = semanticHit.kind === "time-gap" ? unitBoundsX(scene, semanticHit) : null;
-  const x = gapBounds
-    ? Math.max(gapBounds.left, Math.min(gapBounds.right, crosshair.x))
-    : unitCenterX(scene, semanticHit);
+  const x = timeTarget.x;
   const y = Math.max(scene.plot.top, Math.min(scene.plot.priceBottom, crosshair.y));
   const drawingToolActive = scene.chart.toolMode !== "pan" && scene.chart.toolMode !== "select";
   const alpha = drawingToolActive ? 0.12 : 0.22;
-  const label = semanticHit.kind === "candle"
-    ? formatSemanticTimestamp(semanticHit.timestamp, semanticHit.interval)
-    : formatSemanticTimestamp(timestampAtUnitX(scene, semanticHit, x), semanticHit.interval);
+  const label = formatSemanticTimestamp(timeTarget.timestamp, timeTarget.interval);
   const inPricePane = crosshair.y <= scene.plot.priceBottom;
   const activeBelowPane = scene.plot.belowPanes.find((pane) => crosshair.y >= pane.top && crosshair.y <= pane.bottom);
   const inVolumePane = activeBelowPane?.id === "volume";
@@ -3007,9 +3041,9 @@ function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, cro
   drawAxisPill(context, label, x, timeAxisY(scene), "center");
   if (inPricePane) {
     const price = createCoordinateTransform(scene).yToPrice(y);
-    drawAxisPill(context, price.toFixed(2), scene.width - 8, y, "right");
+    drawAxisPill(context, price.toFixed(2), rightAxisPillX(scene), y, "right");
   } else if (inVolumePane) {
-    drawAxisPill(context, formatVolumeAxisValue(volumeAtY(scene, crosshair.y)), scene.width - 8, crosshair.y, "right");
+    drawAxisPill(context, formatVolumeAxisValue(volumeAtY(scene, crosshair.y)), rightAxisPillX(scene), crosshair.y, "right");
   }
   context.restore();
 }
@@ -3019,6 +3053,9 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
     return;
   }
   if (crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
+    return;
+  }
+  if (resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y)?.kind === "future") {
     return;
   }
   let best: { x: number; close: number } | null = null;
@@ -3033,10 +3070,7 @@ function drawLineHoverDot(context: CanvasRenderingContext2D, scene: ChartScene, 
     bestDistance = 0;
   }
   scene.semantic.units.forEach((unit) => {
-    if (bestDistance === 0) {
-      return;
-    }
-    if (unit.kind !== "candle") {
+    if (bestDistance === 0 || unit.kind !== "candle") {
       return;
     }
     const centerX = unitCenterX(scene, unit);
@@ -3185,9 +3219,32 @@ function drawAxisPill(
   context.fill();
   context.stroke();
   context.fillStyle = variant === "currentPrice" ? colors.surface : colors.text;
-  context.textAlign = "center";
+  context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, left + width / 2, y + 0.5);
+  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
+}
+
+function rightAxisPillX(scene: ChartScene): number {
+  return scene.width - rightAxisOuterInset;
+}
+
+function rightAxisTextX(scene: ChartScene): number {
+  return rightAxisPillX(scene) - axisPillHorizontalPadding;
+}
+
+function axisPillTextX(
+  x: number,
+  left: number,
+  width: number,
+  align: "center" | "left" | "right"
+): number {
+  if (align === "right") {
+    return x - axisPillHorizontalPadding;
+  }
+  if (align === "left") {
+    return x + axisPillHorizontalPadding;
+  }
+  return left + width / 2;
 }
 
 function drawEmpty(context: CanvasRenderingContext2D, width: number, height: number, message: string) {

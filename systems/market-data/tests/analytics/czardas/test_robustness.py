@@ -110,13 +110,16 @@ def test_integrity_caps_isolated_wick_but_penalizes_sustained_body_and_close_acc
     assert accepted_integrity.integrity < wick_integrity.integrity - 0.04
 
 
-def test_zero_range_and_zero_volume_remain_available_as_an_honest_no_draw_snapshot():
+def test_zero_range_and_zero_volume_remain_available_as_honest_baseline_memory():
     rows = flat_rows(volume=0.0)
     for item in rows:
         item.update(open=100.0, high=100.0, low=100.0, close=100.0)
     result = analyze_czardas(rows)
     assert isinstance(result, Ready)
-    assert result.content["drawings"] == []
+    assert result.content["selection"]["hline"]["actualCount"] == 1
+    assert result.content["selection"]["trend"]["actualCount"] == 0
+    assert result.content["selection"]["pattern"]["actualCount"] == 0
+    assert result.content["boundaries"][0]["evidenceState"] == "baseline_memory"
     meanings = result.content["czardasField"]["candleMeanings"]
     atr_bit = meanings["availabilityCodebook"]["atr"]
     assert all(not (mask & atr_bit) for mask in meanings["availabilityMasks"])
@@ -147,7 +150,7 @@ def test_past_break_followed_by_reclaim_is_not_an_open_break_forever():
     assert not has_open_break(tape, features, probe, 239, DEFAULT_CONFIG)
 
 
-def test_trend_anchor_strata_never_refill_one_time_third_above_four():
+def test_trend_anchor_selection_uses_adaptive_coverage_without_fixed_thirds():
     anchors = [
         SimpleNamespace(
             basis_id=f"early-{index}", bar_index=index, geometry_score=1.0 - index / 1000,
@@ -163,10 +166,8 @@ def test_trend_anchor_strata_never_refill_one_time_third_above_four():
     ]
 
     selected = _stratified_anchors(anchors, candle_count=240, cap=12)
-    counts = [
-        sum((third * 80) <= item.bar_index < ((third + 1) * 80) for item in selected)
-        for third in range(3)
-    ]
-
-    assert counts == [4, 0, 4]
-    assert len(selected) == 8
+    assert len(selected) == 12
+    assert len({item.basis_id for item in selected}) == 12
+    assert any(item.bar_index < 80 for item in selected)
+    assert any(item.bar_index >= 160 for item in selected)
+    assert not any(80 <= item.bar_index < 160 for item in selected)

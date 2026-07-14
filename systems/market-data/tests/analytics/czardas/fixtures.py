@@ -29,6 +29,23 @@ def flat_rows(*, volume: float = 1_000.0):
     return [_row(start + timedelta(days=index), 100.0, 100.5, 99.5, 100.0, volume) for index in range(240)]
 
 
+def regime_shift_rows():
+    """Long quiet structure followed by a distinct current local flow."""
+
+    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    rows = []
+    for index in range(240):
+        if index < 160:
+            close = 100.0 + 0.02 * index + 2.0 * ((index % 16) / 15.0 - 0.5)
+        else:
+            close = 103.2 + 0.35 * (index - 160) + 1.2 * ((index % 10) / 9.0 - 0.5)
+        rows.append(_row(
+            start + timedelta(days=index), close - 0.2, close + 0.8,
+            close - 0.8, close, 1_000.0,
+        ))
+    return rows
+
+
 def _row(timestamp, open_, high, low, close, volume):
     return {
         "symbol": "TEST",

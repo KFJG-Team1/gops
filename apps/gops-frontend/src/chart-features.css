@@ -771,21 +771,51 @@
 
 .chart-panel-navigation-leading {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
-  max-width: none;
+  max-width: calc(100% - 52px);
   min-width: 0;
   height: 30px;
 }
 
-.chart-panel-navigation-actions {
+.chart-panel-navigation-adjacent,
+.chart-panel-navigation-right {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 5px;
   min-width: 0;
   height: 30px;
+}
+
+.chart-panel-navigation-adjacent {
+  flex: 0 0 auto;
+}
+
+.chart-panel-navigation-right {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  margin-left: auto;
+  overflow: hidden;
+}
+
+.chart-panel-hover-controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 130ms ease, visibility 0s linear 130ms;
+}
+
+.workspace-panel-frame.is-chart-hovered .chart-panel-hover-controls,
+.chart-lane-frame.is-chart-hovered .chart-panel-hover-controls,
+.chart-lane-frame:hover .chart-panel-hover-controls,
+.chart-lane-frame:focus-within .chart-panel-hover-controls,
+.chart-panel-navigation:focus-within .chart-panel-hover-controls,
+.chart-panel-navigation.has-open-chart-menu .chart-panel-hover-controls {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .chart-panel-navigation .chart-instance-symbol {
@@ -797,8 +827,13 @@
 }
 
 .chart-panel-navigation .chart-content-toggle,
+.chart-panel-navigation .chart-add-target-button,
+.chart-panel-navigation .chart-panel-navigation-reset {
+  box-sizing: border-box;
+}
+
+.chart-panel-navigation .chart-content-toggle,
 .chart-panel-navigation .chart-add-target-button {
-  opacity: 1;
   pointer-events: auto;
 }
 
@@ -823,8 +858,9 @@
   z-index: 34;
   box-sizing: border-box;
   display: flex;
-  flex: 1 1 0;
-  width: 0;
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 100%;
   align-items: center;
   min-width: 52px;
   height: 30px;
@@ -865,7 +901,7 @@
   align-items: center;
   gap: 4px;
   width: max-content;
-  min-width: 100%;
+  min-width: max-content;
   height: 28px;
 }
 
@@ -889,16 +925,6 @@
 .chart-drawing-dock .icon-button:focus-visible,
 .chart-drawing-dock .icon-button.active {
   background: var(--color-surface-strong);
-}
-
-.chart-grouped-tool-button {
-  position: relative;
-}
-
-.chart-trend-tool-chevron {
-  position: absolute;
-  right: 1px;
-  bottom: 1px;
 }
 
 .chart-drawing-scroll-button {
@@ -930,44 +956,6 @@
   margin-left: 2px;
 }
 
-.chart-tool-group-menu {
-  position: absolute;
-  z-index: 48;
-  top: 32px;
-  display: grid;
-  width: 142px;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 4px;
-  background: var(--color-surface-strong);
-  box-shadow: none;
-}
-
-.chart-tool-group-menu button {
-  display: grid;
-  grid-template-columns: 22px 1fr;
-  align-items: center;
-  min-height: 30px;
-  border: 0;
-  border-radius: 6px;
-  padding: 3px 7px;
-  background: transparent;
-  color: var(--color-text);
-  text-align: left;
-}
-
-.chart-tool-group-menu button:hover,
-.chart-tool-group-menu button:focus-visible,
-.chart-tool-group-menu button.active {
-  background: var(--color-surface);
-}
-
-.chart-tool-group-menu .trend-extension-icon {
-  width: 17px;
-  height: 17px;
-}
-
 .chart-drawing-color-button {
   position: relative;
 }
@@ -984,19 +972,21 @@
 }
 
 .chart-drawing-color-menu {
-  position: absolute;
-  z-index: 48;
-  top: 32px;
+  position: fixed;
+  z-index: 1100;
   display: grid;
   grid-template-columns: repeat(4, 26px);
   gap: 4px;
   box-sizing: border-box;
   width: 132px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--coinbase-hairline-strong);
   border-radius: 8px;
   padding: 7px;
-  background: var(--color-surface-strong);
+  background: var(--coinbase-panel-strong);
   box-shadow: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .chart-drawing-color-menu button {
@@ -1016,8 +1006,8 @@
 .chart-drawing-color-menu button:hover,
 .chart-drawing-color-menu button:focus-visible,
 .chart-drawing-color-menu button.active {
-  border-color: var(--color-border);
-  background: var(--color-surface);
+  border-color: var(--coinbase-hairline-strong);
+  background: var(--coinbase-primary-soft);
 }
 
 .chart-drawing-color-swatch {
@@ -1038,19 +1028,19 @@
 .chart-drawing-width-divider {
   grid-column: 1 / -1;
   height: 1px;
-  margin: 2px 0;
-  background: var(--color-border);
+  margin: 3px 0;
+  background: var(--coinbase-hairline);
 }
 
 .chart-drawing-width-options {
-  grid-column: 1 / -1;
   display: grid;
+  grid-column: 1 / -1;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
 }
 
 .chart-drawing-width-options button {
-  width: auto;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1059,17 +1049,6 @@
   width: 18px;
   border-radius: 999px;
   background: currentColor;
-}
-
-.chart-parallel-line-count {
-  flex: 0 0 auto;
-  width: 44px;
-  height: 28px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface-raised-surface);
-  color: var(--color-text);
 }
 
 .chart-placement-toggle {
@@ -1178,7 +1157,6 @@
 .chart-panel-navigation select,
 .chart-panel-navigation .symbol-search,
 .chart-panel-navigation .symbol-search input,
-.chart-panel-navigation .chart-tool-group-menu,
 .chart-panel-navigation .chart-add-dock,
 .chart-immediate-tooltip {
   box-shadow: none !important;
@@ -1192,6 +1170,13 @@
   border-color: var(--color-border);
   outline: none;
   box-shadow: none !important;
+}
+
+.chart-panel-navigation .chart-toolbar-select-trigger:hover,
+.chart-panel-navigation .chart-toolbar-select-trigger:focus-visible,
+.chart-panel-navigation .chart-toolbar-select-trigger.is-open {
+  border-color: var(--coinbase-primary);
+  color: var(--coinbase-primary);
 }
 
 .chart-add-dock-divider {
@@ -1321,6 +1306,7 @@
 .chart-commentary-invalidation,
 .chart-commentary-empty,
 .chart-asset-ops-symbols textarea,
+.chart-asset-ops-options input[type="number"],
 .chart-drawing-label-editor,
 .glossary-tooltip span,
 .order-flow-symbol-search input {
@@ -1332,6 +1318,8 @@
 .chart-analysis-layer-buttons button,
 .chart-commentary-focus button,
 .chart-asset-ops-panel button,
+.chart-pattern-list-toolbar button,
+.chart-pattern-list-state button,
 .chart-compare-range-tabs button,
 .chart-compare-list-row button,
 .order-flow-window-grid button {

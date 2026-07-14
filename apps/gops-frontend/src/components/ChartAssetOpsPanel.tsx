@@ -188,12 +188,17 @@ export function ChartAssetOpsPanel({
         <header><strong>선택한 자산</strong><span>{normalizedSymbol || "-"} {interval}</span></header>
         {loading ? <p>불러오는 중…</p> : entry?.pack ? (
           <>
-            <p>freshness {entry.freshness} · H-Line {entry.pack.selection.hline.actualCount} · Trend {entry.pack.selection.trend.actualCount}</p>
+            <p>
+              freshness {entry.freshness} · H-Line {entry.pack.selection.hline.actualCount}
+              {` · Trend ${entry.pack.selection.trend.actualCount} · Pattern ${entry.pack.selection.pattern.actualCount}`}
+            </p>
             <p>
               coverage exact · {entry.pack.coverage.actualCompleted}/{entry.pack.coverage.targetCompleted}봉
               {` · Field ${entry.pack.czardasField.basisFacts.basisIds.length} basis`}
             </p>
-            {entry.pack.presentationPattern && <p>감지 패턴 {patternName(entry.pack.presentationPattern.kind)}</p>}
+            {entry.pack.patternRelations.length > 0 && (
+              <p>감지 패턴 {entry.pack.patternRelations.map((pattern) => patternName(pattern.kind)).join(" · ")}</p>
+            )}
             <p>생성 {formatGeneratedAt(entry.generatedAt)}</p>
             <button type="button" disabled={deleting || running} onClick={() => void removeAsset()}>{deleting ? "삭제 중" : "자산 삭제"}</button>
           </>
@@ -210,9 +215,12 @@ export function ChartAssetOpsPanel({
 
 function patternName(kind: string): string {
   return {
-    ascending_triangle: "상승 삼각형",
-    descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형"
+    triangle: "삼각형",
+    channel: "채널",
+    rectangle: "직사각형",
+    wedge: "쐐기",
+    flag: "플래그",
+    pennant: "페넌트"
   }[kind] ?? kind;
 }
 

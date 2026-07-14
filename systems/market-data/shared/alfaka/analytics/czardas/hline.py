@@ -24,6 +24,7 @@ def detect_hlines(
     features: FeatureTape,
     all_basis: tuple[RoleBasis, ...],
     config: CzardasConfig,
+    domains=(),
 ) -> DetectorResult:
     profile = estimated_volume_profile(tape, config)
     modes: list[FieldMode] = []
@@ -31,10 +32,9 @@ def detect_hlines(
     response_segments: list[dict] = []
     retained_basis: list[RoleBasis] = []
     for role in ("support", "resistance"):
+        integrity_probe_count = 0
         role_basis = [item for item in all_basis if item.role == role]
-        role_basis = sorted(role_basis, key=lambda item: (-item.role_mass, -item.bar_index, item.basis_id))[
-            :config.hline_evidence_cap_per_role
-        ]
+        role_basis = _domain_aware_basis(role_basis, domains, config.hline_evidence_cap_per_role)
         retained_basis.extend(role_basis)
         intervals = [_basis_interval(tape, features, item, config) for item in role_basis]
         segments = _piecewise_segments(intervals)
@@ -113,8 +113,16 @@ def detect_hlines(
                     dispersion=dispersion,
                 ))
                 continue
+            if integrity_probe_count >= 4:
+                modes.append(_field_mode(
+                    tape, mode_id, role, origin_ids, final_center, final_zone, low, high,
+                    contributors, final_episodes, "weak", provisional_atr,
+                    dispersion=dispersion,
+                ))
+                continue
+            integrity_probe_count += 1
             integrity_eval = integrity_for_domain(
-                tape, features, probe, 0, len(tape.candles) - 1, config
+                tape, features, probe, formation_start, len(tape.candles) - 1, config
             )
             integrity = integrity_eval.integrity
             body_integrity = integrity_eval.body_integrity
@@ -250,6 +258,24 @@ def _refine_mode(tape, features, episodes, role, mode_id, config):
 def _candidate_median_atr(tape, features, start, end):
     values = [features.atr[index] for index in range(start, end + 1) if features.atr[index] is not None]
     return median(values) if values else features.atr_scale(end, tape.candles[end].close)
+
+
+def _domain_aware_basis(items, domains, cap):
+    ordered = sorted(items, key=lambda item: (-item.role_mass, -item.bar_index, item.basis_id))
+    if len(ordered) <= cap:
+        return ordered
+    representatives = []
+    seen = set()
+    for domain in sorted((item for item in domains if item.active), key=lambda item: (
+        item.depth, item.start_index, item.domain_id,
+    )):
+        values = [item for item in ordered if domain.start_index <= item.bar_index <= domain.end_index]
+        if values and values[0].basis_id not in seen:
+            representatives.append(values[0])
+            seen.add(values[0].basis_id)
+    result = representatives[:cap]
+    result.extend(item for item in ordered if item.basis_id not in seen and len(result) < cap)
+    return sorted(result, key=lambda item: (-item.role_mass, -item.bar_index, item.basis_id))
 
 
 def _field_mode(

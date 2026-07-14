@@ -8,6 +8,7 @@ import {
   requestPortfolioRefresh,
   runSimulatorAction,
   setSimulatorMode,
+  simulatorStatusPollIntervalMs,
   type SimulatorNewsArticle,
   type SimulatorStatus
 } from "./simulatorApi";
@@ -30,16 +31,47 @@ export function SimulatorControl() {
   const [error, setError] = useState<string>();
   const [article, setArticle] = useState<SimulatorNewsArticle | null>(null);
   const announcedRunRef = useRef<string | null>(null);
+  const latestStatusRef = useRef<SimulatorStatus>(initialStatus);
+  const reschedulePollRef = useRef<() => void>(() => undefined);
 
   const applyStatus = (next: SimulatorStatus) => {
+    latestStatusRef.current = next;
     setStatus(next);
     publishSimulatorStatus(next);
   };
 
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
+    let timer: number | undefined;
+    let activeController: AbortController | null = null;
+    let inFlight = false;
+    let refreshWhenIdle = false;
+
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    const schedule = () => {
+      clearTimer();
+      if (cancelled || document.visibilityState === "hidden") return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void refresh();
+      }, simulatorStatusPollIntervalMs(latestStatusRef.current));
+    };
+
     const refresh = async () => {
+      if (cancelled || document.visibilityState === "hidden") return;
+      if (inFlight) {
+        refreshWhenIdle = true;
+        return;
+      }
+      inFlight = true;
+      const controller = new AbortController();
+      activeController = controller;
       try {
         const next = await fetchSimulatorStatus(controller.signal);
         if (cancelled) return;
@@ -55,15 +87,48 @@ export function SimulatorControl() {
           setArticle(null);
         }
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "시뮬레이터 연결 실패");
+        if (!cancelled && !controller.signal.aborted) {
+          setError(caught instanceof Error ? caught.message : "시뮬레이터 연결 실패");
+        }
+      } finally {
+        if (activeController === controller) activeController = null;
+        inFlight = false;
+        if (refreshWhenIdle) {
+          refreshWhenIdle = false;
+          void refresh();
+        } else {
+          schedule();
+        }
       }
     };
-    void refresh();
-    const interval = window.setInterval(refresh, 250);
+
+    const refreshNow = () => {
+      clearTimer();
+      if (inFlight) {
+        refreshWhenIdle = true;
+        return;
+      }
+      void refresh();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearTimer();
+        activeController?.abort();
+        return;
+      }
+      refreshNow();
+    };
+
+    reschedulePollRef.current = schedule;
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    refreshNow();
     return () => {
       cancelled = true;
-      controller.abort();
-      window.clearInterval(interval);
+      reschedulePollRef.current = () => undefined;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearTimer();
+      activeController?.abort();
     };
   }, []);
 
@@ -74,6 +139,7 @@ export function SimulatorControl() {
     try {
       const next = await setSimulatorMode(status.mode === "simulation" ? "live" : "simulation");
       applyStatus(next);
+      reschedulePollRef.current();
       requestPortfolioRefresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "모드 전환 실패");
@@ -91,6 +157,7 @@ export function SimulatorControl() {
       }
       const next = await runSimulatorAction(action);
       applyStatus(next);
+      reschedulePollRef.current();
       requestPortfolioRefresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "시뮬레이터 제어 실패");

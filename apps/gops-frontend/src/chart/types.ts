@@ -364,6 +364,7 @@ export type ChartToolMode =
   | "draw-horizontalLine"
   | "draw-horizontalParallelLines"
   | "draw-trendLine"
+  | "draw-polyline"
   | "draw-trendParallelLines"
   | "draw-verticalMarker"
   | "draw-verticalParallelLines"
@@ -377,6 +378,7 @@ export type DrawingType =
   | "horizontalLine"
   | "horizontalParallelLines"
   | "trendLine"
+  | "polyline"
   | "trendParallelLines"
   | "verticalMarker"
   | "verticalParallelLines"
@@ -396,7 +398,7 @@ export type DrawingAnchor = {
   interval?: ChartInterval;
 };
 
-export type ChartLineExtension = "segment" | "ray" | "line";
+export type ChartLineExtension = "segment" | "ray" | "line" | "none";
 
 export type DrawingStyle = {
   color?: string;
@@ -426,12 +428,13 @@ export type DrawingEntity = {
   createdBy: "user" | "agent" | "system" | "llm";
   sourceProposalId?: string;
   ownership?: "user" | "llm" | "czardas-managed" | "czardas-fork";
-  czardasLayer?: "hline" | "trend";
+  czardasLayer?: "hline" | "trend" | "pattern";
   sourceInferenceId?: string;
   sourceCandidateId?: string;
   sourceFieldModeId?: string;
   sourceFieldDerivationDigest?: string;
-  sourceGroupId?: string;
+  sourceRelationId?: string;
+  sourceRelationDerivationDigest?: string;
   forkedFromDrawingId?: string;
   createdAt: string;
   updatedAt: string;
@@ -499,8 +502,7 @@ export type ChartState = {
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
   czardasField?: CzardasFieldDto | null;
-  czardasPattern?: CzardasPatternDto | null;
-  czardasVisibility?: { hline: boolean; trend: boolean };
+  czardasVisibility?: { hline: boolean; trend: boolean; pattern: boolean };
   czardasAssetState?: "current" | "stale" | "missing" | "incompatible";
   orderFlow?: {
     dataStatus: OrderFlowIntradayResponseDto["dataStatus"];
@@ -524,31 +526,7 @@ export type ChartState = {
 
 export const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask", "czardas"];
 
-export const czardasMeaningFactorKeys = [
-  "rangeAtr",
-  "absoluteReturnAtr",
-  "bodyFraction",
-  "lowerWickFraction",
-  "upperWickFraction",
-  "volumeRank",
-  "volumeZ",
-  "participation",
-  "localHighR2",
-  "localLowR2",
-  "localHighR5",
-  "localLowR5",
-  "localHighR13",
-  "localLowR13",
-  "supportProximity",
-  "resistanceProximity",
-  "lowerResidualAtr",
-  "upperResidualAtr",
-  "hlinePenetrationAtr",
-  "trendPenetrationAtr",
-  "reclaimStrength"
-] as const;
-
-export type CzardasMeaningFactorKey = typeof czardasMeaningFactorKeys[number];
+export type CzardasMeaningFactorKey = string;
 export type CzardasMeaningChannel = "shared" | "hline" | "trend";
 export type CzardasMeaningUsage = "geometry_input" | "fit" | "integrity" | "response" | "visualization_only";
 
@@ -560,8 +538,18 @@ export type CzardasReasonCodeDto = {
   channel: CzardasMeaningChannel;
 };
 
+export type CzardasFactorCodeDto = {
+  key: CzardasMeaningFactorKey;
+  label: string;
+  channel: CzardasMeaningChannel;
+  scale: number;
+  transform: "linear" | "log1p";
+};
+
 export type CzardasCandleMeaningsDto = {
   evaluationAsOf: string;
+  codebookVersion: "czardas-factor-codebook-v4";
+  factorCodebook: CzardasFactorCodeDto[];
   rawFactorScales: Record<CzardasMeaningFactorKey, number>;
   rawFactorTransforms: Record<CzardasMeaningFactorKey, "linear" | "log1p">;
   normalizedFactorScale: number;
@@ -646,6 +634,9 @@ export type CzardasFieldDto = {
   windowFromTimestamp: string;
   windowToTimestamp: string;
   candleMeanings: CzardasCandleMeaningsDto;
+  structuralDomains: Array<Record<string, unknown>>;
+  regressionFlows: Array<Record<string, unknown>>;
+  priceMemoryRidges: Array<Record<string, unknown>>;
   basisFacts: CzardasBasisFactsDto;
   basisGlyphs: Array<{
     basisId: string;
@@ -667,17 +658,28 @@ export type CzardasFieldDto = {
   selectedModeRefs: Array<Record<string, unknown>>;
   derivationEpisodes: CzardasDerivationEpisodesDto;
   validationGlyphs: CzardasValidationGlyphDto[];
-  relationGlyph?: Record<string, unknown> | null;
+  patternRelationGlyphs: Array<Record<string, unknown>>;
+  patternEvidenceGlyphs: Array<Record<string, unknown>>;
   projection?: Record<string, unknown>;
 };
 
 export type CzardasPatternDto = {
-  triangleId: string;
-  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
-  upperCandidateId: string;
-  lowerCandidateId: string;
-  upperDrawingId?: string;
-  lowerDrawingId?: string;
+  relationId: string;
+  kind: "triangle" | "channel" | "rectangle" | "wedge" | "flag" | "pennant";
+  displayName: string;
+  boundaryCandidateIds: string[];
+  domain: Record<string, unknown>;
+  relationQuality: number;
+  traceRef: string;
+  traceAnchorCount: number;
+  traceFactCount: number;
+  relationBars?: number;
+  explanation?: {
+    claim: string;
+    because: string[];
+    against: string[];
+    dataQualifier: string;
+  };
 };
 
 export const chartIntervals: ChartInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"];

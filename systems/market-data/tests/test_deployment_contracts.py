@@ -72,13 +72,16 @@ class DeploymentContractsTest(unittest.TestCase):
         self.assertNotIn("job-czardas-asset-migrations.yaml", base_resources)
 
         deployment = load_yaml("infra/k8s/base/app/deployment-czardas-asset-builder.yaml")
-        env_from = deployment["spec"]["template"]["spec"]["containers"][0]["envFrom"]
+        builder = deployment["spec"]["template"]["spec"]["containers"][0]
+        env_from = builder["envFrom"]
         secret_names = {
             item["secretRef"]["name"]
             for item in env_from
             if "secretRef" in item
         }
         self.assertIn("alfaka-order-db-secret", secret_names)
+        self.assertEqual(builder["resources"]["requests"]["memory"], "512Mi")
+        self.assertEqual(builder["resources"]["limits"]["memory"], "1Gi")
 
         migration = load_yaml("infra/k8s/base/job-czardas-asset-migrations.yaml")
         container = migration["spec"]["template"]["spec"]["containers"][0]
@@ -192,6 +195,15 @@ printf '%s\\n' "$*" >> "${KUBECTL_CALLS}"
 
     def test_czardas_asset_migration_runner_renders_custom_name(self):
         runner = REPO_ROOT / "scripts/aws/run-czardas-asset-migrations-job.sh"
+
+    def test_market_shared_changes_rebuild_paper_order_matcher_image(self):
+        detector = (REPO_ROOT / "scripts/aws/detect-changed-services.sh").read_text(encoding="utf-8")
+        start = detector.index("systems/market-data/shared/*)")
+        branch = detector[start:detector.index(";;", start)]
+        self.assertIn("add_service order-worker", branch)
+
+    def test_czardas_asset_migration_runner_renders_custom_name(self):
+        runner = REPO_ROOT / "scripts/aws/run-czardas-asset-migrations-job.sh"
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
             fake_kubectl = temp / "kubectl"
@@ -264,6 +276,11 @@ fi
         migration_pod = migration["spec"]["template"]["spec"]
         self.assertEqual(migration_pod["nodeSelector"]["karpenter.sh/nodepool"], "batch-warm")
         self.assertEqual(migration_pod["tolerations"][0]["value"], "batch")
+        order_migrations = load_yaml("infra/k8s/base/job-order-migrations.yaml")
+        self.assertEqual(
+            order_migrations["spec"]["template"]["spec"]["nodeSelector"]["karpenter.sh/nodepool"],
+            "batch-warm",
+        )
 
     def test_scheduled_jobs_have_resources_and_retain_failure_evidence(self):
         for path in (
@@ -369,6 +386,7 @@ fi
     def test_order_workers_have_loop_heartbeat_probes(self):
         for path in (
             "infra/k8s/base/app/deployment-order-outbox-publisher.yaml",
+            "infra/k8s/base/app/deployment-paper-order-matcher.yaml",
             "infra/k8s/base/app/deployment-kis-broker-adapter.yaml",
         ):
             with self.subTest(path=path):
@@ -400,6 +418,36 @@ fi
         self.assertIn("quality", workflow["jobs"])
         self.assertEqual(workflow["jobs"]["deploy"]["needs"], "quality")
         self.assertIn("kubectl kustomize infra/k8s/base/platform", workflow_text)
+
+    def test_dev_deploy_can_migrate_czardas_assets_before_app_rollout(self):
+        workflow = (REPO_ROOT / ".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+
+        self.assertIn("run_czardas_asset_migrations:", workflow)
+        self.assertIn("run-czardas-asset-migrations-job.sh", workflow)
+        self.assertIn(
+            "run_czardas_asset_migrations=true requires services to include agent-orchestrator.",
+            workflow,
+        )
+        self.assertLess(
+            workflow.index("run-czardas-asset-migrations-job.sh"),
+            workflow.index("name: Deploy app workloads"),
+        )
+
+    def test_local_dev_deploy_can_migrate_czardas_assets_before_app_rollout(self):
+        script = (REPO_ROOT / "scripts/aws/deploy-dev-local.sh").read_text(encoding="utf-8")
+
+        self.assertIn('RUN_CZARDAS_ASSET_MIGRATIONS="${RUN_CZARDAS_ASSET_MIGRATIONS:-false}"', script)
+        self.assertIn("REMOTE_BRANCH=branch-name", script)
+        self.assertIn(
+            "RUN_CZARDAS_ASSET_MIGRATIONS=true requires agent-orchestrator to be selected.",
+            script,
+        )
+        self.assertIn("run-czardas-asset-migrations-job.sh", script)
+        main = script[script.index("main()") :]
+        self.assertLess(
+            main.index("run_migrations_if_requested"),
+            main.index("deploy_app_workloads"),
+        )
 
     def test_terraform_covers_all_current_images_with_immutable_tags(self):
         terraform = (REPO_ROOT / "infra/aws/terraform/main.tf").read_text(encoding="utf-8")

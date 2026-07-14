@@ -394,6 +394,15 @@ function drawDrawingForeground(ctx: CanvasRenderingContext2D, scene: RenderScene
         scene.plot.priceBottom - 14,
         drawing
       );
+    } else if (drawing.type === "polyline" && points.length >= 3) {
+      withPricePlotClip(ctx, scene, () => {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+        ctx.stroke();
+      });
+      const middle = points[Math.floor(points.length / 2)];
+      drawDrawingLabel(ctx, scene, drawing.label, middle.x + 5, middle.y - 8, drawing);
     } else if (drawing.type === "trendLine" && points.length >= 2) {
       const [start, end] = projectTrendLine(points[0], points[1], scene.plot, normalizeLineExtension(style.extension));
       line(ctx, start.x, start.y, end.x, end.y);

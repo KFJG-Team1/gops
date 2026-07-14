@@ -74,9 +74,10 @@ CREATE TABLE IF NOT EXISTS market_data.chart_candles
     feed LowCardinality(String),
     feed_profile LowCardinality(String) DEFAULT feed,
     market_session LowCardinality(String) DEFAULT 'unknown',
-    price_adjustment LowCardinality(String) DEFAULT 'unknown',
     canonical_version LowCardinality(String) DEFAULT 'legacy',
+    price_adjustment LowCardinality(String) DEFAULT 'unknown',
     bucket_policy LowCardinality(String) DEFAULT 'clock_aligned',
+    bucket_policy_key LowCardinality(String),
     source_event_id Nullable(String),
     created_at Nullable(DateTime64(3, 'UTC')),
     inserted_at DateTime64(3, 'UTC') DEFAULT now64(3)
@@ -89,9 +90,9 @@ ORDER BY (
     event_time,
     feed_profile,
     market_session,
-    bucket_policy,
     canonical_version,
-    price_adjustment
+    price_adjustment,
+    bucket_policy_key
 );
 
 CREATE TABLE IF NOT EXISTS market_data.market_status_events
@@ -323,9 +324,8 @@ ALTER TABLE market_data.chart_candles
     ADD COLUMN IF NOT EXISTS canonical_version LowCardinality(String) DEFAULT 'legacy' AFTER price_adjustment,
     ADD COLUMN IF NOT EXISTS bucket_policy LowCardinality(String) DEFAULT 'clock_aligned' AFTER canonical_version;
 
--- Never rewrite a populated ReplacingMergeTree sorting key from init/runtime
--- bootstrap. Existing clusters require an explicit operator migration; the
--- CREATE TABLE key above is the canonical contract for fresh installations.
+ALTER TABLE market_data.chart_candles
+    ADD COLUMN IF NOT EXISTS bucket_policy_key LowCardinality(String) AFTER bucket_policy;
 
 ALTER TABLE market_data.trade_ticks
     ADD COLUMN IF NOT EXISTS feed_profile LowCardinality(String) DEFAULT feed AFTER feed,

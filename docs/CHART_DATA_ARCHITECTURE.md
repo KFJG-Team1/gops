@@ -17,10 +17,25 @@ in `platform/{kafka,redis,clickhouse,s3}/README.md`.
   are excluded and raw S3 is never chart serving or ClickHouse materialization input.
 - Local runtime never injects fake market candles. `?orderFlowDemo=1` is a
   browser fixture path only.
-- US-equity `1m` is the real provider source. `5m/10m/1h/4h` are materialized
-  from regular-session `1m` with `bucket_policy=us_equity_regular_session`.
+- US-equity realtime `1m` is the live provider source. Historical and persisted
+  `5m/10m/1h/4h` candles are materialized from regular-session data with
+  `bucket_policy=us_equity_regular_session`. During an active pre, after, or
+  overnight session, the API and live processor additionally aggregate retained
+  `1m` rows for the current extended session and its contiguous predecessor with
+  `bucket_policy=us_equity_extended_session`. Those read-time/live rows are
+  anchored to each extended-session open, never cross a session boundary, and do
+  not make old extended sessions part of historical chart serving. Bounded
+  historical repair keeps `1m` as the source for `5m/10m`, but fetches and stores
+  Alpaca `10Min` as a `source_native` recovery source for `1h/4h`; the resulting
+  historical target candles use the regular-session bucket policy. Readers prefer
+  stored target rows, then `10m`, then legacy `1m` aggregation for hourly history,
+  and merge the bounded current extended-session aggregate when applicable.
   Bucket timestamps are stored in UTC, while session open/close and early-close
   decisions use the NYSE calendar in `America/New_York`.
+- Candle runtime boundaries normalize OHLCV to numeric values and `tradeCount`
+  to a non-negative integer. Redis/ClickHouse recovery must normalize legacy
+  JSON strings before placing candles in live aggregation state, and writers
+  must not persist new string-valued numeric fields.
 - Orders, KIS, and agent APIs are outside this data-plane contract.
 
 ## Runtime Flow
@@ -78,7 +93,7 @@ The single candle read boundary is `CanonicalCandleQuery`:
 
 ```text
 Redis recent/live projection
-  -> ClickHouse matching bucket-policy rows or bounded canonical 1m aggregation
+  -> ClickHouse matching bucket-policy rows or bounded canonical 10m/1m aggregation
   -> optional bounded foreground Alpaca fill for the requested window
   -> background processed S3 final/final-v2 materialization
   -> background Alpaca historical fill
@@ -112,6 +127,14 @@ WebSocket candle events remain `LIVE_CANDLE_UPDATE`, `CANDLE_CLOSED`, and
 finish with `derived.state=ready|failed` and
 `derived.source=api-compute|redis`; there is no derived queue, worker, or
 ClickHouse artifact contract.
+
+`GET /api/charts/volume-profile-bins` treats `targetBins` as an exact display
+bucket count from 4 through 48. The active chart requests 10 equal-width buckets
+across the visible closed-candle low/high range. Zero-volume buckets remain in
+the response so their price-space gaps are preserved, while a request with no
+source candles remains empty. The response `priceBinSize` is the resolved price
+range divided by `targetBins`; `priceBinSize=auto` remains the compatible request
+mode. This chart calculation uses `volume-profile-exact-v2` cache keys.
 
 ## Order Flow Consumers
 
@@ -151,27 +174,19 @@ layout migration. See `platform/s3/README.md` for exact prefixes.
 - Processor maps, frontend inactive candle caches, and order-flow bucket caches
   have tested upper bounds.
 
-Czardas assets are a manual build projection, not an API request-derived cache.
-The independent builder reads canonical ClickHouse candles
-for the requested interval. Missing derived intraday ranges fetch Alpaca `1Min`,
-write real regular-session `1m`, materialize the requested session-aligned
-`5m/10m/1h/4h`, and re-read ClickHouse. `1W` continues to derive from canonical
-`1D`. This canonical repair path does not use S3, Redis, or Kafka.
+Persisted chart-analysis assets are an offline build projection, not an API
+request-derived cache. The independent builder reads canonical ClickHouse candles
+for the requested interval. Missing `5m/10m` ranges fetch Alpaca `1Min`; missing
+`1h/4h` ranges fetch Alpaca `10Min`. The real regular-session source rows are
+stored before the requested session-aligned target is materialized and re-read
+from ClickHouse. `1W` continues to derive from canonical `1D`. This analysis
+repair path does not use S3, Redis, or Kafka.
 
 Alpaca may legitimately omit an intraday slot with no bar. A successful provider
-request with no matching real candle is `provider_empty`, not an OHLCV row.
-Missing credentials are `credentials_missing`; network, rate-limit, and server
-failures are `provider_failed`; a write that still cannot produce exact-240 after
-the canonical re-read is `canonical_reread_incomplete`. No zero-volume or
-carry-forward candle is manufactured, and an incomplete window is never inferred
-or saved.
-
-The repair runner owns `America/New_York`, the code-owned NYSE calendar,
-`adjustment=split`, and `[start,end)` independently of pod environment. Repair
-rows use a dedicated canonical repair feed profile. This preserves split/v2
-facts on legacy `ReplacingMergeTree` keys while fresh tables also key by
-`canonical_version + price_adjustment`; live key upgrades are operator-owned
-table-copy migrations.
+request with no matching real candle is `provider_confirmed_empty`, not an OHLCV
+row and not a coverage failure. Authentication, network, rate-limit, and server
+failures remain `alpaca_request_failed`/unavailable. No zero-volume or carry-forward
+candle is manufactured.
 
 Completed 1D/1W/1M candles use a shared `candleKey`. Daily chart coordinates use
 New York market midnight; weekly/monthly coordinates use their UTC bucket start.
@@ -179,27 +194,20 @@ The last real NYSE session close, including early close, determines whether a
 higher-timeframe bucket is complete. Serving, analysis, stale checks, and drawing
 anchor snapping share this identity rather than comparing raw timestamps.
 
-Czardas is the only automatic drawing asset path. It audits exactly the latest
-240 completed expected candles, repairs bounded missing ranges through
-Alpaca→ClickHouse, re-reads the canonical snapshot, and stores one deterministic
-shared pack per `(symbol, interval)` in PostgreSQL
-`chart_assets.czardas_latest`. Queue/status, leases, and progress live in
-`czardas_build_jobs/items`. Canonical candles and repair materialization
-remain in ClickHouse; asset payloads do not.
+Only compact final v2 assets are written. Default deployments still use the
+ClickHouse compatibility table; guarded dual-write modes can move the single
+latest `(symbol, interval)` JSON projection to PostgreSQL. Canonical candles and
+repair materialization never move. Repair has no CronJob or candle-closed
+subscription. Redis is limited to the existing job status key and pub/sub
+channel. The development delete route removes explicit pairs from every active
+asset store; it is not retention or automatic cleanup.
 
-Chart open, GET miss, candle events, and schedules never enqueue Czardas work.
-Only the authenticated development panel may build or delete one explicit pair.
-There is no Redis asset key, Kafka asset topic, S3 asset, automatic TTL, or
-cross-engine fallback. The exact Czardas contracts live in `docs/czardas/`.
-Each v2 pack evaluates the exact-240 rows as one immutable present snapshot;
-post-`asOf`/live rows are excluded, while later rows inside that snapshot may
-contribute to the current interpretation of an earlier candle.
-
-PostgreSQL `chart_assets.geometry_*` rows and ClickHouse
-`market_data.chart_analysis_assets` may remain in existing environments solely
-as dormant historical data. Current runtime and migrations must not read,
-write, recreate, update, or use them for rollback. Fresh environments do not
-create those tables.
+The chart-analysis kernel may derive a daily MA60/MA120 crossing event from 121
+canonical completed closes. This is an asset-build feature, not a persisted
+candle indicator: it does not add an `ma120` ClickHouse column, Redis key, or
+public candle response field. The chart can request the `sma:120` overlay from
+the generic derived-indicator endpoint, which computes it from the canonical
+close series and keeps only the existing bounded derived cache.
 
 ## Retained Compatibility
 

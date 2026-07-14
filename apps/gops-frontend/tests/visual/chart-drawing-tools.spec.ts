@@ -19,6 +19,7 @@ type CanvasTextCall = {
   text: string;
   x: number;
   y: number;
+  textAlign: CanvasTextAlign;
 };
 
 type CanvasTrackingWindow = Window & {
@@ -31,6 +32,70 @@ test.beforeEach(async ({ page }) => {
   await installCanvasArcTracker(page);
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
+});
+
+test("right-axis ticks and boxed price labels share one right-aligned text column", async ({ page }) => {
+  await openFixtureChart(page);
+  const canvas = page.locator(".chart-canvas");
+  const dock = await openDrawingDock(page);
+
+  await resetCanvasTextCalls(page);
+  await canvas.hover({ position: await relativeCanvasPoint(canvas, 0.55, 0.43) });
+  await expectRightAxisTextAlignment(page, canvas);
+
+  await chooseGroupedTool(page, dock, "가로선 도구 (수평선)", "가로선 종류", "수평선");
+  await canvas.click({ position: await relativeCanvasPoint(canvas, 0.32, 0.36) });
+  await page.getByRole("textbox", { name: "Drawing label editor" }).press("Escape");
+  await resetCanvasTextCalls(page);
+  await canvas.hover({ position: await relativeCanvasPoint(canvas, 0.58, 0.47) });
+  await expectRightAxisTextAlignment(page, canvas);
+
+  await chooseGroupedTool(page, dock, "가로선 도구 (수평선)", "가로선 종류", "가격 평행선");
+  await canvas.click({ position: await relativeCanvasPoint(canvas, 0.24, 0.3) });
+  await canvas.click({ position: await relativeCanvasPoint(canvas, 0.68, 0.64) });
+  await page.getByRole("textbox", { name: "Drawing label editor" }).press("Escape");
+  await resetCanvasTextCalls(page);
+  await canvas.hover({ position: await relativeCanvasPoint(canvas, 0.62, 0.52) });
+  await expectRightAxisTextAlignment(page, canvas);
+});
+
+test("crosshair snaps through future slots and line charts do not reuse the latest hover dot", async ({ page }) => {
+  await openFixtureChart(page);
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+
+  for (const chartType of ["candle", "ohlc", "line"] as const) {
+    if (chartType !== "candle") {
+      await selectChartToolbarOption(page, "Chart type", chartType);
+    }
+    const geometry = await futureCrosshairGeometry(chartPanel, canvas);
+    const y = geometry.height * 0.43;
+
+    await resetCanvasTextCalls(page);
+    await movePointerOnCanvas(canvas, geometry.firstSlotEarlyX, y);
+    const firstTarget = await expectFutureCrosshairLabels(page, geometry.height, geometry.width);
+
+    await resetCanvasTextCalls(page);
+    await movePointerOnCanvas(canvas, geometry.firstSlotLateX, y);
+    const sameSlotTarget = await expectFutureCrosshairLabels(page, geometry.height, geometry.width);
+    expect(sameSlotTarget.text).toBe(firstTarget.text);
+    expect(Math.abs(sameSlotTarget.x - firstTarget.x)).toBeLessThan(0.01);
+
+    await resetCanvasTextCalls(page);
+    await movePointerOnCanvas(canvas, geometry.nextSlotX, y);
+    const nextSlotTarget = await expectFutureCrosshairLabels(page, geometry.height, geometry.width);
+    expect(nextSlotTarget.text).not.toBe(firstTarget.text);
+    expect(Math.abs(nextSlotTarget.x - firstTarget.x - geometry.slotWidth)).toBeLessThan(0.05);
+
+    if (chartType === "line") {
+      await resetCanvasArcCalls(page);
+      await movePointerOnCanvas(canvas, geometry.latestCandleX, y);
+      await expect.poll(() => radiusThreePointFiveArcCount(page)).toBeGreaterThan(0);
+      await resetCanvasArcCalls(page);
+      await movePointerOnCanvas(canvas, geometry.firstSlotEarlyX, y);
+      await expect.poll(() => radiusThreePointFiveArcCount(page)).toBe(0);
+    }
+  }
 });
 
 test("drawing tools use one-shot select, editable labels, range handles, and flag tags", async ({ page }) => {
@@ -135,36 +200,34 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
     "범위 박스", "손익비 박스", "피보나치 되돌림"
   ]);
 
-  await dock.getByRole("button", { name: "가로선 도구 (수평선)", exact: true }).click();
-  const horizontalMenu = page.getByRole("menu", { name: "가로선 종류" });
-  await expect(horizontalMenu.getByRole("menuitem", { name: "수평선", exact: true })).toBeVisible();
-  await expect(horizontalMenu.getByRole("menuitem", { name: "가격 평행선", exact: true })).toBeVisible();
-  await horizontalMenu.getByRole("menuitem", { name: "가격 평행선", exact: true }).click();
-  const priceParallelButton = dock.getByRole("button", { name: "가로선 도구 (가격 평행선)", exact: true });
+  await dock.getByRole("combobox", { name: "가로선 도구 (수평선)", exact: true }).click();
+  const horizontalMenu = page.getByRole("listbox", { name: "가로선 종류" });
+  await expect(horizontalMenu.getByRole("option", { name: "수평선", exact: true })).toBeVisible();
+  await expect(horizontalMenu.getByRole("option", { name: "가격 평행선", exact: true })).toBeVisible();
+  await horizontalMenu.getByRole("option", { name: "가격 평행선", exact: true }).click();
+  const priceParallelButton = dock.getByRole("combobox", { name: "가로선 도구 (가격 평행선)", exact: true });
   await expectTwoLineGlyph(priceParallelButton, "horizontal-parallel-lines");
 
-  await dock.getByRole("button", { name: "세로선 도구 (세로선)", exact: true }).click();
-  const verticalMenu = page.getByRole("menu", { name: "세로선 종류" });
-  await expect(verticalMenu.getByRole("menuitem", { name: "세로선", exact: true })).toBeVisible();
-  await expect(verticalMenu.getByRole("menuitem", { name: "세로 평행선", exact: true })).toBeVisible();
-  await verticalMenu.getByRole("menuitem", { name: "세로 평행선", exact: true }).click();
-  const timeParallelButton = dock.getByRole("button", { name: "세로선 도구 (세로 평행선)", exact: true });
+  await dock.getByRole("combobox", { name: "세로선 도구 (세로선)", exact: true }).click();
+  const verticalMenu = page.getByRole("listbox", { name: "세로선 종류" });
+  await expect(verticalMenu.getByRole("option", { name: "세로선", exact: true })).toBeVisible();
+  await expect(verticalMenu.getByRole("option", { name: "세로 평행선", exact: true })).toBeVisible();
+  await verticalMenu.getByRole("option", { name: "세로 평행선", exact: true }).click();
+  const timeParallelButton = dock.getByRole("combobox", { name: "세로선 도구 (세로 평행선)", exact: true });
   await expectTwoLineGlyph(timeParallelButton, "vertical-parallel-lines");
 
-  const trendButton = dock.getByRole("button", { name: "추세선 도구 (선분)", exact: true });
+  const trendButton = dock.getByRole("combobox", { name: "추세선 도구 (선분)", exact: true });
   await trendButton.click();
-  const trendMenu = page.getByRole("menu", { name: "추세선 종류" });
-  await expect(trendMenu.getByRole("menuitem", { name: "선분", exact: true })).toBeVisible();
-  await expect(trendMenu.getByRole("menuitem", { name: "반직선", exact: true })).toBeVisible();
-  await expect(trendMenu.getByRole("menuitem", { name: "직선", exact: true })).toBeVisible();
-  await trendMenu.getByRole("menuitem", { name: "반직선", exact: true }).click();
-  const rayButton = dock.getByRole("button", { name: "추세선 도구 (반직선)", exact: true });
-  await rayButton.hover();
-  await expect(page.getByRole("tooltip", { name: "반직선" })).toBeVisible();
+  const trendMenu = page.getByRole("listbox", { name: "추세선 종류" });
+  await expect(trendMenu.getByRole("option", { name: "선분", exact: true })).toBeVisible();
+  await expect(trendMenu.getByRole("option", { name: "반직선", exact: true })).toBeVisible();
+  await expect(trendMenu.getByRole("option", { name: "직선", exact: true })).toBeVisible();
+  await trendMenu.getByRole("option", { name: "반직선", exact: true }).click();
+  await expect(dock.getByRole("combobox", { name: "추세선 도구 (반직선)", exact: true })).toBeVisible();
   const trendParallelButton = dock.getByRole("button", { name: "추세 평행선", exact: true });
-  const lineCount = dock.getByRole("combobox", { name: "Parallel line count" });
+  const lineCount = dock.getByRole("combobox", { name: "평행선 개수" });
   await expect(trendParallelButton).toBeVisible();
-  await expect(lineCount).toHaveValue("3");
+  await expect(lineCount).toContainText("3");
 
   await chooseGroupedTool(page, dock, "가로선 도구 (가격 평행선)", "가로선 종류", "가격 평행선");
   await resetCanvasArcCalls(page);
@@ -187,7 +250,7 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
   await trendParallelButton.click();
   await expect(trendParallelButton).toHaveClass(/\bactive\b/);
   await page.keyboard.press("ArrowRight");
-  await expect(lineCount).toHaveValue("4");
+  await expect(lineCount).toContainText("4");
 
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.23, 0.61) });
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.52, 0.38) });
@@ -195,7 +258,7 @@ test("line groups select their variants and preserve arrow-adjusted parallel cou
   await canvas.click({ position: await relativeCanvasPoint(canvas, 0.31, 0.28) });
 
   await expect(selectButton).toHaveClass(/\bactive\b/);
-  await expect(lineCount).toHaveValue("4");
+  await expect(lineCount).toContainText("4");
   await expect.poll(() => uniqueRadiusFourArcCount(page)).toBe(3);
 });
 
@@ -216,6 +279,23 @@ test("drawing color palette applies global theme tokens to stroke, text, and sup
   const colorMenu = page.getByRole("menu", { name: "그리기 색상" });
   await expect(colorMenu.getByRole("menuitemradio")).toHaveCount(12);
   await expect(colorMenu.getByRole("menuitemradio", { name: "기본 그리기 색상" })).toHaveAttribute("aria-checked", "true");
+  const lineWidthGroup = colorMenu.getByRole("group", { name: "선 두께" });
+  const lineWidthOne = lineWidthGroup.getByRole("button", { name: "선 두께 1", exact: true });
+  const lineWidthTwo = lineWidthGroup.getByRole("button", { name: "선 두께 2", exact: true });
+  const lineWidthThree = lineWidthGroup.getByRole("button", { name: "선 두께 3", exact: true });
+  await expect(lineWidthGroup.getByRole("button")).toHaveCount(3);
+  await expect(lineWidthOne).toHaveAttribute("aria-pressed", "true");
+  await expect(lineWidthOne).toHaveClass(/\bactive\b/);
+  await expect(lineWidthTwo).toHaveAttribute("aria-pressed", "false");
+  await expect(lineWidthThree).toHaveAttribute("aria-pressed", "false");
+  await expect(lineWidthOne.locator(".chart-drawing-width-sample")).toHaveCSS("height", "1px");
+  await expect(lineWidthTwo.locator(".chart-drawing-width-sample")).toHaveCSS("height", "2px");
+  await expect(lineWidthThree.locator(".chart-drawing-width-sample")).toHaveCSS("height", "3px");
+  await lineWidthThree.click();
+  await expect(colorMenu).toBeVisible();
+  await expect(lineWidthOne).toHaveAttribute("aria-pressed", "false");
+  await expect(lineWidthThree).toHaveAttribute("aria-pressed", "true");
+  await expect(lineWidthThree).toHaveClass(/\bactive\b/);
   const signalColor = colorMenu.getByRole("menuitemradio", { name: "시그널", exact: true });
   await signalColor.hover();
   await expect(page.getByRole("tooltip", { name: "시그널" })).toBeVisible();
@@ -233,6 +313,27 @@ test("drawing color palette applies global theme tokens to stroke, text, and sup
   await expect(colorMenu).toBeHidden();
 });
 
+test("company view keeps the chart return button at the left edge", async ({ page }) => {
+  await openFixtureChart(page);
+  const chartPanel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await chartPanel.hover();
+  await chartPanel.getByRole("button", { name: "NVDA 기업정보 보기", exact: true }).click();
+
+  const companyContent = page.locator(".chart-tab-content.is-company");
+  const chartButton = page.getByRole("button", { name: "NVDA 차트 보기", exact: true });
+  await companyContent.hover();
+  await expect(chartButton).toBeVisible();
+
+  const contentBox = await companyContent.boundingBox();
+  const buttonBox = await chartButton.boundingBox();
+  const leftInset = (buttonBox?.x ?? 0) - (contentBox?.x ?? 0);
+  expect(leftInset).toBeGreaterThanOrEqual(0);
+  expect(leftInset).toBeLessThanOrEqual(12);
+
+  await chartButton.click();
+  await expect(page.locator(".chart-canvas")).toBeVisible();
+});
+
 test("drawing toolbar scrolls inside a narrow panel and chart-add stays panel-bound", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await openFixtureNarrowChart(page);
@@ -248,7 +349,7 @@ test("drawing toolbar scrolls inside a narrow panel and chart-add stays panel-bo
   await expect(chartPanel.getByRole("combobox", { name: "Interval" })).toBeVisible();
   await expect(chartPanel.getByRole("button", { name: /기업정보 보기/ })).toBeVisible();
   await expect(chartPanel.getByRole("button", { name: "차트 초기화" })).toBeVisible();
-  await chartPanel.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await chartPanel.getByRole("button", { name: "차트 추가 도구 열기" }).click();
 
   const drawingDock = chartPanel.getByRole("toolbar", { name: "차트 그리기 도구" });
   const scroller = drawingDock.locator(".chart-drawing-dock-scroller");
@@ -265,20 +366,27 @@ test("drawing toolbar scrolls inside a narrow panel and chart-add stays panel-bo
   await expect(nextButton).toBeDisabled();
   await expect(previousButton).toBeEnabled();
   await expect(drawingDock.getByRole("button", { name: "피보나치 되돌림", exact: true })).toBeVisible();
-  await chartPanel.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await chartPanel.getByRole("button", { name: "차트 추가 도구 열기" }).click();
   await expect(chartAddDock.getByRole("menuitemcheckbox", { name: "이동평균 수렴확산 (12, 26, 9)", exact: true })).toBeVisible();
   const volumeButton = chartAddDock.getByRole("menuitemcheckbox", { name: "거래량 막대 차트", exact: true });
   await volumeButton.hover();
   await expect(page.getByRole("tooltip", { name: "거래량 막대 차트" })).toBeVisible();
   const panelBox = await chartPanel.boundingBox();
   const leadingBox = await chartPanel.locator(".chart-panel-navigation-leading").boundingBox();
+  const intervalBox = await chartPanel.getByRole("combobox", { name: "Interval" }).boundingBox();
+  const companyBox = await chartPanel.getByRole("button", { name: /기업정보 보기/ }).boundingBox();
+  const chartAddButtonBox = await chartPanel.locator(".chart-add-target-button").boundingBox();
   const drawingBox = await drawingDock.boundingBox();
-  const actionsBox = await chartPanel.locator(".chart-panel-navigation-actions").boundingBox();
+  const resetBox = await chartPanel.getByRole("button", { name: "차트 초기화" }).boundingBox();
   const addBox = await chartAddDock.boundingBox();
+  expect((intervalBox?.x ?? 0) + (intervalBox?.width ?? 0)).toBeLessThanOrEqual((companyBox?.x ?? 0) + 0.5);
+  expect((companyBox?.x ?? 0) + (companyBox?.width ?? 0)).toBeLessThanOrEqual((chartAddButtonBox?.x ?? 0) + 0.5);
   expect((leadingBox?.x ?? 0) + (leadingBox?.width ?? 0)).toBeLessThanOrEqual((drawingBox?.x ?? 0) + 0.5);
-  expect((drawingBox?.x ?? 0) + (drawingBox?.width ?? 0)).toBeLessThanOrEqual((actionsBox?.x ?? 0) + 0.5);
+  expect((drawingBox?.x ?? 0) + (drawingBox?.width ?? 0)).toBeLessThanOrEqual((resetBox?.x ?? 0) + 0.5);
   expect(drawingBox?.x).toBeGreaterThanOrEqual(panelBox?.x ?? 0);
   expect((drawingBox?.x ?? 0) + (drawingBox?.width ?? 0)).toBeLessThanOrEqual((panelBox?.x ?? 0) + (panelBox?.width ?? 0));
+  expect((resetBox?.x ?? 0) + (resetBox?.width ?? 0)).toBeLessThanOrEqual((panelBox?.x ?? 0) + (panelBox?.width ?? 0));
+  expect(addBox?.y).toBeGreaterThanOrEqual((chartAddButtonBox?.y ?? 0) + (chartAddButtonBox?.height ?? 0));
   expect(addBox?.x).toBeGreaterThanOrEqual(panelBox?.x ?? 0);
   expect((addBox?.x ?? 0) + (addBox?.width ?? 0)).toBeLessThanOrEqual((panelBox?.x ?? 0) + (panelBox?.width ?? 0));
   await chartPanel.locator(".chart-canvas").click({ position: { x: 12, y: 120 }, force: true });
@@ -289,7 +397,24 @@ test("wide chart keeps one navigation row and shows immediate drawing tooltips",
   await openFixtureChart(page);
   const chartPanel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
   const navigation = chartPanel.locator(".chart-panel-navigation");
+  const chartType = chartPanel.getByRole("combobox", { name: "Chart type" });
+  const interval = chartPanel.getByRole("combobox", { name: "Interval" });
+  const companyButton = chartPanel.getByRole("button", { name: /기업정보 보기/ });
+  const chartAddButton = chartPanel.getByRole("button", { name: "차트 추가 도구 열기" });
+  const resetButton = chartPanel.getByRole("button", { name: "차트 초기화" });
+  const hiddenDock = chartPanel.getByRole("toolbar", { name: "차트 그리기 도구" });
+
+  await expect(chartType).toBeVisible();
+  await expect(interval).toBeVisible();
+  await expect(companyButton).toBeHidden();
+  await expect(chartAddButton).toBeHidden();
+  await expect(hiddenDock).toBeHidden();
+  await expect(resetButton).toBeHidden();
+
   const dock = await openDrawingDock(page);
+  await expect(companyButton).toBeVisible();
+  await expect(chartAddButton).toBeVisible();
+  await expect(resetButton).toBeVisible();
   await expect(dock.getByRole("button", { name: "이전 그리기 도구" })).toHaveCount(0);
   await expect(dock.getByRole("button", { name: "다음 그리기 도구" })).toHaveCount(0);
 
@@ -301,11 +426,27 @@ test("wide chart keeps one navigation row and shows immediate drawing tooltips",
 
   const navBox = await navigation.boundingBox();
   const leadingBox = await navigation.locator(".chart-panel-navigation-leading").boundingBox();
+  const intervalBox = await interval.boundingBox();
+  const companyBox = await companyButton.boundingBox();
+  const addButtonBox = await chartAddButton.boundingBox();
   const dockBox = await dock.boundingBox();
-  const actionsBox = await navigation.locator(".chart-panel-navigation-actions").boundingBox();
+  const resetBox = await resetButton.boundingBox();
+  expect((intervalBox?.x ?? 0) + (intervalBox?.width ?? 0)).toBeLessThanOrEqual((companyBox?.x ?? 0) + 0.5);
+  expect((companyBox?.x ?? 0) + (companyBox?.width ?? 0)).toBeLessThanOrEqual((addButtonBox?.x ?? 0) + 0.5);
+  expect((addButtonBox?.x ?? 0) + (addButtonBox?.width ?? 0)).toBeLessThanOrEqual((dockBox?.x ?? 0) + 0.5);
+  expect((dockBox?.x ?? 0) + (dockBox?.width ?? 0)).toBeLessThanOrEqual((resetBox?.x ?? 0) + 0.5);
   expect(leadingBox?.y).toBeCloseTo(navBox?.y ?? 0, 1);
   expect(dockBox?.y).toBeCloseTo(navBox?.y ?? 0, 1);
-  expect(actionsBox?.y).toBeCloseTo(navBox?.y ?? 0, 1);
+  expect((resetBox?.y ?? 0) + (resetBox?.height ?? 0) / 2).toBeCloseTo((navBox?.y ?? 0) + (navBox?.height ?? 0) / 2, 1);
+
+  await page.locator(".workspace-bottom-nav").hover();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(companyButton).toBeHidden();
+  await interval.focus();
+  await expect(companyButton).toBeVisible();
+  await expect(chartAddButton).toBeVisible();
+  await expect(dock).toBeVisible();
+  await expect(resetButton).toBeVisible();
 });
 
 test("risk reward and fibonacci draw with canonical anchor counts and one-shot Select", async ({ page }) => {
@@ -413,19 +554,20 @@ test("parallel arrow shortcut only affects the active chart", async ({ page }) =
 
   let dock = await openDrawingDockForPanel(page, 0);
   await dock.getByRole("button", { name: "추세 평행선", exact: true }).click();
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("3");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("3");
 
   dock = await openDrawingDockForPanel(page, 1);
   await dock.getByRole("button", { name: "추세 평행선", exact: true }).click();
   await page.keyboard.press("ArrowRight");
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("4");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("4");
 
   dock = await openDrawingDockForPanel(page, 0);
-  await expect(dock.getByRole("combobox", { name: "Parallel line count" })).toHaveValue("3");
+  await expect(dock.getByRole("combobox", { name: "평행선 개수" })).toContainText("3");
 });
 
 async function openDrawingDock(page: Page): Promise<Locator> {
   const chartPanel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await chartPanel.hover();
   const dock = chartPanel.getByRole("toolbar", { name: "차트 그리기 도구" });
   await expect(dock).toBeVisible();
   return dock;
@@ -438,8 +580,8 @@ async function chooseGroupedTool(
   menuName: string,
   optionName: string
 ): Promise<void> {
-  await dock.getByRole("button", { name: triggerName, exact: true }).click();
-  await page.getByRole("menu", { name: menuName }).getByRole("menuitem", { name: optionName, exact: true }).click();
+  await dock.getByRole("combobox", { name: triggerName, exact: true }).click();
+  await page.getByRole("listbox", { name: menuName }).getByRole("option", { name: optionName, exact: true }).click();
 }
 
 async function expectToolbarOrder(dock: Locator, labels: string[]): Promise<void> {
@@ -459,6 +601,7 @@ async function expectTwoLineGlyph(button: Locator, className: string): Promise<v
 
 async function openDrawingDockForPanel(page: Page, index: number): Promise<Locator> {
   const chartPanel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") }).nth(index);
+  await chartPanel.hover();
   const dock = chartPanel.getByRole("toolbar", { name: "차트 그리기 도구" });
   await expect(dock).toBeVisible();
   return dock;
@@ -734,7 +877,7 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
       maxWidth?: number
     ): void {
       if (this.canvas.classList.contains("chart-canvas")) {
-        trackedWindow.__gopsDrawingTextCalls?.push({ text, x, y });
+        trackedWindow.__gopsDrawingTextCalls?.push({ text, x, y, textAlign: this.textAlign });
       }
       if (maxWidth === undefined) {
         originalFillText.call(this, text, x, y);
@@ -758,6 +901,99 @@ async function latestCanvasTextCall(page: Page, text: string): Promise<CanvasTex
   }, text);
 }
 
+async function expectRightAxisTextAlignment(page: Page, canvas: Locator): Promise<void> {
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  const expectedX = (canvasBox?.width ?? 0) - 9;
+  const axisRegionLeft = (canvasBox?.width ?? 0) - 80;
+  const timeAxisTop = (canvasBox?.height ?? 0) - 30;
+  await expect.poll(async () => {
+    const calls = await page.evaluate(({ minimumX, maximumY }) => (
+      ((window as CanvasTrackingWindow).__gopsDrawingTextCalls ?? [])
+        .filter((call) => (
+          /^-?\d+\.\d{2,8}$/.test(call.text)
+          && call.x >= minimumX
+          && call.y <= maximumY
+        ))
+    ), { minimumX: axisRegionLeft, maximumY: timeAxisTop });
+    return {
+      enoughLabels: calls.length > 2,
+      allRightAligned: calls.every((call) => call.textAlign === "right"),
+      allOnColumn: calls.every((call) => Math.abs(call.x - expectedX) < 0.01)
+    };
+  }).toEqual({ enoughLabels: true, allRightAligned: true, allOnColumn: true });
+}
+
+async function selectChartToolbarOption(page: Page, ariaLabel: "Chart type" | "Interval", value: string): Promise<void> {
+  const trigger = page.getByRole("combobox", { name: ariaLabel });
+  await trigger.click({ force: true });
+  const listbox = page.getByRole("listbox", { name: `${ariaLabel} options` });
+  await expect(listbox).toBeVisible();
+  await listbox.locator(`[data-value="${value}"]`).click();
+  await expect(listbox).toBeHidden();
+}
+
+async function futureCrosshairGeometry(chartPanel: Locator, canvas: Locator): Promise<{
+  width: number;
+  height: number;
+  slotWidth: number;
+  latestCandleX: number;
+  firstSlotEarlyX: number;
+  firstSlotLateX: number;
+  nextSlotX: number;
+}> {
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  const visibleCount = Number(await chartPanel.getAttribute("data-chart-visible-count"));
+  const rightOffset = Number(await chartPanel.getAttribute("data-chart-right-offset"));
+  expect(visibleCount).toBeGreaterThan(0);
+  expect(rightOffset).toBeLessThan(0);
+  const width = box?.width ?? 1;
+  const height = box?.height ?? 1;
+  const plotWidth = width - 68;
+  const slotWidth = plotWidth / visibleCount;
+  const futureStartX = (visibleCount + rightOffset) * slotWidth;
+  const futureSlotIndex = Math.max(1, Math.min(Math.abs(rightOffset) - 2, 3));
+  const slotStartX = futureStartX + futureSlotIndex * slotWidth;
+  return {
+    width,
+    height,
+    slotWidth,
+    latestCandleX: futureStartX - slotWidth / 2,
+    firstSlotEarlyX: slotStartX + slotWidth * 0.2,
+    firstSlotLateX: slotStartX + slotWidth * 0.8,
+    nextSlotX: slotStartX + slotWidth * 1.2
+  };
+}
+
+async function movePointerOnCanvas(canvas: Locator, x: number, y: number): Promise<void> {
+  await canvas.evaluate((element, point) => {
+    const rect = element.getBoundingClientRect();
+    element.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      clientX: rect.left + point.x,
+      clientY: rect.top + point.y,
+      pointerType: "mouse"
+    }));
+  }, { x, y });
+}
+
+async function expectFutureCrosshairLabels(page: Page, canvasHeight: number, canvasWidth: number): Promise<CanvasTextCall> {
+  let timeCall: CanvasTextCall | null = null;
+  await expect.poll(async () => {
+    timeCall = await page.evaluate((minimumY) => {
+      const calls = (window as CanvasTrackingWindow).__gopsDrawingTextCalls ?? [];
+      return [...calls].reverse().find((call) => call.textAlign === "center" && call.y >= minimumY) ?? null;
+    }, canvasHeight - 32);
+    return timeCall;
+  }).not.toBeNull();
+  await expect.poll(async () => page.evaluate((minimumX) => {
+    const calls = (window as CanvasTrackingWindow).__gopsDrawingTextCalls ?? [];
+    return calls.some((call) => /^-?\d+\.\d{2,8}$/.test(call.text) && call.textAlign === "right" && call.x >= minimumX);
+  }, canvasWidth - 20)).toBe(true);
+  return timeCall as CanvasTextCall;
+}
+
 async function resetCanvasArcCalls(page: Page): Promise<void> {
   await page.evaluate(() => {
     (window as CanvasTrackingWindow).__gopsDrawingArcCalls = [];
@@ -773,6 +1009,12 @@ async function uniqueRadiusFourArcCount(page: Page): Promise<number> {
         .map((call) => `${Math.round(call.x)}:${Math.round(call.y)}`)
     ).size;
   });
+}
+
+async function radiusThreePointFiveArcCount(page: Page): Promise<number> {
+  return page.evaluate(() => (
+    (window as CanvasTrackingWindow).__gopsDrawingArcCalls ?? []
+  ).filter((call) => Math.abs(call.radius - 3.5) < 0.05).length);
 }
 
 async function resetCanvasStrokeRectCalls(page: Page): Promise<void> {

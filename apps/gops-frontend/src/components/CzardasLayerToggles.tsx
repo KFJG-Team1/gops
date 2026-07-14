@@ -1,11 +1,12 @@
-import { Minus, TrendingUp } from "lucide-react";
+import { Minus, TrendingUp, Waypoints } from "lucide-react";
 import type { CzardasLayerKey, CzardasLayerVisibility } from "../chart/czardasLayerController";
 
 export function CzardasLayerToggles({
-  visibility, disabled, asOf, stale = false, onToggle
+  visibility, disabled, patternEvidenceOnly = false, asOf, stale = false, onToggle
 }: {
   visibility: CzardasLayerVisibility;
   disabled: Record<CzardasLayerKey, boolean>;
+  patternEvidenceOnly?: boolean;
   asOf?: string;
   stale?: boolean;
   onToggle: (layer: CzardasLayerKey) => void;
@@ -37,6 +38,18 @@ export function CzardasLayerToggles({
         >
           <TrendingUp size={14} aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          className={visibility.pattern && !disabled.pattern ? "is-active" : ""}
+          aria-label={`Czardas Pattern ${visibility.pattern ? "끄기" : "켜기"}`}
+          aria-pressed={visibility.pattern}
+          disabled={disabled.pattern}
+          title={disabled.pattern ? "Pattern 근거 없음" : patternEvidenceOnly ? "Czardas Pattern 근거" : "Czardas Pattern"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => onToggle("pattern")}
+        >
+          <Waypoints size={14} aria-hidden="true" />
+        </button>
       </div>
       <div className="czardas-sight-legend" aria-label="Czardas 시각 범례">
         <span title="확대 상태의 캔들 진하기">
@@ -47,6 +60,9 @@ export function CzardasLayerToggles({
         </span>
         <span title="축소 상태에서 켜진 채널의 전체 의미">
           <b className="is-yellow-tone" aria-hidden="true">│</b> 전체(축소)
+        </span>
+        <span title="Field 관계 근거와 감지된 패턴 꺾은선">
+          <b className="is-yellow-tone" aria-hidden="true">⌁</b> <i className={!visibility.pattern ? "is-muted" : undefined}>Pattern</i>
         </span>
       </div>
       {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAsOf(asOf)}{stale ? " · stale" : ""}</span>}

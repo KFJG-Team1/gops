@@ -8,13 +8,12 @@ import {
   type CzardasPackContent
 } from "../src/chart/czardasAssetsApi";
 import { czardasDeltaCommands, czardasRestoreCommands } from "../src/chart/czardasLayerController";
-import { candleMeaningAtTimestamp, czardasMeaningFactorGroups } from "../src/chart/czardasMeaning";
+import { candleMeaningAtTimestamp } from "../src/chart/czardasMeaning";
 import {
   czardasDetailedCandleStrength,
   czardasDenseCandleStrength,
   czardasHlineTraceHalfLength,
   czardasHlineTraceStrength,
-  czardasRelationGeometry,
   czardasRenderableBasis,
   czardasSightMode,
   czardasTimestampPriceLine,
@@ -23,21 +22,10 @@ import {
   czardasWindowX
 } from "../src/chart/ChartCanvas";
 import { buildChartScene, createCoordinateTransform, priceToY } from "../src/chart/scene";
-import { czardasMeaningFactorKeys } from "../src/chart/types";
 
 const timestamp = "2026-07-10T20:00:00.000Z";
-const inferenceId = "sha256:inference-v3";
+const inferenceId = "sha256:inference-v4";
 const target = { panelId: "panel-czardas", chartDocumentId: "doc-czardas" };
-
-const groupedMeaningFactorKeys = czardasMeaningFactorGroups.flatMap((group) => group.keys);
-assert.equal(groupedMeaningFactorKeys.length, 21);
-assert.equal(new Set(groupedMeaningFactorKeys).size, groupedMeaningFactorKeys.length);
-assert.deepEqual([...groupedMeaningFactorKeys].sort(), [...czardasMeaningFactorKeys].sort());
-assert.deepEqual(czardasMeaningFactorGroups.map((group) => [group.channel, group.keys.length]), [
-  ["shared", 11],
-  ["hline", 7],
-  ["trend", 3]
-]);
 
 const denseStrengths = { shared: 0.3, hline: 0.9, trend: 0.6, composite: 0.8 };
 assert.equal(czardasSightMode(5.999), "dense");
@@ -66,7 +54,7 @@ assert.equal(czardasValidationTone("confirmed_break"), "break");
 assert.equal(czardasValidationTone("supported_response"), "evidence");
 assert.equal(czardasValidationTone("break"), "evidence");
 
-function managed(id: string, candidate: string, role: "hline" | "trend", group?: string): DrawingEntity {
+function managed(id: string, candidate: string, role: "hline" | "trend"): DrawingEntity {
   return {
     id,
     type: role === "hline" ? "horizontalLine" : "trendLine",
@@ -75,7 +63,7 @@ function managed(id: string, candidate: string, role: "hline" | "trend", group?:
       { timestamp, price: role === "hline" ? 100 : 104 }
     ],
     sourceInterval: "1D",
-    style: { colorToken: "drawing", lineWidth: group ? 3 : 2, extension: role === "hline" ? "line" : "ray" },
+    style: { colorToken: "drawing", lineWidth: 2, extension: role === "hline" ? "line" : "ray" },
     visible: true,
     createdBy: "system",
     ownership: "czardas-managed",
@@ -84,14 +72,34 @@ function managed(id: string, candidate: string, role: "hline" | "trend", group?:
     sourceCandidateId: candidate,
     sourceFieldModeId: `mode-${candidate}`,
     sourceFieldDerivationDigest: `sha256:mode-${candidate}`,
-    sourceGroupId: group,
     createdAt: timestamp,
     updatedAt: timestamp
   };
 }
 
-const upper = managed("czardas:upper:line", "upper", "trend", "triangle-1");
-const lower = managed("czardas:lower:line", "lower", "trend", "triangle-1");
+const upper = managed("czardas:upper:line", "upper", "trend");
+const lower = managed("czardas:lower:line", "lower", "trend");
+const patternDrawing: DrawingEntity = {
+  id: "czardas:relation-channel:pattern",
+  type: "polyline",
+  anchors: [
+    { timestamp: "2026-01-01T00:00:00.000Z", price: 98 },
+    { timestamp: "2026-03-01T00:00:00.000Z", price: 105 },
+    { timestamp, price: 101 }
+  ],
+  sourceInterval: "1D",
+  style: { colorToken: "drawing", lineWidth: 3, extension: "none" },
+  label: "채널",
+  visible: true,
+  createdBy: "system",
+  ownership: "czardas-managed",
+  czardasLayer: "pattern",
+  sourceInferenceId: inferenceId,
+  sourceRelationId: "relation-channel",
+  sourceRelationDerivationDigest: "sha256:relation-channel",
+  createdAt: timestamp,
+  updatedAt: timestamp
+};
 let document = {
   ...createChartDocument(target.chartDocumentId, "NVDA", "1D"),
   drawings: [upper, lower]
@@ -104,13 +112,13 @@ const fork = executeChartCommand(document, makeChartCommand("chart.czardas.forkM
 assert.equal(fork.ok, true);
 if (!fork.ok) throw new Error(fork.message);
 assert.equal(fork.document.drawings.length, 2);
-assert.ok(fork.document.drawings.every((item) => item.ownership === "czardas-fork"));
+assert.equal(fork.document.drawings.find((item) => item.id === `${upper.id}:fork`)?.ownership, "czardas-fork");
+assert.equal(fork.document.drawings.find((item) => item.id === lower.id)?.ownership, "czardas-managed");
 assert.equal(fork.document.drawings.find((item) => item.forkedFromDrawingId === upper.id)?.style.lineWidth, 1);
-assert.equal(fork.document.drawings.find((item) => item.forkedFromDrawingId === lower.id)?.style.lineWidth, 3);
-assert.equal(fork.document.czardasSuppressions.length, 3);
+assert.equal(fork.document.czardasSuppressions.length, 1);
 assert.deepEqual(
   fork.document.czardasSuppressions.filter((item) => item.sourceKind === "candidate").map((item) => item.sourceId),
-  ["lower", "upper"]
+  ["upper"]
 );
 assert.equal(new Set(fork.document.czardasSuppressions.map((item) => item.suppressionSetId)).size, 1);
 assert.ok(fork.document.czardasSuppressions.every((item) => item.reason === "forked"));
@@ -123,27 +131,55 @@ assert.equal(undone.document.czardasSuppressions.length, 0);
 const redone = executeChartCommand(undone.document, makeChartCommand("chart.redo", "user", target));
 assert.equal(redone.ok, true);
 if (!redone.ok) throw new Error(redone.message);
-assert.equal(redone.document.czardasSuppressions.length, 3);
+assert.equal(redone.document.czardasSuppressions.length, 1);
 
 const deleted = executeChartCommand(document, makeChartCommand("chart.czardas.deleteManaged", "system", target, { drawingId: upper.id }));
 assert.equal(deleted.ok, true);
 if (!deleted.ok) throw new Error(deleted.message);
-assert.equal(deleted.document.drawings.length, 0);
-assert.equal(deleted.document.czardasSuppressions.length, 3);
+assert.equal(deleted.document.drawings.length, 1);
+assert.equal(deleted.document.czardasSuppressions.length, 1);
 const rejectedUserRestore = executeChartCommand(deleted.document, makeChartCommand("chart.czardas.restoreManaged", "user", target, {
-  sourceGroupId: "triangle-1",
-  drawings: [upper, lower]
+  sourceCandidateId: "upper",
+  drawings: [upper]
 }));
 assert.equal(rejectedUserRestore.ok, false);
 assert.match(rejectedUserRestore.message, /system engine/);
 const restored = executeChartCommand(deleted.document, makeChartCommand("chart.czardas.restoreManaged", "system", target, {
-  sourceGroupId: "triangle-1",
-  drawings: [upper, lower]
+  sourceCandidateId: "upper",
+  drawings: [upper]
 }));
 assert.equal(restored.ok, true);
 if (!restored.ok) throw new Error(restored.message);
 assert.equal(restored.document.drawings.length, 2);
 assert.equal(restored.document.czardasSuppressions.length, 0);
+
+const patternDocument = {
+  ...createChartDocument("pattern-relation", "NVDA", "1D"),
+  drawings: [patternDrawing]
+};
+const patternFork = executeChartCommand(patternDocument, makeChartCommand("chart.czardas.forkManaged", "system", {
+  panelId: "pattern-panel", chartDocumentId: patternDocument.id
+}, { drawingId: patternDrawing.id, drawingPatch: { style: { lineWidth: 1 } } }));
+assert.equal(patternFork.ok, true);
+if (!patternFork.ok) throw new Error(patternFork.message);
+assert.equal(patternFork.document.drawings[0]?.ownership, "czardas-fork");
+assert.equal(patternFork.document.czardasSuppressions[0]?.sourceKind, "relation");
+assert.equal(patternFork.document.czardasSuppressions[0]?.sourceRelationId, "relation-channel");
+const patternDelete = executeChartCommand(patternDocument, makeChartCommand("chart.czardas.deleteManaged", "system", {
+  panelId: "pattern-panel", chartDocumentId: patternDocument.id
+}, { drawingId: patternDrawing.id }));
+assert.equal(patternDelete.ok, true);
+if (!patternDelete.ok) throw new Error(patternDelete.message);
+assert.equal(patternDelete.document.drawings.length, 0);
+assert.equal(patternDelete.document.czardasSuppressions[0]?.sourceKind, "relation");
+
+const llmPolyline = executeChartCommand(createChartDocument("llm-polyline", "NVDA", "1D"), makeChartCommand(
+  "chart.drawing.add", "llm", { panelId: "llm-panel", chartDocumentId: "llm-polyline" }, {
+    drawingType: "polyline", anchors: patternDrawing.anchors
+  }
+));
+assert.equal(llmPolyline.ok, false);
+assert.match(llmPolyline.message, /Invalid drawing payload/);
 
 const normalizedLegacy = normalizeChartDocument({
   ...createChartDocument("legacy", "NVDA", "1M"),
@@ -248,6 +284,15 @@ const rawFactorRanges = Object.fromEntries(Object.entries(rawFactorScales).map((
   const limit = 32767 / scale;
   return [key, logFactorKeys.has(key) ? [0, Math.expm1(limit)] : [-limit, limit]];
 }));
+const sharedFactorKeys = new Set(["rangeAtr", "absoluteReturnAtr", "bodyFraction", "lowerWickFraction", "upperWickFraction", "localHighR2", "localLowR2", "localHighR5", "localLowR5", "localHighR13", "localLowR13"]);
+const hlineFactorKeys = new Set(["volumeRank", "volumeZ", "participation", "supportProximity", "resistanceProximity", "hlinePenetrationAtr", "reclaimStrength"]);
+const factorCodebook = Object.keys(rawFactorScales).map((key) => ({
+  key,
+  label: key,
+  channel: sharedFactorKeys.has(key) ? "shared" : hlineFactorKeys.has(key) ? "hline" : "trend",
+  scale: rawFactorScales[key as keyof typeof rawFactorScales],
+  transform: rawFactorTransforms[key]
+}));
 const line = (fromPrice: number, toPrice: number) => ({
   fromTimestamp: analysisTimestamps[0],
   fromPrice,
@@ -301,41 +346,38 @@ const packedReasonMasks = (codes: number[]) => {
   return Buffer.from(bytes).toString("base64");
 };
 const selectedRefs = [
-  { candidateId: "upper", sourceInferenceId: inferenceId, kind: "trend", sourceFieldModeId: "mode-upper", sourceFieldDerivationDigest: "sha256:mode-upper" },
-  { candidateId: "lower", sourceInferenceId: inferenceId, kind: "trend", sourceFieldModeId: "mode-lower", sourceFieldDerivationDigest: "sha256:mode-lower" }
+  { candidateId: "upper", kind: "trend", sourceFieldModeId: "mode-upper", sourceFieldDerivationDigest: "sha256:mode-upper", presentationSelected: true, patternSupporting: false, formationDomainId: "sha256:root-domain" },
+  { candidateId: "lower", kind: "trend", sourceFieldModeId: "mode-lower", sourceFieldDerivationDigest: "sha256:mode-lower", presentationSelected: true, patternSupporting: false, formationDomainId: "sha256:root-domain" },
+  { candidateId: "support", kind: "hline", sourceFieldModeId: "mode-support", sourceFieldDerivationDigest: "sha256:mode-support", presentationSelected: true, patternSupporting: false, formationDomainId: "sha256:root-domain" }
 ];
-const boundary = (candidateId: "upper" | "lower", role: "upper" | "lower", price: number) => ({
+const boundary = (candidateId: "upper" | "lower" | "support", role: "upper" | "lower" | "support", price: number) => ({
   candidateId,
-  sourceInferenceId: inferenceId,
-  sourceFieldModeId: `mode-${candidateId}`,
-  sourceFieldDerivationDigest: `sha256:mode-${candidateId}`,
-  kind: "trend",
+  kind: role === "support" ? "hline" : "trend",
   role,
   evidenceState: "formed",
   isRelevantNow: true,
   formation: {
-    initialFormationEpisodeIds: [`episode-${candidateId}-1`, `episode-${candidateId}-2`],
-    fitEpisodeIds: [`episode-${candidateId}-1`, `episode-${candidateId}-2`],
+    initialFormationCount: 2,
     fitCount: 2,
     lastFitObservedAt: analysisTimestamps[120],
     fitEvidenceConfirmedAt: analysisTimestamps[122],
     seedQuality: .8
   },
-  responses: { completedCount: 0, pendingCount: 0, lastInteractionAt: null, responseMass: 0 },
+  responses: { completedCount: 0, pendingCount: 0, responseMass: 0 },
   rank: {
-    rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0,
+    rankScore: .8, responseBonus: 0, profileBonus: 0,
     integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
     bodyPenetrationCount: 1, closePenetrationCount: 0
   },
   line: { priceAtAsOf: price, slopePerBar: .01, zoneHalfWidth: .5 },
-  explanation: { claim: "현재 추세 경계", because: ["구조적 endpoint"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
+  explanation: { claim: "현재 경계", because: ["구조적 endpoint"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
 });
 const field = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   inputContractVersion: "canonical-ohlcv-q8-v1",
   inferenceConfigDigest: "sha256:inference-config",
   projectionConfigDigest: "sha256:projection-config",
-  sightProjectionVersion: "czardas-sight-v2",
+  sightProjectionVersion: "czardas-sight-v3",
   sightProjectionId: "sha256:sight-projection",
   sourceBars: 240,
   evaluationAsOf: timestamp,
@@ -344,6 +386,8 @@ const field = {
   windowToTimestamp: analysisTimestamps[239],
   candleMeanings: {
     evaluationAsOf: timestamp,
+    codebookVersion: "czardas-factor-codebook-v4",
+    factorCodebook,
     rawFactorScales,
     rawFactorTransforms,
     normalizedFactorScale: 1000,
@@ -369,50 +413,67 @@ const field = {
     reasonMasks: packedReasonMasks([1])
   },
   basisFacts: {
-    basisIds: ["basis-upper", "basis-lower"],
-    roleCodes: [3, 2],
-    observedIndexes: [120, 121],
-    confirmedIndexes: [122, 123],
-    endpointPrices: [104, 98],
-    bodyEdgePrices: [103.5, 98.5],
-    corridorLows: [103.5, 97.5],
-    corridorHighs: [104.5, 98.5],
-    roleMasses: [.8, .82],
-    participations: [null, null],
-    effectiveScales: [5, 5],
+    basisIds: ["basis-upper", "basis-lower", "basis-support"],
+    roleCodes: [3, 2, 0],
+    observedIndexes: [120, 121, 118],
+    confirmedIndexes: [122, 123, 120],
+    endpointPrices: [104, 98, 96],
+    bodyEdgePrices: [103.5, 98.5, 96.5],
+    corridorLows: [103.5, 97.5, 95.5],
+    corridorHighs: [104.5, 98.5, 96.5],
+    roleMasses: [.8, .82, .76],
+    participations: [null, null, .5],
+    effectiveScales: [5, 5, 5],
     roleCodebook: { support: 0, resistance: 1, lower: 2, upper: 3 }
   },
   basisGlyphs: [],
   hlineResponseSegments: [],
   hlineProfileBins: [],
-  hlineModes: [],
+  hlineModes: [{
+    fieldModeId: "mode-support", derivationDigest: "sha256:mode-support", role: "support",
+    modeState: "coherent", geometryState: "refined", originSeedBasisIds: ["basis-support"],
+    supportMass: 2, oppositionMass: 0, contributorCount: 1, contributorBasisIndexes: [2],
+    independentEpisodeCount: 2, representativeContributions: [], viewRole: "landscape_and_selected",
+    windowFromTimestamp: analysisTimestamps[0], windowToTimestamp: analysisTimestamps[239],
+    ridge: { lowPrice: 95.5, highPrice: 96.5 }, centerPrice: 96, zoneHalfWidth: .5, dispersionAtr: .1
+  }],
   trendModes: [trendMode("upper", 104, 100), trendMode("lower", 98, 104)],
   selectedModeRefs: selectedRefs,
   derivationEpisodes: {
-    candidateIndexes: [0, 0, 1, 1],
-    candidateEpisodeOrdinals: [0, 1, 0, 1],
-    contributionBasisIndexes: [0, 0, 1, 1],
-    memberBasisIndexes: [[0], [0], [1], [1]],
-    observedFromIndexes: [120, 124, 121, 125],
-    observedToIndexes: [120, 124, 121, 125],
-    confirmedIndexes: [122, 126, 123, 127],
-    contributionIndexes: [120, 124, 121, 125],
-    contributionPrices: [104, 104, 98, 98],
-    corridorLows: [103.5, 103.5, 97.5, 97.5],
-    corridorHighs: [104.5, 104.5, 98.5, 98.5],
-    initialFormationMasks: [1, 1, 1, 1]
+    candidateIndexes: [0, 0, 1, 1, 2, 2],
+    candidateEpisodeOrdinals: [0, 1, 0, 1, 0, 1],
+    contributionBasisIndexes: [0, 0, 1, 1, 2, 2],
+    memberBasisIndexes: [[0], [0], [1], [1], [2], [2]],
+    observedFromIndexes: [120, 124, 121, 125, 118, 128],
+    observedToIndexes: [120, 124, 121, 125, 118, 128],
+    confirmedIndexes: [122, 126, 123, 127, 120, 130],
+    contributionIndexes: [120, 124, 121, 125, 118, 128],
+    contributionPrices: [104, 104, 98, 98, 96, 96],
+    corridorLows: [103.5, 103.5, 97.5, 97.5, 95.5, 95.5],
+    corridorHighs: [104.5, 104.5, 98.5, 98.5, 96.5, 96.5],
+    initialFormationMasks: [1, 1, 1, 1, 1, 1]
   },
-  validationGlyphs: []
+  validationGlyphs: [],
+  structuralDomains: [{
+    domainId: "sha256:root-domain", parentId: null, fromTimestamp: analysisTimestamps[0],
+    toTimestamp: analysisTimestamps[239], startIndex: 0, endIndex: 239, depth: 0, active: true, fitLoss: 1
+  }],
+  regressionFlows: [],
+  priceMemoryRidges: [{ ridgeId: "sha256:memory", lowPrice: 95.5, highPrice: 96.5, centerPrice: 96, responseMass: 2, contributorCount: 2, contributorIndexes: [118, 128] }],
+  patternRelationGlyphs: [],
+  patternEvidenceGlyphs: [],
+  projection: { truncated: false }
 };
+const support = managed("czardas:support:line", "support", "hline");
 const pack = {
-  algorithmVersion: "czardas-v3",
-  configVersion: "czardas-config-v3",
+  algorithmVersion: "czardas-v4",
+  configVersion: "czardas-config-v4",
   inputContractVersion: "canonical-ohlcv-q8-v1",
   timeContractVersion: "market-time-v1",
   calendarVersion: "nyse-calendar-v1",
   inferenceConfigDigest: "sha256:inference-config",
   projectionConfigDigest: "sha256:projection-config",
-  sightProjectionVersion: "czardas-sight-v2",
+  sightProjectionVersion: "czardas-sight-v3",
   sightProjectionId: "sha256:sight-projection",
   symbol: "NVDA",
   interval: "1D",
@@ -422,23 +483,28 @@ const pack = {
   inferenceId,
   status: "ready",
   coverage: { state: "exact", targetCompleted: 240, actualCompleted: 240, analysisBars: 240, qualityFlags: [] },
-  selection: { hline: { configuredCount: 2, actualCount: 0 }, trend: { configuredCount: 2, actualCount: 2 } },
-  boundaries: [boundary("upper", "upper", 100), boundary("lower", "lower", 104)],
-  presentationPattern: null,
-  drawings: [upper, lower],
-  czardasField: field
+  selection: { hline: { configuredCount: 2, actualCount: 1 }, trend: { configuredCount: 2, actualCount: 2 }, pattern: { configuredCount: null, actualCount: 0 } },
+  boundaries: [boundary("upper", "upper", 100), boundary("lower", "lower", 104), boundary("support", "support", 96)],
+  patternRelations: [],
+  drawings: [upper, lower, support],
+  czardasField: field,
+  rejectSummary: {}
 } as CzardasPackContent;
 const response = normalizeCzardasAssetsResponse({
   symbol: "NVDA",
   assets: { "1D": { freshness: "current", freshnessReason: "identity_match", generatedAt: timestamp, pack } }
 }, "NVDA");
 assert.equal(response.assets["1D"].freshness, "current");
-assert.equal(response.assets["1D"].pack?.drawings.length, 2);
+assert.equal(response.assets["1D"].pack?.drawings.length, 3);
 assert.equal(response.assets["1m"].freshness, "missing");
 const firstMeaning = candleMeaningAtTimestamp(response.assets["1D"].pack?.czardasField, analysisTimestamps[0]);
 assert.equal(firstMeaning?.summaries.shared, 0.5);
 assert.ok(Math.abs((firstMeaning?.factors.find((item) => item.key === "rangeAtr")?.raw ?? 0) - 0.8) < 0.002);
 assert.equal(firstMeaning?.reasons[0]?.usage, "geometry_input");
+assert.equal(firstMeaning?.factors.length, 21);
+assert.deepEqual(firstMeaning?.factorGroups.map((group) => [group.channel, group.keys.length]), [
+  ["shared", 11], ["hline", 7], ["trend", 3]
+]);
 analysisTimestamps.forEach((meaningTimestamp, index) => {
   const meaning = candleMeaningAtTimestamp(response.assets["1D"].pack?.czardasField, meaningTimestamp);
   assert.equal(meaning?.index, index, `missing hover meaning at candle ${index}`);
@@ -447,7 +513,7 @@ analysisTimestamps.forEach((meaningTimestamp, index) => {
 assert.equal(candleMeaningAtTimestamp(response.assets["1D"].pack?.czardasField, "2099-01-01T00:00:00.000Z"), null);
 assert.ok(!/fieldRevision|modelRevision|sourceFieldRevision|engineRevision/.test(JSON.stringify(pack)));
 const mandatoryBasisOnly = czardasRenderableBasis({ ...response.assets["1D"].pack!.czardasField, basisGlyphs: [] });
-assert.deepEqual(mandatoryBasisOnly.map((item) => item.basisId).sort(), ["basis-lower", "basis-upper"]);
+assert.deepEqual(mandatoryBasisOnly.map((item) => item.basisId).sort(), ["basis-lower", "basis-support", "basis-upper"]);
 
 const serializedResponse = JSON.stringify({
   symbol: "NVDA",
@@ -455,12 +521,12 @@ const serializedResponse = JSON.stringify({
 });
 for (let index = 0; index < 20; index += 1) {
   const normalized = normalizeCzardasAssetsResponse(JSON.parse(serializedResponse), "NVDA");
-  czardasDeltaCommands(target, [], [], normalized.assets["1D"].pack, { hline: true, trend: true }, { mode: "pan" });
+  czardasDeltaCommands(target, [], [], normalized.assets["1D"].pack, { hline: true, trend: true, pattern: true }, { mode: "pan" });
 }
 const parseDeltaSamples = Array.from({ length: 100 }, () => {
   const started = performance.now();
   const normalized = normalizeCzardasAssetsResponse(JSON.parse(serializedResponse), "NVDA");
-  czardasDeltaCommands(target, [], [], normalized.assets["1D"].pack, { hline: true, trend: true }, { mode: "pan" });
+  czardasDeltaCommands(target, [], [], normalized.assets["1D"].pack, { hline: true, trend: true, pattern: true }, { mode: "pan" });
   return performance.now() - started;
 }).sort((left, right) => left - right);
 const parseDeltaP95 = parseDeltaSamples[Math.ceil(parseDeltaSamples.length * .95) - 1];
@@ -520,12 +586,12 @@ const latestWindow = czardasWindowX(latestScene, field.windowFromTimestamp, fiel
 const pannedWindow = czardasWindowX(pannedScene, field.windowFromTimestamp, field.windowToTimestamp);
 assert.ok(latestWindow && pannedWindow);
 assert.notEqual(latestWindow?.toX, pannedWindow?.toX);
-const relation = { upperCandidateId: "upper", lowerCandidateId: "lower", relationFrom: analysisTimestamps[120] };
-const latestRelation = czardasRelationGeometry(latestScene, relation);
-const pannedRelation = czardasRelationGeometry(pannedScene, relation);
-assert.ok(latestRelation && pannedRelation);
-assert.equal(latestRelation?.x, createCoordinateTransform(latestScene).timestampToX(analysisTimestamps[120]));
-assert.notEqual(latestRelation?.x, pannedRelation?.x);
+const patternAnchor = { timestamp: analysisTimestamps[220], price: coordinateCandles[220].close };
+const latestPatternPoint = czardasTimestampPricePoint(latestScene, patternAnchor.timestamp, patternAnchor.price);
+const pannedPatternPoint = czardasTimestampPricePoint(pannedScene, patternAnchor.timestamp, patternAnchor.price);
+assert.ok(latestPatternPoint && pannedPatternPoint);
+assert.equal(latestPatternPoint?.x, createCoordinateTransform(latestScene).timestampToX(patternAnchor.timestamp));
+assert.notEqual(latestPatternPoint?.x, pannedPatternPoint?.x);
 
 const assertPixelAligned = (actual: number | null | undefined, expected: number | null | undefined) => {
   assert.ok(actual !== null && actual !== undefined && expected !== null && expected !== undefined);
@@ -695,32 +761,32 @@ const forgedPackProvenance = normalizeCzardasAssetsResponse({
 assert.equal(forgedPackProvenance.assets["1D"].freshness, "incompatible");
 assert.equal(forgedPackProvenance.assets["1D"].pack, null);
 
-const delta = czardasDeltaCommands(target, [], [], pack, { hline: true, trend: true }, { mode: "pan" });
-assert.equal(delta.filter((item) => item.type === "chart.drawing.add").length, 2);
+const delta = czardasDeltaCommands(target, [], [], pack, { hline: true, trend: true, pattern: true }, { mode: "pan" });
+assert.equal(delta.filter((item) => item.type === "chart.drawing.add").length, 3);
 const restoreCommands = czardasRestoreCommands(target, deleted.document.czardasSuppressions, pack);
 assert.equal(restoreCommands.length, 1);
-assert.equal((restoreCommands[0]?.payload as Record<string, unknown>).sourceKind, "group");
+assert.equal((restoreCommands[0]?.payload as Record<string, unknown>).sourceKind, "candidate");
 const restoredByUiCommand = executeChartCommand(deleted.document, restoreCommands[0]!);
 assert.equal(restoredByUiCommand.ok, true);
 if (!restoredByUiCommand.ok) throw new Error(restoredByUiCommand.message);
 assert.equal(restoredByUiCommand.document.czardasSuppressions.length, 0);
-assert.equal(restoredByUiCommand.document.drawings.length, 0);
+assert.equal(restoredByUiCommand.document.drawings.length, 1);
 assert.equal(czardasDeltaCommands(
   target,
   restoredByUiCommand.document.drawings,
   restoredByUiCommand.document.czardasSuppressions,
   pack,
-  { hline: true, trend: true },
+  { hline: true, trend: true, pattern: true },
   { mode: "pan" }
 ).filter((item) => item.type === "chart.drawing.add").length, 2);
 const updatedAt = "2026-07-11T20:00:00.000Z";
-const rederivedUpper = { ...upper, sourceFieldDerivationDigest: "sha256:mode-upper-next", sourceGroupId: undefined, updatedAt };
+const rederivedUpper = { ...upper, sourceFieldDerivationDigest: "sha256:mode-upper-next", updatedAt };
 const derivationDelta = czardasDeltaCommands(
   target,
   [upper],
   [],
   { ...pack, drawings: [rederivedUpper] },
-  { hline: true, trend: true },
+  { hline: true, trend: true, pattern: true },
   { mode: "pan" }
 );
 const derivationUpdate = derivationDelta.find((item) => item.type === "chart.drawing.update");
@@ -731,14 +797,11 @@ assert.equal(derivationResult.ok, true);
 if (!derivationResult.ok) throw new Error(derivationResult.message);
 const rederivedDrawing = derivationResult.document.drawings.find((item) => item.id === upper.id);
 assert.equal(rederivedDrawing?.sourceFieldDerivationDigest, "sha256:mode-upper-next");
-assert.equal(rederivedDrawing?.sourceGroupId, undefined);
 assert.equal(rederivedDrawing?.updatedAt, updatedAt);
-const staleDelta = czardasDeltaCommands(target, [], [], pack, { hline: true, trend: true }, { mode: "pan" }, true);
+const staleDelta = czardasDeltaCommands(target, [], [], pack, { hline: true, trend: true, pattern: true }, { mode: "pan" }, true);
 const staleDrawing = (staleDelta.find((item) => item.type === "chart.drawing.add")?.payload as any)?.drawing;
 assert.equal(staleDrawing?.style?.opacity, 0.42);
 const suppressedDelta = czardasDeltaCommands(target, [], [
-  { suppressionSetId: "set-triangle", sourceKind: "group", sourceId: "triangle-1", sourceGroupId: "triangle-1", reason: "deleted", createdAt: timestamp },
-  { suppressionSetId: "set-triangle", sourceKind: "candidate", sourceId: "upper", sourceCandidateId: "upper", sourceGroupId: "triangle-1", reason: "deleted", createdAt: timestamp },
-  { suppressionSetId: "set-triangle", sourceKind: "candidate", sourceId: "lower", sourceCandidateId: "lower", sourceGroupId: "triangle-1", reason: "deleted", createdAt: timestamp }
-], pack, { hline: true, trend: true }, { mode: "pan" });
-assert.equal(suppressedDelta.length, 0);
+  { suppressionSetId: "set-upper", sourceKind: "candidate", sourceId: "upper", sourceCandidateId: "upper", reason: "deleted", createdAt: timestamp }
+], pack, { hline: true, trend: true, pattern: true }, { mode: "pan" });
+assert.equal(suppressedDelta.filter((item) => item.type === "chart.drawing.add").length, 2);

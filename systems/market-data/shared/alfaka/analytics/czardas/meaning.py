@@ -101,6 +101,41 @@ RAW_FACTOR_TRANSFORMS = {
     for key in RAW_FACTOR_SCALES
 }
 
+FACTOR_CODEBOOK_VERSION = "czardas-factor-codebook-v4"
+_FACTOR_PRESENTATION = {
+    "rangeAtr": ("변동폭 / ATR", "shared"),
+    "absoluteReturnAtr": ("절대 등락 / ATR", "shared"),
+    "bodyFraction": ("몸통 비율", "shared"),
+    "lowerWickFraction": ("아래꼬리 비율", "shared"),
+    "upperWickFraction": ("위꼬리 비율", "shared"),
+    "localHighR2": ("주변 고점 관계 · R2", "shared"),
+    "localLowR2": ("주변 저점 관계 · R2", "shared"),
+    "localHighR5": ("주변 고점 관계 · R5", "shared"),
+    "localLowR5": ("주변 저점 관계 · R5", "shared"),
+    "localHighR13": ("주변 고점 관계 · R13", "shared"),
+    "localLowR13": ("주변 저점 관계 · R13", "shared"),
+    "volumeRank": ("거래량 순위", "hline"),
+    "volumeZ": ("거래량 편차", "hline"),
+    "participation": ("거래 참여도", "hline"),
+    "supportProximity": ("지지 Field 근접도", "hline"),
+    "resistanceProximity": ("저항 Field 근접도", "hline"),
+    "hlinePenetrationAtr": ("H-Line 관통 / ATR", "hline"),
+    "reclaimStrength": ("돌파 후 회복 강도", "hline"),
+    "lowerResidualAtr": ("하단 Trend 잔차 / ATR", "trend"),
+    "upperResidualAtr": ("상단 Trend 잔차 / ATR", "trend"),
+    "trendPenetrationAtr": ("Trend 관통 / ATR", "trend"),
+}
+FACTOR_CODEBOOK = tuple(
+    {
+        "key": key,
+        "label": _FACTOR_PRESENTATION[key][0],
+        "channel": _FACTOR_PRESENTATION[key][1],
+        "scale": RAW_FACTOR_SCALES[key],
+        "transform": RAW_FACTOR_TRANSFORMS[key],
+    }
+    for key in RAW_FACTOR_SCALES
+)
+
 
 @dataclass(frozen=True, slots=True)
 class CandleMeaningTape:
@@ -121,6 +156,8 @@ class CandleMeaningTape:
     def to_dto(self, tape: CandleTape) -> dict:
         return {
             "evaluationAsOf": tape.as_of,
+            "codebookVersion": FACTOR_CODEBOOK_VERSION,
+            "factorCodebook": list(FACTOR_CODEBOOK),
             "rawFactorScales": RAW_FACTOR_SCALES,
             "rawFactorTransforms": RAW_FACTOR_TRANSFORMS,
             "normalizedFactorScale": 1000,

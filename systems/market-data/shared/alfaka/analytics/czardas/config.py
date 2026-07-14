@@ -7,12 +7,12 @@ from .numeric import identity_digest, quantize_number
 
 @dataclass(frozen=True, slots=True)
 class CzardasConfig:
-    algorithm_version: str = "czardas-v3"
-    config_version: str = "czardas-config-v3"
+    algorithm_version: str = "czardas-v4"
+    config_version: str = "czardas-config-v4"
     input_contract_version: str = "canonical-ohlcv-q8-v1"
     time_contract_version: str = "market-time-v1"
     calendar_version: str = "nyse-calendar-v1"
-    sight_projection_version: str = "czardas-sight-v2"
+    sight_projection_version: str = "czardas-sight-v3"
     target_completed_bars: int = 240
     atr_period: int = 14
     volume_baseline: int = 20
@@ -37,6 +37,9 @@ class CzardasConfig:
     profile_target_bins: int = 48
     hline_display_count: int = 2
     trend_display_count: int = 2
+    hline_max_count: int = 4
+    trend_max_count: int = 3
+    pattern_max_count: int = 2
     display_min_rank_score: float = 0.45
     target_field_bytes: int = 77_824
     max_field_bytes: int = 81_920
@@ -83,7 +86,11 @@ class CzardasConfig:
             raise ValueError("feature_period_contract_mismatch")
         if self.recency_half_life_bars <= 0:
             raise ValueError("recency_half_life_must_be_positive")
-        if not (1 <= self.hline_display_count <= 4 and 1 <= self.trend_display_count <= 3):
+        if not (1 <= self.hline_display_count <= self.hline_max_count <= 4):
+            raise ValueError("hline_count_out_of_range")
+        if not (0 <= self.trend_display_count <= self.trend_max_count <= 3):
+            raise ValueError("trend_count_out_of_range")
+        if not (0 <= self.pattern_max_count <= 2):
             raise ValueError("display_count_out_of_range")
         if not (0 < self.target_field_bytes <= self.max_field_bytes <= 80 * 1024):
             raise ValueError("field_budget_out_of_range")

@@ -314,6 +314,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 38
   },
   {
+    kind: "aiCoach",
+    title: "AI 투자 코치",
+    agentPanelType: "aiCoach",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 3, rowSpan: 3 },
+    minSizePx: { width: 520, height: 500 },
+    defaultSpan: { colSpan: 5, rowSpan: 4 },
+    defaultLayoutWeight: 72
+  },
+  {
     kind: "orderFlow",
     title: "오더플로우",
     agentPanelType: "orderFlowProfile",
@@ -324,6 +334,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "quickOrder",
+    title: "빠른 주문",
+    agentPanelType: "quickOrder",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 240 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 48
+  },
+  {
     kind: "trade",
     title: "주문",
     agentPanelType: "orderTicket",
@@ -332,6 +352,39 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     minSizePx: { width: 280, height: 220 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 35
+  },
+  {
+    kind: "paperQuickOrder",
+    title: "가상 빠른 주문",
+    agentPanelType: "paperQuickOrder",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 240 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 48,
+    insertable: true
+  },
+  {
+    kind: "paperTrade",
+    title: "가상 주문",
+    agentPanelType: "paperOrderTicket",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 280, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 35,
+    insertable: true
+  },
+  {
+    kind: "paperAccount",
+    title: "가상계좌",
+    agentPanelType: "paperAccount",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 3, rowSpan: 2 },
+    minSizePx: { width: 420, height: 260 },
+    defaultSpan: { colSpan: 4, rowSpan: 3 },
+    defaultLayoutWeight: 55,
+    insertable: true
   }
 ];
 

@@ -81,7 +81,15 @@ class CanonicalCandleRepairRunner:
     def run(self, record: dict[str, Any]) -> dict[str, Any]:
         symbol = str(record["symbol"]).upper()
         interval = str(record["interval"])
-        source_interval = historical_source_interval_for(interval)
+        # Exact canonical repair always rebuilds intraday buckets from 1Min.
+        # Reusing a coarser display/history source (for example 10Min for 1h)
+        # can hide an interior missing minute and makes early-close buckets
+        # dependent on the provider's aggregation policy.
+        source_interval = (
+            "1m"
+            if interval in INTRADAY_CANDLE_INTERVALS and interval != "1m"
+            else historical_source_interval_for(interval)
+        )
         requested_range = record["range"]
         feed = historical_feed_for_symbol(
             symbol,

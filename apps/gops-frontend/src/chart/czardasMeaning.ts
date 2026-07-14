@@ -1,5 +1,4 @@
 import {
-  czardasMeaningFactorKeys,
   type CzardasFieldDto,
   type CzardasMeaningChannel,
   type CzardasMeaningFactorKey,
@@ -22,33 +21,14 @@ export type CzardasCandleMeaningView = {
   summaries: { shared: number; hline: number; trend: number; compositePercentile: number };
   roles: { support: number; resistance: number; lower: number; upper: number };
   factors: CzardasMeaningFactorView[];
+  factorGroups: ReadonlyArray<{
+    channel: CzardasMeaningChannel;
+    label: string;
+    keys: readonly CzardasMeaningFactorKey[];
+  }>;
   availability: string[];
   phases: string[];
   reasons: CzardasReasonCodeDto[];
-};
-
-const factorLabels: Record<CzardasMeaningFactorKey, string> = {
-  rangeAtr: "변동폭 / ATR",
-  absoluteReturnAtr: "절대 등락 / ATR",
-  bodyFraction: "몸통 비율",
-  lowerWickFraction: "아래꼬리 비율",
-  upperWickFraction: "위꼬리 비율",
-  volumeRank: "거래량 순위",
-  volumeZ: "거래량 편차",
-  participation: "거래 참여도",
-  localHighR2: "주변 고점 관계 · R2",
-  localLowR2: "주변 저점 관계 · R2",
-  localHighR5: "주변 고점 관계 · R5",
-  localLowR5: "주변 저점 관계 · R5",
-  localHighR13: "주변 고점 관계 · R13",
-  localLowR13: "주변 저점 관계 · R13",
-  supportProximity: "지지 Field 근접도",
-  resistanceProximity: "저항 Field 근접도",
-  lowerResidualAtr: "하단 Trend 잔차 / ATR",
-  upperResidualAtr: "상단 Trend 잔차 / ATR",
-  hlinePenetrationAtr: "H-Line 관통 / ATR",
-  trendPenetrationAtr: "Trend 관통 / ATR",
-  reclaimStrength: "돌파 후 회복 강도"
 };
 
 const maskLabels: Record<string, string> = {
@@ -77,48 +57,6 @@ export const czardasUsageLabels: Record<CzardasMeaningUsage, string> = {
   visualization_only: "시각화 전용"
 };
 
-export const czardasMeaningFactorGroups: ReadonlyArray<{
-  channel: CzardasMeaningChannel;
-  label: string;
-  keys: readonly CzardasMeaningFactorKey[];
-}> = [
-  {
-    channel: "shared",
-    label: "Shared",
-    keys: [
-      "rangeAtr",
-      "absoluteReturnAtr",
-      "bodyFraction",
-      "lowerWickFraction",
-      "upperWickFraction",
-      "localHighR2",
-      "localLowR2",
-      "localHighR5",
-      "localLowR5",
-      "localHighR13",
-      "localLowR13"
-    ]
-  },
-  {
-    channel: "hline",
-    label: "H-Line",
-    keys: [
-      "volumeRank",
-      "volumeZ",
-      "participation",
-      "supportProximity",
-      "resistanceProximity",
-      "hlinePenetrationAtr",
-      "reclaimStrength"
-    ]
-  },
-  {
-    channel: "trend",
-    label: "Trend",
-    keys: ["lowerResidualAtr", "upperResidualAtr", "trendPenetrationAtr"]
-  }
-];
-
 export function candleMeaningAtTimestamp(
   field: CzardasFieldDto | null | undefined,
   timestamp: string | null | undefined
@@ -145,16 +83,21 @@ export function candleMeaningAtTimestamp(
       lower: meanings.roles.lower[index] / meanings.scoreScale,
       upper: meanings.roles.upper[index] / meanings.scoreScale
     },
-    factors: czardasMeaningFactorKeys.map((key) => ({
-      key,
-      label: factorLabels[key],
+    factors: meanings.factorCodebook.map((factor) => ({
+      key: factor.key,
+      label: factor.label,
       raw: transformedValue(
-        decodedFactorValue(meanings.factors[key], index),
-        meanings.rawFactorScales[key],
-        meanings.rawFactorTransforms[key]
+        decodedFactorValue(meanings.factors[factor.key], index),
+        factor.scale,
+        factor.transform
       ),
-      normalized: scaledValue(decodedFactorValue(meanings.normalizedFactors[key], index), meanings.normalizedFactorScale)
+      normalized: scaledValue(decodedFactorValue(meanings.normalizedFactors[factor.key], index), meanings.normalizedFactorScale)
     })),
+    factorGroups: (["shared", "hline", "trend"] as const).map((channel) => ({
+      channel,
+      label: channel === "shared" ? "Shared" : channel === "hline" ? "H-Line" : "Trend",
+      keys: meanings.factorCodebook.filter((factor) => factor.channel === channel).map((factor) => factor.key)
+    })).filter((group) => group.keys.length > 0),
     availability: decodeMask(meanings.availabilityMasks[index], meanings.availabilityCodebook),
     phases: decodeMask(meanings.phaseMasks[index], meanings.phaseCodebook),
     reasons: decodedReasonCodes(meanings.reasonMasks, index)

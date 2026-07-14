@@ -1,24 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gops.local/contracts/chart-czardas-pack.schema.json",
-  "title": "GOPS Czardas v3 Present-Snapshot Pack",
+  "title": "GOPS Czardas v4 Present-Snapshot Field Pack",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "algorithmVersion", "configVersion", "inputContractVersion", "timeContractVersion", "calendarVersion",
-    "inferenceConfigDigest", "projectionConfigDigest", "sightProjectionVersion", "sightProjectionId", "inferenceId",
-    "symbol", "interval", "asOf", "lastCandleKey", "inputDigest", "status", "coverage",
-    "selection", "boundaries", "presentationPattern", "drawings", "czardasField", "rejectSummary"
+    "algorithmVersion", "configVersion", "inputContractVersion", "timeContractVersion",
+    "calendarVersion", "inferenceConfigDigest", "projectionConfigDigest", "sightProjectionVersion",
+    "sightProjectionId", "inferenceId", "symbol", "interval", "asOf", "lastCandleKey",
+    "inputDigest", "status", "coverage", "selection", "boundaries", "patternRelations",
+    "drawings", "czardasField", "rejectSummary"
   ],
   "properties": {
-    "algorithmVersion": {"const": "czardas-v3"},
-    "configVersion": {"const": "czardas-config-v3"},
+    "algorithmVersion": {"const": "czardas-v4"},
+    "configVersion": {"const": "czardas-config-v4"},
     "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
     "timeContractVersion": {"const": "market-time-v1"},
     "calendarVersion": {"const": "nyse-calendar-v1"},
     "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
     "projectionConfigDigest": {"$ref": "#/$defs/digest"},
-    "sightProjectionVersion": {"const": "czardas-sight-v2"},
+    "sightProjectionVersion": {"const": "czardas-sight-v3"},
     "sightProjectionId": {"$ref": "#/$defs/digest"},
     "inferenceId": {"$ref": "#/$defs/digest"},
     "symbol": {"type": "string", "pattern": "^[A-Z][A-Z0-9.-]*$"},
@@ -29,28 +30,25 @@
     "status": {"const": "ready"},
     "coverage": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["state", "targetCompleted", "actualCompleted", "analysisBars", "qualityFlags"],
       "properties": {
-        "state": {"const": "exact"},
-        "targetCompleted": {"const": 240},
-        "actualCompleted": {"const": 240},
-        "analysisBars": {"const": 240},
+        "state": {"const": "exact"}, "targetCompleted": {"const": 240},
+        "actualCompleted": {"const": 240}, "analysisBars": {"const": 240},
         "qualityFlags": {"type": "array", "items": {"type": "string"}}
       }
     },
     "selection": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["hline", "trend"],
+      "type": "object", "additionalProperties": false,
+      "required": ["hline", "trend", "pattern"],
       "properties": {
-        "hline": {"$ref": "#/$defs/hlineSelection"},
-        "trend": {"$ref": "#/$defs/trendSelection"}
+        "hline": {"$ref": "#/$defs/selectionCount"},
+        "trend": {"$ref": "#/$defs/selectionCount"},
+        "pattern": {"$ref": "#/$defs/selectionCount"}
       }
     },
-    "boundaries": {"type": "array", "maxItems": 7, "items": {"$ref": "#/$defs/boundary"}},
-    "presentationPattern": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/triangle"}]},
-    "drawings": {"type": "array", "maxItems": 7, "items": {"$ref": "#/$defs/drawing"}},
+    "boundaries": {"type": "array", "minItems": 1, "maxItems": 7, "items": {"$ref": "#/$defs/boundary"}},
+    "patternRelations": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/patternRelation"}},
+    "drawings": {"type": "array", "minItems": 1, "maxItems": 9, "items": {"$ref": "#/$defs/drawing"}},
     "czardasField": {"$ref": "#/$defs/field"},
     "rejectSummary": {"type": "object"}
   },
@@ -58,341 +56,130 @@
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "timestamp": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "interval": {"enum": ["1m", "5m", "10m", "1h", "4h", "1D", "1W"]},
-    "finiteNumber": {"type": "number"},
-    "scoreSeries": {
-      "type": "array", "minItems": 240, "maxItems": 240,
-      "items": {"type": "integer", "minimum": 0, "maximum": 1000}
-    },
-    "maskSeries": {
-      "type": "array", "minItems": 240, "maxItems": 240,
-      "items": {"type": "integer", "minimum": 0}
-    },
-    "factorNames": {
-      "enum": [
-        "rangeAtr", "absoluteReturnAtr", "bodyFraction", "lowerWickFraction", "upperWickFraction",
-        "volumeRank", "volumeZ", "participation", "localHighR2", "localLowR2", "localHighR5",
-        "localLowR5", "localHighR13", "localLowR13", "supportProximity", "resistanceProximity",
-        "lowerResidualAtr", "upperResidualAtr", "hlinePenetrationAtr", "trendPenetrationAtr",
-        "reclaimStrength"
-      ]
-    },
-    "historicalPropertyName": {
-      "enum": [
-        "fieldRevision", "modelRevision", "sourceFieldRevision", "engineRevision",
-        "lineageFormedAt", "revisionFormedAt", "firstSeenAt", "replayLineageCap",
-        "replay_lineage_cap", "originFieldModeId", "roleMassAtRevision",
-        "verificationCount", "verification", "lifecycle"
-      ]
-    },
-    "factorObjectBase": {
-      "type": "object",
-      "minProperties": 21,
-      "maxProperties": 21,
-      "required": [
-        "rangeAtr", "absoluteReturnAtr", "bodyFraction", "lowerWickFraction", "upperWickFraction",
-        "volumeRank", "volumeZ", "participation", "localHighR2", "localLowR2", "localHighR5",
-        "localLowR5", "localHighR13", "localLowR13", "supportProximity", "resistanceProximity",
-        "lowerResidualAtr", "upperResidualAtr", "hlinePenetrationAtr", "trendPenetrationAtr",
-        "reclaimStrength"
-      ],
-      "propertyNames": {"$ref": "#/$defs/factorNames"}
-    },
-    "factorBlobs": {
-      "allOf": [
-        {"$ref": "#/$defs/factorObjectBase"},
-        {"additionalProperties": {"type": "string", "pattern": "^[A-Za-z0-9+/]{640}$"}}
-      ]
-    },
-    "factorScales": {
-      "allOf": [
-        {"$ref": "#/$defs/factorObjectBase"},
-        {"additionalProperties": {"const": 1000}}
-      ]
-    },
-    "factorTransforms": {
-      "allOf": [
-        {"$ref": "#/$defs/factorObjectBase"},
-        {"additionalProperties": {"enum": ["linear", "log1p"]}}
-      ]
-    },
-    "factorRanges": {
-      "allOf": [
-        {"$ref": "#/$defs/factorObjectBase"},
-        {"additionalProperties": {
-          "type": "array", "minItems": 2, "maxItems": 2,
-          "items": {"type": "number"}
-        }}
-      ]
-    },
-    "candleMeanings": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "evaluationAsOf", "rawFactorScales", "rawFactorTransforms", "normalizedFactorScale", "scoreScale",
-        "rawFactorEncoding", "normalizedFactorEncoding", "rawFactorNullSentinel",
-        "normalizedFactorNullSentinel", "rawFactorRanges", "rawFactorOverflowPolicy", "candleKeys",
-        "timestamps", "summaries", "roles", "factors", "normalizedFactors", "availabilityMasks",
-        "availabilityCodebook", "phaseMasks", "phaseCodebook", "reasonCodebook", "reasonEncoding",
-        "reasonMasks"
-      ],
-      "properties": {
-        "evaluationAsOf": {"$ref": "#/$defs/timestamp"},
-        "rawFactorScales": {"$ref": "#/$defs/factorScales"},
-        "rawFactorTransforms": {"$ref": "#/$defs/factorTransforms"},
-        "normalizedFactorScale": {"const": 1000},
-        "scoreScale": {"const": 1000},
-        "rawFactorEncoding": {"const": "int16-base64-be"},
-        "normalizedFactorEncoding": {"const": "int16-base64-be"},
-        "rawFactorNullSentinel": {"const": -32768},
-        "normalizedFactorNullSentinel": {"const": -32768},
-        "rawFactorRanges": {"$ref": "#/$defs/factorRanges"},
-        "rawFactorOverflowPolicy": {"const": "reject"},
-        "candleKeys": {
-          "type": "array", "minItems": 240, "maxItems": 240, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
-        },
-        "timestamps": {
-          "type": "array", "minItems": 240, "maxItems": 240, "uniqueItems": true,
-          "items": {"$ref": "#/$defs/timestamp"}
-        },
-        "summaries": {
-          "type": "object", "additionalProperties": false,
-          "required": ["shared", "hline", "trend", "compositePercentile"],
-          "properties": {
-            "shared": {"$ref": "#/$defs/scoreSeries"}, "hline": {"$ref": "#/$defs/scoreSeries"},
-            "trend": {"$ref": "#/$defs/scoreSeries"}, "compositePercentile": {"$ref": "#/$defs/scoreSeries"}
-          }
-        },
-        "roles": {
-          "type": "object", "additionalProperties": false,
-          "required": ["support", "resistance", "lower", "upper"],
-          "properties": {
-            "support": {"$ref": "#/$defs/scoreSeries"}, "resistance": {"$ref": "#/$defs/scoreSeries"},
-            "lower": {"$ref": "#/$defs/scoreSeries"}, "upper": {"$ref": "#/$defs/scoreSeries"}
-          }
-        },
-        "factors": {"$ref": "#/$defs/factorBlobs"},
-        "normalizedFactors": {"$ref": "#/$defs/factorBlobs"},
-        "availabilityMasks": {"$ref": "#/$defs/maskSeries"},
-        "availabilityCodebook": {"$ref": "#/$defs/positiveBitCodebook"},
-        "phaseMasks": {"$ref": "#/$defs/maskSeries"},
-        "phaseCodebook": {"$ref": "#/$defs/positiveBitCodebook"},
-        "reasonCodebook": {
-          "type": "array", "maxItems": 32, "uniqueItems": true,
-          "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["code", "key", "label", "usage", "channel"],
-            "properties": {
-              "code": {"type": "integer", "minimum": 0, "maximum": 31},
-              "key": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1},
-              "usage": {"enum": ["geometry_input", "fit", "integrity", "response", "visualization_only"]},
-              "channel": {"enum": ["shared", "hline", "trend"]}
-            }
-          }
-        },
-        "reasonEncoding": {"const": "uint32-bitmask-base64-be"},
-        "reasonMasks": {"type": "string", "pattern": "^[A-Za-z0-9+/]{1280}$"}
-      }
-    },
-    "positiveBitCodebook": {
-      "type": "object", "minProperties": 1,
-      "additionalProperties": {"type": "integer", "minimum": 1}
-    },
-    "selectionCount": {
-      "type": "object", "additionalProperties": false,
-      "required": ["configuredCount", "actualCount"],
-      "properties": {
-        "configuredCount": {"type": "integer"}, "actualCount": {"type": "integer", "minimum": 0}
-      }
-    },
-    "hlineSelection": {
-      "allOf": [{"$ref": "#/$defs/selectionCount"}, {"properties": {"configuredCount": {"minimum": 1, "maximum": 4}, "actualCount": {"maximum": 4}}}]
-    },
-    "trendSelection": {
-      "allOf": [{"$ref": "#/$defs/selectionCount"}, {"properties": {"configuredCount": {"minimum": 1, "maximum": 3}, "actualCount": {"maximum": 3}}}]
-    },
-    "boundary": {
-      "type": "object",
-      "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
-      "required": [
-        "candidateId", "sourceInferenceId", "sourceFieldModeId", "sourceFieldDerivationDigest",
-        "kind", "role", "evidenceState", "isRelevantNow", "formation", "responses", "line", "rank", "explanation"
-      ],
-      "properties": {
-        "candidateId": {"$ref": "#/$defs/digest"}, "sourceInferenceId": {"$ref": "#/$defs/digest"},
-        "sourceFieldModeId": {"$ref": "#/$defs/digest"}, "sourceFieldDerivationDigest": {"$ref": "#/$defs/digest"},
-        "kind": {"enum": ["hline", "trend"]}, "role": {"enum": ["support", "resistance", "lower", "upper"]},
-        "evidenceState": {"enum": ["formed", "response_supported"]}, "isRelevantNow": {"type": "boolean"},
-        "formation": {
-          "type": "object", "required": ["initialFormationEpisodeIds", "fitEpisodeIds", "fitCount", "fitEvidenceConfirmedAt"],
-          "properties": {
-            "initialFormationEpisodeIds": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
-            "fitEpisodeIds": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
-            "fitCount": {"type": "integer", "minimum": 2}, "fitEvidenceConfirmedAt": {"$ref": "#/$defs/timestamp"}
-          }
-        },
-        "responses": {"type": "object"}, "line": {"type": "object"}, "rank": {"type": "object"},
-        "explanation": {"type": "object"}
-      }
-    },
     "anchor": {
       "type": "object", "additionalProperties": false, "required": ["timestamp", "price"],
       "properties": {"timestamp": {"$ref": "#/$defs/timestamp"}, "price": {"type": "number"}}
     },
+    "selectionCount": {
+      "type": "object", "additionalProperties": false, "required": ["configuredCount", "actualCount"],
+      "properties": {
+        "configuredCount": {"type": ["integer", "null"]},
+        "actualCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "required": [
+        "candidateId", "kind", "role", "evidenceState", "isRelevantNow", "line",
+        "formation", "responses", "rank", "explanation"
+      ],
+      "properties": {
+        "candidateId": {"$ref": "#/$defs/digest"},
+        "kind": {"enum": ["hline", "trend"]},
+        "role": {"enum": ["support", "resistance", "lower", "upper"]},
+        "evidenceState": {"enum": ["formed", "response_supported", "baseline_memory"]},
+        "isRelevantNow": {"type": "boolean"},
+        "line": {"type": "object"}, "formation": {"type": "object"},
+        "responses": {"type": "object"}, "rank": {"type": "object"}, "explanation": {"type": "object"}
+      }
+    },
+    "patternRelation": {
+      "type": "object",
+      "allOf": [{
+        "if": {"properties": {"kind": {"enum": ["flag", "pennant"]}}},
+        "then": {"required": ["impulse"]}
+      }],
+      "required": [
+        "relationId", "kind", "displayName", "boundaryCandidateIds", "domain",
+        "relationQuality", "traceRef", "traceAnchorCount", "traceFactCount", "explanation"
+      ],
+      "properties": {
+        "relationId": {"$ref": "#/$defs/digest"},
+        "kind": {"enum": ["triangle", "channel", "rectangle", "wedge", "flag", "pennant"]},
+        "displayName": {"type": "string", "minLength": 1},
+        "boundaryCandidateIds": {
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/digest"}
+        },
+        "domain": {
+          "type": "object", "required": ["fromTimestamp", "toTimestamp"],
+          "properties": {
+            "fromTimestamp": {"$ref": "#/$defs/timestamp"},
+            "toTimestamp": {"$ref": "#/$defs/timestamp"}
+          }
+        },
+        "impulse": {"$ref": "#/$defs/impulse"},
+        "relationQuality": {"type": "number"},
+        "traceRef": {"$ref": "#/$defs/digest"},
+        "traceAnchorCount": {"type": "integer", "minimum": 3, "maximum": 16},
+        "traceFactCount": {"type": "integer", "minimum": 3},
+        "explanation": {"type": "object"}
+      }
+    },
+    "impulse": {
+      "type": "object",
+      "required": ["factId", "fromTimestamp", "toTimestamp", "direction", "normalizedMove", "pathEfficiency"],
+      "properties": {
+        "factId": {"$ref": "#/$defs/digest"},
+        "fromTimestamp": {"$ref": "#/$defs/timestamp"},
+        "toTimestamp": {"$ref": "#/$defs/timestamp"},
+        "direction": {"enum": [-1, 1]},
+        "normalizedMove": {"type": "number"},
+        "pathEfficiency": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
     "drawing": {
       "type": "object",
-      "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
       "required": [
-        "id", "type", "symbol", "interval", "sourceInterval", "ownership", "createdBy", "czardasLayer",
-        "sourceCandidateId", "sourceInferenceId", "sourceFieldModeId", "sourceFieldDerivationDigest",
-        "anchors", "style", "visible", "createdAt", "updatedAt"
+        "id", "type", "anchors", "sourceInterval", "style", "visible",
+        "createdBy", "ownership", "czardasLayer", "sourceInferenceId", "createdAt", "updatedAt"
       ],
       "properties": {
-        "id": {"type": "string", "pattern": "^czardas:"}, "type": {"enum": ["horizontalLine", "trendLine"]},
-        "symbol": {"type": "string"}, "interval": {"$ref": "#/$defs/interval"}, "sourceInterval": {"$ref": "#/$defs/interval"},
-        "ownership": {"const": "czardas-managed"}, "createdBy": {"const": "system"},
-        "czardasLayer": {"enum": ["hline", "trend"]}, "sourceCandidateId": {"$ref": "#/$defs/digest"},
-        "sourceInferenceId": {"$ref": "#/$defs/digest"}, "sourceFieldModeId": {"$ref": "#/$defs/digest"},
-        "sourceFieldDerivationDigest": {"$ref": "#/$defs/digest"},
-        "sourceGroupId": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]},
-        "anchors": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/anchor"}},
-        "style": {
-          "type": "object", "required": ["lineWidth", "extension"],
-          "properties": {"lineWidth": {"enum": [1, 2, 3]}, "extension": {"enum": ["line", "ray"]}}
-        },
-        "visible": {"const": true}, "createdAt": {"$ref": "#/$defs/timestamp"}, "updatedAt": {"$ref": "#/$defs/timestamp"}
-      }
-    },
-    "triangle": {
-      "type": "object",
-      "required": ["triangleId", "kind", "upperCandidateId", "lowerCandidateId"],
-      "properties": {
-        "triangleId": {"$ref": "#/$defs/digest"},
-        "kind": {"enum": ["ascending_triangle", "descending_triangle", "symmetrical_triangle"]},
-        "upperCandidateId": {"$ref": "#/$defs/digest"}, "lowerCandidateId": {"$ref": "#/$defs/digest"}
-      }
-    },
-    "basisFacts": {
-      "type": "object",
-      "additionalProperties": false,
-      "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
-      "required": [
-        "basisIds", "roleCodes", "observedIndexes", "confirmedIndexes", "endpointPrices", "bodyEdgePrices",
-        "corridorLows", "corridorHighs", "roleMasses", "participations", "effectiveScales", "roleCodebook"
-      ],
-      "properties": {
-        "basisIds": {"type": "array", "items": {"$ref": "#/$defs/digest"}},
-        "roleCodes": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 3}},
-        "observedIndexes": {"$ref": "#/$defs/indexArray"}, "confirmedIndexes": {"$ref": "#/$defs/indexArray"},
-        "endpointPrices": {"$ref": "#/$defs/numberArray"}, "bodyEdgePrices": {"$ref": "#/$defs/numberArray"},
-        "corridorLows": {"$ref": "#/$defs/numberArray"}, "corridorHighs": {"$ref": "#/$defs/numberArray"},
-        "roleMasses": {"$ref": "#/$defs/numberArray"}, "participations": {"type": "array", "items": {"type": ["number", "null"]}},
-        "effectiveScales": {"type": "array", "items": {"type": "integer", "minimum": 1}},
-        "roleCodebook": {
-          "type": "object", "additionalProperties": false,
-          "required": ["support", "resistance", "lower", "upper"],
-          "properties": {
-            "support": {"const": 0}, "resistance": {"const": 1},
-            "lower": {"const": 2}, "upper": {"const": 3}
-          }
-        }
-      }
-    },
-    "indexArray": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 239}},
-    "numberArray": {"type": "array", "items": {"type": "number"}},
-    "mode": {
-      "type": "object",
-      "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
-      "required": ["fieldModeId", "derivationDigest", "role", "contributorBasisIndexes", "contributorCount"],
-      "properties": {
-        "fieldModeId": {"$ref": "#/$defs/digest"}, "derivationDigest": {"$ref": "#/$defs/digest"},
-        "role": {"enum": ["support", "resistance", "lower", "upper"]},
-        "contributorBasisIndexes": {"$ref": "#/$defs/indexArray"}, "contributorCount": {"type": "integer", "minimum": 0}
-      }
-    },
-    "selectedModeRef": {
-      "type": "object", "additionalProperties": false,
-      "required": ["candidateId", "kind", "sourceInferenceId", "sourceFieldModeId", "sourceFieldDerivationDigest"],
-      "properties": {
-        "candidateId": {"$ref": "#/$defs/digest"}, "kind": {"enum": ["hline", "trend"]},
-        "sourceInferenceId": {"$ref": "#/$defs/digest"}, "sourceFieldModeId": {"$ref": "#/$defs/digest"},
-        "sourceFieldDerivationDigest": {"$ref": "#/$defs/digest"}
-      }
-    },
-    "derivationEpisodes": {
-      "type": "object", "additionalProperties": false,
-      "required": [
-        "candidateIndexes", "candidateEpisodeOrdinals", "contributionBasisIndexes", "memberBasisIndexes", "observedFromIndexes",
-        "observedToIndexes", "confirmedIndexes", "contributionIndexes", "contributionPrices", "corridorLows", "corridorHighs", "initialFormationMasks"
-      ],
-      "properties": {
-        "candidateIndexes": {"$ref": "#/$defs/indexArray"}, "contributionBasisIndexes": {"$ref": "#/$defs/indexArray"},
-        "candidateEpisodeOrdinals": {"type": "array", "items": {"type": "integer", "minimum": 0}},
-        "memberBasisIndexes": {"type": "array", "items": {"$ref": "#/$defs/indexArray"}},
-        "observedFromIndexes": {"$ref": "#/$defs/indexArray"}, "observedToIndexes": {"$ref": "#/$defs/indexArray"},
-        "confirmedIndexes": {"$ref": "#/$defs/indexArray"}, "contributionIndexes": {"$ref": "#/$defs/indexArray"},
-        "contributionPrices": {"$ref": "#/$defs/numberArray"},
-        "corridorLows": {"$ref": "#/$defs/numberArray"}, "corridorHighs": {"$ref": "#/$defs/numberArray"},
-        "initialFormationMasks": {"type": "array", "items": {"enum": [0, 1]}}
+        "id": {"type": "string", "pattern": "^czardas:"},
+        "type": {"enum": ["horizontalLine", "trendLine", "polyline"]},
+        "anchors": {"type": "array", "minItems": 2, "maxItems": 16, "items": {"$ref": "#/$defs/anchor"}},
+        "sourceInterval": {"$ref": "#/$defs/interval"}, "style": {"type": "object"},
+        "visible": {"const": true}, "createdBy": {"const": "system"},
+        "ownership": {"const": "czardas-managed"},
+        "czardasLayer": {"enum": ["hline", "trend", "pattern"]},
+        "sourceInferenceId": {"$ref": "#/$defs/digest"},
+        "sourceCandidateId": {"type": ["string", "null"]},
+        "sourceRelationId": {"type": ["string", "null"]},
+        "createdAt": {"$ref": "#/$defs/timestamp"}, "updatedAt": {"$ref": "#/$defs/timestamp"}
       }
     },
     "field": {
       "type": "object",
-      "additionalProperties": false,
-      "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
       "required": [
-        "schemaVersion", "inputContractVersion", "inferenceConfigDigest", "projectionConfigDigest",
-        "sightProjectionVersion", "sightProjectionId", "sourceBars", "evaluationAsOf", "sourceInferenceId", "windowFromTimestamp",
-        "windowToTimestamp", "candleMeanings", "basisFacts", "basisGlyphs", "hlineResponseSegments",
-        "hlineProfileBins", "hlineModes", "trendModes", "selectedModeRefs", "derivationEpisodes",
-        "validationGlyphs", "relationGlyph", "projection"
+        "schemaVersion", "sourceBars", "evaluationAsOf", "sourceInferenceId",
+        "inputContractVersion", "inferenceConfigDigest", "projectionConfigDigest",
+        "sightProjectionVersion", "sightProjectionId",
+        "windowFromTimestamp", "windowToTimestamp", "candleMeanings", "structuralDomains",
+        "regressionFlows", "priceMemoryRidges", "basisFacts", "hlineModes", "trendModes",
+        "selectedModeRefs", "derivationEpisodes", "validationGlyphs", "patternRelationGlyphs",
+        "patternEvidenceGlyphs", "projection"
       ],
       "properties": {
-        "schemaVersion": {"const": 3},
+        "schemaVersion": {"const": 4}, "sourceBars": {"const": 240},
         "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
         "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
         "projectionConfigDigest": {"$ref": "#/$defs/digest"},
-        "sightProjectionVersion": {"const": "czardas-sight-v2"},
+        "sightProjectionVersion": {"const": "czardas-sight-v3"},
         "sightProjectionId": {"$ref": "#/$defs/digest"},
-        "sourceBars": {"const": 240},
-        "evaluationAsOf": {"$ref": "#/$defs/timestamp"}, "sourceInferenceId": {"$ref": "#/$defs/digest"},
-        "windowFromTimestamp": {"$ref": "#/$defs/timestamp"}, "windowToTimestamp": {"$ref": "#/$defs/timestamp"},
-        "candleMeanings": {"$ref": "#/$defs/candleMeanings"}, "basisFacts": {"$ref": "#/$defs/basisFacts"},
-        "basisGlyphs": {"type": "array", "items": {"type": "object", "required": ["basisId", "observedAt", "confirmedAt"]}},
-        "hlineResponseSegments": {"type": "array", "items": {"type": "object"}},
-        "hlineProfileBins": {"type": "array", "items": {"type": "object"}},
-        "hlineModes": {"type": "array", "items": {"$ref": "#/$defs/mode"}},
-        "trendModes": {"type": "array", "items": {"$ref": "#/$defs/mode"}},
-        "selectedModeRefs": {"type": "array", "maxItems": 7, "items": {"$ref": "#/$defs/selectedModeRef"}},
-        "derivationEpisodes": {"$ref": "#/$defs/derivationEpisodes"},
-        "validationGlyphs": {
-          "type": "array", "items": {
-            "type": "object", "required": ["validationId", "candidateIndex", "episodeIndex", "candidateKind", "role", "kind", "observedAt"],
-            "properties": {
-              "validationId": {"$ref": "#/$defs/digest"}, "candidateIndex": {"type": "integer", "minimum": 0, "maximum": 6},
-              "episodeIndex": {"type": ["integer", "null"], "minimum": 0}, "candidateKind": {"enum": ["hline", "trend"]},
-              "role": {"enum": ["support", "resistance", "lower", "upper"]}, "kind": {"enum": ["formation", "interaction"]},
-              "observedAt": {"$ref": "#/$defs/timestamp"}, "confirmedAt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/timestamp"}]}
-            }
-          }
-        },
-        "relationGlyph": {"type": ["object", "null"]},
-        "projection": {
-          "type": "object", "additionalProperties": false,
-          "required": [
-            "truncated", "omittedBasisCount", "omittedHlineResponseSegmentCount", "profileBinsOmitted",
-            "omittedHlineModeCount", "omittedTrendModeCount", "omittedHypothesisCount", "omittedValidationCount"
-          ],
-          "properties": {
-            "truncated": {"type": "boolean"}, "profileBinsOmitted": {"type": "boolean"},
-            "omittedBasisCount": {"type": "integer", "minimum": 0},
-            "omittedHlineResponseSegmentCount": {"type": "integer", "minimum": 0},
-            "omittedHlineModeCount": {"type": "integer", "minimum": 0},
-            "omittedTrendModeCount": {"type": "integer", "minimum": 0},
-            "omittedHypothesisCount": {"type": "integer", "minimum": 0},
-            "omittedValidationCount": {"type": "integer", "minimum": 0}
-          }
-        }
+        "evaluationAsOf": {"$ref": "#/$defs/timestamp"},
+        "sourceInferenceId": {"$ref": "#/$defs/digest"},
+        "windowFromTimestamp": {"$ref": "#/$defs/timestamp"},
+        "windowToTimestamp": {"$ref": "#/$defs/timestamp"},
+        "candleMeanings": {"type": "object"},
+        "structuralDomains": {"type": "array", "items": {"type": "object"}},
+        "regressionFlows": {"type": "array", "items": {"type": "object"}},
+        "priceMemoryRidges": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "basisFacts": {"type": "object"}, "hlineModes": {"type": "array"},
+        "trendModes": {"type": "array"}, "selectedModeRefs": {"type": "array", "maxItems": 11},
+        "derivationEpisodes": {"type": "object"}, "validationGlyphs": {"type": "array"},
+        "patternRelationGlyphs": {"type": "array", "maxItems": 2},
+        "patternEvidenceGlyphs": {"type": "array", "maxItems": 1},
+        "projection": {"type": "object"}
       }
     }
   }

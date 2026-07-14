@@ -13,6 +13,9 @@ type WorkspacePanelFrameProps = {
   onFramePointerMove?: (slotId: string) => (event: ReactPointerEvent<HTMLElement>) => void;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
+  onPointerDownCapture?: (event: ReactPointerEvent<HTMLElement>) => void;
+  onFocusCapture?: () => void;
+  frameActions?: ReactNode;
   editControls?: ReactNode;
   children: ReactNode;
 };
@@ -29,6 +32,9 @@ export function WorkspacePanelFrame({
   onFramePointerMove,
   onPointerEnter,
   onPointerLeave,
+  onPointerDownCapture,
+  onFocusCapture,
+  frameActions,
   editControls,
   children
 }: WorkspacePanelFrameProps) {
@@ -48,6 +54,8 @@ export function WorkspacePanelFrame({
       data-panel-kind={content.kind}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      onPointerDownCapture={onPointerDownCapture}
+      onFocusCapture={onFocusCapture}
       onPointerDown={onFramePointerDown?.(slot.id)}
       onPointerMove={onFramePointerMove?.(slot.id)}
     >
@@ -62,6 +70,7 @@ export function WorkspacePanelFrame({
       <div className={content.kind === "chart" ? "workspace-panel-body chart-panel-body" : "workspace-panel-body"}>
         {children}
       </div>
+      {frameActions}
       {editControls}
     </section>
   );

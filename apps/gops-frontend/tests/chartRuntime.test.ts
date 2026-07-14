@@ -53,6 +53,7 @@ import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShow
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
 import type { AgentLayoutCommand, AgentLayoutCommandType, AgentLayoutProposal, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
+  advanceTimestampByInterval,
   buildSemanticTimeline,
   nextDigTargetInterval,
   semanticExpansionId,
@@ -72,6 +73,7 @@ import {
   buildChartScene as buildFrontendChartScene,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
+  resolveCrosshairTimeTarget,
   viewportAnchorRatioAtX,
   viewportSlotWidth
 } from "../src/chart/scene";
@@ -809,6 +811,14 @@ const afterGapX = sparseMinuteTransform.timestampToX("2026-07-09T05:39:00Z");
 assert.equal(typeof insideGapX, "number");
 assert.ok((beforeGapX ?? 0) < (insideGapX ?? 0));
 assert.ok((insideGapX ?? 0) < (afterGapX ?? 0));
+const gapCrosshairTarget = resolveCrosshairTimeTarget(
+  sparseMinuteScene,
+  insideGapX ?? sparseMinuteScene.plot.left,
+  (sparseMinuteScene.plot.top + sparseMinuteScene.plot.priceBottom) / 2
+);
+assert.equal(gapCrosshairTarget?.kind, "semantic");
+assert.equal(gapCrosshairTarget?.unit?.kind, "time-gap");
+assert.equal(gapCrosshairTarget?.x, insideGapX);
 const afterGapAnchorRatio = viewportAnchorRatioAtX(sparseMinuteScene, afterGapX ?? sparseMinuteScene.plot.left);
 const afterGapVisualRatio = ((afterGapX ?? sparseMinuteScene.plot.left) - sparseMinuteScene.plot.left) / (sparseMinuteScene.plot.right - sparseMinuteScene.plot.left);
 assert.ok(Math.abs(afterGapVisualRatio - afterGapAnchorRatio) < 0.000001);
@@ -957,6 +967,68 @@ const noExpansionFutureScene = buildFrontendChartScene(frontendChartState({
   rightOffset: futureOffsetWithSemanticWidth
 }), 800, 360);
 assert.equal(noExpansionFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80));
+const intervalAdvanceCases = [
+  ["1m", "2026-01-31T23:32:00.000Z"],
+  ["5m", "2026-01-31T23:40:00.000Z"],
+  ["10m", "2026-01-31T23:50:00.000Z"],
+  ["1h", "2026-02-01T01:30:00.000Z"],
+  ["4h", "2026-02-01T07:30:00.000Z"],
+  ["1D", "2026-02-02T23:30:00.000Z"],
+  ["1W", "2026-02-14T23:30:00.000Z"],
+  ["1M", "2026-03-01T00:00:00.000Z"]
+] as const;
+intervalAdvanceCases.forEach(([interval, expected]) => {
+  assert.equal(advanceTimestampByInterval("2026-01-31T23:30:00.000Z", interval, 2), expected);
+});
+assert.equal(advanceTimestampByInterval("not-a-timestamp", "1D"), null);
+const emptyCrosshairScene = buildFrontendChartScene(frontendChartState({ candles: [] }), 800, 360);
+assert.equal(
+  resolveCrosshairTimeTarget(
+    emptyCrosshairScene,
+    emptyCrosshairScene.plot.right / 2,
+    (emptyCrosshairScene.plot.top + emptyCrosshairScene.plot.priceBottom) / 2
+  ),
+  null
+);
+
+const latestFutureUnit = noExpansionFutureScene.semantic.unitById.get(semanticFutureParentNodeId);
+assert.ok(latestFutureUnit?.kind === "candle");
+if (latestFutureUnit?.kind === "candle") {
+  const crosshairY = (noExpansionFutureScene.plot.top + noExpansionFutureScene.plot.priceBottom) / 2;
+  const latestTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    noExpansionFutureScene.plot.left + latestFutureUnit.slotCenter * noExpansionFutureScene.scales.slotWidth,
+    crosshairY
+  );
+  assert.equal(latestTarget?.kind, "semantic");
+  assert.equal(latestTarget?.timestamp, semanticFutureParent.timestamp);
+
+  const futureStartX = noExpansionFutureScene.plot.left + latestFutureUnit.slotEnd * noExpansionFutureScene.scales.slotWidth;
+  const firstFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 0.1,
+    crosshairY
+  );
+  const sameFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 0.9,
+    crosshairY
+  );
+  const thirdFutureTarget = resolveCrosshairTimeTarget(
+    noExpansionFutureScene,
+    futureStartX + noExpansionFutureScene.scales.slotWidth * 2.1,
+    crosshairY
+  );
+  assert.equal(firstFutureTarget?.kind, "future");
+  assert.equal(firstFutureTarget?.futureIndex, 0);
+  assert.equal(firstFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D", 1));
+  assert.equal(sameFutureTarget?.x, firstFutureTarget?.x);
+  assert.equal(sameFutureTarget?.timestamp, firstFutureTarget?.timestamp);
+  assert.equal(thirdFutureTarget?.futureIndex, 2);
+  assert.equal(thirdFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D", 3));
+  assert.ok(Math.abs((thirdFutureTarget?.x ?? 0) - (firstFutureTarget?.x ?? 0) - noExpansionFutureScene.scales.slotWidth * 2) < 0.000001);
+  assert.equal(resolveCrosshairTimeTarget(noExpansionFutureScene, noExpansionFutureScene.plot.right + 1, crosshairY), null);
+}
 const semanticFutureScene = buildFrontendChartScene(frontendChartState({
   candles: semanticFutureCandles as CandleDto[],
   visibleCount: 80,
@@ -964,6 +1036,34 @@ const semanticFutureScene = buildFrontendChartScene(frontendChartState({
 }), 800, 360, { expansions: [semanticFutureExpansion] });
 assert.equal(semanticFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
 assert.equal(Math.ceil(semanticFutureScene.semantic.expansionExtraSlots), semanticFutureExtraSlots);
+const latestExpansionRange = semanticFutureScene.semantic.expansionRanges.find(
+  (range) => range.parentNodeId === semanticFutureParentNodeId
+);
+assert.ok(latestExpansionRange);
+if (latestExpansionRange) {
+  const crosshairY = (semanticFutureScene.plot.top + semanticFutureScene.plot.priceBottom) / 2;
+  const futureStartX = semanticFutureScene.plot.left + latestExpansionRange.slotEnd * semanticFutureScene.scales.slotWidth;
+  const expansionFutureTarget = resolveCrosshairTimeTarget(
+    semanticFutureScene,
+    futureStartX + semanticFutureScene.scales.slotWidth * 0.25,
+    crosshairY
+  );
+  assert.equal(expansionFutureTarget?.kind, "future");
+  assert.equal(expansionFutureTarget?.futureIndex, 0);
+  assert.equal(expansionFutureTarget?.timestamp, advanceTimestampByInterval(semanticFutureParent.timestamp, "1D"));
+}
+const pannedAwayLatestScene = buildFrontendChartScene(frontendChartState({
+  candles: semanticFutureCandles as CandleDto[],
+  visibleCount: 20,
+  rightOffset: 10
+}), 800, 360);
+const pannedAwayTarget = resolveCrosshairTimeTarget(
+  pannedAwayLatestScene,
+  pannedAwayLatestScene.plot.right - pannedAwayLatestScene.scales.slotWidth / 2,
+  (pannedAwayLatestScene.plot.top + pannedAwayLatestScene.plot.priceBottom) / 2
+);
+assert.equal(pannedAwayTarget?.kind, "semantic");
+assert.notEqual(pannedAwayTarget?.timestamp, semanticFutureParent.timestamp);
 const semanticFutureSceneAtBaseEmptySpace = buildFrontendChartScene(frontendChartState({
   candles: semanticFutureCandles as CandleDto[],
   visibleCount: 80,
@@ -998,6 +1098,39 @@ assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
 assert.equal(formatFrontendPriceAxisValue(-12.3), "-12.30");
 assert.equal(formatFrontendPriceAxisValue(1.2345, 4), "1.2345");
 assert.equal(formatFrontendPriceAxisValue(Number.NaN), "-");
+const priceDensityCandles = [
+  testCandle("2026-07-09T00:00:00.000Z", 150),
+  testCandle("2026-07-10T00:00:00.000Z", 164)
+] as CandleDto[];
+const compactPriceDensityScene = buildFrontendChartScene(frontendChartState({
+  candles: priceDensityCandles,
+  visibleCount: 6,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+const tallPriceDensityScene = buildFrontendChartScene(frontendChartState({
+  candles: priceDensityCandles,
+  visibleCount: 6,
+  layers: { candles: true, volume: false }
+}), 800, 760);
+assert.equal(tallPriceDensityScene.scales.minPrice, compactPriceDensityScene.scales.minPrice);
+assert.equal(tallPriceDensityScene.scales.maxPrice, compactPriceDensityScene.scales.maxPrice);
+assert.equal(
+  tallPriceDensityScene.scales.priceTicks.length,
+  compactPriceDensityScene.scales.priceTicks.length * 2 - 1
+);
+assert.equal(
+  tallPriceDensityScene.scales.priceTicks[1],
+  (compactPriceDensityScene.scales.priceTicks[0] + compactPriceDensityScene.scales.priceTicks[1]) / 2
+);
+assert.equal(formatFrontendPriceAxisValue(tallPriceDensityScene.scales.priceTicks[1]), "147.50");
+assert.ok(
+  (compactPriceDensityScene.plot.priceBottom - compactPriceDensityScene.plot.top)
+    / (compactPriceDensityScene.scales.priceTicks.length - 1) < 120
+);
+assert.ok(
+  (tallPriceDensityScene.plot.priceBottom - tallPriceDensityScene.plot.top)
+    / (compactPriceDensityScene.scales.priceTicks.length - 1) >= 120
+);
 const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
   candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
   visibleCount: 1
@@ -3299,7 +3432,7 @@ assert.match(appSource, /resolveAgentLayoutCommand/);
 assert.doesNotMatch(appSource, /isLikelyLayoutCommand/);
 assert.match(appSource, /layoutResolutionProblemMessage/);
 assert.match(appSource, /agentLayoutApplySucceeded/);
-assert.match(appSource, /return problemMessage \? "chat-log" : "ui-action";/);
+assert.match(appSource, /showAgentNotice\(problemMessage, "error"\);[\s\S]*return "notice";/);
 assert.doesNotMatch(appSource, /hasChartCommandTarget/);
 assert.match(appSource, /onLogin=\{login\}/);
 assert.match(appSource, /onLogout=\{\(\) => void logout\(\)\}/);
@@ -3326,7 +3459,7 @@ assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.match(appSource, /isLikelyPresetLoadPrompt\(prompt, agentPresetSummaries\)/);
 assert.doesNotMatch(appSource, /showPresetApplyFeedback/);
-assert.match(appSource, /return presetLoadStatus === "applied" \? "ui-action" : "chat-log";/);
+assert.match(appSource, /return presetLoadStatus === "applied" \? "ui-action" : "notice";/);
 const agentShortcutIndex = appSource.indexOf("resolveAgentChartShortcut(prompt)");
 const presetShortcutIndex = appSource.indexOf("isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)");
 assert.ok(presetShortcutIndex > -1);
@@ -3335,20 +3468,16 @@ assert.ok(agentShortcutIndex >= 0);
 assert.ok(agentShortcutIndex < appSource.indexOf("if (mainView.mode !== \"chart\")", agentShortcutIndex));
 assert.match(appSource, /기업명\/티커만 입력하면 차트를 열 수 있고/);
 assert.match(appSource, /resolveAgentLayoutCommand\(analysisPayload\)/);
-assert.ok(appSource.indexOf("resolveAgentLayoutCommand") < appSource.indexOf("Agent가 분석을 시작했습니다."));
+const runAgentPromptIndex = appSource.indexOf("const runAgentPrompt");
+assert.ok(appSource.indexOf("resolveAgentLayoutCommand(analysisPayload)", runAgentPromptIndex) < appSource.indexOf("requestAgentAnalysisPayload(analysisRequestPayload", runAgentPromptIndex));
 
 const bottomCommandBarSource = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
-assert.match(bottomCommandBarSource, /AgentSubmitResult/);
-assert.match(bottomCommandBarSource, /chart-shortcut/);
-assert.match(bottomCommandBarSource, /ui-action/);
-assert.match(bottomCommandBarSource, /result === "chat-log"[\s\S]*setChatPanelOpen\(true\)/);
-assert.doesNotMatch(bottomCommandBarSource, /result === "ui-action"[\s\S]{0,160}setChatPanelOpen\(true\)/);
+assert.doesNotMatch(bottomCommandBarSource, /AgentSubmitResult|ChatLogEntry|chatPanelOpen/);
+assert.doesNotMatch(bottomCommandBarSource, /Agent log|AGENT LOG|agent-log-button|bottom-chat-panel/);
+assert.match(bottomCommandBarSource, /agentNotice: AgentHeaderNotice \| null/);
+assert.match(bottomCommandBarSource, /window\.setTimeout\(\(\) => onAgentNoticeDismiss\(agentNotice\.id\), 3000\)/);
 assert.match(bottomCommandBarSource, /기업명\/티커로 차트 열기/);
 assert.match(bottomCommandBarSource, /선택한 자료/);
-assert.match(bottomCommandBarSource, /bottom-chat-message-text/);
-assert.match(bottomCommandBarSource, /bottom-chat-loading-mark/);
-assert.match(bottomCommandBarSource, /bottom-chat-confidence-dot/);
-assert.match(bottomCommandBarSource, /신뢰도 \$\{percent\}%/);
 
 const presetDockSource = readFileSync(fileURLToPath(new URL("../src/components/PresetDock.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(presetDockSource, /statusFeedback/);
@@ -3360,7 +3489,8 @@ assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.doesNotMatch(bottomCommandBarSource, /BottomMenuKey|leftMenuKeys|sideMenuKeys|rightMenuKeys/);
 assert.match(bottomCommandBarSource, /className="workspace-top-nav"/);
 assert.match(bottomCommandBarSource, /className="workspace-bottom-nav"/);
-assert.match(bottomCommandBarSource, /className="workspace-top-center"[\s\S]*\{topDock\}/);
+assert.match(bottomCommandBarSource, /workspace-top-center-flip[\s\S]*workspace-agent-notice/);
+assert.match(bottomCommandBarSource, /role="status"[\s\S]*aria-live="polite"/);
 assert.match(bottomCommandBarSource, /className="workspace-top-login"/);
 assert.match(bottomCommandBarSource, /onClick=\{authUser \? onLogout : onLogin\}/);
 assert.match(bottomCommandBarSource, /topLoginLabel\(authEnabled, authLoading, authUser\)/);
@@ -3373,7 +3503,6 @@ assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
 assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
-assert.match(bottomCommandBarSource, /\.bottom-chat-panel, \.agent-dock, \.symbol-search-menu, \.workspace-top-nav/);
 assert.match(bottomCommandBarSource, /onOpenChart=\{openAlertToastChart\}/);
 assert.match(bottomCommandBarSource, /onSelectSymbol\(symbol\)/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
@@ -3413,13 +3542,22 @@ assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsOnlyPanel/);
 assert.match(panelContentRendererSource, /ChartComparisonPanel/);
 assert.match(panelContentRendererSource, /content\.kind === "compare"/);
+assert.doesNotMatch(panelContentRendererSource, /chartPatternList|ChartPatternListPanel|onSelectPatternAsset/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
-assert.match(panelContentRendererSource, /chart-instance-interval/);
+assert.match(panelContentRendererSource, /ChartToolbarSelect/);
+assert.match(panelContentRendererSource, /variant="interval"/);
 assert.match(panelContentRendererSource, /chartPanelHandleRef\.current\?\.setInterval/);
 assert.match(panelContentRendererSource, /bidAskChartIntervals/);
 assert.match(panelContentRendererSource, /chartIntervalOptions\.map/);
 assert.doesNotMatch(panelContentRendererSource, /disabled=\{chartType === "bidask"\}/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
+
+const chartToolbarSelectSource = readFileSync(fileURLToPath(new URL("../src/components/ChartToolbarSelect.tsx", import.meta.url)), "utf-8");
+assert.match(chartToolbarSelectSource, /createPortal/);
+assert.match(chartToolbarSelectSource, /rect\.bottom \+ menuGap/);
+assert.match(chartToolbarSelectSource, /role="listbox"/);
+assert.match(chartToolbarSelectSource, /aria-activedescendant/);
+assert.match(chartToolbarSelectSource, /chart-toolbar-select-option-icon/);
 
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
@@ -3432,6 +3570,10 @@ const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/C
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
 const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
+assert.match(chartPanelSource, /const chartVolumeProfileBinCount = 10;/);
+assert.equal((chartPanelSource.match(/targetBins: chartVolumeProfileBinCount/g) ?? []).length, 2);
+assert.equal((chartPanelSource.match(/priceMin: visibleProfileRange\.priceMin/g) ?? []).length, 2);
+assert.equal((chartPanelSource.match(/priceMax: visibleProfileRange\.priceMax/g) ?? []).length, 2);
 assert.match(chartPanelSource, /visibleProfileRangeKey/);
 assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
@@ -3441,9 +3583,11 @@ assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
 assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
 assert.match(chartPanelSource, /liveTradePrice/);
-assert.match(chartPanelSource, /ChevronDown/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
-assert.match(chartPanelSource, /openToolGroup|chart-tool-group-menu/);
+assert.match(chartPanelSource, /variant="drawing-tool"/);
+assert.match(chartPanelSource, /variant="drawing-count"/);
+assert.match(chartPanelSource, /window\.document\.body/);
+assert.doesNotMatch(chartPanelSource, /chart-tool-group-menu|chart-parallel-line-count/);
 assert.match(chartPanelSource, /ResizeObserver/);
 assert.match(chartPanelSource, /clientWidth \* 0\.7/);
 assert.match(chartPanelSource, /useImmediateChartTooltip/);
@@ -3501,6 +3645,7 @@ assert.doesNotMatch(chartCanvasSource, /function drawCarryForwardGaps/);
 assert.doesNotMatch(chartCanvasSource, /function drawTimeGapUnit/);
 assert.match(chartCanvasSource, /\(candle\.close - baseClose\).*100/);
 assert.match(chartCanvasSource, /profile\.sideClassification === "estimated" \? "Estimated VP" : "VP"/);
+assert.match(chartCanvasSource, /if \(!Number\.isFinite\(bucket\.volume\) \|\| bucket\.volume <= 0\) \{\s*return;/);
 assert.match(chartCanvasSource, /const bollingerFillAlpha = 0\.1;/);
 assert.match(chartCanvasSource, /context\.fillStyle = candleStrokeColor\(candle\.close >= candle\.open\)/);
 assert.match(chartCanvasSource, /function horizontalGuideRight[\s\S]*return scene\.plot\.right/);
@@ -3535,6 +3680,8 @@ const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, sc
 assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
+assert.match(chartCanvasSource, /const axisLabelColor = resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 2);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
@@ -3552,6 +3699,7 @@ const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/pa
 assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
 assert.match(panelRegistrySource, /kind: "orderFlow"[\s\S]*agentPanelType: "orderFlowProfile"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
+assert.doesNotMatch(panelRegistrySource, /chartPatternList|패턴 종목/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",
@@ -3891,21 +4039,10 @@ const frontendStylesSource = [
   readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8"),
   readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
 ].join("\n");
-const bottomCommandBarSourceForAgentAnalysis = readFileSync(fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)), "utf-8");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
-assert.match(frontendStylesSource, /\.bottom-chat-message p \{[\s\S]*white-space: pre-wrap;/);
-assert.match(frontendStylesSource, /\.bottom-chat-message \{[\s\S]*max-width: min\(720px, 88%\);/);
-assert.match(frontendStylesSource, /\.agent-analysis-details summary \{[\s\S]*cursor: pointer;/);
-assert.match(bottomCommandBarSourceForAgentAnalysis, /analysisReport\?: AgentAnalysisReport \| null;/);
-assert.match(bottomCommandBarSourceForAgentAnalysis, /<AgentAnalysisChatMessage report=\{entry\.analysisReport\}/);
-assert.match(bottomCommandBarSourceForAgentAnalysis, /<details className="agent-analysis-details">/);
-assert.match(bottomCommandBarSourceForAgentAnalysis, /"판단 근거", "분석한 지표", "반대로 볼 점"/);
-assert.match(frontendStylesSource, /\.bottom-chat-message\.is-pending \.bottom-chat-message-text \{[\s\S]*color: var\(--color-muted-medium\);/);
-assert.match(frontendStylesSource, /\.bottom-chat-loading-mark \{[\s\S]*color: var\(--color-text\);[\s\S]*animation: bottom-chat-loading-spin/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.high \{[\s\S]*background: #05b169;/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.medium \{[\s\S]*background: #f4b000;/);
-assert.match(frontendStylesSource, /\.bottom-chat-confidence-dot\.low \{[\s\S]*background: #cf202f;/);
-assert.match(frontendStylesSource, /@keyframes bottom-chat-loading-spin/);
+assert.match(frontendStylesSource, /\.workspace-top-center-flip\.is-notice \.workspace-agent-notice \{[\s\S]*opacity: 1;[\s\S]*rotateX\(0deg\);/);
+assert.match(frontendStylesSource, /\.workspace-agent-notice \{[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/);
+assert.match(frontendStylesSource, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.workspace-top-center-face \{[\s\S]*transition: none;/);
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*background: var\(--chart-layer-accent, var\(--color-preview\)\);/);
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #ffffff;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*position: absolute;/);
@@ -3933,9 +4070,6 @@ assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);
 assert.doesNotMatch(frontendStylesSource, /layout-preset-status-in/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*width: auto;/);
 assert.match(frontendStylesSource, /\.layout-exit-button \{[\s\S]*min-width: 50px;/);
-const pendingChatMessageBlock = frontendStylesSource.match(/\.bottom-chat-message\.is-pending \{[^}]*\}/)?.[0] ?? "";
-assert.doesNotMatch(pendingChatMessageBlock, /opacity:/);
-assert.doesNotMatch(frontendStylesSource, /\.bottom-chat-message\.assistant p,[\s\S]*box-shadow: inset 0 0 0 1px/);
 
 const zeroTimingReport = normalizeAgentAnalysisReport({
   ...agentAnalysisReport,

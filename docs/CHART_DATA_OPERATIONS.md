@@ -139,21 +139,10 @@ APPLY=true WAIT_FOR_JOB=false scripts/aws/run-session-candle-rebuild-job.sh
 
 Use `SYMBOLS=AAPL,NVDA` and `MAX_SYMBOLS=2` for a smoke run. The job is idempotent
 by `(symbol, interval, event_time, bucket_policy)` selection and does not delete
-`clock_aligned` rollback rows. After it completes, use the development panel to
-manually rebuild only the Czardas symbol×interval pairs whose candle digest changed.
-
-Before repair rollout, audit the live key without changing it:
-
-```sql
-SHOW CREATE TABLE market_data.chart_candles;
-```
-
-Fresh installs key `canonical_version` and `price_adjustment`; older AWS tables
-may not. Do not run `DROP`, `MODIFY ORDER BY`, or an in-place key rewrite from an
-application deploy. Czardas repair remains safe on the legacy key through its
-dedicated canonical repair feed profile. A table-copy/backfill/swap migration,
-including row-count and canonical-query verification, is a separate approved
-operation.
+`clock_aligned` rollback rows. After review, use the development asset panel to
+manually rebuild only the Czardas symbol×interval pairs whose candle identity changed.
+The default scheduler target is the always-on `batch-warm` node pool; override it
+with `BATCH_NODEPOOL=batch` only when the elastic batch pool is provisioning normally.
 
 Dry-run ClickHouse-to-S3 regeneration first:
 
@@ -197,33 +186,21 @@ treats the configuration as one bucket-wide document.
 
 ## Czardas PostgreSQL Schema
 
-Czardas asset payload와 build queue는 PostgreSQL만 사용한다. 배포 전
-`czardas-asset-builder`를 중단하고 다음 schema migration을 실행한다.
-
-로컬 Compose의 기본 dependency graph는 one-shot `czardas-asset-migrations`를 자동
-실행하고 성공한 뒤에만 worker를 시작한다. 별도 profile은 없으며 이 service는
-`004_czardas_assets.sql`만 적용한다. 아래 명령은 AWS/EKS용이다.
-같은 migration은 v2 전봉 Field를 위해 기존 컬럼의 check constraint만 Field
-80 KiB, pack 96 KiB로 넓히며 새 table이나 column을 추가하지 않는다.
+Czardas pack과 수동 build queue는 PostgreSQL만 사용한다. 배포 전 builder를
+중단하고 다음 schema migration을 실행한다.
 
 ```bash
 scripts/aws/run-czardas-asset-migrations-job.sh
 ```
 
-새 migration은 `czardas_latest`, `czardas_build_jobs`, `czardas_build_items`만
-만든다. Runtime은 schema를 자동 생성하지 않는다. migration 성공 후 worker와
-backend를 재시작한다. 기존 PostgreSQL `geometry_*`와 ClickHouse
-`chart_analysis_assets`는 삭제하지 않지만 휴면 데이터이므로 migration·runtime·운영
-도구 모두 read/write하지 않으며 신규 환경에 자동 생성하지 않는다.
+Migration은 `czardas_latest`, `czardas_build_jobs`, `czardas_build_items`만 관리한다.
+기존 Geometry table은 휴면 보존하며 복사, reader, writer, migration과 fallback을 두지 않는다.
+Runtime은 schema를 자동 생성하지 않는다. migration 성공 후 backend와 builder를 재시작한다.
 
 ## Rollback
 
 - Application rollback: deploy the previous images/config while keeping topics,
   tables, Redis keys, and S3 objects intact.
-- Czardas exception: never roll back to an image or manifest that restores the
-  Geometry worker, API, UI, CronJob, or asset fallback. If Czardas must be
-  disabled, keep the ordinary candle chart running with no automatic drawing or
-  deploy the latest verified Czardas-capable image.
 - S3 v2 rollback: switch writers to `dual`, verify v1 manifests, then switch
   readers. Do not delete v2 evidence during rollback.
 - Derived rollback: disable the new API image; cached results expire naturally.

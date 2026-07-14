@@ -1,5 +1,5 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
@@ -21,9 +21,11 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
+import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -36,6 +38,7 @@ import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
+import { QuickOrderPanel } from "./QuickOrderPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
@@ -50,6 +53,13 @@ import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
+
+const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
+  default: module.AiInvestmentCoachPanel
+})));
+const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
+  default: module.PaperAccountPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -122,10 +132,11 @@ export function PanelContentRenderer({
   onChartAddToggle,
   onUpdatePanelProps,
   onChangePanelChartSymbol,
-  onSelectSymbol
+  onSelectSymbol,
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
+  const [openChartDropdown, setOpenChartDropdown] = useState<"chart-type" | "interval" | null>(null);
   const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
     chartPanelHandleRef.current = handle;
     onChartHandleChange(content.id, handle);
@@ -339,6 +350,40 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "aiCoach") {
+    const coachReport = content.props?.coachReport;
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
+      <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
+    </Suspense>;
+  }
+
+  if (content.kind === "quickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <QuickOrderPanel
+        symbol={readQuickOrderSymbol(content, symbol)}
+        savedQty={readQuickOrderQty(content)}
+        symbolOptions={watchlistSymbols}
+        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+      />
+    );
+  }
+
+  if (content.kind === "paperQuickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <QuickOrderPanel
+        executionMode="paper"
+        symbol={readQuickOrderSymbol(content, symbol)}
+        savedQty={readQuickOrderQty(content)}
+        symbolOptions={watchlistSymbols}
+        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+      />
+    );
+  }
+
   if (content.kind === "trade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -349,6 +394,25 @@ export function PanelContentRenderer({
         onSymbolOptionsRequest={() => undefined}
       />
     );
+  }
+
+  if (content.kind === "paperTrade") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <OrderTicket
+        executionMode="paper"
+        activeSymbol={symbol.toUpperCase()}
+        chartSymbols={watchlistSymbols}
+        symbolOptions={watchlistSymbols}
+        onSymbolOptionsRequest={() => undefined}
+      />
+    );
+  }
+
+  if (content.kind === "paperAccount") {
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상계좌를 불러오는 중입니다</div>}>
+      <PaperAccountPanel />
+    </Suspense>;
   }
 
   if (content.kind === "chartCommentary") {
@@ -385,6 +449,15 @@ export function PanelContentRenderer({
   const chartIntervalValue = chartType === "bidask"
     ? (isBidAskChartInterval(interval) ? interval : defaultBidAskInterval)
     : interval;
+  const chartTypeOptions: ChartToolbarSelectOption<ChartType>[] = chartTypes.map((nextChartType) => ({
+    value: nextChartType,
+    label: chartTypeLabel(nextChartType)
+  }));
+  const chartIntervalSelectOptions: ChartToolbarSelectOption<ChartInterval>[] = chartIntervalOptions.map((nextInterval) => ({
+    value: nextInterval,
+    label: nextInterval,
+    disabled: chartType === "czardas" && nextInterval === "1M"
+  }));
   const handleChartTypeChange = (nextChartType: ChartType) => {
     chartPanelHandleRef.current?.setChartType(nextChartType);
   };
@@ -424,28 +497,24 @@ export function PanelContentRenderer({
         </div>
       </div>
       <div className="chart-instance-view-controls">
-        <select
-          className="chart-instance-select chart-instance-chart-type"
+        <ChartToolbarSelect
           value={chartType}
-          aria-label="Chart type"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
-        >
-          {chartTypes.map((nextChartType) => (
-            <option key={nextChartType} value={nextChartType} disabled={nextChartType === "czardas" && interval === "1M"}>{chartTypeLabel(nextChartType)}</option>
-          ))}
-        </select>
-        <select
-          className="chart-instance-select chart-instance-interval"
+          options={chartTypeOptions}
+          ariaLabel="Chart type"
+          variant="chart-type"
+          open={openChartDropdown === "chart-type"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "chart-type" : null)}
+          onChange={handleChartTypeChange}
+        />
+        <ChartToolbarSelect
           value={chartIntervalValue}
-          aria-label="Interval"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
-        >
-          {chartIntervalOptions.map((nextInterval) => (
-            <option key={nextInterval} value={nextInterval} disabled={chartType === "czardas" && nextInterval === "1M"}>{nextInterval}</option>
-          ))}
-        </select>
+          options={chartIntervalSelectOptions}
+          ariaLabel="Interval"
+          variant="interval"
+          open={openChartDropdown === "interval"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "interval" : null)}
+          onChange={(nextInterval) => chartPanelHandleRef.current?.setInterval(nextInterval)}
+        />
       </div>
     </>
   );
@@ -473,7 +542,7 @@ export function PanelContentRenderer({
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
           toolbarLeading={chartNavigationLeading}
-          toolbarTrailing={companyToggleButton}
+          toolbarAfterViewControls={companyToggleButton}
         />
       ) : (
         <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>
@@ -529,6 +598,16 @@ function readCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: st
 function readOrderFlowSymbol(content: PanelContentInstance): string {
   const raw = content.props?.symbol;
   return typeof raw === "string" ? raw.trim().toUpperCase() : "";
+}
+
+function readQuickOrderSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.symbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readQuickOrderQty(content: PanelContentInstance): number {
+  const raw = content.props?.qty;
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : 1;
 }
 
 function readOrderFlowWindow(content: PanelContentInstance): OrderFlowWindow {

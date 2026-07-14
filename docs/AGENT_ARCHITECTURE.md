@@ -44,6 +44,18 @@ GOPS 에이전트는 사용자 질의를 받아 시장 데이터, 뉴스, 온톨
 
 ## Runtime Flow
 
+`AnalysisReport` may include a versioned `coachReport`. The public request contains only
+the lightweight `coachRequest`; the authenticated analysis worker, not the client, builds
+one immutable `CoachInputSnapshot` from user-owned PostgreSQL rows and point-in-time
+ClickHouse candles. Deterministic coach analytics owns similarity, MFE/MAE/return,
+portfolio impact, habit aggregation, improvement priority, and condition evaluation.
+Narrative synthesis may explain these values but may not recompute them. Missing sources
+remain explicit and do not trigger role-specific refetches.
+
+`coach-report.v2` exposes four UI pages. Page 2 computes `entry`, `exit`, and
+`portfolio` reports independently for `30d`, `90d`, and `1y`; page 4 is the single
+action center that combines the former execution, guardrail, and alert-management pages.
+
 ```mermaid
 flowchart LR
   Client["Frontend or API client"] --> Backend["Backend API"]
@@ -251,7 +263,7 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 | --- | --- | --- |
 | `agent-orchestrator` | yes | HTTP compatibility endpoint and direct report lookup. |
 | `agent-analysis-worker` | yes | hot analysis request를 소비하고 report를 저장한다. |
-| `czardas-asset-builder` | no | `cza-` PostgreSQL queue의 명시적 symbol×interval 한 쌍을 exact-240으로 감사·보충하고 Czardas v3 Inference/Sight pack을 저장한다. 자동 schedule 없이 수동 패널 요청만 처리하며 interactive orchestrator와 독립이다. |
+| `czardas-asset-builder` | no | 수동 제출된 단일 symbol/interval queue item만 처리한다. neutral canonical exact-240을 repair/re-read한 뒤 Czardas v4 PriceMemory·OLS·Boundary·Pattern relation pack을 PostgreSQL에 원자 저장한다. S3, Redis, Kafka, LLM과 자동 schedule을 사용하지 않으며 interactive orchestrator와 독립이다. |
 | `agent-delivery-gateway` | yes for async/SSE | result event를 Redis report update로 mirror한다. |
 | `agent-intent-classifier` | no | ambiguous query를 위한 optional cheap classifier. |
 | `deep-analysis-worker` | no | opt-in deep analysis request를 처리한다. |
@@ -265,6 +277,12 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 Agent runtime은 `gops-agent-orchestrator` image를 공유한다. SEC
 companyfacts backfill은 S3/ClickHouse helpers를 재사용하기 위해
 `gops-market-storage` image에서 실행된다.
+
+`event-detector`의 가격 급변 판정은 trade 가격을 계속 사용하지만, 거래량
+급증 판정은 `market.layer.candles.<interval>.closed.v1`의 완료 캔들만
+사용한다. 같은 symbol과 interval의 이전 완료 캔들 20개 rolling 평균을
+기준으로 하며, 최소 5개가 쌓이기 전에는 판정하지 않는다. 같은
+symbol/interval의 `volume_spike`는 기본 30분 cooldown을 적용한다.
 
 ## Package Layout
 
@@ -348,21 +366,8 @@ market_data.sec_financial_facts
 market_data.sec_derived_metrics
 market_data.sec_frames
 market_data.sec_collection_runs
+market_data.chart_analysis_assets  # PostgreSQL cutover 전 compatibility/rollback projection
 ```
-
-Czardas assets are not an interactive agent provider. Their latest projection
-and build state live only in PostgreSQL `chart_assets.czardas_*`; the worker
-reads and repairs canonical candles in ClickHouse but does not store asset
-payloads there. Retained PostgreSQL `chart_assets.geometry_*` rows and the
-ClickHouse `chart_analysis_assets` table are dormant data: current runtime must
-not read, write, migrate, recreate, or use them as fallback.
-
-Czardas v3 seals explicit `v2/split/regular/closed` OHLCV at decimal q8, builds
-presentation-free `CzardasInference`, then deterministically projects a bounded
-Sight pack. Neither stage invokes an LLM. The offline walk-forward evaluator is
-a research tool, not an agent or runtime replay: each historical point gets a
-new exact-240 input and future rows remain outside the kernel. It cannot store
-research packs or tune production thresholds.
 
 Financial role contract:
 

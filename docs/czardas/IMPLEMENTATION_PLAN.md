@@ -1,166 +1,117 @@
-# Czardas v3 Implementation and Verification Plan
+# Czardas v4 Implementation and Verification
 
-이 문서는 v3 변경과 검증의 순서다. 수학과 wire의 단일 규격은
-[ENGINE_SPEC.md](ENGINE_SPEC.md)다. 공식 Python은 repository root `.venv`의 3.12다.
+이 문서는 현재 구현 순서와 release gate다. push와 AWS 변경은 별도 승인 범위다.
 
-## 1. 구현 경계
+## Stage 상태
 
-이번 버전은 다음을 구현한다.
+1. **dev → ABC local merge — 검증 완료**
+   - dev 비분석 변경을 수용하고 Geometry 분석 경로를 복원하지 않는다.
+   - `MERGE_HEAD` 기준 충돌을 의미 단위로 해결했고 로컬 merge commit만 남았다.
 
-- q8 input seal, explicit canonical provenance와 분리된 identity/content digest.
-- semantic-floor normalization, early ATR scale, capped-recency integrity.
-- H-Line connected ridge와 Trend contribution/intercept 수정.
-- `CzardasInference -> CzardasSightPack` 분리와 Field schema 3.
-- 압축된 기본 Sight, 전 factor hover, identity-bound `Czardas 해설`.
-- optional interval GET, canonicalSnapshot, idempotent/coalesced manual build와 owner privacy.
-- PostgreSQL migration 005와 offline independent-snapshot evaluator.
+2. **v4 Field foundation — 구현됨**
+   - q8 exact-240, PresentSnapshot, adaptive StructuralDomainTree.
+   - continuous PriceMemory와 domain OLS RegressionFlow.
+   - factor/reason codebook과 전봉 CandleMeaning.
 
-다음은 제외한다.
+3. **domain-aware H-Line/Trend — 구현됨**
+   - H-Line baseline memory와 hard candidate 분리.
+   - adaptive anchor coverage, robust Trend fit, formation-domain integrity.
+   - Trend/OLS volume independence와 OLS consensus/conflict explanation.
 
-- 자동 freshness/build, chart-open/GET/candle-event/Cron trigger.
-- Czardas preset, Agent typed reference, MA120과 추가 detector.
-- 사용자 edit/toggle/suppression 서버 저장.
-- 특정 종목 맞춤 threshold 또는 evaluator 결과의 자동 tuning.
-- Geometry fallback, pull/merge/rebase/push, AWS migration/image/deploy 실행.
+4. **StructureRelation/PatternTrace — 구현됨**
+   - Triangle, Channel, Rectangle, Wedge, Flag, Pennant 공통 relation grammar.
+   - relation-before-selection, Pattern-supporting boundary closure.
+   - Pattern `0..2`, fact trace 3~16, relation/polyline 1:1.
+   - 미승격 관계 대표 1개의 PatternEvidence와 atomic budget omission.
 
-`작도 자산(개발)` 패널은 유지하며 한 클릭에 정확히 한 symbol×interval만 제출한다.
+5. **Field 4/Sight/polyline — 구현됨**
+   - H-Line/Trend/Pattern 세 toggle과 OLS/Pattern Field hierarchy.
+   - 공용 user polyline 3~32 points, Pattern projection 3~16 points.
+   - edit/delete/restore가 candidate 또는 relation 단위로 fork/suppress.
 
-## 2. 구현 순서
+6. **수동 API/data — 유지·통합됨**
+   - 단일 pair 개발 panel, Czardas 전용 API/queue/storage.
+   - neutral `alfaka.candles` canonical/repair 경계.
+   - 자동 build 없음.
 
-### Stage 1 — input와 numeric trust
+7. **최종 cleanup/회귀 — 완료**
+   - 문서·infra의 dev Geometry residue 제거.
+   - 전체 backend/frontend/kustomize/visual gate와 task 임시 stash의 반영 상태 확인.
 
-대상: `numeric.py`, `config.py`, `tape.py`, `features.py`, `meaning.py`.
+## 완료 검증 기록
 
-1. OHLCV를 q8 HALF_EVEN으로 양자화한 뒤 검증한다.
-2. `isClosed/v2/split/regular` 명시를 요구한다.
-3. production config의 exact-240/R2·R5·R13/ATR14/volume20/budget을 `validate()`로 잠근다.
-4. exact input identity digest와 canonical wire content digest를 분리한다.
-5. robust scale에 semantic floor를 적용한다.
-6. ATR warm-up geometry에 첫 Wilder seed를 사용한다.
+- market-data: `493 passed, 6 skipped, 35 subtests passed`.
+- agent-orchestration: `347 passed, 52 subtests passed`.
+- API: `278 passed, 31 subtests passed`.
+- order: `127 passed, 6 skipped`.
+- Czardas kernel 100회 실측: P95 `37.411ms`, P99 `38.154ms`.
+- 최대 fixture: Field `79,960 bytes`, pack `94,357 bytes`.
+- chart runtime parse+delta P95 `0.786ms`, Field paint P95 `0.400ms`.
+- Playwright visual: `53 passed, 3 skipped`.
+- frontend build, bundle-size, layout, simulator, AI Coach와 AWS 두 overlay의 kustomize render 통과.
+- Geometry runtime 음성 검색과 `git diff --check` 통과.
 
-Gate: q8 경계, provenance 누락, 239/241, flat MAD, zero range/volume와 100회 결정론.
+## 필수 gate
 
-### Stage 2 — geometry와 integrity trust
+### Kernel/contract
 
-대상: `interactions.py`, `hline.py`, `trend.py`, `types.py`, `compiler.py`.
+- 동일 exact-240 100회 content bytes/digest 동일.
+- q8 동일 quantum 동일, quantum 초과 inputDigest 변경.
+- post-asOf isolation과 모든 `observedAt <= confirmedAt <= asOf`.
+- 240 CandleMeaning과 versioned factor/reason codebook.
+- H-Line `1..4`, Trend `0..3`, Pattern `0..2`, drawing `<=9`.
+- selected mode→domain→Basis→episode→relation→trace orphan 0.
+- Pattern relation/drawing 1:1, anchor가 trace와 동일.
+- 미승격 PatternEvidence는 이름/drawing 0이며 provenance closure를 부분 절삭하지 않음.
+- volume-only 변경 전후 Trend와 RegressionFlow semantic slice byte-identical.
+- isolated wick bounded, 지속 body/close penetration 강한 손실.
+- Field `<=80 KiB`, pack `<=96 KiB`.
+- corpus kernel P95 `<=50ms`, P99 `<=80ms`.
 
-1. integrity recency mass를 capped simplex로 만들고 nEff/coverage/penetration count를 노출한다.
-2. wick/body/close loss를 분리한다.
-3. FormationEpisode에 `contributionIndex`를 추가한다.
-4. Trend의 모든 anchor 좌표와 scale이 동일 contribution Basis를 사용하게 한다.
-5. intercept scan에서 all-240 integrity를 제거하고 최종 probe에서 한 번만 계산한다.
-6. H-Line ridge adjacency를 실제 접촉 segment로 제한한다.
-7. selection 공식은 유지하고 exact 2/2 golden oracle을 제거한다.
+### Chart runtime
 
-Gate: disconnected ridge, contribution 좌표, isolated wick/persistent penetration,
-Trend volume independence와 output upper bound.
+- polyline add/draft/Enter/double-click/Backspace/Escape/touch 완료·취소.
+- 모든 segment hit-test, vertex/path drag, undo/redo, snapshot serialization.
+- 세 toggle 독립성과 Shared 상시 유지.
+- pan/zoom/semantic expansion에서 Field와 drawing 오차 `<=0.5px`.
+- stale/digest mismatch 시 Field·hover·해설 차단.
+- candidate/relation fork·suppression·restore와 managed provenance 위조 거부.
+- LLM polyline proposal 거부.
+- parse+delta와 Field paint 각각 P95 `<=8ms`.
 
-### Stage 3 — inference/Sight와 Field schema 3
+### API/operation
 
-대상: `kernel.py`, `field_view.py`, pack schema와 backend validator.
+- GET mutation, repair, enqueue, PG write 0.
+- build 한 클릭 한 pair, idempotency/coalesce/owner/cancel/delete race.
+- chart-open, GET, candle event, Cron 생성 job 0.
+- repair head/interior/tail gap, credential/provider/reread reason 구분.
+- failed build에서 기존 successful asset 보존.
 
-1. `infer_czardas()`와 `project_czardas_sight()`를 순수 단계로 분리한다.
-2. inference/projection config digest와 두 identity를 pack/Field에 운반한다.
-3. selected closure에 contribution indexes와 integrity metrics를 추가한다.
-4. optional mode/hypothesis/response/profile cap을 적용한다.
-5. 기본 canvas가 쓰지 않는 search space를 pack에 무제한 저장하지 않는다.
-6. 실제 budget 절삭 때만 `projection.truncated=true`로 한다.
-7. research config의 Sight projection과 저장을 거부한다.
+### Geometry 음성 gate
 
-Gate: orphan 0, required identity, schema strict validation, Field/pack `<=80/96KiB`,
-v2/null identity incompatible.
+`CZARDAS_DEV_MERGE_PLAN.md`의 목록이 runtime/API/UI/manifest에서 0이어야 한다. cleanup script와
+old endpoint 404 테스트만 허용한다.
 
-### Stage 4 — Sight와 explanation UX
+## 검증 명령
 
-대상: frontend chart types/API/controller/canvas/panel/commentary.
+```sh
+.venv/bin/python -m pytest -q systems/market-data/tests/analytics/czardas
+.venv/bin/python -m pytest -q systems/agent-orchestration/tests/test_czardas_contract.py systems/agent-orchestration/tests/test_czardas_builder.py
+.venv/bin/python -m pytest -q systems/api-server/tests/test_czardas_assets_routes.py
 
-1. Sight v2 detail canvas는 Shared+Trend candle 진하기와 최대 36px의 Shared+H-Line 국소 수평
-   흔적만 사용한다. Trend upper/lower candle glyph는 제거하고 ribbon/Basis 색도 통일한다.
-2. response/profile/non-selected mode/hypothesis paint를 제거한다.
-3. slot width 6px에서 안정적으로 dense 문법으로 전환하고 노란색을 켜진 channel 전체 의미로
-   사용한다. hover 폭은 zoom 문법을 바꾸지 않는다.
-4. hover 용어를 `240봉 내 전체 의미 백분위`로 통일하고 toggle 옆 범례와 같은 문법을 적는다.
-5. 21 factor와 모든 reason/availability/phase를 계속 상시 노출한다.
-6. same-candle pointer movement의 state update를 없애고 전체 overlay `aria-live`를 제거한다.
-7. keyboard/tap-lock용 짧은 live 안내만 둔다.
-8. `Czardas 해설`에 claim/because/against/invalidation/qualifier를 표시한다.
-9. chart/commentary/focus를 inference identity와 candidate provenance로 묶는다.
-10. server `canonicalSnapshot`으로 panel identity를 확인하고 browser-side Python digest를 제거한다.
-
-Gate: default forbidden paint 0, hover 정보 손실 0, stale mismatch 숨김, pan/zoom `<=0.5px`,
-parse/delta와 Field paint 각각 P95 `<=8ms`.
-
-### Stage 5 — manual operation과 storage
-
-대상: API route, job/progress/queue/storage/delivery, migration 005, 개발 패널.
-
-1. GET optional interval과 `freshnessReason`을 추가한다.
-2. candle exact-240 응답에 `canonicalSnapshot`을 추가한다.
-3. POST에 `Idempotency-Key`를 요구하고 `coalesced`를 반환한다.
-4. `submit_once()` 한 transaction에서 idempotency, pair conflict와 job/item insert를 처리한다.
-5. 같은 owner/pair/force만 coalesce하고 나머지 active conflict는 409로 한다.
-6. status/cancel을 owner-only 404로 제한하고 terminal cancel은 no-op으로 한다.
-7. active pair DELETE를 409로 막는다.
-8. exception 원문 대신 고정 reason/safe message만 저장한다.
-9. migration `004 -> 005`로 identity column과 active/owner index를 추가한다.
-
-Gate: 단일 enqueue, replay/coalesce/busy, owner privacy, terminal bytes 불변, delete race,
-GET mutation 0와 자동 trigger 0.
-
-### Stage 6 — offline evaluation
-
-대상: `evaluation.py`와 frozen/synthetic corpus tests.
-
-1. historical `asOf`마다 입력 slice를 새 exact-240으로 구성한다.
-2. future rows를 kernel이 아니라 outcome evaluator에만 전달한다.
-3. adjacent drift/Field churn, future relation, marginal information과 baseline을 계산한다.
-4. response/profile/volume/recency/multi-radius ablation을 보고한다.
-5. output/search/bytes/stage latency를 집계한다.
-6. research config는 pack으로 project/save할 수 없게 한다.
-7. 평가 결과로 threshold를 자동 수정하지 않는다.
-
-Gate: snapshot `asOf` isolation, research non-storable, volume ablation Trend invariant,
-thresholdsAutoAdjusted=false.
-
-## 3. 검증 명령
-
-```bash
-.venv/bin/python -m pytest systems/market-data/tests/analytics/czardas
-
-.venv/bin/python -m pytest \
-  systems/api-server/tests/test_czardas_assets_routes.py \
-  systems/agent-orchestration/tests/test_czardas_asset_storage.py \
-  systems/agent-orchestration/tests/test_czardas_builder.py \
-  systems/agent-orchestration/tests/test_czardas_delivery.py \
-  systems/agent-orchestration/tests/test_czardas_migration.py
-
-npm run test:chart --prefix apps/gops-frontend
-npm run test:chart-visual --prefix apps/gops-frontend
-npm run build --prefix apps/gops-frontend
+cd apps/gops-frontend
+npm run test:chart
+npm run build
 ```
 
-production corpus benchmark gate는 kernel P95 `<=50ms`, P99 `<=80ms`다. corpus는
-AAPL/MSFT/NVDA/TSLA/SPY/TLT와 여러 interval을 사용할 수 있지만 특정 종목의 선 좌표를
-합격 조건으로 삼지 않는다.
+이후 market-data, agent-orchestration, API, order 전체 회귀와 kustomize render, Playwright visual
+suite를 실행한다. 테스트를 v3 output 위치에 맞추지 말고 v4 불변 계약을 검증한다.
 
-## 4. 저장과 실패 계약
+## 범위 밖
 
-| 상황 | 결과 |
-| --- | --- |
-| exact-240/canonical contract 불충족 | `AnalysisUnavailable`, 기존 latest 유지 |
-| repair/provider/canonical reread 실패 | sanitized reason, 기존 latest 유지 |
-| build 중 snapshot 변경 | `snapshot_changed_during_build`, write 0 |
-| mandatory Field/pack overflow | partial save 금지 |
-| v2 또는 null v3 identity | `incompatible`, 자동 fallback 없음 |
-| stale/digest mismatch | Field/hover/해설 미표시 |
-| no candidate | 240 CandleMeaning을 가진 Ready no-draw pack |
-| frontend parse/provenance 오류 | pack 전체 미적용, 기본 chart 유지 |
-
-## 5. 변경 완료 정의
-
-- kernel, schema, API, storage, frontend가 모두 v3 identity를 사용한다.
-- 수동 단일 pair build/delete 패널이 유지된다.
-- 자동 build 경로가 존재하지 않는다.
-- migration 005는 추가되지만 이번 변경에서 AWS에 적용하지 않는다.
-- 기존 dirty worktree와 dormant Geometry DB data를 훼손하지 않는다.
-- 위 회귀, byte, 성능과 좌표 gate가 통과한다.
+- AWS 배포·migration·push.
+- 자동 build, Cron, chart-open/candle-event enqueue.
+- tick/order-book Volume Profile, MA120 detector, cross-symbol Pattern panel.
+- Agent typed reference, LLM polyline, 자동 threshold 최적화.
+- 매수·매도 추천과 risk/reward drawing.
+- 사용자 Czardas 편집의 서버 저장.

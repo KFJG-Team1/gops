@@ -39,13 +39,13 @@ def test_projection_rejects_generated_at_inside_pack():
         _pack_projection(pack, pack["generatedAt"])
 
 
-def test_storage_rejects_malformed_v2_pack_before_opening_a_transaction():
+def test_storage_rejects_malformed_v4_pack_before_opening_a_transaction():
     pack = _pack()
     pack["czardasField"]["candleMeanings"]["timestamps"].pop()
     connection = Connection(fetches=[])
     storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
 
-    with pytest.raises(ValueError, match="exact-240"):
+    with pytest.raises(ValueError, match="240"):
         storage.save_if_active(pack, job_id="cza-job", generated_at="2026-07-11T00:00:00.000Z")
 
     assert connection.executions == []

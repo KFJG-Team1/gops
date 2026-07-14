@@ -60,21 +60,21 @@ def _trend_projection(content: dict) -> dict:
         if boundary["kind"] != "trend":
             continue
         item = deepcopy(boundary)
-        item.pop("sourceInferenceId")
+        item.pop("sourceInferenceId", None)
         boundaries.append(item)
     drawings = []
     for drawing in content["drawings"]:
         if drawing["czardasLayer"] != "trend":
             continue
         item = deepcopy(drawing)
-        item.pop("sourceInferenceId")
+        item.pop("sourceInferenceId", None)
         drawings.append(item)
     selected_refs = []
     for ref in refs:
         if ref["kind"] != "trend":
             continue
         item = deepcopy(ref)
-        item.pop("sourceInferenceId")
+        item.pop("sourceInferenceId", None)
         selected_refs.append(item)
     meaning = field["candleMeanings"]
     trend_factor_keys = (
@@ -83,6 +83,7 @@ def _trend_projection(content: dict) -> dict:
     )
     return {
         "selection": content["selection"]["trend"],
+        "regressionFlows": field["regressionFlows"],
         "basis": trend_basis,
         "modes": field["trendModes"],
         "selectedRefs": selected_refs,
@@ -114,7 +115,13 @@ def test_volume_scaling_does_not_change_trend_geometry_rank_or_field():
 def test_volume_alone_cannot_create_a_boundary():
     result = analyze_czardas(flat_rows(volume=1_000_000_000.0))
     assert isinstance(result, Ready)
-    assert result.content["boundaries"] == []
+    assert len(result.content["boundaries"]) == 1
+    boundary = result.content["boundaries"][0]
+    assert boundary["kind"] == "hline"
+    assert boundary["evidenceState"] == "baseline_memory"
+    assert boundary["rank"]["profileBonus"] == 0.0
+    assert result.content["selection"]["trend"]["actualCount"] == 0
+    assert result.content["selection"]["pattern"]["actualCount"] == 0
 
 
 def test_pre_baseline_hline_basis_does_not_claim_synthetic_volume_participation():
