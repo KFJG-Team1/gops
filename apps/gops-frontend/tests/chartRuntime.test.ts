@@ -3592,6 +3592,12 @@ assert.doesNotMatch(presetDockSource, /statusFeedback/);
 assert.doesNotMatch(presetDockSource, /layout-preset-status/);
 assert.doesNotMatch(presetDockSource, /role="status"/);
 assert.doesNotMatch(presetDockSource, /aria-live="polite"/);
+const layoutEditButtonIndex = presetDockSource.indexOf('aria-label="레이아웃 수정모드 시작"');
+const presetSaveButtonIndex = presetDockSource.indexOf('aria-label="프리셋 저장"');
+const presetDeleteButtonIndex = presetDockSource.indexOf('aria-label="프리셋 삭제"');
+assert.ok(layoutEditButtonIndex >= 0);
+assert.ok(presetSaveButtonIndex > layoutEditButtonIndex);
+assert.ok(presetDeleteButtonIndex > presetSaveButtonIndex);
 
 assert.doesNotMatch(bottomCommandBarSource, /선택한 차트에 명령하기/);
 assert.doesNotMatch(bottomCommandBarSource, /BottomMenuKey|leftMenuKeys|sideMenuKeys|rightMenuKeys/);
