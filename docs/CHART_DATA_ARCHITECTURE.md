@@ -17,6 +17,9 @@ Czardas는 이 data plane의 canonical completed exact-240만 소비한다. 분�
   ClickHouse, or S3 directly.
 - Historical candles are canonical only when `priceAdjustment=split` and
   `canonicalVersion=v2`.
+- When Redis and ClickHouse contain the same completed candle identity, an explicitly
+  canonical `v2/split` row wins over a legacy row with implicit provenance. Active
+  live candles still win for the current chart view.
 - Raw S3 keeps low-volume event/bar backup evidence only; realtime trades/quotes
   are excluded and raw S3 is never chart serving or ClickHouse materialization input.
 - Local runtime never injects fake market candles. `?orderFlowDemo=1` is a

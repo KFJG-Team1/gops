@@ -7098,6 +7098,33 @@ class MarketDataHardeningContractTest(unittest.TestCase):
         self.assertEqual(merged[0]["state"], "live")
         self.assertEqual(merged[0]["close"], 196.43)
 
+    def test_daily_merge_prefers_explicit_canonical_row_over_implicit_redis_closed_row(self):
+        merged = merge_candles(
+            [{
+                "symbol": "NVDA",
+                "interval": "1D",
+                "timestamp": "2026-07-10T04:00:00.000Z",
+                "close": 164.92,
+                "isClosed": True,
+                "canonicalVersion": "v2",
+                "priceAdjustment": "split",
+                "marketSession": "regular",
+            }],
+            [{
+                "symbol": "NVDA",
+                "interval": "1D",
+                "timestamp": "2026-07-10T04:00:00.000Z",
+                "close": 999.0,
+                "isClosed": True,
+                "marketSession": "regular",
+            }],
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["close"], 164.92)
+        self.assertEqual(merged[0]["canonicalVersion"], "v2")
+        self.assertEqual(merged[0]["priceAdjustment"], "split")
+
     def test_weekly_chart_merge_dedupes_utc_and_market_midnight_rows(self):
         merged = merge_candles(
             [{

@@ -72,7 +72,7 @@ def choose_canonical_winner(
 ) -> dict[str, Any] | None:
     ranks = SOURCE_RANK_CLOSED if view == "canonical_closed" else SOURCE_RANK_CURRENT
     winner: dict[str, Any] | None = None
-    winner_rank: tuple[int, float, str] | None = None
+    winner_rank: tuple[int, int, float, str] | None = None
     winner_hash: str | None = None
     for row in rows:
         if row.get("canonicalVersion", row.get("canonical_version", CANONICAL_DATA_VERSION)) != CANONICAL_DATA_VERSION:
@@ -88,7 +88,12 @@ def choose_canonical_winner(
         source = _source_class(row, is_closed)
         if source not in ranks:
             continue
+        explicit_provenance = (
+            row.get("canonicalVersion", row.get("canonical_version")) == CANONICAL_DATA_VERSION
+            and row.get("priceAdjustment", row.get("price_adjustment")) == ADJUSTMENT_POLICY
+        )
         rank = (
+            2 if not is_closed else int(explicit_provenance),
             ranks[source],
             _revision_epoch(row),
             str(row.get("sourceEventId") or row.get("source_event_id") or ""),
