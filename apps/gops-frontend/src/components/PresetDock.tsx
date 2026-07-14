@@ -248,16 +248,6 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
       </button>
       <span className="toolbar-separator" aria-hidden="true" />
       <div className="layout-preset-dock-tail">
-        {activePreset && (
-          <button type="button" className="layout-preset-action" aria-label="프리셋 저장" title="프리셋 저장" onClick={handleSave}>
-            {savedFlash ? <Check size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}
-          </button>
-        )}
-        {activePreset?.kind === "custom" && (
-          <button type="button" className="layout-preset-action danger" aria-label="프리셋 삭제" title="프리셋 삭제" onClick={() => deleteCustomPreset(activePreset.id)}>
-            <Trash2 size={15} aria-hidden="true" />
-          </button>
-        )}
         <button
           type="button"
           className="layout-preset-edit"
@@ -268,6 +258,16 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
         >
           <LayoutPanelTop size={15} aria-hidden="true" />
         </button>
+        {activePreset && (
+          <button type="button" className="layout-preset-action" aria-label="프리셋 저장" title="프리셋 저장" onClick={handleSave}>
+            {savedFlash ? <Check size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}
+          </button>
+        )}
+        {activePreset?.kind === "custom" && (
+          <button type="button" className="layout-preset-action danger" aria-label="프리셋 삭제" title="프리셋 삭제" onClick={() => deleteCustomPreset(activePreset.id)}>
+            <Trash2 size={15} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </div>
       {hasDockOverflow && (
