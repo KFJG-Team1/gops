@@ -1446,7 +1446,7 @@ const simulatorPollutedRuntime = chartRuntimeReducer(nextTradeRuntime, {
 });
 const liveRestoredRuntime = chartRuntimeReducer(simulatorPollutedRuntime, {
   kind: "chart.marketData.reset"
-} as never);
+});
 assert.deepEqual(liveRestoredRuntime.documents, simulatorPollutedRuntime.documents);
 assert.deepEqual(liveRestoredRuntime.candlesByKey, {});
 assert.deepEqual(liveRestoredRuntime.candleKeyAccessOrder, []);

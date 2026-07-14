@@ -55,6 +55,13 @@ export function simulatorStatusPollIntervalMs(status: Pick<SimulatorStatus, "ava
     : simulatorIdlePollIntervalMs;
 }
 
+export function shouldResetMarketDataForSimulatorTransition(
+  previousMode: SimulatorMode,
+  nextMode: SimulatorMode
+): boolean {
+  return previousMode === "simulation" && nextMode === "live";
+}
+
 export function subscribePortfolioRefresh(listener: () => void): () => void {
   portfolioRefreshListeners.add(listener);
   return () => portfolioRefreshListeners.delete(listener);

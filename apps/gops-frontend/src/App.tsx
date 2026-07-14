@@ -86,7 +86,11 @@ import {
 } from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
-import { simulatorStatusEvent, type SimulatorStatus } from "./simulator/simulatorApi";
+import {
+  shouldResetMarketDataForSimulatorTransition,
+  simulatorStatusEvent,
+  type SimulatorStatus
+} from "./simulator/simulatorApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
@@ -307,6 +311,7 @@ export function App() {
   const [agentNotice, setAgentNotice] = useState<AgentHeaderNotice | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
+  const [chartDataResetRevision, setChartDataResetRevision] = useState(0);
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
@@ -319,6 +324,7 @@ export function App() {
   const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
   const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
+  const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
 
@@ -370,7 +376,16 @@ export function App() {
   useEffect(() => {
     const applySimulationQuotes = (event: Event) => {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
-      if (status?.mode !== "simulation" || status.symbols.length === 0) return;
+      if (!status) return;
+      const previousMode = previousSimulatorModeRef.current;
+      previousSimulatorModeRef.current = status.mode;
+      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode)) {
+        chartPanelHandlesRef.current.clear();
+        setSemanticSelection(null);
+        setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
+        setChartDataResetRevision((current) => current + 1);
+      }
+      if (status.mode !== "simulation" || status.symbols.length === 0) return;
       const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
       setTreeMapItems((current) => current.map((item) => {
         const update = updates.get(item.symbol.toUpperCase());
@@ -835,7 +850,7 @@ export function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, []);
+  }, [chartDataResetRevision]);
 
   const showTreeMap = () => {
     navigateMainView({ mode: "treemap" }, { closeBottomMenu: true });
@@ -1383,6 +1398,7 @@ export function App() {
             companyItems={treeMapItems}
             marketItems={treeMapItems}
             chartRuntime={chartRuntime}
+            chartDataResetRevision={chartDataResetRevision}
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}

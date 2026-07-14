@@ -105,6 +105,7 @@ type PanelWorkspaceProps = {
   companyItems: Sp500UniverseItem[];
   marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
+  chartDataResetRevision: number;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
@@ -187,6 +188,7 @@ export function PanelWorkspace({
   companyItems,
   marketItems,
   chartRuntime,
+  chartDataResetRevision,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
@@ -875,6 +877,7 @@ export function PanelWorkspace({
         chartStreamStatus={chartStreamStatus}
         chartStreamMessage={chartStreamMessage}
         chartLiveTrade={chartLiveTrade}
+        chartDataResetRevision={chartDataResetRevision}
         chartAddActive={chartAddTargetContentId === content.id}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}

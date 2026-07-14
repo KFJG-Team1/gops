@@ -87,6 +87,7 @@ type PanelContentRendererProps = {
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
   chartLiveTrade?: TradeTickData;
+  chartDataResetRevision: number;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
@@ -127,6 +128,7 @@ export function PanelContentRenderer({
   chartStreamStatus,
   chartStreamMessage,
   chartLiveTrade,
+  chartDataResetRevision,
   chartAddActive,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
@@ -575,6 +577,7 @@ export function PanelContentRenderer({
     <div className="chart-instance is-editable-chart">
       {activeTab === "chart" ? (
         <ChartPanel
+          key={`chart-panel-${content.id}-${chartDataResetRevision}`}
           ref={setChartPanelHandle}
           panelId={slot.id}
           document={chartDocument}
