@@ -10,6 +10,8 @@ export type AlertToastPresentation = {
   detail: string;
 };
 
+export type NotificationVisualTone = "default" | "geopolitical-risk";
+
 const NON_CHART_SYMBOLS = new Set(["PORTFOLIO", "MARKET", "UNKNOWN", "ALERT"]);
 
 const riskAlertTitles: Record<string, string> = {
@@ -18,6 +20,10 @@ const riskAlertTitles: Record<string, string> = {
   risk_correlation_cluster: "상관 클러스터 경고",
   risk_anomaly_surge: "이상 급등 신호"
 };
+
+export function notificationVisualTone(notification: NotificationItem): NotificationVisualTone {
+  return notification.type === "system.simulator_breaking_event" ? "geopolitical-risk" : "default";
+}
 
 export function notificationDecision(notification: NotificationItem): Record<string, unknown> {
   return asRecord(notification.payload.decision);
