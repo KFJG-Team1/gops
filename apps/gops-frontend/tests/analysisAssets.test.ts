@@ -6,6 +6,8 @@ import { executeChartCommandGroup } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerToggleCommands, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
+import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
+import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
 import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
 import type { DrawingEntity } from "../src/chart/types";
 
@@ -53,7 +55,32 @@ const genericPatternAsset: ChartAnalysisAsset = {
 assert.deepEqual(detectedPatternSummary(genericPatternAsset), { kind: "bullish_flag", state: "confirmed", score: .88, drawingCount: 3 });
 assert.equal(formatDetectedPattern(flagPattern), "상승 깃발형 · 돌파 확인");
 assert.equal(formatDetectedPattern(null), "감지 없음");
+assert.equal(formatDetectedPattern({ kind: "future_pattern", state: "forming" }), "future_pattern · 형성 중");
 assert.equal(isAnalysisAssetStale(asset.asOf, candles, "geometry", "1D"), false);
+
+const patternCoverage: ChartAssetCoverageItem[] = [
+  { symbol: "MSFT", interval: "1D", generatedAt: "2026-07-10T20:00:00.000Z", status: "ready", primaryPattern: { kind: "bearish_flag", state: "forming", score: .95 } },
+  { symbol: "aapl", interval: "1m", generatedAt: "2026-07-10T21:00:00.000Z", status: "ready", primaryPattern: { kind: "bullish_flag", state: "forming", score: .91 } },
+  { symbol: "AAPL", interval: "1D", generatedAt: "2026-07-10T22:00:00.000Z", status: "ready", primaryPattern: { kind: "ascending_triangle", state: "confirmed", score: .80 } },
+  { symbol: "NVDA", interval: "4h", generatedAt: "2026-07-10T19:00:00.000Z", status: "ready", primaryPattern: { kind: "falling_wedge", state: "confirmed", score: .70 } },
+  { symbol: "META", interval: "1D", generatedAt: "2026-07-10T18:00:00.000Z", status: "ready", primaryPattern: { kind: "rising_wedge", state: "inactive", score: .99 } },
+  { symbol: "AMZN", interval: "1D", generatedAt: "2026-07-10T18:00:00.000Z", status: "ready", primaryPattern: { kind: "bullish_rectangle", state: "invalidated", score: .99 } },
+  { symbol: "GOOG", interval: "1D", generatedAt: "2026-07-10T18:00:00.000Z", status: "ready", primaryPattern: null }
+];
+const patternGroups = buildPatternSymbolGroups(patternCoverage);
+assert.deepEqual(patternGroups.map((group) => group.symbol), ["AAPL", "NVDA", "MSFT"]);
+assert.deepEqual(patternGroups[0]?.patterns.map((pattern) => pattern.interval), ["1D", "1m"]);
+assert.deepEqual(buildPatternSymbolGroups([]), []);
+const filteredPatternGroups = filterPatternSymbolGroups(patternGroups, {
+  search: "aa",
+  interval: "1m",
+  state: "forming",
+  kind: "bullish_flag"
+});
+assert.deepEqual(filteredPatternGroups.map((group) => ({
+  symbol: group.symbol,
+  patterns: group.patterns.map((pattern) => `${pattern.interval}:${pattern.primaryPattern.kind}`)
+})), [{ symbol: "AAPL", patterns: ["1m:bullish_flag"] }]);
 
 const normalized = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": asset, "1M": asset } }, "AAPL");
 assert.equal(normalized.assets["1D"]?.assetVersion, "geometry");
@@ -144,6 +171,14 @@ assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
 assert.match(commentarySource, /하락 채널 상단 돌파/);
+const patternPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPatternListPanel.tsx", import.meta.url)), "utf-8");
+assert.match(patternPanelSource, /fetchChartAssetCoverage/);
+assert.match(patternPanelSource, /subscribeAnalysisAssetsInvalidation/);
+assert.match(patternPanelSource, /formatDetectedPattern/);
+assert.match(patternPanelSource, /onSelectPatternAsset\(pattern\.symbol, pattern\.interval\)/);
+assert.match(patternPanelSource, /패턴 종목 검색/);
+assert.match(patternPanelSource, /활성 패턴이 있는 종목이 없습니다/);
+assert.match(patternPanelSource, /필터와 일치하는 종목이 없습니다/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
 assert.match(toggleSource, /Geometry 분석 레이어/);
 assert.doesNotMatch(toggleSource, /인사이트|추세 분석 레이어/);

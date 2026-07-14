@@ -3530,6 +3530,9 @@ assert.match(panelContentRendererSource, /OrderTicket/);
 assert.match(panelContentRendererSource, /PortfolioHoldingsOnlyPanel/);
 assert.match(panelContentRendererSource, /ChartComparisonPanel/);
 assert.match(panelContentRendererSource, /content\.kind === "compare"/);
+assert.match(panelContentRendererSource, /content\.kind === "chartPatternList"/);
+assert.match(panelContentRendererSource, /ChartPatternListPanel/);
+assert.match(panelContentRendererSource, /onSelectPatternAsset/);
 assert.doesNotMatch(panelContentRendererSource, /workspace-panel-empty/);
 assert.match(panelContentRendererSource, /ChartToolbarSelect/);
 assert.match(panelContentRendererSource, /variant="interval"/);
@@ -3686,6 +3689,7 @@ const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/pa
 assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
 assert.match(panelRegistrySource, /kind: "orderFlow"[\s\S]*agentPanelType: "orderFlowProfile"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
+assert.match(panelRegistrySource, /kind: "chartPatternList"[\s\S]*title: "패턴 종목"[\s\S]*agentPanelType: "chartPatternList"/);
 
 const chartShortcutResolve = normalizeAgentEntityResolveResponse({
   status: "confirmed",

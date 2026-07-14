@@ -12,6 +12,8 @@ import {
   resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
   resolvePanelMoveWithPush,
+  setPrimaryChartSelection,
+  setPrimaryChartSymbol,
   type PanelContentKind,
   type PanelGridRect,
   type TiledPanelState
@@ -24,6 +26,7 @@ const recommendedSpans: Array<[PanelContentKind, Pick<PanelGridRect, "colSpan" |
   ["chart", { colSpan: 2, rowSpan: 2 }],
   ["compare", { colSpan: 4, rowSpan: 2 }],
   ["news", { colSpan: 2, rowSpan: 2 }],
+  ["chartPatternList", { colSpan: 2, rowSpan: 2 }],
   ["themeRadar", { colSpan: 3, rowSpan: 2 }],
   ["portfolioHoldings", { colSpan: 5, rowSpan: 3 }]
 ];
@@ -70,6 +73,19 @@ assert.deepEqual(
 assert.equal(resolveFirstAvailableRecommendedGridRect(fullState, "chart"), null);
 assert.equal(panelPaletteEntryLabel("compare"), "비교");
 assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "보유 종목 표");
+assert.equal(panelPaletteEntryLabel("chartPatternList"), "패턴 종목");
+
+const selectedPatternChart = setPrimaryChartSelection(firstAvailableState, " aapl ", "4h", viewport);
+const selectedPatternChartContent = selectedPatternChart.contents[selectedPatternChart.slots[0]!.contentId];
+assert.equal(selectedPatternChartContent?.props?.symbol, "AAPL");
+assert.equal(selectedPatternChartContent?.props?.timeframe, "4h");
+const selectedPatternWithoutChart = setPrimaryChartSelection(emptyState, "nvda", "1m", viewport);
+const createdPatternChartContent = selectedPatternWithoutChart.contents[selectedPatternWithoutChart.slots[0]!.contentId];
+assert.equal(createdPatternChartContent?.kind, "chart");
+assert.equal(createdPatternChartContent?.props?.symbol, "NVDA");
+assert.equal(createdPatternChartContent?.props?.timeframe, "1m");
+const symbolOnlySelection = setPrimaryChartSymbol(selectedPatternChart, "MSFT", viewport);
+assert.equal(symbolOnlySelection.contents[symbolOnlySelection.slots[0]!.contentId]?.props?.timeframe, "1D");
 
 const committedState = addPanelSlotAtGridRect(
   blockedTargetState,

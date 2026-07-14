@@ -18,6 +18,12 @@ const quickOrderCatalogEntry = buildTiledAgentLayoutContext({ slots: [], content
   .find((entry) => entry.panelType === "quickOrder");
 assert.deepEqual(quickOrderCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(quickOrderCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
+const patternListCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "chartPatternList");
+assert.equal(patternListCatalogEntry?.title, "패턴 종목");
+assert.deepEqual(patternListCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(patternListCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
 
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },
