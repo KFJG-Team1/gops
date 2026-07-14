@@ -4,6 +4,7 @@ import { build } from "esbuild";
 
 const outfile = new URL("../.tmp/chart-runtime-test.mjs", import.meta.url);
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
+await import(new URL("../tests/chartPaneSeparators.test.mjs", import.meta.url));
 
 try {
   await build({
