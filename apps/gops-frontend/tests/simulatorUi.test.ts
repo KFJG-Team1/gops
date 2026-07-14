@@ -16,6 +16,7 @@ import {
 } from "../src/simulator/simulatorNotifications";
 import {
   formatNotificationToastMessage,
+  notificationVisualTone,
   notificationUiProposals
 } from "../src/alerts/alertPresentation";
 
@@ -62,6 +63,7 @@ const breakingNotification = simulatorBreakingNotification({
   symbols: ["AMD", "OKE"]
 }, simulatorStatus);
 assert.equal(breakingNotification.type, "system.simulator_breaking_event");
+assert.equal(notificationVisualTone(breakingNotification), "geopolitical-risk");
 assert.deepEqual(formatNotificationToastMessage(breakingNotification), {
   symbol: "AMD",
   chartSymbol: "AMD",
@@ -82,6 +84,7 @@ assert.deepEqual(
 const closeNotification = simulatorPhaseNotification({ ...simulatorStatus, phase: "market-close", phaseLabel: "장 마감·복기" });
 assert.ok(closeNotification);
 assert.equal(closeNotification?.type, "system.simulator_market_close");
+assert.equal(notificationVisualTone(closeNotification!), "default");
 assert.equal(formatNotificationToastMessage(closeNotification!).title, "본장 종료");
 
 const controlSource = readFileSync(
@@ -153,9 +156,17 @@ const alertToastSource = readFileSync(
   fileURLToPath(new URL("../src/alerts/AlertToast.tsx", import.meta.url)),
   "utf-8"
 );
+const headerNotificationSource = readFileSync(
+  fileURLToPath(new URL("../src/alerts/HeaderNotificationMenu.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(stylesSource, /\.simulator-breaking-toast|\.simulator-phase-toast/);
 assert.match(stylesSource, /\.alert-toast \{/);
 assert.match(alertToastSource, /alert-toast surface-floating/);
+assert.match(alertToastSource, /is-geopolitical-risk/);
+assert.match(headerNotificationSource, /is-geopolitical-risk/);
+assert.match(stylesSource, /\.alert-toast\.is-geopolitical-risk/);
+assert.match(stylesSource, /\.workspace-notification-row\.is-geopolitical-risk/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
