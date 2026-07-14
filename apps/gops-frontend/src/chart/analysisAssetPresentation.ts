@@ -84,6 +84,7 @@ export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetV
 export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null, candles: CandleDto[]): ChartAnalysisAsset | null {
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
+  const levelDrawingIds = analysisLevelDrawingIds(asset);
   const errors: Array<{ drawingId: string; reason: string }> = [];
   const drawings = asset.geometry.drawings.filter((drawing) => (
     !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
@@ -93,7 +94,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
       return [];
     }
-    return [resolved];
+    return [levelDrawingIds.has(resolved.id) ? dashedAnalysisLevel(resolved) : resolved];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
   const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
@@ -160,6 +161,20 @@ function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetIn
     if (key && !result.has(key)) result.set(key, candle.timestamp);
   });
   return result;
+}
+
+function analysisLevelDrawingIds(asset: ChartAnalysisAsset): Set<string> {
+  return new Set([
+    ...(asset.geometry.supports ?? []),
+    ...(asset.geometry.resistances ?? [])
+  ].flatMap((level) => [
+    level.id,
+    `chart-asset:${asset.symbol}:${asset.interval}:${level.id}`
+  ]));
+}
+
+function dashedAnalysisLevel<T extends DrawingEntity>(drawing: T): T {
+  return { ...drawing, style: { ...drawing.style, lineDash: [6, 4] } };
 }
 
 function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {
