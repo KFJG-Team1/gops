@@ -581,98 +581,104 @@ export function OrderTicket({
   const riskNeedsAcknowledgement = executionMode === "kis" && Boolean(risk && risk.verdict !== "allow");
   const paperRiskBlocked = executionMode === "paper" && risk?.verdict === "block";
   const estimatedAmount = formatOrderAmount(form.qty, effectivePriceText);
+  const symbolPicker = (
+    <div
+      className="order-symbol-field"
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+          setSymbolSearchOpen(false);
+          setSymbolSearchQuery("");
+        }
+      }}
+    >
+      <div className="order-symbol-picker">
+        <div className={`order-symbol-search ${symbolSearchOpen ? "is-searching" : "is-selected"}`}>
+          {symbolSearchOpen ? (
+            <>
+              <Search size={14} aria-hidden="true" />
+              <input
+                ref={symbolSearchInputRef}
+                id="order-symbol-search"
+                value={symbolSearchQuery}
+                placeholder={executionMode === "paper" ? "회사명 검색" : "종목 검색"}
+                aria-label={executionMode === "paper" ? "주문 회사명 검색" : "주문 종목 검색"}
+                aria-expanded="true"
+                aria-haspopup="listbox"
+                onFocus={() => onSymbolOptionsRequest(symbolSearchQuery)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSymbolSearchQuery(value);
+                  onSymbolOptionsRequest(value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    const query = event.currentTarget.value.trim().toUpperCase();
+                    const exact = visibleSearchOptions.find((item) => item.symbol === query || item.name.toUpperCase() === query);
+                    const next = exact ?? visibleSearchOptions[0];
+                    if (next) selectOrderSymbol(next.symbol);
+                  }
+                  if (event.key === "Escape") {
+                    setSymbolSearchOpen(false);
+                    setSymbolSearchQuery("");
+                  }
+                }}
+              />
+            </>
+          ) : (
+            <button
+              type="button"
+              className="order-selected-symbol"
+              aria-label={`선택 종목 ${displayCompanyName(selectedSymbolMeta)}. ${executionMode === "paper" ? "회사명" : "종목"} 검색 열기`}
+              aria-expanded="false"
+              aria-haspopup="listbox"
+              onClick={() => {
+                setSymbolSearchQuery("");
+                setSymbolSearchOpen(true);
+                onSymbolOptionsRequest("");
+              }}
+            >
+              <strong>{executionMode === "paper" ? displayCompanyName(selectedSymbolMeta) : form.symbol}</strong>
+            </button>
+          )}
+        </div>
+
+        {symbolSearchOpen && (
+          <div className="order-symbol-dropdown" role="listbox" aria-label={executionMode === "paper" ? "주문 회사 선택" : "주문 종목 선택"}>
+            <div className="order-symbol-dropdown-section">
+              {visibleSearchOptions.map((item) => (
+                <button
+                  key={`search-${item.symbol}`}
+                  type="button"
+                  role="option"
+                  aria-selected={item.symbol === form.symbol}
+                  className={item.symbol === form.symbol ? "order-symbol-option active" : "order-symbol-option"}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectOrderSymbol(item.symbol)}
+                >
+                  <strong>{item.symbol}</strong>
+                  <span>{displayCompanyName(item)}</span>
+                </button>
+              ))}
+              {visibleSearchOptions.length === 0 && (
+                <span className="order-symbol-empty">일치하는 {executionMode === "paper" ? "회사" : "종목"}가 없습니다</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <section className="order-ticket order-ticket-v3" data-order-side={form.side} data-execution-mode={executionMode} aria-label={executionMode === "paper" ? "가상 주문 패널" : "주문 패널"}>
-      <header className="order-ticket-heading">
-        <strong>{executionMode === "paper" ? "가상 주문하기" : "주문하기"}</strong>
-        <div
-          className="order-symbol-field"
-          onBlur={(event) => {
-            const nextTarget = event.relatedTarget;
-            if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-              setSymbolSearchOpen(false);
-              setSymbolSearchQuery("");
-            }
-          }}
-        >
-          <div className="order-symbol-picker">
-            <div className={`order-symbol-search ${symbolSearchOpen ? "is-searching" : "is-selected"}`}>
-              {symbolSearchOpen ? (
-                <>
-                  <Search size={14} aria-hidden="true" />
-                  <input
-                    ref={symbolSearchInputRef}
-                    id="order-symbol-search"
-                    value={symbolSearchQuery}
-                    placeholder="종목 검색"
-                    aria-label="주문 종목 검색"
-                    aria-expanded="true"
-                    aria-haspopup="listbox"
-                    onFocus={() => onSymbolOptionsRequest(symbolSearchQuery)}
-                    onChange={(event) => {
-                      const value = event.target.value.toUpperCase();
-                      setSymbolSearchQuery(value);
-                      onSymbolOptionsRequest(value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                        event.preventDefault();
-                        const query = event.currentTarget.value.toUpperCase();
-                        const exact = visibleSearchOptions.find((item) => item.symbol === query);
-                        selectOrderSymbol(exact?.symbol ?? query);
-                      }
-                      if (event.key === "Escape") {
-                        setSymbolSearchOpen(false);
-                        setSymbolSearchQuery("");
-                      }
-                    }}
-                  />
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="order-selected-symbol"
-                  aria-label={`선택 종목 ${form.symbol}. 종목 검색 열기`}
-                  aria-expanded="false"
-                  aria-haspopup="listbox"
-                  onClick={() => {
-                    setSymbolSearchQuery("");
-                    setSymbolSearchOpen(true);
-                    onSymbolOptionsRequest("");
-                  }}
-                >
-                  <strong>{form.symbol}</strong>
-                </button>
-              )}
-            </div>
-
-            {symbolSearchOpen && (
-              <div className="order-symbol-dropdown" role="listbox" aria-label="주문 종목 선택">
-                <div className="order-symbol-dropdown-section">
-                  {visibleSearchOptions.map((item) => (
-                    <button
-                      key={`search-${item.symbol}`}
-                      type="button"
-                      role="option"
-                      aria-selected={item.symbol === form.symbol}
-                      className={item.symbol === form.symbol ? "order-symbol-option active" : "order-symbol-option"}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => selectOrderSymbol(item.symbol)}
-                    >
-                      <strong>{item.symbol}</strong>
-                      <span>{displayCompanyName(item)}</span>
-                    </button>
-                  ))}
-                  {visibleSearchOptions.length === 0 && (
-                    <span className="order-symbol-empty">일치하는 종목이 없습니다</span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      {executionMode !== "paper" && (
+        <header className="order-ticket-heading">
+          <strong>주문하기</strong>
+          {symbolPicker}
+        </header>
+      )}
 
       <section className="order-ticket-section order-side-section" aria-label="주문 유형 선택">
         <div className="order-side-control" role="group" aria-label="매수 매도 선택">
@@ -781,15 +787,27 @@ export function OrderTicket({
             </div>
           </label>
 
-          <div className="order-detail-card order-total-card">
-            <span className="order-detail-label">총 주문 금액</span>
-            <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
-          </div>
+          {executionMode === "paper" ? (
+            <div className="order-detail-card order-paper-review-card">
+              {symbolPicker}
+              <div className="order-paper-total-row">
+                <span className="order-detail-label">예상 주문액</span>
+                <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="order-detail-card order-total-card">
+                <span className="order-detail-label">총 주문 금액</span>
+                <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
+              </div>
 
-          <div className="order-detail-card order-symbol-summary-card">
-            <span className="order-detail-label">종목</span>
-            <strong title={displayCompanyName(selectedSymbolMeta)}>{displayCompanyName(selectedSymbolMeta)}</strong>
-          </div>
+              <div className="order-detail-card order-symbol-summary-card">
+                <span className="order-detail-label">종목</span>
+                <strong title={displayCompanyName(selectedSymbolMeta)}>{displayCompanyName(selectedSymbolMeta)}</strong>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
