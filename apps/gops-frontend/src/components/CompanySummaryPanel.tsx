@@ -495,7 +495,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 수익성 시계열">
+      <svg className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="SEC 재무 수익성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
@@ -612,7 +612,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 안정성 시계열">
+      <svg className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="SEC 재무 안정성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (

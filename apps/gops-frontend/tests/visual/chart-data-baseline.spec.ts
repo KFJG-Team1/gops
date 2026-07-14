@@ -281,34 +281,42 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   const bidOffsetButton = panel.getByRole("button", { name: /매수호가 - 1틱/ });
   const askOffsetButton = panel.getByRole("button", { name: /매도호가 \+ 1틱/ });
   const buySignalButton = panel.getByRole("button", { name: "매수 우위 후보가" });
+  const priceEditor = panel.locator(".quick-order-price-editor");
+  const priceInput = panel.getByLabel("빠른 주문 가격 직접 입력");
   const quantityEditor = panel.locator(".quick-order-quantity-editor");
   const ratioButtons = panel.locator(".quick-order-ratio-buttons");
-  await expect.poll(async () => {
-    const [offsetBox, quantityBox] = await Promise.all([bidOffsetButton.boundingBox(), quantityEditor.boundingBox()]);
-    return offsetBox && quantityBox ? Math.abs(offsetBox.y - quantityBox.y) : Number.POSITIVE_INFINITY;
-  }).toBeLessThanOrEqual(1);
-  await expect.poll(async () => {
-    const [signalBox, ratioBox] = await Promise.all([buySignalButton.boundingBox(), ratioButtons.boundingBox()]);
-    return signalBox && ratioBox ? Math.abs(signalBox.y - ratioBox.y) : Number.POSITIVE_INFINITY;
-  }).toBeLessThanOrEqual(1);
+  await expect(priceEditor).toBeVisible();
+  await expect(quantityEditor).toBeVisible();
+  await expect(ratioButtons).toBeVisible();
+  await expect(priceInput).toBeDisabled();
   await expect.poll(() => bidOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => askOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => panel.getByRole("button", { name: "매수 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => panel.getByRole("button", { name: "매도 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect(buySignalButton).toBeEnabled();
+  const buySignalPrice = (await buySignalButton.locator("strong").innerText()).replace("$", "");
+  await buySignalButton.click();
+  await expect(priceInput).toHaveValue(buySignalPrice);
   await bidOffsetButton.click();
+  await expect(priceInput).toHaveValue("159.97");
   await expect.poll(() => bidOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => bidOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   await askOffsetButton.click();
+  await expect(priceInput).toHaveValue("160.03");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => askOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => askOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 
   const bestAskButton = panel.getByRole("button", { name: /최우선 매도호가/ });
   await bestAskButton.click();
+  await expect(priceInput).toHaveValue("160.02");
   await expect(bestAskButton).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => bestAskButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => bestAskButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 
   await bestBidButton.click();
+  await expect(priceInput).toHaveValue("159.98");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(34, 197, 94)");
   await expect(bestBidButton).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
@@ -326,6 +334,11 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   await expect(panel.getByText("이전 주문의 접수 결과를 기다리는 중입니다.")).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "주문 전송" })).toBeEnabled();
 
+  await priceInput.fill("159.95");
+  await expect(priceInput).toHaveValue("159.95");
+  await expect(bestBidButton).toHaveAttribute("aria-pressed", "false");
+  await expect(panel.locator(".quick-order-total-value")).toHaveText("$159.95");
+
   const qtyInput = panel.getByLabel("주문 수량 직접 입력");
   await qtyInput.fill("7");
   await expect(qtyInput).toHaveValue("7");
@@ -339,7 +352,7 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   await panel.getByRole("button", { name: "주문 전송" }).click();
   await expect.poll(() => submittedOrders.length).toBe(1);
   expect(submittedOrders[0]?.headers["idempotency-key"]).toBeTruthy();
-  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.98", order_division: "00" });
+  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.95", order_division: "00" });
   await expect(panel.getByText("NVDA 주문이 접수되었습니다.")).toBeVisible();
 });
 

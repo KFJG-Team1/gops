@@ -18,7 +18,7 @@ import {
   normalizeAgentAnalysisReport,
   shouldAutoApplyAgentLayoutProposal
 } from "../src/agents/agentAnalysis";
-import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
+import { parsePortfolioHoldingsApiResponse, validPortfolioCash } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -3556,6 +3556,10 @@ assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(true\)/)
 assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 
+const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
+assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 2);
+assert.doesNotMatch(companySummaryPanelSource, /company-(?:profitability|stability)-plot[^>]*preserveAspectRatio="none"/);
+
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
@@ -3910,6 +3914,9 @@ const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
   })
 }));
 assert.equal(parsedHoldings.positions[0]?.symbol, "MU");
+assert.equal(validPortfolioCash(1199, 1853, 3052), 1199);
+assert.equal(validPortfolioCash(105510401.1332, 71662.86, 71662.86), null);
+assert.equal(validPortfolioCash(null, 71662.86, 71662.86), null);
 await assert.rejects(
   () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: false, status: 503, body: "" })),
   /보유종목 API 오류 503/

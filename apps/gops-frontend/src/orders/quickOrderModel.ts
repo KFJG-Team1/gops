@@ -16,7 +16,7 @@ export type QuickOrderQuote = {
 export type QuickOrderIntent = {
   side: OrderSide;
   price: number;
-  source: "best-bid" | "best-ask" | "bid-offset" | "ask-offset" | "ask-imbalance" | "bid-imbalance";
+  source: "best-bid" | "best-ask" | "bid-offset" | "ask-offset" | "ask-imbalance" | "bid-imbalance" | "manual";
   label: string;
 };
 
