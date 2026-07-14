@@ -92,6 +92,7 @@ import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
 import type { AgentAnalysisReport } from "./agents/agentAnalysis";
 import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
+import { resolveRecommendationCompanyNavigation } from "./recommendations/recommendationNavigation";
 
 
 type ActiveAgentRun = {
@@ -441,6 +442,12 @@ export function App() {
   const selectedAgentReferenceKeys = useMemo(() => (
     agentReferences.map((reference) => agentReferenceKey(reference))
   ), [agentReferences]);
+  const selectedRecommendationReference = useMemo(() => (
+    agentReferences.find((reference) => reference.type === "recommendation.stock") ?? null
+  ), [agentReferences]);
+  const selectedRecommendationSymbol = selectedRecommendationReference
+    ? agentReferenceTicker(selectedRecommendationReference) || null
+    : null;
   const agentReferenceChips = useMemo<AgentReferenceChip[]>(() => {
     const chips: AgentReferenceChip[] = agentReferences.map((reference) => ({
       key: agentReferenceKey(reference),
@@ -681,8 +688,14 @@ export function App() {
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
     setPanelState((current) => {
-      const next = setCompanyInformationSymbol(
+      const companyState = setCompanyInformationSymbol(
         current,
+        normalizedSymbol,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      );
+      const next = setPrimaryChartSymbol(
+        companyState,
         normalizedSymbol,
         viewportSizeRef.current,
         panelLayoutMetricsRef.current
@@ -715,7 +728,6 @@ export function App() {
 
   const handlePresetLoadResult = useCallback((result: LayoutLoadPresetResult): LayoutLoadPresetResult["status"] => {
     if (result.status === "applied") {
-      showAgentNotice("프리셋을 적용했습니다.");
       return "applied";
     }
     if (result.status === "missing") {
@@ -858,6 +870,20 @@ export function App() {
     });
   }, []);
 
+  const handleRecommendationReferenceSelect = useCallback((reference: AgentReference | null) => {
+    setAgentReferences((current) => {
+      const selectedKey = reference ? agentReferenceKey(reference) : null;
+      const wasSelected = selectedKey
+        ? current.some((item) => item.type === "recommendation.stock" && agentReferenceKey(item) === selectedKey)
+        : false;
+      const withoutRecommendation = current.filter((item) => item.type !== "recommendation.stock");
+      return !reference || wasSelected
+        ? withoutRecommendation
+        : [reference, ...withoutRecommendation].slice(0, 5);
+    });
+    setEmphasizedReferenceKeys([]);
+  }, []);
+
   const handleAgentAsk = useCallback(() => {
     setLayoutEditMode(false);
     setAgentComposerRequest((current) => current + 1);
@@ -894,16 +920,32 @@ export function App() {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
     }
+    const recommendationNavigation = resolveRecommendationCompanyNavigation(
+      prompt,
+      presetControls.activePresetId,
+      selectedRecommendationSymbol
+    );
+    if (recommendationNavigation.status === "missing_selection") {
+      showAgentNotice("추천 목록에서 종목을 먼저 선택해 주세요.", "info");
+      return "notice";
+    }
+    if (recommendationNavigation.status === "ready") {
+      presetControls.applyPreset(recommendationNavigation.presetId);
+      openCompanyPage(recommendationNavigation.symbol);
+      return "ui-action";
+    }
+    const agentContextSymbol = selectedRecommendationSymbol
+      || (mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol());
     const alertDraft = alertCommandDraftRef.current;
     setAgentBusy(true);
     try {
       const chartDocument = mainView.mode === "chart"
-        ? Object.values(chartRuntime.documents).find((document) => document.symbol === mainView.symbol)
+        ? Object.values(chartRuntime.documents).find((document) => document.symbol === agentContextSymbol)
         : undefined;
       const requestId = alertDraft?.requestId ?? createAgentAnalysisRequestId();
       const command = await submitAlertCommand({
         text: prompt,
-        contextSymbol: mainView.mode === "chart" ? mainView.symbol : undefined,
+        contextSymbol: agentContextSymbol,
         contextInterval: chartDocument?.timeframe,
         clarificationId: alertDraft?.clarificationId,
         requestId
@@ -970,7 +1012,7 @@ export function App() {
     if (isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)) {
       setAgentBusy(true);
       try {
-        const layoutSymbol = mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol();
+        const layoutSymbol = agentContextSymbol;
         const layoutResolution = await resolveAgentLayoutCommand({
           symbol: layoutSymbol,
           intent: prompt,
@@ -1180,7 +1222,7 @@ export function App() {
           slot.id === interactivePanelId || slot.contentId === interactivePanelId
         ))?.id;
         const analysisPayload = {
-          symbol: mainView.symbol,
+          symbol: agentContextSymbol,
           intent: prompt,
           routerMode: "hybrid",
           messages: [{ role: "user", content: prompt }],
@@ -1190,7 +1232,7 @@ export function App() {
           layoutContext: buildAgentLayoutContext(
             panelState,
             viewportSize,
-            mainView.symbol,
+            agentContextSymbol,
             selectedLayoutPanelId,
             chartDocumentSymbolsByPanelId,
             panelLayoutMetricsRef.current
@@ -1220,7 +1262,7 @@ export function App() {
           if (problemMessage) {
             showAgentNotice(problemMessage, "error");
           } else {
-            showAgentNotice(`${mainView.symbol} 레이아웃을 변경했습니다.`);
+            showAgentNotice(`${agentContextSymbol} 레이아웃을 변경했습니다.`);
           }
           return;
         }
@@ -1251,7 +1293,7 @@ export function App() {
         };
         activeAgentRunRef.current = activeRun;
         const analysisRequestPayload = {
-          symbol: mainView.symbol,
+          symbol: agentContextSymbol,
           intent: prompt,
           routerMode: "hybrid",
           messages: [{ role: "user", content: prompt }],
@@ -1261,7 +1303,7 @@ export function App() {
           layoutContext: buildAgentLayoutContext(
             panelState,
             viewportSize,
-            mainView.symbol,
+            agentContextSymbol,
             undefined,
             chartDocumentSymbolsByPanelId,
             panelLayoutMetricsRef.current
@@ -1301,7 +1343,7 @@ export function App() {
         } else if (reportStatus === "canceled") {
           showAgentNotice("Agent 분석을 중단했습니다.", "info");
         } else {
-          showAgentNotice(agentReportCompletionMessage(report, mainView.symbol));
+          showAgentNotice(agentReportCompletionMessage(report, agentContextSymbol));
         }
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
@@ -1321,7 +1363,7 @@ export function App() {
 
     void runChartPrompt();
     return "notice";
-  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, chartRuntime.documents, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, showAgentNotice, viewportSize]);
+  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, chartRuntime.documents, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
 
 
   return (
@@ -1370,6 +1412,8 @@ export function App() {
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
+            selectedRecommendationSymbol={selectedRecommendationSymbol}
+            onSelectRecommendationReference={handleRecommendationReferenceSelect}
             onOpenCompany={openCompanyPage}
             onSelectPatternAsset={openPatternAsset}
             selectedWildPanelSlotId={selectedWildPanelSlotId}

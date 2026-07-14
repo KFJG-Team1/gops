@@ -114,6 +114,8 @@ type PanelWorkspaceProps = {
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSelectSymbol: (symbol: string) => void;
+  selectedRecommendationSymbol: string | null;
+  onSelectRecommendationReference: (reference: AgentReference | null) => void;
   onOpenCompany: (symbol: string) => void;
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   selectedWildPanelSlotId: string | null;
@@ -196,6 +198,8 @@ export function PanelWorkspace({
   onChartRuntimeAction,
   onChartHandleChange,
   onSelectSymbol,
+  selectedRecommendationSymbol,
+  onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset,
   selectedWildPanelSlotId,
@@ -890,6 +894,8 @@ export function PanelWorkspace({
         onUpdatePanelProps={updatePanelProps}
         onChangePanelChartSymbol={changePanelChartSymbol}
         onSelectSymbol={onSelectSymbol}
+        selectedRecommendationSymbol={selectedRecommendationSymbol}
+        onSelectRecommendationReference={onSelectRecommendationReference}
         onOpenCompany={onOpenCompany}
         onSelectPatternAsset={onSelectPatternAsset}
       />

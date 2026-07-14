@@ -1,4 +1,4 @@
-import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
+import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, TrendingUp, UserCircle, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { HeaderNotificationMenu } from "../alerts/HeaderNotificationMenu";
@@ -473,8 +473,8 @@ function AgentReferenceStrip({
     <div className="agent-reference-strip" aria-label="선택한 자료">
       {chips.map((chip) => {
         const active = hoveredKey === chip.key;
-        const Icon = chip.kind === "candle" ? CandlestickChart : Newspaper;
-        const kindLabel = chip.kind === "candle" ? "캔들" : "뉴스";
+        const Icon = chip.kind === "candle" ? CandlestickChart : chip.kind === "news" ? Newspaper : TrendingUp;
+        const kindLabel = chip.kind === "candle" ? "캔들" : chip.kind === "news" ? "뉴스" : "추천";
         const label = chip.ticker ? `${chip.ticker} ${kindLabel}` : kindLabel;
         return (
           <button

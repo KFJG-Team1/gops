@@ -48,6 +48,11 @@ import { DEFAULT_CHART_SYMBOL, defaultWatchlistSymbols, normalizeHotRankingPaylo
 import { fallbackChartStyle, normalizeChartStyle, setDefaultChartStyle } from "../../chart-engine/src/theme";
 import type { CandleData, ChartPendingPreview, ChartProposal } from "../../chart-engine/src/types";
 import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveResponse } from "../src/agent/agentAnalysisClient";
+import {
+  agentReferenceChipKind,
+  agentReferenceTicker,
+  stockRecommendationReference
+} from "../src/agent/agentReferences";
 import { deleteAllAlerts } from "../src/alerts/alertApi";
 import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
@@ -169,8 +174,18 @@ import {
   applyTiledAgentLayoutProposalWithResult,
   buildTiledAgentLayoutContext
 } from "../src/layout/tiledAgentLayout";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, isLikelyPresetLoadPrompt } from "../src/layout/layoutPresets";
+import {
+  DEFAULT_PRESETS,
+  applyLayoutLoadProposalToPresets,
+  buildAgentLayoutPresetSummaries,
+  buildPresetLayout,
+  isLikelyPresetLoadPrompt
+} from "../src/layout/layoutPresets";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
+import {
+  isSelectedRecommendationCompanyPrompt,
+  resolveRecommendationCompanyNavigation
+} from "../src/recommendations/recommendationNavigation";
 import {
   clampRightOffset,
   clampVisibleCount,
@@ -4008,15 +4023,55 @@ assert.equal(layoutResolve.summary, "변경했습니다.");
 assert.equal(layoutResolve.route?.intentType, "ui-layout");
 assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.priority.set");
 
+assert.deepEqual(
+  DEFAULT_PRESETS.map((preset) => [preset.id, preset.name]),
+  [["market", "추천종목"], ["stock", "기업분석"], ["compare", "차트분석"], ["asset", "포트폴리오"]]
+);
+const recommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "market");
+assert.ok(recommendationPreset);
+const recommendationLayout = buildPresetLayout(recommendationPreset, { width: 1280, height: 720 });
+assert.ok(recommendationLayout);
+assert.deepEqual(
+  recommendationLayout.slots.map((slot) => recommendationLayout.contents[slot.contentId]?.kind),
+  ["recommendationsList", "indices", "themeRadar", "news"]
+);
+const recommendationReference = stockRecommendationReference({
+  symbol: "msft",
+  rank: 1,
+  score: 55.8,
+  confidence: 0.75,
+  changePercent: 3.4,
+  sector: "Information Technology",
+  sectorLabelKo: "정보기술",
+  reasons: [{ type: "market_momentum", text: "상승 모멘텀이 확인됐습니다.", weight: 23.8 }],
+  riskWarnings: ["변동성 확대에 유의하세요."],
+  metricsSnapshot: { sessionDollarVolume: 210_000_000 }
+}, "content-recommendations-list");
+assert.equal(recommendationReference.type, "recommendation.stock");
+assert.equal(recommendationReference.displayLabel, "MSFT 추천 1위");
+assert.equal(recommendationReference.data.symbol, "MSFT");
+assert.equal(agentReferenceTicker(recommendationReference), "MSFT");
+assert.equal(agentReferenceChipKind(recommendationReference), "recommendation");
+assert.deepEqual(recommendationReference.data.riskWarnings, ["변동성 확대에 유의하세요."]);
+const chartAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "compare");
+assert.ok(chartAnalysisPreset);
+const chartAnalysisLayout = buildPresetLayout(chartAnalysisPreset, { width: 1280, height: 720 });
+assert.ok(chartAnalysisLayout);
+assert.deepEqual(
+  chartAnalysisLayout.slots.map((slot) => chartAnalysisLayout.contents[slot.contentId]?.kind),
+  ["compare", "indices", "watchlistNews"]
+);
+
 const presetSummaries = buildAgentLayoutPresetSummaries([
-  { id: "market", kind: "default", name: "시장분석" },
+  { id: "market", kind: "default", name: "추천종목" },
   { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) },
   { id: "custom-preopen", kind: "custom", name: "장전 체크", layout: serializeTiledPanelState(tiledState) }
 ]);
 assert.equal(presetSummaries[0]?.id, "market");
-assert.ok(presetSummaries[0]?.aliases.includes("시장분석 프리셋"));
-assert.ok(presetSummaries[0]?.aliases.includes("시장분석창"));
-assert.ok(presetSummaries[0]?.aliases.includes("시장분석 대시보드"));
+assert.ok(presetSummaries[0]?.aliases.includes("추천종목 프리셋"));
+assert.ok(presetSummaries[0]?.aliases.includes("추천종목창"));
+assert.ok(presetSummaries[0]?.aliases.includes("오늘의 추천 종목"));
+assert.ok(presetSummaries[0]?.aliases.includes("시장분석"));
 assert.equal(presetSummaries[1]?.id, "custom-taste");
 assert.ok(presetSummaries[1]?.aliases.includes("내입맛"));
 assert.equal(presetSummaries[2]?.id, "custom-preopen");
@@ -4024,23 +4079,25 @@ assert.ok(presetSummaries[2]?.aliases.includes("장전 체크 대시보드"));
 assert.equal(isLikelyPresetLoadPrompt("시장분석 프리셋 띄워줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("시장분석 보여줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("시장분석창 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("오늘의 추천 종목 보여줘", presetSummaries), true);
+assert.equal(isLikelyPresetLoadPrompt("추천종목 페이지 열어줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("내 입맛 화면으로 바꿔줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("장전 체크 대시보드 열어줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("시장 분석해줘", presetSummaries), false);
-assert.equal(isLikelyPresetLoadPrompt("시장분석 해줘", presetSummaries), false);
+assert.equal(isLikelyPresetLoadPrompt("추천종목 해줘", presetSummaries), false);
 
 const presetLoadResolve = normalizeAgentLayoutResolveResponse({
   status: "ui_layout",
-  summary: "시장분석 프리셋을 열었습니다.",
+  summary: "추천종목 프리셋을 열었습니다.",
   route: { source: "ui-preset-parser", intentType: "ui-layout", selectedRoles: [] },
   layoutProposal: {
     id: "layout-proposal-preset-load",
     title: "UI preset request",
-    rationale: "시장분석 프리셋을 열었습니다.",
+    rationale: "추천종목 프리셋을 열었습니다.",
     autoApply: true,
     panelPriorities: [],
     commands: [
-      makeAgentLayoutCommand("layout.load", "llm", { presetId: "market", presetName: "시장분석", presetKind: "default" })
+      makeAgentLayoutCommand("layout.load", "llm", { presetId: "market", presetName: "추천종목", presetKind: "default" })
     ],
     createdAt: "2026-06-29T00:00:00.000Z"
   },
@@ -4053,22 +4110,39 @@ assert.deepEqual(
   applyLayoutLoadProposalToPresets(
     presetLoadResolve.layoutProposal!,
     [
-      { id: "market", kind: "default", name: "시장분석" },
+      { id: "market", kind: "default", name: "추천종목" },
       { id: "custom-taste", kind: "custom", name: "내 입맛", layout: serializeTiledPanelState(tiledState) }
     ],
     (id) => appliedPresetIds.push(id)
   ),
-  { status: "applied", presetId: "market", presetName: "시장분석" }
+  { status: "applied", presetId: "market", presetName: "추천종목" }
 );
 assert.deepEqual(appliedPresetIds, ["market"]);
 assert.deepEqual(
-  applyLayoutLoadProposalToPresets(presetLoadResolve.layoutProposal!, [{ id: "stock", kind: "default", name: "종목분석" }], () => appliedPresetIds.push("unexpected")),
+  applyLayoutLoadProposalToPresets(presetLoadResolve.layoutProposal!, [{ id: "stock", kind: "default", name: "기업분석" }], () => appliedPresetIds.push("unexpected")),
   { status: "missing", presetId: "market" }
 );
 assert.deepEqual(appliedPresetIds, ["market"]);
 assert.deepEqual(
-  applyLayoutLoadProposalToPresets(layoutResolve.layoutProposal!, [{ id: "market", kind: "default", name: "시장분석" }], () => appliedPresetIds.push("unexpected")),
+  applyLayoutLoadProposalToPresets(layoutResolve.layoutProposal!, [{ id: "market", kind: "default", name: "추천종목" }], () => appliedPresetIds.push("unexpected")),
   { status: "none" }
+);
+
+assert.equal(isSelectedRecommendationCompanyPrompt("이 종목의 기업에 대해 자세히 알려줘"), true);
+assert.equal(isSelectedRecommendationCompanyPrompt("선택한 종목 회사 정보를 보여줘"), true);
+assert.equal(isSelectedRecommendationCompanyPrompt("이 종목 차트 자세히 보여줘"), false);
+assert.equal(isSelectedRecommendationCompanyPrompt("엔비디아에 대해 자세히 알려줘"), false);
+assert.deepEqual(
+  resolveRecommendationCompanyNavigation("이 종목의 기업에 대해 자세히 알려줘", "market", "nvda"),
+  { status: "ready", presetId: "stock", symbol: "NVDA" }
+);
+assert.deepEqual(
+  resolveRecommendationCompanyNavigation("이 종목의 기업에 대해 자세히 알려줘", "market", null),
+  { status: "missing_selection" }
+);
+assert.deepEqual(
+  resolveRecommendationCompanyNavigation("이 종목의 기업에 대해 자세히 알려줘", "asset", "NVDA"),
+  { status: "not_applicable" }
 );
 
 const layoutClarifyResolve = normalizeAgentLayoutResolveResponse({
