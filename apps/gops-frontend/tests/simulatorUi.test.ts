@@ -65,6 +65,17 @@ assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
 assert.match(paperAccountSource, /cancelPaperOrder/);
 assert.match(paperAccountSource, /resetPaperAccount/);
+assert.match(orderTicketSource, />주문 유형</);
+assert.match(orderTicketSource, />일반 주문</);
+assert.match(orderTicketSource, /지정가/);
+assert.match(orderTicketSource, /시장가/);
+assert.match(orderTicketSource, />총 주문 금액</);
+assert.match(orderTicketSource, />종목</);
+assert.match(orderTicketSource, /displayCompanyName\(selectedSymbolMeta\)/);
+assert.doesNotMatch(orderTicketSource, /주문 가능 금액/);
+assert.doesNotMatch(orderTicketSource, /\/api\/orders\/balance/);
+assert.match(orderTicketSource, /priceType === "market"/);
+assert.match(orderTicketSource, /시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다/);
 
 const layoutPresetSource = readFileSync(
   fileURLToPath(new URL("../src/layout/layoutPresets.ts", import.meta.url)),

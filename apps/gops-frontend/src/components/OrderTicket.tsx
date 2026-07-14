@@ -4,7 +4,6 @@ import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type Wat
 import { useAuth } from "../auth/AuthProvider";
 import {
   makeIdempotencyKey,
-  orderBalancePath,
   orderWebSocketUrl,
   parseRiskDetail,
   type OrderExecutionMode,
@@ -24,6 +23,7 @@ import {
 } from "../simulator/simulatorApi";
 
 type OrderMarket = "overseas";
+type OrderPriceType = "limit" | "market";
 
 type OrderFormState = {
   market: OrderMarket;
@@ -40,13 +40,6 @@ type OrderTicketProps = {
   symbolOptions: readonly WatchlistSymbol[];
   onSymbolOptionsRequest: (query: string) => void;
   executionMode?: OrderExecutionMode;
-};
-
-type OrderBalance = {
-  currency?: string;
-  exchange?: string;
-  orderable_cash?: string | null;
-  orderable_qty?: string | null;
 };
 
 function riskVerdictLabel(risk: RiskVerdict): string {
@@ -163,18 +156,6 @@ function formatUsd(value: number): string {
   }).format(value);
 }
 
-function formatCurrency(value: number, currency = "USD"): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
 function parseFiniteNumber(value: string | number | null | undefined): number | undefined {
   if (value === null || value === undefined || value === "") {
     return undefined;
@@ -278,20 +259,19 @@ export function OrderTicket({
 }: OrderTicketProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const [form, setForm] = useState<OrderFormState>({ ...DEFAULT_FORM, symbol: activeSymbol });
+  const [priceType, setPriceType] = useState<OrderPriceType>("limit");
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
   const [symbolSearchOpen, setSymbolSearchOpen] = useState(false);
   const [paperSymbolOptions, setPaperSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [order, setOrder] = useState<OrderSnapshot | undefined>();
-  const [balance, setBalance] = useState<OrderBalance | undefined>();
-  const [balanceLoading, setBalanceLoading] = useState(false);
-  const [balanceError, setBalanceError] = useState<string | undefined>();
   const [simulationMode, setSimulationMode] = useState(false);
   const [useDemoBasket, setUseDemoBasket] = useState(true);
   const [risk, setRisk] = useState<RiskVerdict | undefined>();
   const [riskLoading, setRiskLoading] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const symbolSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const activeMeta = getSymbolMeta(activeSymbol);
@@ -308,6 +288,14 @@ export function OrderTicket({
       socketRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!symbolSearchOpen) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => symbolSearchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [symbolSearchOpen]);
 
   useEffect(() => {
     if (executionMode === "paper") {
@@ -355,11 +343,6 @@ export function OrderTicket({
     [chartSymbols, paperSymbolOptions, symbolOptions]
   );
 
-  const selectedSymbolMeta = useMemo(
-    () => resolveSymbolMeta(form.symbol, allSymbolOptions),
-    [allSymbolOptions, form.symbol]
-  );
-
   const visibleSearchOptions = useMemo(() => {
     const query = symbolSearchQuery.trim().toUpperCase();
     return dedupeSymbols(allSymbolOptions)
@@ -368,62 +351,25 @@ export function OrderTicket({
       .slice(0, ORDER_SEARCH_RESULT_LIMIT);
   }, [allSymbolOptions, symbolSearchQuery]);
 
-  const selectedCompanyName = displayCompanyName(selectedSymbolMeta);
-  const orderableCash = parseFiniteNumber(balance?.orderable_cash);
-  const balanceCurrency = balance?.currency || "USD";
-  const balanceLabel = balanceLoading
-    ? "조회 중"
-    : orderableCash !== undefined
-      ? formatCurrency(orderableCash, balanceCurrency)
-      : balanceError ? "조회 실패" : "-";
-
-  useEffect(() => {
-    const queryPrice = Number(form.price);
-    const balanceQueryPrice = typeof queryPrice === "number" && Number.isFinite(queryPrice) && queryPrice > 0
-      ? formatPriceInput(queryPrice)
-      : "0";
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(async () => {
-      setBalanceLoading(true);
-      setBalanceError(undefined);
-      try {
-        const params = new URLSearchParams({
-          symbol: form.symbol,
-          exchange: form.exchange,
-          price: balanceQueryPrice
-        });
-        const response = await fetch(`${orderBalancePath(executionMode)}?${params.toString()}`, {
-          signal: controller.signal
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.detail ?? `잔고 조회 API 오류 ${response.status}`);
-        }
-        setBalance(payload as OrderBalance);
-      } catch (caught) {
-        if (!controller.signal.aborted) {
-          setBalance(undefined);
-          setBalanceError(caught instanceof Error ? caught.message : "잔고 조회에 실패했습니다.");
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setBalanceLoading(false);
-        }
-      }
-    }, 350);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [executionMode, form.exchange, form.price, form.symbol, simulationMode]);
+  const selectedSymbolMeta = useMemo(
+    () => resolveSymbolMeta(form.symbol, allSymbolOptions),
+    [allSymbolOptions, form.symbol]
+  );
+  const currentMarketPrice = parseFiniteNumber(selectedSymbolMeta.lastPrice);
+  const effectivePriceText = priceType === "market"
+    ? currentMarketPrice !== undefined ? formatPriceInput(currentMarketPrice) : ""
+    : form.price;
 
   useEffect(() => {
     if (simulationMode && useDemoBasket) {
       setRisk(undefined);
       return;
     }
-    const previewPrice = Number(form.price);
+    if (priceType === "market") {
+      setRisk(undefined);
+      return;
+    }
+    const previewPrice = Number(effectivePriceText);
     const quantity = Number(form.qty);
     if (!Number.isInteger(quantity) || quantity <= 0 || typeof previewPrice !== "number" || !Number.isFinite(previewPrice) || previewPrice <= 0) {
       setRisk(undefined);
@@ -467,7 +413,7 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [executionMode, form.exchange, form.market, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
+  }, [effectivePriceText, executionMode, form.exchange, form.market, form.qty, form.side, form.symbol, priceType, simulationMode, useDemoBasket]);
 
   const applyRuleSuggestion = (rule: RiskRule) => {
     const quantity = rule.suggestedQty ? Number(rule.suggestedQty) : NaN;
@@ -556,6 +502,11 @@ export function OrderTicket({
       }
       return;
     }
+    if (priceType === "market") {
+      setError("시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다.");
+      setSubmitting(false);
+      return;
+    }
     const submitPrice = form.price;
     const quantity = Number(form.qty);
     const price = Number(submitPrice);
@@ -624,107 +575,76 @@ export function OrderTicket({
   };
 
   const quantity = Number(form.qty);
-  const price = Number(form.price);
+  const price = Number(effectivePriceText);
   const individualOrderReady = Number.isInteger(quantity) && quantity > 0 && Number.isFinite(price) && price > 0;
-  const orderReady = simulationMode && useDemoBasket ? true : individualOrderReady;
+  const orderReady = simulationMode && useDemoBasket ? true : priceType === "limit" && individualOrderReady;
   const riskNeedsAcknowledgement = executionMode === "kis" && Boolean(risk && risk.verdict !== "allow");
   const paperRiskBlocked = executionMode === "paper" && risk?.verdict === "block";
-  const estimatedAmount = formatOrderAmount(form.qty, form.price);
-  const orderSummary = `${form.symbol} ${form.qty || "-"}주 · ${sideLabels[form.side]} · 지정가`;
+  const estimatedAmount = formatOrderAmount(form.qty, effectivePriceText);
 
   return (
     <section className="order-ticket order-ticket-v3" data-order-side={form.side} data-execution-mode={executionMode} aria-label={executionMode === "paper" ? "가상 주문 패널" : "주문 패널"}>
       <header className="order-ticket-heading">
-        <div>
-          <strong>{executionMode === "paper" ? "가상 주문하기" : "주문하기"}</strong>
-          <span className="order-side-badge">{sideLabels[form.side]} 주문</span>
-        </div>
-        <p>주문 방향, 가격과 수량을 확인한 뒤 주문합니다.</p>
-      </header>
-
-      <section className="order-ticket-section" aria-labelledby="order-side-title">
-        <h3 id="order-side-title">매수 또는 매도</h3>
-        <div className="order-side-control" role="group" aria-label="매수 매도 선택">
-          <button
-            className={form.side === "buy" ? "active" : ""}
-            type="button"
-            aria-pressed={form.side === "buy"}
-            onClick={() => setForm((current) => ({ ...current, side: "buy" }))}
-          >
-            매수
-          </button>
-          <button
-            className={form.side === "sell" ? "active" : ""}
-            type="button"
-            aria-pressed={form.side === "sell"}
-            onClick={() => setForm((current) => ({ ...current, side: "sell" }))}
-          >
-            매도
-          </button>
-        </div>
-      </section>
-
-      {executionMode === "kis" && simulationMode && (
-        <div className="simulation-order-banner">
-          <div>
-            <span>SIMULATION · 실제 주문 전송 없음</span>
-            <strong>{form.side === "sell" ? "반도체 5종 전량 매도" : "가용 현금으로 에너지 3종 매수"}</strong>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={useDemoBasket}
-            className={useDemoBasket ? "active" : ""}
-            onClick={() => setUseDemoBasket((current) => !current)}
-          >
-            {useDemoBasket ? "바스켓 ON" : "개별 주문"}
-          </button>
-        </div>
-      )}
-
-      <section className="order-ticket-section" aria-labelledby="order-symbol-title">
-        <h3 id="order-symbol-title">종목</h3>
+        <strong>{executionMode === "paper" ? "가상 주문하기" : "주문하기"}</strong>
         <div
-          className="order-field order-symbol-field"
+          className="order-symbol-field"
           onBlur={(event) => {
             const nextTarget = event.relatedTarget;
             if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
               setSymbolSearchOpen(false);
+              setSymbolSearchQuery("");
             }
           }}
         >
-          <label htmlFor="order-symbol-search">주문 종목</label>
           <div className="order-symbol-picker">
-            <div className="order-symbol-search">
-              <Search size={13} aria-hidden="true" />
-              <input
-                id="order-symbol-search"
-                value={symbolSearchQuery}
-                placeholder={`${form.symbol} ${selectedCompanyName}`}
-                aria-label="주문 종목 검색"
-                aria-expanded={symbolSearchOpen}
-                onFocus={() => {
-                  setSymbolSearchOpen(true);
-                  onSymbolOptionsRequest(symbolSearchQuery);
-                }}
-                onChange={(event) => {
-                  const value = event.target.value.toUpperCase();
-                  setSymbolSearchQuery(value);
-                  setSymbolSearchOpen(true);
-                  onSymbolOptionsRequest(value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                    event.preventDefault();
-                    const query = event.currentTarget.value.toUpperCase();
-                    const exact = visibleSearchOptions.find((item) => item.symbol === query);
-                    selectOrderSymbol(exact?.symbol ?? query);
-                  }
-                  if (event.key === "Escape") {
-                    setSymbolSearchOpen(false);
-                  }
-                }}
-              />
+            <div className={`order-symbol-search ${symbolSearchOpen ? "is-searching" : "is-selected"}`}>
+              {symbolSearchOpen ? (
+                <>
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    ref={symbolSearchInputRef}
+                    id="order-symbol-search"
+                    value={symbolSearchQuery}
+                    placeholder="종목 검색"
+                    aria-label="주문 종목 검색"
+                    aria-expanded="true"
+                    aria-haspopup="listbox"
+                    onFocus={() => onSymbolOptionsRequest(symbolSearchQuery)}
+                    onChange={(event) => {
+                      const value = event.target.value.toUpperCase();
+                      setSymbolSearchQuery(value);
+                      onSymbolOptionsRequest(value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        const query = event.currentTarget.value.toUpperCase();
+                        const exact = visibleSearchOptions.find((item) => item.symbol === query);
+                        selectOrderSymbol(exact?.symbol ?? query);
+                      }
+                      if (event.key === "Escape") {
+                        setSymbolSearchOpen(false);
+                        setSymbolSearchQuery("");
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="order-selected-symbol"
+                  aria-label={`선택 종목 ${form.symbol}. 종목 검색 열기`}
+                  aria-expanded="false"
+                  aria-haspopup="listbox"
+                  onClick={() => {
+                    setSymbolSearchQuery("");
+                    setSymbolSearchOpen(true);
+                    onSymbolOptionsRequest("");
+                  }}
+                >
+                  <strong>{form.symbol}</strong>
+                </button>
+              )}
             </div>
 
             {symbolSearchOpen && (
@@ -752,28 +672,102 @@ export function OrderTicket({
             )}
           </div>
         </div>
+      </header>
+
+      <section className="order-ticket-section order-side-section" aria-label="주문 유형 선택">
+        <div className="order-side-control" role="group" aria-label="매수 매도 선택">
+          <button
+            className={`buy ${form.side === "buy" ? "active" : ""}`}
+            type="button"
+            aria-label="매수"
+            aria-pressed={form.side === "buy"}
+            onClick={() => setForm((current) => ({ ...current, side: "buy" }))}
+          >
+            <strong>매수</strong>
+          </button>
+          <button
+            className={`sell ${form.side === "sell" ? "active" : ""}`}
+            type="button"
+            aria-label="매도"
+            aria-pressed={form.side === "sell"}
+            onClick={() => setForm((current) => ({ ...current, side: "sell" }))}
+          >
+            <strong>매도</strong>
+          </button>
+        </div>
       </section>
 
-      <section className="order-ticket-section" aria-labelledby="order-entry-title">
-        <h3 id="order-entry-title">가격과 수량</h3>
-        <div className="order-entry-grid">
-          <label className="order-field" htmlFor="order-price-input">
-            <span>주문 가격 (USD)</span>
-            <div className="order-input-unit">
+      {executionMode === "kis" && simulationMode && (
+        <div className="simulation-order-banner">
+          <div>
+            <span>SIMULATION · 실제 주문 전송 없음</span>
+            <strong>{form.side === "sell" ? "반도체 5종 전량 매도" : "가용 현금으로 에너지 3종 매수"}</strong>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={useDemoBasket}
+            className={useDemoBasket ? "active" : ""}
+            onClick={() => setUseDemoBasket((current) => !current)}
+          >
+            {useDemoBasket ? "바스켓 ON" : "개별 주문"}
+          </button>
+        </div>
+      )}
+
+      <section className="order-ticket-section order-details-section" aria-label="주문 상세 입력">
+        <div className="order-details-grid">
+          <div className="order-detail-card order-type-card">
+            <span className="order-detail-label">주문 유형</span>
+            <strong>일반 주문</strong>
+          </div>
+
+          <div className="order-detail-card order-price-type-card">
+            <span className="order-detail-label">{form.side === "buy" ? "구매 가격" : "판매 가격"}</span>
+            <div className="order-price-type-control" role="group" aria-label="가격 유형 선택">
+              <button
+                type="button"
+                className={priceType === "limit" ? "active" : ""}
+                aria-pressed={priceType === "limit"}
+                onClick={() => {
+                  setPriceType("limit");
+                  setError(undefined);
+                }}
+              >
+                지정가
+              </button>
+              <button
+                type="button"
+                className={priceType === "market" ? "active" : ""}
+                aria-pressed={priceType === "market"}
+                onClick={() => {
+                  setPriceType("market");
+                  setError(undefined);
+                }}
+              >
+                시장가
+              </button>
+            </div>
+          </div>
+
+          <label className="order-detail-card order-field" htmlFor="order-price-input">
+            <span className="order-detail-label">{priceType === "market" ? "가격 · 시장가 주문 준비 중" : "가격"}</span>
+            <div className={`order-input-unit ${priceType === "market" ? "is-readonly" : ""}`}>
               <input
                 id="order-price-input"
                 inputMode="decimal"
-                value={form.price}
-                placeholder="예: 70.40"
-                aria-label="주문 가격"
+                value={effectivePriceText}
+                placeholder={priceType === "market" ? "현재가 확인 중" : "예: 70.40"}
+                aria-label={priceType === "market" ? "현재 시장가" : "주문 가격"}
+                readOnly={priceType === "market"}
                 onChange={(event) => updateTextField("price", event.target.value)}
               />
               <span>USD</span>
             </div>
-            <small>주문할 가격을 직접 입력합니다.</small>
           </label>
-          <label className="order-field" htmlFor="order-quantity-input">
-            <span>수량 (주)</span>
+
+          <label className="order-detail-card order-field" htmlFor="order-quantity-input">
+            <span className="order-detail-label">수량</span>
             <div className="order-input-unit">
               <input
                 id="order-quantity-input"
@@ -785,22 +779,19 @@ export function OrderTicket({
               />
               <span>주</span>
             </div>
-            <small>보유 가능 금액과 리스크 한도를 함께 확인합니다.</small>
           </label>
+
+          <div className="order-detail-card order-total-card">
+            <span className="order-detail-label">총 주문 금액</span>
+            <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
+          </div>
+
+          <div className="order-detail-card order-symbol-summary-card">
+            <span className="order-detail-label">종목</span>
+            <strong title={displayCompanyName(selectedSymbolMeta)}>{displayCompanyName(selectedSymbolMeta)}</strong>
+          </div>
         </div>
       </section>
-
-      <div className="order-summary-box order-summary-box-v2">
-        <div>
-          <span>주문 요약</span>
-          <strong>{estimatedAmount === "-" ? "가격 입력이 필요합니다" : estimatedAmount}</strong>
-        </div>
-        <p>{orderSummary}</p>
-        <div className="order-buying-power-row">
-          <span>주문 가능 금액</span>
-          <strong>{balanceLabel}</strong>
-        </div>
-      </div>
 
       {risk && !(simulationMode && useDemoBasket) && (
         <div className={`order-risk-box order-risk-${riskBoxTone(risk)}`} aria-live="polite">
@@ -848,21 +839,14 @@ export function OrderTicket({
               ? "로그인"
               : paperRiskBlocked
                 ? "주문 가능 범위를 확인해 주세요"
+              : priceType === "market" && !(simulationMode && useDemoBasket)
+                ? "시장가 주문 준비 중"
               : simulationMode && useDemoBasket
                 ? form.side === "sell" ? "반도체 5종 매도 주문" : "에너지 3종 매수 주문"
                 : riskNeedsAcknowledgement
                   ? `경고 확인 후 ${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`
                   : `${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`}
         </button>
-        <small>
-          {riskNeedsAcknowledgement
-            ? "리스크 안내를 확인한 뒤에도 입력한 가격과 수량 그대로 주문할 수 있습니다."
-            : executionMode === "paper"
-              ? `예상 주문 금액 ${estimatedAmount} · 가상계좌 주문으로 접수됩니다.`
-            : simulationMode && useDemoBasket
-            ? "버튼을 누르면 모의 주문이 바로 전송됩니다."
-            : `예상 주문 금액 ${estimatedAmount} · 버튼을 누르면 주문이 바로 전송됩니다.`}
-        </small>
       </div>
 
       {error && <div className="order-error">{error}</div>}
