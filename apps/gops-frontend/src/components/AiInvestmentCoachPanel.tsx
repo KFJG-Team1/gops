@@ -7,6 +7,7 @@ import { CurrentPositionCoachPage } from "./ai-coach/CurrentPositionCoachPage";
 import { HabitCoachPage } from "./ai-coach/HabitCoachPage";
 import { ImprovementCoachPage } from "./ai-coach/ImprovementCoachPage";
 import type { CoachAlertCandidate, CoachReport, ImprovementPlan, PlaybookExperiment, TradingGuardrail, WatchCondition } from "./ai-coach/types";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import styles from "./ai-coach/AiCoachShell.module.css";
 
 const PAGES = ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"] as const;
@@ -15,6 +16,7 @@ const DEV_FIXTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_AI_COACH
 export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null }) {
   const [page, setPage] = useState(0);
   const [fixture, setFixture] = useState<CoachReport | null>(null);
+  const [simulatorPhase, setSimulatorPhase] = useState(() => latestSimulatorStatus()?.phase ?? "live");
   const [archivedReport, setArchivedReport] = useState<CoachReport | null>(null);
   const [archiveState, setArchiveState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [planOverride, setPlanOverride] = useState<ImprovementPlan | null>(null);
@@ -23,18 +25,27 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
 
   useEffect(() => {
     let active = true;
-    if (!report && DEV_FIXTURE_ENABLED) {
+    const simulatorReportReady = simulatorPhase === "market-close";
+    if (!report && (DEV_FIXTURE_ENABLED || simulatorReportReady)) {
       import("./ai-coach/devFixture").then(({ AI_COACH_DEV_FIXTURE }) => {
-        if (active) setFixture(AI_COACH_DEV_FIXTURE);
+        if (active) setFixture(simulatorReportReady ? saturdayCoachFixture(AI_COACH_DEV_FIXTURE) : AI_COACH_DEV_FIXTURE);
       });
     } else {
       setFixture(null);
     }
     return () => { active = false; };
-  }, [report]);
+  }, [report, simulatorPhase]);
 
   useEffect(() => {
-    if (report || DEV_FIXTURE_ENABLED) {
+    const handleStatus = (event: Event) => {
+      setSimulatorPhase((event as CustomEvent<SimulatorStatus>).detail?.phase ?? "live");
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
+
+  useEffect(() => {
+    if (report || DEV_FIXTURE_ENABLED || simulatorPhase === "market-close") {
       setArchivedReport(null);
       setArchiveState("ready");
       return;
@@ -52,7 +63,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
         if (!controller.signal.aborted) setArchiveState("unavailable");
       });
     return () => controller.abort();
-  }, [report]);
+  }, [report, simulatorPhase]);
 
   const resolved = report ?? fixture ?? archivedReport;
   const plan = planOverride ?? resolved?.page3 ?? null;
@@ -119,6 +130,18 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
       </footer>
     </section>
   );
+}
+
+function saturdayCoachFixture(source: CoachReport): CoachReport {
+  const serialized = JSON.stringify(source)
+    .replaceAll("NVDA", "IFF")
+    .replaceAll("NVIDIA", "International Flavors & Fragrances");
+  const fixture = JSON.parse(serialized) as CoachReport;
+  return {
+    ...fixture,
+    analysisId: "saturday-demo-close-report",
+    generatedAt: new Date().toISOString()
+  };
 }
 
 function Unavailable({ title, message = "데이터 연결 대기" }: { title: string; message?: string }) {

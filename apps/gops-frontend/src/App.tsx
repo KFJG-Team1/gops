@@ -86,6 +86,7 @@ import {
 } from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
+import { simulatorStatusEvent, type SimulatorStatus } from "./simulator/simulatorApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
@@ -364,6 +365,27 @@ export function App() {
     } catch {
       return "MSFT";
     }
+  }, []);
+
+  useEffect(() => {
+    const applySimulationQuotes = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      if (status?.mode !== "simulation" || status.symbols.length === 0) return;
+      const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
+      setTreeMapItems((current) => current.map((item) => {
+        const update = updates.get(item.symbol.toUpperCase());
+        if (!update || update.price == null) return item;
+        return {
+          ...item,
+          lastPrice: update.price,
+          changePercent: update.changePercent ?? item.changePercent,
+          priceSource: "gops-simulator",
+          priceUpdatedAt: new Date().toISOString()
+        };
+      }));
+    };
+    window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
+    return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
   }, []);
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);

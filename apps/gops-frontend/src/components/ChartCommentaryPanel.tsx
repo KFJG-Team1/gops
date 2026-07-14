@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { CandleDto, ChartInterval } from "../chart/types";
+import { GlossaryText } from "../glossary/GlossaryText";
 
 export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: {
   symbol: string;
@@ -49,15 +50,18 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
       <h3 className="chart-commentary-headline">Geometry 분석</h3>
       <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
       {pattern && (
-        <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
-          {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
-        </button>
+        <>
+          <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
+            <GlossaryText text={`${patternName(pattern.kind)} · ${pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 ${pattern.score.toFixed(2)}`} />
+          </button>
+          <p className="chart-commentary-text"><GlossaryText text="삼각 수렴 패턴은 지지선과 저항선 사이의 가격 폭이 좁아지는 구조입니다. 용어에 마우스를 올리면 설명을 볼 수 있습니다." /></p>
+        </>
       )}
       <section className="chart-commentary-levels" aria-label="핵심 레벨">
         <h3>핵심 레벨</h3>
         <ul>
           {[...asset.geometry.supports, ...asset.geometry.resistances].map((level) => (
-            <li key={level.id}>{level.role === "support" ? "지지" : "저항"} {level.price.toFixed(2)} · 접촉 {level.touches}회</li>
+            <li key={level.id}><GlossaryText text={`${level.role === "support" ? "지지선" : "저항선"} ${level.price.toFixed(2)} · 접촉 ${level.touches}회`} /></li>
           ))}
         </ul>
       </section>

@@ -1,5 +1,5 @@
 import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { AlertToast } from "../alerts/AlertToast";
 import {
@@ -25,7 +25,9 @@ import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
-import { SimulatorControl } from "../simulator/SimulatorControl";
+
+const SimulatorControl = lazy(() => import("../simulator/SimulatorControl")
+  .then((module) => ({ default: module.SimulatorControl })));
 
 type BottomCommandBarProps = {
   agentBusy: boolean;
@@ -274,7 +276,9 @@ export function BottomCommandBar({
           </div>
         </div>
         <div className="workspace-top-actions">
-          <SimulatorControl />
+          <Suspense fallback={<div className="simulator-mode-control" aria-hidden="true" />}>
+            <SimulatorControl onApplyLayoutProposal={onApplyLayoutProposal} />
+          </Suspense>
           <button
             type="button"
             className="workspace-top-login"

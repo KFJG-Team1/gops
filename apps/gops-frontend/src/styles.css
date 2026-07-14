@@ -1070,6 +1070,11 @@ button {
   background: var(--color-surface-strong);
 }
 
+.simulator-run-controls button:disabled {
+  cursor: default;
+  opacity: .35;
+}
+
 @keyframes simulator-live-pulse {
   50% { opacity: .45; }
 }
@@ -1100,6 +1105,9 @@ button {
   font-size: var(--type-micro);
   font-weight: 900;
   letter-spacing: .09em;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .simulator-breaking-copy {
@@ -1117,7 +1125,78 @@ button {
 .simulator-breaking-copy span { color: var(--color-muted); font-size: var(--type-compact); }
 .simulator-breaking-copy small { color: #c33b33; font-size: var(--type-micro); font-weight: 750; }
 
+.simulator-layout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, #d94a41 42%, var(--color-border));
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: color-mix(in srgb, #d94a41 8%, var(--color-background));
+  color: #c33b33;
+  font: var(--type-caption-sm);
+  font-weight: 800;
+}
+
 .simulator-breaking-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.simulator-phase-toast {
+  position: fixed;
+  z-index: 79;
+  top: calc(var(--top-nav-height) + 14px);
+  left: 50%;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 9px;
+  width: min(520px, calc(100vw - 30px));
+  border: 1px solid color-mix(in srgb, #3478f6 55%, var(--color-border));
+  border-radius: 12px;
+  padding: 11px;
+  background: color-mix(in srgb, var(--color-background) 95%, #3478f6);
+  box-shadow: 0 18px 55px rgb(10 35 90 / 20%);
+  color: var(--color-text);
+  transform: translateX(-50%);
+  animation: simulator-breaking-enter 240ms ease-out both;
+}
+
+.simulator-phase-toast.is-market-close {
+  border-color: color-mix(in srgb, #7657d6 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-background) 95%, #7657d6);
+}
+
+.simulator-phase-toast > span {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #3478f6 15%, var(--color-background));
+  color: #3478f6;
+}
+
+.simulator-phase-toast.is-market-close > span {
+  background: color-mix(in srgb, #7657d6 15%, var(--color-background));
+  color: #7657d6;
+}
+
+.simulator-phase-toast div { display: grid; gap: 2px; }
+.simulator-phase-toast strong { font-size: var(--type-body); }
+.simulator-phase-toast p { margin: 0; color: var(--color-muted); font-size: var(--type-compact); }
+.simulator-phase-toast > button {
   display: inline-grid;
   place-items: center;
   width: 28px;

@@ -1,4 +1,5 @@
 import type { AgentEvidenceItem, AnalysisReport } from "./ontologyTypes";
+import { latestSimulatorStatus } from "../simulator/simulatorApi";
 
 type ImportMetaWithEnv = ImportMeta & {
   env?: Record<string, string | undefined>;
@@ -17,6 +18,10 @@ export async function requestOntologyReport(
   request: OntologyReportRequest,
   signal?: AbortSignal
 ): Promise<AnalysisReport | null> {
+  if (latestSimulatorStatus()?.scenarioId === "saturday-demo-amd-iff-oke") {
+    const { saturdayDemoOntologyReport } = await import("../simulator/saturdayDemoFixtures");
+    return saturdayDemoOntologyReport(request.symbol);
+  }
   const endpoint = ontologyReportEndpoint();
   const response = await fetch(endpoint, {
     method: "POST",

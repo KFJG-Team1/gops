@@ -3,6 +3,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "r
 import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
 import { sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   fetchStockRecommendations,
   refreshStockRecommendations,
@@ -26,6 +27,7 @@ export function StockRecommendationsPanel({
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
+  const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function StockRecommendationsPanel({
         setLoading(false);
       }
     }
-  }, [sessionMode]);
+  }, [sessionMode, simulatorMode]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -72,6 +74,14 @@ export function StockRecommendationsPanel({
     updateLiveState();
     const timer = window.setInterval(updateLiveState, 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      setSimulatorMode((event as CustomEvent<SimulatorStatus>).detail?.mode ?? "live");
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
 
   const items = useMemo(() => payload?.items ?? [], [payload?.items]);
