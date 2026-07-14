@@ -32,6 +32,7 @@ export type AgentLayoutPanelType =
   | "quickOrder"
   | "chartCommentary"
   | "chartAssetOps"
+  | "chartPatternList"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

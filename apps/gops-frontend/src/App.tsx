@@ -41,6 +41,7 @@ import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
+import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { gridGutter } from "./layout/grid";
 import {
@@ -51,6 +52,7 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
+  setPrimaryChartSelection,
   setPrimaryChartSymbol,
   workspaceBounds,
   type TiledPanelState,
@@ -647,6 +649,21 @@ export function App() {
     navigateMainView(nextView, { replace: options.replace });
   }, [navigateMainView]);
 
+  const openPatternAsset = useCallback((symbol: string, interval: AnalysisAssetInterval) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
+    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
+    chartPanelHandlesRef.current.clear();
+    setChartRuntime(createInitialChartRuntimeState());
+    setPanelState((current) => setPrimaryChartSelection(
+      current,
+      normalizedSymbol,
+      interval,
+      viewportSizeRef.current,
+      panelLayoutMetricsRef.current
+    ));
+    navigateMainView(nextView);
+  }, [navigateMainView]);
+
   const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
     if (handle) {
       chartPanelHandlesRef.current.set(contentId, handle);
@@ -1227,6 +1244,7 @@ export function App() {
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
+            onSelectPatternAsset={openPatternAsset}
             selectedWildPanelSlotId={selectedWildPanelSlotId}
             onSelectWildPanel={setSelectedWildPanelSlotId}
             placementPickerOverlay={pendingPlacementPick ? (

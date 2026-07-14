@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
+import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import {
   bidAskChartIntervals,
@@ -25,6 +26,7 @@ import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolba
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
 import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
+import { ChartPatternListPanel } from "./ChartPatternListPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -89,6 +91,7 @@ type PanelContentRendererProps = {
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
 };
 
 export function PanelContentRenderer({
@@ -126,7 +129,8 @@ export function PanelContentRenderer({
   onChartAddToggle,
   onUpdatePanelProps,
   onChangePanelChartSymbol,
-  onSelectSymbol
+  onSelectSymbol,
+  onSelectPatternAsset
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
   const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
@@ -387,6 +391,16 @@ export function PanelContentRenderer({
         currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
         currentCandles={activeChartCandles}
         currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+      />
+    );
+  }
+
+  if (content.kind === "chartPatternList") {
+    return (
+      <ChartPatternListPanel
+        activeSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+        activeInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+        onSelectPatternAsset={onSelectPatternAsset}
       />
     );
   }

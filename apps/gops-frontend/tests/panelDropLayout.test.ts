@@ -76,16 +76,19 @@ assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "보유 종목 표");
 assert.equal(panelPaletteEntryLabel("chartPatternList"), "패턴 종목");
 
 const selectedPatternChart = setPrimaryChartSelection(firstAvailableState, " aapl ", "4h", viewport);
-const selectedPatternChartContent = selectedPatternChart.contents[selectedPatternChart.slots[0]!.contentId];
+const selectedPatternChartSlot = selectedPatternChart.slots.find((slot) => selectedPatternChart.contents[slot.contentId]?.kind === "chart");
+const selectedPatternChartContent = selectedPatternChartSlot ? selectedPatternChart.contents[selectedPatternChartSlot.contentId] : undefined;
 assert.equal(selectedPatternChartContent?.props?.symbol, "AAPL");
 assert.equal(selectedPatternChartContent?.props?.timeframe, "4h");
 const selectedPatternWithoutChart = setPrimaryChartSelection(emptyState, "nvda", "1m", viewport);
-const createdPatternChartContent = selectedPatternWithoutChart.contents[selectedPatternWithoutChart.slots[0]!.contentId];
+const createdPatternChartSlot = selectedPatternWithoutChart.slots.find((slot) => selectedPatternWithoutChart.contents[slot.contentId]?.kind === "chart");
+const createdPatternChartContent = createdPatternChartSlot ? selectedPatternWithoutChart.contents[createdPatternChartSlot.contentId] : undefined;
 assert.equal(createdPatternChartContent?.kind, "chart");
 assert.equal(createdPatternChartContent?.props?.symbol, "NVDA");
 assert.equal(createdPatternChartContent?.props?.timeframe, "1m");
 const symbolOnlySelection = setPrimaryChartSymbol(selectedPatternChart, "MSFT", viewport);
-assert.equal(symbolOnlySelection.contents[symbolOnlySelection.slots[0]!.contentId]?.props?.timeframe, "1D");
+const symbolOnlyChartSlot = symbolOnlySelection.slots.find((slot) => symbolOnlySelection.contents[slot.contentId]?.kind === "chart");
+assert.equal(symbolOnlyChartSlot ? symbolOnlySelection.contents[symbolOnlyChartSlot.contentId]?.props?.timeframe : undefined, "1D");
 
 const committedState = addPanelSlotAtGridRect(
   blockedTargetState,

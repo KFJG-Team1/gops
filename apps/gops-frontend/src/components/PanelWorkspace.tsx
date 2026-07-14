@@ -25,6 +25,7 @@ import {
   useState
 } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
@@ -113,6 +114,7 @@ type PanelWorkspaceProps = {
   onChartRuntimeAction: (action: ChartRuntimeAction) => void;
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSelectSymbol: (symbol: string) => void;
+  onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   selectedWildPanelSlotId: string | null;
   onSelectWildPanel: (slotId: string | null) => void;
   presetDock?: ReactNode;
@@ -193,6 +195,7 @@ export function PanelWorkspace({
   onChartRuntimeAction,
   onChartHandleChange,
   onSelectSymbol,
+  onSelectPatternAsset,
   selectedWildPanelSlotId,
   onSelectWildPanel,
   presetDock,
@@ -882,6 +885,7 @@ export function PanelWorkspace({
         onUpdatePanelProps={updatePanelProps}
         onChangePanelChartSymbol={changePanelChartSymbol}
         onSelectSymbol={onSelectSymbol}
+        onSelectPatternAsset={onSelectPatternAsset}
       />
     );
     return (

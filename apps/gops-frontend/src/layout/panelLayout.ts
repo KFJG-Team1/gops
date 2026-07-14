@@ -42,6 +42,7 @@ export type PanelContentKind =
   | "quickOrder"
   | "chartCommentary"
   | "chartAssetOps"
+  | "chartPatternList"
   | "trade";
 
 export type PanelSlotId = string;
@@ -1214,13 +1215,24 @@ export function setPrimaryChartSymbol(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
+  return setPrimaryChartSelection(state, symbol, "1D", viewport, layoutMetrics);
+}
+
+export function setPrimaryChartSelection(
+  state: TiledPanelState,
+  symbol: string,
+  timeframe: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const normalizedTimeframe = timeframe.trim() || "1D";
   const chartSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart");
   if (chartSlot) {
     return setPanelContentProps(state, chartSlot.contentId, {
       ...(state.contents[chartSlot.contentId]?.props ?? {}),
       symbol: normalizedSymbol,
-      timeframe: "1D"
+      timeframe: normalizedTimeframe
     });
   }
   const preferredChartRects = [
@@ -1230,8 +1242,17 @@ export function setPrimaryChartSymbol(
   const gridRect = preferredChartRects.find((candidate) => (
     canPlaceGridRect(state, candidate, { kind: "chart" })
   )) ?? firstAvailableGridRect(state, "chart");
-  return gridRect
-    ? addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics)
+  if (!gridRect) {
+    return state;
+  }
+  const withChart = addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics);
+  const createdSlot = withChart.slots.find((slot) => !state.slots.some((existing) => existing.id === slot.id));
+  return createdSlot
+    ? setPanelContentProps(withChart, createdSlot.contentId, {
+      ...(withChart.contents[createdSlot.contentId]?.props ?? {}),
+      symbol: normalizedSymbol,
+      timeframe: normalizedTimeframe
+    })
     : state;
 }
 

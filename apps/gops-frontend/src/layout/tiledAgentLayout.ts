@@ -57,6 +57,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   quickOrder: "quickOrder",
   chartCommentary: "chartCommentary",
   chartAssetOps: "chartAssetOps",
+  chartPatternList: "chartPatternList",
   trade: "orderTicket"
 };
 

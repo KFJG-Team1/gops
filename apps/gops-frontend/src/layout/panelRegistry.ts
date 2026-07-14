@@ -51,6 +51,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     insertable: true
   },
   {
+    kind: "chartPatternList",
+    title: "패턴 종목",
+    agentPanelType: "chartPatternList",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 44,
+    insertable: true
+  },
+  {
     kind: "compare",
     title: "비교",
     agentPanelType: "compareChart",
