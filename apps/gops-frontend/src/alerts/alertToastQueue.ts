@@ -54,6 +54,27 @@ export function advanceAlertToastState(current: AlertToastQueueState): AlertToas
   return { current: next ?? null, queue };
 }
 
+export function removeNotificationAlertToastState(
+  current: AlertToastQueueState,
+  notificationId: number
+): AlertToastQueueState {
+  return filterAlertToastState(current, (item) => item.notification.id !== notificationId);
+}
+
+export function removePersistedAlertToastState(current: AlertToastQueueState): AlertToastQueueState {
+  return filterAlertToastState(current, (item) => item.notification.id < 0);
+}
+
 export function alertToastKey(notification: NotificationItem): string {
   return `${notification.id}:${notification.eventId}`;
+}
+
+function filterAlertToastState(
+  current: AlertToastQueueState,
+  keep: (item: AlertToastQueueItem) => boolean
+): AlertToastQueueState {
+  const visible = [current.current, ...current.queue]
+    .filter((item): item is AlertToastQueueItem => Boolean(item))
+    .filter(keep);
+  return { current: visible[0] ?? null, queue: visible.slice(1) };
 }

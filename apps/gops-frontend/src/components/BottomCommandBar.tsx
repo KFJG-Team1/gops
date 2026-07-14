@@ -1,9 +1,12 @@
 import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
+import { HeaderNotificationMenu } from "../alerts/HeaderNotificationMenu";
 import { AlertToast } from "../alerts/AlertToast";
 import {
   agentAlertsSocketUrl,
+  fetchNotifications,
+  markAllNotificationsRead,
   markNotificationRead,
   normalizeNotificationPayload,
   notificationSocketUrl,
@@ -18,9 +21,18 @@ import {
   advanceAlertToastState,
   createAlertToastQueueState,
   enqueueAlertToastState,
-  reconcileAlertToastState
+  reconcileAlertToastState,
+  removeNotificationAlertToastState,
+  removePersistedAlertToastState
 } from "../alerts/alertToastQueue";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
+import {
+  createNotificationInboxState,
+  markNotificationInboxItemRead,
+  markNotificationInboxReadAll,
+  mergeNotificationInboxState,
+  replaceNotificationInboxState
+} from "../alerts/notificationInboxState";
 import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
@@ -80,6 +92,10 @@ export function BottomCommandBar({
 }: BottomCommandBarProps) {
   const { preferences: notificationPreferences, ready: notificationPreferencesReady } = useNotificationPreferences();
   const [alertToastState, setAlertToastState] = useState(createAlertToastQueueState);
+  const [notificationInbox, setNotificationInbox] = useState(createNotificationInboxState);
+  const [notificationInboxLoading, setNotificationInboxLoading] = useState(false);
+  const [notificationInboxSaving, setNotificationInboxSaving] = useState(false);
+  const [notificationInboxError, setNotificationInboxError] = useState<string | null>(null);
   const notificationPreferencesRef = useRef(notificationPreferences);
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const agentInputRef = useRef<HTMLInputElement>(null);
@@ -139,36 +155,128 @@ export function BottomCommandBar({
       if (!updated?.readAt) {
         return;
       }
+      setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
     } catch {
       // Opening the chart should not be blocked by a transient read-state failure.
     }
   };
 
+  const openHeaderNotification = async (notification: NotificationItem) => {
+    const symbol = notificationChartSymbol(notification);
+    if (!notification.readAt) {
+      setNotificationInboxSaving(true);
+      setNotificationInboxError(null);
+      try {
+        const updated = await markNotificationRead(notification.id);
+        if (updated?.readAt) {
+          setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
+          setAlertToastState((current) => removeNotificationAlertToastState(current, updated.id));
+        }
+      } catch (caught: unknown) {
+        setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 읽음 처리하지 못했습니다.");
+      } finally {
+        setNotificationInboxSaving(false);
+      }
+    }
+    if (symbol) {
+      onSelectSymbol(symbol);
+    }
+  };
+
+  const readAllHeaderNotifications = async () => {
+    setNotificationInboxSaving(true);
+    setNotificationInboxError(null);
+    try {
+      await markAllNotificationsRead();
+      setNotificationInbox((current) => markNotificationInboxReadAll(current));
+      setAlertToastState(removePersistedAlertToastState);
+    } catch (caught: unknown) {
+      setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 모두 읽음 처리하지 못했습니다.");
+    } finally {
+      setNotificationInboxSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (!canReceiveAlerts) {
+      setNotificationInbox(createNotificationInboxState());
+      setNotificationInboxLoading(false);
+      setNotificationInboxError(null);
+      setAlertToastState(createAlertToastQueueState());
+      seenAlertToastKeysRef.current.clear();
       return undefined;
     }
-    const socket = new WebSocket(notificationSocketUrl());
-    socket.onmessage = (event) => {
-      const payload = readSocketPayload(event.data);
-      if (payload.type === "snapshot") {
-        const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
-        notifications
-          .map(normalizeNotificationPayload)
-          .filter((item): item is NotificationItem => Boolean(item && !item.readAt))
-          .reverse()
-          .forEach((notification) => enqueueAlertToast(notification));
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    const controller = new AbortController();
+    setNotificationInboxLoading(true);
+    setNotificationInboxError(null);
+
+    const connectSocket = () => {
+      if (cancelled) {
         return;
       }
-      if (payload.type === "notification") {
-        const notification = normalizeNotificationPayload(payload.notification);
-        if (notification && !notification.readAt) {
-          enqueueAlertToast(notification);
-          if (notification.alertId != null) publishAlertRulesChanged();
+      socket = new WebSocket(notificationSocketUrl());
+      socket.onopen = () => setNotificationInboxError(null);
+      socket.onmessage = (event) => {
+        const payload = readSocketPayload(event.data);
+        if (payload.type === "error") {
+          setNotificationInboxError(typeof payload.detail === "string" ? payload.detail : "실시간 알림 연결을 확인하지 못했습니다.");
+          return;
         }
-      }
+        if (payload.type === "snapshot") {
+          const notifications = Array.isArray(payload.notifications)
+            ? payload.notifications.map(normalizeNotificationPayload).filter((item): item is NotificationItem => Boolean(item))
+            : [];
+          setNotificationInbox(replaceNotificationInboxState(
+            notifications,
+            asNumber(payload.unreadCount) ?? notifications.filter((item) => !item.readAt).length
+          ));
+          notifications
+            .filter((item) => !item.readAt)
+            .reverse()
+            .forEach((notification) => enqueueAlertToast(notification));
+          setNotificationInboxError(null);
+          return;
+        }
+        if (payload.type === "notification") {
+          const notification = normalizeNotificationPayload(payload.notification);
+          if (!notification) {
+            return;
+          }
+          setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
+          if (!notification.readAt) {
+            enqueueAlertToast(notification);
+            if (notification.alertId != null) publishAlertRulesChanged();
+          }
+        }
+      };
+      socket.onerror = () => setNotificationInboxError("실시간 알림 연결을 확인하지 못했습니다.");
     };
-    return () => socket.close();
+
+    void fetchNotifications(controller.signal)
+      .then((payload) => {
+        if (!cancelled) {
+          setNotificationInbox(replaceNotificationInboxState(payload.notifications, payload.unreadCount));
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled && !controller.signal.aborted) {
+          setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setNotificationInboxLoading(false);
+          connectSocket();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      socket?.close();
+    };
   }, [canReceiveAlerts]);
 
   useEffect(() => {
@@ -275,6 +383,18 @@ export function BottomCommandBar({
         </div>
         <div className="workspace-top-actions">
           <SimulatorControl />
+          <HeaderNotificationMenu
+            canUseAlerts={canUseAlerts}
+            authLoading={authLoading}
+            notifications={notificationInbox.notifications}
+            unreadCount={notificationInbox.unreadCount}
+            loading={notificationInboxLoading}
+            saving={notificationInboxSaving}
+            error={notificationInboxError}
+            onLogin={onLogin}
+            onOpenNotification={openHeaderNotification}
+            onReadAll={readAllHeaderNotifications}
+          />
           <button
             type="button"
             className="workspace-top-login"
@@ -410,6 +530,10 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function agentAlertNotification(payload: Record<string, unknown>): NotificationItem | null {
