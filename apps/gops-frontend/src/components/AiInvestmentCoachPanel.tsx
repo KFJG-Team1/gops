@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createAlert, setAlertStatus } from "../alerts/alertApi";
+import { fetchLatestCoachReport } from "../agents/agentAnalysis";
 import { CoachActionCenterPage } from "./ai-coach/CoachActionCenterPage";
 import { CurrentPositionCoachPage } from "./ai-coach/CurrentPositionCoachPage";
 import { HabitCoachPage } from "./ai-coach/HabitCoachPage";
@@ -8,12 +9,14 @@ import { ImprovementCoachPage } from "./ai-coach/ImprovementCoachPage";
 import type { CoachAlertCandidate, CoachReport, ImprovementPlan, PlaybookExperiment, TradingGuardrail, WatchCondition } from "./ai-coach/types";
 import styles from "./ai-coach/AiCoachShell.module.css";
 
-const PAGES = ["당일 거래 회고", "판단 습관과 다음 원칙", "효과·보완 조건", "실행·알람 관리"] as const;
+const PAGES = ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"] as const;
 const DEV_FIXTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_AI_COACH_DEV_FIXTURE === "true";
 
 export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null }) {
   const [page, setPage] = useState(0);
   const [fixture, setFixture] = useState<CoachReport | null>(null);
+  const [archivedReport, setArchivedReport] = useState<CoachReport | null>(null);
+  const [archiveState, setArchiveState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [planOverride, setPlanOverride] = useState<ImprovementPlan | null>(null);
   const [focusedAlertCandidateId, setFocusedAlertCandidateId] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -30,7 +33,28 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
     return () => { active = false; };
   }, [report]);
 
-  const resolved = report ?? fixture;
+  useEffect(() => {
+    if (report || DEV_FIXTURE_ENABLED) {
+      setArchivedReport(null);
+      setArchiveState("ready");
+      return;
+    }
+    const controller = new AbortController();
+    setArchiveState("loading");
+    fetchLatestCoachReport(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          setArchivedReport(next);
+          setArchiveState("ready");
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setArchiveState("unavailable");
+      });
+    return () => controller.abort();
+  }, [report]);
+
+  const resolved = report ?? fixture ?? archivedReport;
   const plan = planOverride ?? resolved?.page3 ?? null;
   useEffect(() => {
     setPlanOverride(null);
@@ -75,6 +99,8 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   };
 
   const content = (() => {
+    if (!resolved && archiveState === "loading") return <Unavailable title="AI 투자 코치" message="저장된 회고를 불러오는 중입니다." />;
+    if (!resolved && archiveState === "unavailable") return <Unavailable title="AI 투자 코치" message="저장된 회고를 불러올 수 없습니다. 다음 생성 후 다시 확인해 주세요." />;
     if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onOpenAlertCenter={openAlertCenter} />;
     if (page === 1) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[1]} />;
     if (page === 2) return plan ? <ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /> : <Unavailable title={PAGES[2]} />;
@@ -95,6 +121,6 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   );
 }
 
-function Unavailable({ title }: { title: string }) {
-  return <div className={styles.placeholder} role="status"><CircleAlert /><h2>{title}</h2><p>데이터 연결 대기</p><small>해당 분석 데이터가 준비되면 이 페이지에 표시됩니다.</small></div>;
+function Unavailable({ title, message = "데이터 연결 대기" }: { title: string; message?: string }) {
+  return <div className={styles.placeholder} role="status"><CircleAlert /><h2>{title}</h2><p>{message}</p><small>해당 분석 데이터가 준비되면 이 페이지에 표시됩니다.</small></div>;
 }

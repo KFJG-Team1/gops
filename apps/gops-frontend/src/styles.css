@@ -19192,7 +19192,7 @@ textarea:focus,
   --panel-black: #272727;
   position: relative;
   display: grid;
-  grid-template-rows: auto 106px minmax(0, 1fr) auto;
+  grid-template-rows: auto 106px minmax(0, 1fr) auto auto;
   gap: 6px;
   width: 100%;
   height: 100%;
@@ -19918,7 +19918,7 @@ textarea:focus,
 }
 
 .quick-order-panel[data-execution-mode="paper"] {
-  grid-template-rows: 106px minmax(0, 1fr) auto;
+  grid-template-rows: 106px minmax(0, 1fr) auto auto;
 }
 
 .order-paper-review-card {

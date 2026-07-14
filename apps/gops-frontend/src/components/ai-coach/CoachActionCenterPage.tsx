@@ -1,5 +1,5 @@
 import { Bell, BellOff, CircleAlert, Eye, FlaskConical, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CoachActionCenter, CoachAlertCandidate, CoachAlertProposalSource, PlaybookExperiment, TradingGuardrail } from "./types";
 import styles from "./CoachActionCenterPage.module.css";
 
@@ -28,6 +28,11 @@ export function CoachActionCenterPage({
   onCreateAlert,
   onWatchingAlertStatusChange
 }: Props) {
+  const instanceId = useId();
+  const executionTitleId = `${instanceId}-execution-title`;
+  const recommendedAlertsTitleId = `${instanceId}-recommended-alerts-title`;
+  const watchingAlertsTitleId = `${instanceId}-watching-alerts-title`;
+  const alertRowRefs = useRef(new Map<string, HTMLDivElement>());
   const [saved, setSaved] = useState<string[]>([]);
   const [watchingOverrides, setWatchingOverrides] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<string | null>(null);
@@ -37,7 +42,7 @@ export function CoachActionCenterPage({
   useEffect(() => {
     if (!focusedCandidateId || !focusedCandidatePresent) return;
     const frame = requestAnimationFrame(() => {
-      const row = document.getElementById(alertRowDomId(focusedCandidateId));
+      const row = alertRowRefs.current.get(focusedCandidateId);
       row?.focus({ preventScroll: true });
       if (row && typeof row.scrollIntoView === "function") {
         const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -88,29 +93,40 @@ export function CoachActionCenterPage({
         <Summary icon={Eye} label="주시 중" value={`${center.watchingAlerts.length}개`} />
       </div>
 
-      <section className={styles.execution} aria-labelledby="coach-execution-title">
-        <div className={styles.sectionTitle}><h3 id="coach-execution-title">개선 실행</h3><small>3페이지에서 선택한 현재 세션 상태</small></div>
+      <section className={styles.execution} aria-labelledby={executionTitleId}>
+        <div className={styles.sectionTitle}><h3 id={executionTitleId}>개선 실행</h3><small>3페이지에서 선택한 현재 세션 상태</small></div>
         <div className={styles.executionGrid}>
           <ExecutionList title="활성 실험" empty="활성 실험 없음" items={activeExperiments.map((item) => ({ id: item.id, title: item.title, detail: `${item.appliedCount} / ${item.sampleTarget}회 · ${item.hypothesis}` }))} />
           <ExecutionList title="사용 가드레일" empty="사용 가드레일 없음" items={enabledGuardrails.map((item) => ({ id: item.id, title: item.title, detail: item.description }))} />
         </div>
       </section>
 
-      <section className={styles.alertSection} aria-labelledby="coach-recommended-alerts-title">
-        <div className={styles.sectionTitle}><h3 id="coach-recommended-alerts-title">추천 알람</h3><small>사용자가 추가할 때만 생성</small></div>
+      <section className={styles.alertSection} aria-labelledby={recommendedAlertsTitleId}>
+        <div className={styles.sectionTitle}><h3 id={recommendedAlertsTitleId}>추천 알람</h3><small>사용자가 추가할 때만 생성</small></div>
         {focusedCandidateId && !focusedCandidatePresent && <p className={styles.focusStatus} role="status">요청한 조건이 현재 추천 목록에 없습니다.</p>}
         <div className={styles.sourceGroups}>
           {PROPOSAL_SOURCE_ORDER.map((source) => {
             const candidates = center.recommendedAlerts.filter((candidate) => (candidate.proposalSource ?? "daily_trade") === source);
-            return <section key={source} className={styles.sourceGroup} aria-labelledby={`coach-alert-source-${source}`}>
-              <div className={styles.sourceGroupHeader}><h4 id={`coach-alert-source-${source}`} className={styles.sourceBadge}>{PROPOSAL_SOURCE_LABELS[source]}</h4><small>{candidates.length}개</small></div>
+            const sourceTitleId = `${instanceId}-alert-source-${source}`;
+            return <section key={source} className={styles.sourceGroup} aria-labelledby={sourceTitleId}>
+              <div className={styles.sourceGroupHeader}><h4 id={sourceTitleId} className={styles.sourceBadge}>{PROPOSAL_SOURCE_LABELS[source]}</h4><small>{candidates.length}개</small></div>
               {candidates.length ? <div className={styles.alertList}>{candidates.map((candidate) => {
                 const isSaved = saved.includes(candidate.id) || candidate.enabled;
                 const isPending = pending === candidate.id;
                 const supported = candidate.alertSupported !== false && Boolean(candidate.alertRequest && onCreateAlert);
                 const isFocused = focusedCandidateId === candidate.id;
                 const hasConditionDetail = candidate.currentValue != null || candidate.threshold != null || Boolean(candidate.operator) || Boolean(candidate.recommendedAction);
-                return <div key={candidate.id} id={alertRowDomId(candidate.id)} className={styles.alertRow} data-focused={isFocused ? "true" : undefined} tabIndex={-1}>
+                return <div
+                  key={candidate.id}
+                  id={alertRowDomId(instanceId, candidate.id)}
+                  ref={(node) => {
+                    if (node) alertRowRefs.current.set(candidate.id, node);
+                    else alertRowRefs.current.delete(candidate.id);
+                  }}
+                  className={styles.alertRow}
+                  data-focused={isFocused ? "true" : undefined}
+                  tabIndex={-1}
+                >
                   <Bell aria-hidden="true" />
                   <div className={styles.alertCopy}>
                     <div className={styles.alertTitle}>{candidate.symbol && <span>{candidate.symbol}</span>}<strong>{candidate.title}</strong></div>
@@ -129,8 +145,8 @@ export function CoachActionCenterPage({
         </div>
       </section>
 
-      <section className={styles.alertSection} aria-labelledby="coach-watching-alerts-title">
-        <div className={styles.sectionTitle}><h3 id="coach-watching-alerts-title">주시 중인 알람</h3><small>서버에 저장된 알람</small></div>
+      <section className={styles.alertSection} aria-labelledby={watchingAlertsTitleId}>
+        <div className={styles.sectionTitle}><h3 id={watchingAlertsTitleId}>주시 중인 알람</h3><small>서버에 저장된 알람</small></div>
         {center.watchingAlerts.length ? <div className={styles.alertList}>{center.watchingAlerts.map((candidate) => {
           const isDisabled = !(watchingOverrides[candidate.id] ?? candidate.enabled);
           const isPending = pending === candidate.id;
@@ -144,8 +160,8 @@ export function CoachActionCenterPage({
   );
 }
 
-function alertRowDomId(candidateId: string) {
-  return `coach-alert-${encodeURIComponent(candidateId)}`;
+function alertRowDomId(instanceId: string, candidateId: string) {
+  return `${instanceId}-alert-${encodeURIComponent(candidateId)}`;
 }
 
 function conditionValue(value: string | number | null | undefined) {
