@@ -13,6 +13,8 @@ import type { StoredTiledPanelState, TiledPanelState } from "./panelLayout";
 const PRESETS_STORAGE_KEY = "gops:layout-presets:v1";
 const ACTIVE_PRESET_STORAGE_KEY = "gops:layout-active-preset:v1";
 const PRESETS_ENDPOINT = "/api/charts/presets";
+const RETIRED_CHART_PRESET_ID = "chart";
+const LEGACY_CHART_CUSTOM_ID = "legacy-default-chart";
 
 type StoredPreset = { id: string; name: string; layout: Record<string, unknown> };
 type DefaultOverride = { name?: string; layout?: StoredTiledPanelState };
@@ -31,6 +33,13 @@ export type LayoutPresetControls = {
 
 const DEFAULT_ID_SET = new Set<string>(DEFAULT_PRESET_IDS);
 
+const LEGACY_DEFAULT_NAMES: Partial<Record<DefaultPresetId, string>> = {
+  market: "시장분석",
+  stock: "종목분석",
+  compare: "비교분석",
+  asset: "자산현황"
+};
+
 function isDefaultId(id: string): id is DefaultPresetId {
   return DEFAULT_ID_SET.has(id);
 }
@@ -41,6 +50,10 @@ function isStoredSnapshot(value: unknown): value is StoredTiledPanelState {
 
 function defaultName(id: DefaultPresetId): string {
   return DEFAULT_PRESETS.find((preset) => preset.id === id)?.name ?? id;
+}
+
+function migratedDefaultName(id: DefaultPresetId, name: string): string {
+  return LEGACY_DEFAULT_NAMES[id] === name ? defaultName(id) : name;
 }
 
 function splitStoredPresets(list: unknown): { overrides: DefaultOverrides; customs: CustomPreset[] } {
@@ -61,7 +74,16 @@ function splitStoredPresets(list: unknown): { overrides: DefaultOverrides; custo
     }
     const layout = isStoredSnapshot(record.layout) ? (record.layout as StoredTiledPanelState) : undefined;
     if (isDefaultId(id)) {
-      overrides[id] = { name, layout };
+      overrides[id] = { name: migratedDefaultName(id, name), layout };
+    } else if (id === RETIRED_CHART_PRESET_ID) {
+      if (layout && !customs.some((preset) => preset.id === LEGACY_CHART_CUSTOM_ID)) {
+        customs.push({
+          id: LEGACY_CHART_CUSTOM_ID,
+          kind: "custom",
+          name: name === "차트분석" ? "기존 단일 차트" : name,
+          layout
+        });
+      }
     } else if (layout) {
       customs.push({ id, kind: "custom", name, layout });
     }
@@ -176,7 +198,15 @@ export function useLayoutPresets({
   const [initialPresets] = useState(() => splitStoredPresets(loadStoredPresets()));
   const [overrides, setOverrides] = useState<DefaultOverrides>(initialPresets.overrides);
   const [customPresets, setCustomPresets] = useState<CustomPreset[]>(initialPresets.customs);
-  const [activePresetId, setActivePresetId] = useState<string | null>(() => loadActivePresetId());
+  const [activePresetId, setActivePresetId] = useState<string | null>(() => {
+    const storedId = loadActivePresetId();
+    if (storedId !== RETIRED_CHART_PRESET_ID) {
+      return storedId;
+    }
+    return initialPresets.customs.some((preset) => preset.id === LEGACY_CHART_CUSTOM_ID)
+      ? LEGACY_CHART_CUSTOM_ID
+      : "compare";
+  });
   const authUserRef = useRef<AuthUser | null>(authUser);
 
   useEffect(() => {

@@ -105,7 +105,9 @@ assert.match(controlSource, /simulatorStatusPollIntervalMs\(latestStatusRef\.cur
 assert.match(controlSource, /다음 시연 단계/);
 assert.match(controlSource, /setSimulatorPhase\(status\.nextPhase/);
 assert.match(apiSource, /\/api\/simulator\/phase/);
-assert.match(bottomCommandBarSource, /<SimulatorControl onNotification=\{enqueueAlertToast\}/);
+assert.match(bottomCommandBarSource, /<SimulatorControl onNotification=\{receiveSimulatorNotification\}/);
+assert.match(bottomCommandBarSource, /receiveSimulatorNotification[\s\S]*mergeNotificationInboxState/);
+assert.match(bottomCommandBarSource, /notification\.id < 0/);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),

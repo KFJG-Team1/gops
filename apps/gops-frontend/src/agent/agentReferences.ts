@@ -14,6 +14,7 @@ export type AgentReferenceType =
   | "chart.range"
   | "news.article"
   | "news.dailySummary"
+  | "recommendation.stock"
   | "ontology.entity"
   | "financial.metric";
 
@@ -32,7 +33,7 @@ export function agentReferenceKey(reference: AgentReference): string {
 // which lives outside the explicit agentReferences array but is shown as a reference chip.
 export const SEMANTIC_SELECTION_REFERENCE_KEY = "semantic-selection";
 
-export type AgentReferenceChipKind = "candle" | "news";
+export type AgentReferenceChipKind = "candle" | "news" | "recommendation";
 
 export type AgentReferenceChip = {
   key: string;
@@ -41,7 +42,10 @@ export type AgentReferenceChip = {
 };
 
 export function agentReferenceChipKind(reference: AgentReference): AgentReferenceChipKind {
-  return reference.type.startsWith("news") ? "news" : "candle";
+  if (reference.type.startsWith("news")) {
+    return "news";
+  }
+  return reference.type === "recommendation.stock" ? "recommendation" : "candle";
 }
 
 export function agentReferenceTicker(reference: AgentReference): string {
@@ -145,6 +149,41 @@ export function newsDailySummaryReference(
       articleIds: item.articleIds ?? [],
       sources: item.sources ?? [],
       priceChange: item.priceChange ?? undefined
+    }
+  };
+}
+
+export function stockRecommendationReference(
+  item: {
+    symbol: string;
+    rank: number;
+    score: number;
+    confidence: number;
+    changePercent?: number;
+    sector?: string;
+    sectorLabelKo?: string;
+    reasons: Array<{ type: string; text: string; weight?: number }>;
+    riskWarnings: string[];
+    metricsSnapshot: Record<string, unknown>;
+  },
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  const symbol = item.symbol.trim().toUpperCase();
+  return {
+    type: "recommendation.stock",
+    sourcePanelId,
+    displayLabel: `${symbol} 추천 ${item.rank}위`,
+    data: {
+      symbol,
+      rank: item.rank,
+      score: item.score,
+      confidence: item.confidence,
+      changePercent: item.changePercent,
+      sector: item.sector,
+      sectorLabelKo: item.sectorLabelKo,
+      reasons: item.reasons.map((reason) => ({ ...reason })),
+      riskWarnings: [...item.riskWarnings],
+      metricsSnapshot: { ...item.metricsSnapshot }
     }
   };
 }

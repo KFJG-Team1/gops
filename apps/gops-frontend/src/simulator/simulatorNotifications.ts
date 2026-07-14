@@ -17,6 +17,7 @@ export function simulatorBreakingNotification(
     id: -10_001,
     eventId: `simulator:${status.runId ?? "unknown"}:breaking-event`,
     type: "system.simulator_breaking_event",
+    createdAt: new Date().toISOString(),
     payload: {
       symbol: "AMD",
       title: "지정학 이벤트",
@@ -40,6 +41,7 @@ export function simulatorPhaseNotification(status: SimulatorStatus): Notificatio
     id: -10_002,
     eventId: `simulator:${status.runId}:market-close`,
     type: "system.simulator_market_close",
+    createdAt: new Date().toISOString(),
     payload: {
       symbol: "MARKET",
       title: "본장 종료",

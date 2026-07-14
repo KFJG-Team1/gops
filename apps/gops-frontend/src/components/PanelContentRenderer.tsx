@@ -103,6 +103,8 @@ type PanelContentRendererProps = {
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  selectedRecommendationSymbol: string | null;
+  onSelectRecommendationReference: (reference: AgentReference | null) => void;
   onOpenCompany: (symbol: string) => void;
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
 };
@@ -144,6 +146,8 @@ export function PanelContentRenderer({
   onUpdatePanelProps,
   onChangePanelChartSymbol,
   onSelectSymbol,
+  selectedRecommendationSymbol,
+  onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset
 }: PanelContentRendererProps) {
@@ -275,11 +279,30 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "recommendations") {
-    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
+    return (
+      <StockRecommendationsPanel
+        activeSymbol={symbol.toUpperCase()}
+        sourcePanelId={content.id}
+        selectedSymbol={selectedRecommendationSymbol}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onSelectReference={onSelectRecommendationReference}
+      />
+    );
   }
 
   if (content.kind === "recommendationsList") {
-    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} variant="list" />;
+    return (
+      <StockRecommendationsPanel
+        activeSymbol={symbol.toUpperCase()}
+        sourcePanelId={content.id}
+        selectedSymbol={selectedRecommendationSymbol}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onSelectReference={onSelectRecommendationReference}
+        variant="list"
+      />
+    );
   }
 
   if (content.kind === "themeRadar") {
