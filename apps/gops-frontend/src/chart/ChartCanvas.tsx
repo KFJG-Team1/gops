@@ -1142,8 +1142,9 @@ function drawGrid(context: CanvasRenderingContext2D, scene: ChartScene) {
   }
   if (scene.plot.belowPanes.length) {
     context.save();
-    context.strokeStyle = colors.border;
-    context.lineWidth = 1.2;
+    context.strokeStyle = colors.axis;
+    context.globalAlpha = 0.36;
+    context.lineWidth = 1;
     line(context, scene.plot.left, scene.plot.priceBottom, right, scene.plot.priceBottom);
     scene.plot.belowPanes.slice(1).forEach((pane) => {
       line(context, scene.plot.left, pane.top - 3, right, pane.top - 3);

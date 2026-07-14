@@ -121,6 +121,8 @@ test("fixed and optional derived layers preserve chart geometry", async ({ page 
   await page.getByRole("menuitemcheckbox", { name: "거래량 프로파일" }).click({ force: true });
   await page.getByRole("menuitemcheckbox", { name: "거래량 막대 차트" }).click({ force: true });
   await page.getByRole("menuitemcheckbox", { name: "상대강도지수 (14)" }).click({ force: true });
+  await page.getByRole("menuitemcheckbox", { name: "스토캐스틱 오실레이터 (14, 3, 3)" }).click({ force: true });
+  await page.getByRole("menuitemcheckbox", { name: "이동평균 수렴확산 (12, 26, 9)" }).click({ force: true });
   await addMenu.getByLabel("차트 추가 도구 닫기").evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
