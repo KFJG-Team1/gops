@@ -188,9 +188,16 @@ export function TreeMapCanvas({
     });
   };
 
-  const selectHoveredTile = () => {
-    if (interactive && hoverState?.tile.symbol && onSelectSymbol) {
-      onSelectSymbol(hoverState.tile.symbol);
+  const selectPointerTile = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!interactive || !onSelectSymbol) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const tile = hitTestTreeMapTile(tilesRef.current, x, y);
+    if (tile?.symbol) {
+      onSelectSymbol(tile.symbol);
     }
   };
 
@@ -203,7 +210,7 @@ export function TreeMapCanvas({
         aria-label={`${ariaLabel} canvas`}
         onPointerMove={interactive ? updateHover : undefined}
         onPointerLeave={interactive ? clearHover : undefined}
-        onClick={interactive ? selectHoveredTile : undefined}
+        onClick={interactive ? selectPointerTile : undefined}
       />
       {hoverPanel && hoverState ? (
         <TreeMapHoverPanel model={hoverPanel} hoveredTile={hoverState.tile} />
