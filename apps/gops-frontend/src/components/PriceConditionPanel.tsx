@@ -1,6 +1,14 @@
-import { ArrowLeft, Bell, CheckCircle2, ChevronDown, LineChart, Newspaper, Pause, Play, Plus, Star, Trash2, X } from "lucide-react";
+import { Bell, CheckCircle2, ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  readyNotificationSettingKeys,
+  useNotificationPreferences,
+  type NotificationSettingKey,
+  type NotificationSettings
+} from "../alerts/notificationPreferences";
 import type { ChartSymbolDto } from "../chart/types";
+import { fetchWatchlist, replaceWatchlistSymbols } from "../chart/watchlistApi";
+import { sectorLabelKo } from "../market/sectors";
 import {
   createPriceCondition,
   deletePriceCondition,
@@ -34,27 +42,13 @@ type PriceConditionDraft = {
 type PriceConditionPanelProps = {
   defaultSymbol: string;
   symbols: ChartSymbolDto[];
-  onSelectSymbol: (symbol: string) => void;
+  onOpenCompany: (symbol: string) => void;
 };
 
 type HubTab = "price" | "alerts" | "watchlist";
 
-type PrototypeNotificationSetting =
-  | "master"
-  | "marketOpen"
-  | "marketClose"
-  | "extendedHoursMove"
-  | "targetPrice"
-  | "rapidMove"
-  | "volumeSpike"
-  | "watchlistNews"
-  | "earningsFiling"
-  | "executiveChange"
-  | "socialIssue"
-  | "regulationLegal"
-  | "supplyChainMacro";
-
-type PrototypeNotificationSettings = Record<PrototypeNotificationSetting, boolean>;
+type PrototypeNotificationSetting = NotificationSettingKey;
+type PrototypeNotificationSettings = NotificationSettings;
 
 const hubTabs: Array<{ id: HubTab; label: string }> = [
   { id: "price", label: "가격조건" },
@@ -105,22 +99,6 @@ const notificationGroups: Array<{
   }
 ];
 
-const initialNotificationSettings: PrototypeNotificationSettings = {
-  master: true,
-  marketOpen: true,
-  marketClose: false,
-  extendedHoursMove: false,
-  targetPrice: true,
-  rapidMove: true,
-  volumeSpike: false,
-  watchlistNews: true,
-  earningsFiling: true,
-  executiveChange: false,
-  socialIssue: true,
-  regulationLegal: true,
-  supplyChainMacro: false
-};
-
 function initialConditionDraft(symbol: string): PriceConditionDraft {
   return {
     symbol: symbol.toUpperCase(),
@@ -133,7 +111,16 @@ function initialConditionDraft(symbol: string): PriceConditionDraft {
   };
 }
 
-export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: PriceConditionPanelProps) {
+export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: PriceConditionPanelProps) {
+  const {
+    preferences: notificationPreferences,
+    canUse: canUseNotificationPreferences,
+    loading: notificationPreferencesLoading,
+    error: notificationPreferencesError,
+    savingKeys: notificationPreferenceSavingKeys,
+    updateSetting: updateNotificationSetting,
+    updateCompanyOverride
+  } = useNotificationPreferences();
   const [initialWatchlist] = useState(() => initialPrototypeWatchlist(symbols, defaultSymbol));
   const [activeHubTab, setActiveHubTab] = useState<HubTab>("price");
   const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -146,15 +133,12 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notificationSettings, setNotificationSettings] = useState<PrototypeNotificationSettings>(() => ({
-    ...initialNotificationSettings
-  }));
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(initialWatchlist);
-  const [companyAlerts, setCompanyAlerts] = useState<Record<string, boolean>>(() => Object.fromEntries(
-    initialWatchlist.map((symbol) => [symbol, true])
-  ));
   const [selectedCompanySymbol, setSelectedCompanySymbol] = useState(initialWatchlist[0] ?? defaultSymbol.toUpperCase());
-  const [newsPreviewSymbol, setNewsPreviewSymbol] = useState<string | null>(null);
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
+  const [watchlistSaving, setWatchlistSaving] = useState(false);
+  const [watchlistPersisted, setWatchlistPersisted] = useState(false);
+  const [watchlistError, setWatchlistError] = useState<string | null>(null);
 
   const loadConditions = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -178,6 +162,32 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: 
       unsubscribe();
     };
   }, [loadConditions]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setWatchlistLoading(true);
+    setWatchlistError(null);
+    void fetchWatchlist(controller.signal)
+      .then((payload) => {
+        const nextSymbols = payload.symbols.map((item) => item.symbol.toUpperCase());
+        setWatchlistSymbols(nextSymbols);
+        setWatchlistPersisted(payload.persisted);
+        setSelectedCompanySymbol((current) => (
+          nextSymbols.includes(current) ? current : nextSymbols[0] ?? defaultSymbol.toUpperCase()
+        ));
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) {
+          setWatchlistError(caught instanceof Error ? caught.message : "관심 기업을 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setWatchlistLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [defaultSymbol]);
 
   useEffect(() => {
     if (!builderOpen) {
@@ -213,17 +223,12 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: 
     () => companyForSymbol(symbols, selectedCompanySymbol),
     [selectedCompanySymbol, symbols]
   );
-  const newsPreviewCompany = useMemo(
-    () => newsPreviewSymbol ? companyForSymbol(symbols, newsPreviewSymbol) : null,
-    [newsPreviewSymbol, symbols]
-  );
 
   const selectHubTab = (nextTab: HubTab) => {
     setActiveHubTab(nextTab);
     setBuilderOpen(false);
     setPendingDeleteId(null);
     setReviewingId(null);
-    setNewsPreviewSymbol(null);
   };
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
@@ -243,32 +248,43 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: 
   };
 
   const toggleNotificationSetting = (key: PrototypeNotificationSetting) => {
-    setNotificationSettings((current) => ({ ...current, [key]: !current[key] }));
+    if (!canUseNotificationPreferences || notificationPreferenceSavingKeys.has(`setting:${key}`)) {
+      return;
+    }
+    void updateNotificationSetting(key, !notificationPreferences.settings[key]);
   };
 
-  const toggleWatchlistSymbol = (symbolValue: string) => {
+  const addWatchlistSymbol = async (symbolValue: string) => {
     const normalizedSymbol = symbolValue.toUpperCase();
-    const removing = watchlistSymbols.includes(normalizedSymbol);
-    setWatchlistSymbols((current) => removing
-      ? current.filter((symbol) => symbol !== normalizedSymbol)
-      : [...current, normalizedSymbol]);
-    setCompanyAlerts((current) => {
-      const next = { ...current };
-      if (removing) {
-        delete next[normalizedSymbol];
-      } else {
-        next[normalizedSymbol] = true;
-      }
-      return next;
-    });
-    if (removing && newsPreviewSymbol === normalizedSymbol) {
-      setNewsPreviewSymbol(null);
+    if (watchlistSaving || watchlistSymbols.includes(normalizedSymbol)) {
+      return;
+    }
+    const previous = watchlistSymbols;
+    const optimistic = [...previous, normalizedSymbol];
+    setWatchlistSymbols(optimistic);
+    setWatchlistSaving(true);
+    setWatchlistError(null);
+    try {
+      const payload = await replaceWatchlistSymbols(optimistic);
+      setWatchlistSymbols(payload.symbols.map((item) => item.symbol.toUpperCase()));
+      setWatchlistPersisted(payload.persisted);
+    } catch (caught: unknown) {
+      setWatchlistSymbols(previous);
+      setWatchlistError(caught instanceof Error ? caught.message : "관심 기업을 저장하지 못했습니다.");
+    } finally {
+      setWatchlistSaving(false);
     }
   };
 
   const toggleCompanyAlert = (symbolValue: string) => {
     const normalizedSymbol = symbolValue.toUpperCase();
-    setCompanyAlerts((current) => ({ ...current, [normalizedSymbol]: !current[normalizedSymbol] }));
+    if (!canUseNotificationPreferences || notificationPreferenceSavingKeys.has(`company:${normalizedSymbol}`)) {
+      return;
+    }
+    void updateCompanyOverride(
+      normalizedSymbol,
+      notificationPreferences.companyOverrides[normalizedSymbol] === false
+    );
   };
 
   const toggleExpanded = (conditionId: string) => {
@@ -688,33 +704,32 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onSelectSymbol }: 
 
       {activeHubTab === "alerts" && (
         <NotificationSettingsView
-          settings={notificationSettings}
+          settings={notificationPreferences.settings}
           watchlistSymbols={watchlistSymbols}
           symbols={symbols}
-          companyAlerts={companyAlerts}
+          companyAlerts={notificationPreferences.companyOverrides}
+          canUse={canUseNotificationPreferences}
+          loading={notificationPreferencesLoading}
+          error={notificationPreferencesError}
+          savingKeys={notificationPreferenceSavingKeys}
           onToggleSetting={toggleNotificationSetting}
           onToggleCompanyAlert={toggleCompanyAlert}
         />
       )}
 
       {activeHubTab === "watchlist" && (
-        newsPreviewCompany ? (
-          <CompanyNewsPreview
-            company={newsPreviewCompany}
-            onBack={() => setNewsPreviewSymbol(null)}
-            onOpenChart={() => onSelectSymbol(newsPreviewCompany.symbol)}
-          />
-        ) : (
-          <WatchlistSettingsView
-            symbols={symbols}
-            selectedCompany={selectedCompany}
-            watchlistSymbols={watchlistSymbols}
-            onSelectCompany={setSelectedCompanySymbol}
-            onToggleWatchlist={toggleWatchlistSymbol}
-            onOpenNews={setNewsPreviewSymbol}
-            onOpenChart={onSelectSymbol}
-          />
-        )
+        <WatchlistSettingsView
+          symbols={symbols}
+          selectedCompany={selectedCompany}
+          watchlistSymbols={watchlistSymbols}
+          loading={watchlistLoading}
+          saving={watchlistSaving}
+          persisted={watchlistPersisted}
+          error={watchlistError}
+          onSelectCompany={setSelectedCompanySymbol}
+          onAddWatchlist={(symbol) => void addWatchlistSymbol(symbol)}
+          onOpenCompany={onOpenCompany}
+        />
       )}
     </section>
   );
@@ -725,6 +740,10 @@ function NotificationSettingsView({
   watchlistSymbols,
   symbols,
   companyAlerts,
+  canUse,
+  loading,
+  error,
+  savingKeys,
   onToggleSetting,
   onToggleCompanyAlert
 }: {
@@ -732,6 +751,10 @@ function NotificationSettingsView({
   watchlistSymbols: string[];
   symbols: ChartSymbolDto[];
   companyAlerts: Record<string, boolean>;
+  canUse: boolean;
+  loading: boolean;
+  error: string | null;
+  savingKeys: ReadonlySet<string>;
   onToggleSetting: (key: PrototypeNotificationSetting) => void;
   onToggleCompanyAlert: (symbol: string) => void;
 }) {
@@ -753,6 +776,8 @@ function NotificationSettingsView({
           label="전체 알림"
           description={settings.master ? "모든 선택 알림을 수신합니다." : "현재 모든 알림이 중지되어 있습니다."}
           emphasized
+          disabled={!canUse || loading || savingKeys.has("setting:master")}
+          statusLabel={savingKeys.has("setting:master") ? "저장 중" : undefined}
           onToggle={() => onToggleSetting("master")}
         />
       </div>
@@ -772,7 +797,20 @@ function NotificationSettingsView({
                     checked={settings[item.key]}
                     label={item.label}
                     description={item.description}
-                    disabled={!settings.master}
+                    disabled={
+                      !canUse
+                      || loading
+                      || !settings.master
+                      || !readyNotificationSettingKeys.has(item.key)
+                      || savingKeys.has(`setting:${item.key}`)
+                    }
+                    statusLabel={
+                      !readyNotificationSettingKeys.has(item.key)
+                        ? "준비 중"
+                        : savingKeys.has(`setting:${item.key}`)
+                          ? "저장 중"
+                          : undefined
+                    }
                     onToggle={() => onToggleSetting(item.key)}
                   />
                 ))}
@@ -794,8 +832,9 @@ function NotificationSettingsView({
                   key={symbol}
                   checked={companyAlerts[symbol] !== false}
                   label={`${company.symbol} · ${company.name}`}
-                  description="뉴스, 공시, 사회·리스크 이슈"
-                  disabled={!settings.master}
+                  description="가격, 시장 움직임, 사회·리스크 이슈"
+                  disabled={!canUse || loading || !settings.master || savingKeys.has(`company:${symbol}`)}
+                  statusLabel={savingKeys.has(`company:${symbol}`) ? "저장 중" : undefined}
                   logo={<StockLogo symbol={company.symbol} companyName={company.name} size="xs" />}
                   onToggle={() => onToggleCompanyAlert(symbol)}
                 />
@@ -809,7 +848,9 @@ function NotificationSettingsView({
       </div>
 
       <footer className="prototype-panel-note">
-        <span>UI 프로토타입 · 설정은 새로고침하면 초기화됩니다.</span>
+        <span>{loading ? "알림 설정을 불러오는 중입니다." : "알림 설정은 계정에 저장됩니다."}</span>
+        {!canUse && <strong>로그인 후 알림 설정을 저장할 수 있습니다.</strong>}
+        {error && <strong role="alert">{error}</strong>}
       </footer>
     </section>
   );
@@ -822,6 +863,7 @@ function PrototypeSwitch({
   disabled = false,
   emphasized = false,
   logo,
+  statusLabel,
   onToggle
 }: {
   checked: boolean;
@@ -830,6 +872,7 @@ function PrototypeSwitch({
   disabled?: boolean;
   emphasized?: boolean;
   logo?: ReactNode;
+  statusLabel?: string;
   onToggle: () => void;
 }) {
   return (
@@ -839,6 +882,7 @@ function PrototypeSwitch({
         <strong>{label}</strong>
         <small>{description}</small>
       </span>
+      {statusLabel && <small className="prototype-switch-status">{statusLabel}</small>}
       <button
         type="button"
         className={`prototype-switch ${checked ? "is-on" : ""}`}
@@ -858,20 +902,25 @@ function WatchlistSettingsView({
   symbols,
   selectedCompany,
   watchlistSymbols,
+  loading,
+  saving,
+  persisted,
+  error,
   onSelectCompany,
-  onToggleWatchlist,
-  onOpenNews,
-  onOpenChart
+  onAddWatchlist,
+  onOpenCompany
 }: {
   symbols: ChartSymbolDto[];
   selectedCompany: ChartSymbolDto;
   watchlistSymbols: string[];
+  loading: boolean;
+  saving: boolean;
+  persisted: boolean;
+  error: string | null;
   onSelectCompany: (symbol: string) => void;
-  onToggleWatchlist: (symbol: string) => void;
-  onOpenNews: (symbol: string) => void;
-  onOpenChart: (symbol: string) => void;
+  onAddWatchlist: (symbol: string) => void;
+  onOpenCompany: (symbol: string) => void;
 }) {
-  const selectedInterested = watchlistSymbols.includes(selectedCompany.symbol);
   return (
     <section
       id="price-condition-watchlist-panel"
@@ -887,18 +936,15 @@ function WatchlistSettingsView({
           placeholder="기업명 또는 티커 검색"
           className="watchlist-company-search"
           portalMenu={false}
-          onSelectSymbol={(symbol) => onSelectCompany(symbol.toUpperCase())}
+          onSelectSymbol={(symbol) => {
+            if (saving) {
+              return;
+            }
+            const normalizedSymbol = symbol.toUpperCase();
+            onSelectCompany(normalizedSymbol);
+            onAddWatchlist(normalizedSymbol);
+          }}
         />
-        <button
-          type="button"
-          className={`watchlist-search-star ${selectedInterested ? "is-active" : ""}`}
-          aria-label={`${selectedCompany.symbol} 관심 기업 ${selectedInterested ? "삭제" : "추가"}`}
-          aria-pressed={selectedInterested}
-          onClick={() => onToggleWatchlist(selectedCompany.symbol)}
-        >
-          <Star size={14} fill={selectedInterested ? "currentColor" : "none"} aria-hidden="true" />
-          {selectedInterested ? "삭제" : "추가"}
-        </button>
         <span className="watchlist-list-count">{watchlistSymbols.length}개 관심 기업</span>
       </div>
 
@@ -906,109 +952,51 @@ function WatchlistSettingsView({
         {watchlistSymbols.map((symbol) => {
           const company = companyForSymbol(symbols, symbol);
           return (
-            <article key={symbol} className="watchlist-company-row" role="listitem">
+            <button
+              key={symbol}
+              type="button"
+              className="watchlist-company-row"
+              role="listitem"
+              aria-label={`${company.symbol} 기업정보 열기`}
+              onClick={() => onOpenCompany(company.symbol)}
+            >
               <StockLogo
                 symbol={company.symbol}
                 companyName={company.name}
                 size="xs"
                 className="watchlist-company-logo"
               />
-              <span className="watchlist-company-copy">
+              <span className="watchlist-company-symbol-line">
                 <strong>{company.symbol}</strong>
-                <small>{company.name}</small>
+                <small>추적 중</small>
               </span>
-              <span className="watchlist-company-tracking">
-                <em>뉴스 · 공시 · 주요 이슈 추적</em>
+              <span className="watchlist-company-reasons">
+                <em>{company.name}의 뉴스와 공시를 모니터링합니다.</em>
+                <em>사회·리스크와 주요 기업 이슈를 추적합니다.</em>
               </span>
-              <div className="watchlist-company-actions">
-                <button type="button" onClick={() => onOpenNews(company.symbol)}>
-                  <Newspaper size={12} aria-hidden="true" />
-                  뉴스
-                </button>
-                <button type="button" className="is-primary" onClick={() => onOpenChart(company.symbol)}>
-                  <LineChart size={12} aria-hidden="true" />
-                  차트
-                </button>
-                <button
-                  type="button"
-                  className="watchlist-row-star is-active"
-                  aria-label={`${company.symbol} 관심 기업 삭제`}
-                  aria-pressed="true"
-                  title="관심 기업에서 삭제"
-                  onClick={() => onToggleWatchlist(company.symbol)}
-                >
-                  <Star size={13} fill="currentColor" aria-hidden="true" />
-                </button>
-              </div>
-            </article>
+              <span className="watchlist-company-sector">{sectorLabelKo(company.sector)}</span>
+            </button>
           );
         })}
         {watchlistSymbols.length === 0 && (
           <div className="watchlist-company-empty" role="status">
-            <Star size={18} aria-hidden="true" />
             <strong>아직 관심 기업이 없습니다.</strong>
-            <span>위 검색창에서 기업을 찾고 추가 버튼을 눌러주세요.</span>
+            <span>위 검색창에서 기업을 선택하면 목록에 추가됩니다.</span>
           </div>
         )}
       </div>
 
       <footer className="prototype-panel-note">
-        <span>UI 프로토타입 · 관심 기업은 새로고침하면 초기화됩니다.</span>
-      </footer>
-    </section>
-  );
-}
-
-function CompanyNewsPreview({
-  company,
-  onBack,
-  onOpenChart
-}: {
-  company: ChartSymbolDto;
-  onBack: () => void;
-  onOpenChart: () => void;
-}) {
-  const previewItems = [
-    { category: "실적·공시", title: `${company.name}의 최근 실적과 전망 변화를 확인하세요.`, time: "오늘" },
-    { category: "사회·리스크", title: `${company.symbol} 관련 규제와 사회적 이슈를 모니터링하고 있습니다.`, time: "오늘" },
-    { category: "시장 반응", title: "최근 가격 변동과 함께 주목받은 주요 기사입니다.", time: "어제" }
-  ];
-  return (
-    <section
-      id="price-condition-watchlist-panel"
-      className="price-condition-tab-panel is-settings-tab company-news-preview"
-      role="tabpanel"
-      aria-labelledby="price-condition-watchlist-tab"
-    >
-      <header className="company-news-preview-header">
-        <button type="button" className="company-news-back" onClick={onBack}>
-          <ArrowLeft size={14} aria-hidden="true" />
-          관심 기업
-        </button>
-        <span className="prototype-badge">UI DEMO</span>
-      </header>
-      <div className="company-news-preview-company">
-        <StockLogo symbol={company.symbol} companyName={company.name} size="md" />
         <span>
-          <strong>{company.name}</strong>
-          <small>{company.symbol} 기업 뉴스 미리보기</small>
+          {loading
+            ? "관심 기업을 불러오는 중입니다."
+            : saving
+              ? "관심 기업을 저장하는 중입니다."
+              : persisted
+                ? "관심 기업은 계정에 저장되어 뉴스와 추천에 반영됩니다."
+                : "검색에서 기업을 추가하면 계정에 저장됩니다."}
         </span>
-        <button type="button" onClick={onOpenChart}>
-          <LineChart size={13} aria-hidden="true" />
-          차트 열기
-        </button>
-      </div>
-      <div className="company-news-preview-list" role="list" aria-label={`${company.symbol} 데모 뉴스`}>
-        {previewItems.map((item) => (
-          <article key={item.category} role="listitem">
-            <span>{item.category}</span>
-            <strong>{item.title}</strong>
-            <small>데모 뉴스 · {item.time}</small>
-          </article>
-        ))}
-      </div>
-      <footer className="prototype-panel-note">
-        <span>실제 기사나 API 데이터가 아닌 화면 흐름 확인용 콘텐츠입니다.</span>
+        {error && <strong role="alert">{error}</strong>}
       </footer>
     </section>
   );

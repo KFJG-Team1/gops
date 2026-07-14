@@ -18081,6 +18081,13 @@ textarea:focus,
   opacity: .5;
 }
 
+.prototype-switch-status {
+  color: var(--color-muted);
+  font-size: 7px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
 .prototype-switch {
   position: relative;
   width: 34px;
@@ -18159,41 +18166,38 @@ textarea:focus,
   font-size: 8px;
 }
 
-.watchlist-settings-hero {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.watchlist-count {
-  align-self: center;
-  border: 1px solid color-mix(in srgb, var(--color-signal) 26%, transparent);
-  border-radius: 999px;
-  padding: 5px 8px;
-  background: color-mix(in srgb, var(--color-signal) 8%, transparent);
-  color: var(--color-signal);
-  font-size: 9px;
+.prototype-panel-note > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.watchlist-settings-view {
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+.prototype-panel-note > strong {
+  color: var(--color-caution);
+  font-size: inherit;
+  font-weight: 720;
+  text-align: right;
 }
 
-.watchlist-search-block {
+.watchlist-settings-view {
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.watchlist-list-toolbar {
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(190px, 1fr);
-  align-items: end;
-  gap: 7px 9px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
   min-width: 0;
 }
 
-.watchlist-section-label {
-  grid-column: 1 / -1;
+.watchlist-list-count {
   color: var(--color-muted);
-  font-size: 8px;
-  font-weight: 780;
-  letter-spacing: .05em;
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
 }
 
 .watchlist-company-search {
@@ -18204,254 +18208,109 @@ textarea:focus,
   z-index: 8;
 }
 
-.watchlist-candidate-card {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 11%, transparent);
-  border-radius: 8px;
-  padding: 5px 7px;
-  background: color-mix(in srgb, var(--color-background) 46%, var(--color-surface));
-}
-
-.watchlist-candidate-card > span,
-.watchlist-company-copy {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.watchlist-candidate-card strong,
-.watchlist-company-copy strong {
-  color: var(--color-text);
-  font-size: 10px;
-  font-weight: 820;
-}
-
-.watchlist-candidate-card small,
-.watchlist-company-copy small {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.watchlist-star-button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 11%, transparent);
-  border-radius: 7px;
-  padding: 0;
-  background: transparent;
-  color: var(--color-muted);
-}
-
-.watchlist-star-button:hover,
-.watchlist-star-button.is-active {
-  border-color: color-mix(in srgb, var(--color-caution) 35%, transparent);
-  background: color-mix(in srgb, var(--color-caution) 9%, transparent);
-  color: var(--color-caution);
-}
-
-.watchlist-star-button:focus-visible,
-.watchlist-company-actions button:focus-visible,
-.company-news-preview button:focus-visible {
-  outline: 2px solid var(--color-signal);
-  outline-offset: -2px;
-}
-
-.watchlist-company-list-section {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 6px;
-  min-height: 0;
-}
-
-.watchlist-company-list-section > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 2px;
-}
-
-.watchlist-company-list-section > header strong {
-  color: var(--color-text);
-  font-size: 10px;
-}
-
-.watchlist-company-list-section > header span {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .watchlist-company-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: var(--panel-padding);
   min-height: 0;
   overflow: hidden auto;
-  padding-right: 4px;
   scrollbar-gutter: stable;
 }
 
 .watchlist-company-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 28px 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
+  grid-template-columns: 24px minmax(90px, .72fr) minmax(0, 2fr) minmax(62px, .5fr);
+  align-items: start;
+  gap: var(--panel-padding);
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
-  min-height: 52px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
-  border-radius: 9px;
-  padding: 6px 7px;
-  background: color-mix(in srgb, var(--color-background) 45%, var(--color-surface));
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  padding: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease;
 }
 
 .watchlist-company-row:hover,
-.watchlist-company-row:focus-within {
-  border-color: color-mix(in srgb, var(--color-text) 19%, transparent);
-  background: color-mix(in srgb, var(--color-surface-strong) 66%, var(--color-background));
+.watchlist-company-row:focus-visible {
+  outline: none;
+  background: var(--color-surface-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
 }
 
-.watchlist-company-actions {
-  display: flex;
-  gap: 4px;
+.watchlist-company-logo {
+  width: 22px;
+  height: 22px;
+  justify-self: start;
+  border-radius: calc(var(--app-glass-radius) - 2px);
 }
 
-.watchlist-company-actions button,
-.company-news-preview-company > button,
-.company-news-back {
+.watchlist-company-symbol-line {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 28px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 11%, transparent);
-  border-radius: 7px;
-  padding: 0 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-  color: var(--color-text);
-  font-size: 9px;
-  font-weight: 750;
+  gap: 5px;
+  min-width: 0;
 }
 
-.watchlist-company-actions button.is-primary,
-.company-news-preview-company > button {
-  border-color: color-mix(in srgb, var(--color-signal) 29%, transparent);
-  background: color-mix(in srgb, var(--color-signal) 9%, transparent);
-  color: var(--color-signal);
+.watchlist-company-symbol-line strong {
+  overflow: hidden;
+  color: var(--color-text);
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watchlist-company-symbol-line small {
+  color: var(--color-change-up);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.watchlist-company-reasons {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.watchlist-company-reasons em,
+.watchlist-company-sector {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watchlist-company-sector {
+  max-width: 100%;
+  justify-self: end;
 }
 
 .watchlist-company-empty {
   min-height: 140px;
-  border: 1px dashed color-mix(in srgb, var(--color-text) 14%, transparent);
-  border-radius: 10px;
+  border: 0;
+  border-radius: var(--app-glass-radius);
+  background: var(--color-surface);
 }
 
 .watchlist-company-empty strong {
   color: var(--color-text);
   font-size: 10px;
-}
-
-.company-news-preview {
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
-}
-
-.company-news-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.company-news-back {
-  background: transparent;
-  color: var(--color-muted);
-}
-
-.prototype-badge {
-  border: 1px solid color-mix(in srgb, var(--color-caution) 32%, transparent);
-  border-radius: 999px;
-  padding: 3px 7px;
-  background: color-mix(in srgb, var(--color-caution) 9%, transparent);
-  color: var(--color-caution);
-  font-size: 8px;
-  font-weight: 850;
-  letter-spacing: .08em;
-}
-
-.company-news-preview-company {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
-  padding-bottom: 10px;
-}
-
-.company-news-preview-company > span {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.company-news-preview-company strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.company-news-preview-company small {
-  color: var(--color-muted);
-  font-size: 9px;
-}
-
-.company-news-preview-list {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  min-height: 0;
-  overflow: hidden auto;
-  padding-right: 4px;
-}
-
-.company-news-preview-list article {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
-  border-radius: 9px;
-  padding: 10px;
-  background: color-mix(in srgb, var(--color-background) 45%, var(--color-surface));
-}
-
-.company-news-preview-list article > span {
-  color: var(--color-signal);
-  font-size: 8px;
-  font-weight: 800;
-}
-
-.company-news-preview-list article > strong {
-  color: var(--color-text);
-  font-size: 10px;
-  line-height: 1.45;
-}
-
-.company-news-preview-list article > small {
-  color: var(--color-muted);
-  font-size: 8px;
 }
 
 .auto-trade-panel-builder-backdrop {
@@ -19165,8 +19024,7 @@ textarea:focus,
   }
 
   .prototype-settings-hero,
-  .prototype-settings-groups,
-  .watchlist-search-block {
+  .prototype-settings-groups {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -19174,29 +19032,19 @@ textarea:focus,
     white-space: normal;
   }
 
-  .watchlist-section-label {
-    grid-column: 1;
-  }
-
   .watchlist-settings-view {
-    grid-template-rows: auto auto minmax(120px, 1fr) auto !important;
+    grid-template-rows: auto minmax(120px, 1fr) auto !important;
     overflow: hidden auto;
   }
 
-  .watchlist-company-list-section,
   .watchlist-company-list {
     min-height: 120px;
   }
 
   .watchlist-company-row {
-    grid-template-columns: 28px 28px minmax(0, 1fr);
-  }
-
-  .watchlist-company-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-    border-top: 1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
-    padding-top: 6px;
+    grid-template-columns: 22px minmax(76px, .72fr) minmax(0, 2fr) minmax(54px, .5fr);
+    gap: 6px;
+    padding: 8px;
   }
 
   .auto-trade-overview {
@@ -19284,18 +19132,13 @@ textarea:focus,
     min-height: 45px;
   }
 
-  .watchlist-company-list-section > header {
-    align-items: flex-start;
-    flex-direction: column;
+  .watchlist-company-row {
+    grid-template-columns: 22px minmax(72px, .8fr) minmax(0, 2fr);
   }
 
-  .company-news-preview-company {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
-
-  .company-news-preview-company > button {
-    grid-column: 1 / -1;
-    width: 100%;
+  .watchlist-company-sector,
+  .watchlist-company-reasons em:nth-child(n + 2) {
+    display: none;
   }
 
   .auto-trade-strategy-actions {

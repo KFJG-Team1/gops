@@ -1223,6 +1223,53 @@ export function setPrimaryChartSymbol(
   return setPrimaryChartSelection(state, symbol, "1D", viewport, layoutMetrics);
 }
 
+const companyInformationPanelKinds = new Set<PanelContentKind>([
+  "company",
+  "companyMulti",
+  "companyValuation",
+  "companyProfitability",
+  "companyStability"
+]);
+
+export function setCompanyInformationSymbol(
+  state: TiledPanelState,
+  symbol: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const companyContents = state.slots
+    .map((slot) => state.contents[slot.contentId])
+    .filter((content): content is PanelContentInstance => Boolean(
+      content && companyInformationPanelKinds.has(content.kind)
+    ));
+
+  if (companyContents.length > 0) {
+    return companyContents.reduce(
+      (current, content) => setPanelContentProps(current, content.id, { symbol: normalizedSymbol }),
+      state
+    );
+  }
+
+  const withChart = setPrimaryChartSymbol(state, normalizedSymbol, viewport, layoutMetrics);
+  const chartContent = withChart.slots
+    .map((slot) => withChart.contents[slot.contentId])
+    .find((content) => content?.kind === "chart");
+  return chartContent
+    ? setPanelContentProps(withChart, chartContent.id, { symbol: normalizedSymbol, view: "company" })
+    : state;
+}
+
+export function setPrimaryChartView(
+  state: TiledPanelState,
+  view: "chart" | "company"
+): TiledPanelState {
+  const chartContent = state.slots
+    .map((slot) => state.contents[slot.contentId])
+    .find((content) => content?.kind === "chart");
+  return chartContent ? setPanelContentProps(state, chartContent.id, { view }) : state;
+}
+
 export function setPrimaryChartSelection(
   state: TiledPanelState,
   symbol: string,

@@ -52,9 +52,11 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
+  setCompanyInformationSymbol,
   setPrimaryChartSelection,
   setPanelContentProps,
   setPrimaryChartSymbol,
+  setPrimaryChartView,
   workspaceBounds,
   type TiledPanelState,
   type ViewportSize,
@@ -642,12 +644,12 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => setPrimaryChartSymbol(
+    setPanelState((current) => setPrimaryChartView(setPrimaryChartSymbol(
       current,
       normalizedSymbol,
       viewportSizeRef.current,
       panelLayoutMetricsRef.current
-    ));
+    ), "chart"));
     navigateMainView(nextView, { replace: options.replace });
   }, [navigateMainView]);
 
@@ -656,15 +658,41 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => setPrimaryChartSelection(
+    setPanelState((current) => setPrimaryChartView(setPrimaryChartSelection(
       current,
       normalizedSymbol,
       interval,
       viewportSizeRef.current,
       panelLayoutMetricsRef.current
-    ));
+    ), "chart"));
     navigateMainView(nextView);
   }, [navigateMainView]);
+
+  const openCompanyPage = useCallback((symbol: string) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
+    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
+    chartPanelHandlesRef.current.clear();
+    setChartRuntime(createInitialChartRuntimeState());
+    setPanelState((current) => {
+      const next = setCompanyInformationSymbol(
+        current,
+        normalizedSymbol,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      );
+      if (next !== current) {
+        return next;
+      }
+      const stockPreset = presetControls.presets.find((preset) => preset.id === "stock");
+      return stockPreset
+        ? buildPresetLayout(stockPreset, viewportSizeRef.current, {
+          symbol: normalizedSymbol,
+          layoutMetrics: panelLayoutMetricsRef.current
+        }) ?? current
+        : current;
+    });
+    navigateMainView(nextView);
+  }, [navigateMainView, presetControls.presets]);
 
   const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
     if (handle) {
@@ -1292,6 +1320,7 @@ export function App() {
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
+            onOpenCompany={openCompanyPage}
             onSelectPatternAsset={openPatternAsset}
             selectedWildPanelSlotId={selectedWildPanelSlotId}
             onSelectWildPanel={setSelectedWildPanelSlotId}

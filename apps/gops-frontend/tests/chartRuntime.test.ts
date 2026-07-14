@@ -50,6 +50,11 @@ import { normalizeAgentEntityResolveResponse, normalizeAgentLayoutResolveRespons
 import { deleteAllAlerts } from "../src/alerts/alertApi";
 import { formatNotificationToastMessage, notificationSummary } from "../src/alerts/alertPresentation";
 import { createMarketOpenNotification, readMarketOpenReminderEnabled, shouldShowMarketOpenReminder } from "../src/alerts/marketOpenReminder";
+import {
+  normalizeNotificationPreferences,
+  notificationSettingForItem,
+  shouldShowNotificationToast
+} from "../src/alerts/notificationPreferences";
 import { normalizeNextMarketOpen } from "../src/market/marketOpenApi";
 import type { AgentLayoutCommand, AgentLayoutCommandType, AgentLayoutProposal, CommandActor } from "../src/layout/agentLayoutTypes";
 import {
@@ -149,6 +154,7 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
+  setCompanyInformationSymbol,
   resizeFreeformBoundary,
   resizePanelSlotToGridRect,
   swapPanelContents,
@@ -2229,6 +2235,12 @@ assert.equal(hotRanking[0]?.sessionDollarVolume, 123000000);
 
 const tiledViewport = { width: 1280, height: 800 };
 const tiledState = createInitialTiledPanelState(tiledViewport, { symbol: "NVDA" });
+const companyInformationState = setCompanyInformationSymbol(tiledState, "AAPL", tiledViewport);
+const companyInformationChart = companyInformationState.slots
+  .map((slot) => companyInformationState.contents[slot.contentId])
+  .find((content) => content?.kind === "chart");
+assert.equal(companyInformationChart?.props?.symbol, "AAPL");
+assert.equal(companyInformationChart?.props?.view, "company");
 const tiledWorkspace = workspaceBounds(tiledViewport);
 const tiledGutter = panelGutter(tiledViewport);
 const tiledInnerBottom = rectBottom(tiledWorkspace) - tiledGutter;
@@ -3621,9 +3633,43 @@ assert.match(priceConditionPanelSource, /알림/);
 assert.match(priceConditionPanelSource, /관심 기업/);
 assert.match(priceConditionPanelSource, /role="tabpanel"/);
 assert.match(priceConditionPanelSource, /portalMenu=\{false\}/);
-assert.match(priceConditionPanelSource, /onOpenChart=\{onSelectSymbol\}/);
-assert.match(priceConditionPanelSource, /UI 프로토타입/);
+assert.match(priceConditionPanelSource, /onOpenCompany=\{onOpenCompany\}/);
+assert.match(priceConditionPanelSource, /fetchWatchlist/);
+assert.match(priceConditionPanelSource, /replaceWatchlistSymbols/);
+assert.match(priceConditionPanelSource, /알림 설정은 계정에 저장됩니다/);
+assert.match(priceConditionPanelSource, /준비 중/);
+assert.match(priceConditionPanelSource, /watchlist-list-toolbar/);
+assert.match(priceConditionPanelSource, /watchlist-company-reasons/);
+assert.doesNotMatch(priceConditionPanelSource, /watchlist-candidate-card/);
+assert.doesNotMatch(priceConditionPanelSource, /watchlist-search-star|watchlist-row-star|onOpenNews|CompanyNewsPreview/);
 assert.doesNotMatch(priceConditionPanelSource, /localStorage/);
+
+const notificationPreferencesSource = readFileSync(fileURLToPath(new URL("../src/alerts/notificationPreferences.tsx", import.meta.url)), "utf-8");
+assert.match(notificationPreferencesSource, /\/api\/notification-preferences/);
+assert.match(bottomCommandBarSource, /shouldShowNotificationToast/);
+const targetPriceNotification = {
+  id: 1,
+  eventId: "target-price",
+  type: "alert.price_cross",
+  payload: { symbol: "AAPL" }
+};
+const defaultPreferences = normalizeNotificationPreferences({ persisted: true });
+assert.equal(notificationSettingForItem(targetPriceNotification), "targetPrice");
+assert.equal(shouldShowNotificationToast(targetPriceNotification, defaultPreferences), true);
+assert.equal(shouldShowNotificationToast(targetPriceNotification, normalizeNotificationPreferences({
+  settings: { targetPrice: false }
+})), false);
+assert.equal(shouldShowNotificationToast(targetPriceNotification, normalizeNotificationPreferences({
+  companyOverrides: { AAPL: false }
+})), false);
+const volumeNotification = {
+  id: -1,
+  eventId: "volume-spike",
+  type: "AGENT_ALERT",
+  payload: { decision: { symbol: "NVDA", eventType: "volume_spike" } }
+};
+assert.equal(notificationSettingForItem(volumeNotification), "volumeSpike");
+assert.equal(shouldShowNotificationToast(volumeNotification, defaultPreferences), false);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
@@ -4160,6 +4206,8 @@ const frontendStylesSource = [
   readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
 ].join("\n");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
+assert.match(frontendStylesSource, /\.watchlist-company-row \{[\s\S]*grid-template-columns: 24px minmax\(90px, \.72fr\) minmax\(0, 2fr\) minmax\(62px, \.5fr\);[\s\S]*background: var\(--color-surface\);/);
+assert.match(frontendStylesSource, /\.watchlist-company-row:hover,[\s\S]*background: var\(--color-surface-strong\);/);
 assert.match(frontendStylesSource, /\.workspace-top-center-flip\.is-notice \.workspace-agent-notice \{[\s\S]*opacity: 1;[\s\S]*rotateX\(0deg\);/);
 assert.match(frontendStylesSource, /\.workspace-agent-notice \{[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/);
 assert.match(frontendStylesSource, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.workspace-top-center-face \{[\s\S]*transition: none;/);

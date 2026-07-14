@@ -38,6 +38,7 @@ export type AgentFinding = {
 
 export type NotificationDecision = {
   level: string;
+  eventType?: string;
   title?: string;
   message?: string;
   reason?: string;
@@ -845,6 +846,7 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   }
   return {
     level,
+    eventType: readString(source.eventType) ?? undefined,
     title: readString(source.title) ?? undefined,
     message: readString(source.message) ?? undefined,
     reason: readString(source.reason) ?? undefined
