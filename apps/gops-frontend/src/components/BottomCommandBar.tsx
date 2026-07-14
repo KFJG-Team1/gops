@@ -277,7 +277,7 @@ export function BottomCommandBar({
         </div>
         <div className="workspace-top-actions">
           <Suspense fallback={<div className="simulator-mode-control" aria-hidden="true" />}>
-            <SimulatorControl onApplyLayoutProposal={onApplyLayoutProposal} />
+            <SimulatorControl onNotification={enqueueAlertToast} />
           </Suspense>
           <button
             type="button"

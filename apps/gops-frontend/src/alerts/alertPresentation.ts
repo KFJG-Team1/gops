@@ -96,13 +96,14 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
 
   const systemTitle = asString(payload.title);
   const systemSummary = asString(payload.summary);
+  const systemDetail = asString(payload.detail);
   if (notification.type.startsWith("system.") && (systemTitle || systemSummary)) {
     return {
       symbol,
       chartSymbol,
       title: systemTitle || "리마인더",
       message: systemSummary || systemTitle || "알림이 도착했습니다.",
-      detail: ""
+      detail: systemDetail ?? ""
     };
   }
 

@@ -147,8 +147,13 @@ const stylesSource = readFileSync(
   fileURLToPath(new URL("../src/styles.css", import.meta.url)),
   "utf-8"
 );
+const alertToastSource = readFileSync(
+  fileURLToPath(new URL("../src/alerts/AlertToast.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(stylesSource, /\.simulator-breaking-toast|\.simulator-phase-toast/);
-assert.match(stylesSource, /\.alert-toast\.surface-floating/);
+assert.match(stylesSource, /\.alert-toast \{/);
+assert.match(alertToastSource, /alert-toast surface-floating/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
