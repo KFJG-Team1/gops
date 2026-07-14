@@ -1,5 +1,7 @@
 import type { FinalAnswerCitation } from "../agents/agentAnalysis";
 import type { WildPanelPage } from "../layout/wildPanel";
+import { GlossaryText } from "../glossary/GlossaryText";
+import { AnalysisAnswerPage } from "./AnalysisAnswerPage";
 
 export function WildPanelAnswerPage({ page }: { page: WildPanelPage }) {
   if (page.kind === "agentAnswer") {
@@ -8,50 +10,28 @@ export function WildPanelAnswerPage({ page }: { page: WildPanelPage }) {
         <header className="wild-panel-answer-header">
           <div>
             <span className="wild-panel-page-kicker">에이전트 답변</span>
-            <h2>{page.title}</h2>
+            <h2><GlossaryText text={page.title} /></h2>
           </div>
           <PageConfidence confidence={page.confidence} />
         </header>
-        <p className="wild-panel-agent-role">{page.role}</p>
-        <p className="wild-panel-answer-content">{page.content}</p>
+        <p className="wild-panel-agent-role"><GlossaryText text={page.role} /></p>
+        <p className="wild-panel-answer-content"><GlossaryText text={page.content} /></p>
         <CitationList citations={page.citations} />
       </article>
     );
   }
 
-  return (
-    <article className="wild-panel-answer-page is-commentary">
-      <header className="wild-panel-answer-header">
-        <div>
-          <span className="wild-panel-page-kicker">차트 해설{page.symbol ? ` · ${page.symbol}` : ""}</span>
-          <h2>{page.title}</h2>
-        </div>
-        <PageConfidence confidence={page.confidence} />
-      </header>
-      <p className="wild-panel-answer-summary">{page.summary}</p>
-      {page.sections.map((section) => section.title && section.bullets.length > 0 && (
-        <section key={section.title} className="wild-panel-answer-section">
-          <h3>{section.title}</h3>
-          <ul>
-            {section.bullets.map((bullet, index) => <li key={`${index}-${bullet}`}>{bullet}</li>)}
-          </ul>
-        </section>
-      ))}
-      {page.warnings.length > 0 && (
-        <section className="wild-panel-answer-section is-warning">
-          <h3>주의사항</h3>
-          <ul>{page.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-        </section>
-      )}
-      {page.limitations.length > 0 && (
-        <section className="wild-panel-answer-section is-limitation">
-          <h3>한계</h3>
-          <ul>{page.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
-        </section>
-      )}
-      <CitationList citations={page.citations} />
-    </article>
-  );
+  return <AnalysisAnswerPage
+    kicker={page.kicker}
+    symbol={page.symbol}
+    title={page.title}
+    summary={page.summary}
+    sections={page.sections}
+    citations={page.citations}
+    limitations={page.limitations}
+    warnings={page.warnings}
+    confidence={page.confidence}
+  />;
 }
 
 function CitationList({ citations }: { citations: FinalAnswerCitation[] }) {
@@ -61,11 +41,11 @@ function CitationList({ citations }: { citations: FinalAnswerCitation[] }) {
   }
   return (
     <section className="wild-panel-answer-section is-citations">
-      <h3>근거 링크</h3>
+      <h3><GlossaryText text="근거 링크" /></h3>
       <ul>
         {linked.map((citation, index) => (
           <li key={`${index}-${citation.title}-${citation.url}`}>
-            <a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>
+            <a href={citation.url} target="_blank" rel="noreferrer"><GlossaryText text={citation.title} /></a>
           </li>
         ))}
       </ul>

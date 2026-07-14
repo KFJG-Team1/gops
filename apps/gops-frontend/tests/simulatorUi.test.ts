@@ -121,7 +121,8 @@ const saturdayDemoFixturesSource = readFileSync(
   "utf-8"
 );
 assert.match(chartCommentarySource, /GlossaryText/);
-assert.match(chartCommentarySource, /삼각 수렴 패턴/);
+assert.match(chartCommentarySource, /buildChartCommentaryModel/);
+assert.match(chartCommentarySource, /GlossaryText text=\{step\.body\}/);
 assert.match(saturdayDemoFixturesSource, /entryTrigger: 82\.6/);
 assert.match(saturdayDemoFixturesSource, /entryPrice: 82\.7/);
 assert.match(saturdayDemoFixturesSource, /stopPrice: 81\.1/);

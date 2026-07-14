@@ -55,6 +55,8 @@ type ChartCanvasProps = {
   emphasizeSelectedNode?: boolean;
   crosshair?: { x: number; y: number };
   editingDrawingId?: string;
+  spotlightDrawingIds?: string[];
+  spotlightCandleTimestamp?: string;
   onScene?: (scene: ChartScene) => void;
   onWheel?: WheelEventHandler<HTMLCanvasElement>;
   onPointerDown?: PointerEventHandler<HTMLCanvasElement>;
@@ -93,6 +95,8 @@ export function ChartCanvas({
   emphasizeSelectedNode = false,
   crosshair,
   editingDrawingId,
+  spotlightDrawingIds = [],
+  spotlightCandleTimestamp,
   onScene,
   onWheel,
   onPointerDown,
@@ -114,6 +118,8 @@ export function ChartCanvas({
     emphasizeSelectedNode,
     crosshair,
     editingDrawingId,
+    spotlightDrawingIds,
+    spotlightCandleTimestamp,
     onScene
   });
   renderInputRef.current = {
@@ -126,6 +132,8 @@ export function ChartCanvas({
     emphasizeSelectedNode,
     crosshair,
     editingDrawingId,
+    spotlightDrawingIds,
+    spotlightCandleTimestamp,
     onScene
   };
 
@@ -160,7 +168,7 @@ export function ChartCanvas({
         emphasizeSelectedNode: input.emphasizeSelectedNode
       });
       input.onScene?.(scene);
-      drawChart(context, scene, input.crosshair, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId);
+      drawChart(context, scene, input.crosshair, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId, input.spotlightDrawingIds, input.spotlightCandleTimestamp);
     };
 
     const scheduleDraw = () => {
@@ -190,7 +198,7 @@ export function ChartCanvas({
 
   useEffect(() => {
     scheduleDrawRef.current();
-  }, [agentVisualOverlays, chart, crosshair, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId]);
+  }, [agentVisualOverlays, chart, crosshair, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
 
   return (
     <canvas
@@ -216,9 +224,14 @@ function drawChart(
   crosshair?: { x: number; y: number },
   previewDrawings: DrawingEntity[] = [],
   agentVisualOverlays: AgentVisualOverlay[] = [],
-  editingDrawingId?: string
+  editingDrawingId?: string,
+  spotlightDrawingIds: string[] = [],
+  spotlightCandleTimestamp?: string
 ) {
   colors = readThemeColors();
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = "source-over";
+  context.setLineDash([]);
   context.clearRect(0, 0, scene.width, scene.height);
 
   if (!scene.candles.length && !scene.semantic.units.length) {
@@ -227,14 +240,16 @@ function drawChart(
   }
 
   const standardLayersVisible = scene.chart.chartType !== "bidask";
+  const spotlight = spotlightDrawingIds.length ? new Set(spotlightDrawingIds) : null;
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene, Boolean(crosshair)),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
-    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, scene.chart.drawings, false)),
+    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, scene.chart.drawings, false, spotlight)),
     () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawings, true)),
     () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
+    () => spotlightCandleTimestamp && drawSpotlightCandle(context, scene, spotlightCandleTimestamp),
     () => standardLayersVisible && hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
@@ -244,7 +259,7 @@ function drawChart(
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
-    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawBasePriceLayer(context, scene)),
+    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => withCanvasAlpha(context, spotlight ? 0.35 : 1, () => drawBasePriceLayer(context, scene))),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
     () => standardLayersVisible && drawBelowIndicatorPanes(context, scene),
     () => standardLayersVisible && drawPaneSeparators(context, scene),
@@ -252,9 +267,9 @@ function drawChart(
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
     () => drawOpenedDigMarkers(context, scene),
-    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId),
+    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId, spotlight),
     () => drawDrawings(context, scene, previewDrawings, true),
-    () => drawDrawingLabelsOnAxes(context, scene),
+    () => drawDrawingLabelsOnAxes(context, scene, spotlight),
     () => drawCurrentPriceMarker(context, scene),
     () => drawCrosshair(context, scene, crosshair),
     () => drawLineHoverDot(context, scene, crosshair),
@@ -606,6 +621,13 @@ function drawAgentVisualOverlays(context: CanvasRenderingContext2D, scene: Chart
     });
   });
   context.restore();
+}
+
+function drawSpotlightCandle(context: CanvasRenderingContext2D, scene: ChartScene, timestamp: string) {
+  const unit = candleUnits(scene).find((item) => item.timestamp === timestamp);
+  if (!unit) return;
+  const bounds = unitBoundsX(scene, unit);
+  drawOverlayBand(context, scene, bounds.left, bounds.right, colors.caution, 0.28);
 }
 
 function drawOverlayBand(context: CanvasRenderingContext2D, scene: ChartScene, left: number, right: number, color: string, alpha: number) {
@@ -1392,7 +1414,7 @@ function drawMacdHistogram(
   });
 }
 
-function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean) {
+function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean, spotlight: ReadonlySet<string> | null = null) {
   const transform = createCoordinateTransform(scene);
   const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
   const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
@@ -1405,6 +1427,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
       const style = drawing.style ?? {};
       const fill = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
       const baseOpacity = style.fillOpacity ?? (drawing.type === "rangeBox" ? 0.045 : 0.04);
+      const spotlightOpacity = drawingSpotlightOpacity(drawing, spotlight);
       context.save();
       context.fillStyle = fill;
       context.beginPath();
@@ -1416,7 +1439,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
       );
       context.clip();
       if (drawing.type === "rangeBox" && points.length >= 2) {
-        context.globalAlpha = (previewLayer ? 0.72 : 1) * baseOpacity;
+        context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (previewLayer ? 0.72 : 1) * baseOpacity;
         context.fillRect(
           Math.min(points[0].x, points[1].x),
           Math.min(points[0].y, points[1].y),
@@ -1424,7 +1447,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
           Math.abs(points[1].y - points[0].y)
         );
       } else if (drawing.type === "riskRewardBox" && points.length === 2) {
-        context.globalAlpha = (previewLayer ? 0.72 : 1) * Math.min(style.fillOpacity ?? 0.075, 0.045);
+        context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (previewLayer ? 0.72 : 1) * Math.min(style.fillOpacity ?? 0.075, 0.045);
         context.fillStyle = fill;
         context.fillRect(
           Math.min(points[0].x, points[1].x),
@@ -1440,11 +1463,22 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
         );
         if (direction) {
           const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
-          context.globalAlpha = (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.075);
-          context.fillStyle = colors.upSoft;
-          fillDrawingPolygon(context, geometry.rewardPolygon);
-          context.fillStyle = colors.downSoft;
-          fillDrawingPolygon(context, geometry.riskPolygon);
+          context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.075);
+          if (style.zoneSplit) {
+            const left = planZoneFillLeft(scene, geometry.left);
+            const width = Math.max(0, geometry.right - left);
+            if (width > 0) {
+              context.fillStyle = colors.upSoft;
+              context.fillRect(left, Math.min(geometry.entryY, geometry.targetY), width, Math.abs(geometry.entryY - geometry.targetY));
+              context.fillStyle = colors.downSoft;
+              context.fillRect(left, Math.min(geometry.entryY, geometry.stopY), width, Math.abs(geometry.entryY - geometry.stopY));
+            }
+          } else {
+            context.fillStyle = colors.upSoft;
+            fillDrawingPolygon(context, geometry.rewardPolygon);
+            context.fillStyle = colors.downSoft;
+            fillDrawingPolygon(context, geometry.riskPolygon);
+          }
         }
       } else if (drawing.type === "fibonacciRetracement" && points.length >= 2) {
         const levels = buildFibonacciLevelGeometry(points[0], points[1]);
@@ -1462,7 +1496,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
           if (polygon.length < 3) {
             return;
           }
-          context.globalAlpha = (previewLayer ? 0.72 : 1) * baseOpacity * (index % 2 === 0 ? 1 : 0.58);
+          context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (previewLayer ? 0.72 : 1) * baseOpacity * (index % 2 === 0 ? 1 : 0.58);
           context.beginPath();
           polygon.forEach((point, pointIndex) => {
             if (pointIndex === 0) {
@@ -1519,7 +1553,8 @@ function drawDrawings(
   scene: ChartScene,
   drawings: DrawingEntity[],
   previewLayer: boolean,
-  editingDrawingId?: string
+  editingDrawingId?: string,
+  spotlight: ReadonlySet<string> | null = null
 ) {
   const transform = createCoordinateTransform(scene);
   const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
@@ -1532,7 +1567,7 @@ function drawDrawings(
     const strokeColor = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
 
     context.save();
-    context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+    context.globalAlpha = (preview ? 0.58 : style.opacity ?? 1) * drawingSpotlightOpacity(drawing, spotlight);
     context.strokeStyle = strokeColor;
     context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
     context.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1.0) : style.lineWidth ?? 1.0;
@@ -1779,6 +1814,9 @@ function drawDrawingEntityLabel(
     return;
   }
   const style = drawing.style ?? {};
+  if (style.labelPlacement === "axis" || style.labelPlacement === "none") {
+    return;
+  }
   context.save();
   applyCanvasTypography(
     context,
@@ -1838,6 +1876,26 @@ function drawRiskRewardForeground(
     return;
   }
   const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+  if (drawing.style.zoneSplit) {
+    const zoneLeft = planZoneFillLeft(scene, geometry.left);
+    drawPricePlotClipped(context, scene, () => {
+      context.save();
+      context.strokeStyle = resolveDrawingColor(drawing.style, "colorToken", "color", "proposal");
+      context.setLineDash([6, 4]);
+      line(context, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
+      context.setLineDash([]);
+      context.strokeStyle = colors.upSoft;
+      line(context, zoneLeft, geometry.targetY, geometry.right, geometry.targetY);
+      context.strokeStyle = colors.downSoft;
+      line(context, zoneLeft, geometry.stopY, geometry.right, geometry.stopY);
+      context.restore();
+    });
+    const ratio = Math.abs(targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice - stopPrice));
+    drawPlanChip(context, drawing.label ?? "제안", zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 12, colors.proposal);
+    drawPlanChip(context, `손익비 1 : ${ratio.toFixed(2)}`, zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 32, colors.proposal);
+    drawPlanChip(context, "돌파 시 진입", Math.max(zoneLeft + 6, geometry.left + 6), geometry.entryY - 12, colors.proposal);
+    return;
+  }
   drawPricePlotClipped(context, scene, () => {
     line(context, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
     line(context, geometry.left, geometry.stopY, geometry.right, geometry.stopY);
@@ -1892,6 +1950,9 @@ function drawDrawingLabel(context: CanvasRenderingContext2D, label: string | und
     return;
   }
   const style = drawing.style ?? {};
+  if (style.labelPlacement === "axis" || style.labelPlacement === "none") {
+    return;
+  }
   context.fillStyle = resolveDrawingColor(style, "textToken", "textColor", "drawing");
   applyCanvasTypography(
     context,
@@ -2041,7 +2102,7 @@ function drawDarkAxisPill(
   context.restore();
 }
 
-function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: ChartScene) {
+function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: ChartScene, spotlight: ReadonlySet<string> | null = null) {
   const transform = createCoordinateTransform(scene);
   const drawings = scene.chart.drawings;
 
@@ -2058,15 +2119,31 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
       return;
     }
     const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
+    const placement = drawing.style?.labelPlacement;
+    if (placement === "inline" || placement === "none") {
+      return;
+    }
+    context.save();
+    context.globalAlpha *= (drawing.style.opacity ?? 1) * drawingSpotlightOpacity(drawing, spotlight);
 
     if (drawing.type === "horizontalLine" || drawing.type === "horizontalParallelLines") {
-      const anchors = drawing.type === "horizontalLine" ? [anchor] : drawing.anchors.slice(0, 2);
+      const anchors = drawing.type === "horizontalParallelLines" && placement === "axis"
+        ? [{ ...anchor, price: averagePrices(drawing.anchors.slice(0, 2)) }]
+        : drawing.type === "horizontalLine" ? [anchor] : drawing.anchors.slice(0, 2);
       anchors.forEach((lineAnchor) => {
         const pt = transform.anchorToPoint(lineAnchor);
         if (typeof lineAnchor.price === "number" && pt && pt.y >= scene.plot.top && pt.y <= scene.plot.priceBottom) {
           drawDarkAxisPill(context, lineAnchor.price.toFixed(2), rightAxisPillX(scene), pt.y, "right", axisLabelColor);
         }
       });
+    } else if (drawing.type === "trendLine" && placement === "axis") {
+      const end = drawing.anchors[drawing.anchors.length - 1];
+      const point = end ? transform.anchorToPoint(end) : null;
+      if (point && typeof end.price === "number" && point.y >= scene.plot.top && point.y <= scene.plot.priceBottom) {
+        drawDarkAxisPill(context, end.price.toFixed(2), rightAxisPillX(scene), point.y, "right", axisLabelColor);
+      }
+    } else if (drawing.type === "riskRewardBox" && placement === "axis" && drawing.anchors.length >= 3) {
+      drawTradePlanAxisPills(context, scene, drawing, transform);
     } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
       const anchors = drawing.type === "verticalMarker" ? [anchor] : drawing.anchors.slice(0, 2);
       anchors.forEach((lineAnchor) => {
@@ -2077,7 +2154,78 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
         }
       });
     }
+    context.restore();
   });
+}
+
+function drawingSpotlightOpacity(drawing: Pick<DrawingEntity, "id" | "sourceProposalId">, spotlight: ReadonlySet<string> | null): number {
+  if (!spotlight) return 1;
+  if (spotlight.has(drawing.id)) return 1;
+  const analysis = drawing.id.startsWith("chart-asset:") || drawing.id.startsWith("chart-plan:")
+    || drawing.sourceProposalId?.startsWith("chart-asset:") || drawing.sourceProposalId?.startsWith("chart-plan:");
+  return analysis ? 0.15 : 0.5;
+}
+
+function withCanvasAlpha(context: CanvasRenderingContext2D, alpha: number, draw: () => void) {
+  context.save();
+  context.globalAlpha *= alpha;
+  draw();
+  context.restore();
+}
+
+function averagePrices(anchors: DrawingEntity["anchors"]): number | undefined {
+  const prices = anchors.map((anchor) => anchor.price).filter((price): price is number => typeof price === "number");
+  return prices.length ? prices.reduce((sum, price) => sum + price, 0) / prices.length : undefined;
+}
+
+function drawTradePlanAxisPills(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  drawing: DrawingEntity,
+  transform: ReturnType<typeof createCoordinateTransform>
+) {
+  const [entry, stop, target] = drawing.anchors;
+  if (typeof entry.price !== "number" || typeof stop.price !== "number" || typeof target.price !== "number") return;
+  const denominator = Math.max(0.0000001, Math.abs(entry.price));
+  const items = [
+    { anchor: entry, text: `진입 ${entry.price.toFixed(2)}`, color: colors.proposal },
+    { anchor: target, text: `목표 ${target.price.toFixed(2)} ${signedPercent((target.price - entry.price) / denominator)}`, color: colors.upSoft },
+    { anchor: stop, text: `손절 ${stop.price.toFixed(2)} ${signedPercent((stop.price - entry.price) / denominator)}`, color: colors.downSoft }
+  ];
+  items.forEach(({ anchor, text, color }) => {
+    const point = transform.anchorToPoint(anchor);
+    if (point && point.y >= scene.plot.top && point.y <= scene.plot.priceBottom) {
+      drawDarkAxisPill(context, text, rightAxisPillX(scene), point.y, "right", color);
+    }
+  });
+}
+
+function signedPercent(ratio: number): string {
+  const percent = ratio * 100;
+  return `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
+}
+
+function planZoneFillLeft(scene: ChartScene, fallback: number): number {
+  const latest = candleUnits(scene).at(-1);
+  return latest ? Math.max(fallback, unitBoundsX(scene, latest).right) : fallback;
+}
+
+function drawPlanChip(context: CanvasRenderingContext2D, text: string, x: number, y: number, color: string) {
+  context.save();
+  applyCanvasTypography(context, "caption", canvasFontFamily);
+  const width = context.measureText(text).width + 12;
+  const height = 18;
+  context.fillStyle = colors.surfaceStrong;
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  roundedRect(context, x, y - height / 2, width, height, 5);
+  context.fill();
+  context.stroke();
+  context.fillStyle = colors.text;
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillText(text, x + 6, y + 0.5);
+  context.restore();
 }
 
 function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartScene) {

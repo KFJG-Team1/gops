@@ -24,9 +24,6 @@ import { StockRecommendationsPanel } from "../recommendations/StockRecommendatio
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
-import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
-import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
-import { ChartPatternListPanel } from "./ChartPatternListPanel";
 import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
@@ -36,7 +33,6 @@ import {
   CompanyValuationPanel
 } from "./CompanySummaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
-import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
@@ -54,7 +50,6 @@ import {
 import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
-import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 
 const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
   default: module.AiInvestmentCoachPanel
@@ -64,6 +59,21 @@ const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module)
 })));
 const PriceConditionPanel = lazy(() => import("./PriceConditionPanel").then((module) => ({
   default: module.PriceConditionPanel
+})));
+const ChartCommentaryPanel = lazy(() => import("./ChartCommentaryPanel").then((module) => ({
+  default: module.ChartCommentaryPanel
+})));
+const ChartAssetOpsPanel = lazy(() => import("./ChartAssetOpsPanel").then((module) => ({
+  default: module.ChartAssetOpsPanel
+})));
+const ChartPatternListPanel = lazy(() => import("./ChartPatternListPanel").then((module) => ({
+  default: module.ChartPatternListPanel
+})));
+const NewsPanel = lazy(() => import("./NewsPanel").then((module) => ({
+  default: module.NewsPanel
+})));
+const WatchlistNewsPanel = lazy(() => import("./WatchlistNewsPanel").then((module) => ({
+  default: module.WatchlistNewsPanel
 })));
 
 type PanelContentRendererProps = {
@@ -210,57 +220,65 @@ export function PanelContentRenderer({
 
   if (content.kind === "news") {
     return (
-      <NewsPanel
-        symbol={symbol.toUpperCase()}
-        initialPayload={content.props}
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="flip"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스를 불러오는 중입니다</div>}>
+        <NewsPanel
+          symbol={symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="flip"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "newsList") {
     return (
-      <NewsPanel
-        symbol={symbol.toUpperCase()}
-        initialPayload={content.props}
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="list"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스 목록을 불러오는 중입니다</div>}>
+        <NewsPanel
+          symbol={symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="list"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "watchlistNews") {
     return (
-      <WatchlistNewsPanel
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="flip"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">관심 종목 뉴스를 불러오는 중입니다</div>}>
+        <WatchlistNewsPanel
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="flip"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "watchlistNewsList") {
     return (
-      <WatchlistNewsPanel
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="list"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">관심 종목 뉴스 목록을 불러오는 중입니다</div>}>
+        <WatchlistNewsPanel
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="list"
+        />
+      </Suspense>
     );
   }
 
@@ -478,34 +496,45 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "chartCommentary") {
+    const boundChartDocumentId = readString(content.props?.chartDocumentId) ?? activeChartDocument?.id;
     return (
-      <ChartCommentaryPanel
-        symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
-        interval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        candles={activeChartCandles}
-        drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 해설을 불러오는 중입니다</div>}>
+        <ChartCommentaryPanel
+          chartDocumentId={boundChartDocumentId}
+          sourceAvailable={Boolean(activeChartDocument && (!boundChartDocumentId || activeChartDocument.id === boundChartDocumentId))}
+          symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          interval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          candles={activeChartCandles}
+          drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+          commentaryState={content.props?.commentaryState}
+          onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, { commentaryState: state })}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "chartAssetOps") {
     return (
-      <ChartAssetOpsPanel
-        currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
-        currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        currentCandles={activeChartCandles}
-        currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 자산 도구를 불러오는 중입니다</div>}>
+        <ChartAssetOpsPanel
+          currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          currentCandles={activeChartCandles}
+          currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "chartPatternList") {
     return (
-      <ChartPatternListPanel
-        activeSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
-        activeInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        onSelectPatternAsset={onSelectPatternAsset}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 패턴을 불러오는 중입니다</div>}>
+        <ChartPatternListPanel
+          activeSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          activeInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          onSelectPatternAsset={onSelectPatternAsset}
+        />
+      </Suspense>
     );
   }
 
@@ -718,4 +747,8 @@ function normalizeCompareSymbols(values: string[]): string[] {
     }
   });
   return normalized.slice(0, 6);
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

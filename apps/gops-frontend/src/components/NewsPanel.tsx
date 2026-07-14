@@ -7,8 +7,9 @@ import {
   newsDailySummaryReference,
   type AgentReference
 } from "../agent/agentReferences";
-import { NewsFlipCard, type NewsFlipCardItem } from "./NewsFlipCard";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorNewsArticle, type SimulatorStatus } from "../simulator/simulatorApi";
+import { NewsFlipCard, type NewsFlipCardItem } from "./NewsFlipCard";
+import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 
 type NewsItem = {
   symbol: string;
@@ -71,7 +72,7 @@ type NewsPanelProps = {
   variant?: "flip" | "list";
 };
 
-export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect, variant = "flip" }: NewsPanelProps) {
+export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgentReferenceKeys = [], emphasizedAgentReferenceKeys = [], onAgentReferenceSelect, onAgentAsk, variant = "flip" }: NewsPanelProps) {
   const normalizedInitialPayload = initialNewsResponse(initialPayload, symbol);
   const [payload, setPayload] = useState<NewsResponse | null>(normalizedInitialPayload);
   const [loading, setLoading] = useState(!normalizedInitialPayload);
@@ -271,6 +272,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
                     </div>
                   )}
                 </div>
+                {selected && onAgentAsk && <span onClick={(event) => event.stopPropagation()}><ContextualAgentAskButton onAsk={onAgentAsk} /></span>}
               </article>
             );
           })}
@@ -309,6 +311,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
                   <span>{item.source ?? "news"}</span>
                   {item.publishedAt && <span>{relativeTimeText(item.publishedAt)}</span>}
                 </div>
+                {selected && onAgentAsk && <span onClick={(event) => event.stopPropagation()}><ContextualAgentAskButton onAsk={onAgentAsk} /></span>}
               </article>
             );
           })}

@@ -13,6 +13,7 @@ export type WildPanelCommentaryPage = {
   kind: "chartCommentary";
   analysisId: string;
   symbol?: string;
+  kicker: "차트 해설" | "분석 답변";
   title: string;
   summary: string;
   sections: FinalAnswerSection[];
@@ -146,24 +147,27 @@ export function wildPanelReportGroup(
   addedAt = new Date().toISOString()
 ): WildPanelReportGroup {
   const finalAnswer = report.finalAnswer;
+  const chartRoute = Boolean(report.chartExplanation) && report.route?.intentType === "chart";
+  const visibleWarnings = userVisibleWarnings([
+    ...(report.finalResponse?.risk_warnings ?? []),
+    ...(report.finalResponse?.data_freshness_warnings ?? [])
+  ]);
   const commentary: WildPanelCommentaryPage = {
     id: `${report.analysisId}:commentary`,
     kind: "chartCommentary",
     analysisId: report.analysisId,
     ...(report.symbol ? { symbol: report.symbol } : {}),
-    title: finalAnswer?.title || "차트 해설",
-    summary: finalAnswer?.summary || report.summary,
+    kicker: chartRoute ? "차트 해설" : "분석 답변",
+    title: finalAnswer?.title || "분석 미완료",
+    summary: finalAnswer?.summary || "완성된 분석 답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.",
     sections: (finalAnswer?.sections ?? []).map((section) => ({
       title: section.title,
       bullets: [...section.bullets]
     })),
     citations: (finalAnswer?.citations ?? []).map(copyCitation),
     limitations: [...(finalAnswer?.limitations ?? [])],
-    warnings: [
-      ...(report.finalResponse?.risk_warnings ?? []),
-      ...(report.finalResponse?.data_freshness_warnings ?? [])
-    ],
-    ...(typeof report.finalResponse?.confidence === "number"
+    warnings: visibleWarnings,
+    ...(!chartRoute && typeof report.finalResponse?.confidence === "number"
       ? { confidence: report.finalResponse.confidence }
       : {})
   };
@@ -215,7 +219,7 @@ export function normalizeWildPanelState(value: unknown): WildPanelState | null {
 }
 
 function preferredReportPageId(group: WildPanelReportGroup): string {
-  return group.pages.find((page) => page.kind === "agentAnswer")?.id
+  return group.pages.find((page) => page.kind === "chartCommentary")?.id
     ?? group.pages[0]?.id
     ?? wildPanelBasePageId;
 }
@@ -275,6 +279,7 @@ function normalizePage(value: unknown): WildPanelPage | null {
       kind,
       analysisId,
       ...(readString(source.symbol) ? { symbol: readString(source.symbol)! } : {}),
+      kicker: readString(source.kicker) === "분석 답변" ? "분석 답변" : "차트 해설",
       title,
       summary,
       sections: readArray(source.sections).map(normalizeSection).filter((item): item is FinalAnswerSection => Boolean(item)),
@@ -304,6 +309,16 @@ function normalizePage(value: unknown): WildPanelPage | null {
     };
   }
   return null;
+}
+
+export function userVisibleWarnings(values: string[]): string[] {
+  const labels: Record<string, string> = {
+    partial_data_used: "일부 데이터만 사용해 분석했습니다.",
+    partial_chart_data: "차트 데이터 일부만 사용할 수 있습니다.",
+    stale_chart_asset: "차트 작도 기준 시점이 현재 화면보다 오래되었습니다.",
+    no_relevant_news_found: "선택 시점에 연결할 관련 뉴스가 없습니다."
+  };
+  return [...new Set(values.map((value) => labels[value]).filter((value): value is string => Boolean(value)))];
 }
 
 function normalizeSection(value: unknown): FinalAnswerSection | null {

@@ -36,7 +36,7 @@ const asset = {
       patternState: "confirmed",
       action: "buy_candidate",
       direction: "long",
-      signalAt: candles[2].timestamp,
+      signalAt: candles[1].timestamp,
       entryTrigger: 98.25,
       entryPrice: 98.5,
       stopPrice: 97,
@@ -55,13 +55,19 @@ const asset = {
 const drawings = buildTradeTimingDrawings(asset, candles);
 assert.equal(drawings.length, 2);
 assert.equal(drawings[0].type, "flagMarker");
-assert.equal(drawings[0].label, "매수 후보 · 상승 깃발형");
-assert.equal(drawings[0].anchors[0].timestamp, candles[2].timestamp);
+assert.equal(drawings[0].label, "매수 검토 후보 · 상승 깃발형");
+assert.equal(drawings[0].anchors[0].timestamp, candles[1].timestamp);
+assert.match(drawings[0].id, /^chart-plan:/);
+assert.equal(drawings[0].style.colorToken, "proposal");
 assert.equal(drawings[1].type, "riskRewardBox");
 assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.price), [98.5, 97, 108]);
-assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.logicalIndex), [2, 12, 12]);
+assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.logicalIndex), [1, 12, 12]);
 assert.equal(drawings[1].anchors[1].timestamp, undefined);
 assert.equal(drawings[1].anchors[2].timestamp, undefined);
+assert.equal(drawings[1].style.zoneSplit, true);
+assert.equal(drawings[1].style.labelPlacement, "axis");
+assert.equal(drawings[1].style.fillOpacity, .08);
+assert.doesNotMatch(drawings[1].label ?? "", /진입|손절|목표/);
 
 const resolved = resolveAnalysisAssetForCandles(asset, candles);
 assert.deepEqual(resolved?.geometry.drawings.map((drawing) => drawing.type), ["flagMarker", "riskRewardBox"]);
@@ -86,3 +92,18 @@ const watchAsset: ChartAnalysisAsset = {
   }
 };
 assert.deepEqual(buildTradeTimingDrawings(watchAsset, candles), []);
+
+const shortAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    tradePlan: {
+      ...asset.geometry.tradePlan!,
+      action: "short_candidate",
+      direction: "short",
+      stopPrice: 101,
+      targetPrice: 90
+    }
+  }
+};
+assert.equal(buildTradeTimingDrawings(shortAsset, candles).length, 2);

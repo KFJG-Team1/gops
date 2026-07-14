@@ -33,7 +33,7 @@ assert.deepEqual(wildPanelPages(firstWild).map((page) => page.kind), [
   "agentAnswer",
   "agentAnswer"
 ]);
-assert.equal(firstWild.activePageId, "analysis-1:answer:0:agent-0", "new reports focus the first role answer");
+assert.equal(firstWild.activePageId, "analysis-1:commentary", "new reports focus the final answer");
 
 const duplicate = addAgentReportToWildPanel(
   setWildPanelActivePage(withReport, "slot-chart", wildPanelBasePageId),
@@ -41,7 +41,7 @@ const duplicate = addAgentReportToWildPanel(
   firstReport
 );
 assert.equal(duplicate.slots[0]?.wildPanel?.reportGroups.length, 1, "the same analysis is not duplicated");
-assert.equal(duplicate.slots[0]?.wildPanel?.activePageId, "analysis-1:answer:0:agent-0");
+assert.equal(duplicate.slots[0]?.wildPanel?.activePageId, "analysis-1:commentary");
 
 const summaryOnly = addAgentReportToWildPanel(enabled, "slot-chart", report("summary-only", 0));
 assert.equal(summaryOnly.slots[0]?.wildPanel?.activePageId, "summary-only:commentary");

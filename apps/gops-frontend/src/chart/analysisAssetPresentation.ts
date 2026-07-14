@@ -1,6 +1,7 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
 import { buildTradeTimingDrawings, isTradeTimingDrawing } from "./tradeTimingOverlay";
+import { chartSemanticCatalog } from "./chartSemanticCatalog";
 
 export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
 export type AnalysisAssetPresentationDiagnostics = {
@@ -16,21 +17,7 @@ export type AnalysisAssetPresentationDiagnostics = {
 export type DetectedPatternSummary = { kind: string; state: "forming" | "confirmed"; score: number; drawingCount: number };
 type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
-const patternKindLabels: Record<string, string> = {
-  ascending_triangle: "상승 삼각형",
-  descending_triangle: "하락 삼각형",
-  symmetrical_triangle: "대칭 삼각형",
-  bullish_flag: "상승 깃발형",
-  bearish_flag: "하락 깃발형",
-  bullish_pennant: "상승 페넌트",
-  bearish_pennant: "하락 페넌트",
-  bullish_rectangle: "상승 직사각형",
-  bearish_rectangle: "하락 직사각형",
-  rising_wedge: "상승 쐐기",
-  falling_wedge: "하락 쐐기",
-  descending_channel_breakout: "하락 채널 상단 돌파",
-  ascending_channel_breakdown: "상승 채널 하단 이탈"
-};
+const patternKindLabels: Record<string, string> = chartSemanticCatalog.patterns;
 
 const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
@@ -94,7 +81,7 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
       return [];
     }
-    return [levelDrawingIds.has(resolved.id) ? dashedAnalysisLevel(resolved) : resolved];
+    return [presentAnalysisDrawing(resolved, asset, levelDrawingIds)];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
   const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
@@ -173,8 +160,70 @@ function analysisLevelDrawingIds(asset: ChartAnalysisAsset): Set<string> {
   ]));
 }
 
-function dashedAnalysisLevel<T extends DrawingEntity>(drawing: T): T {
-  return { ...drawing, style: { ...drawing.style, lineDash: [6, 4] } };
+function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: ChartAnalysisAsset, levelDrawingIds: Set<string>): T {
+  if (levelDrawingIds.has(drawing.id)) {
+    const level = [...(asset.geometry.supports ?? []), ...(asset.geometry.resistances ?? [])]
+      .find((candidate) => drawing.id === candidate.id || drawing.id.endsWith(`:${candidate.id}`));
+    if (!level || drawing.type !== "horizontalLine" || !validZone(level.zoneLow, level.zoneHigh)) {
+      return drawing;
+    }
+    const first = drawing.anchors[0];
+    const last = drawing.anchors[drawing.anchors.length - 1] ?? first;
+    return {
+      ...drawing,
+      type: "horizontalParallelLines",
+      anchors: [{ ...first, price: level.zoneLow }, { ...last, price: level.zoneHigh }],
+      style: evidenceStyle(
+        drawing.style,
+        level.role === "support" ? "evidenceSupport" : "evidenceResistance",
+        { fillOpacity: 0.08, lineDash: [], labelPlacement: "axis" }
+      )
+    } as T;
+  }
+  if (isPatternDrawing(drawing, asset)) {
+    return {
+      ...drawing,
+      style: evidenceStyle(drawing.style, "evidencePattern", {
+        opacity: Math.min(0.7, drawing.style.opacity ?? 1),
+        labelPlacement: "axis"
+      })
+    };
+  }
+  return drawing;
+}
+
+function evidenceStyle(
+  style: DrawingEntity["style"],
+  token: "evidenceSupport" | "evidenceResistance" | "evidencePattern",
+  patch: DrawingEntity["style"]
+): DrawingEntity["style"] {
+  return {
+    ...style,
+    color: undefined,
+    fillColor: undefined,
+    textColor: undefined,
+    colorToken: token,
+    fillToken: token,
+    textToken: token,
+    lineWidth: 1,
+    ...patch
+  };
+}
+
+function validZone(low: number | undefined, high: number | undefined): boolean {
+  return typeof low === "number" && Number.isFinite(low)
+    && typeof high === "number" && Number.isFinite(high)
+    && high > low;
+}
+
+function isPatternDrawing(drawing: Pick<DrawingEntity, "id">, asset: ChartAnalysisAsset): boolean {
+  const patterns = [
+    ...(asset.geometry.patterns ?? []),
+    asset.geometry.primaryPattern,
+    asset.geometry.primaryTriangle,
+    asset.geometry.historicalTriangle
+  ].filter(Boolean);
+  return patterns.some((pattern) => drawing.id.includes(pattern!.geometryHash));
 }
 
 function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {
@@ -190,17 +239,22 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     candle.isClosed !== false && candleKeyForTimestamp(candle.timestamp, asset.interval) === crossKey
   ));
   if (candleIndex < 0) return [];
-  const candle = candles[candleIndex];
+  const calculated = movingAverageCrossPoint(candles, candleIndex, cross.direction);
+  const fraction = typeof cross.fraction === "number" && Number.isFinite(cross.fraction)
+    ? Math.max(0, Math.min(1, cross.fraction))
+    : calculated?.fraction;
+  const price = typeof cross.price === "number" && Number.isFinite(cross.price)
+    ? cross.price
+    : calculated?.price;
+  if (price === undefined || fraction === undefined || candleIndex < 1) return [];
   const golden = cross.direction === "golden";
-  const color = golden ? "#22c55e" : "#ef4444";
   const identity = crossKey.replace(/[^0-9A-Za-z]/g, "");
   return [{
     id: `chart-asset:${asset.symbol}:${asset.interval}:sma-cross:${cross.direction}:${identity}`,
     type: "flagMarker",
     anchors: [{
-      timestamp: candle.timestamp,
-      logicalIndex: candleIndex,
-      price: movingAverageCrossPrice(candles, candleIndex),
+      logicalIndex: candleIndex - 1 + fraction,
+      price,
       paneId: "price",
       symbol: asset.symbol,
       interval: asset.interval
@@ -208,7 +262,7 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     symbol: asset.symbol,
     interval: asset.interval,
     sourceInterval: asset.sourceInterval,
-    style: { color, textColor: color, lineWidth: 2, opacity: 0.98 },
+    style: { colorToken: "evidencePattern", textToken: "evidencePattern", lineWidth: 1.5, opacity: 0.82 },
     label: `${golden ? "골든크로스" : "데드크로스"} · SMA60/120`,
     locked: true,
     visible: true,
@@ -219,12 +273,27 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
   }];
 }
 
-function movingAverageCrossPrice(candles: CandleDto[], candleIndex: number): number {
-  const sma60 = averageClose(candles, candleIndex, 60);
-  const sma120 = averageClose(candles, candleIndex, 120);
-  return sma60 === null || sma120 === null
-    ? candles[candleIndex].close
-    : (sma60 + sma120) / 2;
+function movingAverageCrossPoint(
+  candles: CandleDto[],
+  candleIndex: number,
+  expectedDirection: "golden" | "dead"
+): { fraction: number; price: number } | null {
+  const previousShort = averageClose(candles, candleIndex - 1, 60);
+  const currentShort = averageClose(candles, candleIndex, 60);
+  const previousLong = averageClose(candles, candleIndex - 1, 120);
+  const currentLong = averageClose(candles, candleIndex, 120);
+  if (previousShort === null || currentShort === null || previousLong === null || currentLong === null) return null;
+  const previousDifference = previousShort - previousLong;
+  const currentDifference = currentShort - currentLong;
+  const direction = previousDifference <= 0 && currentDifference > 0
+    ? "golden"
+    : previousDifference >= 0 && currentDifference < 0 ? "dead" : null;
+  const differenceChange = currentDifference - previousDifference;
+  if (direction !== expectedDirection || differenceChange === 0) return null;
+  const fraction = Math.max(0, Math.min(1, -previousDifference / differenceChange));
+  const shortCross = previousShort + fraction * (currentShort - previousShort);
+  const longCross = previousLong + fraction * (currentLong - previousLong);
+  return { fraction, price: (shortCross + longCross) / 2 };
 }
 
 function averageClose(candles: CandleDto[], endIndex: number, period: number): number | null {

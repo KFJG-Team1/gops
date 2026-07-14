@@ -126,7 +126,57 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
   liquidity: entry("liquidity", "유동성", ["유동성", "liquidity"], "원하는 가격 근처에서 큰 가격 충격 없이 거래할 수 있는 정도로, 체결 여건을 가늠합니다.", "general")
 };
 
-export const extraGlossary: GlossaryEntry[] = [];
+export const extraGlossary: GlossaryEntry[] = [
+  {
+    id: "entry_price",
+    term: "진입가",
+    aliases: ["진입가", "진입 가격"],
+    description: "시나리오 조건이 확인됐을 때 새 포지션을 검토하는 기준 가격입니다.",
+    category: "general"
+  },
+  {
+    id: "target_price",
+    term: "목표가",
+    aliases: ["목표가", "목표 가격"],
+    description: "시나리오가 예상 방향으로 진행될 때 보상 구간을 평가하는 기준 가격입니다.",
+    category: "general"
+  },
+  {
+    id: "stop_loss",
+    term: "손절",
+    aliases: ["손절", "손절가", "손절 가격"],
+    description: "시나리오가 무효화되거나 허용 위험을 넘었을 때 손실 제한을 검토하는 가격 기준입니다.",
+    category: "general"
+  },
+  {
+    id: "reward_risk_ratio",
+    term: "손익비",
+    aliases: ["손익비", "보상 위험 비율", "reward risk ratio", "R:R"],
+    description: "감수하는 손실 가능 금액에 비해 기대하는 이익 가능 금액이 몇 배인지 나타낸 비율입니다.",
+    category: "general"
+  },
+  {
+    id: "breakout_confirmation",
+    term: "돌파 확인",
+    aliases: ["돌파 확인", "상단 돌파 확인", "breakout confirmation"],
+    description: "경계를 넘은 뒤 종가 유지 또는 상대 거래량 조건을 충족해 돌파 근거가 확인된 상태입니다.",
+    category: "structure"
+  },
+  {
+    id: "channel_breakdown",
+    term: "채널 하단 이탈",
+    aliases: ["채널 하단 이탈", "상승 채널 하단 이탈"],
+    description: "상승 채널의 아래 경계를 종가 기준으로 벗어난 상태로, 기존 상승 구조의 약화를 뜻합니다.",
+    category: "structure"
+  },
+  {
+    id: "exit_long_candidate",
+    term: "매도·청산 후보",
+    aliases: ["매도·청산 후보", "매도 청산 후보"],
+    description: "새 공매도 지시가 아니라 기존 long 포지션의 축소나 청산을 검토하는 비실행 시나리오입니다.",
+    category: "general"
+  }
+];
 
 export const allGlossaryEntries: GlossaryEntry[] = [
   ...Object.values(stockGlossary),

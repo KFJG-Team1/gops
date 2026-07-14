@@ -10,6 +10,9 @@ const ma5Ink = "#0099ff";
 const ma20Ink = "#22c55e";
 const ma60Ink = "#ff7a3d";
 const volumeInk = "rgba(255, 255, 255, 0.12)";
+const bullishInk = ma20Ink;
+const bearishInk = "#ff5577";
+const signalInk = ma5Ink;
 
 export const fallbackChartStyle: ChartDocumentStyle = {
   background: "#090909",
@@ -22,15 +25,19 @@ export const fallbackChartStyle: ChartDocumentStyle = {
   crosshair: ink,
   text: ink,
   muted: mutedInk,
-  bullish: "#22c55e",
-  bearish: "#ff5577",
+  bullish: bullishInk,
+  bearish: bearishInk,
   ma5: ma5Ink,
   ma20: ma20Ink,
   ma60: ma60Ink,
   volume: volumeInk,
   drawing: ink,
   preview: ink,
-  signal: "#0099ff",
+  signal: signalInk,
+  evidenceSupport: bullishInk,
+  evidenceResistance: bearishInk,
+  evidencePattern: mutedInk,
+  proposal: signalInk,
   caution: "#ff7a3d",
   purple: "#8c939f",
   pointYellow: "#fff436",
