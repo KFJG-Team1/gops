@@ -59,6 +59,27 @@ export type PortfolioHoldingsResponse = {
   limitations?: string[];
 };
 
+export function validPortfolioCash(
+  cashValue: number | null,
+  stockValue: number | null,
+  totalValue: number | null
+): number | null {
+  if (cashValue == null || cashValue < 0) {
+    return null;
+  }
+  if (totalValue == null) {
+    return cashValue;
+  }
+  const tolerance = Math.max(0.01, Math.abs(totalValue) * 0.005);
+  if (cashValue > totalValue + tolerance) {
+    return null;
+  }
+  if (stockValue != null && stockValue + cashValue > totalValue + tolerance) {
+    return null;
+  }
+  return cashValue;
+}
+
 type ResponseLike = {
   ok: boolean;
   status: number;

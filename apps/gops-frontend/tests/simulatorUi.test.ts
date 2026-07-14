@@ -61,10 +61,45 @@ const paperAccountSource = readFileSync(
   fileURLToPath(new URL("../src/components/PaperAccountPanel.tsx", import.meta.url)),
   "utf-8"
 );
+const stylesSource = readFileSync(
+  fileURLToPath(new URL("../src/styles.css", import.meta.url)),
+  "utf-8"
+);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
+assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
+assert.doesNotMatch(quickOrderSource, /프리셋 선택/);
+assert.match(quickOrderSource, /executionMode === "paper" \? "회사명 검색" : "종목 검색"/);
 assert.match(paperAccountSource, /cancelPaperOrder/);
-assert.match(paperAccountSource, /resetPaperAccount/);
+assert.doesNotMatch(paperAccountSource, /RefreshCw|RotateCcw|paper-account-header-actions|resetPaperAccount/);
+assert.doesNotMatch(paperAccountSource, /paper-account-summary/);
+assert.doesNotMatch(paperAccountSource, /총 자산|주문 가능|보유 평가액|총 손익/);
+assert.doesNotMatch(paperAccountSource, /WalletCards|account\.generation\}회차/);
+assert.match(paperAccountSource, /paper-order-side/);
+assert.match(paperAccountSource, /paper-order-status[^]*paperOrderStatusTone/);
+assert.match(paperAccountSource, /paper-account-order-head[^]*>종목<[^]*>수량<[^]*>가격<[^]*>구분<[^]*>상태</);
+assert.match(paperAccountSource, /paper-position-list[^]*OrderTableHead showSide=\{false\}/);
+assert.match(paperAccountSource, /showSide \? <span>구분<\/span> : <span \/>/);
+assert.match(stylesSource, /\.paper-position-row > \.paper-order-status \{\s*grid-column: 5;/);
+assert.match(stylesSource, /\.paper-account-body \{[^}]*scrollbar-gutter: stable;/);
+assert.doesNotMatch(stylesSource, /\.paper-account-tabs \{[^}]*padding-right:/);
+assert.doesNotMatch(paperAccountSource, />시간<|>관리</);
+assert.match(paperAccountSource, />예약매매<[^]*>거래내역<[^]*>미체결 \{snapshot\.open_orders\.length\}<[^]*>보유종목</);
+assert.match(paperAccountSource, /tab === "scheduled"[^]*등록된 예약매매가 없습니다/);
+assert.match(orderTicketSource, />주문 유형</);
+assert.match(orderTicketSource, />일반 주문</);
+assert.match(orderTicketSource, /지정가/);
+assert.match(orderTicketSource, /시장가/);
+assert.match(orderTicketSource, />총 주문 금액</);
+assert.match(orderTicketSource, />종목</);
+assert.match(orderTicketSource, /displayCompanyName\(selectedSymbolMeta\)/);
+assert.doesNotMatch(orderTicketSource, />가상 주문하기</);
+assert.match(orderTicketSource, /order-paper-review-card/);
+assert.match(orderTicketSource, />예상 주문액</);
+assert.doesNotMatch(orderTicketSource, /주문 가능 금액/);
+assert.doesNotMatch(orderTicketSource, /\/api\/orders\/balance/);
+assert.match(orderTicketSource, /priceType === "market"/);
+assert.match(orderTicketSource, /시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다/);
 
 const layoutPresetSource = readFileSync(
   fileURLToPath(new URL("../src/layout/layoutPresets.ts", import.meta.url)),

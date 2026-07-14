@@ -73,6 +73,7 @@ export function QuickOrderPanel({
   const [priceBinSize, setPriceBinSize] = useState(0.01);
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [intent, setIntent] = useState<QuickOrderIntent | null>(null);
+  const [priceText, setPriceText] = useState("");
   const [risk, setRisk] = useState<RiskVerdict>();
   const [riskLoading, setRiskLoading] = useState(false);
   const [balance, setBalance] = useState<Balance>();
@@ -145,6 +146,7 @@ export function QuickOrderPanel({
 
   useEffect(() => {
     setIntent(null);
+    setPriceText("");
     setRisk(undefined);
     setMinutes(new Map());
     setQuote(null);
@@ -185,19 +187,20 @@ export function QuickOrderPanel({
   const quoteUsable = quoteIsUsable(quote);
   const transportReady = streamState === "idle" || streamState === "live";
   const marketDataReady = quoteUsable && transportReady;
+  const price = parsePositivePrice(priceText);
   const qty = parsePositiveInteger(qtyText);
   const exchange = exchangeForSymbol(selectedSymbol, [...symbolOptions, ...paperSymbolOptions]);
   const disabledReason = quickOrderDisabledReason({ supported, quoteUsable, streamState, submitting });
 
   useEffect(() => {
-    if (!intent || !marketDataReady || !supported || qty === null) {
+    if (!intent || price === null || !marketDataReady || !supported || qty === null) {
       setRisk(undefined);
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setRiskLoading(true);
-      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, intent), controller.signal, executionMode)
+      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), controller.signal, executionMode)
         .then(setRisk)
         .catch(() => setRisk(undefined))
         .finally(() => setRiskLoading(false));
@@ -206,21 +209,21 @@ export function QuickOrderPanel({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [exchange, executionMode, intent, marketDataReady, qty, selectedSymbol, supported]);
+  }, [exchange, executionMode, intent, marketDataReady, price, qty, selectedSymbol, supported]);
 
   useEffect(() => {
-    if (!intent || !marketDataReady) {
+    if (!intent || price === null || !marketDataReady) {
       setBalance(undefined);
       return;
     }
     const controller = new AbortController();
-    const params = new URLSearchParams({ symbol: selectedSymbol, exchange, price: intent.price.toFixed(2) });
+    const params = new URLSearchParams({ symbol: selectedSymbol, exchange, price: price.toFixed(2) });
     fetch(`${orderBalancePath(executionMode)}?${params.toString()}`, { signal: controller.signal })
       .then(async (response) => response.ok ? response.json() : Promise.reject())
       .then(setBalance)
       .catch(() => setBalance(undefined));
     return () => controller.abort();
-  }, [exchange, executionMode, intent, marketDataReady, selectedSymbol]);
+  }, [exchange, executionMode, intent, marketDataReady, price, selectedSymbol]);
 
   useEffect(() => () => {
     socketsRef.current.forEach((socket) => socket.close());
@@ -230,6 +233,24 @@ export function QuickOrderPanel({
   const selectIntent = (next: QuickOrderIntent) => {
     if (disabledReason) return;
     setIntent(next);
+    setPriceText(next.price.toFixed(2));
+  };
+
+  const updatePriceText = (value: string) => {
+    const normalizedText = normalizePriceText(value);
+    setPriceText(normalizedText);
+    if (intent) {
+      const parsed = parsePositivePrice(normalizedText);
+      setIntent({ ...intent, ...(parsed === null ? {} : { price: parsed }), source: "manual", label: "직접 입력" });
+    }
+  };
+
+  const normalizePriceInput = () => {
+    if (price === null) {
+      setPriceText("");
+      return;
+    }
+    setPriceText(price.toFixed(2));
   };
 
   const selectSymbol = (nextSymbol: string) => {
@@ -261,8 +282,8 @@ export function QuickOrderPanel({
 
   const applyBuyingPowerRatio = (ratio: number) => {
     const cashValue = Number(balance?.orderable_cash);
-    if (!intent || !Number.isFinite(cashValue) || cashValue <= 0) return;
-    updateQty(Math.max(1, Math.floor((cashValue * ratio) / intent.price)));
+    if (price === null || !Number.isFinite(cashValue) || cashValue <= 0) return;
+    updateQty(Math.max(1, Math.floor((cashValue * ratio) / price)));
   };
 
   const submit = async () => {
@@ -270,13 +291,13 @@ export function QuickOrderPanel({
       login();
       return;
     }
-    if (!intent || qty === null || disabledReason || risk?.verdict === "block") return;
+    if (!intent || price === null || qty === null || disabledReason || risk?.verdict === "block") return;
     setSubmitting(true);
     const idempotencyKey = makeIdempotencyKey();
     const pendingToastId = `pending-${idempotencyKey}`;
     showToast({ id: pendingToastId, tone: "pending", message: `${selectedSymbol} 주문 전송 중` }, false);
     try {
-      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, intent), idempotencyKey, undefined, executionMode);
+      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), idempotencyKey, undefined, executionMode);
       removeToast(pendingToastId);
       showToast({ id: order.order_id, tone: "info", message: `${selectedSymbol} 주문이 접수되었습니다.` });
       if (order.simulation) {
@@ -340,88 +361,93 @@ export function QuickOrderPanel({
   const askIntent = baseIntents.find((item) => item.source === "best-ask");
   const bidIntent = baseIntents.find((item) => item.source === "best-bid");
   const offsetIntents = baseIntents.filter((item) => item.source.endsWith("offset"));
-  const estimatedAmount = intent && qty !== null ? qty * intent.price : 0;
+  const estimatedAmount = intent && price !== null && qty !== null ? qty * price : 0;
   const cash = Number(balance?.orderable_cash);
+  const symbolPicker = (
+    <div
+      className="quick-order-symbol-picker"
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+          setSymbolSearchOpen(false);
+          setSymbolSearchQuery("");
+        }
+      }}
+    >
+      <div className={`quick-order-symbol-search ${symbolSearchOpen ? "is-searching" : "is-selected"}`}>
+        {symbolSearchOpen ? (
+          <>
+            <Search size={14} aria-hidden="true" />
+            <input
+              ref={symbolSearchInputRef}
+              value={symbolSearchQuery}
+              placeholder={executionMode === "paper" ? "회사명 검색" : "종목 검색"}
+              aria-label={executionMode === "paper" ? "빠른 주문 회사명 검색" : "빠른 주문 종목 검색"}
+              aria-expanded="true"
+              aria-haspopup="listbox"
+              onFocus={() => setSymbolSearchQuery("")}
+              onChange={(event) => setSymbolSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  const query = event.currentTarget.value.trim().toUpperCase();
+                  const exact = visibleSymbolOptions.find((item) => item.symbol === query || item.name.toUpperCase() === query);
+                  const next = exact ?? visibleSymbolOptions[0];
+                  if (next) selectSymbol(next.symbol);
+                }
+                if (event.key === "Escape") {
+                  setSymbolSearchOpen(false);
+                  setSymbolSearchQuery("");
+                }
+              }}
+            />
+          </>
+        ) : (
+          <button
+            type="button"
+            className="quick-order-selected-symbol"
+            aria-label={`선택 종목 ${selectedSymbolName || selectedSymbol}. ${executionMode === "paper" ? "회사명" : "종목"} 검색 열기`}
+            aria-expanded="false"
+            aria-haspopup="listbox"
+            onClick={() => {
+              setSymbolSearchQuery("");
+              setSymbolSearchOpen(true);
+            }}
+          >
+            <strong>{executionMode === "paper" ? selectedSymbolName || selectedSymbol : selectedSymbol}</strong>
+          </button>
+        )}
+      </div>
+      {symbolSearchOpen && (
+        <div className="quick-order-symbol-dropdown" role="listbox" aria-label={executionMode === "paper" ? "빠른 주문 회사 선택" : "빠른 주문 종목 선택"}>
+          {visibleSymbolOptions.map((item) => (
+            <button
+              key={item.symbol}
+              type="button"
+              role="option"
+              aria-selected={item.symbol === selectedSymbol}
+              className={item.symbol === selectedSymbol ? "active" : ""}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectSymbol(item.symbol)}
+            >
+              <strong>{item.symbol}</strong>
+              <span>{item.name}</span>
+            </button>
+          ))}
+          {visibleSymbolOptions.length === 0 && <span className="quick-order-symbol-empty">일치하는 {executionMode === "paper" ? "회사" : "종목"}가 없습니다</span>}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <section className="quick-order-panel" data-stream-state={streamState} data-execution-mode={executionMode} aria-label={executionMode === "paper" ? "가상 빠른 주문 패널" : "빠른 주문 패널"}>
-      <header className="quick-order-header">
-        <span className="quick-order-title">{executionMode === "paper" ? "가상 빠른 주문" : "빠른 주문"}</span>
-        <div
-          className="quick-order-symbol-picker"
-          onBlur={(event) => {
-            const nextTarget = event.relatedTarget;
-            if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-              setSymbolSearchOpen(false);
-              setSymbolSearchQuery("");
-            }
-          }}
-        >
-          <div className={`quick-order-symbol-search ${symbolSearchOpen ? "is-searching" : "is-selected"}`}>
-            {symbolSearchOpen ? (
-              <>
-                <Search size={14} aria-hidden="true" />
-                <input
-                  ref={symbolSearchInputRef}
-                  value={symbolSearchQuery}
-                  placeholder="종목 검색"
-                  aria-label="빠른 주문 종목 검색"
-                  aria-expanded="true"
-                  aria-haspopup="listbox"
-                  onFocus={() => setSymbolSearchQuery("")}
-                  onChange={(event) => setSymbolSearchQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                      event.preventDefault();
-                      const query = event.currentTarget.value.trim().toUpperCase();
-                      const exact = visibleSymbolOptions.find((item) => item.symbol === query);
-                      const next = exact ?? visibleSymbolOptions[0];
-                      if (next) selectSymbol(next.symbol);
-                    }
-                    if (event.key === "Escape") {
-                      setSymbolSearchOpen(false);
-                      setSymbolSearchQuery("");
-                    }
-                  }}
-                />
-              </>
-            ) : (
-              <button
-                type="button"
-                className="quick-order-selected-symbol"
-                aria-label={`선택 종목 ${selectedSymbol}. 종목 검색 열기`}
-                aria-expanded="false"
-                aria-haspopup="listbox"
-                onClick={() => {
-                  setSymbolSearchQuery("");
-                  setSymbolSearchOpen(true);
-                }}
-              >
-                <strong>{selectedSymbol}</strong>
-              </button>
-            )}
-          </div>
-          {symbolSearchOpen && (
-            <div className="quick-order-symbol-dropdown" role="listbox" aria-label="빠른 주문 종목 선택">
-              {visibleSymbolOptions.map((item) => (
-                <button
-                  key={item.symbol}
-                  type="button"
-                  role="option"
-                  aria-selected={item.symbol === selectedSymbol}
-                  className={item.symbol === selectedSymbol ? "active" : ""}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectSymbol(item.symbol)}
-                >
-                  <strong>{item.symbol}</strong>
-                  <span>{item.name}</span>
-                </button>
-              ))}
-              {visibleSymbolOptions.length === 0 && <span className="quick-order-symbol-empty">일치하는 종목이 없습니다</span>}
-            </div>
-          )}
-        </div>
-      </header>
+      {executionMode !== "paper" && (
+        <header className="quick-order-header">
+          <span className="quick-order-title">빠른 주문</span>
+          {symbolPicker}
+        </header>
+      )}
 
       <div className="quick-order-quote-grid" role="group" aria-label="주문 가격 선택">
         <button type="button" className={`quick-order-quote buy ${intent?.source === "best-bid" ? "selected" : ""}`} aria-pressed={intent?.source === "best-bid"} disabled={Boolean(disabledReason)} onClick={() => bidIntent && selectIntent(bidIntent)}>
@@ -481,6 +507,24 @@ export function QuickOrderPanel({
       </div>
 
       <div className="quick-order-quantity-section">
+          <div className="quick-order-price-header">
+            <span>가격</span>
+            {intent && <small className={intent.side}>{intent.side === "buy" ? "매수" : "매도"}</small>}
+          </div>
+        <div className="quick-order-price-editor">
+          <label>
+            <input
+              inputMode="decimal"
+              value={priceText}
+              placeholder="가격 선택"
+              aria-label="빠른 주문 가격 직접 입력"
+              disabled={!intent}
+              onChange={(event) => updatePriceText(event.target.value)}
+              onBlur={normalizePriceInput}
+            />
+            <span>USD</span>
+          </label>
+        </div>
           <div className="quick-order-quantity-header">
             <span>수량</span>
         </div>
@@ -504,7 +548,7 @@ export function QuickOrderPanel({
         </div>
         <div className="quick-order-ratio-buttons" role="group" aria-label="주문 가능 금액 비율">
           {[0.1, 0.25, 0.5, 1].map((ratio) => (
-            <button key={ratio} type="button" disabled={!intent || !Number.isFinite(cash)} onClick={() => applyBuyingPowerRatio(ratio)}>
+            <button key={ratio} type="button" disabled={price === null || !Number.isFinite(cash)} onClick={() => applyBuyingPowerRatio(ratio)}>
               {ratio === 1 ? "최대" : `${ratio * 100}%`}
             </button>
           ))}
@@ -514,11 +558,11 @@ export function QuickOrderPanel({
 
       <div className="quick-order-footer">
       <div className="quick-order-review" aria-live="polite">
-        <strong className="quick-order-review-company">{selectedSymbolName || selectedSymbol}</strong>
+        {executionMode === "paper" ? symbolPicker : <strong className="quick-order-review-company">{selectedSymbolName || selectedSymbol}</strong>}
         <span className="quick-order-total-label">예상 주문액</span>
-        <strong className="quick-order-total-value">{intent && qty !== null ? `$${estimatedAmount.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "--"}</strong>
+        <strong className="quick-order-total-value">{intent && price !== null && qty !== null ? `$${estimatedAmount.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "--"}</strong>
       </div>
-      <button className="quick-order-submit" type="button" disabled={!intent || qty === null || Boolean(disabledReason) || authLoading || Boolean(risk && risk.verdict !== "allow")} onClick={submit}>
+      <button className={`quick-order-submit ${intent?.side ?? ""}`} type="button" disabled={!intent || price === null || qty === null || Boolean(disabledReason) || authLoading || Boolean(risk && risk.verdict !== "allow")} onClick={submit}>
         {submitting ? <LoaderCircle size={15} className="spin" /> : <SendHorizontal size={15} />}
         {authEnabled && !user ? "로그인 후 주문" : submitting ? "전송 중" : "주문 전송"}
       </button>
@@ -593,4 +637,18 @@ function parsePositiveInteger(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizePriceText(value: string): string {
+  const sanitized = value.replace(/[^\d.]/g, "");
+  const [whole = "", ...decimalParts] = sanitized.split(".");
+  const normalizedWhole = whole.slice(0, 9);
+  if (!decimalParts.length) return normalizedWhole;
+  return `${normalizedWhole}.${decimalParts.join("").slice(0, 2)}`;
+}
+
+function parsePositivePrice(value: string): number | null {
+  if (!/^\d+(?:\.\d{0,2})?$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }

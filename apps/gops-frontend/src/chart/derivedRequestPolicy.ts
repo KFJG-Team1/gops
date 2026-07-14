@@ -16,6 +16,7 @@ export function stableVolumeProfileRangeKey(query: {
   priceBinSize?: string;
   priceMin?: number;
   priceMax?: number;
+  candleCount?: number;
 }): string {
   return [
     query.symbol.trim().toUpperCase(),
@@ -25,7 +26,8 @@ export function stableVolumeProfileRangeKey(query: {
     query.priceBinSize ?? "auto",
     Math.max(4, Math.min(48, Math.round(query.targetBins ?? 10))),
     stableOptionalNumber(query.priceMin),
-    stableOptionalNumber(query.priceMax)
+    stableOptionalNumber(query.priceMax),
+    stableOptionalNumber(query.candleCount)
   ].join("|");
 }
 

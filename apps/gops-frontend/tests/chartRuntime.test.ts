@@ -18,7 +18,7 @@ import {
   normalizeAgentAnalysisReport,
   shouldAutoApplyAgentLayoutProposal
 } from "../src/agents/agentAnalysis";
-import { parsePortfolioHoldingsApiResponse } from "../src/components/portfolioHoldingsApi";
+import { parsePortfolioHoldingsApiResponse, validPortfolioCash } from "../src/components/portfolioHoldingsApi";
 import {
   DEFAULT_AGENT_DRAFT_SEED,
   isAgentChartReferenceAvailable,
@@ -85,6 +85,7 @@ import {
 } from "../src/chart/indicatorLayerPolicy";
 import { derivedClientCacheMaxEntries, stableVolumeProfileRangeKey } from "../src/chart/derivedRequestPolicy";
 import { fetchVolumeProfile } from "../src/chart/cdcClient";
+import { volumeProfilePartialRetryDelaysMs, volumeProfileResponseMatchesRequest } from "../src/chart/volumeProfilePolicy";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
 import {
   olderRangeQueuedRetryDelayMs,
@@ -103,7 +104,8 @@ import {
   isBidAskChartInterval,
   type CandleDto,
   type ChartState,
-  type DrawingEntity
+  type DrawingEntity,
+  type VolumeProfileResponseDto
 } from "../src/chart/types";
 import { fetchOrderFlowSymbols, orderFlowDemoContextFromCandles } from "../src/chart/orderFlowClient";
 import { fetchDemoOrderFlowIntraday } from "../src/chart/orderFlowDemoData";
@@ -902,6 +904,28 @@ const mergedCanonicalIndicators = mergeIndicatorSeries(
   { "ema:20": [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }] }
 );
 assert.deepEqual(mergedCanonicalIndicators["ema:20"], [{ timestamp: "2026-06-25T13:30:00.000Z", value: 103 }]);
+const volumeProfileAxisCandles = [
+  testCandle("2026-06-25T13:30:00.000Z", 100),
+  testCandle("2026-06-25T13:31:00.000Z", 101)
+];
+const volumeProfileAxisScene = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: volumeProfileAxisCandles,
+  visibleCount: 2,
+  layers: { candles: true, volume: false, ma5: false, ma20: false, ma60: false, "sma:120": true },
+  indicatorSeries: {
+    "sma:120": volumeProfileAxisCandles.map((candle) => ({ timestamp: candle.timestamp, value: 140 }))
+  }
+}), 720, 420);
+assert.ok(volumeProfileAxisScene.scales.maxPrice > Math.max(...volumeProfileAxisCandles.map((candle) => candle.high)));
+const volumeProfileAxisTransform = createFrontendCoordinateTransform(volumeProfileAxisScene);
+const volumeProfileAxisStep = (volumeProfileAxisScene.scales.maxPrice - volumeProfileAxisScene.scales.minPrice) / 10;
+const volumeProfileBoundaryYs = Array.from({ length: 11 }, (_, index) => (
+  volumeProfileAxisTransform.priceToY(volumeProfileAxisScene.scales.minPrice + index * volumeProfileAxisStep)
+));
+const volumeProfileSlotHeights = volumeProfileBoundaryYs.slice(1).map((value, index) => Math.abs(value - volumeProfileBoundaryYs[index]));
+const expectedVolumeProfileSlotHeight = (volumeProfileAxisScene.plot.priceBottom - volumeProfileAxisScene.plot.top) / 10;
+assert.ok(volumeProfileSlotHeights.every((height) => Math.abs(height - expectedVolumeProfileSlotHeight) < 0.000001));
 const expandedIndicatorScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
   candles: [candleA as CandleDto],
@@ -2027,6 +2051,74 @@ assert.notEqual(
     priceMax: 111
   })
 );
+assert.notEqual(
+  stableVolumeProfileRangeKey({
+    symbol: "NVDA",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceMin: 100,
+    priceMax: 110,
+    candleCount: 120
+  }),
+  stableVolumeProfileRangeKey({
+    symbol: "NVDA",
+    interval: "1D",
+    from: "2026-07-02T04:00:00.000Z",
+    to: "2026-07-08T04:00:00.000Z",
+    targetBins: 10,
+    priceMin: 100,
+    priceMax: 110,
+    candleCount: 200
+  })
+);
+assert.deepEqual(volumeProfilePartialRetryDelaysMs, [500, 1_500]);
+
+const exactProfileRequest = {
+  symbol: "NVDA",
+  interval: "1m" as const,
+  from: "2026-07-08T13:30:00.000Z",
+  to: "2026-07-08T14:00:00.000Z",
+  targetBins: 10,
+  priceMin: 90,
+  priceMax: 110,
+  candleCount: 200
+};
+const exactProfileBins = Array.from({ length: 10 }, (_, index) => ({
+  index,
+  priceBin: 90 + index * 2,
+  priceBinSize: 2,
+  priceMin: 90 + index * 2,
+  priceMax: 92 + index * 2,
+  priceMid: 91 + index * 2,
+  volume: index === 4 ? 100 : 0,
+  tradeCount: 0,
+  volumePercent: index === 4 ? 1 : 0,
+  isPoc: index === 4,
+  inValueArea: index === 4
+}));
+const exactProfileResponse: VolumeProfileResponseDto = {
+  ...exactProfileRequest,
+  sourceInterval: "1m",
+  timeBucket: "1m",
+  bucketCount: 10,
+  priceBinSize: 2,
+  sourceBinCount: 200,
+  sourceCandleCount: 200,
+  requestedCandleCount: 200,
+  source: "fixture",
+  feed: "sip",
+  calculationVersion: "volume-profile-exact-v2",
+  dataStatus: "ready",
+  priceRange: { min: 90, max: 110, requestedMin: 90, requestedMax: 110 },
+  totalVolume: 100,
+  totalTradeCount: 0,
+  bins: exactProfileBins
+};
+assert.equal(volumeProfileResponseMatchesRequest(exactProfileResponse, exactProfileRequest), true);
+assert.equal(volumeProfileResponseMatchesRequest({ ...exactProfileResponse, sourceCandleCount: 120 }, exactProfileRequest), false);
+assert.equal(volumeProfileResponseMatchesRequest({ ...exactProfileResponse, dataStatus: "partial" }, exactProfileRequest), false);
 
 let volumeProfileFetchCalls = 0;
 try {
@@ -2052,6 +2144,22 @@ try {
   }
   await fetchVolumeProfile(queryForIndex(0));
   assert.equal(volumeProfileFetchCalls, derivedClientCacheMaxEntries + 2);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+let partialVolumeProfileFetchCalls = 0;
+try {
+  globalThis.fetch = (async () => {
+    partialVolumeProfileFetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...exactProfileResponse, dataStatus: "partial", sourceCandleCount: 120 })
+    } as Response;
+  }) as typeof fetch;
+  await fetchVolumeProfile(exactProfileRequest);
+  await fetchVolumeProfile(exactProfileRequest);
+  assert.equal(partialVolumeProfileFetchCalls, 2);
 } finally {
   globalThis.fetch = originalFetch;
 }
@@ -3566,15 +3674,21 @@ assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(true\)/)
 assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 
+const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
+assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 2);
+assert.doesNotMatch(companySummaryPanelSource, /company-(?:profitability|stability)-plot[^>]*preserveAspectRatio="none"/);
+
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
 const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
 assert.match(chartPanelSource, /const chartVolumeProfileBinCount = 10;/);
-assert.equal((chartPanelSource.match(/targetBins: chartVolumeProfileBinCount/g) ?? []).length, 2);
-assert.equal((chartPanelSource.match(/priceMin: visibleProfileRange\.priceMin/g) ?? []).length, 2);
-assert.equal((chartPanelSource.match(/priceMax: visibleProfileRange\.priceMax/g) ?? []).length, 2);
-assert.match(chartPanelSource, /visibleProfileRangeKey/);
+assert.equal((chartPanelSource.match(/targetBins: chartVolumeProfileBinCount/g) ?? []).length, 1);
+assert.match(chartPanelSource, /scene\.scales\.minPrice/);
+assert.match(chartPanelSource, /scene\.scales\.maxPrice/);
+assert.match(chartPanelSource, /volumeProfileRequestKey/);
+assert.match(chartPanelSource, /volumeProfilePartialRetryDelaysMs/);
+assert.match(chartPanelSource, /volumeProfileResponseMatchesRequest/);
 assert.match(chartPanelSource, /closedVisibleCandles/);
 assert.doesNotMatch(chartPanelSource, /chart\.layers\["volume-profile"\],\n    chart\.symbol,\n    visibleProfileRange,\n  \]/);
 assert.match(chartPanelSource, /chartStateFromDocument/);
@@ -3920,6 +4034,9 @@ const parsedHoldings = await parsePortfolioHoldingsApiResponse(fakeApiResponse({
   })
 }));
 assert.equal(parsedHoldings.positions[0]?.symbol, "MU");
+assert.equal(validPortfolioCash(1199, 1853, 3052), 1199);
+assert.equal(validPortfolioCash(105510401.1332, 71662.86, 71662.86), null);
+assert.equal(validPortfolioCash(null, 71662.86, 71662.86), null);
 await assert.rejects(
   () => parsePortfolioHoldingsApiResponse(fakeApiResponse({ ok: false, status: 503, body: "" })),
   /보유종목 API 오류 503/

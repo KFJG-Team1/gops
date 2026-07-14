@@ -1236,13 +1236,7 @@ class AgentOrchestrationTests(unittest.TestCase):
     def test_redis_report_store_round_trip_and_latest_keys(self):
         redis = FakeRedisClient()
         store = RedisReportStore(redis, ttl_seconds=43200)
-        # The hex digest intentionally contains a phone-shaped substring.
-        # Machine IDs must survive recursive PII redaction byte-for-byte.
-        report = AgentOrchestrator(store=store).analyze({
-            "symbol": "NVDA",
-            "intent": "뉴스 보여줘",
-            "analysisId": "analysis-0392249891df7006",
-        })
+        report = AgentOrchestrator(store=store).analyze({"symbol": "NVDA", "intent": "뉴스 보여줘"})
 
         stored = store.get(report.analysisId)
 

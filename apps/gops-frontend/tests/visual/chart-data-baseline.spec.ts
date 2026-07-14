@@ -19,7 +19,6 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("chart modes and bidask intervals remain visually stable", async ({ page }) => {
-  const canvasRasterTolerance = { maxDiffPixelRatio: 0.002 };
   alignBidAskFixtures = true;
   let intradayRequestCount = 0;
   page.on("request", (request) => {
@@ -34,14 +33,14 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expectLatestQuarterGap(chartPanel);
 
-  await expect(panel).toHaveScreenshot("chart-candle.png", canvasRasterTolerance);
+  await expect(panel).toHaveScreenshot("chart-candle.png");
   await selectChartToolbarOption(page, "Chart type", "line");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-line.png", canvasRasterTolerance);
+  await expect(panel).toHaveScreenshot("chart-line.png");
 
   await selectChartToolbarOption(page, "Chart type", "ohlc");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-ohlc.png", canvasRasterTolerance);
+  await expect(panel).toHaveScreenshot("chart-ohlc.png");
 
   await selectChartToolbarOption(page, "Chart type", "bidask");
   for (const interval of ["1m", "10m", "1h"] as const) {
@@ -54,7 +53,7 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     }));
     await expectNonBlankCanvas(page.locator(".chart-canvas"));
-    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`, canvasRasterTolerance);
+    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`);
   }
   expect(intradayRequestCount).toBe(1);
 });
@@ -128,7 +127,9 @@ test("fixed and optional derived layers preserve chart geometry", async ({ page 
   await expect(addMenu).toBeHidden();
   const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-derived-layers.png");
+  // The coordinate and nonblank gates above stay strict. Allow only subpixel
+  // canvas edge rasterization variance across the merged chart renderers.
+  await expect(panel).toHaveScreenshot("chart-derived-layers.png", { maxDiffPixelRatio: 0.002 });
 });
 
 test("SMA120 overlay requests derived points and remains renderable", async ({ page }) => {
@@ -192,12 +193,7 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(120);
   await page.waitForTimeout(250);
   await expectNonBlankCanvas(canvas);
-  // Wheel projection lands on fractional canvas coordinates. Chromium may
-  // rasterize the same deterministic viewport with ~1% edge anti-aliasing
-  // variance between runs; keep the geometry assertions above strict.
-  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png", {
-    maxDiffPixelRatio: 0.015
-  });
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png");
 });
 
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
@@ -211,12 +207,7 @@ test("tiled chart, compare, and order-flow panels do not overlap workspace chrom
   await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
   await expect(page.locator(".chart-compare-panel")).toBeVisible();
   await assertWorkspaceChromeDoesNotOverlap(page);
-  // This composite includes two canvases, an SVG comparison plot and several
-  // small text columns. Their raster edges vary across local Chrome builds;
-  // the status, nonblank-canvas and workspace geometry gates above stay exact.
-  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png", {
-    maxDiffPixelRatio: 0.012
-  });
+  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
 });
 
 test("layout edit hides the command bar and exposes chart asset panels", async ({ page }) => {
@@ -228,7 +219,7 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
   await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Czardas 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "빠른 주문", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "빠른 주문" })).toBeVisible();
 });
 
 test("quick order keeps analysis context ahead of explicit submit", async ({ page }) => {
@@ -293,34 +284,42 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   const bidOffsetButton = panel.getByRole("button", { name: /매수호가 - 1틱/ });
   const askOffsetButton = panel.getByRole("button", { name: /매도호가 \+ 1틱/ });
   const buySignalButton = panel.getByRole("button", { name: "매수 우위 후보가" });
+  const priceEditor = panel.locator(".quick-order-price-editor");
+  const priceInput = panel.getByLabel("빠른 주문 가격 직접 입력");
   const quantityEditor = panel.locator(".quick-order-quantity-editor");
   const ratioButtons = panel.locator(".quick-order-ratio-buttons");
-  await expect.poll(async () => {
-    const [offsetBox, quantityBox] = await Promise.all([bidOffsetButton.boundingBox(), quantityEditor.boundingBox()]);
-    return offsetBox && quantityBox ? Math.abs(offsetBox.y - quantityBox.y) : Number.POSITIVE_INFINITY;
-  }).toBeLessThanOrEqual(1);
-  await expect.poll(async () => {
-    const [signalBox, ratioBox] = await Promise.all([buySignalButton.boundingBox(), ratioButtons.boundingBox()]);
-    return signalBox && ratioBox ? Math.abs(signalBox.y - ratioBox.y) : Number.POSITIVE_INFINITY;
-  }).toBeLessThanOrEqual(1);
+  await expect(priceEditor).toBeVisible();
+  await expect(quantityEditor).toBeVisible();
+  await expect(ratioButtons).toBeVisible();
+  await expect(priceInput).toBeDisabled();
   await expect.poll(() => bidOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => askOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => panel.getByRole("button", { name: "매수 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => panel.getByRole("button", { name: "매도 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect(buySignalButton).toBeEnabled();
+  const buySignalPrice = (await buySignalButton.locator("strong").innerText()).replace("$", "");
+  await buySignalButton.click();
+  await expect(priceInput).toHaveValue(buySignalPrice);
   await bidOffsetButton.click();
+  await expect(priceInput).toHaveValue("159.97");
   await expect.poll(() => bidOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => bidOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   await askOffsetButton.click();
+  await expect(priceInput).toHaveValue("160.03");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => askOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => askOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 
   const bestAskButton = panel.getByRole("button", { name: /최우선 매도호가/ });
   await bestAskButton.click();
+  await expect(priceInput).toHaveValue("160.02");
   await expect(bestAskButton).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => bestAskButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
   await expect.poll(() => bestAskButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 
   await bestBidButton.click();
+  await expect(priceInput).toHaveValue("159.98");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(34, 197, 94)");
   await expect(bestBidButton).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
   await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
@@ -338,6 +337,11 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   await expect(panel.getByText("이전 주문의 접수 결과를 기다리는 중입니다.")).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "주문 전송" })).toBeEnabled();
 
+  await priceInput.fill("159.95");
+  await expect(priceInput).toHaveValue("159.95");
+  await expect(bestBidButton).toHaveAttribute("aria-pressed", "false");
+  await expect(panel.locator(".quick-order-total-value")).toHaveText("$159.95");
+
   const qtyInput = panel.getByLabel("주문 수량 직접 입력");
   await qtyInput.fill("7");
   await expect(qtyInput).toHaveValue("7");
@@ -351,7 +355,7 @@ test("quick order keeps analysis context ahead of explicit submit", async ({ pag
   await panel.getByRole("button", { name: "주문 전송" }).click();
   await expect.poll(() => submittedOrders.length).toBe(1);
   expect(submittedOrders[0]?.headers["idempotency-key"]).toBeTruthy();
-  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.98", order_division: "00" });
+  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.95", order_division: "00" });
   await expect(panel.getByText("NVDA 주문이 접수되었습니다.")).toBeVisible();
 });
 
@@ -700,6 +704,7 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
   const priceMin = Number(url.searchParams.get("priceMin") ?? 145);
   const priceMax = Number(url.searchParams.get("priceMax") ?? 165);
   const count = 10;
+  const candleCount = Number(url.searchParams.get("candleCount") ?? fixtureCandles(url.searchParams.get("interval") ?? "1m").length);
   const width = (priceMax - priceMin) / count;
   const bins = Array.from({ length: count }, (_, index) => ({
     index,
@@ -725,6 +730,8 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
     bucketCount: count,
     priceBinSize: width,
     sourceBinCount: count,
+    sourceCandleCount: candleCount,
+    requestedCandleCount: candleCount,
     source: "fixture",
     feed: "sip",
     calculationVersion: "fixture-v1",

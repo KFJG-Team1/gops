@@ -10,9 +10,9 @@
 - 방식: `ABC`에서 dev를 merge하고 의미 단위로 충돌을 해결한다.
 - 공개: 별도 승인 전 push, PR, AWS migration·배포를 하지 않는다.
 
-이번 통합 기준은 ABC `e1812a3`, origin/dev `9b06caf`, merge-base `16e0fa5`다.
-merge commit을 만들기 전까지 `MERGE_HEAD`가 유지되는 것은 정상이나, 완료 gate를 통과하지
-않은 상태를 배포 가능한 통합으로 부르지 않는다.
+이번 통합 기준은 ABC 시작점 `e1812a3`, 최신 origin/dev `8e2bfc8`, merge-base
+`16e0fa5`다. 중간 기준 `9b06caf` 통합 후 추가 dev delta를 다시 병합했으며, 최종 gate를
+통과하지 않은 상태를 배포 가능한 통합으로 부르지 않는다.
 
 ## 충돌 원칙
 

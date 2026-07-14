@@ -40,16 +40,20 @@
 
 ## 완료 검증 기록
 
-- market-data: `493 passed, 6 skipped, 35 subtests passed`.
-- agent-orchestration: `347 passed, 52 subtests passed`.
-- API: `278 passed, 31 subtests passed`.
-- order: `127 passed, 6 skipped`.
+- market-data: `496 passed, 6 skipped, 35 subtests passed`.
+- API: `280 passed, 31 subtests passed`.
+- order: `128 passed, 6 skipped`.
+- Czardas focused: kernel `63`, agent `57`, API `17` tests passed.
 - Czardas kernel 100회 실측: P95 `37.411ms`, P99 `38.154ms`.
 - 최대 fixture: Field `79,960 bytes`, pack `94,357 bytes`.
-- chart runtime parse+delta P95 `0.786ms`, Field paint P95 `0.400ms`.
-- Playwright visual: `53 passed, 3 skipped`.
+- chart runtime parse+delta P95 `0.788ms`, Field paint P95 `0.400ms`.
+- Czardas Playwright visual: `7 passed, 3 skipped`; shared derived-layer 좌표 회귀 `1 passed`.
 - frontend build, bundle-size, layout, simulator, AI Coach와 AWS 두 overlay의 kustomize render 통과.
 - Geometry runtime 음성 검색과 `git diff --check` 통과.
+
+최신 origin/dev의 빠른주문 visual assertion 한 건은 desktop/mobile에서 실패한다. Czardas와
+무관한 구현·테스트는 이 통합의 수정 권한 밖이므로 dev 코드를 그대로 수용하고 실패를 별도
+보고한다. 이 항목을 Czardas gate 통과로 위장하거나 threshold 변경으로 숨기지 않는다.
 
 ## 필수 gate
 

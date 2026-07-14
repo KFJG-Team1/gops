@@ -99,6 +99,11 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { stableVolumeProfileRangeKey } from "../chart/derivedRequestPolicy";
+import {
+  volumeProfilePartialRetryDelaysMs,
+  volumeProfileResponseMatchesRequest,
+  type ExactVolumeProfileRequest
+} from "../chart/volumeProfilePolicy";
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
@@ -318,6 +323,8 @@ const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
 const chartVolumeProfileBinCount = 10;
 const defaultOrderFlowPriceBinSize = 0.01;
+
+type VolumeProfileSceneRange = ExactVolumeProfileRequest;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "선분"],
   ["ray", "반직선"],
@@ -445,6 +452,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
+  const [volumeProfileSceneRange, setVolumeProfileSceneRange] = useState<VolumeProfileSceneRange | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
   const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("empty");
@@ -539,27 +547,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.visibleCount,
     transientViewport
   ]);
-  const visibleProfileRangeKey = useMemo(() => (
-    visibleProfileRange
-      ? stableVolumeProfileRangeKey({
-          symbol: chart.symbol,
-          interval: chart.interval,
-          from: visibleProfileRange.from,
-          to: visibleProfileRange.to,
-          targetBins: chartVolumeProfileBinCount,
-          priceBinSize: "auto",
-          priceMin: visibleProfileRange.priceMin,
-          priceMax: visibleProfileRange.priceMax
-        })
-      : ""
-  ), [
+  const volumeProfileRequest = useMemo<ExactVolumeProfileRequest | null>(() => {
+    if (!visibleProfileRange || !volumeProfileSceneRange ||
+      volumeProfileSceneRange.symbol !== chart.symbol ||
+      volumeProfileSceneRange.interval !== chart.interval ||
+      volumeProfileSceneRange.from !== visibleProfileRange.from ||
+      volumeProfileSceneRange.to !== visibleProfileRange.to ||
+      volumeProfileSceneRange.candleCount !== visibleProfileRange.candleCount) {
+      return null;
+    }
+    return volumeProfileSceneRange;
+  }, [
     chart.interval,
     chart.symbol,
+    volumeProfileSceneRange,
     visibleProfileRange?.from,
     visibleProfileRange?.to,
-    visibleProfileRange?.priceMin,
-    visibleProfileRange?.priceMax
+    visibleProfileRange?.candleCount
   ]);
+  const volumeProfileRequestKey = useMemo(() => (
+    volumeProfileRequest
+      ? stableVolumeProfileRangeKey({ ...volumeProfileRequest, priceBinSize: "auto" })
+      : ""
+  ), [volumeProfileRequest]);
   const orderFlowDemoContext = useMemo(() => {
     if (!isOrderFlowDemoRuntimeEnabled()) {
       return undefined;
@@ -1431,35 +1441,44 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (orderFlowActive || !chart.layers["volume-profile"] || !visibleProfileRange) {
+    if (orderFlowActive || !chart.layers["volume-profile"] || !volumeProfileRequest) {
       setVolumeProfile(null);
       return;
     }
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
+    let retryTimer: number | undefined;
+    const requestProfile = (retryIndex: number) => {
       fetchVolumeProfile({
-        symbol: chart.symbol,
-        interval: chart.interval,
-        from: visibleProfileRange.from,
-        to: visibleProfileRange.to,
-        targetBins: chartVolumeProfileBinCount,
-        priceMin: visibleProfileRange.priceMin,
-        priceMax: visibleProfileRange.priceMax
+        ...volumeProfileRequest,
+        priceBinSize: "auto"
       }, controller.signal)
         .then((response) => {
-          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
             return;
           }
-          setVolumeProfile(response.derived?.state === "failed" ? null : response);
+          if (response.dataStatus === "partial") {
+            setVolumeProfile(null);
+            const delay = volumeProfilePartialRetryDelaysMs[retryIndex];
+            if (delay !== undefined) {
+              retryTimer = window.setTimeout(() => requestProfile(retryIndex + 1), delay);
+            }
+            return;
+          }
+          setVolumeProfile(volumeProfileResponseMatchesRequest(response, volumeProfileRequest) ? response : null);
         })
         .catch(() => {
           if (!controller.signal.aborted) {
             setVolumeProfile(null);
           }
         });
-    }, 120);
+    };
+    setVolumeProfile(null);
+    const timer = window.setTimeout(() => requestProfile(0), 120);
     return () => {
       window.clearTimeout(timer);
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
       controller.abort();
     };
   }, [
@@ -1467,7 +1486,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["volume-profile"],
     chart.symbol,
     orderFlowActive,
-    visibleProfileRangeKey,
+    volumeProfileRequestKey,
   ]);
 
   useEffect(() => {
@@ -1809,15 +1828,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
-    const nextCzardasMeaningOverlayInsets = {
-      left: Math.round((scene.plot.left + 8) * 2) / 2,
-      right: Math.round((scene.width - scene.plot.right + 12) * 2) / 2,
-      bottom: Math.round((scene.height - scene.plot.bottom + 4) * 2) / 2
-    };
-    setCzardasMeaningOverlayInsets((current) => (
-      sameCzardasMeaningOverlayInsets(current, nextCzardasMeaningOverlayInsets)
-        ? current
-        : nextCzardasMeaningOverlayInsets
+    if (scene.chart.chartType === "czardas") {
+      const nextCzardasMeaningOverlayInsets = {
+        left: Math.round((scene.plot.left + 8) * 2) / 2,
+        right: Math.round((scene.width - scene.plot.right + 12) * 2) / 2,
+        bottom: Math.round((scene.height - scene.plot.bottom + 4) * 2) / 2
+      };
+      setCzardasMeaningOverlayInsets((current) => (
+        sameCzardasMeaningOverlayInsets(current, nextCzardasMeaningOverlayInsets)
+          ? current
+          : nextCzardasMeaningOverlayInsets
+      ));
+    }
+    const nextProfileSceneRange = volumeProfileSceneRangeFromScene(scene);
+    setVolumeProfileSceneRange((current) => (
+      volumeProfileSceneRangeEquals(current, nextProfileSceneRange) ? current : nextProfileSceneRange
     ));
     const nextPriceMarker = currentPriceMarkerFromScene(scene);
     setCurrentPriceMarker((current) => (
@@ -3711,8 +3736,7 @@ function activeServerIndicatorLayers(chart: ChartState): ChartLayerKey[] {
 function visibleCandleRangeForProfile(chart: ChartState, transientViewport: ChartViewport | null): {
   from: string;
   to: string;
-  priceMin: number;
-  priceMax: number;
+  candleCount: number;
 } | null {
   if (!chart.candles.length) {
     return null;
@@ -3727,21 +3751,48 @@ function visibleCandleRangeForProfile(chart: ChartState, transientViewport: Char
     return null;
   }
   const closedVisibleCandles = visibleCandles.filter((candle) => candle.isClosed !== false);
-  const profileCandles = closedVisibleCandles.length > 0 ? closedVisibleCandles : visibleCandles;
-  const priceValues = profileCandles
-    .flatMap((candle) => [candle.low, candle.high])
-    .filter((value): value is number => Number.isFinite(value));
-  if (!priceValues.length) {
+  if (!closedVisibleCandles.length) {
     return null;
   }
+  const profileCandles = closedVisibleCandles;
   const first = profileCandles[0];
   const last = profileCandles[profileCandles.length - 1];
   return {
     from: first.timestamp,
     to: last.timestamp,
-    priceMin: Math.min(...priceValues),
-    priceMax: Math.max(...priceValues)
+    candleCount: profileCandles.length
   };
+}
+
+function volumeProfileSceneRangeFromScene(scene: ChartScene): VolumeProfileSceneRange | null {
+  const visibleRange = visibleCandleRangeForProfile(scene.chart, null);
+  const priceMin = scene.scales.minPrice;
+  const priceMax = scene.scales.maxPrice;
+  if (!visibleRange || !Number.isFinite(priceMin) || !Number.isFinite(priceMax) || priceMax <= priceMin) {
+    return null;
+  }
+  return {
+    symbol: scene.chart.symbol,
+    interval: scene.chart.interval,
+    ...visibleRange,
+    targetBins: chartVolumeProfileBinCount,
+    priceMin,
+    priceMax
+  };
+}
+
+function volumeProfileSceneRangeEquals(
+  current: VolumeProfileSceneRange | null,
+  next: VolumeProfileSceneRange | null
+): boolean {
+  if (current === next) {
+    return true;
+  }
+  if (!current || !next) {
+    return false;
+  }
+  return stableVolumeProfileRangeKey({ ...current, priceBinSize: "auto" }) ===
+    stableVolumeProfileRangeKey({ ...next, priceBinSize: "auto" });
 }
 
 function visibleCandleRangeForComparison(chart: ChartState, transientViewport: ChartViewport | null): {

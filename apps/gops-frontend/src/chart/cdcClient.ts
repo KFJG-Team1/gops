@@ -46,6 +46,7 @@ export type VolumeProfileQuery = {
   priceMin?: number;
   priceMax?: number;
   priceBinSize?: string;
+  candleCount?: number;
 };
 
 export type ActiveChartHeartbeat = {
@@ -156,7 +157,10 @@ export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: Abo
     ...query,
     symbol: query.symbol.trim().toUpperCase(),
     targetBins: Math.max(4, Math.min(48, Math.round(query.targetBins ?? 10))),
-    priceBinSize: query.priceBinSize ?? "auto"
+    priceBinSize: query.priceBinSize ?? "auto",
+    candleCount: typeof query.candleCount === "number" && Number.isFinite(query.candleCount)
+      ? Math.max(1, Math.round(query.candleCount))
+      : undefined
   };
   const cacheKey = stableVolumeProfileRangeKey(normalizedQuery);
   return cachedDerivedRequest(volumeProfileClientCache, cacheKey, derivedClientCacheTtlMs.volumeProfile, async () => {
@@ -174,12 +178,15 @@ export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: Abo
     if (typeof normalizedQuery.priceMax === "number" && Number.isFinite(normalizedQuery.priceMax)) {
       params.set("priceMax", String(normalizedQuery.priceMax));
     }
+    if (typeof normalizedQuery.candleCount === "number" && Number.isFinite(normalizedQuery.candleCount)) {
+      params.set("candleCount", String(normalizedQuery.candleCount));
+    }
     const response = await fetch(`/api/charts/volume-profile-bins?${params.toString()}`, { signal });
     if (!response.ok) {
       throw new Error(`Volume profile API failed: ${response.status}`);
     }
     return normalizeVolumeProfileResponse(await response.json());
-  });
+  }, (result) => result.dataStatus !== "partial");
 }
 
 export async function fetchSymbols(signal?: AbortSignal): Promise<ChartSymbolsResponseDto> {
@@ -277,7 +284,8 @@ function cachedDerivedRequest<T>(
   cache: Map<string, DerivedClientCacheEntry<T>>,
   key: string,
   ttlMs: number,
-  load: () => Promise<T>
+  load: () => Promise<T>,
+  shouldCache: (value: T) => boolean = () => true
 ): Promise<T> {
   const now = Date.now();
   pruneExpiredDerivedEntries(cache, now);
@@ -287,12 +295,19 @@ function cachedDerivedRequest<T>(
     cache.set(key, cached);
     return cached.promise;
   }
-  const promise = load().catch((error) => {
-    if (cache.get(key)?.promise === promise) {
-      cache.delete(key);
-    }
-    throw error;
-  });
+  const promise = load()
+    .then((value) => {
+      if (!shouldCache(value) && cache.get(key)?.promise === promise) {
+        cache.delete(key);
+      }
+      return value;
+    })
+    .catch((error) => {
+      if (cache.get(key)?.promise === promise) {
+        cache.delete(key);
+      }
+      throw error;
+    });
   cache.set(key, { expiresAt: now + ttlMs, promise });
   trimDerivedCache(cache);
   return promise;
@@ -430,6 +445,7 @@ function normalizeVolumeProfileResponse(payload: unknown): VolumeProfileResponse
     bucketCount: Number.isFinite(source.bucketCount) ? source.bucketCount : bins.length,
     sourceBinCount: Number.isFinite(source.sourceBinCount) ? source.sourceBinCount : bins.length,
     sourceCandleCount: Number.isFinite(source.sourceCandleCount) ? source.sourceCandleCount : source.sourceBinCount,
+    requestedCandleCount: Number.isFinite(source.requestedCandleCount) ? source.requestedCandleCount : null,
     totalVolume: Number.isFinite(source.totalVolume) ? source.totalVolume : bins.reduce((sum, bin) => sum + bin.volume, 0),
     totalTradeCount: Number.isFinite(source.totalTradeCount) ? source.totalTradeCount : bins.reduce((sum, bin) => sum + bin.tradeCount, 0),
     bins

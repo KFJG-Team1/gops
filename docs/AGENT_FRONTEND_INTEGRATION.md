@@ -29,7 +29,8 @@ SIM 표시가 있는 주문은 실제 브로커 WebSocket에 연결하지 않는
 한 번 갱신한다.
 
 `빠른 주문` 패널도 자동 주문 경로가 아니다. 최우선 매수·매도호가, 1틱 오프셋,
-estimated order-flow imbalance는 `side + price` 주문 의도를 선택하는 입력이며,
+estimated order-flow imbalance는 `side + price` 주문 의도를 선택해 편집 가능한 가격 입력란을
+채우는 프리셋이다. 사용자는 선택한 가격을 전송 전에 직접 수정할 수 있으며,
 사용자가 패널 하단의 주문 전송 버튼을 눌러야만 기존 `POST /api/orders`를 호출한다.
 `202` 응답은 접수로 표시하고 체결은 `/ws/orders/{order_id}`의 terminal event로
 확인한다. 빠른 주문은 호가 이벤트 시각을 연결 상태 판단 기준으로 사용하지 않는다.
@@ -58,6 +59,21 @@ production build에는 debug snapshot을 노출하지 않는다.
 - Kafka 직접 produce/consume
 - ClickHouse/GraphDB 직접 query
 - 주문 실행 자동화
+
+## Chart Derived Profile
+
+차트의 candle Volume Profile은 Agent feature pack과 별도 계약이다. `ChartCanvas`가
+현재 viewport로 만든 scene과 visible closed-candle 범위가 일치한 뒤에만 프런트가
+`targetBins=10`, `scene.scales.minPrice/maxPrice`, `candleCount`를 요청한다. 따라서
+활성 MA·Bollinger와 축 padding을 포함한 main price pane 전체가 같은 화면 높이의
+10개 슬롯이 된다. pane 높이만 바뀌면 기존 가격 bucket을 다시 투영하고 재조회하지
+않는다.
+
+응답은 10개 bucket, 요청 가격 경계, 요청/source candle count가 모두 일치할 때만
+표시한다. `dataStatus=partial`은 클라이언트 derived cache에 넣지 않고 숨긴 상태로
+500ms와 1500ms 뒤 두 번 재시도한다. 계속 partial이면 다음 scene, range, candle
+변경까지 숨긴다. 0-volume bucket은 응답에 유지하지만 Canvas는 막대를 그리지 않아
+그 가격 슬롯의 빈 공간을 보존한다.
 
 ## User Flow
 
