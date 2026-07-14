@@ -187,6 +187,10 @@ bundle은 다음과 같다.
 - selected Pattern의 relation, trace, supporting boundary와 drawing provenance closure.
 - structural domains, selected OLS flow와 PriceMemory projection.
 
+투영된 structural domain은 참조된 domain에서 root까지의 모든 `parentId` 조상을 포함해야 한다.
+interaction validation glyph의 가격 corridor가 적용되지 않으면 `corridorLow`와 `corridorHigh`를
+생략하지 않고 명시적인 `null`로 전송한다.
+
 role별 비선택 mode 하나, representative Trend hypothesis 하나, H-Line response role별 8개,
 PatternEvidence 하나와 48-bin profile은 선택 projection이다. profile과 PatternEvidence closure는
 각각 전부 포함하거나 전부 생략한다.

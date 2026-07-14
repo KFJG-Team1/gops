@@ -219,12 +219,16 @@ def _field(field, pack, boundaries, relations, as_of):
                 raise V4ContractError(f"{group} contains invalid base64") from exc
     domains = _array(field.get("structuralDomains"), "structuralDomains")
     domain_ids = set()
+    parent_domain_ids = set()
     for value in domains:
         domain = _record(value, "structuralDomain")
         domain_id = _digest(domain.get("domainId"), "structuralDomain.domainId")
         _need(domain_id not in domain_ids, "StructuralDomain IDs must be unique")
         domain_ids.add(domain_id)
+        if domain.get("parentId") is not None:
+            parent_domain_ids.add(_digest(domain.get("parentId"), "structuralDomain.parentId"))
         _need(isinstance(domain.get("startIndex"), int) and isinstance(domain.get("endIndex"), int) and 0 <= domain["startIndex"] <= domain["endIndex"] < 240, "StructuralDomain range is invalid")
+    _need(parent_domain_ids.issubset(domain_ids), "StructuralDomain parent is missing")
     flows = _array(field.get("regressionFlows"), "regressionFlows", 2)
     for value in flows:
         flow = _record(value, "regressionFlow")
@@ -282,6 +286,8 @@ def _field(field, pack, boundaries, relations, as_of):
         item = _record(glyph, "validationGlyph")
         candidate_index = item.get("candidateIndex")
         _need(isinstance(candidate_index, int) and 0 <= candidate_index < len(refs), "validation candidate is invalid")
+        for key in ("corridorLow", "corridorHigh"):
+            _need(key in item and (item[key] is None or _finite(item[key])), f"validationGlyph.{key} is invalid")
         observed_index = timestamp_indexes.get(item.get("observedAt"), -1)
         _need(observed_index >= 0, "validation timestamp is outside exact-240")
         if item.get("kind") == "interaction":

@@ -66,6 +66,18 @@ def test_real_daily_corpus_produces_complete_bounded_present_snapshot(symbol: st
     meanings = result.content["czardasField"]["candleMeanings"]
     assert len(meanings["candleKeys"]) == len(meanings["timestamps"]) == 240
     assert meanings["evaluationAsOf"] == result.content["asOf"]
+    field = result.content["czardasField"]
+    domain_ids = {item["domainId"] for item in field["structuralDomains"]}
+    assert all(
+        item["parentId"] is None or item["parentId"] in domain_ids
+        for item in field["structuralDomains"]
+    )
+    assert all(
+        "corridorLow" in glyph and "corridorHigh" in glyph
+        and (glyph["corridorLow"] is None or isinstance(glyph["corridorLow"], (int, float)))
+        and (glyph["corridorHigh"] is None or isinstance(glyph["corridorHigh"], (int, float)))
+        for glyph in field["validationGlyphs"]
+    )
 
 
 @pytest.mark.parametrize("symbol", ("AAPL", "NVDA"))

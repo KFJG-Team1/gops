@@ -28,6 +28,8 @@
 - exact 2/2 출력은 합격 기준이 아니다. hard-valid 구조가 없으면 Trend와 Pattern abstention을
   허용한다.
 - 선택 mode→domain→Basis→episode→interaction→relation→trace closure의 orphan이 0개다.
+- 투영된 structural domain의 모든 `parentId`가 같은 Field에 있고 interaction corridor의 부재는
+  `corridorLow: null`, `corridorHigh: null`로 명시된다.
 - selected Pattern과 managed polyline은 1:1이고 모든 anchor가 PatternTrace fact와 일치한다.
 - Pattern이 없을 때 Pattern 이름과 managed polyline도 0개다.
 - PatternEvidence는 이름과 drawing을 만들지 않고 closure 전체가 원자적으로 포함·생략된다.

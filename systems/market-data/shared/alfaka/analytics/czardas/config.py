@@ -66,6 +66,8 @@ class CzardasConfig:
             "landscapeModeCapPerRole": 1,
             "responseSegmentCapPerRole": 8,
             "representativeHypothesisCap": 1,
+            "structuralDomainAncestorClosure": True,
+            "explicitNullableInteractionCorridors": True,
         }))
 
     @property

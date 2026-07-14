@@ -453,7 +453,12 @@ const field = {
     corridorHighs: [104.5, 104.5, 98.5, 98.5, 96.5, 96.5],
     initialFormationMasks: [1, 1, 1, 1, 1, 1]
   },
-  validationGlyphs: [],
+  validationGlyphs: [{
+    validationId: "sha256:interaction", candidateIndex: 0, episodeIndex: null,
+    candidateKind: "trend", role: "upper", kind: "interaction",
+    observedAt: analysisTimestamps[239], confirmedAt: null, endpointPrice: 104,
+    corridorLow: null, corridorHigh: null, initialFormation: false, outcome: "response_pending"
+  }],
   structuralDomains: [{
     domainId: "sha256:root-domain", parentId: null, fromTimestamp: analysisTimestamps[0],
     toTimestamp: analysisTimestamps[239], startIndex: 0, endIndex: 239, depth: 0, active: true, fitLoss: 1
@@ -673,6 +678,24 @@ const freshnessForPack = (candidatePack: CzardasPackContent) => normalizeCzardas
 assert.equal(freshnessForPack({
   ...pack,
   sightProjectionVersion: "czardas-sight-v1"
+}), "incompatible");
+
+assert.equal(freshnessForPack({
+  ...pack,
+  czardasField: {
+    ...field,
+    validationGlyphs: field.validationGlyphs.map(({ corridorLow: _corridorLow, ...glyph }) => glyph)
+  }
+} as CzardasPackContent), "incompatible");
+assert.equal(freshnessForPack({
+  ...pack,
+  czardasField: {
+    ...field,
+    structuralDomains: field.structuralDomains.map((domain) => ({
+      ...domain,
+      parentId: "sha256:missing-parent"
+    }))
+  }
 }), "incompatible");
 
 assert.equal(freshnessForPack({

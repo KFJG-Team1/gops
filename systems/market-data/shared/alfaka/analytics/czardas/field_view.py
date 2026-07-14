@@ -62,7 +62,7 @@ def build_field_view(
         for item in derivation_candidates
     }
     projected_domain_ids.update(filter(None, candidate_domain_by_id.values()))
-    projected_domains = tuple(item for item in domains if item.domain_id in projected_domain_ids)
+    projected_domains = _projected_domains_with_ancestors(projected_domain_ids, domains)
     episode_ref_by_id = {
         episode_id: [candidate_index, ordinal]
         for candidate_index, candidate in enumerate(derivation_candidates)
@@ -181,6 +181,8 @@ def build_field_view(
                     candidate.intercept_at_origin
                     + candidate.slope_per_bar * (event.contact_index - candidate.index_origin)
                 ),
+                "corridorLow": None,
+                "corridorHigh": None,
                 "interactionId": event.interaction_id,
                 "initialFormation": False,
                 "residualAtr": None,
@@ -312,6 +314,19 @@ def _projected_regression_flows(flows, as_of_index):
         item.end_index - item.start_index, -item.start_index, item.flow_id,
     ))
     return (root, local)
+
+
+def _projected_domains_with_ancestors(domain_ids, domains):
+    domains_by_id = {item.domain_id: item for item in domains}
+    closed_ids = set(domain_ids)
+    pending = sorted(closed_ids)
+    while pending:
+        domain = domains_by_id.get(pending.pop())
+        if domain is None or domain.parent_id is None or domain.parent_id in closed_ids:
+            continue
+        closed_ids.add(domain.parent_id)
+        pending.append(domain.parent_id)
+    return tuple(item for item in domains if item.domain_id in closed_ids)
 
 
 def _formation_domain_id(candidate, domains):

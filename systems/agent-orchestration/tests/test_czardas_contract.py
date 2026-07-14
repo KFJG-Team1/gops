@@ -132,6 +132,30 @@ def test_contract_rejects_interaction_before_fit_watermark():
         validate_czardas_pack(pack)
 
 
+def test_contract_rejects_implicit_nullable_interaction_corridor():
+    pack = valid_market_pack()
+    interaction = next(
+        glyph for glyph in pack["czardasField"]["validationGlyphs"]
+        if glyph["kind"] == "interaction"
+    )
+    interaction.pop("corridorLow")
+
+    with pytest.raises(CzardasPackValidationError, match="corridorLow"):
+        validate_czardas_pack(pack)
+
+
+def test_contract_rejects_orphan_structural_domain_parent():
+    pack = valid_market_pack()
+    child = next(
+        domain for domain in pack["czardasField"]["structuralDomains"]
+        if domain["parentId"] is not None
+    )
+    child["parentId"] = "sha256:" + "f" * 64
+
+    with pytest.raises(CzardasPackValidationError, match="parent is missing"):
+        validate_czardas_pack(pack)
+
+
 def test_contract_rejects_pattern_impulse_that_does_not_precede_consolidation():
     pack = valid_market_pack()
     relation = pack["patternRelations"][0]
