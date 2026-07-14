@@ -14,6 +14,7 @@ export type AnalysisAssetPresentationDiagnostics = {
   resolvedAsset: ChartAnalysisAsset;
 };
 export type DetectedPatternSummary = { kind: string; state: "forming" | "confirmed"; score: number; drawingCount: number };
+type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
 const patternKindLabels: Record<string, string> = {
   ascending_triangle: "상승 삼각형",
@@ -84,7 +85,9 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
   const errors: Array<{ drawingId: string; reason: string }> = [];
-  const drawings = asset.geometry.drawings.filter((drawing) => !isTradeTimingDrawing(drawing)).flatMap((drawing) => {
+  const drawings = asset.geometry.drawings.filter((drawing) => (
+    !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
+  )).flatMap((drawing) => {
     const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey);
     if (!resolved) {
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
@@ -92,8 +95,16 @@ export function resolveAnalysisAssetForCandles(asset: ChartAnalysisAsset | null,
     }
     return [resolved];
   });
+  const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
   const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
-  return { ...asset, geometry: { ...asset.geometry, drawings: [...drawings, ...tradeTimingDrawings], anchorResolutionErrors: errors } };
+  return {
+    ...asset,
+    geometry: {
+      ...asset.geometry,
+      drawings: [...drawings, ...movingAverageCrossDrawings, ...tradeTimingDrawings],
+      anchorResolutionErrors: errors
+    }
+  };
 }
 
 export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): ChartAnalysisAsset {
@@ -111,7 +122,9 @@ export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): C
 }
 
 export function analysisAssetPresentationDiagnostics(asset: ChartAnalysisAsset, candles: CandleDto[], currentDrawingIds?: string[]): AnalysisAssetPresentationDiagnostics {
-  const storedDrawingCount = asset.geometry.drawings.filter((drawing) => !isTradeTimingDrawing(drawing)).length;
+  const storedDrawingCount = asset.geometry.drawings.filter((drawing) => (
+    !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
+  )).length;
   const resolved = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
   const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
   const resolvedAsset = staleAnalysisAsset(resolved, stale);
@@ -147,6 +160,65 @@ function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetIn
     if (key && !result.has(key)) result.set(key, candle.timestamp);
   });
   return result;
+}
+
+function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {
+  return drawing.id.includes(":sma-cross:");
+}
+
+function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: CandleDto[]): AnalysisAssetDrawing[] {
+  const cross = asset.indicators.cross;
+  if (cross.status !== "crossed" || !cross.direction || !cross.timestamp) return [];
+  const crossKey = candleKeyForTimestamp(cross.timestamp, asset.interval);
+  if (!crossKey) return [];
+  const candleIndex = candles.findIndex((candle) => (
+    candle.isClosed !== false && candleKeyForTimestamp(candle.timestamp, asset.interval) === crossKey
+  ));
+  if (candleIndex < 0) return [];
+  const candle = candles[candleIndex];
+  const golden = cross.direction === "golden";
+  const color = golden ? "#22c55e" : "#ef4444";
+  const identity = crossKey.replace(/[^0-9A-Za-z]/g, "");
+  return [{
+    id: `chart-asset:${asset.symbol}:${asset.interval}:sma-cross:${cross.direction}:${identity}`,
+    type: "flagMarker",
+    anchors: [{
+      timestamp: candle.timestamp,
+      logicalIndex: candleIndex,
+      price: movingAverageCrossPrice(candles, candleIndex),
+      paneId: "price",
+      symbol: asset.symbol,
+      interval: asset.interval
+    }],
+    symbol: asset.symbol,
+    interval: asset.interval,
+    sourceInterval: asset.sourceInterval,
+    style: { color, textColor: color, lineWidth: 2, opacity: 0.98 },
+    label: `${golden ? "골든크로스" : "데드크로스"} · SMA60/120`,
+    locked: true,
+    visible: true,
+    createdBy: "system",
+    sourceProposalId: `chart-asset:${asset.symbol}:${asset.interval}:sma-cross`,
+    createdAt: asset.generatedAt,
+    updatedAt: asset.generatedAt
+  }];
+}
+
+function movingAverageCrossPrice(candles: CandleDto[], candleIndex: number): number {
+  const sma60 = averageClose(candles, candleIndex, 60);
+  const sma120 = averageClose(candles, candleIndex, 120);
+  return sma60 === null || sma120 === null
+    ? candles[candleIndex].close
+    : (sma60 + sma120) / 2;
+}
+
+function averageClose(candles: CandleDto[], endIndex: number, period: number): number | null {
+  if (endIndex + 1 < period) return null;
+  let total = 0;
+  for (let index = endIndex + 1 - period; index <= endIndex; index += 1) {
+    total += candles[index].close;
+  }
+  return total / period;
 }
 
 function resolveDrawingAnchors<T extends DrawingEntity>(drawing: T, interval: AnalysisAssetInterval, timestampByKey: Map<string, string>): T | null {

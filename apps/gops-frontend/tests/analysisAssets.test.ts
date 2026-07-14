@@ -68,6 +68,14 @@ assert.equal(goldenCrossDrawing?.label, "골든크로스 · SMA60/120");
 assert.equal(goldenCrossDrawing?.anchors[0]?.timestamp, now);
 assert.equal(goldenCrossDrawing?.anchors[0]?.price, candles[0].close);
 assert.equal(resolveAnalysisAssetForCandles(resolved, candles)?.geometry.drawings.filter((drawing) => drawing.id.includes(":sma-cross:")).length, 1);
+const deadCrossAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: { ...asset.geometry, drawings: [] },
+  indicators: { ...asset.indicators, cross: { status: "crossed", direction: "dead", timestamp: now, barsAgo: 1 } }
+};
+const deadCrossDrawing = resolveAnalysisAssetForCandles(deadCrossAsset, candles)?.geometry.drawings[0];
+assert.equal(deadCrossDrawing?.label, "데드크로스 · SMA60/120");
+assert.equal(deadCrossDrawing?.style.color, "#ef4444");
 assert.equal(resolveAnalysisAssetForCandles(asset, [])?.geometry.drawings.length, 0);
 assert.equal(analysisAssetPresentationDiagnostics(asset, candles, [upper.id, lower.id]).state, "ready");
 const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...candles[0], timestamp: "2026-07-14T20:00:00.000Z" }]);
@@ -98,7 +106,8 @@ const support: DrawingEntity = {
 };
 const levelAsset: ChartAnalysisAsset = {
   ...asset,
-  geometry: { ...asset.geometry, drawings: [support], primaryTriangle: null }
+  geometry: { ...asset.geometry, drawings: [support], primaryTriangle: null },
+  indicators: { ...asset.indicators, cross: { status: "none", direction: null } }
 };
 const projectedLevelAsset = resolveAnalysisAssetForCandles(levelAsset, candles);
 assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
