@@ -1,1 +1,137 @@
-.shell{container-type:inline-size;display:flex;width:100%;height:100%;min-width:0;flex-direction:column;overflow:hidden;background:#202123;color:#f4f5f7}.shell>header{display:flex;align-items:center;padding:11px 16px;border-bottom:1px solid #ffffff1c;background:#18191b}.shell>header strong{font-size:14px}.shell>main{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain}.pageContent{min-width:0;padding:16px}.shell>footer{display:flex;align-items:center;justify-content:center;gap:14px;padding:9px;border-top:1px solid #ffffff1c;background:#18191b}.shell>footer>div{display:flex;gap:7px}.shell>footer button{display:grid;place-items:center;border:0;background:transparent;color:#a8adb5}.shell>footer>button svg{width:18px}.shell>footer>div button{width:7px;height:7px;padding:0;border-radius:50%;background:#555b64}.shell>footer>div .active{width:20px;border-radius:6px;background:#62aef7}.placeholder{display:grid;min-height:300px;place-content:center;justify-items:center;text-align:center;color:#9ca3ad}.placeholder svg{width:28px}.placeholder h2{margin:8px 0;color:#fff}.placeholder p,.placeholder small{margin:0}.placeholder small{margin-top:5px}.sessionNote{margin:12px 0 0;padding:9px 0;border-top:1px solid #ffffff1c;color:#a4a8af;font-size:10.5px;line-height:1.45}@container(max-width:520px){.pageContent{padding:12px}}@media(prefers-reduced-motion:reduce){.shell *{scroll-behavior:auto!important;transition:none!important}}
+.shell {
+  container-type: inline-size;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  color: #f4f5f7;
+  background: #202123;
+}
+
+.shell > header {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid #ffffff1c;
+  background: #18191b;
+}
+
+.shell > header strong {
+  font-size: 14px;
+}
+
+.shell > main {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.pageContent {
+  min-width: 0;
+  padding: var(--panel-padding);
+}
+
+.shell > footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 9px;
+  border-top: 1px solid #ffffff1c;
+  background: #18191b;
+}
+
+.shell > footer > div {
+  display: flex;
+  gap: 7px;
+}
+
+.shell > footer button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: #a8adb5;
+  background: transparent;
+}
+
+.shell > footer > button svg {
+  width: 18px;
+}
+
+.shell > footer > div button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border-radius: 50%;
+  background: #555b64;
+}
+
+.shell > footer > div .active {
+  width: 20px;
+  border-radius: 6px;
+  background: #62aef7;
+}
+
+.placeholder {
+  display: grid;
+  min-height: 300px;
+  place-content: center;
+  justify-items: center;
+  color: #9ca3ad;
+  text-align: center;
+}
+
+.placeholder svg {
+  width: 28px;
+}
+
+.placeholder h2 {
+  margin: 8px 0;
+  color: #fff;
+}
+
+.placeholder p,
+.placeholder small {
+  margin: 0;
+}
+
+.placeholder small {
+  margin-top: 5px;
+}
+
+.shell[data-page="3"] > main,
+.shell[data-page="4"] > main {
+  background: var(--app-panel-glass-background);
+}
+
+.shell[data-page="3"] > main {
+  overflow: hidden;
+}
+
+.shell[data-page="3"] .pageContent {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.shell[data-page="3"] > header,
+.shell[data-page="4"] > header,
+.shell[data-page="3"] > footer,
+.shell[data-page="4"] > footer {
+  border-color: var(--coinbase-hairline-strong);
+  background: #1b1b1b;
+}
+
+.shell[data-page="3"] > footer > div .active,
+.shell[data-page="4"] > footer > div .active {
+  background: var(--color-signal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

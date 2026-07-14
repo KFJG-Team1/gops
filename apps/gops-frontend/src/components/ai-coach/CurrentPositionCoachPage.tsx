@@ -1,5 +1,6 @@
-import { CalendarClock, ChevronLeft, ChevronRight, CircleAlert, Newspaper, PieChart, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, Newspaper, PieChart, TrendingUp } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { sp500UniverseSeed } from "../../market/sp500Universe.seed";
 import { StockLogo } from "../StockLogo";
 import type { ChartPoint, ChecklistItem, CoachReport, DailyTradeReview, MissedCheck, TradeCase, WatchCondition } from "./types";
 import styles from "./CurrentPositionCoachPage.module.css";
@@ -13,7 +14,13 @@ const checklistMeta = {
   market: { label: "시장", icon: CircleAlert }
 } as const;
 
+const companyNameBySymbol = new Map(
+  sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.companyName])
+);
+
 export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
+  const instanceId = useId();
+  const watchPreviewTitleId = `${instanceId}-watch-preview-title`;
   const page = report?.page1;
   const [fillId, setFillId] = useState(page?.selectedFillId ?? page?.trades[0]?.fillId ?? "");
   const [caseIndex, setCaseIndex] = useState(0);
@@ -32,6 +39,11 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
   const activeReview = (trade && page.reviewsByFillId?.[trade.fillId]) ?? page;
   const cases = [activeReview.currentCase, ...activeReview.similarCases.slice(0, 6)];
   const selectedCase = cases[Math.min(caseIndex, cases.length - 1)] ?? activeReview.currentCase;
+  const selectedCaseSymbol = selectedCase.symbol?.trim().toUpperCase() ?? "";
+  const selectedCaseCompanyName = page.trades.find((item) => item.symbol.trim().toUpperCase() === selectedCaseSymbol)?.companyName?.trim()
+    || companyNameBySymbol.get(selectedCaseSymbol)
+    || selectedCase.symbol
+    || "기업명 확인 불가";
   const assessment = activeReview.decisionAssessment;
   const narrativeItems = [
     { label: "그때의 실수", value: selectedCase.mistakeSummary ?? "확인 기록 없음" },
@@ -97,7 +109,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
       </section>
 
       <section className={styles.chartSection}>
-        <div className={styles.sectionTitle}><h3 aria-live="polite">{caseIndex === 0 ? "진입 전후 차트" : `${selectedCase.tradeDate ? formatDate(selectedCase.tradeDate) : "과거 거래"} · 유사도 ${numberOrMissing(selectedCase.similarityScore)}%`}</h3></div>
+        <div className={styles.sectionTitle}><h3 aria-live="polite">{caseIndex === 0 ? "진입 전후 차트" : `${selectedCaseCompanyName} · ${selectedCase.tradeDate ? formatDate(selectedCase.tradeDate) : "과거 거래"} · 유사도 ${numberOrMissing(selectedCase.similarityScore)}%`}</h3></div>
         <div className={styles.chartCarousel}>
           <button type="button" className={styles.chartArrow} aria-label="이전 거래 사례" disabled={caseIndex === 0} onClick={() => moveCase(-1)}><ChevronLeft aria-hidden="true" /></button>
           <ReviewChart current={activeReview.currentCase} selected={selectedCase} />
@@ -107,7 +119,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
         {caseIndex > 0 && <div className={styles.reviewCarousel}>
           <div className={styles.carouselStage}>
             <button type="button" className={styles.carouselArrow} aria-label="이전 사례 설명" disabled={activeNarrativeIndex === 0} onClick={() => moveNarrative(-1)}><ChevronLeft aria-hidden="true" /></button>
-            <p key={`${selectedCase.caseId}-${activeNarrativeIndex}`} className={styles.reviewSlide} role="group" aria-label={`${activeNarrativeIndex + 1} / ${narrativeItems.length}, ${activeNarrative.label}`} aria-live="polite"><b>{activeNarrative.label}</b><span>{activeNarrative.value}</span></p>
+            <p key={`${selectedCase.caseId}-${activeNarrativeIndex}`} className={styles.reviewSlide} role="group" aria-label={`${activeNarrativeIndex + 1} / ${narrativeItems.length}, ${activeNarrative.label}`} aria-live="polite"><span>{activeNarrative.value}</span></p>
             <button type="button" className={styles.carouselArrow} aria-label="다음 사례 설명" disabled={activeNarrativeIndex === narrativeItems.length - 1} onClick={() => moveNarrative(1)}><ChevronRight aria-hidden="true" /></button>
           </div>
         </div>}
@@ -117,14 +129,17 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
 
       <PortfolioImpact impact={activeReview.portfolioImpact} />
 
-      <section className={styles.conditionPreview} aria-labelledby="coach-watch-preview-title">
-        <div className={styles.conditionPreviewHeader}><h3 id="coach-watch-preview-title">매도 및 관찰 기준</h3></div>
+      <section className={styles.conditionPreview} aria-labelledby={watchPreviewTitleId}>
+        <div className={styles.conditionPreviewHeader}><h3 id={watchPreviewTitleId}>매도 및 관찰 기준</h3></div>
         {activeCondition ? <div className={styles.carouselStage}>
           <button type="button" className={styles.carouselArrow} aria-label="이전 매도 및 관찰 기준" disabled={conditionCount < 2 || activeConditionIndex === 0} onClick={() => moveCondition(-1)}><ChevronLeft aria-hidden="true" /></button>
           <button key={activeCondition.id} type="button" className={styles.conditionSlide} disabled={!onOpenAlertCenter} aria-label={`${activeConditionIndex + 1} / ${conditionCount}, ${activeCondition.label}, 4페이지에서 상세 보기`} onClick={() => onOpenAlertCenter?.(activeCondition)} onKeyDown={handleConditionKey}>
-            <CalendarClock aria-hidden="true" />
-            <span className={styles.conditionSlideCopy}><strong>{activeCondition.label}</strong><small>현재 {valueText(activeCondition.currentValue)} → 기준 {activeCondition.operator ?? ""} {valueText(activeCondition.threshold)}</small></span>
-            <em>{activeCondition.recommendedAction ?? "관찰"}</em><span className={styles.detailHint}>상세 보기</span>
+            <span className={styles.conditionRank}>{activeConditionIndex + 1}순위</span>
+            <span className={styles.conditionSlideCopy}>
+              <strong>{activeCondition.label}</strong>
+              <b>{activeCondition.reason ?? "이 조건이 무너지면 당일 거래 판단을 다시 확인해야 합니다."}</b>
+            </span>
+            <span className={styles.conditionAction}>추천 알람 설정하기</span>
           </button>
           <button type="button" className={styles.carouselArrow} aria-label="다음 매도 및 관찰 기준" disabled={conditionCount < 2 || activeConditionIndex === conditionCount - 1} onClick={() => moveCondition(1)}><ChevronRight aria-hidden="true" /></button>
         </div> : <p className={styles.empty}>계산되지 않음</p>}
@@ -175,36 +190,55 @@ function ChecklistCard({ category, items }: { category: keyof typeof checklistMe
 
 function ReviewChart({ current, selected }: { current: TradeCase; selected: TradeCase }) {
   const id = useId();
+  const priceClipId = `coach-price-${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const host = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
   const [activeMarker, setActiveMarker] = useState<MissedCheck | null>(null);
-  useEffect(() => { const node = host.current; if (!node || typeof ResizeObserver === "undefined") return; const observer = new ResizeObserver(([entry]) => setWidth(Math.max(620, Math.round(entry.contentRect.width)))); observer.observe(node); return () => observer.disconnect(); }, []);
+  useEffect(() => { const node = host.current; if (!node || typeof ResizeObserver === "undefined") return; const observer = new ResizeObserver(([entry]) => setWidth(Math.max(320, Math.round(entry.contentRect.width)))); observer.observe(node); return () => observer.disconnect(); }, []);
   const height = 360, left = 50, right = width - 18, plotWidth = right - left;
   const priceTop = 16, priceBottom = 176, volumeTop = 194, volumeBottom = 230;
   const rsiTop = 246, rsiBottom = 286, macdTop = 304, macdBottom = 344;
   const series = selected.series.filter((point) => point.relativeDay >= -60 && point.relativeDay <= 20);
   const currentSeries = current.series.filter((point) => point.relativeDay >= -60 && point.relativeDay <= 20);
   const priceValues = series.flatMap((point) => [point.open, point.high, point.low, point.close]).filter(isNumber);
-  const entry = selected.entryPrice ?? priceValues[0] ?? 1;
+  const entry = isNumber(selected.entryPrice) && selected.entryPrice > 0
+    ? selected.entryPrice
+    : priceValues.find((value) => value > 0) ?? 1;
   const normalized = (value: number) => (value - entry) / entry * 100;
   const normalizedValues = priceValues.map(normalized);
-  const minPrice = Math.min(-2, ...normalizedValues), maxPrice = Math.max(2, ...normalizedValues);
+  const currentEntry = isNumber(current.entryPrice) && current.entryPrice > 0 ? current.entryPrice : null;
+  const currentNormalizedValues = currentEntry === null
+    ? []
+    : currentSeries
+      .map((point) => point.close)
+      .filter(isNumber)
+      .map((value) => (value - currentEntry) / currentEntry * 100);
+  const sharedNormalizedValues = [...normalizedValues, ...currentNormalizedValues];
+  const minPrice = Math.min(-2, ...sharedNormalizedValues), maxPrice = Math.max(2, ...sharedNormalizedValues);
   const x = (day: number) => left + ((day + 60) / 80) * plotWidth;
   const scale = (value: number, min: number, max: number, top: number, bottom: number) => bottom - ((value - min) / Math.max(.0001, max - min)) * (bottom - top);
   const priceY = (value: number) => scale(normalized(value), minPrice, maxPrice, priceTop, priceBottom);
   const volumes = series.map((p) => p.volume).filter(isNumber); const maxVolume = Math.max(1, ...volumes);
   const macdValues = series.flatMap((p) => [p.macd, p.signal, p.histogram]).filter(isNumber); const macdMax = Math.max(.1, ...macdValues.map(Math.abs));
-  const currentPath = currentSeries.filter((p): p is ChartPoint & { close: number } => isNumber(p.close)).map((p) => `${x(p.relativeDay)},${priceYForCurrent(p.close, current.entryPrice ?? p.close, minPrice, maxPrice, priceTop, priceBottom)}`).join(" ");
-  const markerY = (marker: MissedCheck) => { const point = nearestPoint(series, marker.relativeDay ?? 0); if (marker.type === "rsi") return scale(point?.rsi ?? 50, 0, 100, rsiTop, rsiBottom); if (marker.type === "macd") return scale(point?.macd ?? 0, -macdMax, macdMax, macdTop, macdBottom); if (marker.type === "volume") return scale(point?.volume ?? 0, 0, maxVolume, volumeTop, volumeBottom); return point?.close ? priceY(point.close) : 96; };
+  const currentPath = currentEntry === null || selected.caseId === current.caseId
+    ? ""
+    : currentSeries
+      .filter((p): p is ChartPoint & { close: number } => isNumber(p.close))
+      .map((p) => `${x(p.relativeDay)},${scale((p.close - currentEntry) / currentEntry * 100, minPrice, maxPrice, priceTop, priceBottom)}`)
+      .join(" ");
+  const markerY = (marker: MissedCheck) => { const point = nearestPoint(series, marker.relativeDay ?? 0); if (marker.type === "rsi") return scale(isNumber(marker.value) ? marker.value : point?.rsi ?? 50, 0, 100, rsiTop, rsiBottom); if (marker.type === "macd") return scale(isNumber(marker.value) ? marker.value : point?.macd ?? 0, -macdMax, macdMax, macdTop, macdBottom); if (marker.type === "volume") return scale(point?.volume ?? 0, 0, maxVolume, volumeTop, volumeBottom); return point?.close ? priceY(point.close) : 96; };
   return <div className={styles.chartHost} ref={host}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={`${id}-title ${id}-desc`}>
       <title id={`${id}-title`}>진입 전후 T-60부터 T+20까지의 가격, 거래량, RSI, MACD</title><desc id={`${id}-desc`}>진입 시점과 놓친 판단 조건을 점선과 점으로 표시합니다. 오늘 거래의 미래 구간은 비어 있습니다.</desc>
+      <defs><clipPath id={priceClipId}><rect x={left} y={priceTop} width={plotWidth} height={priceBottom - priceTop} /></clipPath></defs>
       {[-60, -40, -20, 0, 20].map((day) => <line key={`grid-${day}`} x1={x(day)} x2={x(day)} y1={priceTop} y2={macdBottom} className={styles.gridLine} />)}
       {[-60, -40, -20, 0, 20].map((day) => <text key={day} x={x(day)} y="358" textAnchor="middle" className={styles.axis}>{day === 0 ? "Entry" : `T${day > 0 ? "+" : ""}${day}`}</text>)}
       <line x1={x(0)} x2={x(0)} y1={priceTop} y2={macdBottom} className={styles.entryLine} /><text x={x(0) + 6} y="29" className={styles.entryText}>ENTRY</text>
       <text x="8" y="30" className={styles.panelLabel}>가격 %</text><text x="8" y="207" className={styles.panelLabel}>거래량</text><text x="8" y="259" className={styles.panelLabel}>RSI</text><text x="8" y="317" className={styles.panelLabel}>MACD</text>
-      {series.map((point) => isNumber(point.open) && isNumber(point.high) && isNumber(point.low) && isNumber(point.close) ? <g key={point.relativeDay} className={point.close >= point.open ? styles.upCandle : styles.downCandle}><line x1={x(point.relativeDay)} x2={x(point.relativeDay)} y1={priceY(point.high)} y2={priceY(point.low)} /><rect x={x(point.relativeDay) - Math.max(1.5, plotWidth / 210)} width={Math.max(3, plotWidth / 105)} y={Math.min(priceY(point.open), priceY(point.close))} height={Math.max(1.5, Math.abs(priceY(point.open) - priceY(point.close)))} /></g> : null)}
-      {currentPath && selected.caseId !== current.caseId && <polyline points={currentPath} className={styles.todayLine} />}
+      <g clipPath={`url(#${priceClipId})`}>
+        {series.map((point) => isNumber(point.open) && isNumber(point.high) && isNumber(point.low) && isNumber(point.close) ? <g key={point.relativeDay} className={point.close >= point.open ? styles.upCandle : styles.downCandle}><line x1={x(point.relativeDay)} x2={x(point.relativeDay)} y1={priceY(point.high)} y2={priceY(point.low)} /><rect x={x(point.relativeDay) - Math.max(1.5, plotWidth / 210)} width={Math.max(3, plotWidth / 105)} y={Math.min(priceY(point.open), priceY(point.close))} height={Math.max(1.5, Math.abs(priceY(point.open) - priceY(point.close)))} /></g> : null)}
+        {currentPath && <polyline points={currentPath} className={styles.todayLine} />}
+      </g>
       {series.map((point) => isNumber(point.volume) ? <rect key={`v-${point.relativeDay}`} x={x(point.relativeDay) - 2} width="4" y={scale(point.volume, 0, maxVolume, volumeTop, volumeBottom)} height={volumeBottom - scale(point.volume, 0, maxVolume, volumeTop, volumeBottom)} className={styles.volumeBar} /> : null)}
       <line x1={left} x2={right} y1={scale(70, 0, 100, rsiTop, rsiBottom)} y2={scale(70, 0, 100, rsiTop, rsiBottom)} className={styles.threshold} />
       <polyline points={linePoints(series, "rsi", x, (v) => scale(v, 0, 100, rsiTop, rsiBottom))} className={styles.rsiLine} />
@@ -218,15 +252,21 @@ function ReviewChart({ current, selected }: { current: TradeCase; selected: Trad
 }
 
 function PortfolioImpact({ impact }: { impact: DailyTradeReview["portfolioImpact"] }) {
-  const rows = [["종목 비중", impact.symbolWeightBefore, impact.symbolWeightAfter], ["섹터 비중", impact.sectorWeightBefore, impact.sectorWeightAfter], ["현금 비중", impact.cashWeightBefore, impact.cashWeightAfter], ["상위 종목 집중도", impact.topHoldingsConcentrationBefore, impact.topHoldingsConcentrationAfter]];
-  return <section className={styles.portfolio}><h3>포트폴리오 영향</h3><div className={styles.tableWrap}><table><thead><tr><th>항목</th><th>변경 전</th><th>변경 후</th><th>변화</th><th>영향 및 리스크</th></tr></thead><tbody>{rows.map(([label, before, after], index) => { const a = typeof before === "number" ? before : null, b = typeof after === "number" ? after : null; return <tr key={String(label)}><td>{String(label)}</td><td>{percent(a)}</td><td>{percent(b)}</td><td>{a != null && b != null ? `${b - a > 0 ? "+" : ""}${(b - a).toFixed(1)}%p` : "계산되지 않음"}</td><td>{impact.riskFlags?.[index] ?? "계산되지 않음"}</td></tr>; })}</tbody></table></div></section>;
+  const rows = [
+    { label: "종목 비중", before: impact.symbolWeightBefore, after: impact.symbolWeightAfter, riskFlag: "단일 종목 위험 증가" },
+    { label: "섹터 비중", before: impact.sectorWeightBefore, after: impact.sectorWeightAfter, riskFlag: "섹터 집중도 상승" },
+    { label: "현금 비중", before: impact.cashWeightBefore, after: impact.cashWeightAfter, riskFlag: "현금 완충력 감소" },
+    { label: "상위 종목 집중도", before: impact.topHoldingsConcentrationBefore, after: impact.topHoldingsConcentrationAfter, riskFlag: "상위 종목 집중도 상승" }
+  ];
+  const riskFlags = impact.riskFlags ?? [];
+  const costBasis = impact.valuationBasisBefore === "cost_basis" || impact.valuationBasisAfter === "cost_basis";
+  return <section className={styles.portfolio}><h3>포트폴리오 영향</h3>{costBasis && <p className={styles.valuationNote}>가상투자 거래원가 기준 · 실시간 평가금액이 아닙니다</p>}<div className={styles.tableWrap}><table><thead><tr><th>항목</th><th>변경 전</th><th>변경 후</th><th>변화</th><th>영향 및 리스크</th></tr></thead><tbody>{rows.map(({ label, before, after, riskFlag }) => { const a = typeof before === "number" ? before : null, b = typeof after === "number" ? after : null; return <tr key={label}><td>{label}</td><td>{percent(a)}</td><td>{percent(b)}</td><td>{a != null && b != null ? `${b - a > 0 ? "+" : ""}${(b - a).toFixed(1)}%p` : "계산되지 않음"}</td><td>{riskFlags.includes(riskFlag) ? riskFlag : a != null && b != null ? "추가 위험 신호 없음" : "계산되지 않음"}</td></tr>; })}</tbody></table></div></section>;
 }
 
 function EmptyCoach({ report }: { report: CoachReport | null }) { return <div className={styles.emptyPage}><CircleAlert /><h2>당일 거래 회고</h2><p>{report?.warnings[0] ?? "데이터 연결 대기"}</p><small>실제 체결과 분석 report가 준비되면 표시됩니다.</small></div>; }
 function Metric({ label, value, tone: color }: { label: string; value: string; tone?: string }) { return <div className={styles.metric}><span>{label}</span><strong className={color ? styles[color] : undefined}>{value}</strong></div>; }
 function nearestPoint(points: ChartPoint[], day: number) { return points.reduce<ChartPoint | undefined>((best, point) => !best || Math.abs(point.relativeDay - day) < Math.abs(best.relativeDay - day) ? point : best, undefined); }
 function linePoints(points: ChartPoint[], key: "rsi" | "macd" | "signal", x: (v: number) => number, y: (v: number) => number) { return points.filter((p) => isNumber(p[key])).map((p) => `${x(p.relativeDay)},${y(p[key] as number)}`).join(" "); }
-function priceYForCurrent(value: number, entry: number, min: number, max: number, top: number, bottom: number) { const normalized = (value - entry) / entry * 100; return bottom - ((normalized - min) / Math.max(.0001, max - min)) * (bottom - top); }
 function isNumber(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value); }
 function money(value: unknown) { return isNumber(value) ? `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "계산되지 않음"; }
 function percent(value: unknown) { return isNumber(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%` : "계산되지 않음"; }

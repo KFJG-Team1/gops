@@ -12,6 +12,13 @@ import type {
   CoachReport,
   DailyTradeReview,
   HistoricalHabitsPage,
+  HabitPattern,
+  PortfolioDiversificationCandidate,
+  PortfolioHoldingSensitivity,
+  PortfolioSectorExposure,
+  HabitProcessOutcome,
+  HabitReport,
+  HabitRepresentativeTrade,
   ImprovementPlan,
   TradeCase
 } from "../components/ai-coach/types";
@@ -290,7 +297,16 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
   };
 }
 
-function normalizeCoachReport(value: unknown): CoachReport | null {
+export async function fetchLatestCoachReport(signal?: AbortSignal): Promise<CoachReport | null> {
+  const response = await fetch("/api/ai-coach/reports/latest", { signal, credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error(`AI coach report request failed (${response.status})`);
+  }
+  const payload = readObject(await response.json());
+  return normalizeCoachReport(payload?.report);
+}
+
+export function normalizeCoachReport(value: unknown): CoachReport | null {
   const source = readObject(value);
   const contractVersion = readString(source?.contractVersion);
   const analysisId = readString(source?.analysisId);
@@ -411,11 +427,9 @@ function normalizeHistoricalHabitsPage(value: unknown): HistoricalHabitsPage | n
   return {
     ...(source as HistoricalHabitsPage),
     availability: normalizeAvailability(source.availability),
-    defaultPeriod: source.defaultPeriod === "30d" || source.defaultPeriod === "1y" ? source.defaultPeriod : "90d",
+    defaultPeriod: "6m",
     reportsByPeriod: {
-      "30d": normalizeStageReports(reportsByPeriod["30d"]),
-      "90d": normalizeStageReports(reportsByPeriod["90d"]),
-      "1y": normalizeStageReports(reportsByPeriod["1y"])
+      "6m": normalizeStageReports(reportsByPeriod["6m"] ?? reportsByPeriod["90d"] ?? reportsByPeriod["1y"] ?? reportsByPeriod["30d"])
     }
   };
 }
@@ -482,7 +496,7 @@ function normalizeCoachAlertProposalSource(value: unknown): CoachAlertProposalSo
     : null;
 }
 
-function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]> {
+function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["6m"]> {
   const source = readObject(value);
   if (!source) return {};
   return Object.fromEntries(
@@ -494,13 +508,80 @@ function normalizeStageReports(value: unknown): Record<string, never> | NonNulla
         stage,
         availability: normalizeAvailability(report.availability),
         sampleSize: readNumber(report.sampleSize) ?? 0,
+        totalTradeCount: readNumber(report.totalTradeCount) ?? readNumber(report.sampleSize) ?? 0,
+        analyzedTradeCount: readNumber(report.analyzedTradeCount) ?? readNumber(report.sampleSize) ?? 0,
+        excludedTradeCount: readNumber(report.excludedTradeCount) ?? 0,
+        evidenceQuality: ["low", "medium", "high"].includes(String(report.evidenceQuality)) ? report.evidenceQuality : report.confidence,
+        excludedReasons: readArray(report.excludedReasons).map(readString).filter((item): item is string => Boolean(item)),
         confidence: ["low", "medium", "high"].includes(String(report.confidence)) ? report.confidence : "insufficient",
         missingData: readArray(report.missingData).map(readString).filter((item): item is string => Boolean(item)),
         behavior: normalizeObjectArray(report.behavior),
+        longTermProfile: normalizeLongTermProfile(report.longTermProfile),
         insights: normalizeObjectArray(report.insights)
       }]];
     })
-  ) as NonNullable<HistoricalHabitsPage["reportsByPeriod"]["30d"]>;
+  ) as NonNullable<HistoricalHabitsPage["reportsByPeriod"]["6m"]>;
+}
+
+function normalizeLongTermProfile(value: unknown): HabitReport["longTermProfile"] {
+  const source = readObject(value);
+  if (!source) return undefined;
+  const decisionRecords = readObject(source.decisionRecords);
+  const processOutcome = readArray(source.processOutcome).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const process = readString(item.process);
+    const outcome = readString(item.outcome);
+    const count = readNumber(item.count);
+    if ((process !== "confirmed" && process !== "unconfirmed") || (outcome !== "positive" && outcome !== "negative") || count === null) return [];
+    return [{ process: process as HabitProcessOutcome["process"], outcome: outcome as HabitProcessOutcome["outcome"], count, averageReturnPercent: readNumber(item.averageReturnPercent) ?? undefined, averageMaePercent: readNumber(item.averageMaePercent) ?? undefined }];
+  });
+  const patterns = readArray(source.patterns).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const id = readString(item.id), title = readString(item.title), description = readString(item.description);
+    const occurrenceCount = readNumber(item.occurrenceCount);
+    const confidence = readString(item.confidence);
+    if (!id || !title || !description || occurrenceCount === null || !["low", "medium", "high"].includes(String(confidence))) return [];
+    return [{ id, title, description, occurrenceCount, occurrenceRatePercent: readNumber(item.occurrenceRatePercent) ?? undefined, averageReturnPercent: readNumber(item.averageReturnPercent) ?? undefined, averageMaePercent: readNumber(item.averageMaePercent) ?? undefined, confidence: confidence as HabitPattern["confidence"] }];
+  });
+  const representativeTrades = readArray(source.representativeTrades).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const caseId = readString(item.caseId), process = readString(item.process), outcome = readString(item.outcome), reason = readString(item.reason);
+    if (!caseId || !reason || (process !== "confirmed" && process !== "unconfirmed") || (outcome !== "positive" && outcome !== "negative")) return [];
+    return [{ caseId, process: process as HabitRepresentativeTrade["process"], outcome: outcome as HabitRepresentativeTrade["outcome"], reason, symbol: readString(item.symbol) ?? undefined, side: readString(item.side) ?? undefined, tradeDate: readString(item.tradeDate) ?? undefined, returnPercent: readNumber(item.returnPercent) ?? undefined, maePercent: readNumber(item.maePercent) ?? undefined }];
+  });
+  const marketDiversificationSource = readObject(source.marketDiversification);
+  const marketDiversification = marketDiversificationSource ? {
+    availability: normalizeAvailability(marketDiversificationSource.availability),
+    sourceAsOf: readString(marketDiversificationSource.sourceAsOf) ?? undefined,
+    concentratedSector: readString(marketDiversificationSource.concentratedSector) ?? undefined,
+    concentratedWeightPercent: readNumber(marketDiversificationSource.concentratedWeightPercent) ?? undefined,
+    sectorExposures: readArray(marketDiversificationSource.sectorExposures).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const sector = readString(item.sector), riskLevel = readString(item.riskLevel);
+      if (!sector || !["high", "attention", "normal", "unknown"].includes(String(riskLevel))) return [];
+      return [{ sector, riskLevel: riskLevel as PortfolioSectorExposure["riskLevel"], weightPercent: readNumber(item.weightPercent) ?? undefined, symbols: readArray(item.symbols).map(readString).filter((symbol): symbol is string => Boolean(symbol)) }];
+    }),
+    holdingSensitivities: readArray(marketDiversificationSource.holdingSensitivities).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const symbol = readString(item.symbol), independence = readString(item.independence);
+      if (!symbol || !["high", "low", "unknown"].includes(String(independence))) return [];
+      return [{ symbol, independence: independence as PortfolioHoldingSensitivity["independence"], sector: readString(item.sector) ?? undefined, weightPercent: readNumber(item.weightPercent) ?? undefined, marketCorrelation: readNumber(item.marketCorrelation) ?? undefined, sectorCorrelation: readNumber(item.sectorCorrelation) ?? undefined }];
+    }),
+    candidates: readArray(marketDiversificationSource.candidates).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const id = readString(item.id), market = readString(item.market), role = readString(item.role), reason = readString(item.reason);
+      if (!id || !market || !reason || !["defensive", "relative_strength", "diversification"].includes(String(role))) return [];
+      return [{ id, market, reason, role: role as PortfolioDiversificationCandidate["role"], sector: readString(item.sector) ?? undefined, etfSymbol: readString(item.etfSymbol) ?? undefined, suggestedMinWeightPercent: readNumber(item.suggestedMinWeightPercent) ?? undefined, suggestedMaxWeightPercent: readNumber(item.suggestedMaxWeightPercent) ?? undefined, correlationToConcentratedSector: readNumber(item.correlationToConcentratedSector) ?? undefined, relativeStrengthPercent: readNumber(item.relativeStrengthPercent) ?? undefined, sourceAsOf: readString(item.sourceAsOf) ?? undefined }];
+    }),
+    missingData: readArray(marketDiversificationSource.missingData).map(readString).filter((item): item is string => Boolean(item))
+  } : undefined;
+  return {
+    headline: readString(source.headline) ?? undefined,
+    decisionRecords: decisionRecords ? {
+      recordedTradeCount: readNumber(decisionRecords.recordedTradeCount) ?? 0,
+      confirmedTradeCount: readNumber(decisionRecords.confirmedTradeCount) ?? 0,
+      unconfirmedTradeCount: readNumber(decisionRecords.unconfirmedTradeCount) ?? 0,
+      missedCheckTradeCount: readNumber(decisionRecords.missedCheckTradeCount) ?? 0
+    } : undefined,
+    processOutcome,
+    patterns,
+    representativeTrades,
+    marketDiversification
+  };
 }
 
 function normalizeAvailability(value: unknown): HistoricalHabitsPage["availability"] {

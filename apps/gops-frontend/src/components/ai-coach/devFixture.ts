@@ -1,4 +1,4 @@
-import type { ChartPoint, CoachReport, DailyTradeReview, HabitReport, InsightStage, MissedCheck, TradeCase } from "./types";
+import type { ChartPoint, CoachReport, DailyTradeReview, HabitLongTermProfile, HabitReport, InsightStage, MissedCheck, TradeCase } from "./types";
 
 const asOf = "2026-07-10T20:00:00Z";
 type ReviewBundle = Omit<DailyTradeReview, "selectedFillId" | "trades" | "reviewsByFillId">;
@@ -54,11 +54,74 @@ function review(symbol: string, base: number, side: "buy" | "sell", returnPercen
   };
 }
 
-function habit(stage: InsightStage, period: "30d" | "90d" | "1y", sampleSize: number): HabitReport {
-  const labels = { entry: "진입", exit: "청산", portfolio: "포트폴리오" };
-  const scale = period === "30d" ? .72 : period === "90d" ? .84 : .91;
+function longTermProfile(stage: InsightStage, period: "6m", sampleSize: number): HabitLongTermProfile {
+  const scale = .88;
+  if (stage === "portfolio") {
+    return {
+      headline: `최근 ${sampleSize}개 포트폴리오 변화 중 반도체 비중이 높았던 구간의 변동성 기여를 장기적으로 확인합니다.`,
+      patterns: [{ id: `${period}-portfolio-concentration`, title: "반도체 섹터 집중", occurrenceCount: Math.round(sampleSize * .58), occurrenceRatePercent: 58, description: "상위 보유 종목과 반도체 섹터 비중이 함께 높아진 구간이 반복됐습니다.", averageMaePercent: -1.4, confidence: sampleSize >= 15 ? "high" : "medium" }],
+      marketDiversification: {
+        availability: "ready", sourceAsOf: asOf, concentratedSector: "반도체", concentratedWeightPercent: 61,
+        sectorExposures: [
+          { sector: "반도체", weightPercent: 61, symbols: ["NVDA", "AMD", "AVGO"], riskLevel: "high" },
+          { sector: "소프트웨어", weightPercent: 14, symbols: ["MSFT"], riskLevel: "attention" },
+          { sector: "헬스케어", weightPercent: 8, symbols: ["JNJ"], riskLevel: "normal" }
+        ],
+        holdingSensitivities: [
+          { symbol: "NVDA", sector: "반도체", weightPercent: 28, marketCorrelation: .82, sectorCorrelation: .91, independence: "low" },
+          { symbol: "AMD", sector: "반도체", weightPercent: 18, marketCorrelation: .76, sectorCorrelation: .88, independence: "low" },
+          { symbol: "JNJ", sector: "헬스케어", weightPercent: 8, marketCorrelation: .34, sectorCorrelation: .41, independence: "high" }
+        ],
+        candidates: [
+          { id: `${period}-healthcare`, market: "미국 헬스케어", sector: "헬스케어", etfSymbol: "XLV", suggestedMinWeightPercent: 5, suggestedMaxWeightPercent: 10, correlationToConcentratedSector: .31, relativeStrengthPercent: 2.4, role: "defensive", reason: "반도체 집중 구간과의 동행성이 낮고 최근 시장 대비 상대 강도가 확인된 분산 후보입니다.", sourceAsOf: asOf },
+          { id: `${period}-staples`, market: "미국 필수소비재", sector: "필수소비재", etfSymbol: "XLP", suggestedMinWeightPercent: 5, suggestedMaxWeightPercent: 8, correlationToConcentratedSector: .38, relativeStrengthPercent: 1.1, role: "diversification", reason: "현재 반도체·소프트웨어 보유와의 테마 중복이 낮은 상관 분산 후보입니다.", sourceAsOf: asOf }
+        ]
+      }
+    };
+  }
+  const confirmed = Math.max(2, Math.round(sampleSize * scale));
+  const missed = Math.max(1, Math.round(sampleSize * (1 - scale) * .7));
+  const unconfirmed = sampleSize - confirmed;
   return {
-    stage, availability: "ready", periodLabel: period === "30d" ? "최근 30일" : period === "90d" ? "최근 90일" : "최근 1년", sampleSize,
+    headline: stage === "entry"
+      ? `최근 6개월 전체 ${sampleSize + 6}건 중 분석 가능한 ${sampleSize}건 기준으로, ${missed}건에서 거래량이 약한 날의 추격 진입과 확인 누락이 함께 나타났습니다.`
+      : `최근 6개월 전체 ${sampleSize + 6}건 중 분석 가능한 ${sampleSize}건 기준으로, ${missed}건에서 손실 포지션이 계획보다 늦게 정리되는 경향이 남아 있습니다.`,
+    decisionRecords: { recordedTradeCount: sampleSize - 1, confirmedTradeCount: confirmed, unconfirmedTradeCount: unconfirmed, missedCheckTradeCount: missed },
+    processOutcome: [
+      { process: "confirmed", outcome: "positive", count: Math.max(1, Math.round(confirmed * .65)), averageReturnPercent: stage === "entry" ? 3.1 : 2.7, averageMaePercent: -1.3 },
+      { process: "confirmed", outcome: "negative", count: Math.max(0, confirmed - Math.max(1, Math.round(confirmed * .65))), averageReturnPercent: -1.8, averageMaePercent: -2.2 },
+      { process: "unconfirmed", outcome: "positive", count: Math.max(1, Math.round(unconfirmed * .45)), averageReturnPercent: 1.6, averageMaePercent: -2.9 },
+      { process: "unconfirmed", outcome: "negative", count: Math.max(0, unconfirmed - Math.max(1, Math.round(unconfirmed * .45))), averageReturnPercent: -3.4, averageMaePercent: -4.1 }
+    ],
+    patterns: [
+      stage === "entry"
+        ? { id: `${period}-${stage}-confirmed-rsi-volume`, title: "RSI·거래량 확인 후 매수", occurrenceCount: confirmed, occurrenceRatePercent: Math.round(confirmed / sampleSize * 100), description: `${sampleSize}건 중 ${confirmed}건에서 RSI와 거래량 확인 기록이 남아 있습니다. 계속 가져가야 할 장점입니다.`, averageReturnPercent: 2.8, averageMaePercent: -1.4, confidence: sampleSize >= 15 ? "high" : "medium" }
+        : { id: `${period}-${stage}-target-plan`, title: "목표가 확인 후 매도", occurrenceCount: confirmed, occurrenceRatePercent: Math.round(confirmed / sampleSize * 100), description: `${sampleSize}건 중 ${confirmed}건에서 목표가와 손절 기준을 확인한 뒤 매도했습니다. 계속 가져가야 할 장점입니다.`, averageReturnPercent: 2.1, averageMaePercent: -1.2, confidence: sampleSize >= 15 ? "high" : "medium" },
+      stage === "entry"
+        ? { id: `${period}-${stage}-volume`, title: "거래량 확인 누락", occurrenceCount: missed, occurrenceRatePercent: Math.round(missed / sampleSize * 100), description: `${sampleSize}건 중 ${missed}건에서 상대 거래량 확인이 미완료로 기록됐습니다.`, averageReturnPercent: -1.2, averageMaePercent: -3.8, confidence: sampleSize >= 15 ? "high" : "medium" }
+        : { id: `${period}-${stage}-late-loss`, title: "손실 청산 지연", occurrenceCount: missed, occurrenceRatePercent: Math.round(missed / sampleSize * 100), description: `${sampleSize}건 중 ${missed}건에서 손실 포지션 청산이 계획보다 늦었습니다.`, averageReturnPercent: -2.4, averageMaePercent: -4.2, confidence: sampleSize >= 15 ? "high" : "medium" },
+      stage === "entry"
+        ? { id: `${period}-${stage}-symbol`, title: "NVDA·AMD 진입 편중", occurrenceCount: Math.round(sampleSize * .46), occurrenceRatePercent: 46, description: "진입 거래가 두 반도체 종목에 집중되어 시장·섹터 판단이 함께 흔들릴 수 있습니다.", averageReturnPercent: 1.4, averageMaePercent: -2.5, confidence: sampleSize >= 15 ? "high" : "medium" }
+        : { id: `${period}-${stage}-target`, title: "목표가 도달 후 보유 지속", occurrenceCount: Math.round(sampleSize * .38), occurrenceRatePercent: 38, description: "목표 구간에 도달한 뒤에도 청산 실행이 늦어진 사례가 반복됐습니다.", averageReturnPercent: .8, averageMaePercent: -1.9, confidence: sampleSize >= 15 ? "high" : "medium" }
+    ],
+    representativeTrades: [
+      { caseId: `${period}-${stage}-missed-loss`, symbol: "NVDA", side: stage === "entry" ? "buy" : "sell", tradeDate: "2026-06-18T14:00:00Z", process: "unconfirmed", outcome: "negative", returnPercent: -3.4, maePercent: -4.1, reason: "거래량 · 실적 일정 확인 누락" },
+      { caseId: `${period}-${stage}-confirmed-loss`, symbol: "AMD", side: stage === "entry" ? "buy" : "sell", tradeDate: "2026-05-27T14:00:00Z", process: "confirmed", outcome: "negative", returnPercent: -1.8, maePercent: -2.2, reason: "필수 확인 기록 충족" },
+      { caseId: `${period}-${stage}-missed-profit`, symbol: "NVDA", side: stage === "entry" ? "buy" : "sell", tradeDate: "2026-04-21T14:00:00Z", process: "unconfirmed", outcome: "positive", returnPercent: 1.6, maePercent: -2.9, reason: "수익이 났지만 확인 기록은 완전하지 않음" }
+    ]
+  };
+}
+
+function habit(stage: InsightStage, period: "6m", sampleSize: number): HabitReport {
+  const labels = { entry: "진입", exit: "청산", portfolio: "포트폴리오" };
+  const scale = .88;
+  return {
+    stage, availability: "ready", periodLabel: "최근 6개월", sampleSize,
+    totalTradeCount: sampleSize + 6,
+    analyzedTradeCount: sampleSize,
+    excludedTradeCount: 6,
+    excludedReasons: ["가격 경로 부족", "판단 기록 없음"],
+    evidenceQuality: sampleSize >= 50 ? "high" : sampleSize >= 20 ? "medium" : "low",
     confidence: sampleSize >= 18 ? "high" : sampleSize >= 8 ? "medium" : "low",
     concentration: stage === "portfolio" ? "반도체 58%" : "NVDA·AMD 46%", regime: "상승 국면 64%", missingData: [],
     summary: stage === "entry" ? "추세 확인은 일관됐지만 거래량이 약한 날의 추격 진입이 반복됐습니다." : stage === "exit" ? "계획한 가격 청산은 양호했으나 손실 포지션의 청산은 평균 2.1일 늦었습니다." : "상위 종목 집중도를 낮춘 거래의 낙폭 기여가 더 안정적이었습니다.",
@@ -67,28 +130,47 @@ function habit(stage: InsightStage, period: "30d" | "90d" | "1y", sampleSize: nu
       { label: "평균 결과", value: { value: stage === "exit" ? 1.8 : 2.4, unit: "%", denominator: `${sampleSize}건`, availability: "ready" } },
       { label: "평균 MAE", value: { value: stage === "portfolio" ? -1.4 : -2.2, unit: "%", availability: "ready" } }
     ],
-    planConsistency: { value: Math.round(scale * 92), unit: "%", availability: "ready", interpretation: "계획 기록과 실제 체결을 비교한 값입니다." },
-    insights: [{ id: `${period}-${stage}-insight`, stage, kind: stage === "exit" ? "effective_candidate" : "improvement_candidate", title: stage === "entry" ? "거래량 확인 뒤 진입" : stage === "exit" ? "목표가 분할 청산 재현" : "섹터 비중 상한 확인", condition: stage === "entry" ? "상대 거래량 1.2 미만" : stage === "exit" ? "사전 목표가 도달" : "섹터 비중 55% 초과", observedBehavior: `${sampleSize}건 중 ${Math.max(2, Math.round(sampleSize * .42))}건에서 반복`, sampleSize, confidence: sampleSize >= 18 ? "high" : "medium", metrics: { avgReturn: stage === "exit" ? 3.1 : 1.2, avgMfe: 4.8, avgMae: -2.1, planAdherenceRate: Math.round(scale * 92) }, recurrenceScore: 78, impactScore: 83, controllabilityScore: 90, priorityScore: 84, nextAction: "다음 5회 거래에서 체크리스트 적용", candidateGuardrailId: `${stage}-guardrail` }]
+    planConsistency: { value: Math.round(scale * 92), unit: "%", availability: "ready", interpretation: "계획 기록과 실제 체결을 비교한 값입니다." }, longTermProfile: longTermProfile(stage, period, sampleSize),
+    insights: [{ id: `${period}-${stage}-insight`, stage, kind: stage === "exit" ? "effective_candidate" : "improvement_candidate", title: stage === "entry" ? "MACD 약화 구간 진입 알람" : stage === "exit" ? "목표가 도달 후 보유 지속 알람" : "섹터 비중 상한 알람", condition: stage === "entry" ? "MACD 하향 또는 히스토그램 감소 중 진입 검토" : stage === "exit" ? "사전 목표가 도달 후 미청산" : "섹터 비중 55% 초과", observedBehavior: stage === "entry" ? "MACD가 약해지는 구간에서 진입한 뒤 거래량까지 약하면 불리한 변동성이 커졌습니다." : stage === "exit" ? "목표가에 도달한 뒤에도 보유를 지속해 수익 반납 위험이 반복됐습니다." : "섹터 집중도가 높아질수록 단일 시장 충격에 취약해졌습니다.", sampleSize, confidence: sampleSize >= 18 ? "high" : "medium", metrics: { avgReturn: stage === "exit" ? 3.1 : 1.2, avgMfe: 4.8, avgMae: -2.1, planAdherenceRate: Math.round(scale * 92) }, recurrenceScore: 78, impactScore: 83, controllabilityScore: 90, priorityScore: 84, nextAction: stage === "entry" ? "다음 진입 전 MACD·거래량·RSI를 함께 확인" : stage === "exit" ? "목표가 도달 시 분할 청산 알람으로 대응" : "비중 초과 시 리밸런싱 검토 알람으로 대응", candidateGuardrailId: `${stage}-guardrail` }]
   };
 }
 
 const nvdaReview = review("NVDA", 190.8, "buy", 2.05);
 const amdReview = review("AMD", 147.1, "sell", .74);
 const periods = {
-  "30d": { entry: habit("entry", "30d", 6), exit: habit("exit", "30d", 5), portfolio: habit("portfolio", "30d", 7) },
-  "90d": { entry: habit("entry", "90d", 14), exit: habit("exit", "90d", 12), portfolio: habit("portfolio", "90d", 16) },
-  "1y": { entry: habit("entry", "1y", 42), exit: habit("exit", "1y", 37), portfolio: habit("portfolio", "1y", 49) }
+  "6m": { entry: habit("entry", "6m", 24), exit: habit("exit", "6m", 21), portfolio: habit("portfolio", "6m", 28) }
 };
-const priorityEntry = { ...periods["90d"].entry.insights[0], priority: "improve" as const };
-const priorityExit = { ...periods["90d"].exit.insights[0], priority: "reproduce" as const };
-const priorityPortfolio = { ...periods["90d"].portfolio.insights[0], priority: "improve" as const };
+const priorityEntry = {
+  ...periods["6m"].entry.insights[0],
+  priority: "improve" as const,
+  title: "거래량 확인 후 매수하기",
+  condition: "평소 대비 거래량 1.2배 미만",
+  observedBehavior: "24번 중 10번 거래량이 적을 때 매수",
+  nextAction: "다음 5번 매수 전에 체크리스트 확인"
+};
+const priorityExit = {
+  ...periods["6m"].exit.insights[0],
+  priority: "reproduce" as const,
+  title: "목표 가격에서 나눠 매도하기",
+  condition: "미리 정한 목표 가격에 도달",
+  observedBehavior: "21번 중 9번 나눠 매도",
+  nextAction: "다음 5번 거래에서도 체크리스트로 확인"
+};
+const priorityPortfolio = {
+  ...periods["6m"].portfolio.insights[0],
+  priority: "improve" as const,
+  title: "한 업종에 너무 많이 매수했는지 확인",
+  condition: "같은 업종 종목이 전체 보유 금액의 55% 초과",
+  observedBehavior: "28번 중 12번 한 업종의 보유 비중이 55% 초과",
+  nextAction: "다음 5번 매수 전에 업종별 보유 비중 확인"
+};
 const experiments = [
-  { id: "exp-volume", sourceStages: ["entry" as const], title: "거래량 확인 후 진입", hypothesis: "상대 거래량 1.2 이상에서만 진입하면 불리한 추격 매수를 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 2, checklist: ["상대 거래량 확인", "RSI 70 미만"], successMetrics: ["평균 MAE 2% 이내", "계획 준수율 80% 이상"], stopConditions: ["표본 3건 연속 MAE 4% 초과"], confidence: "medium" as const, status: "active" as const },
-  { id: "exp-exit", sourceStages: ["exit" as const], title: "목표가 2회 분할 청산", hypothesis: "사전 목표가에서 분할 청산하면 MFE 반납을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 1, checklist: ["목표가 기록", "청산 비율 기록"], successMetrics: ["MFE 반납률 감소"], stopConditions: ["기회비용 증가"], confidence: "medium" as const, status: "candidate" as const }
+  { id: "exp-volume", sourceStages: ["entry" as const], title: "거래량 확인 후 매수하기", hypothesis: "평소보다 거래량이 1.2배 이상일 때만 매수하면, 가격이 오른 뒤 성급하게 따라 사는 일을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 2, checklist: ["평소 대비 거래량 확인", "RSI 70 미만 확인"], successMetrics: ["매수 후 최대 손실 폭 2% 이내", "매수 계획을 지킨 비율 80% 이상"], stopConditions: ["3번 연속 매수 후 최대 손실 폭 4% 초과"], confidence: "medium" as const, status: "active" as const },
+  { id: "exp-exit", sourceStages: ["exit" as const], title: "목표 가격에서 두 번 나눠 매도하기", hypothesis: "미리 정한 목표 가격에서 나눠 매도하면, 올랐던 수익을 다시 잃는 폭을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 1, checklist: ["목표 가격 기록", "각 매도 비율 기록"], successMetrics: ["최고 수익 대비 줄어든 수익 폭 감소"], stopConditions: ["너무 일찍 매도해 놓친 수익 증가"], confidence: "medium" as const, status: "candidate" as const }
 ];
 const guardrails = [
-  { id: "entry-guardrail", stage: "entry" as const, title: "저거래량 진입 확인", description: "상대 거래량 1.2 미만이면 진입 근거 확인을 요청합니다.", trigger: { conditions: [{ metric: "relativeVolume", operator: "<", value: 1.2 }], matchMode: "all" as const }, severity: "warning" as const, intervention: "require_confirmation" as const, scope: "next_five_trades" as const, enabled: true },
-  { id: "portfolio-guardrail", stage: "portfolio" as const, title: "섹터 집중도 확인", description: "거래 후 섹터 비중이 60%를 넘으면 비중 계획을 확인합니다.", trigger: { conditions: [{ metric: "sectorWeight", operator: ">", value: 60 }], matchMode: "all" as const }, severity: "risk" as const, intervention: "require_plan" as const, scope: "global" as const, enabled: false }
+  { id: "entry-guardrail", stage: "entry" as const, title: "거래량이 적을 때 매수 전 확인", description: "평소 대비 거래량이 1.2배 미만이면 매수 이유를 다시 확인합니다.", trigger: { conditions: [{ metric: "relativeVolume", operator: "<", value: 1.2 }], matchMode: "all" as const }, severity: "warning" as const, intervention: "require_confirmation" as const, scope: "next_five_trades" as const, enabled: true },
+  { id: "portfolio-guardrail", stage: "portfolio" as const, title: "한 업종에 매수가 몰렸는지 확인", description: "매수 후 같은 업종의 보유 비중이 60%를 넘으면 매수 계획을 다시 확인합니다.", trigger: { conditions: [{ metric: "sectorWeight", operator: ">", value: 60 }], matchMode: "all" as const }, severity: "risk" as const, intervention: "require_plan" as const, scope: "global" as const, enabled: false }
 ];
 
 function dailyTradeAlertCandidates(symbol: string, bundle: ReviewBundle) {
@@ -108,8 +190,8 @@ export const AI_COACH_DEV_FIXTURE: CoachReport = {
     ...nvdaReview,
     reviewsByFillId: { "fixture-fill-nvda": nvdaReview, "fixture-fill-amd": amdReview }
   },
-  page2: { availability: "ready", defaultPeriod: "90d", reportsByPeriod: periods },
-  page3: { availability: "ready", summary: "저거래량 추격 진입은 먼저 보완하고, 계획된 분할 청산은 다음 거래에서도 재현합니다.", priorities: [priorityEntry, priorityExit, priorityPortfolio], experiments, guardrails },
+  page2: { availability: "ready", defaultPeriod: "6m", reportsByPeriod: periods },
+  page3: { availability: "ready", summary: "거래량이 적을 때 서둘러 매수하는 습관을 먼저 고치고, 목표 가격에서 나눠 매도한 좋은 습관은 다음 거래에서도 이어갑니다.", priorities: [priorityEntry, priorityExit, priorityPortfolio], experiments, guardrails },
   page4: {
     availability: "ready", activeExperiments: experiments.filter((item) => item.status === "active"), enabledGuardrails: guardrails.filter((item) => item.enabled),
     recommendedAlerts: [

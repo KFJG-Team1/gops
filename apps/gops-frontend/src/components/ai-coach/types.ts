@@ -116,6 +116,84 @@ export const AVAILABILITY_LABELS: Record<Exclude<CoachAvailability, "ready">, st
   pending: "데이터 연결 대기", observing: "관찰 중", low_confidence: "신뢰도 낮음"
 };
 export type CoachValue = { value?: string | number | null; unit?: string; denominator?: string; interpretation?: string; availability?: CoachAvailability };
+export type HabitProcessOutcome = {
+  process: "confirmed" | "unconfirmed";
+  outcome: "positive" | "negative";
+  count: number;
+  averageReturnPercent?: number | null;
+  averageMaePercent?: number | null;
+};
+export type HabitPattern = {
+  id: string;
+  title: string;
+  occurrenceCount: number;
+  occurrenceRatePercent?: number | null;
+  description: string;
+  averageReturnPercent?: number | null;
+  averageMaePercent?: number | null;
+  confidence: EvidenceConfidence;
+};
+export type HabitRepresentativeTrade = {
+  caseId: string;
+  symbol?: string | null;
+  side?: string | null;
+  tradeDate?: string | null;
+  process: "confirmed" | "unconfirmed";
+  outcome: "positive" | "negative";
+  returnPercent?: number | null;
+  maePercent?: number | null;
+  reason: string;
+};
+export type PortfolioSectorExposure = {
+  sector: string;
+  weightPercent?: number | null;
+  symbols: string[];
+  riskLevel: "high" | "attention" | "normal" | "unknown";
+};
+export type PortfolioHoldingSensitivity = {
+  symbol: string;
+  sector?: string | null;
+  weightPercent?: number | null;
+  marketCorrelation?: number | null;
+  sectorCorrelation?: number | null;
+  independence: "high" | "low" | "unknown";
+};
+export type PortfolioDiversificationCandidate = {
+  id: string;
+  market: string;
+  sector?: string | null;
+  etfSymbol?: string | null;
+  suggestedMinWeightPercent?: number | null;
+  suggestedMaxWeightPercent?: number | null;
+  correlationToConcentratedSector?: number | null;
+  relativeStrengthPercent?: number | null;
+  role: "defensive" | "relative_strength" | "diversification";
+  reason: string;
+  sourceAsOf?: string | null;
+};
+export type PortfolioMarketDiversification = {
+  availability: CoachAvailability;
+  sourceAsOf?: string | null;
+  concentratedSector?: string | null;
+  concentratedWeightPercent?: number | null;
+  sectorExposures: PortfolioSectorExposure[];
+  holdingSensitivities: PortfolioHoldingSensitivity[];
+  candidates: PortfolioDiversificationCandidate[];
+  missingData?: string[];
+};
+export type HabitLongTermProfile = {
+  headline?: string;
+  decisionRecords?: {
+    recordedTradeCount: number;
+    confirmedTradeCount: number;
+    unconfirmedTradeCount: number;
+    missedCheckTradeCount: number;
+  };
+  processOutcome?: HabitProcessOutcome[];
+  patterns?: HabitPattern[];
+  representativeTrades?: HabitRepresentativeTrade[];
+  marketDiversification?: PortfolioMarketDiversification;
+};
 export type ConditionInsight = {
   id: string; stage: InsightStage; kind: "effective_candidate" | "improvement_candidate" | "observation";
   title: string; condition: string; observedBehavior: string; sampleSize: number; confidence: EvidenceConfidence;
@@ -136,11 +214,12 @@ export type PlaybookExperiment = {
 };
 export type HabitReport = {
   stage: InsightStage; availability: CoachAvailability; periodLabel?: string; sampleSize: number; confidence: EvidenceConfidence;
+  totalTradeCount?: number; analyzedTradeCount?: number; excludedTradeCount?: number; evidenceQuality?: EvidenceConfidence; excludedReasons?: string[];
   missingData?: string[]; concentration?: string; regime?: string; summary?: string;
-  behavior?: Array<{ label: string; value?: CoachValue }>; planConsistency?: CoachValue; insights: ConditionInsight[];
+  behavior?: Array<{ label: string; value?: CoachValue }>; planConsistency?: CoachValue; longTermProfile?: HabitLongTermProfile; insights: ConditionInsight[];
 };
 export type HabitCoachViewModel = { availability: CoachAvailability; reports: Partial<Record<InsightStage, HabitReport>> };
-export type HabitCoachPeriod = "30d" | "90d" | "1y" | "custom";
+export type HabitCoachPeriod = "6m" | "custom";
 export type HistoricalHabitsPage = {
   availability: CoachAvailability; defaultPeriod: Exclude<HabitCoachPeriod, "custom">;
   reportsByPeriod: Partial<Record<Exclude<HabitCoachPeriod, "custom">, Partial<Record<InsightStage, HabitReport>>>>;

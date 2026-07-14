@@ -1,4 +1,5 @@
-import { ChevronDown, CircleAlert, FlaskConical, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
+import { useState } from "react";
 import styles from "./ImprovementCoachPage.module.css";
 import {
   AVAILABILITY_LABELS,
@@ -7,7 +8,6 @@ import {
   type EvidenceConfidence,
   type GuardrailScope,
   type ImprovementPlan,
-  type ImprovementPriority,
   type InsightStage,
   type PlaybookExperiment,
   type TradingGuardrail
@@ -16,6 +16,7 @@ import {
 const MAX_VISIBLE_PRIORITIES = 3;
 const MAX_ACTIVE_EXPERIMENTS = 2;
 const MAX_ENABLED_GUARDRAILS = 3;
+const SAMPLE_REFERENCE_COUNT = 60;
 
 type RankedConditionInsight = ImprovementPlan["priorities"][number];
 type ExperimentActivationStatus = Extract<PlaybookExperiment["status"], "active" | "paused">;
@@ -32,16 +33,9 @@ export type ImprovementCoachPageProps = {
   ) => void;
 };
 
-const PRIORITY_LABELS: Record<ImprovementPriority, string> = {
-  reproduce: "우선 재현",
-  improve: "우선 보완",
-  observe: "추가 관찰",
-  insufficient: "데이터 부족"
-};
-
 const STAGE_LABELS: Record<InsightStage, string> = {
-  entry: "진입",
-  exit: "청산",
+  entry: "매수",
+  exit: "매도",
   portfolio: "포트폴리오"
 };
 
@@ -53,21 +47,21 @@ const CONFIDENCE_LABELS: Record<EvidenceConfidence, string> = {
 };
 
 const EXPERIMENT_STATUS_LABELS: Record<PlaybookExperiment["status"], string> = {
-  candidate: "후보",
-  active: "활성",
+  candidate: "시작 전",
+  active: "진행 중",
   completed: "완료",
-  paused: "일시 정지"
+  paused: "잠시 멈춤"
 };
 
 const SCOPE_LABELS: Record<GuardrailScope, string> = {
-  current_position: "현재 포지션",
-  next_trade: "다음 거래",
-  next_five_trades: "다음 5회 거래",
-  strategy: "전략",
+  current_position: "현재 보유 종목",
+  next_trade: "다음 매수·매도",
+  next_five_trades: "다음 5번 매수·매도",
+  strategy: "매매 원칙",
   symbol: "종목",
   sector: "업종",
-  market_group: "시장군",
-  global: "전체"
+  market_group: "시장 구분",
+  global: "모든 거래"
 };
 
 const INTERVENTION_LABELS: Record<TradingGuardrail["intervention"], string> = {
@@ -90,14 +84,14 @@ const METRIC_DEFINITIONS: ReadonlyArray<{
   unit: "%" | "%p" | "R";
 }> = [
   { key: "avgReturn", label: "평균 수익률", unit: "%" },
-  { key: "avgMfe", label: "평균 MFE", unit: "%" },
-  { key: "avgMae", label: "평균 MAE", unit: "%" },
+  { key: "avgMfe", label: "매수 후 최고 수익률", unit: "%" },
+  { key: "avgMae", label: "매수 후 최대 손실률", unit: "%" },
   { key: "avgRMultiple", label: "평균 손익비", unit: "R" },
   { key: "marketAlpha", label: "시장 대비", unit: "%p" },
   { key: "sectorAlpha", label: "업종 대비", unit: "%p" },
-  { key: "drawdownContribution", label: "낙폭 기여", unit: "%" },
-  { key: "riskContribution", label: "위험 기여", unit: "%" },
-  { key: "planAdherenceRate", label: "계획 준수율", unit: "%" }
+  { key: "drawdownContribution", label: "손실 폭에 미친 영향", unit: "%" },
+  { key: "riskContribution", label: "전체 위험에서 차지한 비중", unit: "%" },
+  { key: "planAdherenceRate", label: "매매 계획을 지킨 비율", unit: "%" }
 ];
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", {
@@ -109,6 +103,9 @@ export function ImprovementCoachPage({
   onExperimentStatusChange,
   onGuardrailEnabledChange
 }: ImprovementCoachPageProps) {
+  const [effectiveIndex, setEffectiveIndex] = useState(0);
+  const [improvementIndex, setImprovementIndex] = useState(0);
+  const [actionIndex, setActionIndex] = useState(0);
   const effectivePriorities = plan.priorities
     .filter((insight) => insight.kind === "effective_candidate")
     .slice(0, MAX_VISIBLE_PRIORITIES);
@@ -121,17 +118,37 @@ export function ImprovementCoachPage({
   const enabledGuardrailCount = plan.guardrails.filter(
     (guardrail) => guardrail.enabled
   ).length;
+  const experimentLimitReached = activeExperimentCount >= MAX_ACTIVE_EXPERIMENTS;
+  const guardrailLimitReached = enabledGuardrailCount >= MAX_ENABLED_GUARDRAILS;
+  const actionSlides = [
+    ...plan.experiments.map((experiment) => ({
+      id: `experiment-${experiment.id}`,
+      content: (
+        <ExperimentItem
+          experiment={experiment}
+          activationLimitReached={experimentLimitReached}
+          onStatusChange={onExperimentStatusChange}
+        />
+      )
+    })),
+    ...plan.guardrails.map((guardrail) => ({
+      id: `guardrail-${guardrail.id}`,
+      content: (
+        <GuardrailItem
+          guardrail={guardrail}
+          enableLimitReached={guardrailLimitReached}
+          onEnabledChange={onGuardrailEnabledChange}
+        />
+      )
+    }))
+  ];
+  const activeEffectiveIndex = Math.min(effectiveIndex, Math.max(0, effectivePriorities.length - 1));
+  const activeImprovementIndex = Math.min(improvementIndex, Math.max(0, improvementPriorities.length - 1));
+  const activeActionIndex = Math.min(actionIndex, Math.max(0, actionSlides.length - 1));
+  const activeAction = actionSlides[activeActionIndex];
 
   return (
-    <section className={styles.page} aria-labelledby="improvement-coach-page-title">
-      <header className={styles.pageHeader}>
-        <span className={styles.pageNumber} aria-hidden="true">03 / 04</span>
-        <div>
-          <h2 id="improvement-coach-page-title">효과·보완 조건</h2>
-          <p>과거 판단에서 재현할 행동과 먼저 보완할 행동을 우선순위로 정리합니다.</p>
-        </div>
-      </header>
-
+    <section className={styles.page} aria-label="좋은 매매 습관과 고칠 매매 습관">
       {plan.availability !== "ready" && (
         <div className={styles.availabilityNotice} role="status">
           <CircleAlert size={16} aria-hidden="true" />
@@ -140,89 +157,157 @@ export function ImprovementCoachPage({
       )}
 
       <section className={styles.summarySection} aria-labelledby="improvement-summary-title">
-        <span id="improvement-summary-title">이번 기간 핵심 요약</span>
+        <span id="improvement-summary-title">핵심 요약</span>
         <p>{plan.summary || missingLabel(plan.availability)}</p>
       </section>
 
-      <div className={styles.priorityGrid}>
-        <PrioritySection
-          id="effective-priorities-title"
-          title="효과가 있었던 조건"
+      <div className={styles.priorityPair}>
+        <PriorityCard
+          title="계속할 좋은 습관"
           tone="effective"
           priorities={effectivePriorities}
+          activeIndex={activeEffectiveIndex}
           availability={plan.availability}
+          onChange={setEffectiveIndex}
         />
-        <PrioritySection
-          id="improvement-priorities-title"
-          title="보완할 조건"
+        <PriorityCard
+          title="먼저 고칠 습관"
           tone="improvement"
           priorities={improvementPriorities}
+          activeIndex={activeImprovementIndex}
           availability={plan.availability}
+          onChange={setImprovementIndex}
         />
       </div>
 
-      <ExperimentsSection
-        experiments={plan.experiments}
-        activeCount={activeExperimentCount}
-        availability={plan.availability}
-        onStatusChange={onExperimentStatusChange}
-      />
+      {activeAction ? (
+        <section
+          className={styles.actionCarousel}
+          aria-label="실천 계획 및 매매 전 확인"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "ArrowLeft") {
+              setActionIndex((current) => Math.max(0, current - 1));
+            }
+            if (event.key === "ArrowRight") {
+              setActionIndex((current) => Math.min(actionSlides.length - 1, current + 1));
+            }
+          }}
+        >
+          <div className={styles.actionCarouselHeading}>
+            <strong>실전하기</strong>
+          </div>
+          <div className={styles.carouselViewport} key={activeAction.id}>
+            {activeAction.content}
+          </div>
+          <CarouselControls
+            label="실천 항목 전환"
+            itemLabel="실천 항목"
+            activeIndex={activeActionIndex}
+            itemIds={actionSlides.map((slide) => slide.id)}
+            onChange={setActionIndex}
+          />
+        </section>
+      ) : (
+        <EmptyState availability={plan.availability} />
+      )}
 
-      <GuardrailsSection
-        guardrails={plan.guardrails}
-        enabledCount={enabledGuardrailCount}
-        availability={plan.availability}
-        onEnabledChange={onGuardrailEnabledChange}
-      />
-
-      <p className={styles.safetyNote}>
-        실험과 가드레일은 결과를 보장하지 않으며 주문이나 매도를 자동 실행하지 않습니다.
-      </p>
     </section>
   );
 }
 
-function PrioritySection({
-  id,
+function PriorityCard({
   title,
   tone,
   priorities,
-  availability
+  activeIndex,
+  availability,
+  onChange
 }: {
-  id: string;
   title: string;
   tone: "effective" | "improvement";
   priorities: RankedConditionInsight[];
+  activeIndex: number;
   availability: CoachAvailability;
+  onChange: (index: number) => void;
+}) {
+  const activePriority = priorities[activeIndex];
+
+  return (
+    <section className={styles.priorityCard} aria-label={title}>
+      <div className={styles.priorityCardHeading}>
+        <strong>{title}</strong>
+      </div>
+      <div className={styles.priorityCardViewport} key={activePriority?.id ?? `${tone}-empty`}>
+        {activePriority
+          ? <InsightItem insight={activePriority} tone={tone} compact />
+          : <EmptyState availability={availability} />}
+      </div>
+      <CarouselControls
+        label={`${title} 조건 전환`}
+        itemLabel={`${title} 조건`}
+        activeIndex={activeIndex}
+        itemIds={priorities.map((priority) => priority.id)}
+        onChange={onChange}
+        compact
+      />
+    </section>
+  );
+}
+
+function CarouselControls({
+  label,
+  itemLabel,
+  activeIndex,
+  itemIds,
+  onChange,
+  compact = false
+}: {
+  label: string;
+  itemLabel: string;
+  activeIndex: number;
+  itemIds: string[];
+  onChange: (index: number) => void;
+  compact?: boolean;
 }) {
   return (
-    <section className={styles.prioritySection} aria-labelledby={id}>
-      <div className={styles.sectionHeading}>
-        <h3 id={id}>{title}</h3>
-        <span>{priorities.length} / {MAX_VISIBLE_PRIORITIES}</span>
+    <div className={`${styles.carouselControls} ${compact ? styles.compactControls : ""}`.trim()} aria-label={label}>
+      <button type="button" aria-label={`이전 ${itemLabel}`} disabled={activeIndex === 0} onClick={() => onChange(Math.max(0, activeIndex - 1))}>
+        <ChevronLeft aria-hidden="true" />
+      </button>
+      <div>
+        {itemIds.map((id, index) => (
+          <button
+            type="button"
+            key={id}
+            aria-label={`${index + 1}번째 ${itemLabel} 보기`}
+            aria-current={index === activeIndex ? "step" : undefined}
+            className={index === activeIndex ? styles.activeDot : undefined}
+            onClick={() => onChange(index)}
+          />
+        ))}
       </div>
-      {priorities.length > 0 ? (
-        <ol className={styles.priorityList}>
-          {priorities.map((insight) => (
-            <li key={insight.id}>
-              <InsightItem insight={insight} tone={tone} />
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
+      <button type="button" aria-label={`다음 ${itemLabel}`} disabled={activeIndex >= itemIds.length - 1} onClick={() => onChange(Math.min(itemIds.length - 1, activeIndex + 1))}>
+        <ChevronRight aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
 function InsightItem({
   insight,
-  tone
+  tone,
+  compact = false
 }: {
   insight: RankedConditionInsight;
   tone: "effective" | "improvement";
+  compact?: boolean;
 }) {
+  const sampleProgress = Math.min(
+    SAMPLE_REFERENCE_COUNT,
+    Math.max(0, insight.sampleSize)
+  );
   const metrics = METRIC_DEFINITIONS.flatMap((definition) => {
     const value = insight.metrics[definition.key];
     return typeof value === "number" && Number.isFinite(value)
@@ -231,43 +316,43 @@ function InsightItem({
   });
 
   return (
-    <article className={styles.insight}>
-      <div className={styles.insightMeta}>
-        <span className={priorityClassName(insight.priority)}>
-          {PRIORITY_LABELS[insight.priority]}
-        </span>
-        <span>{STAGE_LABELS[insight.stage]}</span>
-      </div>
+    <article className={`${styles.insight} ${compact ? styles.compactInsight : ""}`.trim()}>
       <h4>{insight.title}</h4>
       <dl className={styles.insightDefinition}>
         <div>
-          <dt>조건</dt>
+          <dt>확인 조건</dt>
           <dd>{insight.condition || AVAILABILITY_LABELS.not_calculated}</dd>
         </div>
         <div>
-          <dt>관찰 행동</dt>
+          <dt>관찰 결과</dt>
           <dd>{insight.observedBehavior || AVAILABILITY_LABELS.not_calculated}</dd>
         </div>
         {insight.nextAction && (
           <div className={tone === "effective" ? styles.nextEffective : styles.nextImprovement}>
-            <dt>다음 행동</dt>
+            <dt>다음 실천</dt>
             <dd>{insight.nextAction}</dd>
           </div>
         )}
       </dl>
       <div className={styles.evidenceSummary} aria-label="근거 요약">
         <span>
-          <small>표본</small>
-          <strong>{formatSampleSize(insight.sampleSize)}</strong>
+          <small>확인한 거래</small>
+          <strong>{formatSampleProgress(insight.sampleSize)}</strong>
+          <progress
+            className={`${styles.sampleProgress} ${tone === "effective" ? styles.sampleProgressEffective : styles.sampleProgressImprovement}`}
+            max={SAMPLE_REFERENCE_COUNT}
+            value={sampleProgress}
+            aria-label={`확인한 거래 ${formatSampleProgress(insight.sampleSize)}`}
+          />
         </span>
         <span>
-          <small>신뢰도</small>
+          <small>근거 수준</small>
           <strong>{CONFIDENCE_LABELS[insight.confidence]}</strong>
         </span>
       </div>
-      <details className={styles.evidenceDetails} open>
+      <details className={styles.evidenceDetails}>
         <summary>
-          <span>근거 지표</span>
+          <span>자세한 결과</span>
           <ChevronDown size={15} aria-hidden="true" />
         </summary>
         {metrics.length > 0 ? (
@@ -287,56 +372,6 @@ function InsightItem({
   );
 }
 
-function ExperimentsSection({
-  experiments,
-  activeCount,
-  availability,
-  onStatusChange
-}: {
-  experiments: PlaybookExperiment[];
-  activeCount: number;
-  availability: CoachAvailability;
-  onStatusChange: ImprovementCoachPageProps["onExperimentStatusChange"];
-}) {
-  const limitReached = activeCount >= MAX_ACTIVE_EXPERIMENTS;
-
-  return (
-    <section className={styles.actionSection} aria-labelledby="improvement-experiments-title">
-      <div className={styles.actionHeading}>
-        <div>
-          <FlaskConical size={17} aria-hidden="true" />
-          <h3 id="improvement-experiments-title">다음 5회 개선 실험</h3>
-        </div>
-        <span>활성 {activeCount} / {MAX_ACTIVE_EXPERIMENTS}</span>
-      </div>
-
-      {limitReached && (
-        <p className={styles.limitMessage} role="status">
-          {activeCount > MAX_ACTIVE_EXPERIMENTS
-            ? "활성 실험이 허용 한도를 초과했습니다. 먼저 활성 실험을 일시 정지하세요."
-            : "활성 한도에 도달했습니다. 다른 실험을 시작하려면 하나를 일시 정지하세요."}
-        </p>
-      )}
-
-      {experiments.length > 0 ? (
-        <ul className={styles.actionList}>
-          {experiments.map((experiment) => (
-            <li key={experiment.id}>
-              <ExperimentItem
-                experiment={experiment}
-                activationLimitReached={limitReached}
-                onStatusChange={onStatusChange}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
-  );
-}
-
 function ExperimentItem({
   experiment,
   activationLimitReached,
@@ -349,19 +384,14 @@ function ExperimentItem({
   const active = experiment.status === "active";
   const completed = experiment.status === "completed";
   const activationDisabled = !active && (activationLimitReached || completed);
-  const disabledLabel = completed ? ", 완료된 실험" : ", 활성 한도 도달";
+  const disabledLabel = completed ? ", 완료된 실천 계획" : ", 진행 가능한 계획 수를 모두 사용함";
   const progress = experiment.sampleTarget > 0
     ? `${NUMBER_FORMATTER.format(experiment.appliedCount)} / ${NUMBER_FORMATTER.format(experiment.sampleTarget)}회`
     : AVAILABILITY_LABELS.not_calculated;
-  const sourceLabel = experiment.sourceStages.length > 0
-    ? experiment.sourceStages.map((stage) => STAGE_LABELS[stage]).join(" · ")
-    : AVAILABILITY_LABELS.not_calculated;
-
   return (
     <article className={styles.actionItem}>
       <div className={styles.actionItemHeader}>
         <div>
-          <span className={styles.itemEyebrow}>{sourceLabel}</span>
           <h4>{experiment.title}</h4>
         </div>
         <div className={styles.toggleGroup}>
@@ -370,8 +400,8 @@ function ExperimentItem({
             checked={active}
             disabled={activationDisabled}
             label={active
-              ? `${experiment.title} 실험 일시 정지`
-              : `${experiment.title} 실험 활성화${activationDisabled ? disabledLabel : ""}`}
+              ? `${experiment.title} 실천 계획 잠시 멈춤`
+              : `${experiment.title} 실천 계획 시작${activationDisabled ? disabledLabel : ""}`}
             onChange={() => onStatusChange(experiment.id, active ? "paused" : "active")}
           />
         </div>
@@ -379,76 +409,20 @@ function ExperimentItem({
       <p className={styles.actionDescription}>{experiment.hypothesis}</p>
       <dl className={styles.actionFacts}>
         <div>
-          <dt>적용 횟수</dt>
+          <dt>실천 횟수</dt>
           <dd>{progress}</dd>
         </div>
         <div>
-          <dt>신뢰도</dt>
+          <dt>근거 수준</dt>
           <dd>{CONFIDENCE_LABELS[experiment.confidence]}</dd>
         </div>
       </dl>
-      <details className={styles.criteriaDetails}>
-        <summary>
-          <span>실험 기준</span>
-          <ChevronDown size={15} aria-hidden="true" />
-        </summary>
-        <div className={styles.criteriaGrid}>
-          <CriteriaList title="체크리스트" items={experiment.checklist} />
-          <CriteriaList title="성공 지표" items={experiment.successMetrics} />
-          <CriteriaList title="중단 조건" items={experiment.stopConditions} tone="risk" />
-        </div>
-      </details>
-    </article>
-  );
-}
-
-function GuardrailsSection({
-  guardrails,
-  enabledCount,
-  availability,
-  onEnabledChange
-}: {
-  guardrails: TradingGuardrail[];
-  enabledCount: number;
-  availability: CoachAvailability;
-  onEnabledChange: ImprovementCoachPageProps["onGuardrailEnabledChange"];
-}) {
-  const limitReached = enabledCount >= MAX_ENABLED_GUARDRAILS;
-
-  return (
-    <section className={styles.actionSection} aria-labelledby="improvement-guardrails-title">
-      <div className={styles.actionHeading}>
-        <div>
-          <ShieldCheck size={17} aria-hidden="true" />
-          <h3 id="improvement-guardrails-title">통합 가드레일</h3>
-        </div>
-        <span>사용 {enabledCount} / {MAX_ENABLED_GUARDRAILS}</span>
+      <div className={styles.criteriaGrid}>
+        <CriteriaList title="확인할 내용" items={experiment.checklist} />
+        <CriteriaList title="잘된 것으로 보는 기준" items={experiment.successMetrics} />
+        <CriteriaList title="멈출 기준" items={experiment.stopConditions} tone="risk" />
       </div>
-
-      {limitReached && (
-        <p className={styles.limitMessage} role="status">
-          {enabledCount > MAX_ENABLED_GUARDRAILS
-            ? "사용 중인 가드레일이 허용 한도를 초과했습니다. 먼저 가드레일을 끄세요."
-            : "사용 한도에 도달했습니다. 다른 가드레일을 켜려면 하나를 끄세요."}
-        </p>
-      )}
-
-      {guardrails.length > 0 ? (
-        <ul className={styles.actionList}>
-          {guardrails.map((guardrail) => (
-            <li key={guardrail.id}>
-              <GuardrailItem
-                guardrail={guardrail}
-                enableLimitReached={limitReached}
-                onEnabledChange={onEnabledChange}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <EmptyState availability={availability} />
-      )}
-    </section>
+    </article>
   );
 }
 
@@ -504,7 +478,7 @@ function GuardrailItem({
           </div>
         )}
       </dl>
-      <details className={styles.criteriaDetails}>
+      <details className={styles.criteriaDetails} open>
         <summary>
           <span>발동 조건</span>
           <ChevronDown size={15} aria-hidden="true" />
@@ -601,29 +575,14 @@ function missingLabel(availability: CoachAvailability) {
     : AVAILABILITY_LABELS[availability];
 }
 
-function formatSampleSize(sampleSize: number) {
-  return sampleSize > 0
-    ? `${NUMBER_FORMATTER.format(sampleSize)}건`
-    : AVAILABILITY_LABELS.insufficient_sample;
+function formatSampleProgress(sampleSize: number) {
+  return `${NUMBER_FORMATTER.format(Math.max(0, sampleSize))} / ${SAMPLE_REFERENCE_COUNT}건`;
 }
 
 function formatMetric(value: number, unit: "%" | "%p" | "R") {
   return unit === "R"
     ? `${NUMBER_FORMATTER.format(value)}R`
     : `${NUMBER_FORMATTER.format(value)}${unit}`;
-}
-
-function priorityClassName(priority: ImprovementPriority) {
-  if (priority === "reproduce") {
-    return styles.priorityReproduce;
-  }
-  if (priority === "improve") {
-    return styles.priorityImprove;
-  }
-  if (priority === "observe") {
-    return styles.priorityObserve;
-  }
-  return styles.priorityInsufficient;
 }
 
 function severityClassName(severity: TradingGuardrail["severity"]) {

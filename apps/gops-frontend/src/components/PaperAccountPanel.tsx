@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { OrderSnapshot } from "../orders/orderClient";
 import { useAuth } from "../auth/AuthProvider";
+import type { ChartSymbolDto } from "../chart/types";
 import {
   cancelPaperOrder,
   fetchPaperAccount,
@@ -10,10 +11,17 @@ import {
   paperAccountWebSocketUrl,
   type PaperAccountSnapshot
 } from "../orders/paperTradingClient";
+import { PriceConditionPanel } from "./PriceConditionPanel";
 
-type AccountTab = "holdings" | "open" | "history" | "scheduled";
+type AccountTab = "holdings" | "open" | "history" | "conditions";
 
-export function PaperAccountPanel() {
+type PaperAccountPanelProps = {
+  defaultSymbol: string;
+  symbols: ChartSymbolDto[];
+  onOpenCompany: (symbol: string) => void;
+};
+
+export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: PaperAccountPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const socketRef = useRef<WebSocket | null>(null);
   const [snapshot, setSnapshot] = useState<PaperAccountSnapshot>();
@@ -105,7 +113,7 @@ export function PaperAccountPanel() {
       ) : account ? (
         <>
           <div className="paper-account-tabs" role="tablist" aria-label="가상계좌 보기">
-            <TabButton active={tab === "scheduled"} onClick={() => setTab("scheduled")}>예약매매</TabButton>
+            <TabButton active={tab === "conditions"} onClick={() => setTab("conditions")}>예약 매매</TabButton>
             <TabButton active={tab === "history"} onClick={() => setTab("history")}>거래내역</TabButton>
             <TabButton active={tab === "open"} onClick={() => setTab("open")}>미체결 {snapshot.open_orders.length}</TabButton>
             <TabButton active={tab === "holdings"} onClick={() => setTab("holdings")}>보유종목</TabButton>
@@ -121,6 +129,7 @@ export function PaperAccountPanel() {
                       <div className="paper-order-symbol"><strong>{position.symbol}</strong></div>
                       <div><strong>{formatShares(position.qty)}</strong></div>
                       <div><span>{formatUsd(position.current_price)}</span></div>
+                      <div><strong>{formatUsd(position.market_value)}</strong></div>
                       <div className={`paper-order-status ${toneFor(position.unrealized_pnl)}`}>
                         <strong>{formatSignedUsd(position.unrealized_pnl)}</strong>
                         <span>{formatSignedPercent(position.unrealized_pnl_rate)}</span>
@@ -167,11 +176,13 @@ export function PaperAccountPanel() {
               ) : <EmptyState message="아직 체결 또는 취소된 주문이 없습니다." />
             )}
 
-            {tab === "scheduled" && (
-              <div className="paper-account-order-list">
-                <OrderTableHead />
-                <EmptyState message="등록된 예약매매가 없습니다." />
-              </div>
+            {tab === "conditions" && (
+              <PriceConditionPanel
+                view="account"
+                defaultSymbol={defaultSymbol}
+                symbols={symbols}
+                onOpenCompany={onOpenCompany}
+              />
             )}
           </div>
         </>
@@ -192,7 +203,7 @@ function OrderTableHead({ showSide = true }: { showSide?: boolean }) {
       <span>종목</span>
       <span>수량</span>
       <span>가격</span>
-      {showSide ? <span>구분</span> : <span />}
+      {showSide ? <span>구분</span> : <span>평가금액</span>}
       <span>상태</span>
     </div>
   );

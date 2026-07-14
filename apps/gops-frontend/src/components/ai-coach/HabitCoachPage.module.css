@@ -23,7 +23,7 @@
 .pageHeader h2,
 .stageHeader h3,
 .sectionHeading h4,
-.insightCandidate h5 {
+.problemCard h5 {
   margin: 0;
   letter-spacing: 0;
   overflow-wrap: anywhere;
@@ -47,7 +47,8 @@
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -67,20 +68,20 @@
 }
 
 .periodControl {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .tabs button,
 .periodControl button {
   min-width: 0;
-  min-height: 40px;
-  padding: 6px 8px;
+  min-height: 48px;
+  padding: 9px 10px;
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--color-muted);
   background: transparent;
   cursor: pointer;
-  font: 650 12px/1.25 var(--font-data-sans);
+  font: 760 17px/1.25 var(--font-data-sans);
   letter-spacing: 0;
   white-space: nowrap;
 }
@@ -170,12 +171,166 @@
 }
 
 .summarySection,
-.metricSection,
 .planSection,
 .insightSection {
   min-width: 0;
   padding: 15px 0;
   border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.diversificationSection {
+  min-width: 0;
+  padding: 15px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.exposureList,
+.sensitivityList {
+  display: grid;
+  gap: 0;
+  margin-bottom: 12px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.exposureRow,
+.sensitivityRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.exposureRow > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.exposureRow strong,
+.sensitivityRow strong,
+.marketCandidate header strong {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.exposureRow span,
+.sensitivityRow span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 570;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.exposureRow b,
+.sensitivityRow b {
+  font-size: 17px;
+  font-weight: 730;
+  white-space: nowrap;
+}
+
+.sensitivityRow {
+  grid-template-columns: minmax(64px, .32fr) minmax(0, 1fr) auto;
+}
+
+.high,
+.low {
+  color: var(--color-negative, #ff6173);
+}
+
+.attention {
+  color: #f5c64d;
+}
+
+.normal,
+.unknown {
+  color: var(--color-muted);
+}
+
+.marketCandidateRail {
+  display: grid;
+  grid-auto-columns: minmax(245px, 1fr);
+  grid-auto-flow: column;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding-bottom: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--framer-ink-rgb) / .28) transparent;
+}
+
+.marketCandidate {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / .14);
+  border-radius: 9px;
+  background: rgb(var(--framer-ink-rgb) / .025);
+}
+
+.marketCandidate header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.marketCandidate header span {
+  color: color-mix(in srgb, var(--color-signal) 72%, white);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.marketCandidate > b {
+  color: var(--color-text);
+  font-size: 21px;
+  font-weight: 740;
+  line-height: 1.2;
+}
+
+.marketCandidate p {
+  min-height: 40px;
+  margin: 0;
+  color: var(--color-text-medium);
+  font-size: 13px;
+  font-weight: 570;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.marketCandidate dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / .1);
+}
+
+.marketCandidate dl div {
+  min-width: 0;
+}
+
+.marketCandidate dt {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.marketCandidate dd {
+  margin: 3px 0 0;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .sectionHeading {
@@ -195,16 +350,16 @@
 
 .sectionHeading > div > span {
   color: color-mix(in srgb, var(--color-signal) 65%, white);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 750;
   line-height: 1.3;
 }
 
 .sectionHeading h4 {
-  color: var(--color-text-medium);
-  font-size: 13px;
-  font-weight: 680;
-  line-height: 1.4;
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 760;
+  line-height: 1.32;
 }
 
 .sectionHeading small {
@@ -225,8 +380,51 @@
   overflow-wrap: anywhere;
 }
 
+.profileHeadline {
+  max-width: 960px;
+  margin: 0 0 16px;
+  color: var(--color-text);
+  font-size: clamp(17px, 2.3cqi, 21px);
+  font-weight: 680;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
 .unavailableCopy {
   color: var(--color-muted);
+}
+
+.evidenceSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 0 14px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.evidenceSummary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px 10px 0;
+}
+
+.evidenceSummary dt {
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.evidenceSummary dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1.2;
 }
 
 .evidenceGrid {
@@ -234,6 +432,117 @@
   grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
   margin: 0;
   border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.08);
+}
+
+.tendencyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.tendencyCard {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.12);
+  border-radius: 8px;
+  background: rgb(var(--framer-ink-rgb) / 0.026);
+}
+
+.tendencyCard header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tendencyCard strong {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 740;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tendencyCard b {
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 760;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.tendencyCard p {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  left: 12px;
+  z-index: 5;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.18);
+  border-radius: 8px;
+  visibility: hidden;
+  opacity: 0;
+  color: var(--color-text-medium);
+  background: color-mix(in srgb, var(--color-panel) 96%, black);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.28);
+  font-size: 13px;
+  font-weight: 570;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  transform: translateY(4px);
+  transition: opacity .12s ease, transform .12s ease, visibility .12s;
+}
+
+.tendencyCard:hover p,
+.tendencyCard:focus-visible p,
+.tendencyCard:focus-within p {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tendencyMeter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.tendencyMeter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-signal);
+}
+
+.tendencyCard.strong .tendencyMeter span {
+  background: var(--color-up);
+}
+
+.tendencyCard.balanced .tendencyMeter span {
+  background: var(--color-signal);
+}
+
+.tendencyCard.weak .tendencyMeter span {
+  background: var(--color-muted);
+}
+
+.tendencyCard.caution {
+  border-color: color-mix(in srgb, var(--color-caution) 30%, transparent);
+}
+
+.tendencyCard.caution .tendencyMeter span {
+  background: var(--color-caution);
+}
+
+.tendencyCard.caution b {
+  color: var(--color-caution);
 }
 
 .evidenceItem {
@@ -247,7 +556,7 @@
 }
 
 .evidenceItem dt,
-.insightCandidate dt {
+.problemCard dt {
   color: var(--color-muted);
   font-size: 10px;
   font-weight: 650;
@@ -255,7 +564,7 @@
 }
 
 .evidenceItem dd,
-.insightCandidate dd {
+.problemCard dd {
   min-width: 0;
   margin: 0;
   color: var(--color-text-medium);
@@ -379,86 +688,287 @@
   font-size: 18px;
 }
 
-.insightList {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.processSection,
+.patternSection,
+.representativeSection {
+  min-width: 0;
+  padding: 16px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
 }
 
-.insightCandidate {
-  position: relative;
+.outcomeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.outcomeCard {
   display: grid;
   align-content: start;
-  gap: 9px;
+  gap: 6px;
   min-width: 0;
   padding: 13px;
   border: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
-  border-radius: 7px;
+  border-radius: 8px;
   background: rgb(var(--framer-ink-rgb) / 0.025);
 }
 
-.insightCandidate::before {
-  position: absolute;
-  inset: -1px auto -1px -1px;
-  width: 2px;
-  border-radius: 7px 0 0 7px;
-  background: var(--color-muted);
-  content: "";
+.outcomeCard > span,
+.representativeCard header > span,
+.patternCard header > span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.35;
 }
 
-.insightCandidate.effective_candidate::before {
-  background: var(--color-up);
+.outcomeCard > strong {
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 720;
+  line-height: 1.2;
 }
 
-.insightCandidate.improvement_candidate::before {
-  background: var(--color-caution);
+.outcomeCard dl,
+.patternCard dl,
+.representativeCard dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 10px;
+  margin: 2px 0 0;
 }
 
-.insightCandidate header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.outcomeCard dt,
+.patternCard dt,
+.representativeCard dt {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.outcomeCard dd,
+.patternCard dd,
+.representativeCard dd {
+  min-width: 0;
+  margin: 2px 0 0;
+  color: var(--color-text-medium);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.confirmed-positive { border-color: color-mix(in srgb, var(--color-up) 36%, transparent); }
+.confirmed-negative { border-color: color-mix(in srgb, var(--color-signal) 28%, transparent); }
+.unconfirmed-positive { border-color: color-mix(in srgb, var(--color-caution) 30%, transparent); }
+.unconfirmed-negative { border-color: color-mix(in srgb, var(--color-down) 38%, transparent); }
+
+.patternList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-.insightCandidate header > span {
+.patternCard {
+  min-width: 0;
+  padding: 14px;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.13);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  background: rgb(var(--framer-ink-rgb) / 0.018);
+}
+
+.patternCard header,
+.representativeCard header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.patternCard header > strong {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.patternCard header > span { flex: 0 0 auto; text-align: right; }
+
+.patternCard > p,
+.representativeCard > p {
+  min-height: 46px;
+  margin: 10px 0 0;
   color: var(--color-text-medium);
-  font-size: 10px;
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.representativeCarousel {
+  position: relative;
+  min-width: 0;
+}
+
+.representativeArrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  width: 28px;
+  height: 42px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.2);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+  transform: translateY(-50%);
+}
+
+.representativeArrow:first-child { left: 8px; }
+.representativeArrow:last-child { right: 8px; }
+.representativeArrow:disabled { pointer-events: none; opacity: 0; }
+.representativeArrow svg { width: 16px; }
+
+.representativeCard {
+  display: grid;
+  min-width: 0;
+  min-height: 150px;
+  align-content: start;
+  gap: 8px;
+  padding: 17px 48px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.12);
+  border-radius: 8px;
+  background: rgb(var(--framer-ink-rgb) / 0.025);
+}
+
+.representativeCard > strong {
+  color: var(--color-text);
+  font-size: 18px;
   font-weight: 720;
   line-height: 1.35;
 }
 
-.effective_candidate header > span {
-  color: color-mix(in srgb, var(--color-up) 82%, white);
+.representativeCard > p { min-height: 0; margin-top: 0; }
+.representativeCard .confirmed { color: var(--color-up); }
+.representativeCard .unconfirmed { color: var(--color-caution); }
+
+.problemCarousel {
+  position: relative;
+  min-width: 0;
 }
 
-.improvement_candidate header > span {
+.problemArrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  width: 40px;
+  height: 70px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.18);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-panel) 90%, transparent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.24);
+  transform: translateY(-50%);
+}
+
+.problemArrow:first-child { left: 8px; }
+.problemArrow:last-child { right: 8px; }
+.problemArrow:disabled { pointer-events: none; opacity: 0; }
+.problemArrow svg { width: 19px; }
+
+.problemCard {
+  display: grid;
+  align-content: start;
+  gap: 11px;
+  min-width: 0;
+  min-height: 170px;
+  padding: 20px 52px;
+  border: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  border-radius: 8px;
+  background: rgb(var(--framer-ink-rgb) / 0.03);
+}
+
+.problemCard header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.problemCard header > span {
   color: var(--color-caution);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.35;
 }
 
-.insightCandidate header small {
+.problemCard header > strong {
   color: var(--color-muted);
-  font-size: 9px;
-  font-weight: 550;
-  line-height: 1.4;
-  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
-.insightCandidate h5 {
-  font-size: 14px;
-  font-weight: 680;
+.problemCard h5 {
+  color: var(--color-text);
+  font-size: 22px;
+  font-weight: 740;
   line-height: 1.4;
 }
 
-.insightCandidate dl {
-  display: grid;
-  gap: 8px;
+.problemHeadline {
   margin: 0;
+  color: var(--color-text);
+  font-size: clamp(17px, 2.4cqi, 22px);
+  font-weight: 720;
+  line-height: 1.48;
+  overflow-wrap: anywhere;
 }
 
-.insightCandidate dl > div {
+.problemReason {
   display: grid;
-  gap: 3px;
+  gap: 6px;
+  padding: 11px 0;
+  border-top: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+  border-bottom: 1px solid rgb(var(--framer-ink-rgb) / 0.1);
+}
+
+.problemReason span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.problemReason strong {
+  color: var(--color-text);
+  font-size: 18px;
+  font-weight: 730;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.problemAction {
+  justify-self: start;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 42%, transparent);
+  border-radius: 7px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-signal) 18%, transparent);
+  cursor: pointer;
+  font: 720 12px/1.25 var(--font-data-sans);
+}
+
+.problemAction:hover {
+  background: color-mix(in srgb, var(--color-signal) 26%, transparent);
 }
 
 .guardrailMarker {
@@ -489,7 +999,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .insightList {
+  .tendencyGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .evidenceSummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .outcomeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .patternList {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -505,16 +1027,14 @@
   }
 
   .stageHeader,
-  .sectionHeading,
-  .insightCandidate header {
+  .sectionHeading {
     align-items: flex-start;
     flex-direction: column;
     gap: 6px;
   }
 
   .stageHeader em,
-  .sectionHeading small,
-  .insightCandidate header small {
+  .sectionHeading small {
     max-width: none;
     text-align: left;
   }
@@ -531,5 +1051,17 @@
   .metricRow > div {
     justify-items: start;
     text-align: left;
+  }
+
+  .outcomeGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .representativeCard {
+    padding-inline: 40px;
+  }
+
+  .problemCard {
+    padding-inline: 44px;
   }
 }
