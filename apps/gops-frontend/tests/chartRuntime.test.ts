@@ -10,6 +10,7 @@ import "./tradeTimingOverlay.test";
 import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";
+import "./chartTradeAutomation.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
@@ -84,9 +85,12 @@ import {
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
+  chartPriceAxisPoint,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
   paneSeparatorYs,
+  isChartRightAxisPoint,
+  isPriceAxisPricePanePoint,
   resolveCrosshairTimeTarget,
   viewportAnchorRatioAtX,
   viewportSlotWidth
@@ -1156,6 +1160,14 @@ assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
 assert.equal(formatFrontendPriceAxisValue(-12.3), "-12.30");
 assert.equal(formatFrontendPriceAxisValue(1.2345, 4), "1.2345");
 assert.equal(formatFrontendPriceAxisValue(Number.NaN), "-");
+const priceAxisMidY = (multiBelowPaneScene.plot.top + multiBelowPaneScene.plot.priceBottom) / 2;
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, priceAxisMidY), true);
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right - 1, priceAxisMidY), false);
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.priceBottom + 1), false);
+assert.equal(isChartRightAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.priceBottom + 1), true);
+const selectedAxisPrice = chartPriceAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, priceAxisMidY);
+assert.equal(selectedAxisPrice?.formattedPrice, selectedAxisPrice?.price.toFixed(2));
+assert.equal(chartPriceAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.bottom), null);
 const priceDensityCandles = [
   testCandle("2026-07-09T00:00:00.000Z", 150),
   testCandle("2026-07-10T00:00:00.000Z", 164)

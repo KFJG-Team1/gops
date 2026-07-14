@@ -7,6 +7,7 @@ export type ChartCommentaryStep = {
   title: string;
   body: string;
   drawingIds: string[];
+  focusPrice?: number;
 };
 
 export function buildChartCommentaryModel(
@@ -33,25 +34,29 @@ export function buildChartCommentaryModel(
         body: isBuy
           ? `${conditional}진입가 ${formatPrice(setup.entryPrice)}를 검토합니다.${intervalNote}`
           : `${conditional}매도 기준가 ${formatPrice(setup.entryPrice)}를 검토합니다.${intervalNote}`,
-        drawingIds: planIds
+        drawingIds: planIds,
+        focusPrice: setup.entryPrice
       },
       {
         id: "target",
         title: isBuy ? "목표" : "하락 목표",
         body: `${isBuy ? "목표가" : "하락 목표가"} ${formatPrice(setup.targetPrice)}는 기준가 대비 ${formatSignedPercent(setup.targetPrice, setup.entryPrice)} 구간입니다.`,
-        drawingIds: [setup.drawingIds.plan]
+        drawingIds: [setup.drawingIds.plan],
+        focusPrice: setup.targetPrice
       },
       {
         id: "stop",
         title: isBuy ? "손절" : "매도 무효화",
         body: `${isBuy ? "손절가" : "매도 무효화가"} ${formatPrice(setup.stopPrice)}는 기준가 대비 ${formatSignedPercent(setup.stopPrice, setup.entryPrice)}이며 시나리오 무효화 조건입니다.`,
-        drawingIds: [setup.drawingIds.plan]
+        drawingIds: [setup.drawingIds.plan],
+        focusPrice: setup.stopPrice
       },
       {
         id: "summary",
         title: "요약",
         body: `${setup.sourceKind === "conditional" ? "조건부 " : ""}${isBuy ? "매수 후보" : "매도 후보"}이며 손익비는 1 : ${setup.rewardRiskRatio.toFixed(2)}입니다.`,
-        drawingIds: planIds
+        drawingIds: planIds,
+        focusPrice: setup.entryPrice
       }
     );
     return steps;

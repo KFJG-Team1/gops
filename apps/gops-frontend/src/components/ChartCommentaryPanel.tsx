@@ -166,8 +166,8 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets);
   const setup = projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets);
   const model = buildChartCommentaryModel(diagnostics.resolvedAsset, setup);
-  const focusDrawing = (ids: string[], mode: FocusMode) => {
-    if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, ids, mode);
+  const focusDrawing = (ids: string[], mode: FocusMode, price?: number) => {
+    if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, ids, mode, undefined, price);
   };
   return (
     <article className="chart-commentary-panel">
@@ -182,7 +182,8 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
         <ol>{model.map((step) => <li key={step.id}>
           <FocusButton
             drawingIds={step.drawingIds}
-            onFocus={(ids, mode) => focusDrawing(ids, mode)}
+            price={step.focusPrice}
+            onFocus={(ids, mode, _anchor, price) => focusDrawing(ids, mode, price)}
           >
             <strong><GlossaryText text={step.title} /></strong>
             <span><GlossaryText text={step.body} /></span>
@@ -268,10 +269,11 @@ function QuestionAnswer({ answer, chartDocumentId, sourceAvailable, currentAsset
   />;
 }
 
-function FocusButton({ drawingIds, anchor, onFocus, children }: {
+function FocusButton({ drawingIds, anchor, price, onFocus, children }: {
   drawingIds: string[];
   anchor?: ChartExplanationAnchor | null;
-  onFocus: (ids: string[], mode: FocusMode, anchor?: ChartExplanationAnchor | null) => void;
+  price?: number;
+  onFocus: (ids: string[], mode: FocusMode, anchor?: ChartExplanationAnchor | null, price?: number) => void;
   children: ReactNode;
 }) {
   const [pinned, setPinned] = useState(false);
@@ -279,14 +281,14 @@ function FocusButton({ drawingIds, anchor, onFocus, children }: {
     className={pinned ? "is-pinned" : undefined}
     aria-pressed={pinned}
     type="button"
-    onMouseEnter={() => onFocus(drawingIds, "spotlight", anchor)}
+    onMouseEnter={() => onFocus(drawingIds, "spotlight", anchor, price)}
     onMouseLeave={() => { if (!pinned) onFocus([], "clear"); }}
-    onFocus={() => onFocus(drawingIds, "spotlight", anchor)}
+    onFocus={() => onFocus(drawingIds, "spotlight", anchor, price)}
     onBlur={() => { if (!pinned) onFocus([], "clear"); }}
     onClick={() => {
       const next = !pinned;
       setPinned(next);
-      onFocus(next ? drawingIds : [], next ? "select" : "clear", anchor);
+      onFocus(next ? drawingIds : [], next ? "select" : "clear", anchor, next ? price : undefined);
     }}
   >{children}</button>;
 }
@@ -319,9 +321,18 @@ function dispatchFocus(
   interval: string,
   drawingIds: string[],
   mode: FocusMode,
-  anchor?: ChartExplanationAnchor | null
+  anchor?: ChartExplanationAnchor | null,
+  price?: number
 ) {
   window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
-    detail: { chartDocumentId, symbol, interval, drawingIds, mode, ...(anchor ? { anchor } : {}) }
+    detail: {
+      chartDocumentId,
+      symbol,
+      interval,
+      drawingIds,
+      mode,
+      ...(anchor ? { anchor } : {}),
+      ...(typeof price === "number" && Number.isFinite(price) ? { price } : {})
+    }
   }));
 }

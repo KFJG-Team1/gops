@@ -18,6 +18,10 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
     ? chartQuestionLayout()
+    : testInfo.title.includes("multiple order panels")
+      ? multipleOrderPanelLayout()
+    : testInfo.title.includes("price axis")
+      ? tradeAutomationLayout()
     : testInfo.title.includes("commentary chart selection")
       ? chartLinkLayout()
     : testInfo.title.includes("evidence and proposal layers")
@@ -115,6 +119,81 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByText(/적용된 근거·제안 작도/)).toBeVisible();
 });
 
+test("price axis selection syncs one order panel and local trade automation stays preview-only", async ({ page }) => {
+  const executionRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && [
+      "/api/orders",
+      "/api/paper/orders",
+      "/api/alerts",
+      "/api/alerts/commands",
+      "/api/trade-conditions/commands",
+      "/api/agents/analyze"
+    ].includes(pathname)) executionRequests.push(pathname);
+  });
+  await page.goto("/?symbol=NVDA");
+  const canvas = page.locator(".chart-canvas");
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  if (!canvasBox) return;
+  const axisPoint = { x: canvasBox.width - 12, y: canvasBox.height * .48 };
+  await canvas.hover({ position: axisPoint });
+  await canvas.click({ position: axisPoint });
+
+  const quickOrder = page.locator(".quick-order-panel");
+  const source = quickOrder.locator(".order-chart-price-source");
+  await expect(source).toContainText("NVDA 차트에서 $");
+  const selectedPrice = await quickOrder.getByLabel("빠른 주문 가격 직접 입력").inputValue();
+  expect(Number(selectedPrice)).toBeGreaterThan(0);
+  await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
+  expect(executionRequests).toEqual([]);
+
+  const command = page.getByLabel("Agent command");
+  await command.fill("이 가격에 예약매매랑 알림 걸어줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("NVDA · 1D");
+  await expect(dialog).toContainText("매수 후보");
+  await expect(dialog).toContainText(`$${selectedPrice}`);
+  await expect(dialog).toContainText("$194.00");
+  await expect(dialog).toContainText("$170.00");
+  await expect(dialog).toContainText("frontend_preview_only");
+  const cancel = dialog.getByRole("button", { name: "취소" });
+  const confirm = dialog.getByRole("button", { name: "확인" });
+  await expect(cancel).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(command).toBeFocused();
+
+  await command.fill("이 때 사자");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".alert-toast")).toContainText("NVDA 예약매매와 목표가·손절가 알림 요청이 반영되었습니다");
+  expect(executionRequests).toEqual([]);
+});
+
+test("price axis targets the last interacted panel when multiple order panels exist", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const orderPanels = page.locator(".quick-order-panel");
+  await expect(orderPanels).toHaveCount(2);
+  await orderPanels.nth(1).click({ position: { x: 12, y: 12 } });
+  const canvas = page.locator(".chart-canvas");
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  if (!canvasBox) return;
+  await canvas.click({ position: { x: canvasBox.width - 10, y: canvasBox.height * .46 } });
+  await expect(orderPanels.nth(0).locator(".order-chart-price-source")).toHaveCount(0);
+  await expect(orderPanels.nth(1).locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $");
+  await expect(orderPanels.nth(0).getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("");
+  await expect(orderPanels.nth(1).getByLabel("빠른 주문 가격 직접 입력")).not.toHaveValue("");
+  await expect(orderPanels.nth(0).getByLabel("주문 수량 직접 입력")).toHaveValue("1");
+  await expect(orderPanels.nth(1).getByLabel("주문 수량 직접 입력")).toHaveValue("7");
+});
+
 test("asset ops wording and comma-separated input remain readable", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const ops = page.locator(".chart-asset-ops-panel");
@@ -166,10 +245,13 @@ async function fulfillApi(route: Route): Promise<void> {
   let payload: unknown = {};
   let status = 200;
   if (url.pathname === "/api/auth/me") payload = { authEnabled: false, user: null };
-  else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }] };
+  else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
   else if (url.pathname === "/api/charts/analysis-assets") payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
   else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse(densePatternCoverage ? 48 : 0);
+  else if (url.pathname === "/api/charts/order-flow/symbols") payload = { symbols: ["NVDA"], priceBinSize: .01 };
+  else if (url.pathname === "/api/charts/order-flow/intraday") payload = { symbol: "NVDA", sessionDate: "2026-07-14", dataStatus: "ready", supportedSymbols: ["NVDA"], priceBinSize: .01, minutes: [] };
+  else if (url.pathname === "/api/orders/balance") payload = { currency: "USD", orderable_cash: "10000.00" };
   else if (url.pathname === "/api/agents/analyze" && request.method() === "POST") {
     if (delayAgentAnswer) await new Promise((resolve) => setTimeout(resolve, 1_200));
     payload = chartAnalysisReport(request.postDataJSON());
@@ -312,6 +394,30 @@ function chartQuestionLayout(): Record<string, unknown> {
     nextInstance: 2,
     contents: { [chart.id]: chart },
     slots: [slot("chart", 1, 1, 1, 6, 4)]
+  };
+}
+
+function tradeAutomationLayout(): Record<string, unknown> {
+  const chart = content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart");
+  const quickOrder = content("quickOrder", 2, { symbol: "NVDA", qty: 3 });
+  const commentary = content("chartCommentary", 3, { chartDocumentId: "asset-visual-chart" });
+  return {
+    version: 1,
+    nextInstance: 4,
+    contents: { [chart.id]: chart, [quickOrder.id]: quickOrder, [commentary.id]: commentary },
+    slots: [slot("chart", 1, 1, 1, 5, 6), slot("quickOrder", 2, 6, 1, 3, 3), slot("chartCommentary", 3, 6, 4, 3, 3)]
+  };
+}
+
+function multipleOrderPanelLayout(): Record<string, unknown> {
+  const chart = content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart");
+  const firstOrder = content("quickOrder", 2, { symbol: "NVDA", qty: 1 });
+  const secondOrder = content("quickOrder", 3, { symbol: "AAPL", qty: 7 });
+  return {
+    version: 1,
+    nextInstance: 4,
+    contents: { [chart.id]: chart, [firstOrder.id]: firstOrder, [secondOrder.id]: secondOrder },
+    slots: [slot("chart", 1, 1, 1, 4, 6), slot("quickOrder", 2, 5, 1, 2, 3), slot("quickOrder", 3, 7, 1, 2, 3)]
   };
 }
 

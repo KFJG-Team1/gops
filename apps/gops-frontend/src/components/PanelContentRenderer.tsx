@@ -5,6 +5,7 @@ import type { AgentReference } from "../agent/agentReferences";
 import { rememberChartCommentaryState } from "../agent/chartCommentaryHistory";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import {
   bidAskChartIntervals,
@@ -35,9 +36,7 @@ import {
 } from "./CompanySummaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
-import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
-import { QuickOrderPanel } from "./QuickOrderPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
@@ -75,6 +74,12 @@ const NewsPanel = lazy(() => import("./NewsPanel").then((module) => ({
 })));
 const WatchlistNewsPanel = lazy(() => import("./WatchlistNewsPanel").then((module) => ({
   default: module.WatchlistNewsPanel
+})));
+const OrderTicket = lazy(() => import("./OrderTicket").then((module) => ({
+  default: module.OrderTicket
+})));
+const QuickOrderPanel = lazy(() => import("./QuickOrderPanel").then((module) => ({
+  default: module.QuickOrderPanel
 })));
 
 type PanelContentRendererProps = {
@@ -120,6 +125,9 @@ type PanelContentRendererProps = {
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   chartLinkOptions: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
   chartSelectionActive: boolean;
+  orderPriceSelection: ChartPriceSelection | null;
+  onChartPriceSelection: (selection: ChartPriceSelection) => void;
+  onChartTradeSetupChange: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
   onChartSelectionToggle: (contentId: string) => void;
   onCommentaryChartChange: (contentId: string, chartDocumentId: string) => void;
 };
@@ -167,6 +175,9 @@ export function PanelContentRenderer({
   onSelectPatternAsset,
   chartLinkOptions,
   chartSelectionActive,
+  orderPriceSelection,
+  onChartPriceSelection,
+  onChartTradeSetupChange,
   onChartSelectionToggle,
   onCommentaryChartChange
 }: PanelContentRendererProps) {
@@ -445,52 +456,64 @@ export function PanelContentRenderer({
   if (content.kind === "quickOrder") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
-      <QuickOrderPanel
-        symbol={readQuickOrderSymbol(content, symbol)}
-        savedQty={readQuickOrderQty(content)}
-        symbolOptions={watchlistSymbols}
-        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
-        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">빠른 주문을 불러오는 중입니다</div>}>
+        <QuickOrderPanel
+          symbol={readQuickOrderSymbol(content, symbol)}
+          savedQty={readQuickOrderQty(content)}
+          symbolOptions={watchlistSymbols}
+          onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+          onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "paperQuickOrder") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
-      <QuickOrderPanel
-        executionMode="paper"
-        symbol={readQuickOrderSymbol(content, symbol)}
-        savedQty={readQuickOrderQty(content)}
-        symbolOptions={watchlistSymbols}
-        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
-        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상 빠른 주문을 불러오는 중입니다</div>}>
+        <QuickOrderPanel
+          executionMode="paper"
+          symbol={readQuickOrderSymbol(content, symbol)}
+          savedQty={readQuickOrderQty(content)}
+          symbolOptions={watchlistSymbols}
+          onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+          onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "trade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
-      <OrderTicket
-        activeSymbol={symbol.toUpperCase()}
-        chartSymbols={watchlistSymbols}
-        symbolOptions={watchlistSymbols}
-        onSymbolOptionsRequest={() => undefined}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">주문 패널을 불러오는 중입니다</div>}>
+        <OrderTicket
+          activeSymbol={symbol.toUpperCase()}
+          chartSymbols={watchlistSymbols}
+          symbolOptions={watchlistSymbols}
+          onSymbolOptionsRequest={() => undefined}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "paperTrade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
-      <OrderTicket
-        executionMode="paper"
-        activeSymbol={symbol.toUpperCase()}
-        chartSymbols={watchlistSymbols}
-        symbolOptions={watchlistSymbols}
-        onSymbolOptionsRequest={() => undefined}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상 주문 패널을 불러오는 중입니다</div>}>
+        <OrderTicket
+          executionMode="paper"
+          activeSymbol={symbol.toUpperCase()}
+          chartSymbols={watchlistSymbols}
+          symbolOptions={watchlistSymbols}
+          onSymbolOptionsRequest={() => undefined}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
     );
   }
 
@@ -670,6 +693,8 @@ export function PanelContentRenderer({
           emphasizeSelection={emphasizeChartSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
+          onPriceSelection={onChartPriceSelection}
+          onTradeSetupChange={onChartTradeSetupChange}
           toolbarLeading={chartNavigationLeading}
           toolbarAfterViewControls={companyToggleButton}
         />

@@ -22027,3 +22027,116 @@ textarea:focus,
 .workspace-panel-frame .chart-compare-panel.has-scroll-rule::after {
   display: none !important;
 }
+
+.order-chart-price-source {
+  margin: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 30%, transparent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--color-signal) 9%, transparent);
+  color: var(--color-signal);
+  font: var(--type-caption);
+}
+
+.trade-automation-dialog-backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+}
+
+.trade-automation-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 34%, var(--color-border));
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  box-shadow: var(--surface-floating-depth-shadow);
+}
+
+.trade-automation-dialog > header {
+  display: grid;
+  gap: 4px;
+}
+
+.trade-automation-dialog > header span,
+.trade-automation-dialog-preview-note {
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.trade-automation-dialog > header strong {
+  font: var(--type-title-lg);
+}
+
+.trade-automation-dialog > p {
+  margin: 0;
+}
+
+.trade-automation-dialog dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.trade-automation-dialog dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 9px 0;
+}
+
+.trade-automation-dialog dt {
+  color: var(--color-muted);
+}
+
+.trade-automation-dialog dd {
+  margin: 0;
+  color: var(--color-signal);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-automation-dialog-stale {
+  border: 1px solid color-mix(in srgb, var(--color-down) 34%, transparent);
+  border-radius: 7px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--color-down) 10%, transparent);
+  color: var(--color-down);
+}
+
+.trade-automation-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.trade-automation-dialog > footer button {
+  min-width: 82px;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.trade-automation-dialog > footer button.is-primary {
+  border-color: color-mix(in srgb, var(--color-signal) 55%, transparent);
+  background: color-mix(in srgb, var(--color-signal) 18%, var(--color-surface));
+  color: var(--color-signal);
+  font-weight: 800;
+}
+
+.trade-automation-dialog > footer button:disabled {
+  opacity: 0.48;
+}

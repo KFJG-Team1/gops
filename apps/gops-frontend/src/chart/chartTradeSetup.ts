@@ -31,6 +31,11 @@ export type ChartTradeSetup = {
     target: string;
     stop: string;
   };
+  assetIdentity: {
+    algorithmVersion: string;
+    inputDigest: string;
+    asOf: string;
+  };
 };
 
 export function projectChartTradeSetup(
@@ -77,7 +82,8 @@ function confirmedSetup(asset: ChartAnalysisAsset, candles: CandleDto[]): ChartT
     projectionBars: plan.projectionBars,
     reasons: [...plan.reasons],
     drawingIds,
-    priceSources: { entry: "서버 확인 신호", target: "서버 패턴 목표", stop: "서버 무효화 기준" }
+    priceSources: { entry: "서버 확인 신호", target: "서버 패턴 목표", stop: "서버 무효화 기준" },
+    assetIdentity: identityFromAsset(asset)
   };
 }
 
@@ -164,7 +170,8 @@ function conditionalSetup(
     projectionBars: Math.max(10, evidenceAsset.geometry.tradePlan?.projectionBars ?? 10),
     reasons: ["stored_evidence_conditional", `source_interval_${evidenceAsset.interval}`],
     drawingIds: setupDrawingIds(displayAsset, patternId, "conditional", action),
-    priceSources: { entry: entrySource, target: targetSource, stop: stopSource }
+    priceSources: { entry: entrySource, target: targetSource, stop: stopSource },
+    assetIdentity: identityFromAsset(evidenceAsset)
   };
 }
 
@@ -246,4 +253,12 @@ function positive(value: unknown): value is number {
 
 function rounded(value: number, digits = 6): number {
   return Number(value.toFixed(digits));
+}
+
+function identityFromAsset(asset: ChartAnalysisAsset): ChartTradeSetup["assetIdentity"] {
+  return {
+    algorithmVersion: asset.algorithmVersion,
+    inputDigest: asset.inputDigest,
+    asOf: asset.asOf
+  };
 }

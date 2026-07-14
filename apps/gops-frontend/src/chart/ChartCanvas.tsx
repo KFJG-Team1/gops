@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -2580,7 +2580,23 @@ function hasVolumePane(scene: ChartScene): boolean {
 }
 
 function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, crosshair?: { x: number; y: number }) {
-  if (!crosshair || crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
+  if (!crosshair) {
+    return;
+  }
+  const priceAxisPoint = chartPriceAxisPoint(scene, crosshair.x, crosshair.y);
+  if (priceAxisPoint) {
+    context.save();
+    context.strokeStyle = colors.crosshair;
+    context.globalAlpha = 0.22;
+    context.lineWidth = 1;
+    context.setLineDash([]);
+    line(context, scene.plot.left, crosshair.y, scene.width, crosshair.y);
+    context.globalAlpha = 1;
+    drawAxisPill(context, priceAxisPoint.formattedPrice, rightAxisPillX(scene), crosshair.y, "right");
+    context.restore();
+    return;
+  }
+  if (crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
     return;
   }
   const timeTarget = resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y);

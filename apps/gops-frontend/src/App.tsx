@@ -1,6 +1,8 @@
 import {
   type CSSProperties,
   type FormEvent,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -44,12 +46,20 @@ import {
   type ChartCommentaryRequestSnapshot
 } from "./agent/chartCommentaryHistory";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar } from "./components/BottomCommandBar";
+import { BottomCommandBar, type FrontendPreviewToast } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
+import {
+  createTradeAutomationConfirmationDraft,
+  isTradeAutomationConfirmationIntent,
+  tradeAutomationDraftMatchesSnapshot,
+  type ChartPriceSelection,
+  type ChartTradeSetupSnapshot,
+  type TradeAutomationConfirmationDraft
+} from "./chart/chartTradeAutomation";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { gridGutter } from "./layout/grid";
 import {
@@ -106,6 +116,8 @@ import type { AgentAnalysisReport } from "./agents/agentAnalysis";
 import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
 import { resolveRecommendationCompanyNavigation } from "./recommendations/recommendationNavigation";
 
+const TradeAutomationConfirmationDialog = lazy(() => import("./components/TradeAutomationConfirmationDialog")
+  .then((module) => ({ default: module.TradeAutomationConfirmationDialog })));
 
 type ActiveAgentRun = {
   requestId: string;
@@ -275,6 +287,47 @@ function firstChartPanelHandle(handles: Map<string, ChartPanelHandle>): readonly
   return null;
 }
 
+type TradeAutomationChartResolution =
+  | { status: "resolved"; snapshot: ChartTradeSetupSnapshot | null }
+  | { status: "ambiguous" }
+  | { status: "missing" };
+
+function resolveTradeAutomationChart(
+  handles: Map<string, ChartPanelHandle>,
+  preferredContentId: string | null,
+  selection: SemanticSelectionSnapshot | null,
+  panelState: TiledPanelState,
+  snapshots: Record<string, ChartTradeSetupSnapshot>
+): TradeAutomationChartResolution {
+  const selectionEntry = selection ? chartPanelHandleForSelection(handles, selection) : null;
+  const preferredEntry = preferredContentId && handles.has(preferredContentId)
+    ? [preferredContentId, handles.get(preferredContentId)!] as const
+    : null;
+  let activeEntry = selectionEntry ?? preferredEntry;
+  if (!activeEntry) {
+    const linkedDocumentIds = [...new Set(Object.values(panelState.contents)
+      .filter((content) => content.kind === "chartCommentary")
+      .map((content) => readString(content.props?.chartDocumentId))
+      .filter((value): value is string => Boolean(value)))];
+    if (linkedDocumentIds.length === 1) {
+      activeEntry = [...handles.entries()].find((entry) => entry[1].getChartDocumentId() === linkedDocumentIds[0]) ?? null;
+    }
+  }
+  if (!activeEntry) {
+    if (handles.size === 0) return { status: "missing" };
+    if (handles.size > 1) return { status: "ambiguous" };
+    activeEntry = firstChartPanelHandle(handles);
+  }
+  if (!activeEntry) {
+    return { status: "missing" };
+  }
+  const chartDocumentId = activeEntry[1].getChartDocumentId();
+  return {
+    status: "resolved",
+    snapshot: activeEntry[1].getTradeSetupSnapshot() ?? snapshots[chartDocumentId] ?? null
+  };
+}
+
 function chartContextSymbol(context: Record<string, unknown>): string | null {
   const document = context.chartDocument;
   if (!document || typeof document !== "object") return null;
@@ -397,6 +450,10 @@ export function App() {
   const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
+  const [chartPriceSelection, setChartPriceSelection] = useState<ChartPriceSelection | null>(null);
+  const [chartTradeSetupSnapshots, setChartTradeSetupSnapshots] = useState<Record<string, ChartTradeSetupSnapshot>>({});
+  const [tradeAutomationDraft, setTradeAutomationDraft] = useState<TradeAutomationConfirmationDraft | null>(null);
+  const [frontendPreviewToast, setFrontendPreviewToast] = useState<FrontendPreviewToast | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const lastInteractedChartContentIdRef = useRef<string | null>(null);
@@ -406,6 +463,9 @@ export function App() {
   const lastSavedAgentProposalRef = useRef<string | null>(null);
   const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
   const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
+  const confirmedTradeAutomationDraftRef = useRef<TradeAutomationConfirmationDraft | null>(null);
+  const confirmedTradeAutomationSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
+  const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -841,6 +901,76 @@ export function App() {
     }
   }, []);
 
+  const handleActiveChartChange = useCallback((contentId: string) => {
+    if (chartPanelHandlesRef.current.has(contentId)) {
+      lastInteractedChartContentIdRef.current = contentId;
+    }
+  }, []);
+
+  const handleChartPriceSelection = useCallback((selection: ChartPriceSelection) => {
+    setChartPriceSelection(selection);
+    for (const [contentId, handle] of chartPanelHandlesRef.current.entries()) {
+      if (handle.getChartDocumentId() === selection.chartDocumentId) {
+        lastInteractedChartContentIdRef.current = contentId;
+        break;
+      }
+    }
+  }, []);
+
+  const handleChartTradeSetupChange = useCallback((
+    chartDocumentId: string,
+    snapshot: ChartTradeSetupSnapshot | null
+  ) => {
+    setChartTradeSetupSnapshots((current) => {
+      if (snapshot) {
+        return current[chartDocumentId] === snapshot ? current : { ...current, [chartDocumentId]: snapshot };
+      }
+      if (!current[chartDocumentId]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[chartDocumentId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const sourcePanelExists = chartPriceSelection
+      ? panelState.slots.some((slot) => slot.id === chartPriceSelection.sourcePanelId
+        && panelState.contents[slot.contentId]?.kind === "chart"
+        && chartDocumentIdForContent(panelState.contents[slot.contentId]!) === chartPriceSelection.chartDocumentId)
+      : false;
+    if (chartPriceSelection && (!chartRuntime.documents[chartPriceSelection.chartDocumentId] || !sourcePanelExists)) {
+      setChartPriceSelection(null);
+    }
+  }, [chartPriceSelection, chartRuntime.documents, panelState]);
+
+  useEffect(() => {
+    if (tradeAutomationDraft?.status === "pending") {
+      const documentExists = Boolean(chartRuntime.documents[tradeAutomationDraft.chartDocumentId]);
+      const snapshot = chartTradeSetupSnapshots[tradeAutomationDraft.chartDocumentId] ?? null;
+      if (!documentExists || !tradeAutomationDraftMatchesSnapshot(
+        tradeAutomationDraft,
+        snapshot,
+        tradeAutomationRequestedSnapshotRef.current
+      )) {
+        setTradeAutomationDraft((current) => current?.status === "pending" ? { ...current, status: "stale" } : current);
+      }
+    }
+    const confirmedDraft = confirmedTradeAutomationDraftRef.current;
+    if (confirmedDraft?.status === "confirmed") {
+      const snapshot = chartTradeSetupSnapshots[confirmedDraft.chartDocumentId] ?? null;
+      if (!chartRuntime.documents[confirmedDraft.chartDocumentId]
+        || !tradeAutomationDraftMatchesSnapshot(
+          confirmedDraft,
+          snapshot,
+          confirmedTradeAutomationSnapshotRef.current
+        )) {
+        confirmedTradeAutomationDraftRef.current = { ...confirmedDraft, status: "stale" };
+      }
+    }
+  }, [chartRuntime.documents, chartTradeSetupSnapshots, tradeAutomationDraft]);
+
   const handleSemanticSelectionChange = useCallback((selection: SemanticSelectionSnapshot | null) => {
     setSemanticSelection(selection);
     if (!selection) return;
@@ -1052,6 +1182,38 @@ export function App() {
       return "ignored";
     }
     setAgentInput("");
+    if (isTradeAutomationConfirmationIntent(prompt)) {
+      const resolution = resolveTradeAutomationChart(
+        chartPanelHandlesRef.current,
+        lastInteractedChartContentIdRef.current,
+        semanticSelection,
+        panelState,
+        chartTradeSetupSnapshots
+      );
+      if (resolution.status === "ambiguous") {
+        showAgentNotice("대상 차트가 여러 개입니다. 사용할 차트를 먼저 클릭하거나 해설 패널에서 연결해 주세요.", "info");
+        return "notice";
+      }
+      if (resolution.status === "missing") {
+        showAgentNotice("연결할 원본 차트가 없습니다. 차트 패널을 먼저 열어 주세요.", "info");
+        return "notice";
+      }
+      if (!resolution.snapshot) {
+        showAgentNotice("현재 차트에 유효한 진입가·목표가·손절가 트레이드 플랜이 없습니다.", "info");
+        return "notice";
+      }
+      const draft = createTradeAutomationConfirmationDraft(
+        resolution.snapshot,
+        chartPriceSelection
+      );
+      if (!draft) {
+        showAgentNotice("현재 트레이드 플랜의 진입가·목표가·손절가를 모두 확인할 수 없습니다.", "info");
+        return "notice";
+      }
+      tradeAutomationRequestedSnapshotRef.current = resolution.snapshot;
+      setTradeAutomationDraft(draft);
+      return "ui-action";
+    }
     if (!canUseAgent) {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
@@ -1559,7 +1721,43 @@ export function App() {
 
     void runChartPrompt();
     return "notice";
-  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, chartRuntime.documents, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
+  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime.documents, chartTradeSetupSnapshots, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
+
+  const closeTradeAutomationDialog = useCallback(() => {
+    tradeAutomationRequestedSnapshotRef.current = null;
+    setTradeAutomationDraft(null);
+    setAgentComposerRequest((current) => current + 1);
+  }, []);
+
+  const confirmTradeAutomationPreview = useCallback(() => {
+    if (!tradeAutomationDraft || tradeAutomationDraft.status !== "pending") {
+      return;
+    }
+    const snapshot = chartTradeSetupSnapshots[tradeAutomationDraft.chartDocumentId] ?? null;
+    if (!chartRuntime.documents[tradeAutomationDraft.chartDocumentId]
+      || !tradeAutomationDraftMatchesSnapshot(
+        tradeAutomationDraft,
+        snapshot,
+        tradeAutomationRequestedSnapshotRef.current
+      )) {
+      setTradeAutomationDraft({ ...tradeAutomationDraft, status: "stale" });
+      return;
+    }
+    const confirmedDraft: TradeAutomationConfirmationDraft = {
+      ...tradeAutomationDraft,
+      status: "confirmed"
+    };
+    confirmedTradeAutomationDraftRef.current = confirmedDraft;
+    confirmedTradeAutomationSnapshotRef.current = tradeAutomationRequestedSnapshotRef.current;
+    tradeAutomationRequestedSnapshotRef.current = null;
+    console.info("[frontend_preview_only] trade automation confirmed", confirmedDraft);
+    setFrontendPreviewToast({
+      id: `trade-automation-preview-${confirmedDraft.requestedAt}`,
+      message: `${confirmedDraft.symbol} 예약매매와 목표가·손절가 알림 요청이 반영되었습니다`
+    });
+    setTradeAutomationDraft(null);
+    setAgentComposerRequest((current) => current + 1);
+  }, [chartRuntime.documents, chartTradeSetupSnapshots, tradeAutomationDraft]);
 
 
   return (
@@ -1615,6 +1813,10 @@ export function App() {
             onSelectPatternAsset={openPatternAsset}
             selectedWildPanelSlotId={selectedWildPanelSlotId}
             onSelectWildPanel={setSelectedWildPanelSlotId}
+            chartPriceSelection={chartPriceSelection}
+            onChartPriceSelection={handleChartPriceSelection}
+            onChartTradeSetupChange={handleChartTradeSetupChange}
+            onActiveChartChange={handleActiveChartChange}
             placementPickerOverlay={pendingPlacementPick ? (
               <PlacementPickerOverlay
                 pick={pendingPlacementPick}
@@ -1656,7 +1858,17 @@ export function App() {
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
         onApplyLayoutProposal={applyAgentLayoutProposal}
+        frontendPreviewToast={frontendPreviewToast}
       />
+      {tradeAutomationDraft && (
+        <Suspense fallback={null}>
+          <TradeAutomationConfirmationDialog
+            draft={tradeAutomationDraft}
+            onCancel={closeTradeAutomationDialog}
+            onConfirm={confirmTradeAutomationPreview}
+          />
+        </Suspense>
+      )}
       <GlossaryTooltip />
     </main>
   );
