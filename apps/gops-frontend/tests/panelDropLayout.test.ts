@@ -12,6 +12,7 @@ import {
   resolveFirstAvailableRecommendedGridRect,
   resolvePanelDropGridRect,
   resolvePanelMoveWithPush,
+  resolvePanelResizeWithYield,
   setPrimaryChartSelection,
   setPrimaryChartSymbol,
   type PanelContentKind,
@@ -27,6 +28,7 @@ const recommendedSpans: Array<[PanelContentKind, Pick<PanelGridRect, "colSpan" |
   ["compare", { colSpan: 4, rowSpan: 2 }],
   ["news", { colSpan: 2, rowSpan: 2 }],
   ["chartPatternList", { colSpan: 2, rowSpan: 2 }],
+  ["priceCondition", { colSpan: 1, rowSpan: 3 }],
   ["themeRadar", { colSpan: 3, rowSpan: 2 }],
   ["portfolioHoldings", { colSpan: 5, rowSpan: 3 }]
 ];
@@ -74,6 +76,33 @@ assert.equal(resolveFirstAvailableRecommendedGridRect(fullState, "chart"), null)
 assert.equal(panelPaletteEntryLabel("compare"), "비교");
 assert.equal(panelPaletteEntryLabel("portfolioHoldings"), "보유 종목 표");
 assert.equal(panelPaletteEntryLabel("chartPatternList"), "패턴 종목");
+assert.deepEqual(readableMinGridSpanForKind("priceCondition"), { colSpan: 1, rowSpan: 1 });
+const priceConditionResizeState: TiledPanelState = {
+  slots: [{
+    id: "slot-price-condition",
+    contentId: "content-price-condition",
+    gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 2 },
+    rect: { left: 0, top: 0, width: 0, height: 0 },
+    minWidth: 0,
+    minHeight: 0
+  }],
+  contents: {
+    "content-price-condition": {
+      id: "content-price-condition",
+      kind: "priceCondition",
+      title: "알림 · 관심 기업",
+      instanceIndex: 1
+    }
+  },
+  nextInstance: 2
+};
+const priceConditionOneCellResize = resolvePanelResizeWithYield(
+  priceConditionResizeState,
+  "slot-price-condition",
+  { col: 1, row: 1, colSpan: 1, rowSpan: 1 }
+);
+assert.equal(priceConditionOneCellResize.valid, true);
+assert.deepEqual(priceConditionOneCellResize.sourceGridRect, { col: 1, row: 1, colSpan: 1, rowSpan: 1 });
 
 const selectedPatternChart = setPrimaryChartSelection(firstAvailableState, " aapl ", "4h", viewport);
 const selectedPatternChartSlot = selectedPatternChart.slots.find((slot) => selectedPatternChart.contents[slot.contentId]?.kind === "chart");

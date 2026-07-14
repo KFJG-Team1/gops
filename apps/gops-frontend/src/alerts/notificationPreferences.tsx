@@ -18,9 +18,13 @@ export const notificationSettingKeys = [
   "volumeSpike",
   "marketOpen",
   "marketClose",
-  "extendedHoursMove",
-  "earningsD1",
   "socialIssue",
+  "rsiBand",
+  "economicCalendar",
+  "earnings",
+  "tradingHalt",
+  "marketVolatility",
+  "extendedHoursMove",
   "aiAnomaly"
 ] as const;
 
@@ -52,10 +56,14 @@ export const defaultNotificationSettings: NotificationSettings = {
   rapidMove: true,
   volumeSpike: false,
   marketOpen: true,
-  marketClose: false,
+  marketClose: true,
+  rsiBand: true,
+  economicCalendar: true,
+  earnings: true,
+  tradingHalt: true,
+  marketVolatility: true,
   extendedHoursMove: false,
-  earningsD1: true,
-  socialIssue: true,
+  socialIssue: false,
   aiAnomaly: true
 };
 
@@ -68,11 +76,15 @@ export const readyNotificationSettingKeys = new Set<NotificationSettingKey>([
   "master",
   "marketOpen",
   "marketClose",
+  "rsiBand",
+  "economicCalendar",
+  "earnings",
+  "tradingHalt",
+  "marketVolatility",
   "extendedHoursMove",
   "targetPrice",
   "rapidMove",
   "volumeSpike",
-  "earningsD1",
   "socialIssue",
   "aiAnomaly"
 ]);
@@ -294,11 +306,19 @@ export function notificationSettingForItem(notification: NotificationItem): Noti
   if (notification.type === "system.market_open" || notification.payload.kind === "market_open") {
     return "marketOpen";
   }
-  if (notification.type === "system.market_close_summary" || notification.payload.kind === "market_close_summary") {
+  if (
+    notification.type === "system.market_close"
+    || notification.type === "system.market_close_summary"
+    || notification.payload.kind === "market_close"
+    || notification.payload.kind === "market_close_summary"
+  ) {
     return "marketClose";
   }
-  if (notification.type === "system.earnings_d1" || notification.payload.kind === "earnings_d1") {
-    return "earningsD1";
+  if (notification.type === "system.volume_spike" || notification.payload.kind === "volume_spike") {
+    return "volumeSpike";
+  }
+  if (notification.type === "system.rsi_band" || notification.payload.kind === "rsi_band") {
+    return "rsiBand";
   }
   if (notification.type === "alert.price_cross") {
     return "targetPrice";
@@ -334,8 +354,14 @@ export function shouldShowNotificationToast(
   notification: NotificationItem,
   preferences: NotificationPreferences
 ): boolean {
+  if (notification.type === "system.earnings_d1" || notification.payload.kind === "earnings_d1") {
+    return false;
+  }
   if (!preferences.settings.master) {
     return false;
+  }
+  if (notification.alertId != null && notification.type.startsWith("alert.")) {
+    return true;
   }
   const setting = notificationSettingForItem(notification);
   if (!setting && notification.type === "AGENT_ALERT") {

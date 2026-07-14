@@ -40,7 +40,11 @@ export function alertSummary(alert: PriceAlert): string {
   if (alert.type === "price_cross") {
     return `${directionLabel(alert.direction)} ${formatNumber(alert.targetPrice)}${suffix}`;
   }
-  return `${directionLabels[alert.direction ?? "above"]} ${formatNumber(alert.changePct)}% / ${alert.windowMin ?? "-"}m${suffix}`;
+  if (alert.type === "spike") {
+    return `${directionLabels[alert.direction ?? "above"]} ${formatNumber(alert.changePct)}% / ${alert.windowMin ?? "-"}m${suffix}`;
+  }
+  const condition = alert.condition;
+  return `${condition?.interval ?? "1D"} ${condition?.kind ?? alert.type} ${formatNumber(condition?.threshold)}${suffix}`;
 }
 
 export function notificationSymbol(notification: NotificationItem): string {
@@ -90,6 +94,18 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
   const chartSymbol = notificationChartSymbol(notification);
   const payload = notification.payload;
 
+  const systemTitle = asString(payload.title);
+  const systemSummary = asString(payload.summary);
+  if (notification.type.startsWith("system.") && (systemTitle || systemSummary)) {
+    return {
+      symbol,
+      chartSymbol,
+      title: systemTitle || "리마인더",
+      message: systemSummary || systemTitle || "알림이 도착했습니다.",
+      detail: ""
+    };
+  }
+
   const decision = notificationDecision(notification);
   const decisionSummary = asString(decision.summary);
   if (decisionSummary) {
@@ -126,6 +142,36 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
       title: "알림 조건 달성",
       message: `${symbol} ${windowText}${spikeDirectionLabel(payload.direction)} ${formatNumber(thresholdPct)}% 이상 조건을 달성했습니다.`,
       detail: actualChangePct !== undefined ? `실제 변동률은 ${formatSignedNumber(actualChangePct)}%입니다.` : ""
+    };
+  }
+
+  const metrics = asRecord(payload.metrics);
+  const threshold = asNumber(payload.threshold);
+  if (notification.type === "alert.volume_absolute") {
+    return {
+      symbol,
+      chartSymbol,
+      title: "거래량 조건 달성",
+      message: `${symbol} ${asString(payload.interval) || ""} 거래량이 ${formatNumber(threshold)}주 ${directionLabel(payload.direction)} 조건을 달성했습니다.`,
+      detail: asNumber(metrics.volume) !== undefined ? `현재 거래량은 ${formatNumber(asNumber(metrics.volume))}주입니다.` : ""
+    };
+  }
+  if (notification.type === "alert.volume_relative") {
+    return {
+      symbol,
+      chartSymbol,
+      title: "거래량 조건 달성",
+      message: `${symbol} 거래량이 평균의 ${formatNumber(threshold)}배 ${directionLabel(payload.direction)} 조건을 달성했습니다.`,
+      detail: asNumber(metrics.volumeMultiple) !== undefined ? `현재 ${formatNumber(asNumber(metrics.volumeMultiple))}배입니다.` : ""
+    };
+  }
+  if (notification.type === "alert.rsi_threshold") {
+    return {
+      symbol,
+      chartSymbol,
+      title: "RSI 조건 달성",
+      message: `${symbol} RSI가 ${formatNumber(threshold)} ${directionLabel(payload.direction)} 조건을 달성했습니다.`,
+      detail: asNumber(metrics.rsi) !== undefined ? `현재 RSI는 ${formatNumber(asNumber(metrics.rsi))}입니다.` : ""
     };
   }
 

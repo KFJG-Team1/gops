@@ -7,33 +7,25 @@ import {
   markNotificationRead,
   normalizeNotificationPayload,
   notificationSocketUrl,
+  publishAlertRulesChanged,
   type NotificationItem
 } from "../alerts/alertApi";
+import { isMarketOpenNotification } from "../alerts/marketOpenReminder";
 import {
-  createMarketOpenNotification,
-  isMarketOpenNotification,
-  shouldShowMarketOpenReminder
-} from "../alerts/marketOpenReminder";
-import {
-  shouldShowNotificationToast,
   useNotificationPreferences
 } from "../alerts/notificationPreferences";
+import {
+  advanceAlertToastState,
+  createAlertToastQueueState,
+  enqueueAlertToastState,
+  reconcileAlertToastState
+} from "../alerts/alertToastQueue";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
 import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
-import { fetchNextMarketOpen } from "../market/marketOpenApi";
 import { SimulatorControl } from "../simulator/SimulatorControl";
-
-type AlertToastQueueState = {
-  current: AlertToastQueueItem | null;
-  queue: AlertToastQueueItem[];
-};
-type AlertToastQueueItem = {
-  notification: NotificationItem;
-  autoDismissMs?: number;
-};
 
 type BottomCommandBarProps = {
   agentBusy: boolean;
@@ -61,8 +53,6 @@ type BottomCommandBarProps = {
 };
 
 const alertToastAdvanceMs = 6000;
-const marketOpenRetryMs = 60_000;
-const marketOpenScheduleRefreshMs = 60 * 60_000;
 
 export function BottomCommandBar({
   agentBusy,
@@ -89,48 +79,30 @@ export function BottomCommandBar({
   onApplyLayoutProposal
 }: BottomCommandBarProps) {
   const { preferences: notificationPreferences, ready: notificationPreferencesReady } = useNotificationPreferences();
-  const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
+  const [alertToastState, setAlertToastState] = useState(createAlertToastQueueState);
   const notificationPreferencesRef = useRef(notificationPreferences);
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const agentInputRef = useRef<HTMLInputElement>(null);
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
   const canReceiveAlerts = canUseAlerts && notificationPreferencesReady;
-  const marketOpenReminderEnabled = canReceiveAlerts
-    && notificationPreferences.settings.master
-    && notificationPreferences.settings.marketOpen;
 
   const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
-    if (!shouldShowNotificationToast(notification, notificationPreferencesRef.current)) {
-      return;
-    }
-    const key = alertToastKey(notification);
-    if (seenAlertToastKeysRef.current.has(key)) {
-      return;
-    }
-    seenAlertToastKeysRef.current.add(key);
-    const item = { notification, autoDismissMs: options.autoDismissMs };
-    setAlertToastState((current) => (
-      current.current
-        ? { current: current.current, queue: [...current.queue, item] }
-        : { current: item, queue: [] }
+    setAlertToastState((current) => enqueueAlertToastState(
+      current,
+      notification,
+      notificationPreferencesRef.current,
+      seenAlertToastKeysRef.current,
+      options
     ));
   };
 
   useEffect(() => {
     notificationPreferencesRef.current = notificationPreferences;
-    setAlertToastState((current) => {
-      const visible = [current.current, ...current.queue]
-        .filter((item): item is AlertToastQueueItem => Boolean(item))
-        .filter((item) => shouldShowNotificationToast(item.notification, notificationPreferences));
-      return { current: visible[0] ?? null, queue: visible.slice(1) };
-    });
+    setAlertToastState((current) => reconcileAlertToastState(current, notificationPreferences));
   }, [notificationPreferences]);
 
   const advanceAlertToast = () => {
-    setAlertToastState((current) => {
-      const [next, ...queue] = current.queue;
-      return { current: next ?? null, queue };
-    });
+    setAlertToastState(advanceAlertToastState);
   };
 
   const openAlertToastChart = (notification: NotificationItem) => {
@@ -180,12 +152,19 @@ export function BottomCommandBar({
     socket.onmessage = (event) => {
       const payload = readSocketPayload(event.data);
       if (payload.type === "snapshot") {
+        const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+        notifications
+          .map(normalizeNotificationPayload)
+          .filter((item): item is NotificationItem => Boolean(item && !item.readAt))
+          .reverse()
+          .forEach((notification) => enqueueAlertToast(notification));
         return;
       }
       if (payload.type === "notification") {
         const notification = normalizeNotificationPayload(payload.notification);
         if (notification && !notification.readAt) {
           enqueueAlertToast(notification);
+          if (notification.alertId != null) publishAlertRulesChanged();
         }
       }
     };
@@ -236,75 +215,6 @@ export function BottomCommandBar({
     alertToastState.current?.autoDismissMs,
     alertToastState.queue.length
   ]);
-
-  useEffect(() => {
-    if (!marketOpenReminderEnabled) {
-      return undefined;
-    }
-    let cancelled = false;
-    let timer: number | undefined;
-    let controller: AbortController | null = null;
-
-    const clearTimer = () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-    };
-
-    const schedule = (delayMs: number, callback: () => void) => {
-      clearTimer();
-      timer = window.setTimeout(callback, clampReminderDelay(delayMs));
-    };
-
-    const scheduleNextOpenCheck = (nextOpenAt: string) => {
-      const openMs = new Date(nextOpenAt).getTime();
-      if (!Number.isFinite(openMs)) {
-        schedule(marketOpenRetryMs, refreshSchedule);
-        return;
-      }
-
-      const delayMs = openMs - Date.now();
-      if (delayMs > marketOpenScheduleRefreshMs) {
-        schedule(marketOpenScheduleRefreshMs, refreshSchedule);
-        return;
-      }
-
-      schedule(delayMs, () => {
-        if (cancelled) {
-          return;
-        }
-        if (shouldShowMarketOpenReminder(nextOpenAt)) {
-          enqueueAlertToast(createMarketOpenNotification(nextOpenAt));
-        }
-        schedule(marketOpenRetryMs, refreshSchedule);
-      });
-    };
-
-    const refreshSchedule = () => {
-      controller?.abort();
-      controller = new AbortController();
-      void fetchNextMarketOpen(controller.signal)
-        .then((nextOpen) => {
-          if (cancelled) {
-            return;
-          }
-          scheduleNextOpenCheck(nextOpen.nextOpenAt);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            schedule(marketOpenRetryMs, refreshSchedule);
-          }
-        });
-    };
-
-    refreshSchedule();
-    return () => {
-      cancelled = true;
-      controller?.abort();
-      clearTimer();
-    };
-  }, [marketOpenReminderEnabled]);
 
   useEffect(() => {
     if (agentComposerRequest > 0 && !agentBusy) {
@@ -520,15 +430,4 @@ function agentAlertNotification(payload: Record<string, unknown>): NotificationI
     createdAt: new Date().toISOString(),
     readAt: null
   };
-}
-
-function alertToastKey(notification: NotificationItem): string {
-  return `${notification.id}:${notification.eventId}`;
-}
-
-function clampReminderDelay(delayMs: number): number {
-  if (!Number.isFinite(delayMs)) {
-    return 60_000;
-  }
-  return Math.max(0, Math.min(delayMs, 60 * 60_000));
 }

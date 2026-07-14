@@ -348,10 +348,10 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "priceCondition",
     title: "알림 · 관심 기업",
     agentPanelType: "priceCondition",
-    minSpan: { colSpan: 2, rowSpan: 2 },
-    readableMinSpan: { colSpan: 2, rowSpan: 3 },
-    minSizePx: { width: 340, height: 300 },
-    defaultSpan: { colSpan: 3, rowSpan: 3 },
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 1, rowSpan: 1 },
+    minSizePx: { width: 0, height: 0 },
+    defaultSpan: { colSpan: 1, rowSpan: 3 },
     defaultLayoutWeight: 52
   },
   {

@@ -32,8 +32,8 @@ const priceConditionCatalogEntry = buildTiledAgentLayoutContext({ slots: [], con
   .panelCatalog
   .find((entry) => entry.panelType === "priceCondition");
 assert.equal(priceConditionCatalogEntry?.title, "알림 · 관심 기업");
-assert.deepEqual(priceConditionCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 3 });
-assert.deepEqual(priceConditionCatalogEntry?.defaultSpan, { colSpan: 3, rowSpan: 3 });
+assert.deepEqual(priceConditionCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 1 });
+assert.deepEqual(priceConditionCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 3 });
 
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },

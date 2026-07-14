@@ -8,6 +8,7 @@ import {
   useState
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
+import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
 import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
@@ -108,6 +109,11 @@ type InteractiveAgentContext = {
 };
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
+
+function isLikelyAlertCommand(value: string): boolean {
+  const text = value.toLowerCase();
+  return ["알림", "알람", "alert"].some((keyword) => text.includes(keyword));
+}
 const agentDebugStorageKey = "gops:agent-debug";
 const appUiScale = 0.8;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
@@ -310,6 +316,7 @@ export function App() {
   const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
   const lastSavedAgentProposalRef = useRef<string | null>(null);
   const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
+  const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
@@ -887,6 +894,49 @@ export function App() {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
     }
+    const alertDraft = alertCommandDraftRef.current;
+    setAgentBusy(true);
+    try {
+      const chartDocument = mainView.mode === "chart"
+        ? Object.values(chartRuntime.documents).find((document) => document.symbol === mainView.symbol)
+        : undefined;
+      const requestId = alertDraft?.requestId ?? createAgentAnalysisRequestId();
+      const command = await submitAlertCommand({
+        text: prompt,
+        contextSymbol: mainView.mode === "chart" ? mainView.symbol : undefined,
+        contextInterval: chartDocument?.timeframe,
+        clarificationId: alertDraft?.clarificationId,
+        requestId
+      });
+      if (command.status === "created") {
+        alertCommandDraftRef.current = null;
+        showAgentNotice(`${command.alert.symbol} 알림을 설정했습니다.`);
+        return "ui-action";
+      }
+      if (command.status === "clarify") {
+        alertCommandDraftRef.current = {
+          clarificationId: command.clarificationId,
+          requestId
+        };
+        showAgentNotice(command.clarification, "info");
+        return "notice";
+      }
+      if (command.status === "rejected") {
+        alertCommandDraftRef.current = null;
+        showAgentNotice(command.clarification, "error");
+        return "notice";
+      }
+      alertCommandDraftRef.current = null;
+    } catch (error) {
+      if (alertDraft || isLikelyAlertCommand(prompt)) {
+        showAgentNotice(error instanceof Error ? error.message : "알림 명령을 처리하지 못했습니다.", "error");
+        return "notice";
+      }
+      // An unrelated agent prompt still follows the normal analysis path if
+      // the alert fast-path is temporarily unavailable.
+    } finally {
+      setAgentBusy(false);
+    }
     const activeTradeProposal = activeTradeConditionProposalRef.current;
     if (activeTradeProposal) {
       setAgentBusy(true);
@@ -1271,7 +1321,7 @@ export function App() {
 
     void runChartPrompt();
     return "notice";
-  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, showAgentNotice, viewportSize]);
+  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, chartRuntime.documents, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, showAgentNotice, viewportSize]);
 
 
   return (

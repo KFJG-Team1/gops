@@ -3606,11 +3606,12 @@ assert.doesNotMatch(bottomCommandBarSource, /chart-agent-dev-toggle/);
 assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.doesNotMatch(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel|PortfolioInvestmentStatusPanel|SettingsMenu/);
-assert.match(bottomCommandBarSource, /fetchNextMarketOpen/);
+assert.doesNotMatch(bottomCommandBarSource, /fetchNextMarketOpen/);
 assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
 assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
-assert.match(bottomCommandBarSource, /marketOpenReminderEnabled/);
+assert.match(bottomCommandBarSource, /payload\.type === "snapshot"/);
+assert.match(bottomCommandBarSource, /\.reverse\(\)[\s\S]*enqueueAlertToast/);
 assert.match(bottomCommandBarSource, /onOpenChart=\{openAlertToastChart\}/);
 assert.match(bottomCommandBarSource, /onSelectSymbol\(symbol\)/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
@@ -3632,20 +3633,22 @@ assert.match(priceConditionPanelSource, /알림/);
 assert.match(priceConditionPanelSource, /관심 기업/);
 assert.match(priceConditionPanelSource, /role="tabpanel"/);
 assert.match(priceConditionPanelSource, /fetchWatchlist/);
-assert.match(priceConditionPanelSource, /가격·시세/);
-assert.match(priceConditionPanelSource, /장 운영/);
-assert.match(priceConditionPanelSource, /기업 이벤트/);
-assert.match(priceConditionPanelSource, /AI 분석/);
-assert.match(priceConditionPanelSource, /목표가 도달/);
-assert.match(priceConditionPanelSource, /급등\/급락/);
+assert.match(priceConditionPanelSource, /fetchAlerts/);
+assert.match(priceConditionPanelSource, /리마인더/);
+assert.match(priceConditionPanelSource, /기업 알림/);
+assert.match(priceConditionPanelSource, /미국장 개장/);
+assert.match(priceConditionPanelSource, /RSI 과매수·과매도/);
 assert.match(priceConditionPanelSource, /거래량 급증/);
-assert.match(priceConditionPanelSource, /실적 발표 D-1/);
-assert.match(priceConditionPanelSource, /notification-threshold-chips/);
-assert.match(priceConditionPanelSource, /updateCompanyOverride/);
-assert.match(priceConditionPanelSource, /로그인 필요/);
+assert.doesNotMatch(priceConditionPanelSource, /실적 발표 D-1|earningsD1/);
+assert.doesNotMatch(priceConditionPanelSource, /notification-threshold-chips/);
+assert.match(priceConditionPanelSource, /BellIconButton/);
+assert.match(priceConditionPanelSource, /Trash2/);
+assert.match(priceConditionPanelSource, /alertValidity/);
+assert.match(priceConditionPanelSource, /createdViaLabel/);
+assert.doesNotMatch(priceConditionPanelSource, /1단계|2단계/);
 assert.match(priceConditionPanelSource, /changePercentBySymbol/);
 assert.match(priceConditionPanelSource, /onClick=\{\(\) => onOpenCompany\(company\.symbol\)\}/);
-assert.doesNotMatch(priceConditionPanelSource, /가격조건|가격 조건/);
+assert.match(priceConditionPanelSource, /가격 조건 패널/);
 assert.doesNotMatch(priceConditionPanelSource, /SymbolSearch|portalMenu|replaceWatchlistSymbols/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-list-toolbar|watchlist-company-reasons/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-candidate-card/);
@@ -3654,7 +3657,7 @@ assert.doesNotMatch(priceConditionPanelSource, /localStorage/);
 
 const notificationPreferencesSource = readFileSync(fileURLToPath(new URL("../src/alerts/notificationPreferences.tsx", import.meta.url)), "utf-8");
 assert.match(notificationPreferencesSource, /\/api\/notification-preferences/);
-assert.match(bottomCommandBarSource, /shouldShowNotificationToast/);
+assert.match(bottomCommandBarSource, /enqueueAlertToastState/);
 const targetPriceNotification = {
   id: 1,
   eventId: "target-price",
@@ -3717,6 +3720,12 @@ const excludedEarningsResultNotification = {
 };
 assert.equal(notificationSettingForItem(excludedEarningsResultNotification), null);
 assert.equal(shouldShowNotificationToast(excludedEarningsResultNotification, defaultPreferences), false);
+assert.equal(shouldShowNotificationToast({
+  id: 9,
+  eventId: "removed-earnings-d1",
+  type: "system.earnings_d1",
+  payload: { kind: "earnings_d1", symbol: "NVDA" }
+}, defaultPreferences), false);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
