@@ -1,12 +1,13 @@
 import { ExternalLink, LoaderCircle, RefreshCcw } from "lucide-react";
 import type { KeyboardEvent, SyntheticEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentReferenceKey,
   newsArticleReference,
   newsDailySummaryReference,
   type AgentReference
 } from "../agent/agentReferences";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorNewsArticle, type SimulatorStatus } from "../simulator/simulatorApi";
 import { NewsFlipCard, type NewsFlipCardItem } from "./NewsFlipCard";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 
@@ -77,6 +78,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   const [loading, setLoading] = useState(!normalizedInitialPayload);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const simulatorNewsKeyRef = useRef<string | null>(null);
 
   const loadNews = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
     if (showRefreshing) {
@@ -86,6 +88,15 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
     }
     setError(undefined);
     try {
+      const simulatorStatus = latestSimulatorStatus();
+      if (simulatorStatus?.mode === "simulation") {
+        const response = await fetch("/api/simulator/news", { signal });
+        const simulatorPayload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`시뮬레이션 뉴스 API 응답 오류 ${response.status}`);
+        const articles = Array.isArray(simulatorPayload.news) ? simulatorPayload.news as SimulatorNewsArticle[] : [];
+        setPayload(simulatorNewsResponse(symbol, articles));
+        return;
+      }
       const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
       const response = await fetch(`/api/market/news/daily?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
@@ -119,6 +130,25 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
     void loadNews(controller.signal);
     return () => controller.abort();
   }, [initialPayload, loadNews, symbol]);
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      if (status?.mode !== "simulation") {
+        const wasSimulation = simulatorNewsKeyRef.current !== null;
+        simulatorNewsKeyRef.current = null;
+        if (wasSimulation) void loadNews(undefined, true);
+        return;
+      }
+      if (!status.runId) return;
+      const key = `${status.runId}:${status.breakingNewsReleased ? "breaking" : "pre-event"}`;
+      if (simulatorNewsKeyRef.current === key) return;
+      simulatorNewsKeyRef.current = key;
+      void loadNews(undefined, true);
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, [loadNews]);
 
   const dailySummaries = payload?.dailySummaries ?? [];
   const items = payload?.items ?? [];
@@ -289,6 +319,24 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
       )}
     </section>
   );
+}
+
+function simulatorNewsResponse(symbol: string, articles: SimulatorNewsArticle[]): NewsResponse {
+  return {
+    symbol,
+    displayMode: "latest",
+    dailySummaries: [],
+    items: articles.map((article) => ({
+      symbol,
+      symbols: article.symbols ?? [symbol],
+      title: article.headline,
+      summary: article.summary ?? "",
+      url: article.url,
+      source: article.source ?? "GOPS 시뮬레이터",
+      publishedAt: new Date().toISOString(),
+      impactDirection: symbol.toUpperCase() === "OKE" ? "positive" : "negative"
+    }))
+  };
 }
 
 function normalizeNewsResponse(payload: unknown, fallbackSymbol = "UNKNOWN"): NewsResponse | null {

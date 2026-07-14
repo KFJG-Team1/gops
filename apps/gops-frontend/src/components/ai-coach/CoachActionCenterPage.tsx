@@ -111,11 +111,11 @@ export function CoachActionCenterPage({
                       }
                     }}
                   >
-                    <div className={styles.alertSymbol} role="cell"><strong>{candidate.symbol || "—"}</strong></div>
-                    <div className={styles.alertCondition} role="cell" title={candidate.title}><strong>{candidate.title}</strong></div>
-                    <div className={styles.alertCurrent} role="cell" title={current}><span>{current}</span></div>
-                    <div className={styles.alertThreshold} role="cell" title={threshold}><span>{threshold}</span></div>
-                    <div className={styles.alertManage} role="cell" onClick={(event) => event.stopPropagation()}><button type="button" disabled={!supported || isSaved || isPending} title={!supported ? "현재 알람 API에서 지원하지 않는 조건입니다." : undefined} onClick={() => create(candidate)}>{isSaved ? "추가됨" : isPending ? "저장 중" : supported ? "알람 추가" : "미지원"}</button></div>
+                    <div className={styles.alertSymbol} role="cell" data-label="종목"><strong>{candidate.symbol || "—"}</strong></div>
+                    <div className={styles.alertCondition} role="cell" data-label="항목" title={candidate.title}><strong>{candidate.title}</strong></div>
+                    <div className={styles.alertCurrent} role="cell" data-label="현재" title={current}><span>{current}</span></div>
+                    <div className={styles.alertThreshold} role="cell" data-label="조건" title={threshold}><span>{threshold}</span></div>
+                    <div className={styles.alertManage} role="cell" data-label="관리" onClick={(event) => event.stopPropagation()}><button type="button" disabled={!supported || isSaved || isPending} title={!supported ? "현재 알람 API에서 지원하지 않는 조건입니다." : undefined} onClick={() => create(candidate)}>{isSaved ? "추가됨" : isPending ? "저장 중" : supported ? "알람 추가" : "미지원"}</button></div>
                     {isExpanded && <div id={detailId} className={styles.alertDetails} onClick={(event) => event.stopPropagation()}>
                       <div className={styles.alertDetailsContent}>
                         <b className={styles.alertDetailLabel}>판단 근거</b>

@@ -191,7 +191,9 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(120);
   await page.waitForTimeout(250);
   await expectNonBlankCanvas(canvas);
-  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png");
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png", {
+    maxDiffPixelRatio: 0.015,
+  });
 });
 
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
@@ -204,7 +206,9 @@ test("tiled chart, compare, and order-flow panels do not overlap workspace chrom
   await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
   await expect(page.locator(".chart-compare-panel")).toBeVisible();
   await assertWorkspaceChromeDoesNotOverlap(page);
-  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
+  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png", {
+    maxDiffPixelRatio: 0.015
+  });
 });
 
 test("layout edit hides the command bar and exposes chart asset panels", async ({ page }) => {

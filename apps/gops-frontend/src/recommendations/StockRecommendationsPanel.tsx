@@ -1,8 +1,14 @@
 import { AlertTriangle, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  agentReferenceKey,
+  stockRecommendationReference,
+  type AgentReference
+} from "../agent/agentReferences";
 import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
 import { sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   fetchStockRecommendations,
   refreshStockRecommendations,
@@ -16,16 +22,25 @@ const RECOMMENDATION_STACK_INTERVAL_MS = 8_000;
 
 export function StockRecommendationsPanel({
   activeSymbol,
-  onSelectSymbol,
+  sourcePanelId,
+  selectedSymbol,
+  selectedAgentReferenceKeys,
+  emphasizedAgentReferenceKeys,
+  onSelectReference,
   variant = "files"
 }: {
   activeSymbol: string;
-  onSelectSymbol: (symbol: string) => void;
+  sourcePanelId: string;
+  selectedSymbol: string | null;
+  selectedAgentReferenceKeys: string[];
+  emphasizedAgentReferenceKeys: string[];
+  onSelectReference: (reference: AgentReference | null) => void;
   variant?: "files" | "list";
 }) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
+  const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +60,7 @@ export function StockRecommendationsPanel({
         setLoading(false);
       }
     }
-  }, [sessionMode]);
+  }, [sessionMode, simulatorMode]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -74,7 +89,21 @@ export function StockRecommendationsPanel({
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      setSimulatorMode((event as CustomEvent<SimulatorStatus>).detail?.mode ?? "live");
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
+
   const items = useMemo(() => payload?.items ?? [], [payload?.items]);
+
+  useEffect(() => {
+    if (!loading && payload && selectedSymbol && !items.some((item) => item.symbol === selectedSymbol)) {
+      onSelectReference(null);
+    }
+  }, [items, loading, onSelectReference, payload, selectedSymbol]);
 
   return (
     <section
@@ -144,12 +173,30 @@ export function StockRecommendationsPanel({
       {!loading && !error && items.length > 0 && (
         variant === "list" ? (
           <div className="stock-rec-list">
-            {items.map((item) => (
-              <RecommendationListRow key={`${item.rank}-${item.symbol}`} item={item} onSelectSymbol={onSelectSymbol} />
-            ))}
+            {items.map((item) => {
+              const reference = stockRecommendationReference(item, sourcePanelId);
+              const referenceKey = agentReferenceKey(reference);
+              return (
+                <RecommendationListRow
+                  key={`${item.rank}-${item.symbol}`}
+                  item={item}
+                  reference={reference}
+                  selected={selectedAgentReferenceKeys.includes(referenceKey)}
+                  emphasized={emphasizedAgentReferenceKeys.includes(referenceKey)}
+                  onSelectReference={onSelectReference}
+                />
+              );
+            })}
           </div>
         ) : (
-          <RecommendationFileStack items={items} onSelectSymbol={onSelectSymbol} />
+          <RecommendationFileStack
+            items={items}
+            sourcePanelId={sourcePanelId}
+            selectedSymbol={selectedSymbol}
+            selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+            emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+            onSelectReference={onSelectReference}
+          />
         )
       )}
       <LogoDevAttribution className="panel-logo-attribution" />
@@ -159,27 +206,46 @@ export function StockRecommendationsPanel({
 
 function RecommendationFileStack({
   items,
-  onSelectSymbol
+  sourcePanelId,
+  selectedSymbol,
+  selectedAgentReferenceKeys,
+  emphasizedAgentReferenceKeys,
+  onSelectReference
 }: {
   items: StockRecommendationItem[];
-  onSelectSymbol: (symbol: string) => void;
+  sourcePanelId: string;
+  selectedSymbol: string | null;
+  selectedAgentReferenceKeys: string[];
+  emphasizedAgentReferenceKeys: string[];
+  onSelectReference: (reference: AgentReference | null) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const itemSequenceKey = useMemo(() => items.map((item) => `${item.rank}-${item.symbol}`).join("|"), [items]);
   const showNext = useCallback(() => {
+    onSelectReference(null);
     setActiveIndex((currentIndex) => items.length > 1 ? (currentIndex + 1) % items.length : currentIndex);
-  }, [items.length]);
+  }, [items.length, onSelectReference]);
 
   useEffect(() => setActiveIndex(0), [itemSequenceKey]);
 
   useEffect(() => {
-    if (paused || items.length < 2) {
+    if (!selectedSymbol) {
+      return;
+    }
+    const selectedIndex = items.findIndex((item) => item.symbol === selectedSymbol);
+    if (selectedIndex >= 0) {
+      setActiveIndex(selectedIndex);
+    }
+  }, [items, selectedSymbol]);
+
+  useEffect(() => {
+    if (paused || selectedSymbol || items.length < 2) {
       return undefined;
     }
     const intervalId = window.setInterval(showNext, RECOMMENDATION_STACK_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [items.length, paused, showNext]);
+  }, [items.length, paused, selectedSymbol, showNext]);
 
   return (
     <div
@@ -202,16 +268,20 @@ function RecommendationFileStack({
             ? "is-next"
             : position === 2
               ? "is-back-2"
-              : position === 3
-                ? "is-back-3"
-                : "is-hidden";
+                : position === 3
+                  ? "is-back-3"
+                  : "is-hidden";
+        const reference = stockRecommendationReference(item, sourcePanelId);
+        const referenceKey = agentReferenceKey(reference);
         return (
           <RecommendationRow
             key={`${item.rank}-${item.symbol}`}
             item={item}
             className={stackClass}
             active={position === 0}
-            onClick={() => position === 0 ? onSelectSymbol(item.symbol) : setActiveIndex(index)}
+            selected={selectedAgentReferenceKeys.includes(referenceKey)}
+            emphasized={emphasizedAgentReferenceKeys.includes(referenceKey)}
+            onClick={() => position === 0 ? onSelectReference(reference) : setActiveIndex(index)}
           />
         );
       })}
@@ -298,11 +368,15 @@ function RecommendationRow({
   item,
   className,
   active,
+  selected,
+  emphasized,
   onClick
 }: {
   item: StockRecommendationItem;
   className: string;
   active: boolean;
+  selected: boolean;
+  emphasized: boolean;
   onClick: () => void;
 }) {
   const sector = item.sector || "Unclassified";
@@ -312,9 +386,10 @@ function RecommendationRow({
   const visibleRiskWarnings = item.riskWarnings.slice(0, 1);
   return (
     <button
-      className={`stock-rec-row ${className}`}
+      className={`stock-rec-row ${className} ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
       type="button"
-      aria-label={active ? `${item.rank}위 ${item.symbol} 추천 차트 열기` : `${item.rank}위 ${item.symbol} 추천 보기`}
+      aria-label={active ? `${item.rank}위 ${item.symbol} 추천 선택` : `${item.rank}위 ${item.symbol} 추천 보기`}
+      aria-pressed={selected}
       tabIndex={active || className === "is-next" ? 0 : -1}
       onClick={onClick}
       style={{ "--stock-rec-tab-text-width": `${Math.max(3, item.symbol.length)}ch` } as CSSProperties}
@@ -346,10 +421,16 @@ function RecommendationRow({
 
 function RecommendationListRow({
   item,
-  onSelectSymbol
+  reference,
+  selected,
+  emphasized,
+  onSelectReference
 }: {
   item: StockRecommendationItem;
-  onSelectSymbol: (symbol: string) => void;
+  reference: AgentReference;
+  selected: boolean;
+  emphasized: boolean;
+  onSelectReference: (reference: AgentReference | null) => void;
 }) {
   const sector = item.sector || "Unclassified";
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
@@ -358,10 +439,11 @@ function RecommendationListRow({
   const visibleRiskWarnings = item.riskWarnings.slice(0, 1);
   return (
     <button
-      className="stock-rec-row"
+      className={`stock-rec-row ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
       type="button"
-      aria-label={`${item.rank}위 ${item.symbol} 추천 차트 열기`}
-      onClick={() => onSelectSymbol(item.symbol)}
+      aria-label={`${item.rank}위 ${item.symbol} 추천 선택`}
+      aria-pressed={selected}
+      onClick={() => onSelectReference(reference)}
     >
       <StockLogo symbol={item.symbol} companyName={companyName} size="xs" className="stock-rec-logo" />
       <span className="stock-rec-main">

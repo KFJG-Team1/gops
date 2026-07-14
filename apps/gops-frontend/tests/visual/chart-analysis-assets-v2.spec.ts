@@ -151,7 +151,7 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/analysis-assets") payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
   else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse(densePatternCoverage ? 48 : 0);
   else if (url.pathname === "/api/agents/analyze" && request.method() === "POST") {
-    if (delayAgentAnswer) await new Promise((resolve) => setTimeout(resolve, 300));
+    if (delayAgentAnswer) await new Promise((resolve) => setTimeout(resolve, 1_200));
     payload = chartAnalysisReport(request.postDataJSON());
   }
   else if (url.pathname === "/api/charts/analysis-assets/build" && request.method() === "POST") {

@@ -44,17 +44,16 @@ const PORTFOLIO_FLOW_PANEL_VERSION = 2;
 // These are provided defaults; the user can rearrange and save their own presets.
 const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinition> = {
   market: {
-    name: "시장분석",
+    name: "추천종목",
     spec: [
-      { kind: "indices", gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 2 } },
-      { kind: "themeRadar", gridRect: { col: 4, row: 1, colSpan: 5, rowSpan: 2 } },
-      { kind: "popular", gridRect: { col: 1, row: 3, colSpan: 3, rowSpan: 3 } },
-      { kind: "news", gridRect: { col: 4, row: 3, colSpan: 3, rowSpan: 3 } },
-      { kind: "ontology", gridRect: { col: 7, row: 3, colSpan: 2, rowSpan: 3 } }
+      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 } },
+      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
+      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
+      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
     ]
   },
   stock: {
-    name: "종목분석",
+    name: "기업분석",
     spec: [
       { kind: "chart", gridRect: { col: 1, row: 1, colSpan: 6, rowSpan: 3 } },
       { kind: "company", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 3 } },
@@ -70,7 +69,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     ]
   },
   compare: {
-    name: "비교분석",
+    name: "차트분석",
     spec: [
       { kind: "compare", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
       { kind: "indices", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
@@ -78,7 +77,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     ]
   },
   asset: {
-    name: "자산현황",
+    name: "포트폴리오",
     spec: [
       {
         kind: "portfolioMulti",
@@ -97,7 +96,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   }
 };
 
-export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "compare", "chart", "asset"];
+export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "compare", "asset"];
 
 export const DEFAULT_PRESETS: LayoutPreset[] = DEFAULT_PRESET_IDS.map((id): LayoutPreset => ({
   id,
@@ -546,10 +545,18 @@ function presetAliasesForAgent(preset: LayoutPreset): string[] {
     ...suffixes.flatMap((suffix) => [`${base} ${suffix}`, `${base}${suffix}`])
   ];
   if (preset.kind === "default") {
+    aliases.push(...(DEFAULT_PRESET_LEGACY_ALIASES[preset.id as DefaultPresetId] ?? []));
     aliases.push(preset.id);
   }
   return Array.from(new Set(aliases.map((alias) => alias.trim()).filter(Boolean)));
 }
+
+const DEFAULT_PRESET_LEGACY_ALIASES: Partial<Record<DefaultPresetId, readonly string[]>> = {
+  market: ["추천 종목", "오늘의 추천 종목", "시장분석"],
+  stock: ["기업 분석", "종목분석"],
+  compare: ["차트 분석", "비교분석"],
+  asset: ["자산현황"]
+};
 
 function readPresetString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;

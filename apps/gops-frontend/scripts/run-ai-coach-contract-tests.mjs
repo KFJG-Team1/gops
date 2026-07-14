@@ -96,6 +96,11 @@ assert.match(actionStyles, /\.alertDetails \{[\s\S]*?grid-template-columns: clam
 assert.match(actionStyles, /\.alertDetailsContent \{[\s\S]*?grid-column: 2 \/ -1;[\s\S]*?minmax\(96px, \.7fr\)[\s\S]*?minmax\(220px, 2fr\)[\s\S]*?minmax\(96px, \.7fr\)[\s\S]*?minmax\(160px, 1\.4fr\);/);
 assert.match(actionStyles, /\.sourceGroup \{[\s\S]*?border-left: 3px solid var\(--color-signal\);/);
 assert.match(actionStyles, /\.sourceBadge \{[\s\S]*?margin: 0;[\s\S]*?min-height: 40px;[\s\S]*?border-block: 1px solid var\(--coach-line\);[\s\S]*?padding-inline: 12px;[\s\S]*?background: var\(--coinbase-canvas\);[\s\S]*?font: var\(--type-title-sm\);/);
+assert.match(actionStyles, /@container \(max-width: 680px\) \{[\s\S]*?\.alertTable \{[\s\S]*?min-width: 0;[\s\S]*?\.alertRow \{[\s\S]*?grid-template-areas:/);
+assert.match(actionStyles, /@container \(max-width: 680px\) \{[\s\S]*?\.alertDetailsContent \{[\s\S]*?grid-template-columns: minmax\(76px, \.7fr\) minmax\(0, 1\.8fr\);/);
+assert.match(actionStyles, /@container \(max-width: 680px\) \{[\s\S]*?\.alertCurrent,[\s\S]*?\.alertThreshold \{[\s\S]*?display: none !important;/);
+assert.match(actionStyles, /@container \(max-width: 680px\) \{[\s\S]*?\.alertRow > div:not\(\.alertDetails\)::before \{[\s\S]*?display: none;/);
+assert.match(actionStyles, /@container \(max-width: 680px\) \{[\s\S]*?\.sourceGroup \{[\s\S]*?border-left: 0;/);
 assert.match(actions, /await onCreateAlert/);
 assert.match(actions, /data-focused/); assert.match(actions, /scrollIntoView/);
 assert.match(actions, /const instanceId = useId\(\)/);

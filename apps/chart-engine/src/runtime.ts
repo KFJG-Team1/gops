@@ -43,6 +43,7 @@ export type ChartRuntimePanel = {
 
 export type ChartRuntimeAction =
   | { kind: "chart.ensureDocuments"; panels: ChartRuntimePanel[] }
+  | { kind: "chart.marketData.reset" }
   | { kind: "chart.snapshot.loaded"; snapshot: CandleSnapshot }
   | { kind: "chart.snapshot.failed"; symbol: string; interval: string; message: string }
   | { kind: "chart.command"; command: ChartCommand }
@@ -77,6 +78,8 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
   switch (action.kind) {
     case "chart.ensureDocuments":
       return ensureChartDocuments(state, action.panels);
+    case "chart.marketData.reset":
+      return resetMarketData(state);
     case "chart.snapshot.loaded":
       return applySnapshot(state, action.snapshot);
     case "chart.snapshot.failed":
@@ -111,6 +114,26 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
     default:
       return state;
   }
+}
+
+function resetMarketData(state: ChartRuntimeState): ChartRuntimeState {
+  return {
+    ...state,
+    candlesByKey: {},
+    candleKeyAccessOrder: [],
+    liveTradesBySymbol: {},
+    liveQuotesBySymbol: {},
+    dataStatusByKey: {},
+    streamStatusByKey: {},
+    streamMessageByKey: {},
+    journal: addJournal(
+      state.journal,
+      "chart.market-data.reset",
+      "system",
+      "applied",
+      "Market data cleared before reconnecting to the live feed."
+    )
+  };
 }
 
 export function getChartDocumentForPanel(state: ChartRuntimeState, panel: ChartRuntimePanel): ChartDocument {

@@ -329,8 +329,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "AI 투자 코치",
     agentPanelType: "aiCoach",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    readableMinSpan: { colSpan: 3, rowSpan: 3 },
-    minSizePx: { width: 520, height: 500 },
+    readableMinSpan: { colSpan: 2, rowSpan: 3 },
+    minSizePx: { width: 320, height: 500 },
     defaultSpan: { colSpan: 5, rowSpan: 4 },
     defaultLayoutWeight: 72
   },

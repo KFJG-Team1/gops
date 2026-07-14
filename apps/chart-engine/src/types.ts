@@ -213,7 +213,8 @@ export type ChartCommandJournalEntry = {
     | "chart.data.snapshot"
     | "chart.data.live"
     | "chart.layer.trade"
-    | "chart.layer.quote";
+    | "chart.layer.quote"
+    | "chart.market-data.reset";
   actor: ChartCommandActor;
   status: "applied" | "failed" | "proposed" | "ignored" | "undone" | "redone";
   message: string;

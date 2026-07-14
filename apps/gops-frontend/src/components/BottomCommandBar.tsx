@@ -1,5 +1,5 @@
-import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, TrendingUp, UserCircle, X } from "lucide-react";
+import { lazy, Suspense, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
 import { HeaderNotificationMenu } from "../alerts/HeaderNotificationMenu";
 import { AlertToast } from "../alerts/AlertToast";
@@ -37,7 +37,9 @@ import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
-import { SimulatorControl } from "../simulator/SimulatorControl";
+
+const SimulatorControl = lazy(() => import("../simulator/SimulatorControl")
+  .then((module) => ({ default: module.SimulatorControl })));
 
 type BottomCommandBarProps = {
   agentBusy: boolean;
@@ -112,6 +114,11 @@ export function BottomCommandBar({
     ));
   };
 
+  const receiveSimulatorNotification = (notification: NotificationItem) => {
+    setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
+    enqueueAlertToast(notification);
+  };
+
   useEffect(() => {
     notificationPreferencesRef.current = notificationPreferences;
     setAlertToastState((current) => reconcileAlertToastState(current, notificationPreferences));
@@ -163,7 +170,11 @@ export function BottomCommandBar({
 
   const openHeaderNotification = async (notification: NotificationItem) => {
     const symbol = notificationChartSymbol(notification);
-    if (!notification.readAt) {
+    if (!notification.readAt && notification.id < 0) {
+      const updated = { ...notification, readAt: new Date().toISOString() };
+      setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
+      setAlertToastState((current) => removeNotificationAlertToastState(current, updated.id));
+    } else if (!notification.readAt) {
       setNotificationInboxSaving(true);
       setNotificationInboxError(null);
       try {
@@ -382,7 +393,9 @@ export function BottomCommandBar({
           </div>
         </div>
         <div className="workspace-top-actions">
-          <SimulatorControl />
+          <Suspense fallback={<div className="simulator-mode-control" aria-hidden="true" />}>
+            <SimulatorControl onNotification={receiveSimulatorNotification} />
+          </Suspense>
           <HeaderNotificationMenu
             canUseAlerts={canUseAlerts}
             authLoading={authLoading}
@@ -473,8 +486,8 @@ function AgentReferenceStrip({
     <div className="agent-reference-strip" aria-label="선택한 자료">
       {chips.map((chip) => {
         const active = hoveredKey === chip.key;
-        const Icon = chip.kind === "candle" ? CandlestickChart : Newspaper;
-        const kindLabel = chip.kind === "candle" ? "캔들" : "뉴스";
+        const Icon = chip.kind === "candle" ? CandlestickChart : chip.kind === "news" ? Newspaper : TrendingUp;
+        const kindLabel = chip.kind === "candle" ? "캔들" : chip.kind === "news" ? "뉴스" : "추천";
         const label = chip.ticker ? `${chip.ticker} ${kindLabel}` : kindLabel;
         return (
           <button
