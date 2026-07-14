@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
-import { executeChartCommandGroup } from "../../chart-engine/src/commands";
+import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerToggleCommands, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
@@ -120,6 +120,24 @@ assert.equal(analysisLayerToggleCommands(target, [], resolved!, "geometry", true
 const document = createChartDocument(target.chartDocumentId, "AAPL", "1D");
 const result = executeChartCommandGroup(document, commands, "Apply Geometry asset");
 assert.equal(result.ok, true);
+if (!result.ok) assert.fail(result.message);
+const hiddenResult = executeChartCommandGroup(
+  result.document,
+  analysisLayerToggleCommands(target, result.document.drawings, resolved!, "geometry", false),
+  "Hide Geometry asset"
+);
+assert.equal(hiddenResult.ok, true);
+if (!hiddenResult.ok) assert.fail(hiddenResult.message);
+assert.equal(hiddenResult.document.drawings.filter(isChartAssetDrawing).every((drawing) => drawing.visible === false), true);
+const lockedDrawing = hiddenResult.document.drawings.find((drawing) => drawing.locked);
+assert.ok(lockedDrawing);
+const userLockedUpdate = executeChartCommandGroup(hiddenResult.document, [
+  makeChartCommand("chart.drawing.update", "user", target, {
+    drawingId: lockedDrawing!.id,
+    drawingPatch: { visible: true }
+  })
+], "User updates locked Geometry drawing");
+assert.equal(userLockedUpdate.ok, false);
 
 const support: DrawingEntity = {
   ...upper,

@@ -343,7 +343,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid drawing update payload.";
       }
       const current = document.drawings.find((drawing) => drawing.id === drawingId);
-      if (!current || current.locked) {
+      if (!current || (current.locked && !isSystemVisibilityUpdate(command, patch))) {
         return "Drawing not found or locked.";
       }
       const next = mergeDrawingPatch(current, patch);
@@ -423,6 +423,15 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
     default:
       return `Unsupported chart command: ${command.type}.`;
   }
+}
+
+function isSystemVisibilityUpdate(command: ChartCommand, patch: Record<string, unknown>): boolean {
+  const keys = Object.keys(patch);
+  return command.actor === "system"
+    && command.historyScope === "external"
+    && keys.length === 1
+    && keys[0] === "visible"
+    && typeof patch.visible === "boolean";
 }
 
 function syncLayerPane(document: ChartDocument, layer: ChartLayerKey, visible: boolean): void {

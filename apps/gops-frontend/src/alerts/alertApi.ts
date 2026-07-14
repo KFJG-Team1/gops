@@ -2,6 +2,7 @@ export type AlertKind = "price_cross" | "spike";
 export type AlertDirection = "above" | "below";
 export type AlertStatus = "active" | "disabled" | "fired" | "expired";
 export type AlertRepeatLimit = 1 | 3 | 5 | 10 | null;
+export type AlertProposalSource = "daily_trade" | "entry_habit" | "exit_habit" | "portfolio_risk";
 
 export type PriceAlert = {
   id: number;
@@ -15,6 +16,7 @@ export type PriceAlert = {
   repeatLimit: number | null;
   triggeredCount: number;
   status: AlertStatus;
+  proposalSource?: AlertProposalSource | null;
   createdAt?: string;
   expiresAt?: string | null;
 };
@@ -29,9 +31,10 @@ export type NotificationItem = {
   readAt?: string | null;
 };
 
-export type AlertCreatePayload =
+export type AlertCreatePayload = (
   | { symbol: string; type: "price_cross"; targetPrice: string; repeatLimit: AlertRepeatLimit }
-  | { symbol: string; type: "spike"; direction: AlertDirection; changePct: string; windowMin: number; repeatLimit: AlertRepeatLimit };
+  | { symbol: string; type: "spike"; direction: AlertDirection; changePct: string; windowMin: number; repeatLimit: AlertRepeatLimit }
+) & { proposalSource?: AlertProposalSource };
 
 export class AlertApiError extends Error {
   status: number;
@@ -148,9 +151,17 @@ function normalizeAlert(value: unknown): PriceAlert | null {
     repeatLimit,
     triggeredCount: asNumber(source.triggered_count ?? source.triggeredCount) ?? 0,
     status: normalizeStatus(source.status),
+    proposalSource: normalizeProposalSource(source.proposal_source ?? source.proposalSource),
     createdAt: asString(source.created_at ?? source.createdAt),
     expiresAt: asString(source.expires_at ?? source.expiresAt) ?? null
   };
+}
+
+function normalizeProposalSource(value: unknown): AlertProposalSource | null {
+  const source = asString(value);
+  return source === "daily_trade" || source === "entry_habit" || source === "exit_habit" || source === "portfolio_risk"
+    ? source
+    : null;
 }
 
 export function normalizeNotificationPayload(value: unknown): NotificationItem | null {

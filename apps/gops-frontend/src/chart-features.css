@@ -546,6 +546,9 @@
 
 .chart-pattern-groups {
   display: grid;
+  align-content: start;
+  flex: 1 1 auto;
+  grid-auto-rows: max-content;
   min-height: 0;
   overflow: auto;
   gap: 8px;

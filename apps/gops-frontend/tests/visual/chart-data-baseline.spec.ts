@@ -701,6 +701,7 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
   const priceMin = Number(url.searchParams.get("priceMin") ?? 145);
   const priceMax = Number(url.searchParams.get("priceMax") ?? 165);
   const count = 10;
+  const candleCount = Number(url.searchParams.get("candleCount") ?? fixtureCandles(url.searchParams.get("interval") ?? "1m").length);
   const width = (priceMax - priceMin) / count;
   const bins = Array.from({ length: count }, (_, index) => ({
     index,
@@ -726,6 +727,8 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
     bucketCount: count,
     priceBinSize: width,
     sourceBinCount: count,
+    sourceCandleCount: candleCount,
+    requestedCandleCount: candleCount,
     source: "fixture",
     feed: "sip",
     calculationVersion: "fixture-v1",
