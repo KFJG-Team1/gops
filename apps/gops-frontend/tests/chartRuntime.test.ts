@@ -3688,14 +3688,25 @@ assert.match(notificationCenterPanelSource, /RSI 과매수·과매도/);
 assert.match(notificationCenterPanelSource, /거래량 급증/);
 assert.doesNotMatch(notificationCenterPanelSource, /실적 발표 D-1|earningsD1/);
 assert.doesNotMatch(notificationCenterPanelSource, /notification-threshold-chips/);
-assert.match(notificationCenterPanelSource, /BellIconButton/);
-assert.match(notificationCenterPanelSource, /Trash2/);
+assert.match(notificationCenterPanelSource, /AlarmSwitch/);
+assert.match(notificationCenterPanelSource, /role="switch"/);
+assert.doesNotMatch(notificationCenterPanelSource, />켜짐<|>꺼짐</);
+assert.doesNotMatch(notificationCenterPanelSource, /기업 자세히 보기/);
+assert.match(notificationCenterPanelSource, /condition\.operator === "below" \? "≤" : "≥"/);
+assert.doesNotMatch(notificationCenterPanelSource, /Trash2/);
+assert.match(notificationCenterPanelSource, /company-alerts-heading[\s\S]*alert-edit-button/);
+assert.match(notificationCenterPanelSource, /editingAlerts \? "완료" : "편집"/);
+assert.doesNotMatch(notificationCenterPanelSource, /disabled=\{alertsLoading \|\| alerts\.length === 0\}/);
+assert.doesNotMatch(notificationCenterPanelSource, /alert-row-edit-button|alert-master-actions/);
 assert.match(notificationCenterPanelSource, /alertValidity/);
 assert.match(notificationCenterPanelSource, /createdViaLabel/);
 assert.doesNotMatch(notificationCenterPanelSource, /1단계|2단계/);
 assert.match(notificationCenterPanelSource, /changePercentBySymbol/);
 assert.match(notificationCenterPanelSource, /onClick=\{\(\) => onOpenCompany\(company\.symbol\)\}/);
 assert.match(notificationCenterPanelSource, /가격 조건 패널/);
+assert.doesNotMatch(notificationCenterPanelSource, /시장 일정과 사이트 지표 알림|패널과 에이전트에서 설정한 조건/);
+assert.match(notificationCenterPanelSource, /refreshWatchlist/);
+assert.match(notificationCenterPanelSource, /다시 불러오기/);
 assert.doesNotMatch(notificationCenterPanelSource, /SymbolSearch|portalMenu|replaceWatchlistSymbols/);
 assert.doesNotMatch(notificationCenterPanelSource, /watchlist-list-toolbar|watchlist-company-reasons/);
 assert.doesNotMatch(notificationCenterPanelSource, /watchlist-candidate-card/);
@@ -3829,6 +3840,10 @@ assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\
 const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
 assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 2);
 assert.doesNotMatch(companySummaryPanelSource, /company-(?:profitability|stability)-plot[^>]*preserveAspectRatio="none"/);
+assert.match(companySummaryPanelSource, /function useFinancialChartSize\(\)[\s\S]*new ResizeObserver\(measure\)/);
+assert.match(companySummaryPanelSource, /financialChartPlotAspectRatio = \(620 - 112 - 20\) \/ \(360 - 10 - 34\)/);
+assert.match(companySummaryPanelSource, /height: Math\.min\(measuredSize\.height, Math\.round\(proportionalHeight\)\)/);
+assert.equal(companySummaryPanelSource.match(/<svg ref=\{chartRef\} className="company-(?:profitability|stability)/g)?.length, 2);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
@@ -4370,7 +4385,8 @@ const frontendStylesSource = [
   readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
 ].join("\n");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
-assert.match(frontendStylesSource, /\.alerts-watchlist-tabs button\.is-active::after \{[\s\S]*background: currentColor;/);
+assert.doesNotMatch(frontendStylesSource, /\.alerts-watchlist-tabs button(?:\.is-active)?::after/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-tabs button\.is-active \{[^}]*background: color-mix\([^}]*color: var\(--color-text\);/);
 assert.match(frontendStylesSource, /\.alerts-watchlist-company-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
 assert.match(frontendStylesSource, /\.alerts-watchlist-company-open \{[\s\S]*grid-template-columns: 32px minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
 assert.match(frontendStylesSource, /\.notification-threshold-chips button\.is-selected \{[\s\S]*background: color-mix/);

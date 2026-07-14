@@ -21,7 +21,6 @@
 }
 
 .availabilityNotice,
-.itemEyebrow,
 .insightDefinition dt,
 .actionFacts dt,
 .metricGrid dt,
@@ -37,9 +36,7 @@
 .criteriaGrid p,
 .triggerList li,
 .triggerList code,
-.triggerList small,
-.actionCarouselHeading strong,
-.priorityCardHeading strong {
+.triggerList small {
   font: var(--type-caption);
   letter-spacing: var(--type-caption-letter-spacing);
   text-transform: var(--type-caption-text-transform);
@@ -77,7 +74,7 @@
 
 .summarySection {
   display: grid;
-  flex: 0.22 1 0;
+  flex: 0.48 1 0;
   align-content: center;
   gap: var(--panel-padding);
   padding: var(--panel-padding) 0 var(--panel-gap);
@@ -94,16 +91,16 @@
 .summarySection p {
   margin: 0;
   color: var(--coach-text);
-  font: var(--type-title-sm);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  text-transform: var(--type-title-sm-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 
 .priorityPair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 0;
-  flex: 1.15 1 0;
+  flex: 1.05 1 0;
   gap: var(--panel-gap);
 }
 
@@ -124,7 +121,7 @@
 
 .actionCarousel {
   grid-template-rows: 32px minmax(0, 1fr) 32px;
-  flex: 0.85 1 0;
+  flex: 0.72 1 0;
 }
 
 .actionCarousel:focus-visible {
@@ -142,12 +139,27 @@
   border-bottom: 1px solid var(--coach-line-soft);
 }
 
-.priorityCardHeading strong {
-  color: var(--coach-text);
+.priorityCardHeading svg {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
 }
 
-.actionCarouselHeading strong {
+.effectiveHeading {
+  color: var(--coach-green);
+}
+
+.improvementHeading {
+  color: var(--coach-orange);
+}
+
+.actionCarouselHeading {
   color: var(--coach-blue);
+}
+
+.actionCarouselHeading svg {
+  width: 26px;
+  height: 26px;
 }
 
 .carouselViewport,
@@ -192,7 +204,7 @@
 
 .carouselControls > button:hover:not(:disabled),
 .carouselControls > button:focus-visible {
-  color: var(--coach-blue);
+  color: var(--coach-text);
   background: var(--coinbase-control-glass);
   outline: none;
 }
@@ -233,7 +245,8 @@
 .carouselControls > div .activeDot {
   width: 20px;
   border-radius: 6px;
-  background: var(--coach-blue);
+  background: var(--coach-text);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--coach-text) 28%, transparent);
 }
 
 .compactControls {
@@ -299,22 +312,6 @@
   min-height: 28px;
 }
 
-.itemEyebrow {
-  color: var(--coach-muted);
-}
-.itemEyebrow,
-.itemEyebrow.severityInfo {
-  color: var(--coach-blue);
-}
-
-.itemEyebrow.severityWarning {
-  color: var(--coach-orange);
-}
-
-.itemEyebrow.severityRisk {
-  color: var(--coach-red);
-}
-
 .insight h4,
 .actionItem h4 {
   margin: 0;
@@ -323,6 +320,14 @@
   letter-spacing: var(--type-title-sm-letter-spacing);
   text-transform: var(--type-title-sm-text-transform);
   overflow-wrap: anywhere;
+}
+
+.effectiveInsight {
+  --insight-accent: var(--coach-green);
+}
+
+.improvementInsight {
+  --insight-accent: var(--coach-orange);
 }
 
 .insightDefinition,
@@ -375,7 +380,9 @@
 
 .evidenceSummary > span {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   padding: 8px;
   border-right: 1px solid var(--coach-line-soft);
@@ -395,40 +402,87 @@
 
 .evidenceSummary strong {
   color: var(--coach-text);
+  font: var(--type-body-md);
+  font-weight: 700;
 }
 
-.sampleProgress {
-  width: 100%;
-  height: 5px;
-  margin-top: calc(var(--panel-padding) / 2);
-  overflow: hidden;
-  appearance: none;
+.evidenceCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.sampleGauge {
+  --sample-progress: 0deg;
+  position: relative;
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--insight-accent) var(--sample-progress), var(--coach-line-soft) 0);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--insight-accent) 16%, transparent);
+}
+
+.sampleGauge::before {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--coinbase-canvas);
+  content: "";
+}
+
+.sampleGauge b {
+  position: relative;
+  color: var(--coach-text);
+  font: 750 13px/1 var(--font-data-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.confidenceBars {
+  display: flex;
+  width: 40px;
+  height: 52px;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 6px;
+  box-sizing: border-box;
   border: 0;
+  background: transparent;
+}
+
+.confidenceBars i {
+  width: 5px;
   border-radius: 999px;
   background: var(--coach-line-soft);
 }
 
-.sampleProgressEffective {
-  --sample-progress-color: var(--coach-green);
+.confidenceBars i:nth-child(1) {
+  height: 13px;
 }
 
-.sampleProgressImprovement {
-  --sample-progress-color: var(--coach-orange);
+.confidenceBars i:nth-child(2) {
+  height: 23px;
 }
 
-.sampleProgress::-webkit-progress-bar {
-  border-radius: 999px;
-  background: var(--coach-line-soft);
+.confidenceBars i:nth-child(3) {
+  height: 34px;
 }
 
-.sampleProgress::-webkit-progress-value {
-  border-radius: 999px;
-  background: var(--sample-progress-color);
+.confidenceBars i.confidenceBarActive {
+  background: var(--insight-accent);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--insight-accent) 28%, transparent);
 }
 
-.sampleProgress::-moz-progress-bar {
-  border-radius: 999px;
-  background: var(--sample-progress-color);
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .evidenceDetails,
@@ -699,6 +753,133 @@
 .triggerList small {
   color: var(--coach-muted);
   white-space: nowrap;
+}
+
+@container workspace-panel (max-width: 680px) {
+  .summarySection {
+    flex-grow: 0.78;
+    gap: 10px;
+    padding-block: 16px;
+  }
+
+  .priorityPair {
+    flex-grow: 0.94;
+  }
+
+  .actionCarousel {
+    flex-grow: 0.47;
+  }
+
+  .compactInsight {
+    --compact-evidence-size: clamp(58px, 11cqh, 92px);
+    --compact-confidence-width: clamp(40px, 7cqh, 58px);
+    height: 100%;
+    box-sizing: border-box;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-content: stretch;
+    gap: clamp(14px, 2.4cqh, 24px);
+    padding-bottom: 0;
+  }
+
+  .compactInsight .insightDefinition > div:not(:last-child) {
+    display: none;
+  }
+
+  .compactInsight .insightDefinition > div:last-child {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding-block: 8px;
+  }
+
+  .compactInsight .insightDefinition dd,
+  .actionCarousel .actionDescription {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .compactInsight .evidenceSummary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 0;
+    align-items: stretch;
+    gap: 0;
+    border-block: 0;
+  }
+
+  .compactInsight .evidenceSummary > span {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--compact-evidence-size) auto;
+    align-content: center;
+    justify-items: center;
+    justify-content: center;
+    gap: clamp(8px, 1.4cqh, 14px);
+    padding: clamp(8px, 1.8cqh, 18px) 0;
+    border-right: 0;
+    text-align: center;
+  }
+
+  .compactInsight .evidenceSummary small {
+    white-space: nowrap;
+  }
+
+  .compactInsight .sampleGauge {
+    width: var(--compact-evidence-size);
+    height: var(--compact-evidence-size);
+  }
+
+  .compactInsight .confidenceBars {
+    width: var(--compact-confidence-width);
+    height: var(--compact-evidence-size);
+  }
+
+  .compactInsight .sampleGauge b {
+    font-size: clamp(15px, 2.5cqh, 21px);
+  }
+
+  .compactInsight .evidenceCopy {
+    justify-items: center;
+    gap: 6px;
+  }
+
+  .compactInsight .evidenceSummary strong {
+    font: var(--type-title-sm);
+    font-weight: 700;
+  }
+
+  .compactInsight .confidenceBars {
+    gap: 10%;
+    padding: 14% 16%;
+  }
+
+  .compactInsight .confidenceBars i {
+    width: 12%;
+  }
+
+  .compactInsight .confidenceBars i:nth-child(1) {
+    height: 28%;
+  }
+
+  .compactInsight .confidenceBars i:nth-child(2) {
+    height: 50%;
+  }
+
+  .compactInsight .confidenceBars i:nth-child(3) {
+    height: 74%;
+  }
+
+  .actionCarousel .criteriaDetails summary {
+    min-height: 32px;
+  }
+}
+
+@container workspace-panel (max-width: 680px) and (min-height: 650px) {
+  .compactInsight {
+    --compact-evidence-size: clamp(82px, 13cqh, 106px);
+    --compact-confidence-width: clamp(46px, 7cqh, 64px);
+  }
 }
 
 @container workspace-panel (max-width: 620px) {

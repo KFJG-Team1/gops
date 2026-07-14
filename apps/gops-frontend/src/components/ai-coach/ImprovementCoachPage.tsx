@@ -1,14 +1,12 @@
-import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheckBig, CirclePlay, CircleX } from "lucide-react";
+import { type CSSProperties, useState } from "react";
 import styles from "./ImprovementCoachPage.module.css";
 import {
   AVAILABILITY_LABELS,
   type CoachAvailability,
   type ConditionInsight,
   type EvidenceConfidence,
-  type GuardrailScope,
   type ImprovementPlan,
-  type InsightStage,
   type PlaybookExperiment,
   type TradingGuardrail
 } from "./types";
@@ -33,12 +31,6 @@ export type ImprovementCoachPageProps = {
   ) => void;
 };
 
-const STAGE_LABELS: Record<InsightStage, string> = {
-  entry: "매수",
-  exit: "매도",
-  portfolio: "포트폴리오"
-};
-
 const CONFIDENCE_LABELS: Record<EvidenceConfidence, string> = {
   insufficient: AVAILABILITY_LABELS.insufficient_sample,
   low: AVAILABILITY_LABELS.low_confidence,
@@ -46,22 +38,18 @@ const CONFIDENCE_LABELS: Record<EvidenceConfidence, string> = {
   high: "높음"
 };
 
+const CONFIDENCE_LEVELS: Record<EvidenceConfidence, number> = {
+  insufficient: 0,
+  low: 1,
+  medium: 2,
+  high: 3
+};
+
 const EXPERIMENT_STATUS_LABELS: Record<PlaybookExperiment["status"], string> = {
   candidate: "시작 전",
   active: "진행 중",
   completed: "완료",
   paused: "잠시 멈춤"
-};
-
-const SCOPE_LABELS: Record<GuardrailScope, string> = {
-  current_position: "현재 보유 종목",
-  next_trade: "다음 매수·매도",
-  next_five_trades: "다음 5번 매수·매도",
-  strategy: "매매 원칙",
-  symbol: "종목",
-  sector: "업종",
-  market_group: "시장 구분",
-  global: "모든 거래"
 };
 
 const INTERVENTION_LABELS: Record<TradingGuardrail["intervention"], string> = {
@@ -195,8 +183,8 @@ export function ImprovementCoachPage({
             }
           }}
         >
-          <div className={styles.actionCarouselHeading}>
-            <strong>실전하기</strong>
+          <div className={styles.actionCarouselHeading} aria-label="실천하기">
+            <CirclePlay aria-hidden="true" />
           </div>
           <div className={styles.carouselViewport} key={activeAction.id}>
             {activeAction.content}
@@ -236,8 +224,10 @@ function PriorityCard({
 
   return (
     <section className={styles.priorityCard} aria-label={title}>
-      <div className={styles.priorityCardHeading}>
-        <strong>{title}</strong>
+      <div className={`${styles.priorityCardHeading} ${tone === "effective" ? styles.effectiveHeading : styles.improvementHeading}`}>
+        {tone === "effective"
+          ? <CircleCheckBig aria-hidden="true" />
+          : <CircleX aria-hidden="true" />}
       </div>
       <div className={styles.priorityCardViewport} key={activePriority?.id ?? `${tone}-empty`}>
         {activePriority
@@ -308,6 +298,8 @@ function InsightItem({
     SAMPLE_REFERENCE_COUNT,
     Math.max(0, insight.sampleSize)
   );
+  const samplePercent = Math.round(sampleProgress / SAMPLE_REFERENCE_COUNT * 100);
+  const confidenceLevel = CONFIDENCE_LEVELS[insight.confidence];
   const metrics = METRIC_DEFINITIONS.flatMap((definition) => {
     const value = insight.metrics[definition.key];
     return typeof value === "number" && Number.isFinite(value)
@@ -316,7 +308,7 @@ function InsightItem({
   });
 
   return (
-    <article className={`${styles.insight} ${compact ? styles.compactInsight : ""}`.trim()}>
+    <article className={`${styles.insight} ${tone === "effective" ? styles.effectiveInsight : styles.improvementInsight} ${compact ? styles.compactInsight : ""}`.trim()}>
       <h4>{insight.title}</h4>
       <dl className={styles.insightDefinition}>
         <div>
@@ -335,19 +327,34 @@ function InsightItem({
         )}
       </dl>
       <div className={styles.evidenceSummary} aria-label="근거 요약">
-        <span>
-          <small>확인한 거래</small>
-          <strong>{formatSampleProgress(insight.sampleSize)}</strong>
+        <span className={styles.evidenceMetric}>
+          <span
+            className={styles.sampleGauge}
+            style={{ "--sample-progress": `${samplePercent * 3.6}deg` } as CSSProperties}
+            aria-hidden="true"
+          >
+            <b>{samplePercent}%</b>
+          </span>
+          <span className={styles.evidenceCopy}>
+            <small>확인한 거래</small>
+          </span>
           <progress
-            className={`${styles.sampleProgress} ${tone === "effective" ? styles.sampleProgressEffective : styles.sampleProgressImprovement}`}
+            className={styles.visuallyHidden}
             max={SAMPLE_REFERENCE_COUNT}
             value={sampleProgress}
             aria-label={`확인한 거래 ${formatSampleProgress(insight.sampleSize)}`}
           />
         </span>
-        <span>
-          <small>근거 수준</small>
-          <strong>{CONFIDENCE_LABELS[insight.confidence]}</strong>
+        <span className={styles.evidenceMetric}>
+          <span className={styles.confidenceBars} aria-hidden="true">
+            {[1, 2, 3].map((level) => (
+              <i key={level} className={level <= confidenceLevel ? styles.confidenceBarActive : undefined} />
+            ))}
+          </span>
+          <span className={styles.evidenceCopy}>
+            <small>근거 수준</small>
+          </span>
+          <span className={styles.visuallyHidden}>{CONFIDENCE_LABELS[insight.confidence]}</span>
         </span>
       </div>
       <details className={styles.evidenceDetails}>
@@ -417,11 +424,17 @@ function ExperimentItem({
           <dd>{CONFIDENCE_LABELS[experiment.confidence]}</dd>
         </div>
       </dl>
-      <div className={styles.criteriaGrid}>
-        <CriteriaList title="확인할 내용" items={experiment.checklist} />
-        <CriteriaList title="잘된 것으로 보는 기준" items={experiment.successMetrics} />
-        <CriteriaList title="멈출 기준" items={experiment.stopConditions} tone="risk" />
-      </div>
+      <details className={styles.criteriaDetails}>
+        <summary>
+          <span>실천 기준 보기</span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </summary>
+        <div className={styles.criteriaGrid}>
+          <CriteriaList title="확인할 내용" items={experiment.checklist} />
+          <CriteriaList title="잘된 것으로 보는 기준" items={experiment.successMetrics} />
+          <CriteriaList title="멈출 기준" items={experiment.stopConditions} tone="risk" />
+        </div>
+      </details>
     </article>
   );
 }
@@ -436,17 +449,11 @@ function GuardrailItem({
   onEnabledChange: ImprovementCoachPageProps["onGuardrailEnabledChange"];
 }) {
   const enableDisabled = !guardrail.enabled && enableLimitReached;
-  const stageLabel = guardrail.stage === "cross_stage"
-    ? "통합"
-    : STAGE_LABELS[guardrail.stage];
 
   return (
     <article className={styles.actionItem}>
       <div className={styles.actionItemHeader}>
         <div>
-          <span className={`${styles.itemEyebrow} ${severityClassName(guardrail.severity)}`}>
-            {stageLabel} · {SCOPE_LABELS[guardrail.scope]}
-          </span>
           <h4>{guardrail.title}</h4>
         </div>
         <div className={styles.toggleGroup}>
@@ -478,7 +485,7 @@ function GuardrailItem({
           </div>
         )}
       </dl>
-      <details className={styles.criteriaDetails} open>
+      <details className={styles.criteriaDetails}>
         <summary>
           <span>발동 조건</span>
           <ChevronDown size={15} aria-hidden="true" />
@@ -583,14 +590,4 @@ function formatMetric(value: number, unit: "%" | "%p" | "R") {
   return unit === "R"
     ? `${NUMBER_FORMATTER.format(value)}R`
     : `${NUMBER_FORMATTER.format(value)}${unit}`;
-}
-
-function severityClassName(severity: TradingGuardrail["severity"]) {
-  if (severity === "risk") {
-    return styles.severityRisk;
-  }
-  if (severity === "warning") {
-    return styles.severityWarning;
-  }
-  return styles.severityInfo;
 }
