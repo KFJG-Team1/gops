@@ -49,6 +49,22 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
   await page.screenshot({ path: `/tmp/chart-assets-v2-ops-${testInfo.project.name}.png`, fullPage: true });
 });
 
+test("pattern symbol panel filters active patterns and opens the matching chart interval", async ({ page }, testInfo) => {
+  await page.goto("/?symbol=NVDA");
+  const panel = page.locator(".chart-pattern-list-panel");
+  await expect(panel.getByText("AAPL", { exact: true })).toBeVisible();
+  await expect(panel.getByText("상승 삼각형 · 돌파 확인", { exact: true })).toBeVisible();
+  await panel.getByLabel("패턴 종목 검색").fill("MSFT");
+  await expect(panel.getByText("MSFT", { exact: true })).toBeVisible();
+  await expect(panel.getByText("AAPL", { exact: true })).toHaveCount(0);
+  await panel.getByLabel("패턴 종목 검색").fill("");
+  await panel.locator('[data-pattern-symbol="AAPL"][data-pattern-interval="1m"]').click();
+  await expect(page).toHaveURL(/symbol=AAPL/);
+  await expect(page.getByRole("combobox", { name: "Interval" })).toContainText("1m");
+  await expect(panel.locator('[data-pattern-symbol="AAPL"][data-pattern-interval="1m"]')).toHaveClass(/is-active/);
+  await page.screenshot({ path: `/tmp/chart-pattern-list-${testInfo.project.name}.png`, fullPage: true });
+});
+
 async function fulfillApi(route: Route): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
@@ -56,9 +72,9 @@ async function fulfillApi(route: Route): Promise<void> {
   let status = 200;
   if (url.pathname === "/api/auth/me") payload = { authEnabled: false, user: null };
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }] };
-  else if (url.pathname === "/api/charts/candles") payload = candlePayload();
-  else if (url.pathname === "/api/charts/analysis-assets") payload = assetResponse();
-  else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = { items: [], total: 0 };
+  else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
+  else if (url.pathname === "/api/charts/analysis-assets") payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
+  else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse();
   else if (url.pathname === "/api/charts/analysis-assets/build" && request.method() === "POST") {
     postedSymbols = request.postDataJSON().symbols;
     status = 503;
@@ -70,8 +86,20 @@ async function fulfillApi(route: Route): Promise<void> {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
 }
 
-function candlePayload(): Record<string, unknown> {
-  return { symbol: "NVDA", interval: "1D", request: { limit: candles.length }, status: "ready", dataStatus: "ready", source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length, returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true } };
+function candlePayload(symbol: string, interval: string): Record<string, unknown> {
+  return { symbol, interval, request: { limit: candles.length }, status: "ready", dataStatus: "ready", source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length, returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true } };
+}
+
+function patternCoverageResponse(): Record<string, unknown> {
+  return {
+    items: [
+      { symbol: "AAPL", interval: "1m", generatedAt: "2026-07-14T12:30:00.000Z", status: "ready", primaryPattern: { kind: "ascending_triangle", state: "confirmed", score: .94 } },
+      { symbol: "AAPL", interval: "1D", generatedAt: "2026-07-14T12:00:00.000Z", status: "ready", primaryPattern: { kind: "bullish_flag", state: "forming", score: .82 } },
+      { symbol: "MSFT", interval: "1D", generatedAt: "2026-07-14T11:30:00.000Z", status: "ready", primaryPattern: { kind: "falling_wedge", state: "forming", score: .88 } },
+      { symbol: "META", interval: "1D", generatedAt: "2026-07-14T11:00:00.000Z", status: "ready", primaryPattern: { kind: "rising_wedge", state: "inactive", score: .99 } }
+    ],
+    total: 4
+  };
 }
 
 function fixtureCandles() {
@@ -99,9 +127,10 @@ function assetLayout(): Record<string, unknown> {
   const contents = [
     content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart"),
     content("chartCommentary", 2, {}),
-    content("chartAssetOps", 3, {})
+    content("chartAssetOps", 3, {}),
+    content("chartPatternList", 4, {})
   ];
-  return { version: 1, nextInstance: 4, contents: Object.fromEntries(contents.map((item) => [item.id, item])), slots: [slot("chart", 1, 1, 1, 5, 6), slot("chartCommentary", 2, 6, 1, 3, 3), slot("chartAssetOps", 3, 6, 4, 3, 3)] };
+  return { version: 1, nextInstance: 5, contents: Object.fromEntries(contents.map((item) => [item.id, item])), slots: [slot("chart", 1, 1, 1, 5, 6), slot("chartCommentary", 2, 6, 1, 3, 2), slot("chartAssetOps", 3, 6, 3, 3, 2), slot("chartPatternList", 4, 6, 5, 3, 2)] };
 }
 
 function content(kind: string, index: number, props: Record<string, unknown>, chartDocumentId?: string) {
