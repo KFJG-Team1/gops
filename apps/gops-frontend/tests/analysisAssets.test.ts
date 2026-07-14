@@ -12,6 +12,7 @@ import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPol
 import type { DrawingEntity } from "../src/chart/types";
 
 const now = "2026-07-10T20:00:00.000Z";
+const previous = "2026-07-09T20:00:00.000Z";
 const target = { panelId: "panel-analysis", chartDocumentId: "doc-analysis" };
 const upper: DrawingEntity = {
   id: "chart-asset:AAPL:1D:triangle-upper", type: "trendLine",
@@ -30,9 +31,10 @@ const asset: ChartAnalysisAsset = {
     primaryTriangle: { kind: "ascending_triangle", state: "forming", score: .92, touches: 5, geometryHash: "triangle" },
     historicalTriangle: null
   },
-  indicators: { sma60: 170, sma120: 165, cross: { status: "crossed", direction: "golden", timestamp: now, barsAgo: 1 } }
+  indicators: { sma60: 170, sma120: 165, cross: { status: "crossed", direction: "golden", timestamp: now, previousTimestamp: previous, barsAgo: 1, fraction: .25, price: 172.125 } }
 };
 const candles = [
+  { timestamp: previous, open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true },
   { timestamp: now, open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true },
   { timestamp: "2026-07-11T20:00:00.000Z", open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true }
 ];
@@ -92,17 +94,26 @@ assert.equal(resolved?.geometry.drawings.length, 3);
 const goldenCrossDrawing = resolved?.geometry.drawings.find((drawing) => drawing.id.includes(":sma-cross:"));
 assert.equal(goldenCrossDrawing?.type, "flagMarker");
 assert.equal(goldenCrossDrawing?.label, "골든크로스 · SMA60/120");
-assert.equal(goldenCrossDrawing?.anchors[0]?.timestamp, now);
-assert.equal(goldenCrossDrawing?.anchors[0]?.price, candles[0].close);
+assert.equal(goldenCrossDrawing?.anchors[0]?.timestamp, undefined);
+assert.equal(goldenCrossDrawing?.anchors[0]?.logicalIndex, .25);
+assert.equal(goldenCrossDrawing?.anchors[0]?.price, 172.125);
 assert.equal(resolveAnalysisAssetForCandles(resolved, candles)?.geometry.drawings.filter((drawing) => drawing.id.includes(":sma-cross:")).length, 1);
+const legacyCrossAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: { ...asset.geometry, drawings: [] },
+  indicators: { ...asset.indicators, cross: { status: "crossed", direction: "golden", timestamp: now, barsAgo: 1 } }
+};
+assert.equal(resolveAnalysisAssetForCandles(legacyCrossAsset, candles)?.geometry.drawings.length, 0);
 const deadCrossAsset: ChartAnalysisAsset = {
   ...asset,
   geometry: { ...asset.geometry, drawings: [] },
-  indicators: { ...asset.indicators, cross: { status: "crossed", direction: "dead", timestamp: now, barsAgo: 1 } }
+  indicators: { ...asset.indicators, cross: { status: "crossed", direction: "dead", timestamp: now, barsAgo: 1, fraction: .75, price: 168.75 } }
 };
 const deadCrossDrawing = resolveAnalysisAssetForCandles(deadCrossAsset, candles)?.geometry.drawings[0];
 assert.equal(deadCrossDrawing?.label, "데드크로스 · SMA60/120");
 assert.equal(deadCrossDrawing?.style.color, "#ef4444");
+assert.equal(deadCrossDrawing?.anchors[0]?.logicalIndex, .75);
+assert.equal(deadCrossDrawing?.anchors[0]?.price, 168.75);
 assert.equal(resolveAnalysisAssetForCandles(asset, [])?.geometry.drawings.length, 0);
 assert.equal(analysisAssetPresentationDiagnostics(asset, candles, [upper.id, lower.id]).state, "ready");
 const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...candles[0], timestamp: "2026-07-14T20:00:00.000Z" }]);
@@ -164,7 +175,7 @@ assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
 assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, [6, 4]);
 assert.deepEqual(
   projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
-  candles.map((candle) => candle.timestamp)
+  [candles[0]?.timestamp, candles[candles.length - 1]?.timestamp]
 );
 assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.type === "trendLine")?.style.lineDash, undefined);
 assert.equal(analysisAssetPresentationDiagnostics(levelAsset, candles, [support.id]).state, "ready");
@@ -179,16 +190,19 @@ assert.deepEqual(defaultChartAssetBuildIntervals("1M"), ["1m", "1D"]);
 
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
 const presentationSource = readFileSync(fileURLToPath(new URL("../src/chart/analysisAssetPresentation.ts", import.meta.url)), "utf-8");
+const semanticCatalogSource = readFileSync(fileURLToPath(new URL("../../../shared/chart-contract/chart-semantics.ko.json", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.match(opsSource, /\["1m", "1D"\]/);
 assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /SMA120/);
-assert.match(presentationSource, /상승 페넌트/);
+assert.match(presentationSource, /chartSemanticCatalog\.patterns/);
+assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
-assert.match(commentarySource, /하락 채널 상단 돌파/);
+assert.match(commentarySource, /chartSemanticLabel/);
+assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);
 const patternPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPatternListPanel.tsx", import.meta.url)), "utf-8");
 assert.match(patternPanelSource, /fetchChartAssetCoverage/);
 assert.match(patternPanelSource, /subscribeAnalysisAssetsInvalidation/);

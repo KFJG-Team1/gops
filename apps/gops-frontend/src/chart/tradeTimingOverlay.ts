@@ -1,23 +1,10 @@
 import type { ChartAnalysisAsset, GeometryPatternKind, GeometryTradePlan } from "./analysisAssetsApi";
 import type { CandleDto, DrawingEntity } from "./types";
+import { chartSemanticCatalog, chartSemanticLabel } from "./chartSemanticCatalog";
 
 type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
-const patternNames: Record<GeometryPatternKind, string> = {
-  ascending_triangle: "상승 삼각형",
-  descending_triangle: "하락 삼각형",
-  symmetrical_triangle: "대칭 삼각형",
-  bullish_flag: "상승 깃발형",
-  bearish_flag: "하락 깃발형",
-  bullish_pennant: "상승 페넌트",
-  bearish_pennant: "하락 페넌트",
-  bullish_rectangle: "상승 직사각형",
-  bearish_rectangle: "하락 직사각형",
-  rising_wedge: "상승 쐐기",
-  falling_wedge: "하락 쐐기",
-  descending_channel_breakout: "하락 채널 상단 돌파",
-  ascending_channel_breakdown: "상승 채널 하단 이탈"
-};
+const patternNames = chartSemanticCatalog.patterns as Record<GeometryPatternKind, string>;
 
 export function isTradeTimingDrawing(drawing: Pick<DrawingEntity, "id">): boolean {
   return drawing.id.includes(":trade-timing:");
@@ -88,9 +75,7 @@ export function buildTradeTimingDrawings(
 }
 
 function actionLabel(action: "buy_candidate" | "sell_candidate" | "short_candidate"): string {
-  if (action === "buy_candidate") return "매수 후보";
-  if (action === "short_candidate") return "공매도 후보";
-  return "매도·청산 후보";
+  return chartSemanticLabel("actions", action);
 }
 
 function isActionableAction(

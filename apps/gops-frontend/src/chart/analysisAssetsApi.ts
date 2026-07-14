@@ -29,6 +29,14 @@ export type GeometryPattern = {
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+  confirmation?: {
+    breakoutAt: string;
+    confirmedAt: string;
+    mode: "both" | "next_close_hold" | "relative_volume";
+    boundaryPrice: number;
+    penetrationAtr: number;
+    relativeVolume: number | null;
+  } | null;
 };
 
 export type GeometryTriangle = GeometryPattern & {
@@ -100,7 +108,10 @@ export type ChartAnalysisAsset = {
       status: "crossed" | "none" | "insufficient_previous_bar" | "data_insufficient";
       direction?: "golden" | "dead" | null;
       timestamp?: string | null;
+      previousTimestamp?: string | null;
       barsAgo?: number | null;
+      fraction?: number | null;
+      price?: number | null;
     };
   };
 };

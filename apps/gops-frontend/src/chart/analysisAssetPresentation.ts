@@ -1,6 +1,7 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset } from "./analysisAssetsApi";
 import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
 import { buildTradeTimingDrawings, isTradeTimingDrawing } from "./tradeTimingOverlay";
+import { chartSemanticCatalog } from "./chartSemanticCatalog";
 
 export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
 export type AnalysisAssetPresentationDiagnostics = {
@@ -16,21 +17,7 @@ export type AnalysisAssetPresentationDiagnostics = {
 export type DetectedPatternSummary = { kind: string; state: "forming" | "confirmed"; score: number; drawingCount: number };
 type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
-const patternKindLabels: Record<string, string> = {
-  ascending_triangle: "상승 삼각형",
-  descending_triangle: "하락 삼각형",
-  symmetrical_triangle: "대칭 삼각형",
-  bullish_flag: "상승 깃발형",
-  bearish_flag: "하락 깃발형",
-  bullish_pennant: "상승 페넌트",
-  bearish_pennant: "하락 페넌트",
-  bullish_rectangle: "상승 직사각형",
-  bearish_rectangle: "하락 직사각형",
-  rising_wedge: "상승 쐐기",
-  falling_wedge: "하락 쐐기",
-  descending_channel_breakout: "하락 채널 상단 돌파",
-  ascending_channel_breakdown: "상승 채널 하단 이탈"
-};
+const patternKindLabels: Record<string, string> = chartSemanticCatalog.patterns;
 
 const marketDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
@@ -190,7 +177,14 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     candle.isClosed !== false && candleKeyForTimestamp(candle.timestamp, asset.interval) === crossKey
   ));
   if (candleIndex < 0) return [];
-  const candle = candles[candleIndex];
+  const calculated = movingAverageCrossPoint(candles, candleIndex, cross.direction);
+  const fraction = typeof cross.fraction === "number" && Number.isFinite(cross.fraction)
+    ? Math.max(0, Math.min(1, cross.fraction))
+    : calculated?.fraction;
+  const price = typeof cross.price === "number" && Number.isFinite(cross.price)
+    ? cross.price
+    : calculated?.price;
+  if (price === undefined || fraction === undefined || candleIndex < 1) return [];
   const golden = cross.direction === "golden";
   const color = golden ? "#22c55e" : "#ef4444";
   const identity = crossKey.replace(/[^0-9A-Za-z]/g, "");
@@ -198,9 +192,8 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
     id: `chart-asset:${asset.symbol}:${asset.interval}:sma-cross:${cross.direction}:${identity}`,
     type: "flagMarker",
     anchors: [{
-      timestamp: candle.timestamp,
-      logicalIndex: candleIndex,
-      price: movingAverageCrossPrice(candles, candleIndex),
+      logicalIndex: candleIndex - 1 + fraction,
+      price,
       paneId: "price",
       symbol: asset.symbol,
       interval: asset.interval
@@ -219,12 +212,27 @@ function buildMovingAverageCrossDrawings(asset: ChartAnalysisAsset, candles: Can
   }];
 }
 
-function movingAverageCrossPrice(candles: CandleDto[], candleIndex: number): number {
-  const sma60 = averageClose(candles, candleIndex, 60);
-  const sma120 = averageClose(candles, candleIndex, 120);
-  return sma60 === null || sma120 === null
-    ? candles[candleIndex].close
-    : (sma60 + sma120) / 2;
+function movingAverageCrossPoint(
+  candles: CandleDto[],
+  candleIndex: number,
+  expectedDirection: "golden" | "dead"
+): { fraction: number; price: number } | null {
+  const previousShort = averageClose(candles, candleIndex - 1, 60);
+  const currentShort = averageClose(candles, candleIndex, 60);
+  const previousLong = averageClose(candles, candleIndex - 1, 120);
+  const currentLong = averageClose(candles, candleIndex, 120);
+  if (previousShort === null || currentShort === null || previousLong === null || currentLong === null) return null;
+  const previousDifference = previousShort - previousLong;
+  const currentDifference = currentShort - currentLong;
+  const direction = previousDifference <= 0 && currentDifference > 0
+    ? "golden"
+    : previousDifference >= 0 && currentDifference < 0 ? "dead" : null;
+  const differenceChange = currentDifference - previousDifference;
+  if (direction !== expectedDirection || differenceChange === 0) return null;
+  const fraction = Math.max(0, Math.min(1, -previousDifference / differenceChange));
+  const shortCross = previousShort + fraction * (currentShort - previousShort);
+  const longCross = previousLong + fraction * (currentLong - previousLong);
+  return { fraction, price: (shortCross + longCross) / 2 };
 }
 
 function averageClose(candles: CandleDto[], endIndex: number, period: number): number | null {

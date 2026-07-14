@@ -151,6 +151,7 @@ import {
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
+import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import type { ThemeColorToken } from "../theme/colors";
 
 function iconButtonClass(active = false): string {
@@ -255,6 +256,7 @@ type ChartPanelProps = {
 
 export type ChartPanelHandle = {
   getSnapshot: () => ChartState;
+  getAnalysisAssetIdentity: () => Record<string, unknown> | null;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
   clearSemanticSelection: () => void;
@@ -378,6 +380,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartRuntimeAction,
   onChartAddToggle,
   onSemanticSelectionChange,
+  onAgentAsk,
   emphasizeSelection = false,
   onChartHoverChange,
   onHeaderChange,
@@ -1744,12 +1747,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useImperativeHandle(ref, () => ({
     getSnapshot: () => chartRef.current,
+    getAnalysisAssetIdentity: () => activeAnalysisAsset ? {
+      assetVersion: activeAnalysisAsset.assetVersion,
+      algorithmVersion: activeAnalysisAsset.algorithmVersion,
+      inputDigest: activeAnalysisAsset.inputDigest,
+      asOf: activeAnalysisAsset.asOf,
+      symbol: activeAnalysisAsset.symbol,
+      interval: activeAnalysisAsset.interval
+    } : null,
     setInterval,
     setChartType,
     // Lets the agent reference chip clear this chart's candle highlight when the
     // reference is removed from the input strip.
     clearSemanticSelection: () => setSelectedSemanticNode(null)
-  }), [setChartType, setInterval]);
+  }), [activeAnalysisAsset, setChartType, setInterval]);
 
   const queueWheelViewport = useCallback((viewport: ChartViewport) => {
     wheelViewportRef.current = viewport;
@@ -2399,6 +2410,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           stale={activeAnalysisAssetStale}
           onToggle={toggleAnalysisLayer}
         />
+        {selectedSemanticNode && onAgentAsk && (
+          <ContextualAgentAskButton
+            onAsk={onAgentAsk}
+            style={{ position: "absolute", right: 12, bottom: 12, zIndex: 12 }}
+          />
+        )}
         {labelEditor && labelEditorLayout && (
           <input
             key={labelEditor.drawingId}

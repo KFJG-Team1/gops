@@ -114,6 +114,11 @@ function isLikelyAlertCommand(value: string): boolean {
   const text = value.toLowerCase();
   return ["알림", "알람", "alert"].some((keyword) => text.includes(keyword));
 }
+
+function hasExplicitLayoutSyntax(value: string): boolean {
+  const text = value.toLowerCase();
+  return ["패널", "레이아웃", "화면", "배치", "크게", "작게", "열어", "닫아", "layout", "panel"].some((keyword) => text.includes(keyword));
+}
 const agentDebugStorageKey = "gops:agent-debug";
 const appUiScale = 0.8;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
@@ -203,9 +208,10 @@ function buildInteractiveAgentContext(
   selection: SemanticSelectionSnapshot | null,
   explicitReferences: AgentReference[]
 ): InteractiveAgentContext {
-  const activeEntry = preferredContentId && handles.has(preferredContentId)
+  const selectionEntry = selection ? chartPanelHandleForSelection(handles, selection) : null;
+  const activeEntry = selectionEntry ?? (preferredContentId && handles.has(preferredContentId)
     ? [preferredContentId, handles.get(preferredContentId)!] as const
-    : firstChartPanelHandle(handles);
+    : firstChartPanelHandle(handles));
   const chart = activeEntry?.[1].getSnapshot();
   const reference = chart && selection ? chartReferenceForSelection(chart, selection, activeEntry?.[0]) : null;
   const references = [
@@ -213,7 +219,7 @@ function buildInteractiveAgentContext(
     ...explicitReferences
   ];
   return {
-    chartContext: chart ? buildChartAnalysisContext(chart, selection) : {},
+    chartContext: chart ? buildChartAnalysisContext(chart, selection, activeEntry?.[1].getAnalysisAssetIdentity(), activeEntry?.[0]) : {},
     references,
     uiContext: {
       activePanelId: activeEntry?.[0] ?? preferredContentId ?? null,
@@ -224,11 +230,31 @@ function buildInteractiveAgentContext(
   };
 }
 
+function chartPanelHandleForSelection(
+  handles: Map<string, ChartPanelHandle>,
+  selection: SemanticSelectionSnapshot
+): readonly [string, ChartPanelHandle] | null {
+  for (const entry of handles.entries()) {
+    const chart = entry[1].getSnapshot();
+    if (chart.symbol.toUpperCase() === selection.symbol.toUpperCase() && chart.interval === selection.interval) {
+      return entry;
+    }
+  }
+  return null;
+}
+
 function firstChartPanelHandle(handles: Map<string, ChartPanelHandle>): readonly [string, ChartPanelHandle] | null {
   for (const entry of handles.entries()) {
     return entry;
   }
   return null;
+}
+
+function chartContextSymbol(context: Record<string, unknown>): string | null {
+  const document = context.chartDocument;
+  if (!document || typeof document !== "object") return null;
+  const symbol = (document as { symbol?: unknown }).symbol;
+  return typeof symbol === "string" && symbol.trim() ? symbol.trim().toUpperCase() : null;
 }
 
 function chartVisibleRange(chart: ChartState): { from: string; to: string } | null {
@@ -311,6 +337,7 @@ export function App() {
   const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
+  const lastInteractedChartContentIdRef = useRef<string | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
   const agentNoticeSequenceRef = useRef(0);
   const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
@@ -709,6 +736,13 @@ export function App() {
     }
   }, []);
 
+  const handleSemanticSelectionChange = useCallback((selection: SemanticSelectionSnapshot | null) => {
+    setSemanticSelection(selection);
+    if (!selection) return;
+    const entry = chartPanelHandleForSelection(chartPanelHandlesRef.current, selection);
+    if (entry) lastInteractedChartContentIdRef.current = entry[0];
+  }, []);
+
   const applyPresetLoadProposal = useCallback((proposal: AgentLayoutProposal): LayoutLoadPresetResult => {
     return applyLayoutLoadProposalToPresets(proposal, presetControls.presets, presetControls.applyPreset);
   }, [presetControls]);
@@ -860,8 +894,15 @@ export function App() {
 
   const handleAgentAsk = useCallback(() => {
     setLayoutEditMode(false);
+    if (semanticSelection) {
+      setAgentInput((current) => current.trim() ? current : "이 봉 분석해줘");
+    } else if (agentReferences.some((reference) => reference.type.startsWith("news."))) {
+      setAgentInput((current) => current.trim() ? current : "이 뉴스 설명해줘");
+    } else if (agentReferences.some((reference) => reference.type === "chart.pattern" || reference.type === "chart.drawing")) {
+      setAgentInput((current) => current.trim() ? current : "이 패턴 설명해줘");
+    }
     setAgentComposerRequest((current) => current + 1);
-  }, []);
+  }, [agentReferences, semanticSelection]);
 
   // The chart owns its candle-highlight state internally, so clearing the App-level
   // selection is not enough — tell every chart panel to drop its selected candle too.
@@ -895,6 +936,7 @@ export function App() {
       return "notice";
     }
     const alertDraft = alertCommandDraftRef.current;
+    if (alertDraft || isLikelyAlertCommand(prompt)) {
     setAgentBusy(true);
     try {
       const chartDocument = mainView.mode === "chart"
@@ -936,6 +978,7 @@ export function App() {
       // the alert fast-path is temporarily unavailable.
     } finally {
       setAgentBusy(false);
+    }
     }
     const activeTradeProposal = activeTradeConditionProposalRef.current;
     if (activeTradeProposal) {
@@ -1165,11 +1208,12 @@ export function App() {
     }
 
     const runChartPrompt = async () => {
+      if (hasExplicitLayoutSyntax(prompt)) {
       setAgentBusy(true);
       try {
         const interactiveContext = buildInteractiveAgentContext(
           chartPanelHandlesRef.current,
-          null,
+          lastInteractedChartContentIdRef.current,
           semanticSelection,
           agentReferences
         );
@@ -1180,7 +1224,7 @@ export function App() {
           slot.id === interactivePanelId || slot.contentId === interactivePanelId
         ))?.id;
         const analysisPayload = {
-          symbol: mainView.symbol,
+          symbol: chartContextSymbol(interactiveContext.chartContext) ?? mainView.symbol,
           intent: prompt,
           routerMode: "hybrid",
           messages: [{ role: "user", content: prompt }],
@@ -1233,12 +1277,13 @@ export function App() {
       } finally {
         setAgentBusy(false);
       }
+      }
 
       setAgentBusy(true);
       try {
         const interactiveContext = buildInteractiveAgentContext(
           chartPanelHandlesRef.current,
-          null,
+          lastInteractedChartContentIdRef.current,
           semanticSelection,
           agentReferences
         );
@@ -1251,7 +1296,7 @@ export function App() {
         };
         activeAgentRunRef.current = activeRun;
         const analysisRequestPayload = {
-          symbol: mainView.symbol,
+          symbol: chartContextSymbol(interactiveContext.chartContext) ?? mainView.symbol,
           intent: prompt,
           routerMode: "hybrid",
           messages: [{ role: "user", content: prompt }],
@@ -1364,7 +1409,7 @@ export function App() {
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
-            setSemanticSelection={setSemanticSelection}
+            setSemanticSelection={handleSemanticSelectionChange}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onAgentAsk={handleAgentAsk}
             onChartRuntimeAction={dispatchChartRuntimeAction}

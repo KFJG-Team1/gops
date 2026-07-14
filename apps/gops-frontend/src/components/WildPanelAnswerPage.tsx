@@ -23,7 +23,7 @@ export function WildPanelAnswerPage({ page }: { page: WildPanelPage }) {
     <article className="wild-panel-answer-page is-commentary">
       <header className="wild-panel-answer-header">
         <div>
-          <span className="wild-panel-page-kicker">차트 해설{page.symbol ? ` · ${page.symbol}` : ""}</span>
+          <span className="wild-panel-page-kicker">{page.kicker}{page.symbol ? ` · ${page.symbol}` : ""}</span>
           <h2>{page.title}</h2>
         </div>
         <PageConfidence confidence={page.confidence} />

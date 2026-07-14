@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { CandleDto, ChartInterval } from "../chart/types";
+import { GlossaryText } from "../glossary/GlossaryText";
+import { chartSemanticLabel } from "../chart/chartSemanticCatalog";
 
 export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: {
   symbol: string;
@@ -36,6 +38,7 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
 
   const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds);
   const pattern = detectedPatternSummary(asset);
+  const tradePlan = asset.geometry.tradePlan;
   const focusDrawing = (ids: string[]) => window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
     detail: { symbol: normalizedSymbol, interval, drawingIds: ids }
   }));
@@ -46,22 +49,32 @@ export function ChartCommentaryPanel({ symbol, interval, candles, drawingIds }: 
         <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
         <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
       </header>
-      <h3 className="chart-commentary-headline">Geometry 분석</h3>
-      <p className="chart-commentary-text">지지 {asset.geometry.supports.length}개 · 저항 {asset.geometry.resistances.length}개 · 적용 {diagnostics.appliedDrawingCount}개</p>
+      <h3 className="chart-commentary-headline">차트 해설</h3>
+      <p className="chart-commentary-text"><GlossaryText text={"지지 " + asset.geometry.supports.length + "개 · 저항 " + asset.geometry.resistances.length + "개 · 적용 " + diagnostics.appliedDrawingCount + "개"} /></p>
       {pattern && (
         <button type="button" onClick={() => focusDrawing(asset.geometry.drawings.filter((drawing) => drawing.id.includes(asset.geometry.primaryPattern?.geometryHash ?? asset.geometry.primaryTriangle?.geometryHash ?? "")).map((drawing) => drawing.id))}>
-          {patternName(pattern.kind)} · {pattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {pattern.score.toFixed(2)}
+          <GlossaryText text={patternName(pattern.kind) + " · " + (pattern.state === "confirmed" ? "돌파 확인" : "형성 중") + " · 점수 " + pattern.score.toFixed(2)} />
         </button>
+      )}
+      {tradePlan && (
+        <section className="chart-commentary-focus" aria-label="Trade scenario">
+          <h3>확인·무효화 조건</h3>
+          <ol>
+            <li><GlossaryText text={tradeActionName(tradePlan.action, tradePlan.direction) + " · " + tradePlan.reasons.map(tradeReasonName).join(", ")} /></li>
+            {tradePlan.signalAt && <li>신호 확인 {formatAnalysisAssetAsOf(tradePlan.signalAt)}</li>}
+            {tradePlan.entryPrice !== null && <li>기준 {tradePlan.entryPrice.toFixed(2)} · 무효화 {formatValue(tradePlan.stopPrice)} · 목표 {formatValue(tradePlan.targetPrice)}</li>}
+          </ol>
+        </section>
       )}
       <section className="chart-commentary-levels" aria-label="핵심 레벨">
         <h3>핵심 레벨</h3>
         <ul>
           {[...asset.geometry.supports, ...asset.geometry.resistances].map((level) => (
-            <li key={level.id}>{level.role === "support" ? "지지" : "저항"} {level.price.toFixed(2)} · 접촉 {level.touches}회</li>
+            <li key={level.id}><GlossaryText text={(level.role === "support" ? "지지" : "저항") + " " + level.price.toFixed(2) + " · 접촉 " + level.touches + "회"} /></li>
           ))}
         </ul>
       </section>
-      <p className="chart-commentary-text">SMA60 {formatValue(asset.indicators.sma60)} · SMA120 {formatValue(asset.indicators.sma120)} · {crossName(asset.indicators.cross.direction)}</p>
+      <p className="chart-commentary-text"><GlossaryText text={"SMA60 " + formatValue(asset.indicators.sma60) + " · SMA120 " + formatValue(asset.indicators.sma120) + " · " + crossName(asset.indicators.cross.direction)} /></p>
       {diagnostics.stale && <p className="chart-commentary-invalidation">새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다.</p>}
     </article>
   );
@@ -76,21 +89,7 @@ function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisA
 }
 
 function patternName(kind: string): string {
-  return {
-    ascending_triangle: "상승 삼각형",
-    descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형",
-    bullish_flag: "상승 깃발형",
-    bearish_flag: "하락 깃발형",
-    bullish_pennant: "상승 페넌트",
-    bearish_pennant: "하락 페넌트",
-    bullish_rectangle: "상승 직사각형",
-    bearish_rectangle: "하락 직사각형",
-    rising_wedge: "상승 쐐기",
-    falling_wedge: "하락 쐐기",
-    descending_channel_breakout: "하락 채널 상단 돌파",
-    ascending_channel_breakdown: "상승 채널 하단 이탈"
-  }[kind] ?? kind;
+  return chartSemanticLabel("patterns", kind);
 }
 
 function formatValue(value: number | null): string {
@@ -99,4 +98,13 @@ function formatValue(value: number | null): string {
 
 function crossName(direction: "golden" | "dead" | null | undefined): string {
   return direction === "golden" ? "골든크로스" : direction === "dead" ? "데드크로스" : "교차 없음";
+}
+
+function tradeActionName(action: string, direction: string | null): string {
+  if (action === "sell_candidate" && direction === "exit_long") return "매도·청산 후보";
+  return chartSemanticLabel("actions", action);
+}
+
+function tradeReasonName(reason: string): string {
+  return chartSemanticLabel("reasons", reason);
 }

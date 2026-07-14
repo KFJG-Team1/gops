@@ -201,10 +201,11 @@ export type AgentAnalysisReport = {
   layoutProposal?: AgentLayoutProposal | null;
   tradeConditionProposals: TradeConditionProposal[];
   timing?: AgentAnalysisTiming | null;
+  chartExplanation?: Record<string, unknown> | null;
   coachReport?: CoachReport | null;
 };
 
-export type AgentAnalysisMode = "auto" | "multi_agent";
+export type AgentAnalysisMode = "auto" | "deep" | "multi_agent";
 
 export type AgentAnalysisRequestInput = {
   messages: AgentAnalysisMessage[];
@@ -293,6 +294,7 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
       .map(normalizeTradeConditionProposal)
       .filter((item): item is TradeConditionProposal => Boolean(item)),
     timing: normalizeTiming(source.timing),
+    chartExplanation: readObject(source.chartExplanation),
     coachReport: normalizeCoachReport(source.coachReport)
   };
 }

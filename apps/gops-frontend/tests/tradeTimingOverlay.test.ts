@@ -55,7 +55,7 @@ const asset = {
 const drawings = buildTradeTimingDrawings(asset, candles);
 assert.equal(drawings.length, 2);
 assert.equal(drawings[0].type, "flagMarker");
-assert.equal(drawings[0].label, "매수 후보 · 상승 깃발형");
+assert.equal(drawings[0].label, "매수 검토 후보 · 상승 깃발형");
 assert.equal(drawings[0].anchors[0].timestamp, candles[2].timestamp);
 assert.equal(drawings[1].type, "riskRewardBox");
 assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.price), [98.5, 97, 108]);
