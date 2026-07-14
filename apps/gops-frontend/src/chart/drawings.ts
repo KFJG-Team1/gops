@@ -217,6 +217,11 @@ export function normalizeParallelLineCount(value: unknown): number {
   return normalizeEngineParallelLineCount(value, 3);
 }
 
+export function nearestDrawingLineWidthStage(value: number | undefined): 1 | 2 | 3 {
+  const width = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return width < 1.5 ? 1 : width < 2.5 ? 2 : 3;
+}
+
 export function drawingSupportsTextEditing(drawing: Pick<DrawingEntity, "type" | "label">): boolean {
   return drawing.type === "horizontalLine" ||
     drawing.type === "horizontalParallelLines" ||

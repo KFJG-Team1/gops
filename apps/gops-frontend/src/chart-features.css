@@ -896,6 +896,32 @@
   pointer-events: none;
 }
 
+.chart-drawing-width-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin: 3px 0;
+  background: var(--coinbase-hairline);
+}
+
+.chart-drawing-width-options {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.chart-drawing-width-options button {
+  width: 100%;
+  min-width: 0;
+}
+
+.chart-drawing-width-sample {
+  display: block;
+  width: 18px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 .chart-placement-toggle {
   display: inline-flex;
   flex: 0 0 auto;
