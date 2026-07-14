@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .config import CzardasConfig
 from .features import FeatureTape
@@ -24,6 +25,18 @@ class LineProbe:
     @property
     def lower_side(self) -> bool:
         return self.role in {"support", "lower"}
+
+
+@dataclass(frozen=True, slots=True)
+class IntegrityEvaluation:
+    integrity: float
+    body_integrity: float
+    close_integrity: float
+    fact_count: int
+    effective_fact_count: float
+    coverage: float
+    body_penetration_count: int
+    close_penetration_count: int
 
 
 def formation_episodes(
@@ -62,6 +75,7 @@ def formation_episodes(
             role=probe.role,
             member_basis_ids=tuple(item.basis_id for item in members),
             contribution_basis_id=contribution.basis_id,
+            contribution_index=contribution.bar_index,
             observed_from_index=min(item.bar_index for item in members),
             observed_to_index=max(item.bar_index for item in members),
             confirmed_index=max(item.confirmed_index for item in members),
@@ -86,7 +100,7 @@ def integrity_for_domain(
     start_index: int,
     end_index: int,
     config: CzardasConfig,
-) -> tuple[float, float, float, int, int]:
+) -> IntegrityEvaluation:
     fact_indexes: list[int] = []
     raw_facts: list[float] = []
     body_facts: list[float] = []
@@ -109,38 +123,99 @@ def integrity_for_domain(
         y = intercept + slope * (index - origin)
         if lower_side:
             lower_edge = y - zone
-            wick_depth = max(0.0, lower_edge - candle.low) / atr
-            body_depth = max(0.0, lower_edge - body_lows[index]) / atr
-            close_depth = max(0.0, lower_edge - candle.close) / atr
-            distance = max(0.0, candle.low - (y + zone), lower_edge - candle.high) / atr
+            wick_delta = lower_edge - candle.low
+            body_delta = lower_edge - body_lows[index]
+            close_delta = lower_edge - candle.close
+            distance_delta = candle.low - (y + zone)
+            opposite_distance = lower_edge - candle.high
         else:
             upper_edge = y + zone
-            wick_depth = max(0.0, candle.high - upper_edge) / atr
-            body_depth = max(0.0, body_highs[index] - upper_edge) / atr
-            close_depth = max(0.0, candle.close - upper_edge) / atr
-            distance = max(0.0, candle.low - upper_edge, (y - zone) - candle.high) / atr
+            wick_delta = candle.high - upper_edge
+            body_delta = body_highs[index] - upper_edge
+            close_delta = candle.close - upper_edge
+            distance_delta = candle.low - upper_edge
+            opposite_distance = (y - zone) - candle.high
+        wick_depth = wick_delta / atr if wick_delta > 0.0 else 0.0
+        body_depth = body_delta / atr if body_delta > 0.0 else 0.0
+        close_depth = close_delta / atr if close_delta > 0.0 else 0.0
+        if opposite_distance > distance_delta:
+            distance_delta = opposite_distance
+        distance = distance_delta / atr if distance_delta > 0.0 else 0.0
         if distance > 1.0 and wick_depth == 0 and body_depth == 0 and close_depth == 0:
             continue
         if body_depth > 0:
             body_penetrations += 1
         if close_depth > 0:
             close_penetrations += 1
-        raw = max(wick_depth, 4.0 * body_depth, 8.0 * close_depth)
-        body_raw = 4.0 * body_depth
-        close_raw = 8.0 * close_depth
+        # Isolated wick exploration is deliberately bounded.  Body and close
+        # acceptance remain much more expensive, but cannot make a single fact
+        # numerically dominate the complete snapshot.
+        wick_loss = wick_depth / (1.0 + wick_depth)
+        if wick_loss > 0.25:
+            wick_loss = 0.25
+        scaled_body = 4.0 * body_depth
+        body_loss = scaled_body / (1.0 + scaled_body)
+        scaled_close = 8.0 * close_depth
+        close_loss = scaled_close / (1.0 + scaled_close)
         fact_indexes.append(index)
-        raw_facts.append(raw / (1.0 + raw))
-        body_facts.append(body_raw / (1.0 + body_raw))
-        close_facts.append(close_raw / (1.0 + close_raw))
+        raw_loss = wick_loss if wick_loss > body_loss else body_loss
+        raw_facts.append(raw_loss if raw_loss > close_loss else close_loss)
+        body_facts.append(body_loss)
+        close_facts.append(close_loss)
     if not fact_indexes:
-        return 0.0, 0.0, 0.0, 0, 0
-    raw_weights = [2.0 ** (-(end_index - index) / config.recency_half_life_bars) for index in fact_indexes]
-    total = math.fsum(raw_weights)
-    influences = [min(weight / total, config.max_single_bar_integrity_influence) for weight in raw_weights]
+        return IntegrityEvaluation(0.0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0)
+    recency_weights = _recency_weights(len(candles), end_index, config.recency_half_life_bars)
+    raw_weights = [recency_weights[index] for index in fact_indexes]
+    cap = max(config.max_single_bar_integrity_influence, 1.0 / len(raw_weights))
+    influences = _capped_simplex_weights(raw_weights, cap)
     integrity = clamp(1.0 - math.fsum(weight * raw_facts[index] for index, weight in enumerate(influences)))
     body_integrity = clamp(1.0 - math.fsum(weight * body_facts[index] for index, weight in enumerate(influences)))
     close_integrity = clamp(1.0 - math.fsum(weight * close_facts[index] for index, weight in enumerate(influences)))
-    return integrity, body_integrity, close_integrity, body_penetrations, close_penetrations
+    effective = 1.0 / math.fsum(weight * weight for weight in influences)
+    return IntegrityEvaluation(
+        integrity, body_integrity, close_integrity, len(fact_indexes), effective,
+        min(1.0, effective / 7.0), body_penetrations, close_penetrations,
+    )
+
+
+@lru_cache(maxsize=16)
+def _recency_weights(length: int, end_index: int, half_life: float) -> tuple[float, ...]:
+    return tuple(2.0 ** (-(end_index - index) / half_life) for index in range(length))
+
+
+def _capped_simplex_weights(raw_weights: list[float], cap: float) -> list[float]:
+    """Project positive recency mass onto a capped simplex deterministically."""
+    if not raw_weights:
+        return []
+    remaining = set(range(len(raw_weights)))
+    result = [0.0] * len(raw_weights)
+    fixed_mass = 0.0
+    while remaining:
+        raw_total = math.fsum(raw_weights[index] for index in remaining)
+        available = max(0.0, 1.0 - fixed_mass)
+        scale = available / raw_total if raw_total > 0 else available / len(remaining)
+        over = sorted(
+            index for index in remaining
+            if (raw_weights[index] * scale if raw_total > 0 else scale) > cap + 1e-15
+        )
+        if not over:
+            for index in remaining:
+                result[index] = raw_weights[index] * scale if raw_total > 0 else scale
+            break
+        for index in over:
+            result[index] = cap
+            fixed_mass += cap
+            remaining.remove(index)
+    # Remove floating residue without breaking the cap.  At least one element
+    # can accept it because cap >= 1/n.
+    residue = 1.0 - math.fsum(result)
+    if abs(residue) > 1e-15:
+        for index in sorted(range(len(result)), key=lambda item: (result[item], item)):
+            candidate = result[index] + residue
+            if -1e-15 <= candidate <= cap + 1e-15:
+                result[index] = candidate
+                break
+    return result
 
 
 def has_open_break(

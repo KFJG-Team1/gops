@@ -251,7 +251,7 @@ catalog를 image/runtime filesystem에 포함해야 한다.
 | --- | --- | --- |
 | `agent-orchestrator` | yes | HTTP compatibility endpoint and direct report lookup. |
 | `agent-analysis-worker` | yes | hot analysis request를 소비하고 report를 저장한다. |
-| `czardas-asset-builder` | no | `cza-` PostgreSQL queue의 명시적 symbol×interval 한 쌍을 exact-240으로 감사·보충하고 Czardas H-Line·Trend·파생 Triangle·Field pack을 저장한다. 자동 schedule 없이 수동 패널 요청만 처리하며 interactive orchestrator와 독립이다. |
+| `czardas-asset-builder` | no | `cza-` PostgreSQL queue의 명시적 symbol×interval 한 쌍을 exact-240으로 감사·보충하고 Czardas v3 Inference/Sight pack을 저장한다. 자동 schedule 없이 수동 패널 요청만 처리하며 interactive orchestrator와 독립이다. |
 | `agent-delivery-gateway` | yes for async/SSE | result event를 Redis report update로 mirror한다. |
 | `agent-intent-classifier` | no | ambiguous query를 위한 optional cheap classifier. |
 | `deep-analysis-worker` | no | opt-in deep analysis request를 처리한다. |
@@ -356,6 +356,13 @@ reads and repairs canonical candles in ClickHouse but does not store asset
 payloads there. Retained PostgreSQL `chart_assets.geometry_*` rows and the
 ClickHouse `chart_analysis_assets` table are dormant data: current runtime must
 not read, write, migrate, recreate, or use them as fallback.
+
+Czardas v3 seals explicit `v2/split/regular/closed` OHLCV at decimal q8, builds
+presentation-free `CzardasInference`, then deterministically projects a bounded
+Sight pack. Neither stage invokes an LLM. The offline walk-forward evaluator is
+a research tool, not an agent or runtime replay: each historical point gets a
+new exact-240 input and future rows remain outside the kernel. It cannot store
+research packs or tune production thresholds.
 
 Financial role contract:
 

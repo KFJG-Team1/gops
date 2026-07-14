@@ -78,8 +78,11 @@ def test_same_input_with_different_content_is_determinism_conflict():
         {
             "input_digest": pack["inputDigest"], "content_digest": "sha256:different",
             "last_candle_key": pack["lastCandleKey"], "as_of": None,
-            "algorithm_version": pack["algorithmVersion"], "config_version": pack["configVersion"],
-            "time_contract_version": pack["timeContractVersion"], "calendar_version": pack["calendarVersion"],
+                "algorithm_version": pack["algorithmVersion"], "config_version": pack["configVersion"],
+                "input_contract_version": pack["inputContractVersion"],
+                "inference_config_digest": pack["inferenceConfigDigest"],
+                "sight_projection_id": pack["sightProjectionId"],
+                "time_contract_version": pack["timeContractVersion"], "calendar_version": pack["calendarVersion"],
         },
     ])
     storage = PostgresCzardasAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)

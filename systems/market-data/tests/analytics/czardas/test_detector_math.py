@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from types import SimpleNamespace
 
 from alfaka.analytics.czardas.config import DEFAULT_CONFIG
 from alfaka.analytics.czardas.features import build_features
 from alfaka.analytics.czardas.hline import _local_ridges, _piecewise_segments
-from alfaka.analytics.czardas.interactions import LineProbe, evaluate_interactions
+from alfaka.analytics.czardas.interactions import LineProbe, _capped_simplex_weights, evaluate_interactions
 from alfaka.analytics.czardas.tape import CandleTape
 from alfaka.analytics.czardas.trend import _stratified_anchors, _weighted_medoid
 
@@ -39,6 +41,23 @@ def test_hline_equal_response_plateau_is_one_ridge_even_when_membership_changes(
     assert _local_ridges(segments) == [
         (101.0, 103.0, 2.0, ("basis-a", "basis-b", "basis-c")),
     ]
+
+
+def test_disconnected_hline_landscapes_do_not_compete_across_empty_price_gap():
+    segments = [
+        (100.0, 101.0, 2.0, ("a", "b")),
+        (110.0, 111.0, 3.0, ("c", "d")),
+    ]
+    assert _local_ridges(segments) == [
+        (110.0, 111.0, 3.0, ("c", "d")),
+        (100.0, 101.0, 2.0, ("a", "b")),
+    ]
+
+
+def test_integrity_recency_mass_is_a_capped_simplex():
+    weights = _capped_simplex_weights([1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0], 0.15)
+    assert sum(weights) == pytest.approx(1.0)
+    assert max(weights) <= 0.15 + 1e-12
 
 
 def test_trend_anchor_selection_caps_each_exact_80_bar_third_at_four():

@@ -921,6 +921,52 @@ class FakeQueryService:
 
 
 class MarketDataQueryServiceTest(unittest.TestCase):
+    def test_candle_snapshot_attaches_server_owned_czardas_identity_only_for_explicit_canonical_240(self):
+        class CanonicalProvider(FakeProvider):
+            def candle_snapshot(self, symbol, interval, limit, **_kwargs):
+                start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+                candles = []
+                for index in range(240):
+                    timestamp = start + timedelta(days=index)
+                    candles.append({
+                        "timestamp": timestamp.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5,
+                        "volume": 1000 + index, "isClosed": True,
+                        "canonicalVersion": "v2", "priceAdjustment": "split",
+                        "marketSession": "regular",
+                    })
+                return {"symbol": symbol, "interval": interval, "candles": candles}
+
+        service = MarketDataQueryService(
+            CanonicalProvider(), backfill_service=FakeBackfillService(), fill_service=FakeFillService()
+        )
+        payload = service.candle_snapshot("aapl", "1D", "", 241)
+
+        self.assertEqual(payload["canonicalSnapshot"]["completedCount"], 240)
+        self.assertEqual(payload["canonicalSnapshot"]["inputContractVersion"], "canonical-ohlcv-q8-v1")
+        self.assertEqual(payload["canonicalSnapshot"]["asOf"], "2025-08-28T04:00:00.000Z")
+        self.assertTrue(payload["canonicalSnapshot"]["inputDigest"].startswith("sha256:"))
+
+    def test_candle_snapshot_does_not_invent_canonical_identity_from_implicit_defaults(self):
+        class LegacyProvider(FakeProvider):
+            def candle_snapshot(self, symbol, interval, limit, **_kwargs):
+                start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+                return {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "candles": [{
+                        "timestamp": (start + timedelta(days=index)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                        "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1000,
+                        "isClosed": True,
+                    } for index in range(240)],
+                }
+
+        service = MarketDataQueryService(
+            LegacyProvider(), backfill_service=FakeBackfillService(), fill_service=FakeFillService()
+        )
+        payload = service.candle_snapshot("aapl", "1D", "", 241)
+        self.assertNotIn("canonicalSnapshot", payload)
+
     def test_candle_snapshot_adds_requested_indicators_and_normalizes_symbol(self):
         provider = FakeProvider()
         service = MarketDataQueryService(provider, backfill_service=FakeBackfillService(), fill_service=FakeFillService())

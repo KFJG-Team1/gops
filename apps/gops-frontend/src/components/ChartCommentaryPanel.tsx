@@ -37,15 +37,25 @@ export function ChartCommentaryPanel({ symbol, interval }: {
   if (!isCzardasInterval(interval)) return <Empty text="이 interval은 Czardas 분석을 지원하지 않습니다." />;
   const entry = assets?.assets[interval] ?? null;
   const pack = entry?.pack ?? null;
-  if (!pack) {
+  if (!pack || entry?.freshness !== "current") {
     const text = entry?.freshness === "incompatible"
       ? "현재 엔진과 호환되지 않는 Czardas 자산입니다."
+      : entry?.freshness === "stale"
+        ? "현재 차트 입력과 Czardas 추론 identity가 달라 해설을 숨겼습니다."
       : "Czardas 자산이 준비되지 않았습니다.";
     return <Empty text={text} />;
   }
 
-  const focusDrawings = (drawingIds: string[]) => window.dispatchEvent(new CustomEvent("gops:czardas-focus", {
-    detail: { symbol: normalizedSymbol, interval, drawingIds }
+  const focusDrawings = (drawingIds: string[], candidateIds: string[]) => window.dispatchEvent(new CustomEvent("gops:czardas-focus", {
+    detail: {
+      symbol: normalizedSymbol,
+      interval,
+      drawingIds,
+      candidateIds,
+      inferenceId: pack.inferenceId,
+      asOf: pack.asOf,
+      inputDigest: pack.inputDigest,
+    }
   }));
   const pattern = pack.presentationPattern;
 
@@ -53,7 +63,7 @@ export function ChartCommentaryPanel({ symbol, interval }: {
     <article className="chart-commentary-panel">
       <header className="chart-commentary-meta">
         <span className="chart-commentary-badge">{interval}</span>
-        <span className={entry?.freshness === "stale" ? "is-stale" : ""}>분석 기준 {formatAsOf(pack.asOf)}</span>
+        <span>분석 기준 {formatAsOf(pack.asOf)}</span>
         <span className="chart-commentary-badge is-muted">{entry?.freshness ?? "missing"}</span>
       </header>
       <h3 className="chart-commentary-headline">Czardas가 본 차트</h3>
@@ -64,7 +74,7 @@ export function ChartCommentaryPanel({ symbol, interval }: {
         <button type="button" onClick={() => focusDrawings([
           pattern.upperDrawingId ?? `czardas:${pattern.upperCandidateId}:line`,
           pattern.lowerDrawingId ?? `czardas:${pattern.lowerCandidateId}:line`
-        ])}>
+        ], [pattern.upperCandidateId, pattern.lowerCandidateId])}>
           {patternName(pattern.kind)} · 두 Trend의 수렴 관계
         </button>
       )}
@@ -74,21 +84,24 @@ export function ChartCommentaryPanel({ symbol, interval }: {
           <ul>
             {pack.boundaries.map((boundary) => (
               <li key={boundary.candidateId}>
-                <button type="button" onClick={() => focusDrawings([`czardas:${boundary.candidateId}:line`])}>
-                  {boundaryName(boundary)} {boundary.line.priceAtAsOf.toFixed(2)} · 강도 {boundary.rank.rankScore.toFixed(2)}
+                <button type="button" onClick={() => focusDrawings([`czardas:${boundary.candidateId}:line`], [boundary.candidateId])}>
+                  {boundaryName(boundary)} {boundary.line.priceAtAsOf.toFixed(2)} · 구조 우선순위 {boundary.rank.rankScore.toFixed(2)}
                 </button>
+                <span>Czardas 원본 · 구조 우선순위는 확률이나 매매 신호가 아닙니다.</span>
                 <span>{boundary.explanation.claim}</span>
                 <span>
                   형성 {boundary.formation.fitCount}회 · 독립 반응 {boundary.responses.completedCount}회
                   {boundary.isRelevantNow ? " · 현재 구간과 가까움" : ""}
                 </span>
-                {boundary.explanation.because.length > 0 && <span>{boundary.explanation.because.join(" · ")}</span>}
+                <span>근거: {boundary.explanation.because.length ? boundary.explanation.because.join(" · ") : "독립 근거 없음"}</span>
+                <span>반대 근거: {boundary.explanation.against.length ? boundary.explanation.against.join(" · ") : "관측된 반대 근거 없음"}</span>
+                <span>무효화: {boundary.explanation.invalidationCondition}</span>
+                <span>데이터 조건: {boundary.explanation.dataQualifier}</span>
               </li>
             ))}
           </ul>
         ) : <p className="chart-commentary-text">선택 조건을 통과한 경계가 없습니다. Field는 유지되어 Czardas의 관찰 근거를 보여줍니다.</p>}
       </section>
-      {entry?.freshness === "stale" && <p className="chart-commentary-invalidation">최신 완료봉과 저장된 추론 입력이 달라 이전 제안을 낮은 불투명도로 표시합니다.</p>}
     </article>
   );
 }

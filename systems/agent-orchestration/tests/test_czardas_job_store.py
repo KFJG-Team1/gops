@@ -15,6 +15,24 @@ from gops_agents.czardas_assets.job_store import (  # noqa: E402
     REAP_EXHAUSTED_CLAIMS_SQL,
     PostgresCzardasJobStore,
 )
+from gops_agents.czardas_assets.envelope import CzardasBuildEnvelope  # noqa: E402
+
+
+def test_submit_once_locks_idempotency_and_pair_before_empty_active_read():
+    connection = Connection(fetches=[])
+    store = PostgresCzardasJobStore("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+    store.submit_once(CzardasBuildEnvelope.create(
+        job_id="cza-12345678", requested_by="owner", symbol="AAPL", interval="1D"
+    ))
+
+    assert "pg_advisory_xact_lock" in connection.executions[0][0]
+    assert connection.executions[0][1] == ("idempotency:cza-12345678",)
+    assert "pg_advisory_xact_lock" in connection.executions[1][0]
+    assert connection.executions[1][1] == ("pair:AAPL:1D",)
+    active_index = next(index for index, (query, _) in enumerate(connection.executions) if "status IN ('queued', 'running')" in query)
+    assert active_index > 1
+    assert connection.commits == 1
 
 
 def test_claim_serializes_same_pair_before_running_transition():

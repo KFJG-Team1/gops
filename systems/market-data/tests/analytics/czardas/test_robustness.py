@@ -7,7 +7,7 @@ import pytest
 from alfaka.analytics.czardas import Ready, analyze_czardas
 from alfaka.analytics.czardas.config import DEFAULT_CONFIG
 from alfaka.analytics.czardas.features import build_features
-from alfaka.analytics.czardas.interactions import LineProbe, has_open_break
+from alfaka.analytics.czardas.interactions import LineProbe, has_open_break, integrity_for_domain
 from alfaka.analytics.czardas.tape import CandleTape
 from alfaka.analytics.czardas.trend import _stratified_anchors
 
@@ -81,6 +81,33 @@ def test_one_isolated_long_wick_does_not_erase_the_large_scale_structure():
         assert outlier_lines[key]["line"]["priceAtAsOf"] == pytest.approx(
             base_lines[key]["line"]["priceAtAsOf"], abs=1.0
         )
+
+
+def test_integrity_caps_isolated_wick_but_penalizes_sustained_body_and_close_acceptance():
+    clean = flat_rows()
+    for item in clean:
+        item.update(open=100.0, high=100.1, low=99.9, close=100.0)
+    wick = [dict(item) for item in clean]
+    wick[120]["low"] = 95.0
+    accepted = [dict(item) for item in clean]
+    for index in range(232, 240):
+        accepted[index].update(open=98.5, high=100.0, low=97.5, close=98.0)
+
+    probe = LineProbe("support", 0.0, 100.0, 0, 0.2)
+    wick_tape = CandleTape.from_rows(wick, DEFAULT_CONFIG)
+    accepted_tape = CandleTape.from_rows(accepted, DEFAULT_CONFIG)
+    wick_integrity = integrity_for_domain(
+        wick_tape, build_features(wick_tape, DEFAULT_CONFIG), probe, 0, 239, DEFAULT_CONFIG
+    )
+    accepted_integrity = integrity_for_domain(
+        accepted_tape, build_features(accepted_tape, DEFAULT_CONFIG), probe, 0, 239, DEFAULT_CONFIG
+    )
+
+    assert wick_integrity.integrity >= 0.96
+    assert wick_integrity.body_penetration_count == 0
+    assert accepted_integrity.body_penetration_count >= 8
+    assert accepted_integrity.close_penetration_count >= 8
+    assert accepted_integrity.integrity < wick_integrity.integrity - 0.04
 
 
 def test_zero_range_and_zero_volume_remain_available_as_an_honest_no_draw_snapshot():

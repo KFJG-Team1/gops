@@ -23,7 +23,11 @@ def test_freshness_is_read_only_identity_comparison_and_unknown_is_stale():
 
     assert current["1D"]["freshness"] == "current"
     assert stale["1D"]["freshness"] == "stale"
-    assert current["1m"] == {"freshness": "missing", "generatedAt": None, "pack": None}
+    assert current["1m"] == {
+        "freshness": "missing", "freshnessReason": "asset_missing", "generatedAt": None, "pack": None,
+    }
+    assert current["1D"]["freshnessReason"] == "identity_match"
+    assert stale["1D"]["freshnessReason"] == "identity_unavailable"
 
 
 def test_incompatible_content_is_not_returned_to_the_browser():
@@ -38,6 +42,7 @@ def test_incompatible_content_is_not_returned_to_the_browser():
 
     assert result["1D"] == {
         "freshness": "incompatible",
+        "freshnessReason": "contract_incompatible",
         "generatedAt": "2026-07-11T00:00:00.000Z",
         "pack": None,
     }

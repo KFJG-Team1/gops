@@ -12,10 +12,10 @@ from typing import Any, Iterable, Mapping
 
 from alfaka.analytics.czardas import DEFAULT_CONFIG
 from alfaka.analytics.czardas.data import SUPPORTED_INTERVALS
-from alfaka.analytics.czardas.numeric import canonical_digest
+from alfaka.analytics.czardas.numeric import identity_digest
 
 
-FIELD_SCHEMA_VERSION = 2
+FIELD_SCHEMA_VERSION = 3
 TARGET_BARS = 240
 MAX_DRAWINGS = 7
 MAX_HLINES = 4
@@ -77,8 +77,13 @@ HISTORICAL_KEYS = frozenset({
 TOP_LEVEL_KEYS = frozenset({
     "algorithmVersion",
     "configVersion",
+    "inputContractVersion",
     "timeContractVersion",
     "calendarVersion",
+    "inferenceConfigDigest",
+    "projectionConfigDigest",
+    "sightProjectionVersion",
+    "sightProjectionId",
     "inferenceId",
     "symbol",
     "interval",
@@ -99,7 +104,7 @@ _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class CzardasPackValidationError(ValueError):
-    """The deterministic Czardas pack does not satisfy the v2 wire contract."""
+    """The deterministic Czardas pack does not satisfy the v3 wire contract."""
 
 
 def validate_czardas_pack(
@@ -108,7 +113,7 @@ def validate_czardas_pack(
     expected_symbol: str | None = None,
     expected_interval: str | None = None,
 ) -> dict[str, Any]:
-    """Validate the authoritative persisted/delivered Czardas v2 wire shape.
+    """Validate the authoritative persisted/delivered Czardas v3 wire shape.
 
     This validator is deliberately dependency-free so the worker and API can
     apply exactly the same checks. It returns the original mapping after a
@@ -122,8 +127,12 @@ def validate_czardas_pack(
 
     _require(root.get("algorithmVersion") == DEFAULT_CONFIG.algorithm_version, "algorithmVersion is incompatible")
     _require(root.get("configVersion") == DEFAULT_CONFIG.config_version, "configVersion is incompatible")
+    _require(root.get("inputContractVersion") == DEFAULT_CONFIG.input_contract_version, "inputContractVersion is incompatible")
     _require(root.get("timeContractVersion") == DEFAULT_CONFIG.time_contract_version, "timeContractVersion is incompatible")
     _require(root.get("calendarVersion") == DEFAULT_CONFIG.calendar_version, "calendarVersion is incompatible")
+    _require(root.get("inferenceConfigDigest") == DEFAULT_CONFIG.inference_digest, "inferenceConfigDigest is incompatible")
+    _require(root.get("projectionConfigDigest") == DEFAULT_CONFIG.projection_digest, "projectionConfigDigest is incompatible")
+    _require(root.get("sightProjectionVersion") == DEFAULT_CONFIG.sight_projection_version, "sightProjectionVersion is incompatible")
 
     symbol = _nonempty(root.get("symbol"), "symbol").upper()
     interval = _nonempty(root.get("interval"), "interval")
@@ -139,17 +148,23 @@ def validate_czardas_pack(
     last_candle_key = _nonempty(root.get("lastCandleKey"), "lastCandleKey")
     input_digest = _digest(root.get("inputDigest"), "inputDigest")
     inference_id = _digest(root.get("inferenceId"), "inferenceId")
-    expected_inference_id = canonical_digest([
+    expected_inference_id = identity_digest([
         root["algorithmVersion"],
         root["configVersion"],
+        root["inputContractVersion"],
         root["timeContractVersion"],
         root["calendarVersion"],
+        root["inferenceConfigDigest"],
         symbol,
         interval,
         as_of_text,
         input_digest,
     ])
     _require(inference_id == expected_inference_id, "inferenceId does not match the snapshot identity")
+    expected_sight_id = identity_digest([
+        inference_id, root["sightProjectionVersion"], root["projectionConfigDigest"]
+    ])
+    _require(root.get("sightProjectionId") == expected_sight_id, "sightProjectionId is inconsistent")
     _require(root.get("status") == "ready", "pack status must be ready")
 
     coverage = _record(root.get("coverage"), "coverage")
@@ -244,9 +259,15 @@ def _validate_boundaries(values: list[Any], inference_id: str, as_of: datetime) 
         _require(line.get("priceSpace") == "linear", f"{path}.line.priceSpace must be linear")
 
         rank = _record(item.get("rank"), f"{path}.rank")
-        for key in ("rankScore", "seedQuality", "integrity", "persistence", "responseMass", "responseBonus", "profileBonus"):
+        for key in (
+            "rankScore", "seedQuality", "integrity", "persistence", "responseMass", "responseBonus",
+            "profileBonus", "integrityEffectiveFactCount", "integrityCoverage",
+        ):
             _finite(rank.get(key), f"{path}.rank.{key}")
         _require(_integer(rank.get("responseCount"), f"{path}.rank.responseCount") >= 0, f"{path}.rank.responseCount must be non-negative")
+        for key in ("integrityFactCount", "bodyPenetrationCount", "closePenetrationCount"):
+            _require(_integer(rank.get(key), f"{path}.rank.{key}") >= 0, f"{path}.rank.{key} must be non-negative")
+        _require(0 <= rank["integrityCoverage"] <= 1, f"{path}.rank.integrityCoverage must be bounded")
         explanation = _record(item.get("explanation"), f"{path}.explanation")
         _nonempty(explanation.get("claim"), f"{path}.explanation.claim")
         _string_array(explanation.get("because"), f"{path}.explanation.because", allow_empty=True)
@@ -335,6 +356,11 @@ def _validate_field(
     last_candle_key: str,
 ) -> None:
     _require(_integer(field.get("schemaVersion"), "czardasField.schemaVersion") == FIELD_SCHEMA_VERSION, "Field schema is incompatible")
+    _require(field.get("inputContractVersion") == pack.get("inputContractVersion"), "Field input contract is inconsistent")
+    _require(field.get("inferenceConfigDigest") == pack.get("inferenceConfigDigest"), "Field inference config is inconsistent")
+    _require(field.get("projectionConfigDigest") == pack.get("projectionConfigDigest"), "Field projection config is inconsistent")
+    _require(field.get("sightProjectionVersion") == pack.get("sightProjectionVersion"), "Field Sight version is inconsistent")
+    _require(field.get("sightProjectionId") == pack.get("sightProjectionId"), "Field Sight identity is inconsistent")
     _require(_integer(field.get("sourceBars"), "czardasField.sourceBars") == TARGET_BARS, "Field sourceBars must be 240")
     _require(field.get("evaluationAsOf") == pack.get("asOf"), "Field evaluationAsOf is inconsistent")
     _require(field.get("sourceInferenceId") == inference_id, "Field sourceInferenceId is inconsistent")
@@ -548,7 +574,13 @@ def _validate_basis_facts(facts: dict[str, Any]) -> dict[str, Any]:
         if arrays["participations"][index] is not None:
             _finite(arrays["participations"][index], f"basisFacts.participations[{index}]")
         _require(_integer(arrays["effectiveScales"][index], f"basisFacts.effectiveScales[{index}]") > 0, "basis effective scale must be positive")
-    return {"count": count, "ids": arrays["basisIds"], "role_codes": arrays["roleCodes"]}
+    return {
+        "count": count,
+        "ids": arrays["basisIds"],
+        "role_codes": arrays["roleCodes"],
+        "observed_indexes": arrays["observedIndexes"],
+        "endpoint_prices": arrays["endpointPrices"],
+    }
 
 
 def _validate_basis_glyphs(values: list[Any], window_from: datetime, window_to: datetime) -> None:
@@ -571,7 +603,7 @@ def _validate_derivation_episodes(
 ) -> dict[str, tuple[Any, ...]]:
     columns = (
         "candidateIndexes", "candidateEpisodeOrdinals", "contributionBasisIndexes", "memberBasisIndexes",
-        "observedFromIndexes", "observedToIndexes", "confirmedIndexes", "contributionPrices",
+        "observedFromIndexes", "observedToIndexes", "confirmedIndexes", "contributionIndexes", "contributionPrices",
         "corridorLows", "corridorHighs", "initialFormationMasks",
     )
     arrays = {key: _array(episodes.get(key), f"derivationEpisodes.{key}") for key in columns}
@@ -605,6 +637,17 @@ def _validate_derivation_episodes(
         observed_to = _integer(arrays["observedToIndexes"][index], "derivation observedTo")
         confirmed = _integer(arrays["confirmedIndexes"][index], "derivation confirmed")
         _require(0 <= observed_from <= observed_to <= confirmed < TARGET_BARS, "derivation episode chronology is invalid")
+        contribution_index = _integer(arrays["contributionIndexes"][index], "derivation contribution index")
+        _require(observed_from <= contribution_index <= observed_to, "derivation contribution is outside its episode")
+        _require(
+            contribution_index == basis["observed_indexes"][contribution],
+            "derivation contribution index does not match its Basis",
+        )
+        _require(
+            _finite(arrays["contributionPrices"][index], "derivation contribution price")
+            == basis["endpoint_prices"][contribution],
+            "derivation contribution price does not match its Basis",
+        )
         initial = _integer(arrays["initialFormationMasks"][index], "derivation initial mask")
         _require(initial in {0, 1}, "derivation initial mask is invalid")
         if initial:
@@ -680,7 +723,7 @@ def _validate_validation_glyphs(
             _require(observed <= confirmed, "validation glyph chronology is invalid")
         if kind == "formation":
             assert isinstance(episode_index, int)
-            _require(item.get("observedAt") == timestamps[episode_facts["observedFromIndexes"][episode_index]], "formation validation observedAt is inconsistent")
+            _require(item.get("observedAt") == timestamps[episode_facts["contributionIndexes"][episode_index]], "formation validation observedAt is inconsistent")
             _require(item.get("confirmedAt") == timestamps[episode_facts["confirmedIndexes"][episode_index]], "formation validation confirmedAt is inconsistent")
             _require(_finite(item.get("endpointPrice"), "formation validation endpointPrice") == episode_facts["contributionPrices"][episode_index], "formation validation endpoint is inconsistent")
             _require(_finite(item.get("corridorLow"), "formation validation corridorLow") == episode_facts["corridorLows"][episode_index], "formation validation corridorLow is inconsistent")

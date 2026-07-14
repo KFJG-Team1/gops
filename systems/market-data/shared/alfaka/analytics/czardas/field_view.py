@@ -19,6 +19,7 @@ def build_field_view(
     relation: dict | None,
     meanings: CandleMeaningTape,
     inference_id: str,
+    sight_projection_id: str,
     config: CzardasConfig,
 ) -> dict:
     selected_modes = {
@@ -46,8 +47,9 @@ def build_field_view(
         for episode in candidate.fit_episodes
         if episode.episode_id in candidate.initial_episode_ids
     }
-    basis_sorted = sorted(all_basis, key=lambda item: (ROLE_ORDER[item.role], -item.role_mass, -item.bar_index, item.basis_id))
-    basis_sorted = _required_first(basis_sorted, priority_glyph_basis, key=lambda item: item.basis_id)[:max(16, len(priority_glyph_basis))]
+    # Selected Basis live canonically in compact basisFacts and are painted via
+    # validationGlyphs.  The legacy duplicate object glyphs add no information.
+    basis_sorted: list[RoleBasis] = []
     basis_facts = sorted(
         (basis_by_id[basis_id] for basis_id in required_basis if basis_id in basis_by_id),
         key=lambda item: item.basis_id,
@@ -67,7 +69,11 @@ def build_field_view(
         )
         if item["activeBasisCount"] >= 2
     ]
-    rendered_hline_response_segments = eligible_hline_response_segments[:96]
+    rendered_hline_response_segments = []
+    for role in ("support", "resistance"):
+        rendered_hline_response_segments.extend(
+            [item for item in eligible_hline_response_segments if item["role"] == role][:8]
+        )
     selected_refs = [{
         "candidateId": item.candidate_id,
         "sourceInferenceId": inference_id,
@@ -84,6 +90,7 @@ def build_field_view(
         "observedFromIndexes": [],
         "observedToIndexes": [],
         "confirmedIndexes": [],
+        "contributionIndexes": [],
         "contributionPrices": [],
         "corridorLows": [],
         "corridorHighs": [],
@@ -101,6 +108,7 @@ def build_field_view(
             derivation_episodes["observedFromIndexes"].append(episode.observed_from_index)
             derivation_episodes["observedToIndexes"].append(episode.observed_to_index)
             derivation_episodes["confirmedIndexes"].append(episode.confirmed_index)
+            derivation_episodes["contributionIndexes"].append(episode.contribution_index)
             derivation_episodes["contributionPrices"].append(episode.contribution_price)
             derivation_episodes["corridorLows"].append(episode.corridor_low)
             derivation_episodes["corridorHighs"].append(episode.corridor_high)
@@ -115,7 +123,7 @@ def build_field_view(
                 "candidateKind": candidate.kind,
                 "role": candidate.role,
                 "kind": "formation" if initial else "fit",
-                "observedAt": tape.candles[episode.observed_from_index].timestamp,
+                "observedAt": tape.candles[episode.contribution_index].timestamp,
                 "confirmedAt": tape.candles[episode.confirmed_index].timestamp,
                 "endpointPrice": episode.contribution_price,
                 "corridorLow": episode.corridor_low,
@@ -132,14 +140,10 @@ def build_field_view(
                 "kind": "interaction",
                 "observedAt": tape.candles[event.contact_index].timestamp,
                 "confirmedAt": None if event.terminal_index is None else tape.candles[event.terminal_index].timestamp,
-                "clusterId": None,
                 "endpointPrice": (
                     candidate.intercept_at_origin
                     + candidate.slope_per_bar * (event.contact_index - candidate.index_origin)
                 ),
-                "bodyEdgePrice": None,
-                "corridorLow": None,
-                "corridorHigh": None,
                 "interactionId": event.interaction_id,
                 "initialFormation": False,
                 "residualAtr": None,
@@ -149,7 +153,12 @@ def build_field_view(
                 "outcome": event.outcome,
             })
     field = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
+        "inputContractVersion": config.input_contract_version,
+        "inferenceConfigDigest": config.inference_digest,
+        "projectionConfigDigest": config.projection_digest,
+        "sightProjectionVersion": config.sight_projection_version,
+        "sightProjectionId": sight_projection_id,
         "sourceBars": 240,
         "evaluationAsOf": tape.as_of,
         "sourceInferenceId": inference_id,
@@ -179,34 +188,30 @@ def build_field_view(
             "profileBinsOmitted": False,
             "omittedHlineModeCount": max(0, len(hline.modes) - len(h_modes)),
             "omittedTrendModeCount": max(0, len(trend.modes) - len(t_modes)),
-            "omittedHypothesisCount": sum(max(0, len(item.representative_hypotheses) - 3) for item in trend.modes),
+            "omittedHypothesisCount": sum(max(0, len(item.representative_hypotheses) - 1) for item in trend.modes),
             "omittedValidationCount": sum(
                 max(0, len(item.fit_episode_ids) - len(item.initial_episode_ids))
                 for item in selected
             ),
         },
     }
-    _fit_budget(
-        field, set(), selected_modes,
+    field_bytes = _fit_budget(
+        field, priority_glyph_basis, selected_modes,
         config.target_field_bytes, config.max_field_bytes,
     )
-    return field
+    return field, field_bytes
 
 
 def _fit_budget(field, required_basis, selected_modes, target_budget, hard_budget):
     projection = field["projection"]
     current_size = len(canonical_json(field).encode("utf-8"))
     if current_size <= target_budget:
-        projection["truncated"] = any(
-            value for key, value in projection.items() if key != "truncated" and isinstance(value, int)
-        )
-        return
+        return current_size
     remaining = current_size - target_budget + 512
     if field["hlineProfileBins"]:
         remaining -= len(canonical_json(field["hlineProfileBins"]).encode("utf-8"))
         field["hlineProfileBins"] = []
         projection["profileBinsOmitted"] = True
-        projection["truncated"] = True
     # Representative facts are lower priority than the Basis and modes they explain.
     omitted_hypotheses = 0
     for item in field["trendModes"]:
@@ -230,9 +235,13 @@ def _fit_budget(field, required_basis, selected_modes, target_budget, hard_budge
             lambda item: (item["fieldModeId"], item["derivationDigest"]) in selected_modes,
             remaining, projection, omitted_key,
         )
-    projection["truncated"] = True
-    if len(canonical_json(field).encode("utf-8")) > hard_budget:
+    # Policy caps above are ordinary Sight projection. `truncated` is reserved
+    # for an actual byte-budget cut performed in this function.
+    final_size = len(canonical_json(field).encode("utf-8"))
+    projection["truncated"] = final_size < current_size
+    if final_size > hard_budget:
         raise ValueError("payload_limit_exceeded")
+    return final_size
 
 
 def _trim_optional_for_saving(field, key, mandatory, remaining, projection, omitted_key):
@@ -262,11 +271,10 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fac
     roles = sorted({item.role for item in ordered}, key=lambda role: ROLE_ORDER[role])
     for role in roles:
         role_modes = [item for item in ordered if item.role == role]
-        cap = 4 if role in {"support", "resistance"} else 3
         selected_role_modes = [item for item in role_modes if (item.field_mode_id, item.derivation_digest) in selected_modes]
         values = list(selected_role_modes)
         optional_role_modes = [item for item in role_modes if item not in values]
-        values.extend(optional_role_modes[:max(0, cap - len(values))])
+        values.extend(optional_role_modes[:1])
         chosen.extend(values)
     chosen_by_id = {(item.field_mode_id, item.derivation_digest): item for item in chosen}
     ordered = sorted(chosen_by_id.values(), key=lambda item: (ROLE_ORDER[item.role], STATE_ORDER[item.mode_state], -item.support_mass, item.dispersion_start_atr + item.dispersion_end_atr, item.field_mode_id))
@@ -297,7 +305,7 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fac
             "representativeContributions": [{
                 "basisId": basis_id,
                 "roleMassAtAsOf": basis_by_id[basis_id].role_mass,
-            } for basis_id in contribution_ids[:(3 if selected else 2)] if basis_id in basis_by_id],
+            } for basis_id in contribution_ids[:(3 if selected else 1)] if basis_id in basis_by_id],
         }
         if mode.kind == "hline":
             common.update({
@@ -343,7 +351,7 @@ def _mode_dtos(tape, modes, selected_modes, all_basis, required_basis, basis_fac
                         "toPrice": item["yAtWindowEnd"],
                         "seedMass": item["seedMass"],
                     }
-                    for item in mode.representative_hypotheses[:3]
+                    for item in mode.representative_hypotheses[:1]
                 ],
             })
         result.append(common)

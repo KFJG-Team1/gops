@@ -97,8 +97,12 @@ class CzardasAssetBuilder:
                     started,
                     created_entities=len(result.content.get("drawings") or []),
                 )
-        except Exception as exc:
-            item = _item(symbol, interval, "failed", "build", started, error=f"{exc.__class__.__name__}: {exc}")
+        except Exception:
+            item = _item(
+                symbol, interval, "failed", "build", started,
+                reason="unexpected_build_failure",
+                error="Czardas build failed unexpectedly.",
+            )
         self.progress.record_item(envelope.job_id, item)
         return item
 
@@ -112,6 +116,9 @@ def _is_same_current_pack(existing, symbol: str, interval: str, input_digest: st
         and existing.get("lastCandleKey") == last_candle_key
         and existing.get("algorithmVersion") == DEFAULT_CONFIG.algorithm_version
         and existing.get("configVersion") == DEFAULT_CONFIG.config_version
+        and existing.get("inputContractVersion") == DEFAULT_CONFIG.input_contract_version
+        and existing.get("inferenceConfigDigest") == DEFAULT_CONFIG.inference_digest
+        and existing.get("sightProjectionId") == (pack or {}).get("sightProjectionId")
         and existing.get("timeContractVersion") == DEFAULT_CONFIG.time_contract_version
         and existing.get("calendarVersion") == DEFAULT_CONFIG.calendar_version
         and existing.get("fieldSchemaVersion") == FIELD_SCHEMA_VERSION

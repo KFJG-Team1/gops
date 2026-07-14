@@ -3,6 +3,15 @@ import { czardasMeaningFactorKeys, type CzardasFieldDto, type CzardasPatternDto,
 export const czardasIntervals = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"] as const;
 export type CzardasInterval = typeof czardasIntervals[number];
 export type CzardasFreshness = "current" | "stale" | "missing" | "incompatible";
+export type CzardasFreshnessReason = "identity_match" | "input_changed" | "identity_unavailable" | "asset_missing" | "contract_incompatible";
+
+export type CanonicalSnapshotMetadata = {
+  inputContractVersion: "canonical-ohlcv-q8-v1";
+  asOf: string;
+  lastCandleKey: string;
+  completedCount: 240;
+  inputDigest: string;
+};
 
 export type CzardasExplanation = {
   claim: string;
@@ -31,7 +40,18 @@ export type CzardasBoundary = {
     seedQuality: number;
   };
   responses: { completedCount: number; pendingCount: number; lastInteractionAt: string | null; responseMass: number };
-  rank: { rankScore: number; responseCount: number; responseMass: number; responseBonus: number; profileBonus: number };
+  rank: {
+    rankScore: number;
+    responseCount: number;
+    responseMass: number;
+    responseBonus: number;
+    profileBonus: number;
+    integrityFactCount: number;
+    integrityEffectiveFactCount: number;
+    integrityCoverage: number;
+    bodyPenetrationCount: number;
+    closePenetrationCount: number;
+  };
   line: { priceAtAsOf: number; slopePerBar: number; zoneHalfWidth: number };
   explanation: CzardasExplanation;
 };
@@ -39,8 +59,13 @@ export type CzardasBoundary = {
 export type CzardasPackContent = {
   algorithmVersion: string;
   configVersion: string;
+  inputContractVersion: string;
   timeContractVersion: string;
   calendarVersion: string;
+  inferenceConfigDigest: string;
+  projectionConfigDigest: string;
+  sightProjectionVersion: string;
+  sightProjectionId: string;
   symbol: string;
   interval: CzardasInterval;
   asOf: string;
@@ -62,6 +87,7 @@ export type CzardasPackContent = {
 
 export type CzardasAssetEntry = {
   freshness: CzardasFreshness;
+  freshnessReason: CzardasFreshnessReason;
   generatedAt: string | null;
   pack: CzardasPackContent | null;
 };
@@ -74,7 +100,8 @@ export type CzardasAssetsResponse = {
 
 export type CzardasBuildAccepted = {
   jobId: string;
-  status: "queued";
+  status: CzardasBuildStatus["status"];
+  coalesced: boolean;
   status_url: string;
 };
 
@@ -159,6 +186,7 @@ export function czardasCompletedSnapshotIdentity(candles: Array<{
 
 export async function czardasPanelSnapshotMatchesPack(
   pack: CzardasPackContent,
+  snapshot: CanonicalSnapshotMetadata | null | undefined,
   candles: Array<{
     timestamp: string;
     open: number;
@@ -169,50 +197,26 @@ export async function czardasPanelSnapshotMatchesPack(
     isClosed?: boolean;
   }>
 ): Promise<boolean> {
+  if (
+    !snapshot
+    || snapshot.inputContractVersion !== pack.inputContractVersion
+    || snapshot.completedCount !== 240
+    || snapshot.asOf !== pack.asOf
+    || snapshot.lastCandleKey !== pack.lastCandleKey
+    || snapshot.inputDigest !== pack.inputDigest
+  ) return false;
   const completed = candles.filter((candle) => candle.isClosed !== false).slice(-240);
   const meanings = pack.czardasField?.candleMeanings;
   if (completed.length !== 240 || meanings?.timestamps.length !== 240 || meanings.candleKeys.length !== 240) return false;
-  const rows: string[] = [];
   for (let index = 0; index < 240; index += 1) {
     const candle = completed[index];
-    const timestamp = normalizedUtcTimestamp(candle.timestamp);
+    const parsed = Date.parse(candle.timestamp);
+    const timestamp = Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
     if (!timestamp || timestamp !== meanings.timestamps[index]) return false;
     const values = [candle.open, candle.high, candle.low, candle.close, candle.volume];
     if (!values.every(Number.isFinite)) return false;
-    rows.push([
-      "{\"candleKey\":", JSON.stringify(meanings.candleKeys[index]),
-      ",\"close\":", pythonCanonicalFloat(candle.close),
-      ",\"high\":", pythonCanonicalFloat(candle.high),
-      ",\"interval\":", JSON.stringify(pack.interval),
-      ",\"low\":", pythonCanonicalFloat(candle.low),
-      ",\"open\":", pythonCanonicalFloat(candle.open),
-      ",\"symbol\":", JSON.stringify(pack.symbol),
-      ",\"timestamp\":", JSON.stringify(timestamp),
-      ",\"volume\":", pythonCanonicalFloat(candle.volume), "}"
-    ].join(""));
   }
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return false;
-  const digest = await subtle.digest("SHA-256", new TextEncoder().encode(`[${rows.join(",")}]`));
-  const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-  return pack.inputDigest === `sha256:${hex}`;
-}
-
-function normalizedUtcTimestamp(value: string): string | null {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-}
-
-function pythonCanonicalFloat(value: number): string {
-  const rounded = Number(value.toFixed(8));
-  if (!Number.isFinite(rounded)) return "null";
-  if (Object.is(rounded, -0) || rounded === 0) return "0.0";
-  let text = String(rounded);
-  if (!/[.eE]/.test(text)) return `${text}.0`;
-  text = text.replace(/e([+-]?)(\d+)$/i, (_match, sign: string, digits: string) => (
-    `e${sign || "+"}${digits.padStart(2, "0")}`
-  ));
-  return text;
+  return true;
 }
 
 export function isCzardasInterval(value: unknown): value is CzardasInterval {
@@ -283,9 +287,10 @@ export function subscribeCzardasAssetsInvalidation(listener: (symbol?: string) =
 }
 
 export function submitCzardasBuild(request: { symbol: string; interval: CzardasInterval; force?: boolean }): Promise<CzardasBuildAccepted> {
+  const idempotencyKey = `czardas-${Date.now()}-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
   return apiJson("/api/charts/czardas-assets/build", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
       symbol: normalizeSymbol(request.symbol),
       interval: request.interval,
@@ -327,14 +332,22 @@ export function normalizeCzardasAssetsResponse(value: unknown, fallbackSymbol: s
 
 function normalizeEntry(value: unknown, symbol: string, interval: CzardasInterval): CzardasAssetEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { freshness: "missing", generatedAt: null, pack: null };
+    return { freshness: "missing", freshnessReason: "asset_missing", generatedAt: null, pack: null };
   }
   const source = asRecord(value);
   const freshness = isFreshness(source.freshness) ? source.freshness : "incompatible";
+  const freshnessReason = isFreshnessReason(source.freshnessReason)
+    ? source.freshnessReason
+    : freshness === "missing" ? "asset_missing" : "contract_incompatible";
   const generatedAt = asString(source.generatedAt) ?? null;
-  if (freshness === "missing") return { freshness, generatedAt: null, pack: null };
+  if (freshness === "missing") return { freshness, freshnessReason, generatedAt: null, pack: null };
   const pack = normalizePack(source.pack, symbol, interval);
-  return { freshness: pack ? freshness : "incompatible", generatedAt, pack };
+  return {
+    freshness: pack ? freshness : "incompatible",
+    freshnessReason: pack ? freshnessReason : "contract_incompatible",
+    generatedAt,
+    pack,
+  };
 }
 
 function normalizePack(value: unknown, fallbackSymbol: string, interval: CzardasInterval): CzardasPackContent | null {
@@ -343,15 +356,18 @@ function normalizePack(value: unknown, fallbackSymbol: string, interval: Czardas
   const coverage = asRecord(pack.coverage);
   if (
     !symbol || symbol !== fallbackSymbol || pack.interval !== interval || pack.status !== "ready"
-    || pack.algorithmVersion !== "czardas-v2" || pack.configVersion !== "czardas-config-v2"
+    || pack.algorithmVersion !== "czardas-v3" || pack.configVersion !== "czardas-config-v3"
+    || pack.inputContractVersion !== "canonical-ohlcv-q8-v1"
     || pack.timeContractVersion !== "market-time-v1" || pack.calendarVersion !== "nyse-calendar-v1"
+    || !isNonEmptyString(pack.inferenceConfigDigest) || !isNonEmptyString(pack.projectionConfigDigest)
+    || pack.sightProjectionVersion !== "czardas-sight-v2" || !isNonEmptyString(pack.sightProjectionId)
     || coverage.state !== "exact" || coverage.analysisBars !== 240
     || coverage.actualCompleted !== 240 || coverage.targetCompleted !== 240
     || !isNonEmptyString(pack.asOf) || !isNonEmptyString(pack.lastCandleKey) || !isNonEmptyString(pack.inputDigest)
     || !isNonEmptyString(pack.inferenceId)
     || !Array.isArray(pack.boundaries) || pack.boundaries.length > 7 || !pack.boundaries.every(isBoundary)
     || !Array.isArray(pack.drawings) || pack.drawings.length > 7
-    || !isCzardasField(pack.czardasField, pack.asOf, pack.inferenceId)
+    || !isCzardasField(pack.czardasField, pack)
     || jsonUtf8Size(pack.czardasField) > MAX_CZARDAS_FIELD_BYTES
     || jsonUtf8Size(pack) > MAX_CZARDAS_PACK_BYTES
     || pack.lastCandleKey !== pack.czardasField.candleMeanings.candleKeys[239]
@@ -422,12 +438,18 @@ function isPriceAnchor(value: unknown): boolean {
   return isNonEmptyString(anchor.timestamp) && isFiniteNumber(anchor.price);
 }
 
-function isCzardasField(value: unknown, asOf: string, inferenceId: string): value is CzardasFieldDto {
+function isCzardasField(value: unknown, pack: CzardasPackContent): value is CzardasFieldDto {
   const field = asRecord(value);
+  const asOf = pack.asOf;
   if (
-    field.schemaVersion !== 2 || field.sourceBars !== 240
+    field.schemaVersion !== 3 || field.sourceBars !== 240
+    || field.inputContractVersion !== pack.inputContractVersion
+    || field.inferenceConfigDigest !== pack.inferenceConfigDigest
+    || field.projectionConfigDigest !== pack.projectionConfigDigest
+    || field.sightProjectionVersion !== pack.sightProjectionVersion
+    || field.sightProjectionId !== pack.sightProjectionId
     || field.evaluationAsOf !== asOf
-    || field.sourceInferenceId !== inferenceId
+    || field.sourceInferenceId !== pack.inferenceId
     || !isTimestamp(field.windowFromTimestamp) || !isTimestamp(field.windowToTimestamp)
     || Date.parse(field.windowFromTimestamp) > Date.parse(field.windowToTimestamp)
     || field.windowToTimestamp !== asOf
@@ -519,7 +541,7 @@ function isDerivationEpisodes(value: unknown, candidateCount: number, basisCount
   const count = candidateIndexes.length;
   const numericKeys = [
     "candidateIndexes", "candidateEpisodeOrdinals", "contributionBasisIndexes", "observedFromIndexes", "observedToIndexes",
-    "confirmedIndexes", "contributionPrices", "corridorLows", "corridorHighs", "initialFormationMasks"
+    "confirmedIndexes", "contributionIndexes", "contributionPrices", "corridorLows", "corridorHighs", "initialFormationMasks"
   ];
   if (!numericKeys.every((key) => isFiniteNumberArray(episodes[key], count))) return false;
   if (!Array.isArray(episodes.memberBasisIndexes) || episodes.memberBasisIndexes.length !== count) return false;
@@ -528,13 +550,14 @@ function isDerivationEpisodes(value: unknown, candidateCount: number, basisCount
   const valid = candidateIndexes.every((_candidate, index) => {
     const candidateIndex = episodes.candidateIndexes[index];
     const candidateEpisodeOrdinal = episodes.candidateEpisodeOrdinals[index];
-    const contributionIndex = episodes.contributionBasisIndexes[index];
+    const contributionBasisIndex = episodes.contributionBasisIndexes[index];
+    const contributionIndex = episodes.contributionIndexes[index];
     const members = episodes.memberBasisIndexes[index];
     if (!Number.isInteger(candidateIndex) || candidateIndex < 0 || candidateIndex >= candidateCount) return false;
-    if (!Number.isInteger(contributionIndex) || contributionIndex < 0 || contributionIndex >= basisCount) return false;
+    if (!Number.isInteger(contributionBasisIndex) || contributionBasisIndex < 0 || contributionBasisIndex >= basisCount) return false;
     if (!Array.isArray(members) || !members.length || !members.every((item: unknown) => (
       Number.isInteger(item) && (item as number) >= 0 && (item as number) < basisCount
-    )) || new Set(members).size !== members.length || !members.includes(contributionIndex)) return false;
+    )) || new Set(members).size !== members.length || !members.includes(contributionBasisIndex)) return false;
     if (!Number.isInteger(candidateEpisodeOrdinal) || candidateEpisodeOrdinal < 0) return false;
     const ordinals = ordinalsByCandidate.get(candidateIndex) ?? new Set<number>();
     if (ordinals.has(candidateEpisodeOrdinal)) return false;
@@ -546,6 +569,9 @@ function isDerivationEpisodes(value: unknown, candidateCount: number, basisCount
       && Number.isInteger(episodes.confirmedIndexes[index])
       && episodes.observedFromIndexes[index] >= 0
       && episodes.observedFromIndexes[index] <= episodes.observedToIndexes[index]
+      && Number.isInteger(contributionIndex)
+      && episodes.observedFromIndexes[index] <= contributionIndex
+      && contributionIndex <= episodes.observedToIndexes[index]
       && episodes.observedToIndexes[index] <= episodes.confirmedIndexes[index]
       && episodes.confirmedIndexes[index] < 240
       && episodes.corridorLows[index] <= episodes.corridorHighs[index]
@@ -777,6 +803,11 @@ function isBoundary(value: unknown): boolean {
     && (responses.lastInteractionAt === null || isTimestamp(responses.lastInteractionAt))
     && isFiniteNumber(rank.rankScore) && isFiniteNumber(rank.responseCount) && isFiniteNumber(rank.responseMass)
     && isFiniteNumber(rank.responseBonus) && isFiniteNumber(rank.profileBonus)
+    && Number.isInteger(rank.integrityFactCount) && rank.integrityFactCount >= 0
+    && isFiniteNumber(rank.integrityEffectiveFactCount) && rank.integrityEffectiveFactCount >= 0
+    && isFiniteNumber(rank.integrityCoverage) && rank.integrityCoverage >= 0 && rank.integrityCoverage <= 1
+    && Number.isInteger(rank.bodyPenetrationCount) && rank.bodyPenetrationCount >= 0
+    && Number.isInteger(rank.closePenetrationCount) && rank.closePenetrationCount >= 0
     && isFiniteNumber(line.priceAtAsOf) && isFiniteNumber(line.slopePerBar) && isFiniteNumber(line.zoneHalfWidth)
     && isNonEmptyString(explanation.claim)
     && isStringArray(explanation.because) && isStringArray(explanation.against)
@@ -988,6 +1019,11 @@ function normalizeSymbol(value: string): string {
 
 function isFreshness(value: unknown): value is CzardasFreshness {
   return value === "current" || value === "stale" || value === "missing" || value === "incompatible";
+}
+
+function isFreshnessReason(value: unknown): value is CzardasFreshnessReason {
+  return value === "identity_match" || value === "input_changed" || value === "identity_unavailable"
+    || value === "asset_missing" || value === "contract_incompatible";
 }
 
 function asRecord(value: unknown): Record<string, any> {

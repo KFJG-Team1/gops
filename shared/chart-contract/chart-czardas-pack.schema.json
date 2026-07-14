@@ -1,19 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gops.local/contracts/chart-czardas-pack.schema.json",
-  "title": "GOPS Czardas v2 Present-Snapshot Pack",
+  "title": "GOPS Czardas v3 Present-Snapshot Pack",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "algorithmVersion", "configVersion", "timeContractVersion", "calendarVersion", "inferenceId",
+    "algorithmVersion", "configVersion", "inputContractVersion", "timeContractVersion", "calendarVersion",
+    "inferenceConfigDigest", "projectionConfigDigest", "sightProjectionVersion", "sightProjectionId", "inferenceId",
     "symbol", "interval", "asOf", "lastCandleKey", "inputDigest", "status", "coverage",
     "selection", "boundaries", "presentationPattern", "drawings", "czardasField", "rejectSummary"
   ],
   "properties": {
-    "algorithmVersion": {"const": "czardas-v2"},
-    "configVersion": {"const": "czardas-config-v2"},
+    "algorithmVersion": {"const": "czardas-v3"},
+    "configVersion": {"const": "czardas-config-v3"},
+    "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
     "timeContractVersion": {"const": "market-time-v1"},
     "calendarVersion": {"const": "nyse-calendar-v1"},
+    "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
+    "projectionConfigDigest": {"$ref": "#/$defs/digest"},
+    "sightProjectionVersion": {"const": "czardas-sight-v2"},
+    "sightProjectionId": {"$ref": "#/$defs/digest"},
     "inferenceId": {"$ref": "#/$defs/digest"},
     "symbol": {"type": "string", "pattern": "^[A-Z][A-Z0-9.-]*$"},
     "interval": {"$ref": "#/$defs/interval"},
@@ -317,14 +323,15 @@
       "type": "object", "additionalProperties": false,
       "required": [
         "candidateIndexes", "candidateEpisodeOrdinals", "contributionBasisIndexes", "memberBasisIndexes", "observedFromIndexes",
-        "observedToIndexes", "confirmedIndexes", "contributionPrices", "corridorLows", "corridorHighs", "initialFormationMasks"
+        "observedToIndexes", "confirmedIndexes", "contributionIndexes", "contributionPrices", "corridorLows", "corridorHighs", "initialFormationMasks"
       ],
       "properties": {
         "candidateIndexes": {"$ref": "#/$defs/indexArray"}, "contributionBasisIndexes": {"$ref": "#/$defs/indexArray"},
         "candidateEpisodeOrdinals": {"type": "array", "items": {"type": "integer", "minimum": 0}},
         "memberBasisIndexes": {"type": "array", "items": {"$ref": "#/$defs/indexArray"}},
         "observedFromIndexes": {"$ref": "#/$defs/indexArray"}, "observedToIndexes": {"$ref": "#/$defs/indexArray"},
-        "confirmedIndexes": {"$ref": "#/$defs/indexArray"}, "contributionPrices": {"$ref": "#/$defs/numberArray"},
+        "confirmedIndexes": {"$ref": "#/$defs/indexArray"}, "contributionIndexes": {"$ref": "#/$defs/indexArray"},
+        "contributionPrices": {"$ref": "#/$defs/numberArray"},
         "corridorLows": {"$ref": "#/$defs/numberArray"}, "corridorHighs": {"$ref": "#/$defs/numberArray"},
         "initialFormationMasks": {"type": "array", "items": {"enum": [0, 1]}}
       }
@@ -334,13 +341,20 @@
       "additionalProperties": false,
       "propertyNames": {"not": {"$ref": "#/$defs/historicalPropertyName"}},
       "required": [
-        "schemaVersion", "sourceBars", "evaluationAsOf", "sourceInferenceId", "windowFromTimestamp",
+        "schemaVersion", "inputContractVersion", "inferenceConfigDigest", "projectionConfigDigest",
+        "sightProjectionVersion", "sightProjectionId", "sourceBars", "evaluationAsOf", "sourceInferenceId", "windowFromTimestamp",
         "windowToTimestamp", "candleMeanings", "basisFacts", "basisGlyphs", "hlineResponseSegments",
         "hlineProfileBins", "hlineModes", "trendModes", "selectedModeRefs", "derivationEpisodes",
         "validationGlyphs", "relationGlyph", "projection"
       ],
       "properties": {
-        "schemaVersion": {"const": 2}, "sourceBars": {"const": 240},
+        "schemaVersion": {"const": 3},
+        "inputContractVersion": {"const": "canonical-ohlcv-q8-v1"},
+        "inferenceConfigDigest": {"$ref": "#/$defs/digest"},
+        "projectionConfigDigest": {"$ref": "#/$defs/digest"},
+        "sightProjectionVersion": {"const": "czardas-sight-v2"},
+        "sightProjectionId": {"$ref": "#/$defs/digest"},
+        "sourceBars": {"const": 240},
         "evaluationAsOf": {"$ref": "#/$defs/timestamp"}, "sourceInferenceId": {"$ref": "#/$defs/digest"},
         "windowFromTimestamp": {"$ref": "#/$defs/timestamp"}, "windowToTimestamp": {"$ref": "#/$defs/timestamp"},
         "candleMeanings": {"$ref": "#/$defs/candleMeanings"}, "basisFacts": {"$ref": "#/$defs/basisFacts"},

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "marketCorpus": {
     "source": "Nasdaq historical public API; split-adjusted regular-session daily OHLCV",
     "purpose": "Cross-symbol PresentSnapshot, budget, and invariance checks; never a line-position oracle",
@@ -15,7 +15,7 @@
   },
   "fixtures": [
     {
-      "id": "synthetic-oscillating-boundaries-v2",
+      "id": "synthetic-oscillating-boundaries-v3",
       "kind": "synthetic",
       "recipe": "synthetic/oscillating-boundaries.json",
       "interval": "1D",
@@ -23,7 +23,7 @@
       "meaning": "Repeated lower and upper reactions with stable structural endpoints"
     },
     {
-      "id": "synthetic-flat-no-draw-v2",
+      "id": "synthetic-flat-no-draw-v3",
       "kind": "synthetic",
       "recipe": "synthetic/flat-no-draw.json",
       "interval": "1D",

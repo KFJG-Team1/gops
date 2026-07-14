@@ -251,7 +251,7 @@ def build_base_candle_meanings(
         **{f"localHighR{radius}": tuple(local_high[radius]) for radius in config.extrema_radii},
         **{f"localLowR{radius}": tuple(local_low[radius]) for radius in config.extrema_radii},
     }
-    normalized = {key: _robust_normalize(values) for key, values in raw.items()}
+    normalized = {key: _robust_normalize(values, key) for key, values in raw.items()}
 
     shared: list[float] = []
     support: list[float] = []
@@ -419,7 +419,7 @@ def finalize_candle_meanings(
     raw_factors = {**base.raw_factors, **{key: tuple(values) for key, values in relation_raw.items()}}
     normalized_factors = {
         **base.normalized_factors,
-        **{key: _robust_normalize(values) for key, values in relation_raw.items()},
+        **{key: _robust_normalize(values, key) for key, values in relation_raw.items()},
     }
     return CandleMeaningTape(
         raw_factors,
@@ -438,15 +438,23 @@ def finalize_candle_meanings(
     )
 
 
-def _robust_normalize(values: Iterable[float | None]) -> tuple[float | None, ...]:
+def _robust_normalize(values: Iterable[float | None], factor_name: str = "") -> tuple[float | None, ...]:
     source = tuple(values)
     present = [float(value) for value in source if value is not None and math.isfinite(value)]
     if not present:
         return tuple(None for _ in source)
     center = median(present)
     mad = median(abs(value - center) for value in present)
-    scale = max(1.4826 * mad, 1e-12)
-    return tuple(None if value is None else clamp(0.5 + (float(value) - center) / (6.0 * scale)) for value in source)
+    semantic_floor = 0.025 if factor_name == "volumeRank" else 0.001
+    scale = max(1.4826 * mad, semantic_floor)
+    return tuple(
+        None
+        if value is None
+        else 0.5
+        if abs(float(value) - center) <= semantic_floor
+        else clamp(0.5 + (float(value) - center) / (6.0 * scale))
+        for value in source
+    )
 
 
 def _percentiles(values: list[float]) -> tuple[float, ...]:

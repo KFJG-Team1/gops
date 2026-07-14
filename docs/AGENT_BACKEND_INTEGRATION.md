@@ -377,33 +377,52 @@ polling/SSE semantics는 보존해야 한다.
 Czardas asset은 interactive agent report와 분리된 수동 build projection이다.
 
 ```text
-GET    /api/charts/czardas-assets?symbol=NVDA
+GET    /api/charts/czardas-assets?symbol=NVDA[&interval=1D]
 POST   /api/charts/czardas-assets/build
 GET    /api/charts/czardas-assets/build/{cza_job_id}
 POST   /api/charts/czardas-assets/build/{cza_job_id}/cancel
 DELETE /api/charts/czardas-assets?symbol=NVDA&interval=1D
 ```
 
-Build body는 `{symbol, interval, force}` 한 쌍만 받는다. latest pack과 queue는
+Build body는 `{symbol, interval, force}` 한 쌍만 받고 `Idempotency-Key` header가 필수다.
+latest pack과 queue는
 PostgreSQL `chart_assets.czardas_latest`, `czardas_build_jobs`,
 `czardas_build_items`에 저장하고 job ID는 `cza-`로 시작한다. 자동 TTL, broad cleanup,
 Redis pub/sub, SSE, Kafka queue는 사용하지 않는다.
 
-GET은 `{symbol, assets, meta}`를 반환하며 interval entry는
+`submit_once()`는 idempotency 확인, active pair 확인과 job/item insert를 한 PostgreSQL
+transaction에서 처리한다. 같은 owner/key/body 또는 같은 owner/pair/force active job은 기존
+job과 `coalesced=true`를 반환한다. force가 다르거나 다른 owner가 같은 pair를 실행 중이면
+`409 czardas_pair_busy`다. status/cancel은 owner에게만 보이고 타인은 404다. terminal cancel은
+bytes와 상태를 바꾸지 않으며 active pair DELETE는 409다.
+
+GET은 `{symbol, assets, meta}`를 반환하며 optional interval이면 해당 entry만 읽는다. entry는
 `current|stale|missing|incompatible` 중 하나다. 이 요청은 read-only PostgreSQL과
 read-only ClickHouse identity 비교만 수행하며 repair, kernel, enqueue, PostgreSQL
 write를 절대 실행하지 않는다. 현재 identity를 증명할 수 없으면 보수적으로 `stale`이다.
-별도 coverage route와 `assetKind` dispatch는 없다.
+`freshnessReason`은 `identity_match|input_changed|identity_unavailable|asset_missing|
+contract_incompatible`다. 별도 coverage route와 `assetKind` dispatch는 없다.
 
-v2 pack은 완료봉 exact-240 전체의 단일 present-snapshot 해석이다. deterministic
-content에는 `inferenceId`, 240개 compact CandleMeaning, revision-free Field
-derivation을 포함하며 `generatedAt`은 계속 DB/API envelope에만 둔다. 저장 guard는
+v3 pack은 완료봉 exact-240 전체의 단일 present-snapshot 해석이다. OHLCV는 q8로 봉인하고
+`inferenceId`와 `sightProjectionId`를 분리한다. deterministic content에는 240개 compact
+CandleMeaning과 revision-free selected derivation을 포함하며 `generatedAt`은 계속 DB/API
+envelope에만 둔다. 저장 guard는
 Field 80 KiB, 전체 pack 96 KiB이고 partial mandatory bundle은 저장하지 않는다.
+현재 projection은 `czardas-sight-v2`다. Sight v1과 v2/null v3 identity row는 삭제하지 않지만
+incompatible이며 필요한 pair만 수동 재분석한다. Sight 변경은 inferenceId를 바꾸지 않는다.
+
+정확한 completed-240 candle response에는 backend가 계산한 `canonicalSnapshot` metadata를
+붙인다. frontend가 Python q8/input digest를 재구현해서는 안 된다. unexpected exception
+원문은 job DB/API에 저장하지 않고 stable reason code와 안전한 문장만 기록한다.
 
 DELETE는 인증된 개발 패널이 명시한 단일 pair만 삭제한다. build 완료·삭제 후 요청한
 프런트는 generation을 올려 해당 symbol cache를 무효화하고 열린 chart를 재조회한다.
 기존 `/api/charts/analysis-assets` route는 제거하며 Geometry payload나 DB row를
 fallback으로 읽지 않는다.
+
+chart-open, GET, candle event와 Cron은 Czardas build job을 만들지 않는다. 자동 schedule이
+없다는 뜻이며, 수동 panel과 worker를 AWS에 배포할 수 없다는 뜻은 아니다. 이번 v3 변경에서는
+AWS migration과 배포를 실행하지 않는다.
 
 ## Failure Policy
 

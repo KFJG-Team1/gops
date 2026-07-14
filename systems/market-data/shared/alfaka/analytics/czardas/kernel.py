@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 from .compiler import compile_boundary, compile_drawing
@@ -11,25 +12,53 @@ from .evidence import build_evidence
 from .features import build_features
 from .field_view import build_field_view
 from .hline import detect_hlines
-from .numeric import canonical_digest, canonicalize
-from .meaning import build_base_candle_meanings, finalize_candle_meanings
+from .numeric import canonicalize, identity_digest
+from .meaning import CandleMeaningTape, build_base_candle_meanings, finalize_candle_meanings
 from .relations import select_triangle_relation
 from .select import select_boundaries
 from .tape import CandleTape
 from .trend import detect_trends
-from .types import AnalysisUnavailable, Ready
+from .types import AnalysisUnavailable, BoundaryCandidate, DetectorResult, Ready, RoleBasis
+
+
+@dataclass(frozen=True, slots=True)
+class CzardasInference:
+    """Presentation-free result of one sealed exact-240 snapshot inference."""
+
+    tape: CandleTape
+    features: Any
+    meanings: CandleMeaningTape
+    basis: tuple[RoleBasis, ...]
+    hline: DetectorResult
+    trend: DetectorResult
+    selected_hlines: tuple[BoundaryCandidate, ...]
+    selected_trends: tuple[BoundaryCandidate, ...]
+    relation: dict[str, Any] | None
+    reject_summary: dict[str, int]
+    inference_id: str
+    config: CzardasConfig
+    cluster_count: int
+    inference_elapsed_ms: float
 
 
 def analyze_czardas(
     rows: Iterable[dict[str, Any]],
     config: CzardasConfig = DEFAULT_CONFIG,
 ) -> Ready | AnalysisUnavailable:
+    inference = infer_czardas(rows, config)
+    if isinstance(inference, AnalysisUnavailable):
+        return inference
+    return project_czardas_sight(inference)
+
+
+def infer_czardas(
+    rows: Iterable[dict[str, Any]],
+    config: CzardasConfig = DEFAULT_CONFIG,
+) -> CzardasInference | AnalysisUnavailable:
     started = time.perf_counter()
-    if not (
-        1 <= config.hline_display_count <= 4
-        and 1 <= config.trend_display_count <= 3
-        and 0 < config.target_field_bytes <= config.max_field_bytes
-    ):
+    try:
+        config.validate()
+    except (TypeError, ValueError) as exc:
         return AnalysisUnavailable("invalid_config")
     try:
         tape = CandleTape.from_rows(rows, config)
@@ -45,11 +74,13 @@ def analyze_czardas(
     )
     selected = (*selected_hlines, *selected_trends)
     relation = select_triangle_relation(tape, features, selected_trends)
-    inference_id = canonical_digest([
+    inference_id = identity_digest([
         config.algorithm_version,
         config.config_version,
+        config.input_contract_version,
         config.time_contract_version,
         config.calendar_version,
+        config.inference_digest,
         tape.symbol,
         tape.interval,
         tape.as_of,
@@ -58,23 +89,61 @@ def analyze_czardas(
     meanings = finalize_candle_meanings(
         base_meanings, tape, features, basis, selected
     )
-    boundaries = [compile_boundary(tape, features, item, inference_id) for item in selected]
-    drawings = [compile_drawing(tape, item, relation, inference_id) for item in selected]
+    return CzardasInference(
+        tape=tape,
+        features=features,
+        meanings=meanings,
+        basis=basis,
+        hline=hline,
+        trend=trend,
+        selected_hlines=selected_hlines,
+        selected_trends=selected_trends,
+        relation=relation,
+        reject_summary=reject_summary,
+        inference_id=inference_id,
+        config=config,
+        cluster_count=len(clusters),
+        inference_elapsed_ms=(time.perf_counter() - started) * 1000.0,
+    )
+
+
+def project_czardas_sight(inference: CzardasInference) -> Ready | AnalysisUnavailable:
+    started = time.perf_counter()
+    tape = inference.tape
+    config = inference.config
+    if not config.production_storable:
+        return AnalysisUnavailable("research_config_not_storable")
+    selected = (*inference.selected_hlines, *inference.selected_trends)
+    sight_projection_id = identity_digest([
+        inference.inference_id,
+        config.sight_projection_version,
+        config.projection_digest,
+    ])
+    boundaries = [compile_boundary(tape, inference.features, item, inference.inference_id) for item in selected]
+    drawings = [compile_drawing(tape, item, inference.relation, inference.inference_id) for item in selected]
     try:
-        field = build_field_view(tape, hline, trend, selected, relation, meanings, inference_id, config)
+        field, field_bytes = build_field_view(
+            tape, inference.hline, inference.trend, selected, inference.relation,
+            inference.meanings, inference.inference_id, sight_projection_id, config,
+        )
     except ValueError as exc:
         return AnalysisUnavailable(str(exc))
     content = {
         "algorithmVersion": config.algorithm_version,
         "configVersion": config.config_version,
+        "inputContractVersion": config.input_contract_version,
         "timeContractVersion": config.time_contract_version,
         "calendarVersion": config.calendar_version,
+        "inferenceConfigDigest": config.inference_digest,
+        "projectionConfigDigest": config.projection_digest,
+        "sightProjectionVersion": config.sight_projection_version,
+        "sightProjectionId": sight_projection_id,
         "symbol": tape.symbol,
         "interval": tape.interval,
         "asOf": tape.as_of,
         "lastCandleKey": tape.last_candle_key,
         "inputDigest": tape.input_digest,
-        "inferenceId": inference_id,
+        "inferenceId": inference.inference_id,
         "status": "ready",
         "coverage": {
             "state": "exact",
@@ -84,14 +153,14 @@ def analyze_czardas(
             "qualityFlags": [],
         },
         "selection": {
-            "hline": {"configuredCount": config.hline_display_count, "actualCount": len(selected_hlines)},
-            "trend": {"configuredCount": config.trend_display_count, "actualCount": len(selected_trends)},
+            "hline": {"configuredCount": config.hline_display_count, "actualCount": len(inference.selected_hlines)},
+            "trend": {"configuredCount": config.trend_display_count, "actualCount": len(inference.selected_trends)},
         },
         "boundaries": boundaries,
-        "presentationPattern": relation,
+        "presentationPattern": inference.relation,
         "drawings": drawings,
         "czardasField": field,
-        "rejectSummary": reject_summary,
+        "rejectSummary": inference.reject_summary,
     }
     canonical_content = canonicalize(content)
     payload_encoded = json.dumps(
@@ -103,13 +172,16 @@ def analyze_czardas(
     return Ready(canonical_content, {
         "contentDigest": "sha256:" + hashlib.sha256(payload_encoded).hexdigest(),
         "payloadBytes": payload_bytes,
-        "fieldBytes": len(json.dumps(
-            canonical_content["czardasField"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")),
-        "elapsedMs": (time.perf_counter() - started) * 1000.0,
-        "clusterCount": len(clusters),
-        "basisCount": len(basis),
-        "candidateCount": len(hline.candidates) + len(trend.candidates),
+        "fieldBytes": field_bytes,
+        "elapsedMs": inference.inference_elapsed_ms + (time.perf_counter() - started) * 1000.0,
+        "inferenceElapsedMs": inference.inference_elapsed_ms,
+        "projectionElapsedMs": (time.perf_counter() - started) * 1000.0,
+        "clusterCount": inference.cluster_count,
+        "basisCount": len(inference.basis),
+        "candidateCount": len(inference.hline.candidates) + len(inference.trend.candidates),
+        "searchModeCount": len(inference.hline.modes) + len(inference.trend.modes),
+        "hlineSearchModeCount": len(inference.hline.modes),
+        "trendSearchModeCount": len(inference.trend.modes),
     })
 
 

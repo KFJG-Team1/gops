@@ -180,7 +180,7 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
   await expect(page.locator(".workspace-bottom-nav")).toHaveCount(0);
   await expect(page.locator(".layout-palette-dock")).toBeVisible();
   await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Czardas 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
 });
 

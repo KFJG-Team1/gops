@@ -21,16 +21,23 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "240");
   await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
+  const sightLegend = page.getByLabel("Czardas 시각 범례");
+  await expect(sightLegend).toBeVisible();
+  await expect(sightLegend.getByTitle("확대 상태의 캔들 진하기")).toContainText("Shared+Trend");
+  await expect(sightLegend.getByTitle("확대 상태의 고점·저점 국소 수평 흔적")).toContainText("Shared+H-Line");
+  await expect(sightLegend.getByTitle("축소 상태에서 켜진 채널의 전체 의미")).toContainText("전체(축소)");
   const hline = page.getByRole("button", { name: "Czardas H-Line 끄기" });
   const trend = page.getByRole("button", { name: "Czardas Trend 끄기" });
   await expect(hline).toBeEnabled();
   await expect(trend).toBeEnabled();
   await hline.click();
   await expect(page.getByRole("button", { name: "Czardas H-Line 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(sightLegend.getByText("H-Line", { exact: true })).toHaveClass(/is-muted/);
   await expect(trend).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Czardas H-Line 켜기" }).click();
   await trend.click();
   await expect(page.getByRole("button", { name: "Czardas Trend 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(sightLegend.getByText("Trend", { exact: true })).toHaveClass(/is-muted/);
   await page.getByRole("button", { name: "Czardas Trend 켜기" }).click();
   await page.getByLabel("Chart type").selectOption("czardas", { force: true });
   await expect(page.getByLabel("Interval").locator('option[value="1M"]')).toBeDisabled();
@@ -40,7 +47,10 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   const meaningOverlay = page.getByLabel("현재 240봉 기준 Czardas 캔들 해석");
   await expect(meaningOverlay).toBeVisible();
   await expect(page.getByText("현재 240봉 기준", { exact: true })).toBeVisible();
-  await expect(meaningOverlay.getByText("상대 의미도", { exact: false })).toBeVisible();
+  await expect(meaningOverlay.getByText("240봉 내 전체 의미 백분위", { exact: false })).toBeVisible();
+  await expect(meaningOverlay.getByText("진하기 Shared+Trend", { exact: true })).toBeVisible();
+  await expect(meaningOverlay.getByText("짧은 수평 Shared+H-Line", { exact: true })).toBeVisible();
+  await expect(meaningOverlay.getByText("축소 노랑 켜진 채널 전체", { exact: true })).toBeVisible();
   await expect(meaningOverlay.locator("[data-czardas-factor-key]")).toHaveCount(21);
   await expect(meaningOverlay.locator("[data-czardas-reason-code]")).toHaveCount(1);
   await expect(meaningOverlay.locator("details")).toHaveCount(0);
@@ -104,7 +114,23 @@ test("Czardas asset renders independent H-Line and Trend layers", async ({ page 
   await expect(mutedHlineMeaning).toHaveClass(/is-muted/);
   await expect(mutedHlineMeaning.locator("[data-czardas-factor-key]")).toHaveCount(7);
   await page.getByRole("button", { name: "Czardas H-Line 켜기" }).click();
-  await page.screenshot({ path: `/tmp/chart-assets-v2-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v3-${testInfo.project.name}.png`, fullPage: true });
+
+  const detailVisibleCount = Number(await chart.getAttribute("data-chart-visible-count"));
+  await canvas.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    for (let index = 0; index < 8; index += 1) {
+      element.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width * 0.55,
+        clientY: rect.top + rect.height * 0.45,
+        deltaY: 70
+      }));
+    }
+  });
+  await expect.poll(async () => Number(await chart.getAttribute("data-chart-visible-count"))).toBeGreaterThan(detailVisibleCount);
+  await page.screenshot({ path: `/tmp/chart-assets-v3-dense-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test("Czardas meaning overlay keeps all evidence visible in compact plots", async ({ page }, testInfo) => {
@@ -163,7 +189,7 @@ test("asset ops submits exactly one Czardas symbol and interval", async ({ page 
   await ops.getByLabel("Czardas 분석 심볼").fill("NVDA");
   await ops.getByRole("button", { name: "분석 시작" }).click();
   await expect.poll(() => postedBuild).toEqual({ symbol: "NVDA", interval: "1D", force: false });
-  await page.screenshot({ path: `/tmp/chart-assets-v2-ops-${testInfo.project.name}.png`, fullPage: true });
+  await page.screenshot({ path: `/tmp/chart-assets-v3-ops-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test("Czardas Field paint stays within the 8ms P95 gate", async ({ page }, testInfo) => {
@@ -241,7 +267,16 @@ async function fulfillApi(route: Route): Promise<void> {
 }
 
 function candlePayload(): Record<string, unknown> {
-  return { symbol: "NVDA", interval: "1D", request: { limit: candles.length }, status: "ready", dataStatus: "ready", source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length, returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true } };
+  return {
+    symbol: "NVDA", interval: "1D", request: { limit: candles.length }, status: "ready", dataStatus: "ready",
+    source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length,
+    returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true },
+    canonicalSnapshot: {
+      inputContractVersion: "canonical-ohlcv-q8-v1", asOf: candles[239].timestamp,
+      lastCandleKey: candles[239].timestamp.slice(0, 10), completedCount: 240,
+      inputDigest: "sha256:3470968e8386454c083521d7452eea035f5fba92074648e7bed1d4377bd8d72c"
+    }
+  };
 }
 
 function fixtureCandles() {
@@ -256,7 +291,7 @@ function czardasResponse(): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp ?? "";
   const windowFromTimestamp = candles[0].timestamp;
   const windowToTimestamp = candles[239].timestamp;
-  const inferenceId = "sha256:czardas-v2-fixture-inference";
+  const inferenceId = "sha256:czardas-v3-fixture-inference";
   const hline = czardasDrawing("support", "hline", [
     { timestamp: candles[40].timestamp, price: 158 },
     { timestamp: asOf, price: 158 }
@@ -363,15 +398,24 @@ function czardasResponse(): Record<string, unknown> {
       lastFitObservedAt: candles[80].timestamp, fitEvidenceConfirmedAt: candles[82].timestamp, seedQuality: .8
     },
     responses: { completedCount: 0, pendingCount: 0, lastInteractionAt: null, responseMass: 0 },
-    rank: { rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0 },
+    rank: {
+      rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0,
+      integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
+      bodyPenetrationCount: 1, closePenetrationCount: 0
+    },
     line: { priceAtAsOf: price, slopePerBar: kind === "trend" ? .01 : 0, zoneHalfWidth: .5 },
     explanation: { claim: "현재 경계", because: ["구조적 근거"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
   });
   const pack = {
-    algorithmVersion: "czardas-v2",
-    configVersion: "czardas-config-v2",
+    algorithmVersion: "czardas-v3",
+    configVersion: "czardas-config-v3",
+    inputContractVersion: "canonical-ohlcv-q8-v1",
     timeContractVersion: "market-time-v1",
     calendarVersion: "nyse-calendar-v1",
+    inferenceConfigDigest: "sha256:inference-config",
+    projectionConfigDigest: "sha256:projection-config",
+    sightProjectionVersion: "czardas-sight-v2",
+    sightProjectionId: "sha256:sight-projection",
     symbol: "NVDA",
     interval: "1D",
     asOf,
@@ -394,7 +438,12 @@ function czardasResponse(): Record<string, unknown> {
     },
     drawings: [hline, upper, lower],
     czardasField: {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      inputContractVersion: "canonical-ohlcv-q8-v1",
+      inferenceConfigDigest: "sha256:inference-config",
+      projectionConfigDigest: "sha256:projection-config",
+      sightProjectionVersion: "czardas-sight-v2",
+      sightProjectionId: "sha256:sight-projection",
       sourceBars: 240,
       evaluationAsOf: asOf,
       sourceInferenceId: inferenceId,
@@ -461,6 +510,7 @@ function czardasResponse(): Record<string, unknown> {
         observedFromIndexes: [40, 44, 55, 59, 60, 64],
         observedToIndexes: [40, 44, 55, 59, 60, 64],
         confirmedIndexes: [42, 46, 57, 61, 62, 66],
+        contributionIndexes: [40, 44, 55, 59, 60, 64],
         contributionPrices: [158, 158, 177.5, 177.5, 161.2, 161.2],
         corridorLows: [157.7, 157.7, 177.2, 177.2, 160.9, 160.9],
         corridorHighs: [158.3, 158.3, 177.8, 177.8, 161.5, 161.5],
@@ -473,7 +523,7 @@ function czardasResponse(): Record<string, unknown> {
   };
   return {
     symbol: "NVDA",
-    assets: { "1D": { freshness: "current", generatedAt: asOf, pack } },
+    assets: { "1D": { freshness: "current", freshnessReason: "identity_match", generatedAt: asOf, pack } },
     meta: { servedAt: asOf }
   };
 }
@@ -483,7 +533,7 @@ function czardasDrawing(
   layer: "hline" | "trend",
   anchors: Array<{ timestamp: string; price: number }>,
   groupId?: string,
-  inferenceId = "sha256:czardas-v2-fixture-inference"
+  inferenceId = "sha256:czardas-v3-fixture-inference"
 ) {
   return {
     id: `czardas:${candidateId}:line`,

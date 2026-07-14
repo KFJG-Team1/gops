@@ -38,6 +38,17 @@ export function CzardasLayerToggles({
           <TrendingUp size={14} aria-hidden="true" />
         </button>
       </div>
+      <div className="czardas-sight-legend" aria-label="Czardas 시각 범례">
+        <span title="확대 상태의 캔들 진하기">
+          <b className="is-candle-tone" aria-hidden="true">▮</b> Shared+<i className={!visibility.trend ? "is-muted" : undefined}>Trend</i>
+        </span>
+        <span title="확대 상태의 고점·저점 국소 수평 흔적">
+          <b className="is-yellow-tone" aria-hidden="true">━</b> Shared+<i className={!visibility.hline ? "is-muted" : undefined}>H-Line</i>
+        </span>
+        <span title="축소 상태에서 켜진 채널의 전체 의미">
+          <b className="is-yellow-tone" aria-hidden="true">│</b> 전체(축소)
+        </span>
+      </div>
       {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAsOf(asOf)}{stale ? " · stale" : ""}</span>}
     </div>
   );

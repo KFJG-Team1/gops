@@ -34,6 +34,12 @@ def candle_to_gops(candle):
         value = candle.get(key)
         if value is not None:
             result[key] = value
+    # Preserve explicit canonical provenance for server-owned snapshot identity.
+    # Do not invent these values for Redis/live or legacy rows.
+    for key in ("canonicalVersion", "priceAdjustment"):
+        value = candle.get(key, candle.get("canonical_version" if key == "canonicalVersion" else "price_adjustment"))
+        if value is not None:
+            result[key] = value
     if not result.get("marketSession") or result.get("marketSession") == "unknown":
         result["marketSession"] = fallback_market_session(candle, timestamp)
     return result

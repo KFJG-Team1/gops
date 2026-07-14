@@ -300,6 +300,13 @@ export type CandleQueryResponseDto = {
   hasMoreBefore?: boolean;
   hasMoreAfter?: boolean;
   previousClose?: number | null;
+  canonicalSnapshot?: {
+    inputContractVersion: "canonical-ohlcv-q8-v1";
+    asOf: string;
+    lastCandleKey: string;
+    completedCount: 240;
+    inputDigest: string;
+  };
   retryAfterMs?: number;
   error?: {
     code: string;
@@ -619,6 +626,7 @@ export type CzardasDerivationEpisodesDto = {
   observedFromIndexes: number[];
   observedToIndexes: number[];
   confirmedIndexes: number[];
+  contributionIndexes: number[];
   contributionPrices: number[];
   corridorLows: number[];
   corridorHighs: number[];
@@ -627,6 +635,11 @@ export type CzardasDerivationEpisodesDto = {
 
 export type CzardasFieldDto = {
   schemaVersion: number;
+  inputContractVersion: string;
+  inferenceConfigDigest: string;
+  projectionConfigDigest: string;
+  sightProjectionVersion: string;
+  sightProjectionId: string;
   sourceBars: number;
   evaluationAsOf: string;
   sourceInferenceId: string;

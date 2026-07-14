@@ -21,6 +21,7 @@ from alfaka.analytics.czardas.types import Ready  # noqa: E402
 from gops_agents.czardas_assets.builder import CzardasAssetBuilder  # noqa: E402
 from gops_agents.czardas_assets.envelope import CzardasBuildEnvelope  # noqa: E402
 from gops_agents.czardas_assets.progress import InMemoryCzardasProgressStore  # noqa: E402
+from gops_agents.czardas_assets.queue import InMemoryCzardasBuildQueue  # noqa: E402
 from czardas_test_support import stored_record, valid_flat_pack, valid_flat_rows  # noqa: E402
 
 
@@ -60,17 +61,22 @@ class Storage:
 
 def _content():
     return {
-        "algorithmVersion": "czardas-v2",
+        "algorithmVersion": "czardas-v3",
         "symbol": "NVDA",
         "interval": "1D",
         "drawings": [{"id": "one"}],
     }
 
 
+def _submitted_progress(envelope: CzardasBuildEnvelope) -> InMemoryCzardasProgressStore:
+    progress = InMemoryCzardasProgressStore()
+    InMemoryCzardasBuildQueue().submit_once(envelope, progress)
+    return progress
+
+
 def test_builder_saves_only_ready_exact_window():
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     storage = Storage()
     builder = CzardasAssetBuilder(loader=Loader(), repair=Repair(), storage=storage, progress=progress)
 
@@ -84,8 +90,7 @@ def test_builder_saves_only_ready_exact_window():
 
 def test_exact_239_failure_preserves_existing_asset():
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     storage = Storage()
     storage.existing = {"pack": {"old": True}}
     builder = CzardasAssetBuilder(loader=Loader(), repair=Repair(ready=False), storage=storage, progress=progress)
@@ -99,8 +104,7 @@ def test_exact_239_failure_preserves_existing_asset():
 
 def test_snapshot_change_is_rejected_without_retry_or_save():
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     storage = Storage()
     repair = Repair()
     loader = Loader(digests=("sha256:newer",))
@@ -125,8 +129,7 @@ def test_post_asof_completed_row_is_not_mixed_and_precommit_audit_rejects_save()
     """A row completed after capture changes the next snapshot, not the frozen kernel input."""
 
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     storage = Storage()
     frozen_rows = valid_flat_rows()
     frozen_tape = CandleTape.from_rows(frozen_rows, DEFAULT_CONFIG)
@@ -167,10 +170,9 @@ def test_post_asof_completed_row_is_not_mixed_and_precommit_audit_rejects_save()
     assert storage.saved == []
 
 
-def test_unchanged_requires_valid_pack_and_all_versions_and_schema_two():
+def test_unchanged_requires_valid_pack_and_all_v3_identity_fields():
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     pack = valid_flat_pack()
     storage = Storage()
     storage.existing = stored_record(pack)
@@ -208,6 +210,9 @@ def test_unchanged_requires_valid_pack_and_all_versions_and_schema_two():
     [
         ("algorithmVersion", "czardas-v1"),
         ("configVersion", "czardas-config-v1"),
+        ("inputContractVersion", "canonical-ohlcv-v0"),
+        ("inferenceConfigDigest", "sha256:old"),
+        ("sightProjectionId", "sha256:old"),
         ("timeContractVersion", "market-time-v0"),
         ("calendarVersion", "nyse-calendar-v0"),
         ("fieldSchemaVersion", 1),
@@ -215,8 +220,7 @@ def test_unchanged_requires_valid_pack_and_all_versions_and_schema_two():
 )
 def test_version_or_field_schema_mismatch_forces_current_snapshot_reanalysis(metadata_key, old_value):
     envelope = CzardasBuildEnvelope.create(requested_by="test", symbol="NVDA", interval="1D")
-    progress = InMemoryCzardasProgressStore()
-    progress.initialize(envelope)
+    progress = _submitted_progress(envelope)
     pack = valid_flat_pack()
     storage = Storage()
     storage.existing = stored_record(pack)

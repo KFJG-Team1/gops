@@ -72,7 +72,7 @@ def detect_trends(
             ]
             episodes = formation_episodes(tape, features, compatible, medoid_probe, mode_id, config)
             separated = any(
-                abs(first.observed_from_index - second.observed_from_index) >= config.trend_min_pair_separation
+                abs(first.contribution_index - second.contribution_index) >= config.trend_min_pair_separation
                 for first, second in itertools.combinations(episodes, 2)
             )
             if len(episodes) < 2 or not separated:
@@ -80,7 +80,7 @@ def detect_trends(
                 continue
             slope_values = []
             for first, second in itertools.combinations(episodes, 2):
-                separation = second.observed_from_index - first.observed_from_index
+                separation = second.contribution_index - first.contribution_index
                 if separation < config.trend_min_pair_separation:
                     continue
                 slope = (second.contribution_price - first.contribution_price) / separation
@@ -93,7 +93,7 @@ def detect_trends(
                 continue
             slope = weighted_median(slope_values)
             residuals = [
-                (item.contribution_price - slope * item.observed_from_index, item.contribution_mass, item.episode_id)
+                (item.contribution_price - slope * item.contribution_index, item.contribution_mass, item.episode_id)
                 for item in episodes
             ]
             seed = weighted_quantile(residuals, 0.20 if role == "lower" else 0.80)
@@ -109,35 +109,26 @@ def detect_trends(
             scored = []
             for intercept in sorted(set(intercepts)):
                 probe = LineProbe(role, slope, intercept, 0, zone)
-                fit_integrity, fit_body_integrity, fit_close_integrity, _, _ = integrity_for_domain(
-                    tape, features, probe, start, fit_confirmed_index, config
-                )
                 anchor_loss = math.fsum(
                     item.contribution_mass * huber(
-                        abs(item.contribution_price - probe.price(item.observed_from_index))
-                        / features.atr_scale(item.observed_from_index, tape.candles[item.observed_from_index].close)
+                        abs(item.contribution_price - probe.price(item.contribution_index))
+                        / features.atr_scale(item.contribution_index, tape.candles[item.contribution_index].close)
                     )
                     for item in episodes
                 ) / math.fsum(item.contribution_mass for item in episodes)
-                scored.append((
-                    anchor_loss + (1.0 - fit_integrity), abs(intercept - seed), intercept,
-                    fit_body_integrity, fit_close_integrity,
-                ))
-            _loss, _seed_distance, intercept, _fit_body_integrity, _fit_close_integrity = min(scored)
+                scored.append((anchor_loss, abs(intercept - seed), intercept))
+            _loss, _seed_distance, intercept = min(scored)
             probe = LineProbe(role, slope, intercept, 0, zone)
-            integrity, body_integrity, close_integrity, _, _ = integrity_for_domain(
-                tape, features, probe, 0, len(tape.candles) - 1, config
-            )
             corridors_ok = all(
-                _basis_corridor_distance(by_id[item.contribution_basis_id], probe.price(item.observed_from_index))
+                _basis_corridor_distance(by_id[item.contribution_basis_id], probe.price(item.contribution_index))
                 <= config.trend_hypothesis_mode_tolerance_atr
-                * features.atr_scale(item.observed_from_index, tape.candles[item.observed_from_index].close)
+                * features.atr_scale(item.contribution_index, tape.candles[item.contribution_index].close)
                 for item in episodes
             )
             residual_atr = [
                 (
-                    abs(item.contribution_price - probe.price(item.observed_from_index))
-                    / features.atr_scale(item.observed_from_index, tape.candles[item.observed_from_index].close),
+                    abs(item.contribution_price - probe.price(item.contribution_index))
+                    / features.atr_scale(item.contribution_index, tape.candles[item.contribution_index].close),
                     item.contribution_mass,
                     item.episode_id,
                 )
@@ -156,12 +147,24 @@ def detect_trends(
                 and seed_quality >= 0.50
                 and abs(slope) / max(candidate_atr, 1e-12) <= 0.15
             )
+            if not geometry_ok:
+                modes.append(_trend_mode(
+                    tape, mode_id, role, medoid, group, compatible, episodes, "weak", dual_scale,
+                    probe=probe,
+                ))
+                continue
+            integrity_eval = integrity_for_domain(
+                tape, features, probe, 0, len(tape.candles) - 1, config
+            )
+            integrity = integrity_eval.integrity
+            body_integrity = integrity_eval.body_integrity
+            close_integrity = integrity_eval.close_integrity
             opposed = (
                 body_integrity < 0.75
                 or close_integrity < 0.85
                 or has_open_break(tape, features, probe, len(tape.candles) - 1, config)
             )
-            state = "coherent" if geometry_ok and not opposed else "opposed" if geometry_ok else "weak"
+            state = "opposed" if opposed else "coherent"
             opposition = clamp(0.5 * (1.0 - body_integrity) + 0.5 * (1.0 - close_integrity))
             mode = _trend_mode(
                 tape, mode_id, role, medoid, group, compatible, episodes, state, dual_scale,
@@ -171,7 +174,6 @@ def detect_trends(
             if state != "coherent":
                 continue
             initial = tuple(item.episode_id for item in sorted(episodes, key=lambda item: (item.confirmed_index, item.episode_id))[:2])
-            initial_episodes = [item for item in episodes if item.episode_id in initial]
             candidate_id = stable_hash(tape.symbol, tape.interval, "trend", role, "initial", initial)
             interactions = evaluate_interactions(tape, features, probe, candidate_id, fit_confirmed_index, span, config)
             persistence = clamp(span / 96.0, 0.25, 1.0)
@@ -186,6 +188,11 @@ def detect_trends(
                 initial_episode_ids=initial, fit_episode_ids=tuple(item.episode_id for item in episodes),
                 fit_evidence_confirmed_index=fit_confirmed_index, seed_quality=seed_quality, integrity=integrity,
                 body_integrity=body_integrity, close_integrity=close_integrity, persistence=persistence,
+                integrity_fact_count=integrity_eval.fact_count,
+                integrity_effective_fact_count=integrity_eval.effective_fact_count,
+                integrity_coverage=integrity_eval.coverage,
+                body_penetration_count=integrity_eval.body_penetration_count,
+                close_penetration_count=integrity_eval.close_penetration_count,
                 interactions=interactions, profile_confluence=None, rank_score=rank_score,
                 reject_reasons=(), fit_episodes=tuple(episodes),
             ))

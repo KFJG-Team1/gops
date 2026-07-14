@@ -78,6 +78,7 @@ class FormationEpisode:
     role: Role
     member_basis_ids: tuple[str, ...]
     contribution_basis_id: str
+    contribution_index: int
     observed_from_index: int
     observed_to_index: int
     confirmed_index: int
@@ -146,6 +147,11 @@ class BoundaryCandidate:
     integrity: float
     body_integrity: float
     close_integrity: float
+    integrity_fact_count: int
+    integrity_effective_fact_count: float
+    integrity_coverage: float
+    body_penetration_count: int
+    close_penetration_count: int
     persistence: float
     interactions: tuple[InteractionEvent, ...]
     profile_confluence: float | None

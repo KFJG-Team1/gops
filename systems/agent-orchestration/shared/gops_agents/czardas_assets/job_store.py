@@ -14,6 +14,16 @@ from .storage import ITEMS_TABLE, JOBS_TABLE
 
 TERMINAL_ITEM_STATUSES = {"saved", "unchanged", "failed", "skipped"}
 MAX_CLAIM_ATTEMPTS = 2
+ACTIVE_JOB_STATUSES = {"queued", "running"}
+TERMINAL_JOB_STATUSES = {"completed", "completed_with_errors", "failed", "canceled"}
+
+
+class CzardasIdempotencyConflict(RuntimeError):
+    pass
+
+
+class CzardasPairBusy(RuntimeError):
+    pass
 
 REAP_EXHAUSTED_CLAIMS_SQL = f"""
 WITH exhausted AS (
@@ -87,31 +97,86 @@ class PostgresCzardasJobStore:
         self.conninfo = conninfo or database_conninfo()
         self._connector = connect or psycopg.connect
 
-    def enqueue(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
+    def submit_once(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
+        """Atomically resolve idempotency/coalescing and enqueue one pair."""
+        coalesced_job_id: str | None = None
         with self._connect() as conn:
+            # Serialize both reuse of one idempotency key and competing submits
+            # for one pair before observing active state. A partial index alone
+            # cannot prevent the empty-read race between two transactions.
             conn.execute(
-                f"""
-                INSERT INTO {JOBS_TABLE} (
-                    job_id, requested_by, submitted_at, symbol, "interval",
-                    status, force_build
-                ) VALUES (%s, %s, %s, %s, %s, 'queued', %s)
-                ON CONFLICT (job_id) DO NOTHING
-                """,
-                (
-                    envelope.job_id, envelope.requested_by, _timestamp(envelope.submitted_at),
-                    envelope.symbol, envelope.interval, envelope.force,
-                ),
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"idempotency:{envelope.job_id}",),
             )
             conn.execute(
-                f"""
-                INSERT INTO {ITEMS_TABLE} (job_id, symbol, "interval", status)
-                VALUES (%s, %s, %s, 'pending')
-                ON CONFLICT (job_id) DO NOTHING
-                """,
-                (envelope.job_id, envelope.symbol, envelope.interval),
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"pair:{envelope.symbol}:{envelope.interval}",),
             )
-            conn.commit()
-        return self.get(envelope.job_id) or {}
+            existing = conn.execute(
+                f"""
+                SELECT job_id, requested_by, symbol, "interval", force_build
+                FROM {JOBS_TABLE}
+                WHERE job_id = %s
+                FOR UPDATE
+                """,
+                (envelope.job_id,),
+            ).fetchone()
+            if existing is not None:
+                same_body = (
+                    existing["requested_by"] == envelope.requested_by
+                    and existing["symbol"] == envelope.symbol
+                    and existing["interval"] == envelope.interval
+                    and bool(existing["force_build"]) == envelope.force
+                )
+                if not same_body:
+                    raise CzardasIdempotencyConflict("idempotency_key_reused")
+                coalesced_job_id = str(existing["job_id"])
+            if coalesced_job_id is None:
+                active = conn.execute(
+                    f"""
+                    SELECT job_id, requested_by, force_build
+                    FROM {JOBS_TABLE}
+                    WHERE symbol = %s AND "interval" = %s
+                      AND status IN ('queued', 'running')
+                    ORDER BY submitted_at, job_id
+                    FOR UPDATE
+                    LIMIT 1
+                    """,
+                    (envelope.symbol, envelope.interval),
+                ).fetchone()
+                if active is not None:
+                    if (
+                        active["requested_by"] == envelope.requested_by
+                        and bool(active["force_build"]) == envelope.force
+                    ):
+                        coalesced_job_id = str(active["job_id"])
+                    else:
+                        raise CzardasPairBusy("czardas_pair_busy")
+            if coalesced_job_id is not None:
+                conn.commit()
+            else:
+                conn.execute(
+                    f"""
+                    INSERT INTO {JOBS_TABLE} (
+                        job_id, requested_by, submitted_at, symbol, "interval",
+                        status, force_build
+                    ) VALUES (%s, %s, %s, %s, %s, 'queued', %s)
+                    """,
+                    (
+                        envelope.job_id, envelope.requested_by, _timestamp(envelope.submitted_at),
+                        envelope.symbol, envelope.interval, envelope.force,
+                    ),
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO {ITEMS_TABLE} (job_id, symbol, "interval", status)
+                    VALUES (%s, %s, %s, 'pending')
+                    """,
+                    (envelope.job_id, envelope.symbol, envelope.interval),
+                )
+                conn.commit()
+        resolved_id = coalesced_job_id or envelope.job_id
+        return {"state": self.get(resolved_id) or {}, "coalesced": coalesced_job_id is not None}
 
     def claim_next(self, worker_id: str, *, lease_seconds: int = 120) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -219,9 +284,13 @@ class PostgresCzardasJobStore:
             conn.commit()
         return status
 
-    def get(self, job_id: str) -> dict[str, Any] | None:
+    def get(self, job_id: str, *, requested_by: str | None = None) -> dict[str, Any] | None:
         with self._connect() as conn:
-            job = conn.execute(f"SELECT * FROM {JOBS_TABLE} WHERE job_id = %s", (job_id,)).fetchone()
+            job = conn.execute(
+                f"SELECT * FROM {JOBS_TABLE} WHERE job_id = %s"
+                + (" AND requested_by = %s" if requested_by is not None else ""),
+                (job_id, requested_by) if requested_by is not None else (job_id,),
+            ).fetchone()
             if job is None:
                 return None
             item = conn.execute(f"SELECT * FROM {ITEMS_TABLE} WHERE job_id = %s", (job_id,)).fetchone()
@@ -266,6 +335,22 @@ class PostgresCzardasJobStore:
             "finishedAt": _iso(job.get("finished_at")),
         }
 
+    def get_for_owner(self, job_id: str, requested_by: str) -> dict[str, Any] | None:
+        return self.get(job_id, requested_by=requested_by)
+
+    def pair_active(self, symbol: str, interval: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT 1 FROM {JOBS_TABLE}
+                WHERE symbol = %s AND "interval" = %s
+                  AND status IN ('queued', 'running')
+                LIMIT 1
+                """,
+                (symbol.upper(), interval),
+            ).fetchone()
+        return row is not None
+
     def record_item(self, job_id: str, item: dict[str, Any]) -> dict[str, Any] | None:
         status = str(item.get("status") or "failed")
         if status not in TERMINAL_ITEM_STATUSES:
@@ -301,13 +386,25 @@ class PostgresCzardasJobStore:
             conn.commit()
         return self.get(job_id)
 
-    def request_cancel(self, job_id: str) -> dict[str, Any] | None:
+    def request_cancel(self, job_id: str, *, requested_by: str | None = None) -> dict[str, Any] | None:
         with self._connect() as conn:
+            job = conn.execute(
+                f"SELECT status FROM {JOBS_TABLE} WHERE job_id = %s"
+                + (" AND requested_by = %s" if requested_by is not None else "")
+                + " FOR UPDATE",
+                (job_id, requested_by) if requested_by is not None else (job_id,),
+            ).fetchone()
+            if job is None:
+                conn.rollback()
+                return None
+            if str(job["status"]) in TERMINAL_JOB_STATUSES:
+                conn.commit()
+                return self.get(job_id, requested_by=requested_by)
             conn.execute(
                 f"""
                 UPDATE {JOBS_TABLE}
                 SET cancel_requested = true, status = 'canceled', finished_at = now(), updated_at = now()
-                WHERE job_id = %s
+                WHERE job_id = %s AND status IN ('queued', 'running')
                 """,
                 (job_id,),
             )
@@ -321,7 +418,7 @@ class PostgresCzardasJobStore:
                 (job_id,),
             )
             conn.commit()
-        return self.get(job_id)
+        return self.get(job_id, requested_by=requested_by)
 
     def is_cancel_requested(self, job_id: str) -> bool:
         with self._connect() as conn:

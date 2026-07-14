@@ -1,498 +1,306 @@
-# Czardas v2 Engine Specification
+# Czardas v3 Engine Specification
 
-이 문서는 현재 코드가 구현하는 Czardas kernel, Field schema 2와 chart 계약의 기준이다.
-과거 시점 replay나 revision history는 이 규격에 없다.
+이 문서는 Czardas v3 kernel, Sight Field schema 3, asset과 chart의 authoritative 계약이다.
 
 ## 1. 고정 계약
 
 | 항목 | 값 |
 | --- | --- |
-| algorithm | `czardas-v2` |
-| config | `czardas-config-v2` |
-| time contract | `market-time-v1` |
-| calendar | `nyse-calendar-v1` |
+| algorithm/config | `czardas-v3` / `czardas-config-v3` |
+| input contract | `canonical-ohlcv-q8-v1` |
+| time/calendar | `market-time-v1` / `nyse-calendar-v1` |
+| Sight projection | `czardas-sight-v2` |
 | 입력 | 최신 canonical 완료봉 exact-240 |
 | output | H-Line `0..4`, Trend `0..3`, 파생 Triangle `0..1` |
-| Field schema | `2` |
-| Field soft target | `77,824` bytes = `76 KiB` |
-| Field hard limit | `81,920` bytes = `80 KiB` |
-| pack hard limit | `98,304` bytes = `96 KiB` |
+| Field schema | `3` |
+| Field soft/hard | `77,824` / `81,920` bytes |
+| pack hard | `98,304` bytes |
 
-H-Line 기본 목표는 2개, Trend 기본 목표는 lower/upper 각 하나인 2개다. 목표는 quota가
-아니므로 적격 후보가 없으면 0개 또는 1개가 정상이다.
+H-Line과 Trend 기본 선택 목표는 각각 2지만 quota가 아니다. honest abstention을 허용하며
+golden test가 정확한 2/2를 요구해서는 안 된다.
 
-## 2. PresentSnapshotContract
+## 2. PresentSnapshot와 input seal
 
-1. kernel input은 `asOf`에서 끝나는 완료봉 240개 하나다.
-2. 240개를 동시에 본 현재 관점으로 각 candle의 의미와 현재 선을 계산한다.
-3. candle `i` 뒤의 데이터도 `asOf` 이하라면 `i`의 neighborhood, 확인과 반응 해석에 쓸 수 있다.
-4. live candle과 `asOf` 이후 데이터는 input digest, feature, evidence, Field, explanation과
-   provenance 어디에도 들어가지 않는다.
-5. snapshot이 한 봉 이동하거나 correction되면 이전 candle의 의미와 선도 다시 계산한다.
-6. candle 순서는 fact confirmation, episode와 interaction의 선후관계에만 쓴다.
-7. 과거 Field, candidate, rank나 엔진 상태를 복원하지 않는다.
-
-`observedAt`은 시장 사실이 발생한 시각, `confirmedAt`은 필요한 오른쪽 문맥이 현재 snapshot
-안에서 완성된 시각이다. 구조적 fact는 `observedAt <= confirmedAt <= asOf`다. 이 둘은 엔진의
-판단 시각이나 revision watermark가 아니다.
-
-우측 문맥이 부족한 extrema는 CandleMeaning에 `confirmation_pending`을 남길 수 있지만
-EvidenceAtom과 RoleBasis를 만들지 않는다. snapshot 순회는 항상 index `0..239` 안에서 끝난다.
-
-## 3. Pipeline
+kernel input은 `asOf`에서 끝나는 완료봉 정확히 240개다. 각 row는 다음을 명시해야 한다.
 
 ```text
-Exact-240 CandleTape
+symbol, interval, candleKey, timestamp, open, high, low, close, volume,
+isClosed=true, canonicalVersion=v2, priceAdjustment=split, marketSession=regular
+```
+
+누락된 provenance에 기본값을 채우지 않는다. row는 timestamp/candle key 오름차순, identity
+unique, finite OHLCV, `low <= open/close <= high`, `volume >= 0`이어야 한다. 239/241, live,
+duplicate와 malformed input은 `AnalysisUnavailable`이다.
+
+OHLCV는 검증 전에 decimal 8자리 `ROUND_HALF_EVEN`으로 양자화한다. validation, feature,
+evidence, geometry와 input digest는 모두 양자화된 값만 사용한다. `+4e-9`처럼 같은 양자화점에
+머무는 입력은 pack bytes까지 같고, quantum을 넘는 변화는 `inputDigest`를 바꾼다.
+
+`PresentSnapshotContract`는 240개를 동시에 본 현재 평가다. `asOf` 이하의 오른쪽 문맥은 앞
+candle 해석에 사용할 수 있지만 post-`asOf`는 어떤 kernel 단계에도 들어갈 수 없다.
+`observedAt/confirmedAt`은 fact 발생·확인 시각이며 history/revision 상태가 아니다.
+
+## 3. 순수 단계와 identity
+
+```text
+Exact-240
   -> FeatureTape
   -> pre-Field CandleMeaningTape
-  -> EvidenceAtom / cluster / confirmed RoleBasis
-  -> current H-Line and Trend modes
-  -> coherent BoundaryCandidates
-  -> all-candle integrity and interaction facts
-  -> selection and Triangle relation
-  -> selected-boundary CandleMeaning blend
-  -> boundaries, drawings and bounded FieldView
+  -> EvidenceAtom / confirmed RoleBasis
+  -> current H-Line / Trend mode and candidate
+  -> all-candle integrity, interaction and relation
+  -> selection / Triangle / final CandleMeaning
+  -> CzardasInference
+
+CzardasInference
+  -> bounded Field projection / drawing / Korean explanation
+  -> CzardasSightPack
 ```
 
-authoritative 계산은 Python kernel 하나다. frontend는 wire를 검증·역변환·투영하며 factor,
-candidate geometry나 rank를 재계산하지 않는다.
-
-## 4. Input과 FeatureTape
-
-### 4.1 CandleTape
-
-각 row는 symbol, interval, unique candle key, UTC `Z` timestamp와 finite OHLCV를 가진다.
-
-- `low <= open/close <= high`, `volume >= 0`.
-- canonical schema `v2`, adjustment `split`, session `regular`, state `closed`.
-- timestamp와 candle key가 오름차순이며 exact-240이어야 한다.
-- 239/241봉, duplicate, live-only 또는 malformed input은 `AnalysisUnavailable`이다.
-
-`inputDigest`는 canonical candle identity와 OHLCV content의 digest다. `asOf`는 index 239의
-timestamp다.
-
-### 4.2 FeatureTape
-
-한 번의 선형 scan으로 다음 SoA를 만든다.
-
-- Wilder ATR14와 zero/준비 구간용 positive `effectiveAtr` floor.
-- body low/high, lower/upper wick.
-- close-to-close return.
-- 직전 20봉 대비 volume rank, log-volume median/MAD z와 participation.
-
-```text
-volumeAnomaly = clamp01(.5 + volumeZ / 6)
-participation = .5 * volumeRank + .5 * volumeAnomaly
-recency(i) = 2^(-(239-i)/120)
-```
-
-recency는 FeatureTape column이나 prefix별 값이 아니라 현재 RoleBasis mass를 만들 때 index 239를
-기준으로 한 번 계산한다.
-
-## 5. CandleMeaningTape
-
-### 5.1 factor catalog
-
-Field schema 2의 raw/normalized factor key는 정확히 21개다.
-
-| 단계 | key |
-| --- | --- |
-| pre-Field Shared | `rangeAtr`, `absoluteReturnAtr`, `bodyFraction`, `lowerWickFraction`, `upperWickFraction` |
-| pre-Field neighborhood | `localHighR2`, `localLowR2`, `localHighR5`, `localLowR5`, `localHighR13`, `localLowR13` |
-| pre-Field H-Line volume | `volumeRank`, `volumeZ`, `participation` |
-| selected H-Line | `supportProximity`, `resistanceProximity`, `hlinePenetrationAtr` |
-| selected Trend | `lowerResidualAtr`, `upperResidualAtr`, `trendPenetrationAtr` |
-| selected shared relation | `reclaimStrength` |
-
-현재 raw catalog에는 close-location, close-extremity 또는 recency factor가 없다. close와 recency는
-각각 integrity/interaction과 RoleBasis mass 내부 계산에 쓰이며 hover factor로 가장하지 않는다.
-
-`localHigh/LowR{r}`는 `[i-r,i+r]`를 snapshot 경계에서 clip한 가격 범위 안에서 현재 high/low의
-상대 위치다. confirmed extrema 승격만 full right context를 요구한다.
-
-### 5.2 availability와 robust normalization
-
-availability bit은 ATR 준비, trailing-volume baseline 준비, 최대 radius 13의 오른쪽 문맥 준비를
-각각 나타낸다. 없는 ATR/volume 값은 raw와 normalized 모두 null이다.
-
-각 factor의 exact-240 available raw 값에 대해 다음을 적용한다.
-
-```text
-center = median(values)
-scale  = max(1.4826 * median(abs(value-center)), 1e-12)
-normalized = clamp01(.5 + (value-center)/(6*scale))
-```
-
-Shared summary는 available normalized Shared/neighborhood factor의 RMS다. H-Line과 Trend 역할은
-단순 RMS가 아니라 다음 방향별 가중식이다. `localHigh`와 `localLow`는 각각 R2/R5/R13
-normalized 값의 RMS이고, 식의 다른 항도 normalized 값이다.
-
-```text
-hSupport = .40*localLow  + .20*lowerWick + .15*range + .15*absReturn
-hResist  = .40*localHigh + .20*upperWick + .15*range + .15*absReturn
-
-supportPre/resistancePre =
-  volume available   ? clamp(hRole + .10*participationNormalized)
-                     : clamp(hRole / .90)
-
-lowerPre = clamp(.55*localLow  + .20*lowerWick + .15*range + .10*absReturn)
-upperPre = clamp(.55*localHigh + .20*upperWick + .15*range + .10*absReturn)
-```
-
-없는 ATR 기반 항은 이 역할식에서 0으로 기여한다. availability와 reason은 별도로 남으므로 0이
-관측값인 것처럼 표시되지 않는다. Trend 역할식은 volume factor를 읽지 않는다.
-
-### 5.3 RoleBasis에 대한 실제 기여
-
-pre-Field 역할값은 visualization-only composite와 별개로 RoleBasis mass의 20%를 구성한다.
-
-```text
-hlineStructural = clamp(.40*prominence + .30*rejection
-                       +.20*bodyIntegrity + .10*recency)
-participationMultiplier = volume unavailable ? 1 : .90 + .10*participation
-hlineRoleMass = clamp(.80*hlineStructural*participationMultiplier
-                     +.20*supportPreOrResistancePre)
-
-scaleScore(R2/R5/R13) = .35/.70/1.00
-trendStructural = clamp(.50*prominence + .30*scaleScore + .20*recency)
-trendRoleMass = clamp(.80*trendStructural + .20*lowerPreOrUpperPre)
-```
-
-H-Line의 geometry score는 volume과 pre-Field 역할값을 제외한
-`(.40*prominence + .20*bodyIntegrity + .10*recency)/.70`이다. Trend geometry score는
-trendRoleMass와 같고 그 call graph는 volume-independent다.
-
-### 5.4 selected-boundary blend
-
-selection 뒤에만 현재 선택 경계와 모든 240봉의 관계를 계산한다.
-
-```text
-hlineProximity = exp(-distance(candleRange, zone)/ATR)
-trendResidualAtr = max(0, abs(roleEndpoint-line)-zone)/ATR
-trendAlignment = exp(-trendResidualAtr)
-
-supportFinal/resistanceFinal = clamp(.65*pre + .35*hlineProximity)
-lowerFinal/upperFinal         = clamp(.65*pre + .35*trendAlignment)
-```
-
-role에 선택 경계가 없으면 그 role의 relation은 null이다. H-Line/Trend 관계가 하나라도 있는
-candle에서 반대 role의 null relation은 blend의 0 항으로 처리된다. penetration은 zone 반대편
-body depth/ATR다. reclaim은 wick이 zone을 탐색했지만 종가가 유효한 쪽에 남은 깊이를 bounded
-강도로 기록하며 H-Line/Trend 중 큰 값을 `reclaimStrength`로 쓴다.
-
-Shared summary는 final 단계에서 바뀌지 않는다.
-
-```text
-hlineSummary = max(supportFinal, resistanceFinal)
-trendSummary = max(lowerFinal, upperFinal)
-compositePercentile = midrankPercentile(shared + hlineSummary + trendSummary)
-```
-
-Composite는 renderer 전용이다. Evidence, mode, candidate, rank와 selection에 되먹임되지 않는다.
-조밀한 zoom에서도 H-Line/Trend toggle이 꺼지면 해당 channel은 합성 강도에서 제외하고 Shared는
-항상 유지한다.
-
-화면 표기는 `상대 의미도`다. 이는 exact-240 내부 percentile이라는 뜻이며 예측 확률이나 매매
-점수가 아니다. hover/focus overlay는 summary와 role뿐 아니라 21개 factor의 raw/normalized 값,
-모든 reason의 channel/usage, availability와 phase를 접기나 스크롤 없이 표시한다.
-
-### 5.5 phase와 reason
-
-phase bit은 `geometryInput`, `fit`, `integrity`, `response`, `visualizationOnly`,
-`confirmationPending`이다. 실제 RoleBasis bar, selected fit Basis bar, supported-response contact와
-selected-boundary relation bar에만 해당 bit을 추가한다.
-
-reason codebook의 각 code는 channel과
-`geometry_input | fit | integrity | response | visualization_only` usage를 가진다. pre-Field
-factor의 대표 reason은 그 candle에서 두드러진 관측을 설명할 뿐이므로 visualization-only로
-표시한다. 확인된 extrema가 RoleBasis로 승격된 bar에는 방향별
-`support/resistance/lower/upper_role_basis_input`을 별도로 붙여, 해당 pre-Field 역할값이
-RoleBasis 질량의 20%로 geometry에 실제 기여했음을 명시한다. RoleBasis/fit/response에 실제
-사용된 bar만 해당 usage reason을 가진다.
-
-선택된 support/resistance/lower/upper 경계가 없어서 relation factor가 null인 경우에는 모든
-candle에 해당 방향의 `*_boundary_unavailable` reason을 붙인다. 이는 관측값 0이나 정렬 실패가
-아니라 현재 pack에 비교할 선택 경계가 없다는 뜻이다.
-
-## 6. Evidence와 RoleBasis
-
-radius `2/5/13`의 centered window에서 strict 양쪽 문맥을 가진 swing high/low를 찾는다. 같은
-가격의 연속 plateau는 prominence와 안정 ID로 하나를 고른다. swing fact는 `i+r`, 3봉 rejection
-fact는 `max(i+r,i+3)`에서 확인된다.
-
-같은 exact kind만 NMS cluster로 묶는다. 대표 bar 차이는 최대 2, corridor overlap 또는
-`0.25 ATR` 가격 근접을 요구한다. 다른 kind를 합치지 않는다.
-
-| atom kind | RoleBasis role |
-| --- | --- |
-| `rejectionLow` | support |
-| `rejectionHigh` | resistance |
-| `swingLow` | lower |
-| `swingHigh` | upper |
-
-각 RoleBasis는 endpoint, body edge, wick corridor, role/geometry mass, rejection, optional
-participation, effective scale, observed/confirmed index를 가진다.
-
-## 7. FormationEpisode와 integrity
-
-Basis는 bar/confirmation 순서로 처리한다. 이전 Basis 다음부터 새 Basis 전까지 유효 방향으로
-zone을 떠났으면 새 FormationEpisode를 시작한다.
-
-- zone에서 `0.75 ATR` 이상 유효 방향으로 멀어진 close, 또는
-- 유효 방향 zone 밖 close가 3봉 연속.
-
-episode contribution은 member endpoint의 weighted median에 해당하는 canonical Basis다.
-H-Line corridor는 이 contribution Basis corridor에 touch tolerance를 확장한 것이며 member
-corridor 합집합이 아니다.
-
-현재 candidate integrity는 exact-240 index `0..239`를 한 번 스캔한다. zone에서 1 ATR보다
-멀고 침투가 없는 candle은 중립이라 적분에서 제외한다. 나머지는 다음 bounded loss를 쓴다.
-
-```text
-raw = max(wickDepth, 4*bodyDepth, 8*closeDepth)
-factLoss = raw/(1+raw)
-weight(i) proportional to 2^(-(239-i)/120), per-candle influence <= .15
-integrity = clamp01(1 - sum(weight*factLoss))
-```
-
-bodyIntegrity와 closeIntegrity는 같은 방식으로 각각 `4*bodyDepth`, `8*closeDepth`를 쓴다.
-최신 index 238과 239의 close depth가 모두 `0.25 ATR`를 초과하면 `hasOpenBreak=true`다.
-
-## 8. H-Line detector
-
-1. support/resistance별 RoleBasis를 role mass 순으로 최대 48개 유지한다.
-2. 각 wick corridor에 `0.25 ATR` tolerance를 확장하고 양의 폭 elementary segment만 sweep한다.
-3. 같은 response mass의 연속 segment를 plateau ridge 하나로 합친다.
-4. 서로 다른 cluster 두 개 이상이 겹친 ridge만 provisional mode가 된다.
-5. FormationEpisode contribution corridor를 다시 sweep한다.
-6. weighted median center, weighted MAD와 80% residual floor로 zone을 refine한다.
-
-coherent H-Line hard gate는 다음과 같다.
-
-- fit episode `>=2`, observed span `>=20` bars.
-- mean rejection `>=.35`, seed quality `>=.45`.
-- zone `<=.35 × candidate median ATR`.
-- body integrity `>=.70`, current open break 없음.
-
-```text
-agreement = clamp01(1 - weightedMAD/zone)
-seedQuality = .45*mean(contribution geometryScore)
-             +.30*meanEpisodeRejection + .25*agreement
-```
-
-동일 OHLCV로 만든 48-bin estimated profile은 coherent candidate의 rank에만 최대 `.05`를 더한다.
-profile은 seed와 hard gate를 만들지 않는다.
-
-## 9. Trend detector
-
-lower와 upper를 완전히 독립 처리한다.
-
-1. effective scale `>=5` 또는 geometry score `>=.75`인 RoleBasis를 anchor 후보로 쓴다.
-2. `[0..79]`, `[80..159]`, `[160..239]`에서 각 최대 4개를 뽑아 role별 최대 12개를 유지한다.
-   비어 있는 시간 구간의 cap을 다른 구간에서 다시 채우지 않는다.
-3. 최소 12봉 떨어진 pair로 최대 66개 hypothesis를 만든다.
-4. seed mass는 두 role mass의 기하평균에 separation weight `.25..1`을 곱한다.
-5. window 시작/끝 가격의 weighted L-infinity 거리 `<=.50 ATR`인 hypothesis를 묶고 weighted
-   distance sum 최소 medoid를 고른다.
-6. medoid corridor에 compatible한 Basis를 episode로 압축한다.
-7. episode pair slope의 weighted median으로 slope를 정하고 lower 20%/upper 80% residual
-   quantile에서 intercept seed를 잡는다.
-8. residual과 `residual±zone`, seed bound를 열거해 `(loss, |intercept-seed|, intercept)` 순으로
-   현재 intercept를 선택한다.
-
-coherent Trend hard gate는 다음과 같다.
-
-- episode `>=2`, 서로 12봉 이상 떨어진 episode pair와 span `>=20`.
-- contribution corridor가 line의 `.50 ATR` tolerance 안에 있음.
-- seed quality `>=.50`, `abs(slope)/candidateATR <=.15`.
-- body integrity `>=.75`, close integrity `>=.85`, current open break 없음.
-
-```text
-fitScore = exp(-weightedMedian(endpoint residual / ATR))
-touchScore = clamp01(episodeCount/4)
-seedQuality = .45*mean(contribution roleMass) + .35*fitScore + .20*touchScore
-```
-
-slope 방향은 강제하지 않는다. Trend의 factor, RoleBasis, anchor, mode, episode, interaction,
-boundary rank와 drawing geometry는 volume-only 변경 전후 byte-identical해야 한다. 입력 전체를
-식별하는 `inputDigest/inferenceId/sourceInferenceId`와 H-Line·Shared가 섞인 container 위치는 이
-Trend-owned byte 비교에서 제외한다.
-
-## 10. Interaction, rank와 selection
-
-`fitEvidenceConfirmedAt`은 fit episode의 최대 `confirmedAt`이다. interaction scan은 그 다음
-index부터 시작하므로 fit evidence를 response로 다시 세지 않는다.
-
-contact 뒤 평가 horizon은 formation span `<48`, `<96`, 그 이상에 각각 `3/5/8`봉이다.
-horizon이 `asOf`를 넘으면 `response_pending`이다. 완료되면 다음을 계산한다.
-
-```text
-responseScore = clamp01(
-  .45*maxCloseExcursion
-  +.30*(1-acceptanceMass)
-  +.25*explorationPressure*reclaimSpeed*(1-acceptanceMass)
-)
-```
-
-`maxCloseExcursion >=.25 ATR`이고 score `>=.45`면 `supported_response`, 아니면
-`neutral_response`다. interaction scan 안에서 반대편 `0.25 ATR` 초과 close가 2봉 연속이면
-`confirmed_break`다. public outcome은 이 네 값뿐이다.
-
-candidate의 `evidenceState`는 supported response가 하나라도 있으면 `response_supported`,
-그렇지 않으면 `formed`다. response는 drawing hard gate가 아니다.
-
-```text
-responseMass  = sum(supported responseScore)
-responseBonus = .05 * min(responseMass, 2)          # max .10
-profileBonus  = H-Line only: .05 * profileConfluence # max .05
-baseRank      = .50*seedQuality + .30*integrity + .20*persistence
-rankScore     = clamp01(baseRank + responseBonus + profileBonus)
-```
-
-selection eligibility는 rank `>=.45`이고, 최근 fact가 120봉 안이거나 현재 가격과의 거리가
-`<=3 ATR`인 후보이다. 동일 role 근접 후보의 중복 utility를 감점한다. 두 Trend role이 모두
-있고 목표가 2개 이상이면 lower와 upper를 함께 선택한다. 한쪽만 있으면 하나만 선택한다.
-
-Triangle은 selection 이후 upper/lower Trend pair의 순수 기하 관계다. candidate geometry나
-rank를 변경하지 않는다.
-
-## 11. Identity와 provenance
+`CzardasInference`는 표현 독립적이다. `CzardasSightPack`만 paint grammar, line width, 설명과
+budget projection을 소유한다. production config는 `validate()`에서 exact-240, R2/R5/R13,
+ATR14, volume20와 byte/count 범위를 봉인한다. research config는 inference만 허용하고 Sight
+projection과 저장을 `research_config_not_storable`로 거부한다.
 
 ```text
 inferenceId = hash(
-  algorithmVersion, configVersion, timeContractVersion, calendarVersion,
+  algorithmVersion, configVersion, inputContractVersion,
+  timeContractVersion, calendarVersion, inferenceConfigDigest,
   symbol, interval, asOf, inputDigest
+)
+
+sightProjectionId = hash(
+  inferenceId, sightProjectionVersion, projectionConfigDigest
 )
 ```
 
-- H-Line `fieldModeId`: role과 canonical origin seed Basis IDs.
-- Trend `fieldModeId`: role과 medoid hypothesis ID.
-- `derivationDigest`: current contributors, episode set, geometry, mass와 opposition의 digest.
-- `candidateId`: kind, role과 canonical initial two episode IDs.
-- drawing provenance: `sourceInferenceId`, `sourceCandidateId`, `sourceFieldModeId`,
-  `sourceFieldDerivationDigest`.
+input/provenance identity digest는 derived float의 exact IEEE-754 의미를 보존한다. wire/content
+digest는 8자리 canonical pack JSON의 SHA-256이다. 두 digest의 역할을 섞지 않는다.
 
-같은 stable candidate ID가 새 snapshot에 다시 나타나도 history revision이 아니다. drawing의
-`createdAt/updatedAt`은 wall clock이 아니라 pack `asOf`다. public pack에는 revision, lineage,
-first-seen 또는 replay field가 없다.
+## 4. Feature와 CandleMeaning
 
-## 12. Field schema 2
-
-### 12.1 CandleMeaning wire
-
-`candleMeanings`는 같은 index가 같은 candle을 가리키는 compact SoA다.
-
-- `candleKeys[240]`, `timestamps[240]`.
-- `summaries`와 `roles`: score scale 1000의 integer arrays.
-- `factors`와 `normalizedFactors`: factor별 240개 signed int16 big-endian base64 blob.
-- `availabilityMasks[240]`, `phaseMasks[240]`와 bit codebooks.
-- `reasonMasks`: candle별 uint32 big-endian reason mask 240개를 합친 base64 blob.
-- `reasonCodebook`: code `0..31`, key, label, usage와 channel.
-
-raw factor encode/decode는 metadata에 의해 결정된다.
+FeatureTape는 한 번의 선형 scan으로 Wilder ATR14, effective ATR, body/wick, close return,
+trailing volume20 rank와 log-volume robust z/participation을 만든다.
 
 ```text
-qRaw = round(transform(raw) * rawFactorScales[key])
-raw  = linear ? qRaw/scale : expm1(qRaw/scale)
-
-qNormalized = round(normalized * normalizedFactorScale) # scale=1000
-normalized  = qNormalized/1000
+recency(i) = 2^(-(239-i)/120)
+volumeAnomaly = clamp01(.5 + volumeZ/6)
+participation = .5*volumeRank + .5*volumeAnomaly
 ```
 
-`rangeAtr`, `absoluteReturnAtr`, lower/upper residual, H-Line/Trend penetration은 `log1p`; 나머지는
-`linear`다. v2 factor scale은 모두 1000으로 잠그며 wire의 factor별 map도 이 값을 명시한다.
-frontend는 상수를 가정해 재계산하지 않고 검증된 map으로 역변환한다. null sentinel은
-`-32768`, 유효 int16 범위는 `-32767..32767`이다. `rawFactorRanges`를
-함께 보내고 overflow는 clamp하지 않고 `factor_encoding_overflow`로 build를 실패시킨다.
+ATR availability 전 13봉은 unavailable로 남지만 geometry scale에는 첫 Wilder seed를 사용한다.
+첫 seed가 실제 zero-range일 때만 `max(0.01, abs(close)*1e-6)` effective tick을 쓴다.
 
-factor blob 하나는 480 bytes/640 base64 chars, reason mask는 960 bytes/1280 base64 chars다.
+Field factor는 정확히 21개다.
 
-### 12.2 mandatory selected closure
+- Shared: range/ATR, absolute return/ATR, body/lower wick/upper wick fraction,
+  local high/low R2/R5/R13.
+- H-Line: volume rank/z/participation, support/resistance proximity,
+  H-Line penetration, reclaim.
+- Trend: lower/upper residual, Trend penetration.
 
-Field의 필수 의미 bundle은 다음이다.
-
-1. exact-240 `candleMeanings` 전체.
-2. `basisFacts`: selected mode contributor와 selected fit episode member/contribution Basis의 SoA.
-3. selected mode의 `contributorBasisIndexes`: `basisFacts`를 가리키는 모든 contributor index.
-4. `selectedModeRefs`와 source inference/mode/derivation digest.
-5. `derivationEpisodes`: candidate별 fit episode closure.
-
-`derivationEpisodes.candidateIndexes`는 `selectedModeRefs` index를 가리킨다.
-`candidateEpisodeOrdinals`는 해당 candidate boundary의 `fitEpisodeIds` ordinal을 가리킨다.
-`contributionBasisIndexes`와 각 `memberBasisIndexes`는 `basisFacts` index를 가리킨다. 모든 SoA
-column 길이는 같아야 하고 selected closure에 orphan이 없어야 한다.
-
-`basisGlyphs`는 대표 Basis를 바로 그리기 위한 optional projection이다. 생략되어도
-`basisFacts`와 index closure는 남는다. H-Line profile/response segment, 비선택 mode, 추가
-representative hypothesis와 대표 glyph도 optional이다.
-
-### 12.3 budget projection
-
-Field가 soft target 76 KiB를 넘으면 canonical 순서로 다음을 줄인다.
-
-1. profile 전체 생략.
-2. Trend representative hypothesis를 mode당 하나까지 축소.
-3. optional `basisGlyphs`.
-4. H-Line response segments.
-5. 비선택 Trend/H-Line modes.
-
-selected mode, `basisFacts`, derivation episodes, CandleMeaning과 selected validation은 제거하지
-않는다. projection은 omitted count와 `truncated`를 기록한다. projection 후 Field가 hard
-80 KiB를 넘거나 전체 pack이 96 KiB를 넘으면 partial Ready를 만들지 않고
-`payload_limit_exceeded`가 된다.
-
-## 13. 좌표와 frontend
-
-| 공간 | 대상 | 변환 |
-| --- | --- | --- |
-| data-space | candle, Basis, Trend mode/hypothesis/ribbon, validation, drawing | `timestampToX` + `priceToY` |
-| analysis-space | H-Line response, ridge와 zone | exact window timestamp 범위 + `priceToY` |
-| screen-space | hover text overlay, legend, Triangle badge | viewport CSS pixel |
-
-H-Line primitive는 `windowFromTimestamp..windowToTimestamp`에서 clip한다. Field는 price autoscale
-source가 아니다. pan, zoom과 resize는 DTO geometry를 재계산하지 않고 동일 data transform만
-다시 적용한다.
-
-frontend는 pack version, exact 240 lengths, int16/reason blob 길이, provenance와 stale identity를
-검증한다. hover는 factor metadata로 raw를 역변환한다. text overlay는 실제 `plot.left`,
-`plot.right`, `plot.bottom`에서 inset을 계산하여 가격축·시간축 바깥에 놓고, 배경이나 hit-test
-surface를 만들지 않는다. stale 또는 inputDigest mismatch이면 Field와 hover를 현재 candle 위에
-표시하지 않는다.
-
-H-Line/Trend toggle은 해당 Field branch와 managed drawing만 숨긴다. Shared는 유지한다.
-`czardas-managed` drawing은 system actor만 만들 수 있다. 첫 사용자 편집은 user-owned copy와
-session suppression을 하나의 transaction으로 만들며 서버에는 저장하지 않는다.
-
-## 14. Asset API와 저장
+factor normalization은 snapshot median과 `max(1.4826×MAD, semanticFloor)`를 쓴다.
+semantic floor는 일반 factor `0.001`, volume rank `0.025`다. floor 이하 차이는 normalized
+중립 `0.5` 부근에 머문다. availability가 없는 값은 null sentinel과 reason으로 운반한다.
 
 ```text
-GET    /api/charts/czardas-assets?symbol=AAPL
-POST   /api/charts/czardas-assets/build
-GET    /api/charts/czardas-assets/build/{cza-job-id}
-POST   /api/charts/czardas-assets/build/{cza-job-id}/cancel
+Shared = RMS(available shared normalized factors)
+H-Line = max(support, resistance)
+Trend  = max(lower, upper)
+display percentile = midrank percentile(Shared + H-Line + Trend)
+```
+
+display percentile은 visualization-only다. Trend channel, Trend Field/geometry/rank는
+volume-only 변경 전후 byte-identical해야 한다.
+
+## 5. Evidence와 FormationEpisode
+
+R2/R5/R13 extrema는 full right context가 `asOf` 안에 있을 때만 EvidenceAtom이 된다. exact-kind
+NMS와 plateau collapse 후 cluster representative가 RoleBasis를 만든다. pre-Field 역할 mass는
+Basis mass의 20%에 기여한다. H-Line volume participation은 기존 mass를 `0.90..1.00`에서만
+조정하며 단독 seed나 hard-gate bypass가 아니다.
+
+FormationEpisode는 순서대로 Basis를 묶되 유효 방향 `0.75 ATR` 이탈 또는 zone 밖 close 3봉
+지속 뒤 다음 Basis부터 새 episode를 허용한다. episode는 다음 canonical contribution을 가진다.
+
+```text
+contributionBasisId
+contributionIndex
+contributionPrice
+```
+
+Trend slope, residual, ATR, corridor와 validation timestamp/price는 반드시 같은 contribution
+Basis의 index와 price를 사용한다.
+
+## 6. H-Line
+
+1. support/resistance Basis corridor를 elementary price segment로 sweep한다.
+2. 양의 폭 segment만 사용하며 점 하나의 접촉은 seed가 아니다.
+3. 실제 경계가 맞닿는 segment만 이웃이다. 빈 gap 건너편 ridge는 독립이다.
+4. local plateau를 ridge 하나로 합치고 독립 cluster 두 개 이상을 요구한다.
+5. episode contribution을 weighted median/MAD로 center/zone refine한다.
+6. formation geometry gate를 통과한 final boundary probe에만 all-240 integrity, open break,
+   response를 평가한다. gate 전의 weak search mode는 boundary가 아니므로 integrity를 만들지 않는다.
+7. exact-240의 48-bin estimated profile은 rank에만 최대 `0.05`를 더한다.
+
+H-Line `J_e`는 contribution Basis 하나의 확장 corridor이며 member corridor 합집합이 아니다.
+
+## 7. Trend
+
+lower/upper를 독립 bank로 만든다. 240봉을 세 시간 구간으로 나누고 방향별 각 구간 최대 4개,
+전체 최대 12개 anchor를 선택한다. 최소 12봉 떨어진 pair로 sparse hypothesis를 만든다.
+
+- mode distance: weighted L∞ window-start/window-end 거리.
+- medoid: weighted L∞ 거리 합 최소, ID tie-break.
+- slope: episode contribution pair의 weighted Theil–Sen median.
+- intercept: seed 경계와 episode residual `±zone` 후보를 열거하고 episode anchor Huber loss,
+  seed 거리, intercept 순으로 선택.
+- slope 방향을 강제하지 않는다.
+- formation geometry gate를 통과한 final probe에서만 all-240 integrity를 한 번 계산한다.
+
+## 8. Integrity, response와 rank
+
+모든 관련 candle fact에 recency raw weight를 만들고 합이 1인 capped simplex로 투영한다.
+
+```text
+cap = max(0.15, 1/factCount)
+nEff = 1 / sum(weight^2)
+integrityCoverage = min(1, nEff/7)
+```
+
+wick loss는 최대 `0.25`; body와 close penetration은 더 엄격한 bounded loss다. integrity,
+body/close integrity, fact count, effective fact count, coverage, body/close penetration count를
+별도로 운반한다. coverage는 v3 rank/hard gate에 추가하지 않는다.
+
+response는 fit episode와 겹치지 않고 `fitEvidenceConfirmedAt` 뒤에서 시작한 interaction만
+보너스를 받을 수 있다. current snapshot의 마지막 두 close가 반대편 `0.25 ATR`보다 깊으면
+open break다. 과거 break 뒤 reclaim은 영구 broken 상태가 아니라 relation fact다.
+
+```text
+base rank = .50*seedQuality + .30*integrity + .20*persistence
+response bonus <= .10
+H-Line profile bonus <= .05
+```
+
+selection formula와 기본 목표 2/2는 유지하되 threshold 미달 후보로 quota를 채우지 않는다.
+H-Line/Trend selection 뒤에만 Triangle pure relation을 계산한다.
+
+## 9. Field schema 3와 projection
+
+pack과 Field는 다음 identity를 필수로 가진다.
+
+```text
+inputContractVersion, inferenceConfigDigest, projectionConfigDigest,
+sightProjectionVersion, sightProjectionId
+```
+
+Field mandatory bundle:
+
+1. exact-240 candle key/timestamp와 CandleMeaning 전체.
+2. selected mode.
+3. selected Basis, episode, interaction closure.
+4. episode `contributionIndexes`.
+5. selected validation/relation.
+6. boundary integrity coverage/effective fact/penetration counts.
+
+optional projection:
+
+- role별 비선택 mode 최대 1개.
+- retained Trend hypothesis 최대 1개.
+- H-Line response segment role별 최대 8개.
+- Volume Profile 48-bin 전부 또는 전부 생략.
+
+전체 search mode count는 debug metric에만 있다. `projection.truncated`는 실제 byte budget 절삭이
+일어났을 때만 true다. mandatory bundle이 hard limit을 넘으면 partial pack을 저장하지 않는다.
+
+summary/role은 scale 1000 array, factor는 signed int16 big-endian base64, reason은 uint32
+bitmask base64다. `-32768`은 null sentinel이고 overflow는 build failure다.
+
+## 10. Sight와 좌표
+
+| 공간 | 대상 |
+| --- | --- |
+| data-space | candle, Basis, Trend ribbon, validation, managed drawing |
+| analysis-space | H-Line zone/response의 exact-240 timestamp window |
+| screen-space | hover text, legend, Triangle badge |
+
+모든 data primitive는 동일 `timestampToX/priceToY`를 쓴다. H-Line은 analysis window에 clip한다.
+기본 canvas paint의 zoom 문법은 전역 slot width `6px`을 경계로 고정한다. hover로 넓어진
+candle width는 이 판정에 들어가지 않는다.
+
+- detail: candle 진하기는 Trend on이면 `(Shared+Trend)/2`, off이면 Shared다.
+- detail: H-Line은 고점 resistance/저점 support에 붙는 동일 노란색 국소 수평 흔적이다.
+  strength는 role이 양수일 때 `(Shared+role)/2`, 반길이는
+  `clamp(slotWidth*(0.55+1.25*strength),3,18)`px다.
+- dense: 노란 세로 흔적은 두 branch on이면 composite percentile, 일부 off이면 Shared와
+  켜진 summary의 평균이다.
+- Trend upper/lower candle glyph는 없으며 selected ribbon/Basis도 같은 Trend 색을 쓴다.
+
+selected zone/ribbon, selected Basis/validation, drawing/Triangle은 유지한다.
+response/profile/non-selected mode/hypothesis는 paint 0이다. H-Line/Trend toggle은 해당 channel의
+시각 기여만 제거하고 Shared는 항상 유지한다.
+
+hover text는 21개 factor, 모든 reason, availability와 phase를 항상 표시한다. `240봉 내 전체
+의미 백분위`는 probability가 아니다. same-candle pointer movement는 overlay rerender를 만들지 않고
+전체 overlay에 `aria-live`를 두지 않는다.
+
+`Czardas 해설`과 focus event는 `inferenceId+asOf+inputDigest`가 일치해야 한다. focus에는
+candidate provenance도 포함한다. stale/mismatch면 Field, hover와 해설을 숨긴다.
+
+## 11. API, queue와 저장
+
+```text
+GET    /api/charts/czardas-assets?symbol=AAPL[&interval=1D]
+POST   /api/charts/czardas-assets/build   (Idempotency-Key 필수)
+GET    /api/charts/czardas-assets/build/{cza-id}
+POST   /api/charts/czardas-assets/build/{cza-id}/cancel
 DELETE /api/charts/czardas-assets?symbol=AAPL&interval=1D
 ```
 
-build body는 한 symbol×interval만 받는다. GET은 PostgreSQL과 read-only candle identity만 읽고
-repair, kernel, enqueue 또는 write를 하지 않는다. freshness는
-`current | stale | missing | incompatible`다. v1 asset은 incompatible이며 자동 변환·fallback
-또는 자동 rebuild하지 않는다.
+GET은 mutation-free다. optional interval이면 그 entry만 PostgreSQL/ClickHouse에서 읽는다.
+entry는 freshness와 `identity_match|input_changed|identity_unavailable|asset_missing|
+contract_incompatible` reason을 가진다. candle response의 exact completed-240에는 server-derived
+`canonicalSnapshot` metadata를 붙인다.
 
-PostgreSQL에는 deterministic pack content만 저장한다. `generatedAt`은 envelope에만 있다.
-build 시작 뒤 source snapshot identity가 바뀌면 pre-commit audit가
-`snapshot_changed_during_build`로 write를 거부한다.
+build는 모든 로그인 사용자가 할 수 있지만 status/cancel은 owner에게만 보이며 타인은 404다.
+동일 owner/idempotency/body는 같은 job, 동일 owner/pair/force active job은 coalesce한다. force가
+다르거나 다른 owner가 같은 pair를 실행 중이면 `409 czardas_pair_busy`다. terminal cancel은
+no-op이고 active build 중 DELETE는 409다.
 
-## 15. 검증 gate
+`submit_once()`는 idempotency 판단과 job/item insertion을 한 PostgreSQL transaction에서 한다.
+unexpected exception 원문은 DB/API에 저장하지 않는다. lease, 최대 2회 claim, repair,
+pre-commit snapshot audit, cancel-safe save와 기존 successful asset 보존 계약을 유지한다.
 
-- 동일 exact-240 100회 content bytes와 digest 동일.
-- CandleMeaning/summary/role/mask 길이 240, factor blob 480 bytes, reason blob 960 bytes.
-- 오른쪽 in-snapshot 문맥 변경이 앞 candle의 현재 의미를 바꿀 수 있음.
-- post-asOf isolation, observed/confirmed time invariant, pending extrema Basis 미생성.
-- selected mode→`basisFacts`→episode→interaction closure orphan 0.
-- volume-only 변경 전후 Trend channel/Field/geometry/rank bytes 동일.
-- 가격 평행이동·양수배, zero ATR/volume, isolated wick, persistent penetration, break/reclaim.
-- H-Line `<=4`, Trend `<=3`, drawing `<=7`; no-draw도 240 CandleMeaning 유지.
-- Field soft projection deterministic, Field `<=80 KiB`, pack `<=96 KiB`.
-- kernel production P95 `<=50ms`, P99 `<=80ms`.
-- frontend parse+delta와 Field paint 각각 P95 `<=8ms`.
-- pan/zoom/right-empty-space source coordinate 오차 `<=0.5 device pixel`.
+PostgreSQL migration은 `004 -> 005`다. v2/null identity row는 보존하지만 incompatible다.
+
+## 12. Offline evaluator
+
+`evaluation.py`는 runtime replay가 아니다. 선택한 historical index마다 별도 exact-240을 kernel에
+전달한다. future horizon은 `_future_outcomes`에만 전달한다. evaluator는 다음을 보고한다.
+
+- adjacent H-Line/Trend ATR-normalized drift와 timestamp-aligned Field churn.
+- future contact, reclaim, body/close penetration과 2-close invalidation.
+- geometry overlap과 fit episode Jaccard 기반 marginal information.
+- response/profile rank ablation, neutral-volume, flat-recency, single-radius R2/R5/R13 research inference.
+- latest confirmed radius-5 pivot baseline.
+- output/search counts, Field/pack bytes와 stage latency.
+
+research config는 Sight projection과 저장이 금지되고 evaluator는 production threshold를 자동
+조정하지 않는다.
+
+## 13. 완료 gate
+
+- 같은 exact-240 100회 content bytes/digest 동일.
+- q8 같은 양자화점 동일, quantum 초과 input digest 변경.
+- canonical provenance 누락과 239/241 production input/config 거부.
+- flat MAD와 sub-resolution factor가 0/1로 포화되지 않음.
+- 초기 13봉 geometry가 artificial one-cent ATR을 쓰지 않음.
+- isolated wick 제한, persistent body/close 침투 강한 감점.
+- disconnected H-Line ridge 독립.
+- Trend contribution index/price가 같은 Basis와 일치.
+- volume-only Trend inference slice byte-identical.
+- selected derivation orphan 0; Field/pack `<=80/96 KiB`.
+- kernel P95/P99 `<=50/80ms`; frontend parse/delta와 Field paint 각각 P95 `<=8ms`.
+- canvas response/profile/non-selected paint 0; pan/zoom 오차 `<=0.5px`.
+- manual submit enqueue 1, idempotency/coalesce/owner/terminal/delete race.
+- chart-open, GET, candle-event와 Cron이 만든 build job 0.

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS chart_assets.czardas_latest (
     PRIMARY KEY (symbol, "interval")
 );
 
--- The v2 Field carries one compact meaning entry for every exact-240 candle.
+-- The Field carries one compact meaning entry for every exact-240 candle.
 -- Keep the existing columns and widen only their deterministic payload guards.
 ALTER TABLE chart_assets.czardas_latest
     DROP CONSTRAINT IF EXISTS czardas_latest_field_bytes_check;

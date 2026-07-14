@@ -772,8 +772,13 @@ candle-event trigger는 사용하지 않는다.
 `dev/alpaca`를 사용하므로 별도 Kubernetes Alpaca Secret을 필수로 요구하지 않는다.
 ClickHouse와 PostgreSQL Secret은 필수다. schema는
 `job-czardas-asset-migrations.yaml`과
-`run-czardas-asset-migrations-job.sh`로 `004_czardas_assets.sql`만 명시 적용하며
+`run-czardas-asset-migrations-job.sh`로 `004_czardas_assets.sql` 다음
+`005_czardas_v3_identity_and_ops.sql`을 명시 적용하며
 runtime은 table을 만들지 않는다.
+
+v3는 자동 schedule이 없다는 뜻이지 AWS에서 수동 builder를 운영하지 않는다는 뜻이 아니다.
+다만 v3 코드 변경 자체는 AWS migration, image build와 deployment를 실행하지 않는다. 별도
+승인된 배포에서 migration 005를 먼저 적용하고 worker→backend→frontend 순으로 전환한다.
 
 기존 Geometry worker, weekday CronJob, Kafka topic, migration은 배포하지 않는다.
 기존 PostgreSQL `geometry_*`와 ClickHouse `chart_analysis_assets` 데이터는 삭제하지

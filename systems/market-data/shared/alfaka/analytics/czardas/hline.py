@@ -87,9 +87,6 @@ def detect_hlines(
             formation_start = min(item.observed_from_index for item in final_episodes)
             formation_end = max(item.observed_to_index for item in final_episodes)
             probe = LineProbe(role, 0.0, final_center, 0, final_zone)
-            integrity, body_integrity, close_integrity, _, _ = integrity_for_domain(
-                tape, features, probe, 0, len(tape.candles) - 1, config
-            )
             rejection_mean = math.fsum(item.rejection for item in final_episodes) / len(final_episodes)
             contribution_basis = [basis_by_id[item.contribution_basis_id] for item in final_episodes]
             agreement = clamp(1.0 - weighted_mad([
@@ -109,8 +106,21 @@ def detect_hlines(
                 and final_zone <= config.max_zone_atr * _candidate_median_atr(tape, features, formation_start, fit_confirmed_index)
                 and seed_quality >= 0.45
             )
+            if not geometry_ok:
+                modes.append(_field_mode(
+                    tape, mode_id, role, origin_ids, final_center, final_zone, low, high,
+                    contributors, final_episodes, "weak", provisional_atr,
+                    dispersion=dispersion,
+                ))
+                continue
+            integrity_eval = integrity_for_domain(
+                tape, features, probe, 0, len(tape.candles) - 1, config
+            )
+            integrity = integrity_eval.integrity
+            body_integrity = integrity_eval.body_integrity
+            close_integrity = integrity_eval.close_integrity
             opposed = body_integrity < 0.70 or has_open_break(tape, features, probe, len(tape.candles) - 1, config)
-            state = "coherent" if geometry_ok and not opposed else "opposed" if geometry_ok else "weak"
+            state = "opposed" if opposed else "coherent"
             opposition = clamp(0.5 * (1 - body_integrity) + 0.5 * (1 - close_integrity))
             mode = _field_mode(
                 tape, mode_id, role, origin_ids, final_center, final_zone, low, high,
@@ -120,7 +130,6 @@ def detect_hlines(
             if state != "coherent":
                 continue
             initial = tuple(item.episode_id for item in sorted(final_episodes, key=lambda item: (item.confirmed_index, item.episode_id))[:2])
-            initial_episodes = [item for item in final_episodes if item.episode_id in initial]
             candidate_id = stable_hash(tape.symbol, tape.interval, "hline", role, "initial", initial)
             interactions = evaluate_interactions(tape, features, probe, candidate_id, fit_confirmed_index, span, config)
             confluence = profile_confluence(profile, final_center, final_zone)
@@ -138,6 +147,11 @@ def detect_hlines(
                 initial_episode_ids=initial, fit_episode_ids=tuple(item.episode_id for item in final_episodes),
                 fit_evidence_confirmed_index=fit_confirmed_index, seed_quality=seed_quality, integrity=integrity,
                 body_integrity=body_integrity, close_integrity=close_integrity, persistence=persistence,
+                integrity_fact_count=integrity_eval.fact_count,
+                integrity_effective_fact_count=integrity_eval.effective_fact_count,
+                integrity_coverage=integrity_eval.coverage,
+                body_penetration_count=integrity_eval.body_penetration_count,
+                close_penetration_count=integrity_eval.close_penetration_count,
                 interactions=interactions, profile_confluence=confluence, rank_score=rank_score,
                 reject_reasons=(), fit_episodes=tuple(final_episodes),
             ))
@@ -184,8 +198,19 @@ def _local_ridges(segments):
             end += 1
             high = segments[end][1]
             contributors.update(segments[end][3])
-        left = segments[index - 1][2] if index else -math.inf
-        right = segments[end + 1][2] if end + 1 < len(segments) else -math.inf
+        # Only geometrically touching elementary segments are neighbours.  A
+        # price gap defines a separate response landscape and must not suppress
+        # a ridge on the other side of empty price space.
+        left = (
+            segments[index - 1][2]
+            if index and segments[index - 1][1] == low
+            else -math.inf
+        )
+        right = (
+            segments[end + 1][2]
+            if end + 1 < len(segments) and segments[end + 1][0] == high
+            else -math.inf
+        )
         if mass >= left and mass >= right and len(contributors) >= 2:
             ridges.append((low, high, mass, tuple(sorted(contributors))))
         index = end + 1

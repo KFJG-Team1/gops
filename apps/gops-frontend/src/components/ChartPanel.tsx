@@ -62,6 +62,7 @@ import {
   isCzardasAssetsGenerationCurrent,
   isCzardasInterval,
   subscribeCzardasAssetsInvalidation,
+  type CanonicalSnapshotMetadata,
   type CzardasAssetsResponse
 } from "../chart/czardasAssetsApi";
 import {
@@ -413,6 +414,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   toolbarTrailing
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
+  const [czardasCanonicalSnapshot, setCzardasCanonicalSnapshot] = useState<{
+    symbol: string;
+    interval: ChartInterval;
+    metadata: CanonicalSnapshotMetadata;
+    completedCandleIdentity: string;
+  } | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
   const [hoverSnapshot, setHoverSnapshot] = useState<SemanticSelectionSnapshot | null>(null);
@@ -477,6 +484,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!isCzardasInterval(chart.interval)) return null;
     return czardasCompletedSnapshotIdentity(chart.candles);
   }, [chart.candles, chart.interval]);
+  const activeCanonicalSnapshot = czardasCanonicalSnapshot
+    && czardasCanonicalSnapshot.symbol === chart.symbol.trim().toUpperCase()
+    && czardasCanonicalSnapshot.interval === chart.interval
+    && czardasCanonicalSnapshot.completedCandleIdentity === completedCandleIdentity
+    ? czardasCanonicalSnapshot.metadata
+    : null;
   const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
   const activeIndicatorLayers = useMemo(() => orderFlowActive ? [] : activeServerIndicatorLayers(chart), [
     orderFlowActive,
@@ -714,9 +727,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     && czardasPanelVerification.inferenceId === serverCzardasPack.inferenceId
     && czardasPanelVerification.completedCandleIdentity === completedCandleIdentity
   );
-  const activeCzardasPack = activeCzardasEntry?.freshness === "current" && !panelSnapshotVerified
-    ? null
-    : serverCzardasPack;
+  const activeCzardasPack = activeCzardasEntry?.freshness === "current" && panelSnapshotVerified
+    ? serverCzardasPack
+    : null;
   const activeCzardasStale = activeCzardasEntry?.freshness === "stale"
     || Boolean(activeCzardasEntry?.freshness === "current" && serverCzardasPack && !panelSnapshotVerified);
 
@@ -731,7 +744,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return () => { active = false; };
     }
     setCzardasPanelVerification(null);
-    void czardasPanelSnapshotMatchesPack(serverCzardasPack, chart.candles)
+    void czardasPanelSnapshotMatchesPack(serverCzardasPack, activeCanonicalSnapshot, chart.candles)
       .then((matches) => {
         if (active) {
           setCzardasPanelVerification({
@@ -751,7 +764,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         }
       });
     return () => { active = false; };
-  }, [activeCzardasEntry?.freshness, completedCandleIdentity, serverCzardasPack?.inferenceId]);
+  }, [activeCanonicalSnapshot, activeCzardasEntry?.freshness, completedCandleIdentity, serverCzardasPack?.inferenceId]);
 
   useEffect(() => {
     const interval = chart.interval;
@@ -818,9 +831,36 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
-      const detail = (event as CustomEvent<{ symbol?: string; interval?: string; drawingIds?: string[] }>).detail;
+      const detail = (event as CustomEvent<{
+        symbol?: string;
+        interval?: string;
+        drawingIds?: string[];
+        inferenceId?: string;
+        asOf?: string;
+        inputDigest?: string;
+        candidateIds?: string[];
+      }>).detail;
       if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
-      const drawingId = detail.drawingIds?.find((id) => chartRef.current.drawings.some((drawing) => drawing.id === id));
+      if (
+        !activeCzardasPack
+        || detail.inferenceId !== activeCzardasPack.inferenceId
+        || detail.asOf !== activeCzardasPack.asOf
+        || detail.inputDigest !== activeCzardasPack.inputDigest
+      ) return;
+      if (
+        !Array.isArray(detail.candidateIds)
+        || detail.candidateIds.length !== detail.drawingIds?.length
+        || detail.drawingIds.some((id, index) => !chartRef.current.drawings.some((drawing) => (
+          drawing.id === id
+          && drawing.sourceInferenceId === detail.inferenceId
+          && drawing.sourceCandidateId === detail.candidateIds?.[index]
+        )))
+      ) return;
+      const drawingId = detail.drawingIds?.find((id) => chartRef.current.drawings.some((drawing) => (
+        drawing.id === id
+        && drawing.sourceInferenceId === detail.inferenceId
+        && detail.candidateIds?.includes(drawing.sourceCandidateId ?? "")
+      )));
       if (!drawingId) return;
       dispatchExternalCommandGroup([
         makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
@@ -829,7 +869,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
     window.addEventListener("gops:czardas-focus", handleFocus);
     return () => window.removeEventListener("gops:czardas-focus", handleFocus);
-  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup]);
+  }, [activeCzardasPack, chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
     if (!drawingSupportsTextEditing(drawing)) {
@@ -1054,6 +1094,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       status: { state: "loading", message: "Loading CDC candles..." }
     });
     setPreviousClose(null);
+    setCzardasCanonicalSnapshot(null);
     const applyResponse = (response: CandleQueryResponseDto) => {
       if (controller.signal.aborted) {
         return;
@@ -1076,6 +1117,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         { minimumVisibleSlots: requestedVisibleSlotsFromResponse(response, current.interval) }
       );
       onChartRuntimeAction({ kind: "chart.snapshot.loaded", snapshot: candleSnapshotFromResponse(response, requestedInterval) });
+      const snapshotIdentity = czardasCompletedSnapshotIdentity(response.candles);
+      setCzardasCanonicalSnapshot(
+        response.canonicalSnapshot && snapshotIdentity
+          ? {
+              symbol: response.symbol.toUpperCase(),
+              interval: requestedInterval,
+              metadata: response.canonicalSnapshot,
+              completedCandleIdentity: snapshotIdentity,
+            }
+          : null
+      );
       setPreviousClose(typeof response.previousClose === "number" && Number.isFinite(response.previousClose) ? response.previousClose : null);
       dispatchDocumentCommand("chart.viewport.set", nextViewport, "system", "external");
       if (pendingViewportAnchorRef.current?.key === requestKey) {
@@ -2220,7 +2272,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
     const hoveredUnit = semanticHit ?? axisDigUnit;
     setHoveredSemanticNodeId(hoveredUnit?.id);
-    setHoverSnapshot(hoveredUnit ? snapshotFromSemanticUnit(hoveredUnit) : null);
+    const nextHoverSnapshot = hoveredUnit ? snapshotFromSemanticUnit(hoveredUnit) : null;
+    setHoverSnapshot((current) => (
+      current?.kind === "candle"
+      && nextHoverSnapshot?.kind === "candle"
+      && (current.timestamp ?? current.from) === (nextHoverSnapshot.timestamp ?? nextHoverSnapshot.from)
+        ? current
+        : nextHoverSnapshot
+    ));
 
     const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
@@ -2589,9 +2648,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         {activeCzardasMeaning && (
           <div
             className="czardas-meaning-overlay"
-            role="status"
+            role="group"
             aria-label="현재 240봉 기준 Czardas 캔들 해석"
-            aria-live="polite"
             style={{
               "--czardas-meaning-left": `${czardasMeaningOverlayInsets.left}px`,
               "--czardas-meaning-right": `${czardasMeaningOverlayInsets.right}px`,
@@ -2602,7 +2660,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
               <strong>현재 240봉 기준</strong>
               <span>{formatHoverTimestamp(activeCzardasMeaning.timestamp)}</span>
               <span className="czardas-meaning-relative">
-                상대 의미도 <b>{Math.round(activeCzardasMeaning.summaries.compositePercentile * 100)}%</b>
+                240봉 내 전체 의미 백분위 <b>{Math.round(activeCzardasMeaning.summaries.compositePercentile * 100)}%</b>
               </span>
               <span>Shared {formatCzardasScore(activeCzardasMeaning.summaries.shared)}</span>
               <span className={!czardasLayerVisibility.hline ? "is-muted" : undefined}>
@@ -2611,6 +2669,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
               <span className={!czardasLayerVisibility.trend ? "is-muted" : undefined}>
                 Trend {formatCzardasScore(activeCzardasMeaning.summaries.trend)}
               </span>
+            </div>
+            <div className="czardas-meaning-line czardas-meaning-grammar">
+              <strong>문법</strong>
+              <span>진하기 Shared+<i className={!czardasLayerVisibility.trend ? "is-muted" : undefined}>Trend</i></span>
+              <span>짧은 수평 Shared+<i className={!czardasLayerVisibility.hline ? "is-muted" : undefined}>H-Line</i></span>
+              <span>축소 노랑 켜진 채널 전체</span>
             </div>
             <div className="czardas-meaning-line czardas-meaning-roles">
               <span className={!czardasLayerVisibility.hline ? "is-muted" : undefined}>
@@ -2674,6 +2738,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             </div>
           </div>
         )}
+        <span className="sr-only" aria-live="polite">
+          {czardasPinnedTimestamp && activeCzardasMeaning
+            ? `Czardas 해석 고정, 240봉 내 전체 의미 백분위 ${Math.round(activeCzardasMeaning.summaries.compositePercentile * 100)}퍼센트`
+            : ""}
+        </span>
         {labelEditor && labelEditorLayout && (
           <input
             key={labelEditor.drawingId}
@@ -3195,6 +3264,11 @@ export function ChartDrawingDock({
           <button type="button" className={iconButtonClass()} aria-label="Czardas 자동 작도 복원" onClick={onRestoreCzardas} {...drawingTooltip.tooltipProps("Czardas 자동 작도 복원")}>
             <RotateCcw size={16} />
           </button>
+        )}
+        {selectedDrawing?.sourceCandidateId && (
+          <span className="chart-drawing-provenance" aria-label="선택한 Czardas 작도 출처">
+            {selectedDrawing.ownership === "czardas-managed" ? "Czardas 원본" : "내 수정본"}
+          </span>
         )}
         </div>
       </div>

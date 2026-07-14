@@ -23,9 +23,11 @@ def test_present_snapshot_emits_one_current_meaning_for_every_bar():
     content = result.content
     meanings = content["czardasField"]["candleMeanings"]
 
-    assert content["algorithmVersion"] == "czardas-v2"
-    assert content["configVersion"] == "czardas-config-v2"
-    assert content["czardasField"]["schemaVersion"] == 2
+    assert content["algorithmVersion"] == "czardas-v3"
+    assert content["configVersion"] == "czardas-config-v3"
+    assert content["inputContractVersion"] == "canonical-ohlcv-q8-v1"
+    assert content["czardasField"]["schemaVersion"] == 3
+    assert content["czardasField"]["sightProjectionId"] == content["sightProjectionId"]
     assert meanings["evaluationAsOf"] == content["asOf"]
     assert len(meanings["timestamps"]) == len(meanings["candleKeys"]) == 240
     for values in (*meanings["summaries"].values(), *meanings["roles"].values()):
@@ -63,7 +65,7 @@ def test_confirmation_is_a_market_fact_bounded_by_as_of():
     assert any(mask & pending_bit for mask in meaning_dto["phaseMasks"][-13:])
 
 
-def test_v2_output_has_no_historical_state_contract_fields():
+def test_v3_output_has_no_historical_state_contract_fields():
     result = analyze_czardas(oscillating_rows())
     assert isinstance(result, Ready)
     payload = canonical_json(result.content)
@@ -127,6 +129,9 @@ def test_selected_derivation_graph_is_closed_without_orphans():
         0 <= index < len(fact_ids)
         for index in field["derivationEpisodes"]["contributionBasisIndexes"]
     )
+    for episode_index, basis_index in enumerate(field["derivationEpisodes"]["contributionBasisIndexes"]):
+        assert field["derivationEpisodes"]["contributionIndexes"][episode_index] == field["basisFacts"]["observedIndexes"][basis_index]
+        assert field["derivationEpisodes"]["contributionPrices"][episode_index] == field["basisFacts"]["endpointPrices"][basis_index]
 
 
 def test_factor_transport_is_complete_compact_and_usage_honest():

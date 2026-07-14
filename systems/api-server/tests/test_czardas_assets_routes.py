@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 ALL_INTERVALS = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"]
+BUILD_HEADERS = {"Idempotency-Key": "czardas-route-test"}
 for path in (
     ROOT / "systems" / "market-data" / "shared",
     ROOT / "systems" / "order" / "shared",
@@ -99,7 +100,7 @@ class FailingQueue:
     def __init__(self):
         self.envelope = None
 
-    def submit(self, envelope):
+    def submit_once(self, envelope, _progress):
         self.envelope = envelope
         raise RuntimeError("queue unavailable")
 
@@ -170,10 +171,12 @@ class CzardasAssetsRoutesTest(unittest.TestCase):
         submitted = self.client.post(
             "/api/charts/czardas-assets/build",
             json={"symbol": "NVDA", "interval": "1D", "force": True},
+            headers=BUILD_HEADERS,
         )
 
         self.assertEqual(submitted.status_code, 202)
         self.assertNotIn("assetKind", submitted.json())
+        self.assertFalse(submitted.json()["coalesced"])
         job_id = submitted.json()["jobId"]
         self.assertTrue(job_id.startswith("cza-"))
         self.assertEqual(self.queue.items[-1]["symbol"], "NVDA")
@@ -192,10 +195,12 @@ class CzardasAssetsRoutesTest(unittest.TestCase):
         plural = self.client.post(
             "/api/charts/czardas-assets/build",
             json={"symbols": ["NVDA"], "intervals": ["1D"]},
+            headers=BUILD_HEADERS,
         )
         geometry = self.client.post(
             "/api/charts/czardas-assets/build",
             json={"symbol": "NVDA", "interval": "1D", "assetKind": "geometry"},
+            headers=BUILD_HEADERS,
         )
         self.assertEqual(plural.status_code, 422)
         self.assertEqual(geometry.status_code, 422)
@@ -213,6 +218,7 @@ class CzardasAssetsRoutesTest(unittest.TestCase):
             response = self.client.post(
                 "/api/charts/czardas-assets/build",
                 json={"symbol": "NVDA", "interval": "1D"},
+                headers=BUILD_HEADERS,
             )
         self.assertEqual(response.status_code, 401)
 
@@ -232,6 +238,7 @@ class CzardasAssetsRoutesTest(unittest.TestCase):
             build = self.client.post(
                 "/api/charts/czardas-assets/build",
                 json={"symbol": "NVDA", "interval": "1D"},
+                headers=BUILD_HEADERS,
             )
             deleted = self.client.delete(
                 "/api/charts/czardas-assets",
@@ -247,16 +254,96 @@ class CzardasAssetsRoutesTest(unittest.TestCase):
             response = self.client.post(
                 "/api/charts/czardas-assets/build",
                 json={"symbol": "NVDA", "interval": "1D"},
+                headers=BUILD_HEADERS,
             )
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(self.progress.get(queue.envelope.job_id)["status"], "failed")
+        self.assertIsNone(self.progress.get(queue.envelope.job_id))
 
     def test_build_rejects_unregistered_symbol(self):
         response = self.client.post(
             "/api/charts/czardas-assets/build",
             json={"symbol": "ZZZZ", "interval": "1D"},
+            headers=BUILD_HEADERS,
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_build_requires_idempotency_key(self):
+        response = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D"},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_idempotency_and_same_owner_pair_coalesce_without_second_enqueue(self):
+        first = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D"},
+            headers={"Idempotency-Key": "same-request"},
+        )
+        replay = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D"},
+            headers={"Idempotency-Key": "same-request"},
+        )
+        coalesced = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D"},
+            headers={"Idempotency-Key": "different-request"},
+        )
+        self.assertEqual((first.status_code, replay.status_code), (202, 202))
+        self.assertEqual(first.json()["jobId"], replay.json()["jobId"])
+        self.assertEqual(first.json()["jobId"], coalesced.json()["jobId"])
+        self.assertFalse(first.json()["coalesced"])
+        self.assertTrue(replay.json()["coalesced"])
+        self.assertTrue(coalesced.json()["coalesced"])
+        self.assertEqual(len(self.queue.items), 1)
+
+    def test_force_mismatch_and_delete_during_active_build_are_busy(self):
+        first = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D", "force": False},
+            headers={"Idempotency-Key": "non-force"},
+        )
+        busy = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D", "force": True},
+            headers={"Idempotency-Key": "force"},
+        )
+        deleted = self.client.delete(
+            "/api/charts/czardas-assets", params={"symbol": "NVDA", "interval": "1D"}
+        )
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(busy.status_code, 409)
+        self.assertEqual(busy.json()["detail"], "czardas_pair_busy")
+        self.assertEqual(deleted.status_code, 409)
+
+    def test_terminal_cancel_is_noop_and_owner_lookup_is_private(self):
+        submitted = self.client.post(
+            "/api/charts/czardas-assets/build",
+            json={"symbol": "NVDA", "interval": "1D"},
+            headers={"Idempotency-Key": "terminal"},
+        )
+        job_id = submitted.json()["jobId"]
+        self.progress.record_item(job_id, {
+            "symbol": "NVDA", "interval": "1D", "status": "saved", "stage": "storage", "error": None,
+        })
+        before = self.client.get(f"/api/charts/czardas-assets/build/{job_id}").json()
+        after = self.client.post(f"/api/charts/czardas-assets/build/{job_id}/cancel").json()
+        self.assertEqual(before["status"], after["status"])
+        self.assertEqual(after["status"], "completed")
+        self.assertFalse(after["cancelRequested"])
+        owner = self.progress.get(job_id)["_requestedBy"]
+        self.assertIsNone(self.progress.get_for_owner(job_id, owner + "-other"))
+        self.assertIsNone(self.progress.request_cancel(job_id, requested_by=owner + "-other"))
+
+    def test_interval_get_returns_only_requested_entry(self):
+        response = self.client.get(
+            "/api/charts/czardas-assets",
+            params={"symbol": "NVDA", "interval": "1D"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.json()["assets"]), {"1D"})
+        self.assertEqual(response.json()["assets"]["1D"]["freshnessReason"], "identity_match")
 
 
 if __name__ == "__main__":

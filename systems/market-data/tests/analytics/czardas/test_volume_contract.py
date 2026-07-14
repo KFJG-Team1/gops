@@ -40,7 +40,7 @@ def _trend_projection(content: dict) -> dict:
             "contributionBasisId": basis_ids[episodes["contributionBasisIndexes"][index]],
             "memberBasisIds": [basis_ids[value] for value in episodes["memberBasisIndexes"][index]],
             **{key: episodes[key][index] for key in (
-                "observedFromIndexes", "observedToIndexes", "confirmedIndexes", "contributionPrices",
+                "observedFromIndexes", "observedToIndexes", "confirmedIndexes", "contributionIndexes", "contributionPrices",
                 "corridorLows", "corridorHighs", "initialFormationMasks",
             )},
         })

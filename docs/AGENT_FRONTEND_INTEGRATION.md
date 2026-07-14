@@ -312,20 +312,35 @@ Czardas asset 운영 패널은 저장 레이아웃 호환을 위해 `kind="chart
 Czardas는 `/api/charts/czardas-assets` GET/build/poll/delete route만 사용한다. 운영
 패널은 `1m/5m/10m/1h/4h/1D/1W` 중 정확히 한 symbol×interval을 수동
 build/delete하고 Geometry kind, S&P500 batch, 다중 interval 선택을 제공하지 않는다.
+build request마다 `Idempotency-Key`를 보내며 coalesced job도 같은 poll flow로 처리한다.
 timed anchor는 현재 interval의 canonical candle timestamp로만 snap하며 대응 봉이
 없으면 해당 drawing을 제외한다. 완료·삭제 시 generation을 올려 같은 symbol cache를
 무효화하고 열린 chart/panel을 즉시 재조회한다. 무효화 전 시작한 늦은 응답은 새 cache를
 되살릴 수 없다. build 상태와 repair 집계는 PostgreSQL polling으로 읽으며
 SSE와 Redis pub/sub은 사용하지 않는다.
 
-`czardas` chart type은 pack의 `asOf`에서 exact-240 전체를 본 현재 해석을 그린다.
-240개 candle 모두 Shared/H-Line/Trend 의미를 가지며 hover는 우측 하단에서 세
-channel의 factor·availability·reason을 분리해 보여준다. 이는 과거 시점의 Czardas
-판단을 재생한 값이 아니다. Basis, H-Line response/ridge, Trend
-hypothesis/mode/ribbon과 최종 drawing은 같은 revision-free `inferenceId`와
+`czardas` chart type은 v3 pack의 `asOf`에서 exact-240 전체를 본 현재 해석을 그린다.
+240개 candle 모두 Shared/H-Line/Trend 의미를 가진다. `czardas-sight-v2` 기본 canvas는 확대
+상태에서 Shared+Trend를 candle 전체 진하기로, Shared+H-Line을 최대 36px의 고저점 국소 수평
+흔적으로 표현한다. Trend upper/lower candle glyph는 없고 ribbon/Basis도 같은 Trend 색을 쓴다.
+축소 상태의 노란 candle은 Shared와 켜진 channel 전체 의미다. selected zone/ribbon,
+selected Basis/validation, managed drawing과 실제 Triangle은 유지한다. response/profile/non-selected
+mode/hypothesis는 pack의 제한적 diagnostics일 수 있지만 기본 canvas에는 그리지 않는다.
+
+hover는 우측 하단 배경 없는 text overlay에서 `240봉 내 전체 의미 백분위`, 시각 문법,
+21개 raw/normalized
+factor, 모든 availability/phase/reason을 생략·접기·스크롤 없이 보여준다. same-candle pointer
+movement는 overlay를 다시 렌더링하지 않고 전체 overlay에는 `aria-live`를 두지 않는다.
+keyboard focus와 tap-lock용 짧은 안내만 별도 live region을 사용한다. 이는 과거 판단 replay가
+아니다. Basis, selected mode/ribbon과 drawing은 `inferenceId`/`sightProjectionId` 및
 derivation provenance를 사용한다. 기존 MA·indicator·comparison·Volume Profile은
 paint와 하단 pane만 숨기고 설정은 보존한다. `1M` option은 disabled이고 저장된
 `czardas+1M`만 load 시 candle로 정규화한다.
+
+`Czardas 해설`은 claim, because, against, invalidation과 data qualifier를 표시하고
+`구조 우선순위`가 확률·매매 신호가 아님을 명시한다. chart/commentary/focus event는
+`inferenceId+asOf+inputDigest`가 일치해야 하며 candidate provenance가 맞지 않으면 focus를
+거부한다. drawing label은 `Czardas 원본|내 수정본`을 구분한다.
 
 H-Line과 Trend는 별도 toggle이고 managed drawing은 사용자가 편집할 수 있다. 첫 편집은
 session-only fork, 삭제는 suppression이며 reload 시 서버 공통 제안이 복원된다. Triangle
@@ -335,6 +350,10 @@ whitelist에 넣지 않는다. stale drawing은 낮은 opacity로 유지할 수 
 incompatible Field, candle meaning hover와 Triangle badge는 최신 candle 위에
 투영하지 않는다. 모든 Field 좌표는 canonical timestamp/price를 사용하며 pan/zoom
 때 viewport 좌우에 고정되는 screen-space 추론 선을 만들지 않는다.
+
+candle API의 `canonicalSnapshot`을 pack identity와 비교한다. 브라우저는 Python q8,
+HALF_EVEN 또는 input digest를 재구현하지 않는다. snapshot metadata가 없거나 mismatch면
+Field, hover와 해설을 현재 inference로 표시하지 않는다.
 
 Geometry engine, release switch, API adapter, cache, controller, presentation은 없다.
 Czardas가 unavailable이면 이전 엔진으로 fallback하지 않고 자동 작도 없이 차트를

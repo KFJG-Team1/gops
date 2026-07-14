@@ -83,8 +83,48 @@
   display: flex;
   max-width: calc(100% - 20px);
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   color: var(--color-muted);
+}
+
+.czardas-sight-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  color: var(--color-muted);
+  font-size: 9px;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.czardas-sight-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.czardas-sight-legend b {
+  font-weight: 700;
+}
+
+.czardas-sight-legend b.is-candle-tone {
+  color: var(--color-text);
+}
+
+.czardas-sight-legend b.is-yellow-tone {
+  color: var(--color-point-yellow);
+}
+
+.czardas-sight-legend i {
+  color: inherit;
+  font-style: normal;
+}
+
+.czardas-sight-legend .is-muted {
+  opacity: 0.32;
 }
 
 .chart-analysis-layer-buttons {
@@ -150,8 +190,22 @@
 }
 
 .czardas-meaning-roles,
+.czardas-meaning-grammar,
 .czardas-meaning-state {
   color: var(--color-muted);
+}
+
+.czardas-meaning-grammar i {
+  font-style: normal;
+}
+
+@container (max-width: 520px) {
+  .czardas-sight-legend {
+    max-width: calc(100% - 70px);
+    gap: 1px 5px;
+    font-size: 7px;
+    white-space: normal;
+  }
 }
 
 .czardas-meaning-factor-line.is-hline > strong,
@@ -817,6 +871,14 @@
 
 .chart-drawing-dock-track > * {
   flex: 0 0 auto;
+}
+
+.chart-drawing-provenance {
+  padding: 0 5px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 20px;
+  white-space: nowrap;
 }
 
 .chart-drawing-dock .icon-button {

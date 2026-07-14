@@ -5,7 +5,11 @@ import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from typing import Any
+
+
+CANONICAL_NUMERIC_QUANTUM = Decimal("0.00000001")
 
 
 def clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -23,9 +27,21 @@ def effective_tick(close: float) -> float:
     return max(0.01, abs(close) * 1e-6)
 
 
+def quantize_number(value: Any) -> float:
+    """Seal public numeric input into Czardas' code-owned decimal domain."""
+    try:
+        decimal = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("invalid_numeric") from exc
+    if not decimal.is_finite():
+        raise ValueError("invalid_numeric")
+    quantized = decimal.quantize(CANONICAL_NUMERIC_QUANTUM, rounding=ROUND_HALF_EVEN)
+    result = float(quantized)
+    return 0.0 if result == 0 else result
+
+
 def stable_hash(*parts: Any) -> str:
-    payload = "|".join(_stable_part(part) for part in parts)
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return identity_digest(list(parts))
 
 
 def weighted_quantile(values: Sequence[tuple[float, float, str]], q: float) -> float:
@@ -57,7 +73,13 @@ def weighted_mad(values: Sequence[tuple[float, float, str]], center: float | Non
 
 
 def median(values: Iterable[float]) -> float:
-    ordered = sorted(float(value) for value in values if math.isfinite(float(value)))
+    ordered: list[float] = []
+    append = ordered.append
+    for value in values:
+        numeric = float(value)
+        if math.isfinite(numeric):
+            append(numeric)
+    ordered.sort()
     if not ordered:
         raise ValueError("median requires at least one finite value")
     middle = len(ordered) // 2
@@ -84,7 +106,7 @@ def canonicalize(value: Any) -> Any:
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("canonical JSON cannot contain NaN or infinity")
-        rounded = round(value, 8)
+        rounded = quantize_number(value)
         return 0.0 if rounded == 0 else rounded
     if isinstance(value, Mapping):
         return {str(key): canonicalize(value[key]) for key in sorted(value, key=str)}
@@ -103,9 +125,37 @@ def canonical_digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _stable_part(value: Any) -> str:
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return ",".join(_stable_part(item) for item in sorted(value, key=str))
+def identity_digest(value: Any) -> str:
+    """Hash semantic identity without the wire JSON's eight-decimal rounding.
+
+    Public OHLCV and config values are quantized before reaching this function.
+    Derived floats use their exact IEEE-754 value so provenance cannot alias two
+    different computations merely because their presentation rounds equally.
+    """
+    encoded = json.dumps(
+        _identity_value(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _identity_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
     if isinstance(value, float):
-        return format(canonicalize(value), ".8f")
+        if not math.isfinite(value):
+            raise ValueError("identity cannot contain NaN or infinity")
+        normalized = 0.0 if value == 0 else value
+        return {"$float64": normalized.hex()}
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("identity cannot contain NaN or infinity")
+        return {"$decimal": format(value, "f")}
+    if isinstance(value, Mapping):
+        return {str(key): _identity_value(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_identity_value(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_identity_value(item) for item in sorted(value, key=str)]
+    if is_dataclass(value):
+        return _identity_value(asdict(value))
     return str(value)

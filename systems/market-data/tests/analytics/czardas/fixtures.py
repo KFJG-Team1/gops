@@ -4,10 +4,10 @@ import math
 from datetime import datetime, timedelta, timezone
 
 
-def oscillating_rows(*, volume_scale: float = 1.0):
+def oscillating_rows(*, volume_scale: float = 1.0, count: int = 240):
     rows = []
     start = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    for index in range(240):
+    for index in range(count):
         phase = index % 30
         center = 105.0 + 2.5 * math.sin(2 * math.pi * phase / 30)
         open_, close = center - 0.2, center + 0.2

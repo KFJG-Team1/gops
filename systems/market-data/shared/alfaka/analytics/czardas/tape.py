@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from .config import CzardasConfig
-from .numeric import canonical_digest
+from .numeric import identity_digest, quantize_number
 from .types import Candle
 
 
@@ -36,19 +36,21 @@ class CandleTape:
             interval = str(row.get("interval") or "").strip()
             timestamp = _utc_timestamp(row.get("timestamp") or row.get("event_time"))
             candle_key = str(row.get("candleKey") or row.get("candle_key") or timestamp)
-            values = tuple(float(row.get(key)) for key in ("open", "high", "low", "close", "volume"))
+            if not all(key in row for key in ("isClosed", "canonicalVersion", "priceAdjustment", "marketSession")):
+                raise ValueError("missing_canonical_provenance")
+            values = tuple(quantize_number(row.get(key)) for key in ("open", "high", "low", "close", "volume"))
             if not symbol or not interval or not all(math.isfinite(value) for value in values):
                 raise ValueError("invalid_candle_identity_or_numeric")
             open_, high, low, close, volume = values
             if low > min(open_, close) or high < max(open_, close) or low > high or volume < 0:
                 raise ValueError("invalid_ohlcv")
-            if row.get("isClosed", row.get("is_closed", True)) is not True:
+            if row.get("isClosed") is not True:
                 raise ValueError("live_candle_in_inference")
-            if str(row.get("canonicalVersion", row.get("canonical_version", "v2"))) != "v2":
+            if str(row.get("canonicalVersion")) != "v2":
                 raise ValueError("incompatible_canonical_version")
-            if str(row.get("priceAdjustment", row.get("price_adjustment", "split"))) != "split":
+            if str(row.get("priceAdjustment")) != "split":
                 raise ValueError("incompatible_price_adjustment")
-            if str(row.get("marketSession", row.get("market_session", "regular"))) != "regular":
+            if str(row.get("marketSession")) != "regular":
                 raise ValueError("incompatible_market_session")
             candles.append(Candle(symbol, interval, candle_key, timestamp, index, open_, high, low, close, volume))
         if len({item.symbol for item in candles}) != 1 or len({item.interval for item in candles}) != 1:
@@ -66,8 +68,14 @@ class CandleTape:
             "low": item.low,
             "close": item.close,
             "volume": item.volume,
+            "isClosed": True,
+            "canonicalVersion": "v2",
+            "priceAdjustment": "split",
+            "marketSession": "regular",
         } for item in candles]
-        return cls(candles[0].symbol, candles[0].interval, tuple(candles), canonical_digest(payload))
+        return cls(candles[0].symbol, candles[0].interval, tuple(candles), identity_digest([
+            config.input_contract_version, payload,
+        ]))
 
 
 def _utc_timestamp(value: Any) -> str:

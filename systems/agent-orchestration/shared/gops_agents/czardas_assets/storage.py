@@ -40,7 +40,8 @@ class PostgresCzardasAssetStorage:
                 f"""
                 SELECT pack, generated_at, input_digest, content_digest,
                        last_candle_key, algorithm_version, config_version,
-                       time_contract_version, calendar_version
+                       time_contract_version, calendar_version, input_contract_version,
+                       inference_config_digest, sight_projection_id
                 FROM {LATEST_TABLE}
                 WHERE symbol = %s AND "interval" = %s
                 """,
@@ -54,7 +55,8 @@ class PostgresCzardasAssetStorage:
                 f"""
                 SELECT "interval", pack, generated_at, input_digest, content_digest,
                        last_candle_key, algorithm_version, config_version,
-                       time_contract_version, calendar_version
+                       time_contract_version, calendar_version, input_contract_version,
+                       inference_config_digest, sight_projection_id
                 FROM {LATEST_TABLE}
                 WHERE symbol = %s
                 ORDER BY "interval"
@@ -67,6 +69,13 @@ class PostgresCzardasAssetStorage:
             if interval in result:
                 result[interval] = _record(row)
         return result
+
+    def get_records(self, symbol: str, interval: str | None = None) -> dict[str, dict[str, Any] | None]:
+        if interval is None:
+            return self.get_symbol_records(symbol)
+        if interval not in SUPPORTED_INTERVALS:
+            raise ValueError("invalid Czardas interval")
+        return {interval: self.get(symbol, interval)}
 
     def save_if_active(self, pack: dict[str, Any], *, job_id: str, generated_at: str) -> str:
         projection = _pack_projection(pack, generated_at)
@@ -86,7 +95,8 @@ class PostgresCzardasAssetStorage:
                 f"""
                 SELECT input_digest, content_digest, last_candle_key, as_of,
                        algorithm_version, config_version, time_contract_version,
-                       calendar_version
+                       calendar_version, input_contract_version,
+                       inference_config_digest, sight_projection_id
                 FROM {LATEST_TABLE}
                 WHERE symbol = %s AND "interval" = %s
                 FOR UPDATE
@@ -98,6 +108,9 @@ class PostgresCzardasAssetStorage:
                 str(current.get("last_candle_key")) == projection["last_candle_key"],
                 current.get("algorithm_version") == projection["algorithm_version"],
                 current.get("config_version") == projection["config_version"],
+                current.get("input_contract_version") == projection["input_contract_version"],
+                current.get("inference_config_digest") == projection["inference_config_digest"],
+                current.get("sight_projection_id") == projection["sight_projection_id"],
                 current.get("time_contract_version") == projection["time_contract_version"],
                 current.get("calendar_version") == projection["calendar_version"],
                 current.get("as_of") is None or _timestamp(current.get("as_of")) == projection["as_of"],
@@ -119,11 +132,12 @@ class PostgresCzardasAssetStorage:
                 INSERT INTO {LATEST_TABLE} (
                     symbol, "interval", last_candle_key, as_of, generated_at,
                     algorithm_version, config_version, time_contract_version,
-                    calendar_version, input_digest, content_digest, drawing_count,
+                    calendar_version, input_contract_version, inference_config_digest,
+                    sight_projection_id, input_digest, content_digest, drawing_count,
                     field_bytes, payload_bytes, pack, updated_at
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, now()
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                 )
                 ON CONFLICT (symbol, "interval") DO UPDATE SET
                     last_candle_key = EXCLUDED.last_candle_key,
@@ -133,6 +147,9 @@ class PostgresCzardasAssetStorage:
                     config_version = EXCLUDED.config_version,
                     time_contract_version = EXCLUDED.time_contract_version,
                     calendar_version = EXCLUDED.calendar_version,
+                    input_contract_version = EXCLUDED.input_contract_version,
+                    inference_config_digest = EXCLUDED.inference_config_digest,
+                    sight_projection_id = EXCLUDED.sight_projection_id,
                     input_digest = EXCLUDED.input_digest,
                     content_digest = EXCLUDED.content_digest,
                     drawing_count = EXCLUDED.drawing_count,
@@ -145,7 +162,8 @@ class PostgresCzardasAssetStorage:
                     projection["symbol"], projection["interval"], projection["last_candle_key"],
                     projection["as_of"], projection["generated_at"], projection["algorithm_version"],
                     projection["config_version"], projection["time_contract_version"],
-                    projection["calendar_version"], projection["input_digest"],
+                    projection["calendar_version"], projection["input_contract_version"],
+                    projection["inference_config_digest"], projection["sight_projection_id"], projection["input_digest"],
                     projection["content_digest"], projection["drawing_count"], projection["field_bytes"],
                     projection["payload_bytes"], Jsonb(pack),
                 ),
@@ -196,6 +214,9 @@ def _pack_projection(pack: dict[str, Any], generated_at: str) -> dict[str, Any]:
         "generated_at": _timestamp(generated_at),
         "algorithm_version": str(validated["algorithmVersion"]),
         "config_version": str(validated["configVersion"]),
+        "input_contract_version": str(validated["inputContractVersion"]),
+        "inference_config_digest": str(validated["inferenceConfigDigest"]),
+        "sight_projection_id": str(validated["sightProjectionId"]),
         "time_contract_version": str(validated["timeContractVersion"]),
         "calendar_version": str(validated["calendarVersion"]),
         "input_digest": str(validated["inputDigest"]),
@@ -218,6 +239,9 @@ def _record(row: dict[str, Any]) -> dict[str, Any]:
         "lastCandleKey": row.get("last_candle_key"),
         "algorithmVersion": row.get("algorithm_version"),
         "configVersion": row.get("config_version"),
+        "inputContractVersion": row.get("input_contract_version"),
+        "inferenceConfigDigest": row.get("inference_config_digest"),
+        "sightProjectionId": row.get("sight_projection_id"),
         "timeContractVersion": row.get("time_contract_version"),
         "calendarVersion": row.get("calendar_version"),
         "fieldSchemaVersion": (pack.get("czardasField") or {}).get("schemaVersion"),

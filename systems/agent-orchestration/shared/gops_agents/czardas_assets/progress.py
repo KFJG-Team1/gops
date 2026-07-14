@@ -13,9 +13,10 @@ class InMemoryCzardasProgressStore:
         self._states: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
 
-    def initialize(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
+    def _initialize_for_submit(self, envelope: CzardasBuildEnvelope) -> dict[str, Any]:
         state = {
             "jobId": envelope.job_id,
+            "_requestedBy": envelope.requested_by,
             "status": "queued",
             "requested": {
                 "symbol": envelope.symbol,
@@ -43,13 +44,34 @@ class InMemoryCzardasProgressStore:
             value = self._states.get(job_id)
             return copy.deepcopy(value) if value else None
 
-    def request_cancel(self, job_id: str):
+    def get_for_owner(self, job_id: str, requested_by: str):
+        value = self.get(job_id)
+        if value is None or value.get("_requestedBy") != requested_by:
+            return None
+        value.pop("_requestedBy", None)
+        return value
+
+    def request_cancel(self, job_id: str, *, requested_by: str | None = None):
         with self._lock:
             state = self._states.get(job_id)
-            if state:
+            if state and requested_by is not None and state.get("_requestedBy") != requested_by:
+                return None
+            if state and state.get("status") not in {"completed", "completed_with_errors", "failed", "canceled"}:
                 state["cancelRequested"] = True
                 state["status"] = "canceled"
-            return copy.deepcopy(state) if state else None
+            result = copy.deepcopy(state) if state else None
+            if result is not None and requested_by is not None:
+                result.pop("_requestedBy", None)
+            return result
+
+    def pair_active(self, symbol: str, interval: str) -> bool:
+        with self._lock:
+            return any(
+                state["requested"]["symbol"] == symbol
+                and state["requested"]["interval"] == interval
+                and state["status"] in {"queued", "running"}
+                for state in self._states.values()
+            )
 
     def is_cancel_requested(self, job_id: str) -> bool:
         state = self.get(job_id)
@@ -82,9 +104,10 @@ class PostgresCzardasProgressStore:
     def __init__(self, store: PostgresCzardasJobStore | None = None) -> None:
         self.store = store or PostgresCzardasJobStore()
 
-    def initialize(self, envelope): return self.store.enqueue(envelope)
     def get(self, job_id): return self.store.get(job_id)
-    def request_cancel(self, job_id): return self.store.request_cancel(job_id)
+    def get_for_owner(self, job_id, requested_by): return self.store.get_for_owner(job_id, requested_by)
+    def request_cancel(self, job_id, *, requested_by=None): return self.store.request_cancel(job_id, requested_by=requested_by)
+    def pair_active(self, symbol, interval): return self.store.pair_active(symbol, interval)
     def is_cancel_requested(self, job_id): return self.store.is_cancel_requested(job_id)
     def record_item(self, job_id, item): return self.store.record_item(job_id, item)
     def set_status(self, job_id, status, **values): return self.store.set_status(job_id, status, **values)

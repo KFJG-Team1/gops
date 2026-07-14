@@ -13,7 +13,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const path = String(input);
   calls.push({ path, init });
   if (path === "/api/charts/czardas-assets/build" && init?.method === "POST") {
-    return response({ jobId: "cza-contract-test", status: "queued", status_url: "/api/charts/czardas-assets/build/cza-contract-test" }, 202);
+    return response({ jobId: "cza-contract-test", status: "queued", coalesced: false, status_url: "/api/charts/czardas-assets/build/cza-contract-test" }, 202);
   }
   if (path === "/api/charts/czardas-assets/build/cza-contract-test/cancel") {
     return response(statusPayload("canceled"));
@@ -31,6 +31,7 @@ try {
   const accepted = await submitCzardasBuild({ symbol: "nvda", interval: "1D" });
   assert.equal(accepted.jobId, "cza-contract-test");
   assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), { symbol: "NVDA", interval: "1D", force: false });
+  assert.ok(new Headers(calls[0]?.init?.headers).get("Idempotency-Key"));
 
   const status = await fetchCzardasBuildStatus(accepted.status_url);
   assert.equal(status.requested.symbol, "NVDA");

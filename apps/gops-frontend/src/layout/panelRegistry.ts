@@ -30,7 +30,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "chartCommentary",
-    title: "차트 해설",
+    title: "Czardas 해설",
     agentPanelType: "chartCommentary",
     minSpan: { colSpan: 1, rowSpan: 1 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },

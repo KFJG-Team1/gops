@@ -10,12 +10,16 @@ import psycopg
 from gops_agents.czardas_assets.database import database_conninfo
 
 
-SQL_PATH = Path(__file__).parent / "004_czardas_assets.sql"
+SQL_PATHS = (
+    Path(__file__).parent / "004_czardas_assets.sql",
+    Path(__file__).parent / "005_czardas_v3_identity_and_ops.sql",
+)
 
 
 def apply_schema(conninfo: str | None = None) -> None:
     with psycopg.connect(conninfo or database_conninfo()) as conn:
-        conn.execute(SQL_PATH.read_text(encoding="utf-8"))
+        for sql_path in SQL_PATHS:
+            conn.execute(sql_path.read_text(encoding="utf-8"))
         conn.commit()
 
 

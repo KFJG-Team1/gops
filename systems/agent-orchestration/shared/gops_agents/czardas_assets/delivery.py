@@ -11,13 +11,19 @@ def symbol_entries(
     symbol: str,
     records: dict[str, dict[str, Any] | None],
     identity_reader: Callable[[str, str], dict[str, Any] | None],
+    intervals: tuple[str, ...] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Project stored records against a mutation-free current ClickHouse identity."""
     result: dict[str, dict[str, Any]] = {}
-    for interval in SUPPORTED_INTERVALS:
+    for interval in intervals or SUPPORTED_INTERVALS:
         record = records.get(interval)
         if record is None:
-            result[interval] = {"freshness": "missing", "generatedAt": None, "pack": None}
+            result[interval] = {
+                "freshness": "missing",
+                "freshnessReason": "asset_missing",
+                "generatedAt": None,
+                "pack": None,
+            }
             continue
         pack = record.get("pack")
         if (
@@ -26,6 +32,7 @@ def symbol_entries(
             or record.get("lastCandleKey") != pack.get("lastCandleKey")
         ):
             freshness = "incompatible"
+            reason = "contract_incompatible"
         else:
             try:
                 identity = identity_reader(symbol, interval)
@@ -36,8 +43,16 @@ def symbol_entries(
                 and identity.get("inputDigest") == record.get("inputDigest")
                 and identity.get("lastCandleKey") == record.get("lastCandleKey")
             ) else "stale"
+            reason = (
+                "identity_match"
+                if freshness == "current"
+                else "identity_unavailable"
+                if not identity
+                else "input_changed"
+            )
         result[interval] = {
             "freshness": freshness,
+            "freshnessReason": reason,
             "generatedAt": record.get("generatedAt"),
             "pack": None if freshness == "incompatible" else pack,
         }

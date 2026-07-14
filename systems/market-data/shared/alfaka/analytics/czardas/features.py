@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 
 from .config import CzardasConfig
-from .numeric import clamp, median
+from .numeric import clamp, effective_tick, median
 from .tape import CandleTape
 
 
@@ -66,8 +66,12 @@ def build_features(tape: CandleTape, config: CzardasConfig) -> FeatureTape:
         volume_rank.append(rank)
         volume_z.append(z)
         participation.append(0.5 * rank + 0.5 * anomaly)
+    # ATR availability remains unknown during the Wilder warm-up, but geometry
+    # needs a scale.  Using the first completed Wilder seed avoids turning the
+    # first thirteen bars into an artificial one-cent regime.
+    first_seed = atr[period - 1] or 0.0
     effective_atr = tuple(
-        max(0.01, abs(item.close) * 1e-6, atr[index] or 0.0)
+        max(effective_tick(item.close), (first_seed if index < period - 1 else atr[index] or 0.0))
         for index, item in enumerate(candles)
     )
     return FeatureTape(

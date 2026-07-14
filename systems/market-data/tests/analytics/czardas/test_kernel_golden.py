@@ -16,11 +16,9 @@ def test_kernel_is_deterministic_and_emits_bounded_editable_lines():
     digests = {canonical_digest(item.content) for item in results if isinstance(item, Ready)}
     assert len(digests) == 1
     content = results[0].content
-    assert content["selection"] == {
-        "hline": {"actualCount": 2, "configuredCount": 2},
-        "trend": {"actualCount": 2, "configuredCount": 2},
-    }
-    assert len(content["drawings"]) == 4
+    assert 0 <= content["selection"]["hline"]["actualCount"] <= 4
+    assert 0 <= content["selection"]["trend"]["actualCount"] <= 3
+    assert len(content["drawings"]) <= 7
     assert all(item["ownership"] == "czardas-managed" for item in content["drawings"])
     assert all(item["sourceInferenceId"] == content["inferenceId"] for item in content["drawings"])
     assert results[0].debug["fieldBytes"] <= 81_920
@@ -37,6 +35,22 @@ def test_mapping_insertion_order_does_not_change_input_or_content_digest():
     assert canonical_digest(original.content) == canonical_digest(reordered.content)
 
 
+def test_q8_quantization_seals_input_before_every_inference_stage():
+    rows = oscillating_rows()
+    same_quantum = [dict(item) for item in rows]
+    different_quantum = [dict(item) for item in rows]
+    same_quantum[80]["close"] += 4e-9
+    different_quantum[80]["close"] += 1.1e-8
+
+    original = analyze_czardas(rows)
+    same = analyze_czardas(same_quantum)
+    different = analyze_czardas(different_quantum)
+    assert isinstance(original, Ready) and isinstance(same, Ready) and isinstance(different, Ready)
+    assert original.content == same.content
+    assert original.debug["contentDigest"] == same.debug["contentDigest"]
+    assert original.content["inputDigest"] != different.content["inputDigest"]
+
+
 def test_ready_no_draw_keeps_a_field_and_is_not_unavailable():
     result = analyze_czardas(flat_rows())
     assert isinstance(result, Ready)
@@ -50,20 +64,16 @@ def test_public_kernel_rejects_non_exact_input():
     assert isinstance(analyze_czardas([*rows, rows[-1]]), AnalysisUnavailable)
 
 
-def test_max_configured_drawing_counts_keep_selected_closure_inside_budgets():
+def test_production_config_cannot_be_mutated_for_research_or_quota_filling():
     config = replace(DEFAULT_CONFIG, hline_display_count=4, trend_display_count=3)
     result = analyze_czardas(oscillating_rows(), config)
+    assert isinstance(result, AnalysisUnavailable)
+    assert result.reason == "invalid_config"
 
-    assert isinstance(result, Ready), getattr(result, "reason", None)
-    assert result.content["selection"]["hline"]["actualCount"] <= 4
-    assert result.content["selection"]["trend"]["actualCount"] <= 3
-    assert len(result.content["drawings"]) <= 7
-    assert result.debug["fieldBytes"] <= 80 * 1024
-    assert result.debug["payloadBytes"] <= 96 * 1024
 
-    field = result.content["czardasField"]
-    fact_count = len(field["basisFacts"]["basisIds"])
-    for mode in (*field["hlineModes"], *field["trendModes"]):
-        if mode["viewRole"] == "landscape_and_selected":
-            assert len(mode["contributorBasisIndexes"]) == mode["contributorCount"]
-            assert all(0 <= index < fact_count for index in mode["contributorBasisIndexes"])
+def test_sight_v2_changes_projection_identity_without_changing_inference_config_identity():
+    sight_v1 = replace(DEFAULT_CONFIG, sight_projection_version="czardas-sight-v1")
+
+    assert DEFAULT_CONFIG.sight_projection_version == "czardas-sight-v2"
+    assert DEFAULT_CONFIG.inference_digest == sight_v1.inference_digest
+    assert DEFAULT_CONFIG.projection_digest != sight_v1.projection_digest

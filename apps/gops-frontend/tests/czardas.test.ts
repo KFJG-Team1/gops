@@ -10,9 +10,13 @@ import {
 import { czardasDeltaCommands, czardasRestoreCommands } from "../src/chart/czardasLayerController";
 import { candleMeaningAtTimestamp, czardasMeaningFactorGroups } from "../src/chart/czardasMeaning";
 import {
+  czardasDetailedCandleStrength,
   czardasDenseCandleStrength,
+  czardasHlineTraceHalfLength,
+  czardasHlineTraceStrength,
   czardasRelationGeometry,
   czardasRenderableBasis,
+  czardasSightMode,
   czardasTimestampPriceLine,
   czardasTimestampPricePoint,
   czardasValidationTone,
@@ -22,7 +26,7 @@ import { buildChartScene, createCoordinateTransform, priceToY } from "../src/cha
 import { czardasMeaningFactorKeys } from "../src/chart/types";
 
 const timestamp = "2026-07-10T20:00:00.000Z";
-const inferenceId = "sha256:inference-v2";
+const inferenceId = "sha256:inference-v3";
 const target = { panelId: "panel-czardas", chartDocumentId: "doc-czardas" };
 
 const groupedMeaningFactorKeys = czardasMeaningFactorGroups.flatMap((group) => group.keys);
@@ -36,6 +40,16 @@ assert.deepEqual(czardasMeaningFactorGroups.map((group) => [group.channel, group
 ]);
 
 const denseStrengths = { shared: 0.3, hline: 0.9, trend: 0.6, composite: 0.8 };
+assert.equal(czardasSightMode(5.999), "dense");
+assert.equal(czardasSightMode(6), "detail");
+assert.equal(czardasSightMode(Number.NaN), "dense");
+assert.ok(Math.abs(czardasDetailedCandleStrength(denseStrengths, { trend: true }) - 0.45) < 1e-12);
+assert.equal(czardasDetailedCandleStrength(denseStrengths, { trend: false }), 0.3);
+assert.equal(czardasHlineTraceStrength(0.3, 0), 0);
+assert.ok(Math.abs(czardasHlineTraceStrength(0.3, 0.9) - 0.6) < 1e-12);
+assert.equal(czardasHlineTraceHalfLength(0, 0), 3);
+assert.equal(czardasHlineTraceHalfLength(1_000, 1), 18);
+assert.ok(Math.abs(czardasHlineTraceHalfLength(6, 0.6) - 7.8) < 1e-12);
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: true, trend: true }), 0.8);
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: false, trend: false }), 0.3);
 assert.equal(czardasDenseCandleStrength(denseStrengths, { hline: true, trend: false }), 0.6);
@@ -308,12 +322,21 @@ const boundary = (candidateId: "upper" | "lower", role: "upper" | "lower", price
     seedQuality: .8
   },
   responses: { completedCount: 0, pendingCount: 0, lastInteractionAt: null, responseMass: 0 },
-  rank: { rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0 },
+  rank: {
+    rankScore: .8, responseCount: 0, responseMass: 0, responseBonus: 0, profileBonus: 0,
+    integrityFactCount: 8, integrityEffectiveFactCount: 7.2, integrityCoverage: 1,
+    bodyPenetrationCount: 1, closePenetrationCount: 0
+  },
   line: { priceAtAsOf: price, slopePerBar: .01, zoneHalfWidth: .5 },
   explanation: { claim: "현재 추세 경계", because: ["구조적 endpoint"], against: [], state: "formed", invalidationCondition: "경계 이탈", dataQualifier: "OHLCV" }
 });
 const field = {
-  schemaVersion: 2,
+  schemaVersion: 3,
+  inputContractVersion: "canonical-ohlcv-q8-v1",
+  inferenceConfigDigest: "sha256:inference-config",
+  projectionConfigDigest: "sha256:projection-config",
+  sightProjectionVersion: "czardas-sight-v2",
+  sightProjectionId: "sha256:sight-projection",
   sourceBars: 240,
   evaluationAsOf: timestamp,
   sourceInferenceId: inferenceId,
@@ -373,6 +396,7 @@ const field = {
     observedFromIndexes: [120, 124, 121, 125],
     observedToIndexes: [120, 124, 121, 125],
     confirmedIndexes: [122, 126, 123, 127],
+    contributionIndexes: [120, 124, 121, 125],
     contributionPrices: [104, 104, 98, 98],
     corridorLows: [103.5, 103.5, 97.5, 97.5],
     corridorHighs: [104.5, 104.5, 98.5, 98.5],
@@ -381,10 +405,15 @@ const field = {
   validationGlyphs: []
 };
 const pack = {
-  algorithmVersion: "czardas-v2",
-  configVersion: "czardas-config-v2",
+  algorithmVersion: "czardas-v3",
+  configVersion: "czardas-config-v3",
+  inputContractVersion: "canonical-ohlcv-q8-v1",
   timeContractVersion: "market-time-v1",
   calendarVersion: "nyse-calendar-v1",
+  inferenceConfigDigest: "sha256:inference-config",
+  projectionConfigDigest: "sha256:projection-config",
+  sightProjectionVersion: "czardas-sight-v2",
+  sightProjectionId: "sha256:sight-projection",
   symbol: "NVDA",
   interval: "1D",
   asOf: timestamp,
@@ -401,7 +430,7 @@ const pack = {
 } as CzardasPackContent;
 const response = normalizeCzardasAssetsResponse({
   symbol: "NVDA",
-  assets: { "1D": { freshness: "current", generatedAt: timestamp, pack } }
+  assets: { "1D": { freshness: "current", freshnessReason: "identity_match", generatedAt: timestamp, pack } }
 }, "NVDA");
 assert.equal(response.assets["1D"].freshness, "current");
 assert.equal(response.assets["1D"].pack?.drawings.length, 2);
@@ -422,7 +451,7 @@ assert.deepEqual(mandatoryBasisOnly.map((item) => item.basisId).sort(), ["basis-
 
 const serializedResponse = JSON.stringify({
   symbol: "NVDA",
-  assets: { "1D": { freshness: "current", generatedAt: timestamp, pack } }
+  assets: { "1D": { freshness: "current", freshnessReason: "identity_match", generatedAt: timestamp, pack } }
 });
 for (let index = 0; index < 20; index += 1) {
   const normalized = normalizeCzardasAssetsResponse(JSON.parse(serializedResponse), "NVDA");
@@ -451,11 +480,16 @@ const panelDigestPack = {
   ...pack,
   inputDigest: "sha256:410cfc68a4f86a1b8e175bae02242db0780fe6cc1788f6f5a29bada77c0b0326"
 };
-assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, coordinateCandles), true);
-assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, coordinateCandles.map((candle, index) => (
-  index === 80 ? { ...candle, close: candle.close + 0.01 } : candle
-))), false);
-assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, coordinateCandles.slice(1)), false);
+const canonicalSnapshot = {
+  inputContractVersion: "canonical-ohlcv-q8-v1" as const,
+  asOf: panelDigestPack.asOf,
+  lastCandleKey: panelDigestPack.lastCandleKey,
+  completedCount: 240 as const,
+  inputDigest: panelDigestPack.inputDigest
+};
+assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, canonicalSnapshot, coordinateCandles), true);
+assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, { ...canonicalSnapshot, inputDigest: "sha256:changed" }, coordinateCandles), false);
+assert.equal(await czardasPanelSnapshotMatchesPack(panelDigestPack, canonicalSnapshot, coordinateCandles.slice(1)), false);
 const coordinateState = {
   symbol: "NVDA",
   chartType: "czardas",
@@ -569,6 +603,11 @@ const freshnessForPack = (candidatePack: CzardasPackContent) => normalizeCzardas
   symbol: "NVDA",
   assets: { "1D": { freshness: "current", generatedAt: timestamp, pack: candidatePack } }
 }, "NVDA").assets["1D"].freshness;
+
+assert.equal(freshnessForPack({
+  ...pack,
+  sightProjectionVersion: "czardas-sight-v1"
+}), "incompatible");
 
 assert.equal(freshnessForPack({
   ...pack,

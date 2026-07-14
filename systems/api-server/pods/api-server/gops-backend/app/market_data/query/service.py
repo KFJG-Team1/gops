@@ -41,6 +41,10 @@ from alfaka.serving.volume_profile import (
 )
 from alfaka.serving.news_hot_cache import company_daily_summary_coverage_valid
 from alfaka.storage.news_daily_summary import attach_price_changes_to_daily_summaries, clickhouse_row_to_daily_summary
+from alfaka.analytics.czardas.config import DEFAULT_CONFIG as CZARDAS_CONFIG
+from alfaka.analytics.czardas.data import SUPPORTED_INTERVALS as CZARDAS_INTERVALS
+from alfaka.analytics.czardas.tape import CandleTape
+from alfaka.candles import canonicalize_candle_identity
 
 
 WATCHLIST_NEWS_MODES = {"watchlist", "hot", "recommended"}
@@ -50,6 +54,49 @@ HOT_NEWS_RANKING_KINDS = (
     ("dollar-volume", "거래대금"),
 )
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
+
+
+def _attach_canonical_snapshot(payload: dict[str, Any], symbol: str, interval: str) -> None:
+    """Expose the server-owned exact-240 identity; never synthesize partial identity."""
+    if interval not in CZARDAS_INTERVALS:
+        return
+    candles = payload.get("candles")
+    if not isinstance(candles, list):
+        return
+    completed = [item for item in candles if isinstance(item, dict) and item.get("isClosed") is True][-240:]
+    if len(completed) != 240:
+        return
+    normalized = []
+    for item in completed:
+        if (
+            item.get("canonicalVersion") != "v2"
+            or item.get("priceAdjustment") != "split"
+            or item.get("marketSession") != "regular"
+        ):
+            return
+        identity = canonicalize_candle_identity({**item, "interval": interval}, interval)
+        if identity is None:
+            return
+        normalized.append({
+            **identity,
+            "symbol": symbol,
+            "interval": interval,
+            "isClosed": True,
+            "canonicalVersion": "v2",
+            "priceAdjustment": "split",
+            "marketSession": "regular",
+        })
+    try:
+        tape = CandleTape.from_rows(normalized, CZARDAS_CONFIG)
+    except (TypeError, ValueError):
+        return
+    payload["canonicalSnapshot"] = {
+        "inputContractVersion": CZARDAS_CONFIG.input_contract_version,
+        "asOf": tape.as_of,
+        "lastCandleKey": tape.last_candle_key,
+        "completedCount": 240,
+        "inputDigest": tape.input_digest,
+    }
 
 
 class MarketDataQueryService:
@@ -109,6 +156,7 @@ class MarketDataQueryService:
                 "minimumReturnedCount": coverage.get("minimumReturnedCount") or payload["fill"].get("minimumReturnedCount"),
                 "minimumRenderableSourceBars": coverage.get("minimumRenderableSourceBars") or payload["fill"].get("minimumRenderableSourceBars"),
             }
+        _attach_canonical_snapshot(payload, symbol, interval)
         return payload
 
     def request_backfill(

@@ -7,14 +7,14 @@ from .types import BoundaryCandidate
 
 
 CLAIMS = {
-    ("support", "formed"): "최근 가격대에서 지지 경계가 형성됨",
-    ("support", "response_supported"): "최근 가격대에서 지지 경계가 형성되고 독립 반응이 뒷받침함",
-    ("resistance", "formed"): "최근 가격대에서 저항 경계가 형성됨",
-    ("resistance", "response_supported"): "최근 가격대에서 저항 경계가 형성되고 독립 반응이 뒷받침함",
-    ("lower", "formed"): "최근 저점들이 하단 추세 경계를 형성함",
-    ("lower", "response_supported"): "최근 저점들이 하단 추세 경계를 형성하고 독립 반응이 뒷받침함",
-    ("upper", "formed"): "최근 고점들이 상단 추세 경계를 형성함",
-    ("upper", "response_supported"): "최근 고점들이 상단 추세 경계를 형성하고 독립 반응이 뒷받침함",
+    ("support", "formed"): "지지 경계 형성",
+    ("support", "response_supported"): "지지 경계와 독립 반응",
+    ("resistance", "formed"): "저항 경계 형성",
+    ("resistance", "response_supported"): "저항 경계와 독립 반응",
+    ("lower", "formed"): "하단 추세 경계 형성",
+    ("lower", "response_supported"): "하단 추세 경계와 독립 반응",
+    ("upper", "formed"): "상단 추세 경계 형성",
+    ("upper", "response_supported"): "상단 추세 경계와 독립 반응",
 }
 
 
@@ -77,6 +77,11 @@ def compile_boundary(
             "responseBonus": min(0.10, 0.05 * sum(item.response_score for item in responses)),
             "profileBonus": 0.05 * (candidate.profile_confluence or 0.0),
             "rankScore": candidate.rank_score,
+            "integrityFactCount": candidate.integrity_fact_count,
+            "integrityEffectiveFactCount": candidate.integrity_effective_fact_count,
+            "integrityCoverage": candidate.integrity_coverage,
+            "bodyPenetrationCount": candidate.body_penetration_count,
+            "closePenetrationCount": candidate.close_penetration_count,
         },
         "confluence": {
             "estimatedProfile": candidate.profile_confluence,
@@ -141,7 +146,7 @@ def _explanation(candidate):
         "because": because,
         "against": [],
         "state": candidate.evidence_state,
-        "invalidationCondition": "경계 반대편 0.25 ATR 초과 종가 이탈 2봉",
+        "invalidationCondition": "반대편 0.25 ATR 초과 종가 이탈 2봉",
         "dataQualifier": "OHLCV 기반 추정 volume-at-price" if candidate.kind == "hline" else "OHLCV 구조적 endpoint",
     }
 

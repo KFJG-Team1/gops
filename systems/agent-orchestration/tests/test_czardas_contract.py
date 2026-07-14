@@ -34,6 +34,7 @@ def test_non_flat_market_pack_satisfies_authoritative_wire_contract():
     ("mutate", "message"),
     [
         (lambda pack: pack.update(inferenceId="sha256:" + "0" * 64), "inferenceId"),
+        (lambda pack: pack.update(sightProjectionVersion="czardas-sight-v1"), "sightProjectionVersion"),
         (lambda pack: pack["coverage"].update(actualCompleted=239), "actualCompleted"),
         (lambda pack: pack["czardasField"].update(fieldRevision=1), "historical"),
         (lambda pack: pack["czardasField"].update(originFieldModeId="legacy"), "historical"),
