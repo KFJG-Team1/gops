@@ -12,7 +12,7 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--panel-gap);
   overflow: hidden;
   color: var(--coach-text);
   font: var(--type-body-md);
@@ -21,7 +21,6 @@
 }
 
 .availabilityNotice,
-.insightMeta span,
 .itemEyebrow,
 .insightDefinition dt,
 .actionFacts dt,
@@ -39,11 +38,8 @@
 .triggerList li,
 .triggerList code,
 .triggerList small,
-.carouselHeading span,
-.carouselHeading strong,
-.carouselHeading small,
-.priorityCardHeading strong,
-.priorityCardHeading small {
+.actionCarouselHeading strong,
+.priorityCardHeading strong {
   font: var(--type-caption);
   letter-spacing: var(--type-caption-letter-spacing);
   text-transform: var(--type-caption-text-transform);
@@ -80,8 +76,11 @@
 }
 
 .summarySection {
-  flex: 0 0 auto;
-  padding: 0 0 8px;
+  display: grid;
+  flex: 0.22 1 0;
+  align-content: center;
+  gap: var(--panel-padding);
+  padding: var(--panel-padding) 0 var(--panel-gap);
   border-bottom: 1px solid var(--coach-line);
 }
 
@@ -93,11 +92,11 @@
 }
 
 .summarySection p {
-  margin-top: 4px;
+  margin: 0;
   color: var(--coach-text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .priorityPair {
@@ -133,44 +132,22 @@
   outline-offset: 2px;
 }
 
-.carouselHeading,
+.actionCarouselHeading,
 .priorityCardHeading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   padding-inline: 8px;
   border-bottom: 1px solid var(--coach-line-soft);
-}
-
-.carouselHeading > div {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.carouselHeading span {
-  color: var(--coach-blue);
-}
-
-.carouselHeading strong,
-.carouselHeading small {
-  color: var(--coach-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.carouselHeading small {
-  flex: 0 0 auto;
 }
 
 .priorityCardHeading strong {
   color: var(--coach-text);
 }
 
-.priorityCardHeading small {
-  color: var(--coach-muted);
-  font-variant-numeric: tabular-nums;
+.actionCarouselHeading strong {
+  color: var(--coach-blue);
 }
 
 .carouselViewport,
@@ -181,8 +158,16 @@
   animation: condition-enter 160ms ease-out;
 }
 
+.actionCarousel .carouselViewport {
+  box-sizing: border-box;
+  padding-top: var(--panel-gap);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .priorityCardViewport {
-  padding-inline: 8px;
+  box-sizing: border-box;
+  padding: var(--panel-gap) var(--panel-padding) 0;
 }
 
 .carouselControls {
@@ -271,28 +256,27 @@
 }
 
 .compactInsight {
-  padding: 8px 0;
-}
-
-.compactInsight .insightMeta {
-  margin-bottom: 3px;
+  display: grid;
+  align-content: start;
+  gap: var(--panel-gap);
+  padding: 0 0 var(--panel-padding);
 }
 
 .compactInsight .insightDefinition {
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .compactInsight .insightDefinition > div {
   grid-template-columns: minmax(72px, 0.22fr) minmax(0, 1fr);
-  padding: 2px 0;
+  padding: calc(var(--panel-padding) / 2) 0;
 }
 
 .compactInsight .evidenceSummary {
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .compactInsight .evidenceSummary > span {
-  padding-block: 4px;
+  padding-block: var(--panel-padding);
 }
 
 .compactInsight .evidenceDetails {
@@ -300,7 +284,7 @@
 }
 
 .actionCarousel .actionItem {
-  padding: 8px;
+  padding: 0 var(--panel-padding) var(--panel-padding);
 }
 
 .actionCarousel .actionDescription {
@@ -315,48 +299,12 @@
   min-height: 28px;
 }
 
-.insightMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.insightMeta span,
 .itemEyebrow {
   color: var(--coach-muted);
 }
-
-.insightMeta span:first-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.insightMeta span:first-child::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  content: "";
-}
-
-.insightMeta .priorityReproduce {
-  color: var(--coach-green);
-}
-
-.insightMeta .priorityImprove {
-  color: var(--coach-orange);
-}
-
-.insightMeta .priorityObserve,
 .itemEyebrow,
 .itemEyebrow.severityInfo {
   color: var(--coach-blue);
-}
-
-.insightMeta .priorityInsufficient {
-  color: var(--color-muted-soft);
 }
 
 .itemEyebrow.severityWarning {
@@ -371,9 +319,9 @@
 .actionItem h4 {
   margin: 0;
   color: var(--coach-text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   overflow-wrap: anywhere;
 }
 
@@ -447,6 +395,40 @@
 
 .evidenceSummary strong {
   color: var(--coach-text);
+}
+
+.sampleProgress {
+  width: 100%;
+  height: 5px;
+  margin-top: calc(var(--panel-padding) / 2);
+  overflow: hidden;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--coach-line-soft);
+}
+
+.sampleProgressEffective {
+  --sample-progress-color: var(--coach-green);
+}
+
+.sampleProgressImprovement {
+  --sample-progress-color: var(--coach-orange);
+}
+
+.sampleProgress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--coach-line-soft);
+}
+
+.sampleProgress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--sample-progress-color);
+}
+
+.sampleProgress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--sample-progress-color);
 }
 
 .evidenceDetails,
@@ -654,8 +636,10 @@
 
 .criteriaGrid li {
   position: relative;
+  min-width: 0;
   padding-left: 12px;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .criteriaGrid li::before {
@@ -693,7 +677,7 @@
 
 .triggerList li {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto minmax(80px, auto) auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, auto) auto;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
@@ -704,6 +688,7 @@
 
 .triggerList span,
 .triggerList strong {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 

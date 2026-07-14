@@ -1,15 +1,9 @@
-import { Bell, BellOff, CircleAlert, Eye, FlaskConical, ShieldCheck } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import type { CoachActionCenter, CoachAlertCandidate, CoachAlertProposalSource, PlaybookExperiment, TradingGuardrail } from "./types";
+import type { CoachActionCenter, CoachAlertCandidate, PlaybookExperiment, TradingGuardrail } from "./types";
 import styles from "./CoachActionCenterPage.module.css";
 
-const PROPOSAL_SOURCE_ORDER: CoachAlertProposalSource[] = ["daily_trade", "entry_habit", "exit_habit", "portfolio_risk"];
-const PROPOSAL_SOURCE_LABELS: Record<CoachAlertProposalSource, string> = {
-  daily_trade: "당일 거래에서 제안",
-  entry_habit: "진입 습관에서 제안",
-  exit_habit: "청산 습관에서 제안",
-  portfolio_risk: "포트폴리오 위험에서 제안"
-};
+const DAILY_TRADE_SOURCE_LABEL = "당일 거래에서 제안";
 
 type Props = {
   center: CoachActionCenter;
@@ -23,24 +17,21 @@ type Props = {
 export function CoachActionCenterPage({
   center,
   focusedCandidateId = null,
-  activeExperiments = center.activeExperiments,
-  enabledGuardrails = center.enabledGuardrails,
-  onCreateAlert,
-  onWatchingAlertStatusChange
+  onCreateAlert
 }: Props) {
   const instanceId = useId();
-  const executionTitleId = `${instanceId}-execution-title`;
-  const recommendedAlertsTitleId = `${instanceId}-recommended-alerts-title`;
-  const watchingAlertsTitleId = `${instanceId}-watching-alerts-title`;
+  const dailyTradeTitleId = `${instanceId}-alert-source-daily-trade`;
   const alertRowRefs = useRef(new Map<string, HTMLDivElement>());
   const [saved, setSaved] = useState<string[]>([]);
-  const [watchingOverrides, setWatchingOverrides] = useState<Record<string, boolean>>({});
+  const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([]);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const focusedCandidatePresent = Boolean(focusedCandidateId && center.recommendedAlerts.some((item) => item.id === focusedCandidateId));
+  const dailyTradeCandidates = center.recommendedAlerts.filter((candidate) => (candidate.proposalSource ?? "daily_trade") === "daily_trade");
+  const focusedCandidatePresent = Boolean(focusedCandidateId && dailyTradeCandidates.some((item) => item.id === focusedCandidateId));
 
   useEffect(() => {
     if (!focusedCandidateId || !focusedCandidatePresent) return;
+    setExpandedCandidateIds((current) => current.includes(focusedCandidateId) ? current : [...current, focusedCandidateId]);
     const frame = requestAnimationFrame(() => {
       const row = alertRowRefs.current.get(focusedCandidateId);
       row?.focus({ preventScroll: true });
@@ -62,100 +53,85 @@ export function CoachActionCenterPage({
     else setError("알람을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.");
   };
 
-  const toggleWatching = async (candidate: CoachAlertCandidate) => {
-    if (!candidate.serverAlertId || !onWatchingAlertStatusChange || pending) return;
-    const currentlyEnabled = watchingOverrides[candidate.id] ?? candidate.enabled;
-    const nextEnabled = !currentlyEnabled;
-    setPending(candidate.id);
-    setError(null);
-    const ok = await onWatchingAlertStatusChange(candidate, nextEnabled).catch(() => false);
-    setPending(null);
-    if (!ok) {
-      setError("알람 상태를 변경하지 못했습니다.");
-      return;
-    }
-    setWatchingOverrides((items) => ({ ...items, [candidate.id]: nextEnabled }));
+  const toggleExpandedCandidate = (candidateId: string) => {
+    setExpandedCandidateIds((current) => current.includes(candidateId)
+      ? current.filter((id) => id !== candidateId)
+      : [...current, candidateId]);
   };
 
   return (
     <article className={styles.page} data-testid="ai-coach-page4">
-      <header className={styles.pageHeader}>
-        <span>04 / 04</span>
-        <div><h2>실행·알람 관리</h2><p>개선 실행, 추천 알람, 주시 중인 알람을 한 페이지에서 관리합니다.</p></div>
-      </header>
-
       {center.availability !== "ready" && <div className={styles.notice} role="status"><CircleAlert />분석 데이터가 준비되는 동안 현재 연결된 항목만 표시합니다.</div>}
 
-      <div className={styles.summaryGrid}>
-        <Summary icon={FlaskConical} label="활성 실험" value={`${activeExperiments.length}개`} />
-        <Summary icon={ShieldCheck} label="사용 가드레일" value={`${enabledGuardrails.length}개`} />
-        <Summary icon={Bell} label="추천 알람" value={`${center.recommendedAlerts.length}개`} />
-        <Summary icon={Eye} label="주시 중" value={`${center.watchingAlerts.length}개`} />
-      </div>
-
-      <section className={styles.execution} aria-labelledby={executionTitleId}>
-        <div className={styles.sectionTitle}><h3 id={executionTitleId}>개선 실행</h3><small>3페이지에서 선택한 현재 세션 상태</small></div>
-        <div className={styles.executionGrid}>
-          <ExecutionList title="활성 실험" empty="활성 실험 없음" items={activeExperiments.map((item) => ({ id: item.id, title: item.title, detail: `${item.appliedCount} / ${item.sampleTarget}회 · ${item.hypothesis}` }))} />
-          <ExecutionList title="사용 가드레일" empty="사용 가드레일 없음" items={enabledGuardrails.map((item) => ({ id: item.id, title: item.title, detail: item.description }))} />
-        </div>
-      </section>
-
-      <section className={styles.alertSection} aria-labelledby={recommendedAlertsTitleId}>
-        <div className={styles.sectionTitle}><h3 id={recommendedAlertsTitleId}>추천 알람</h3><small>사용자가 추가할 때만 생성</small></div>
+      <section className={styles.alertSection} aria-labelledby={dailyTradeTitleId}>
         {focusedCandidateId && !focusedCandidatePresent && <p className={styles.focusStatus} role="status">요청한 조건이 현재 추천 목록에 없습니다.</p>}
-        <div className={styles.sourceGroups}>
-          {PROPOSAL_SOURCE_ORDER.map((source) => {
-            const candidates = center.recommendedAlerts.filter((candidate) => (candidate.proposalSource ?? "daily_trade") === source);
-            const sourceTitleId = `${instanceId}-alert-source-${source}`;
-            return <section key={source} className={styles.sourceGroup} aria-labelledby={sourceTitleId}>
-              <div className={styles.sourceGroupHeader}><h4 id={sourceTitleId} className={styles.sourceBadge}>{PROPOSAL_SOURCE_LABELS[source]}</h4><small>{candidates.length}개</small></div>
-              {candidates.length ? <div className={styles.alertList}>{candidates.map((candidate) => {
-                const isSaved = saved.includes(candidate.id) || candidate.enabled;
-                const isPending = pending === candidate.id;
-                const supported = candidate.alertSupported !== false && Boolean(candidate.alertRequest && onCreateAlert);
-                const isFocused = focusedCandidateId === candidate.id;
-                const hasConditionDetail = candidate.currentValue != null || candidate.threshold != null || Boolean(candidate.operator) || Boolean(candidate.recommendedAction);
-                return <div
-                  key={candidate.id}
-                  id={alertRowDomId(instanceId, candidate.id)}
-                  ref={(node) => {
-                    if (node) alertRowRefs.current.set(candidate.id, node);
-                    else alertRowRefs.current.delete(candidate.id);
-                  }}
-                  className={styles.alertRow}
-                  data-focused={isFocused ? "true" : undefined}
-                  tabIndex={-1}
-                >
-                  <Bell aria-hidden="true" />
-                  <div className={styles.alertCopy}>
-                    <div className={styles.alertTitle}>{candidate.symbol && <span>{candidate.symbol}</span>}<strong>{candidate.title}</strong></div>
-                    <small>{candidate.detail || "판단 근거 확인 필요"}</small>
-                    {hasConditionDetail && <div className={styles.conditionDetail}>
-                      <span><b>현재</b>{conditionValue(candidate.currentValue)}</span>
-                      <span><b>기준</b>{candidate.operator ? `${candidate.operator} ` : ""}{conditionValue(candidate.threshold)}</span>
-                      {candidate.recommendedAction && <em><b>추천 행동</b>{candidate.recommendedAction}</em>}
+        <section className={styles.sourceGroup} aria-labelledby={dailyTradeTitleId}>
+          <h4 id={dailyTradeTitleId} className={styles.sourceBadge}>{DAILY_TRADE_SOURCE_LABEL}</h4>
+          {dailyTradeCandidates.length ? <div className={styles.alertTableScroll}>
+            <div className={styles.alertTable} role="table" aria-label="당일 거래 알람 제안">
+              <div className={styles.alertTableHead} role="row">
+                <span role="columnheader">종목</span>
+                <span role="columnheader">항목</span>
+                <span role="columnheader">현재</span>
+                <span role="columnheader">조건</span>
+                <span role="columnheader">관리</span>
+              </div>
+              <div className={styles.alertTableBody} role="rowgroup">
+                {dailyTradeCandidates.map((candidate) => {
+                  const isSaved = saved.includes(candidate.id) || candidate.enabled;
+                  const isPending = pending === candidate.id;
+                  const supported = candidate.alertSupported !== false && Boolean(candidate.alertRequest && onCreateAlert);
+                  const isFocused = focusedCandidateId === candidate.id;
+                  const isExpanded = expandedCandidateIds.includes(candidate.id);
+                  const detailId = `${alertRowDomId(instanceId, candidate.id)}-details`;
+                  const detail = candidate.detail || "판단 근거 확인 필요";
+                  const current = conditionValue(candidate.currentValue);
+                  const threshold = `${conditionOperator(candidate.operator)} ${conditionValue(candidate.threshold)}`;
+                  const recommendedAction = candidate.recommendedAction || "—";
+                  return <div
+                    key={candidate.id}
+                    id={alertRowDomId(instanceId, candidate.id)}
+                    ref={(node) => {
+                      if (node) alertRowRefs.current.set(candidate.id, node);
+                      else alertRowRefs.current.delete(candidate.id);
+                    }}
+                    className={styles.alertRow}
+                    role="row"
+                    data-focused={isFocused ? "true" : undefined}
+                    data-expanded={isExpanded ? "true" : undefined}
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    aria-controls={detailId}
+                    onClick={() => toggleExpandedCandidate(candidate.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleExpandedCandidate(candidate.id);
+                      }
+                    }}
+                  >
+                    <div className={styles.alertSymbol} role="cell"><strong>{candidate.symbol || "—"}</strong></div>
+                    <div className={styles.alertCondition} role="cell" title={candidate.title}><strong>{candidate.title}</strong></div>
+                    <div className={styles.alertCurrent} role="cell" title={current}><span>{current}</span></div>
+                    <div className={styles.alertThreshold} role="cell" title={threshold}><span>{threshold}</span></div>
+                    <div className={styles.alertManage} role="cell" onClick={(event) => event.stopPropagation()}><button type="button" disabled={!supported || isSaved || isPending} title={!supported ? "현재 알람 API에서 지원하지 않는 조건입니다." : undefined} onClick={() => create(candidate)}>{isSaved ? "추가됨" : isPending ? "저장 중" : supported ? "알람 추가" : "미지원"}</button></div>
+                    {isExpanded && <div id={detailId} className={styles.alertDetails} onClick={(event) => event.stopPropagation()}>
+                      <div className={styles.alertDetailsContent}>
+                        <b className={styles.alertDetailLabel}>판단 근거</b>
+                        <span className={styles.alertDetailReason} title={detail}>{detail}</span>
+                        <b className={styles.alertDetailRecommendationLabel}>추천 행동</b>
+                        <span className={styles.alertDetailRecommendation} title={recommendedAction}>{recommendedAction}</span>
+                      </div>
                     </div>}
-                  </div>
-                  <button type="button" disabled={!supported || isSaved || isPending} title={!supported ? "현재 알람 API에서 지원하지 않는 조건입니다." : undefined} onClick={() => create(candidate)}>{isSaved ? "추가됨" : isPending ? "저장 중" : supported ? "알람 추가" : "미지원"}</button>
-                </div>;
-              })}</div> : <p className={styles.empty}>현재 데이터에서 제안 없음</p>}
-            </section>;
-          })}
-        </div>
-      </section>
-
-      <section className={styles.alertSection} aria-labelledby={watchingAlertsTitleId}>
-        <div className={styles.sectionTitle}><h3 id={watchingAlertsTitleId}>주시 중인 알람</h3><small>서버에 저장된 알람</small></div>
-        {center.watchingAlerts.length ? <div className={styles.alertList}>{center.watchingAlerts.map((candidate) => {
-          const isDisabled = !(watchingOverrides[candidate.id] ?? candidate.enabled);
-          const isPending = pending === candidate.id;
-          const canToggle = Boolean(candidate.serverAlertId && onWatchingAlertStatusChange);
-          return <div key={candidate.id} className={styles.alertRow}>{isDisabled ? <BellOff aria-hidden="true" /> : <Eye aria-hidden="true" />}<div><span className={candidate.proposalSource ? styles.sourceBadge : styles.legacyBadge}>{candidate.proposalSource ? PROPOSAL_SOURCE_LABELS[candidate.proposalSource] : "출처 기록 없음"}</span><strong>{candidate.title}</strong><small>{candidate.detail || (isDisabled ? "비활성" : "주시 중")}</small></div><button type="button" disabled={!canToggle || isPending} onClick={() => toggleWatching(candidate)}>{isPending ? "저장 중" : isDisabled ? "다시 켜기" : "끄기"}</button></div>;
-        })}</div> : <p className={styles.empty}>주시 중인 알람이 없습니다.</p>}
+                  </div>;
+                })}
+              </div>
+            </div>
+          </div> : <p className={styles.empty}>현재 데이터에서 제안 없음</p>}
+        </section>
       </section>
       {error && <p className={styles.error} role="alert">{error}</p>}
-      <p className={styles.safety}>알람은 주문이나 자동 청산을 실행하지 않습니다.</p>
     </article>
   );
 }
@@ -171,10 +147,15 @@ function conditionValue(value: string | number | null | undefined) {
     : value;
 }
 
-function Summary({ icon: Icon, label, value }: { icon: typeof Bell; label: string; value: string }) {
-  return <div className={styles.summary}><Icon aria-hidden="true" /><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function ExecutionList({ title, items, empty }: { title: string; items: Array<{ id: string; title: string; detail: string }>; empty: string }) {
-  return <section className={styles.executionList}><h4>{title}</h4>{items.length ? <ul>{items.map((item) => <li key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></li>)}</ul> : <p>{empty}</p>}</section>;
+function conditionOperator(operator: string | null | undefined) {
+  const normalized = operator?.trim().toLowerCase();
+  if (!normalized) return "—";
+  const symbols: Record<string, string> = {
+    above: ">", gt: ">", greaterthan: ">", greater_than: ">", ">": ">",
+    atorabove: ">=", at_or_above: ">=", ge: ">=", gte: ">=", ">=": ">=", "≥": ">=",
+    below: "<", lt: "<", lessthan: "<", less_than: "<", "<": "<",
+    atorbelow: "<=", at_or_below: "<=", le: "<=", lte: "<=", "<=": "<=", "≤": "<=",
+    eq: "=", equals: "=", "==": "=", "=": "="
+  };
+  return symbols[normalized] ?? "—";
 }

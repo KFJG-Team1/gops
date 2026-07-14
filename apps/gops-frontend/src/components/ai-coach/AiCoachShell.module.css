@@ -31,7 +31,7 @@
 
 .pageContent {
   min-width: 0;
-  padding: 16px;
+  padding: var(--panel-padding);
 }
 
 .shell > footer {
@@ -127,12 +127,6 @@
 .shell[data-page="3"] > footer > div .active,
 .shell[data-page="4"] > footer > div .active {
   background: var(--color-signal);
-}
-
-@container (max-width: 520px) {
-  .pageContent {
-    padding: 12px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

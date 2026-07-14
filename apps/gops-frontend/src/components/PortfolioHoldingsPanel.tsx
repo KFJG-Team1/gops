@@ -280,7 +280,7 @@ export function PortfolioHoldingsPanel({
             <article className="portfolio-terminal-card portfolio-performance-card">
               <div className="portfolio-terminal-heading portfolio-performance-heading">
                 <div>
-                  <span>Performance</span>
+                  <span>성과</span>
                   <em>{performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}</em>
                 </div>
                 <div className="portfolio-performance-tabs" role="tablist" aria-label="포트폴리오 성과 보기">
@@ -514,7 +514,7 @@ export function PortfolioPerformancePanel() {
       aria-label="포트폴리오 성과 패널"
     >
       <PortfolioSplitHeader
-        title="Performance"
+        title="성과"
         subtitle={performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}
         asOf={payload?.asOf}
         refreshing={loading || refreshing}

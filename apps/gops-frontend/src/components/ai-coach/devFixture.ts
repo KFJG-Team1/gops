@@ -140,16 +140,37 @@ const amdReview = review("AMD", 147.1, "sell", .74);
 const periods = {
   "6m": { entry: habit("entry", "6m", 24), exit: habit("exit", "6m", 21), portfolio: habit("portfolio", "6m", 28) }
 };
-const priorityEntry = { ...periods["6m"].entry.insights[0], priority: "improve" as const };
-const priorityExit = { ...periods["6m"].exit.insights[0], priority: "reproduce" as const };
-const priorityPortfolio = { ...periods["6m"].portfolio.insights[0], priority: "improve" as const };
+const priorityEntry = {
+  ...periods["6m"].entry.insights[0],
+  priority: "improve" as const,
+  title: "거래량 확인 후 매수하기",
+  condition: "평소 대비 거래량 1.2배 미만",
+  observedBehavior: "24번 중 10번 거래량이 적을 때 매수",
+  nextAction: "다음 5번 매수 전에 체크리스트 확인"
+};
+const priorityExit = {
+  ...periods["6m"].exit.insights[0],
+  priority: "reproduce" as const,
+  title: "목표 가격에서 나눠 매도하기",
+  condition: "미리 정한 목표 가격에 도달",
+  observedBehavior: "21번 중 9번 나눠 매도",
+  nextAction: "다음 5번 거래에서도 체크리스트로 확인"
+};
+const priorityPortfolio = {
+  ...periods["6m"].portfolio.insights[0],
+  priority: "improve" as const,
+  title: "한 업종에 너무 많이 매수했는지 확인",
+  condition: "같은 업종 종목이 전체 보유 금액의 55% 초과",
+  observedBehavior: "28번 중 12번 한 업종의 보유 비중이 55% 초과",
+  nextAction: "다음 5번 매수 전에 업종별 보유 비중 확인"
+};
 const experiments = [
-  { id: "exp-volume", sourceStages: ["entry" as const], title: "거래량 확인 후 진입", hypothesis: "상대 거래량 1.2 이상에서만 진입하면 불리한 추격 매수를 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 2, checklist: ["상대 거래량 확인", "RSI 70 미만"], successMetrics: ["평균 MAE 2% 이내", "계획 준수율 80% 이상"], stopConditions: ["표본 3건 연속 MAE 4% 초과"], confidence: "medium" as const, status: "active" as const },
-  { id: "exp-exit", sourceStages: ["exit" as const], title: "목표가 2회 분할 청산", hypothesis: "사전 목표가에서 분할 청산하면 MFE 반납을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 1, checklist: ["목표가 기록", "청산 비율 기록"], successMetrics: ["MFE 반납률 감소"], stopConditions: ["기회비용 증가"], confidence: "medium" as const, status: "candidate" as const }
+  { id: "exp-volume", sourceStages: ["entry" as const], title: "거래량 확인 후 매수하기", hypothesis: "평소보다 거래량이 1.2배 이상일 때만 매수하면, 가격이 오른 뒤 성급하게 따라 사는 일을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 2, checklist: ["평소 대비 거래량 확인", "RSI 70 미만 확인"], successMetrics: ["매수 후 최대 손실 폭 2% 이내", "매수 계획을 지킨 비율 80% 이상"], stopConditions: ["3번 연속 매수 후 최대 손실 폭 4% 초과"], confidence: "medium" as const, status: "active" as const },
+  { id: "exp-exit", sourceStages: ["exit" as const], title: "목표 가격에서 두 번 나눠 매도하기", hypothesis: "미리 정한 목표 가격에서 나눠 매도하면, 올랐던 수익을 다시 잃는 폭을 줄일 수 있습니다.", sampleTarget: 5, appliedCount: 1, checklist: ["목표 가격 기록", "각 매도 비율 기록"], successMetrics: ["최고 수익 대비 줄어든 수익 폭 감소"], stopConditions: ["너무 일찍 매도해 놓친 수익 증가"], confidence: "medium" as const, status: "candidate" as const }
 ];
 const guardrails = [
-  { id: "entry-guardrail", stage: "entry" as const, title: "저거래량 진입 확인", description: "상대 거래량 1.2 미만이면 진입 근거 확인을 요청합니다.", trigger: { conditions: [{ metric: "relativeVolume", operator: "<", value: 1.2 }], matchMode: "all" as const }, severity: "warning" as const, intervention: "require_confirmation" as const, scope: "next_five_trades" as const, enabled: true },
-  { id: "portfolio-guardrail", stage: "portfolio" as const, title: "섹터 집중도 확인", description: "거래 후 섹터 비중이 60%를 넘으면 비중 계획을 확인합니다.", trigger: { conditions: [{ metric: "sectorWeight", operator: ">", value: 60 }], matchMode: "all" as const }, severity: "risk" as const, intervention: "require_plan" as const, scope: "global" as const, enabled: false }
+  { id: "entry-guardrail", stage: "entry" as const, title: "거래량이 적을 때 매수 전 확인", description: "평소 대비 거래량이 1.2배 미만이면 매수 이유를 다시 확인합니다.", trigger: { conditions: [{ metric: "relativeVolume", operator: "<", value: 1.2 }], matchMode: "all" as const }, severity: "warning" as const, intervention: "require_confirmation" as const, scope: "next_five_trades" as const, enabled: true },
+  { id: "portfolio-guardrail", stage: "portfolio" as const, title: "한 업종에 매수가 몰렸는지 확인", description: "매수 후 같은 업종의 보유 비중이 60%를 넘으면 매수 계획을 다시 확인합니다.", trigger: { conditions: [{ metric: "sectorWeight", operator: ">", value: 60 }], matchMode: "all" as const }, severity: "risk" as const, intervention: "require_plan" as const, scope: "global" as const, enabled: false }
 ];
 
 function dailyTradeAlertCandidates(symbol: string, bundle: ReviewBundle) {
@@ -170,7 +191,7 @@ export const AI_COACH_DEV_FIXTURE: CoachReport = {
     reviewsByFillId: { "fixture-fill-nvda": nvdaReview, "fixture-fill-amd": amdReview }
   },
   page2: { availability: "ready", defaultPeriod: "6m", reportsByPeriod: periods },
-  page3: { availability: "ready", summary: "저거래량 추격 진입은 먼저 보완하고, 계획된 분할 청산은 다음 거래에서도 재현합니다.", priorities: [priorityEntry, priorityExit, priorityPortfolio], experiments, guardrails },
+  page3: { availability: "ready", summary: "거래량이 적을 때 서둘러 매수하는 습관을 먼저 고치고, 목표 가격에서 나눠 매도한 좋은 습관은 다음 거래에서도 이어갑니다.", priorities: [priorityEntry, priorityExit, priorityPortfolio], experiments, guardrails },
   page4: {
     availability: "ready", activeExperiments: experiments.filter((item) => item.status === "active"), enabledGuardrails: guardrails.filter((item) => item.enabled),
     recommendedAlerts: [
