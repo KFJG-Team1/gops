@@ -3628,18 +3628,20 @@ assert.doesNotMatch(alertMenuSource, /disabled=\{saving \|\| Boolean\(notificati
 
 const priceConditionPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PriceConditionPanel.tsx", import.meta.url)), "utf-8");
 assert.match(priceConditionPanelSource, /role="tablist"/);
-assert.match(priceConditionPanelSource, /가격조건/);
 assert.match(priceConditionPanelSource, /알림/);
 assert.match(priceConditionPanelSource, /관심 기업/);
 assert.match(priceConditionPanelSource, /role="tabpanel"/);
-assert.match(priceConditionPanelSource, /portalMenu=\{false\}/);
-assert.match(priceConditionPanelSource, /onOpenCompany=\{onOpenCompany\}/);
 assert.match(priceConditionPanelSource, /fetchWatchlist/);
-assert.match(priceConditionPanelSource, /replaceWatchlistSymbols/);
-assert.match(priceConditionPanelSource, /알림 설정은 계정에 저장됩니다/);
-assert.match(priceConditionPanelSource, /준비 중/);
-assert.match(priceConditionPanelSource, /watchlist-list-toolbar/);
-assert.match(priceConditionPanelSource, /watchlist-company-reasons/);
+assert.match(priceConditionPanelSource, /거래 시간/);
+assert.match(priceConditionPanelSource, /가격·시장/);
+assert.match(priceConditionPanelSource, /기업 이벤트/);
+assert.match(priceConditionPanelSource, /사회·리스크/);
+assert.match(priceConditionPanelSource, /changePercentBySymbol/);
+assert.match(priceConditionPanelSource, /onClick=\{\(\) => onOpenCompany\(company\.symbol\)\}/);
+assert.doesNotMatch(priceConditionPanelSource, /가격조건|가격 조건/);
+assert.doesNotMatch(priceConditionPanelSource, /SymbolSearch|portalMenu|replaceWatchlistSymbols/);
+assert.doesNotMatch(priceConditionPanelSource, /watchlist-list-toolbar|watchlist-company-reasons/);
+assert.doesNotMatch(priceConditionPanelSource, /is-selected|aria-pressed/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-candidate-card/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-search-star|watchlist-row-star|onOpenNews|CompanyNewsPreview/);
 assert.doesNotMatch(priceConditionPanelSource, /localStorage/);
@@ -3706,7 +3708,8 @@ assert.match(panelContentRendererSource, /bidAskChartIntervals/);
 assert.match(panelContentRendererSource, /chartIntervalOptions\.map/);
 assert.doesNotMatch(panelContentRendererSource, /disabled=\{chartType === "bidask"\}/);
 assert.doesNotMatch(panelContentRendererSource, /chart-panel-drag-strip|chart-instance-close|onClosePanel|onChartSwapPointerDown/);
-assert.match(panelContentRendererSource, /PriceConditionPanel[\s\S]*symbols=\{symbols\}[\s\S]*onSelectSymbol=\{onSelectSymbol\}/);
+assert.match(panelContentRendererSource, /PriceConditionPanel[\s\S]*symbols=\{symbols\}[\s\S]*marketItems=\{marketItems\}[\s\S]*onOpenCompany=\{onOpenCompany\}/);
+assert.match(panelContentRendererSource, /알림과 관심 기업을 불러오는 중입니다/);
 
 const chartToolbarSelectSource = readFileSync(fileURLToPath(new URL("../src/components/ChartToolbarSelect.tsx", import.meta.url)), "utf-8");
 assert.match(chartToolbarSelectSource, /createPortal/);
@@ -4206,8 +4209,9 @@ const frontendStylesSource = [
   readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8")
 ].join("\n");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
-assert.match(frontendStylesSource, /\.watchlist-company-row \{[\s\S]*grid-template-columns: 24px minmax\(90px, \.72fr\) minmax\(0, 2fr\) minmax\(62px, \.5fr\);[\s\S]*background: var\(--color-surface\);/);
-assert.match(frontendStylesSource, /\.watchlist-company-row:hover,[\s\S]*background: var\(--color-surface-strong\);/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-tabs button\.is-active::after \{[\s\S]*background: currentColor;/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-company-row \{[\s\S]*grid-template-columns: 32px minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-company-row:hover \{[\s\S]*background: transparent;/);
 assert.match(frontendStylesSource, /\.workspace-top-center-flip\.is-notice \.workspace-agent-notice \{[\s\S]*opacity: 1;[\s\S]*rotateX\(0deg\);/);
 assert.match(frontendStylesSource, /\.workspace-agent-notice \{[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/);
 assert.match(frontendStylesSource, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.workspace-top-center-face \{[\s\S]*transition: none;/);

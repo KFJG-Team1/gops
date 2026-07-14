@@ -17840,6 +17840,288 @@ textarea:focus,
   backdrop-filter: none;
 }
 
+.alerts-watchlist-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-data-sans);
+}
+
+.alerts-watchlist-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 11%, transparent);
+  padding: 4px 6px 0;
+  background: var(--color-surface);
+}
+
+.alerts-watchlist-tabs button {
+  position: relative;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.alerts-watchlist-tabs button::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.alerts-watchlist-tabs button:hover,
+.alerts-watchlist-tabs button.is-active {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.alerts-watchlist-tabs button.is-active::after {
+  background: currentColor;
+}
+
+.alerts-watchlist-tabs button:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: -3px;
+}
+
+.alerts-watchlist-tab-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 6px 10px;
+  scrollbar-gutter: stable;
+}
+
+.alerts-watchlist-tab-panel[hidden] {
+  display: none;
+}
+
+.notification-category-list,
+.alerts-watchlist-company-list {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+
+.notification-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  color: var(--color-text);
+}
+
+.notification-category-row.is-emphasized {
+  min-height: 56px;
+  border-bottom-color: color-mix(in srgb, var(--color-text) 16%, transparent);
+}
+
+.notification-category-row:last-child {
+  border-bottom: 0;
+}
+
+.notification-category-row > strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-category-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.notification-category-control > small {
+  min-width: 36px;
+  color: var(--color-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.alerts-watchlist-switch {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent);
+  border-radius: 999px;
+  padding: 0;
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  color: var(--color-text);
+}
+
+.alerts-watchlist-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  transition: transform 140ms ease;
+}
+
+.alerts-watchlist-switch.is-on {
+  border-color: color-mix(in srgb, var(--color-text) 38%, transparent);
+  background: color-mix(in srgb, var(--color-text) 18%, transparent);
+}
+
+.alerts-watchlist-switch.is-on > span {
+  transform: translateX(14px);
+}
+
+.alerts-watchlist-switch:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.alerts-watchlist-switch:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.alerts-watchlist-company-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  border-radius: 0;
+  padding: 8px 2px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.alerts-watchlist-company-row:last-child {
+  border-bottom: 0;
+}
+
+.alerts-watchlist-company-row:hover {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.alerts-watchlist-company-row:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: -2px;
+  background: transparent;
+}
+
+.alerts-watchlist-company-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface));
+}
+
+.alerts-watchlist-company-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.alerts-watchlist-company-copy strong,
+.alerts-watchlist-company-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alerts-watchlist-company-copy strong {
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.alerts-watchlist-company-copy small {
+  color: var(--color-muted);
+  font-size: 9px;
+}
+
+.alerts-watchlist-company-change {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--color-text);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.alerts-watchlist-company-change > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.alerts-watchlist-state {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  padding: 12px;
+  color: var(--color-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.alerts-watchlist-state.is-error {
+  color: var(--color-caution);
+}
+
+@container workspace-panel (max-width: 360px) {
+  .alerts-watchlist-tabs button {
+    padding: 0 4px;
+  }
+
+  .alerts-watchlist-tab-panel {
+    padding: 5px 8px;
+  }
+
+  .alerts-watchlist-company-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    gap: 7px;
+  }
+
+  .alerts-watchlist-company-logo {
+    width: 26px;
+    height: 26px;
+  }
+}
+
 .auto-trade-panel {
   position: relative;
   display: grid;

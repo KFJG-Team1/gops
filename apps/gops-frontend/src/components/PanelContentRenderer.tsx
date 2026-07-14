@@ -378,10 +378,10 @@ export function PanelContentRenderer({
 
   if (content.kind === "priceCondition") {
     return (
-      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가격 조건을 불러오는 중입니다</div>}>
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">알림과 관심 기업을 불러오는 중입니다</div>}>
         <PriceConditionPanel
-          defaultSymbol={symbol.toUpperCase()}
           symbols={symbols}
+          marketItems={marketItems}
           onOpenCompany={onOpenCompany}
         />
       </Suspense>

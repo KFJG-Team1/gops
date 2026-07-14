@@ -346,7 +346,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
   },
   {
     kind: "priceCondition",
-    title: "가격 조건",
+    title: "알림 · 관심 기업",
     agentPanelType: "priceCondition",
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 3 },

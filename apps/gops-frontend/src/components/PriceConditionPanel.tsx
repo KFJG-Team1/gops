@@ -1,183 +1,88 @@
-import { Bell, CheckCircle2, ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
-import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  readyNotificationSettingKeys,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent
+} from "react";
+import {
   useNotificationPreferences,
-  type NotificationSettingKey,
-  type NotificationSettings
+  type NotificationSettingKey
 } from "../alerts/notificationPreferences";
 import type { ChartSymbolDto } from "../chart/types";
-import { fetchWatchlist, replaceWatchlistSymbols } from "../chart/watchlistApi";
+import { fetchWatchlist } from "../chart/watchlistApi";
 import { sectorLabelKo } from "../market/sectors";
-import {
-  createPriceCondition,
-  deletePriceCondition,
-  fetchPriceConditions,
-  subscribeTradeConditionsChanged,
-  updatePriceCondition,
-  type PriceCondition,
-  type PriceConditionDirection,
-  type PriceConditionSide,
-  type PriceConditionStatus
-} from "../priceCondition/priceConditionApi";
-import { LogoDevAttribution, StockLogo } from "./StockLogo";
-import { SymbolSearch } from "./SymbolSearch";
-
-const statusLabels: Record<PriceConditionStatus, string> = {
-  watching: "감시 중",
-  triggered: "확인 필요",
-  paused: "중지"
-};
-
-type PriceConditionDraft = {
-  symbol: string;
-  side: PriceConditionSide;
-  direction: PriceConditionDirection;
-  triggerPrice: string;
-  limitPrice: string;
-  quantity: string;
-  validity: string;
-};
+import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { StockLogo } from "./StockLogo";
 
 type PriceConditionPanelProps = {
-  defaultSymbol: string;
   symbols: ChartSymbolDto[];
+  marketItems: Sp500UniverseItem[];
   onOpenCompany: (symbol: string) => void;
 };
 
-type HubTab = "price" | "alerts" | "watchlist";
+type PanelTab = "alerts" | "watchlist";
 
-type PrototypeNotificationSetting = NotificationSettingKey;
-type PrototypeNotificationSettings = NotificationSettings;
+type NotificationCategory = {
+  id: string;
+  label: string;
+  settingKeys: ReadonlyArray<Exclude<NotificationSettingKey, "master">>;
+};
 
-const hubTabs: Array<{ id: HubTab; label: string }> = [
-  { id: "price", label: "가격조건" },
+const panelTabs: Array<{ id: PanelTab; label: string }> = [
   { id: "alerts", label: "알림" },
   { id: "watchlist", label: "관심 기업" }
 ];
 
-const notificationGroups: Array<{
-  title: string;
-  description: string;
-  items: Array<{ key: Exclude<PrototypeNotificationSetting, "master">; label: string; description: string }>;
-}> = [
+const notificationCategories: NotificationCategory[] = [
   {
-    title: "거래 시간",
-    description: "미국 시장의 시작·마감과 시간외 움직임을 알려드립니다.",
-    items: [
-      { key: "marketOpen", label: "본장 시작", description: "정규장이 시작되면 알려드려요." },
-      { key: "marketClose", label: "본장 마감", description: "정규장 마감과 오늘의 변화를 요약해요." },
-      { key: "extendedHoursMove", label: "시간외 급변", description: "프리마켓·애프터마켓 급변을 감지해요." }
-    ]
+    id: "market-time",
+    label: "거래 시간",
+    settingKeys: ["marketOpen", "marketClose", "extendedHoursMove"]
   },
   {
-    title: "가격·시장",
-    description: "등록한 가격과 평소보다 큰 시장 움직임을 감시합니다.",
-    items: [
-      { key: "targetPrice", label: "목표가 도달", description: "설정한 목표 가격에 도달하면 알려드려요." },
-      { key: "rapidMove", label: "급등락", description: "짧은 시간에 큰 가격 변화가 발생하면 알려드려요." },
-      { key: "volumeSpike", label: "거래량 급증", description: "평균보다 거래량이 빠르게 늘어날 때 알려드려요." }
-    ]
+    id: "price-market",
+    label: "가격·시장",
+    settingKeys: ["targetPrice", "rapidMove", "volumeSpike"]
   },
   {
-    title: "기업 이벤트",
-    description: "관심 기업의 뉴스와 주요 경영 이벤트를 모니터링합니다.",
-    items: [
-      { key: "watchlistNews", label: "관심기업 뉴스", description: "관심 기업과 직접 관련된 새 뉴스를 알려드려요." },
-      { key: "earningsFiling", label: "실적·공시", description: "실적 발표와 중요 공시가 나오면 알려드려요." },
-      { key: "executiveChange", label: "경영진 변화", description: "대표·핵심 임원의 변동을 감지해요." }
-    ]
+    id: "company-event",
+    label: "기업 이벤트",
+    settingKeys: ["watchlistNews", "earningsFiling", "executiveChange"]
   },
   {
-    title: "사회·리스크",
-    description: "기업 가치에 영향을 줄 수 있는 비가격 위험을 감지합니다.",
-    items: [
-      { key: "socialIssue", label: "사회적 논란", description: "여론 악화나 사회적 이슈 발생을 알려드려요." },
-      { key: "regulationLegal", label: "규제·소송", description: "정부 규제, 조사, 소송 위험을 감지해요." },
-      { key: "supplyChainMacro", label: "공급망·거시 충격", description: "공급 차질과 거시 환경 변화를 알려드려요." }
-    ]
+    id: "social-risk",
+    label: "사회·리스크",
+    settingKeys: ["socialIssue", "regulationLegal", "supplyChainMacro"]
   }
 ];
 
-function initialConditionDraft(symbol: string): PriceConditionDraft {
-  return {
-    symbol: symbol.toUpperCase(),
-    side: "buy",
-    direction: "atOrBelow",
-    triggerPrice: "",
-    limitPrice: "",
-    quantity: "1",
-    validity: "당일"
-  };
-}
-
-export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: PriceConditionPanelProps) {
+export function PriceConditionPanel({ symbols, marketItems, onOpenCompany }: PriceConditionPanelProps) {
   const {
-    preferences: notificationPreferences,
+    preferences,
     canUse: canUseNotificationPreferences,
-    loading: notificationPreferencesLoading,
-    error: notificationPreferencesError,
-    savingKeys: notificationPreferenceSavingKeys,
-    updateSetting: updateNotificationSetting,
-    updateCompanyOverride
+    loading: notificationLoading,
+    error: notificationError,
+    savingKeys,
+    updateSetting
   } = useNotificationPreferences();
-  const [initialWatchlist] = useState(() => initialPrototypeWatchlist(symbols, defaultSymbol));
-  const [activeHubTab, setActiveHubTab] = useState<HubTab>("price");
-  const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [conditions, setConditions] = useState<PriceCondition[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [builderOpen, setBuilderOpen] = useState(false);
-  const [draft, setDraft] = useState<PriceConditionDraft>(() => initialConditionDraft(defaultSymbol));
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(initialWatchlist);
-  const [selectedCompanySymbol, setSelectedCompanySymbol] = useState(initialWatchlist[0] ?? defaultSymbol.toUpperCase());
+  const [activeTab, setActiveTab] = useState<PanelTab>("watchlist");
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
-  const [watchlistSaving, setWatchlistSaving] = useState(false);
-  const [watchlistPersisted, setWatchlistPersisted] = useState(false);
   const [watchlistError, setWatchlistError] = useState<string | null>(null);
-
-  const loadConditions = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const next = await fetchPriceConditions(signal);
-      setConditions(next);
-      setError(null);
-    } catch (caught) {
-      if (signal?.aborted) return;
-      setError(caught instanceof Error ? caught.message : "가격 조건을 불러오지 못했습니다.");
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadConditions(controller.signal);
-    const unsubscribe = subscribeTradeConditionsChanged(() => void loadConditions());
-    return () => {
-      controller.abort();
-      unsubscribe();
-    };
-  }, [loadConditions]);
+  const [updatingCategories, setUpdatingCategories] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const controller = new AbortController();
     setWatchlistLoading(true);
     setWatchlistError(null);
     void fetchWatchlist(controller.signal)
-      .then((payload) => {
-        const nextSymbols = payload.symbols.map((item) => item.symbol.toUpperCase());
-        setWatchlistSymbols(nextSymbols);
-        setWatchlistPersisted(payload.persisted);
-        setSelectedCompanySymbol((current) => (
-          nextSymbols.includes(current) ? current : nextSymbols[0] ?? defaultSymbol.toUpperCase()
-        ));
-      })
+      .then((payload) => setWatchlistSymbols(payload.symbols))
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) {
+          setWatchlistSymbols([]);
           setWatchlistError(caught instanceof Error ? caught.message : "관심 기업을 불러오지 못했습니다.");
         }
       })
@@ -187,852 +92,228 @@ export function PriceConditionPanel({ defaultSymbol, symbols, onOpenCompany }: P
         }
       });
     return () => controller.abort();
-  }, [defaultSymbol]);
+  }, []);
 
-  useEffect(() => {
-    if (!builderOpen) {
-      return undefined;
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setBuilderOpen(false);
-      }
-    };
-    window.document.addEventListener("keydown", closeOnEscape);
-    return () => window.document.removeEventListener("keydown", closeOnEscape);
-  }, [builderOpen]);
-
-  const statusCounts = useMemo(() => conditions.reduce<Record<PriceConditionStatus, number>>(
-    (counts, condition) => ({ ...counts, [condition.status]: counts[condition.status] + 1 }),
-    { watching: 0, triggered: 0, paused: 0 }
-  ), [conditions]);
-  const normalizedDraftSymbol = draft.symbol.trim().toUpperCase();
-  const numericDraftTriggerPrice = Number(draft.triggerPrice);
-  const numericDraftLimitPrice = Number(draft.limitPrice);
-  const numericDraftQuantity = Number(draft.quantity);
-  const draftValid = useMemo(() => (
-    /^[A-Z0-9.-]{1,10}$/.test(normalizedDraftSymbol)
-    && Number.isFinite(numericDraftTriggerPrice)
-    && numericDraftTriggerPrice > 0
-    && Number.isFinite(numericDraftLimitPrice)
-    && numericDraftLimitPrice > 0
-    && Number.isInteger(numericDraftQuantity)
-    && numericDraftQuantity > 0
-  ), [normalizedDraftSymbol, numericDraftLimitPrice, numericDraftQuantity, numericDraftTriggerPrice]);
-  const selectedCompany = useMemo(
-    () => companyForSymbol(symbols, selectedCompanySymbol),
-    [selectedCompanySymbol, symbols]
+  const companies = useMemo(
+    () => watchlistSymbols.map((item) => mergeCompany(item, symbols)),
+    [symbols, watchlistSymbols]
+  );
+  const changePercentBySymbol = useMemo(
+    () => new Map(marketItems.map((item) => [item.symbol.toUpperCase(), item.changePercent])),
+    [marketItems]
   );
 
-  const selectHubTab = (nextTab: HubTab) => {
-    setActiveHubTab(nextTab);
-    setBuilderOpen(false);
-    setPendingDeleteId(null);
-    setReviewingId(null);
-  };
+  const selectTab = useCallback((tab: PanelTab) => {
+    setActiveTab(tab);
+  }, []);
 
-  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-      return;
-    }
+  const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % panelTabs.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + panelTabs.length) % panelTabs.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = panelTabs.length - 1;
+    if (nextIndex == null) return;
     event.preventDefault();
-    const nextIndex = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? hubTabs.length - 1
-        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + hubTabs.length) % hubTabs.length;
-    const nextTab = hubTabs[nextIndex];
-    if (!nextTab) return;
-    selectHubTab(nextTab.id);
-    tabButtonRefs.current[nextIndex]?.focus();
-  };
+    selectTab(panelTabs[nextIndex].id);
+    tabRefs.current[nextIndex]?.focus();
+  }, [selectTab]);
 
-  const toggleNotificationSetting = (key: PrototypeNotificationSetting) => {
-    if (!canUseNotificationPreferences || notificationPreferenceSavingKeys.has(`setting:${key}`)) {
-      return;
-    }
-    void updateNotificationSetting(key, !notificationPreferences.settings[key]);
-  };
-
-  const addWatchlistSymbol = async (symbolValue: string) => {
-    const normalizedSymbol = symbolValue.toUpperCase();
-    if (watchlistSaving || watchlistSymbols.includes(normalizedSymbol)) {
-      return;
-    }
-    const previous = watchlistSymbols;
-    const optimistic = [...previous, normalizedSymbol];
-    setWatchlistSymbols(optimistic);
-    setWatchlistSaving(true);
-    setWatchlistError(null);
+  const toggleCategory = useCallback(async (category: NotificationCategory, enabled: boolean) => {
+    if (updatingCategories.has(category.id)) return;
+    setUpdatingCategories((current) => new Set(current).add(category.id));
     try {
-      const payload = await replaceWatchlistSymbols(optimistic);
-      setWatchlistSymbols(payload.symbols.map((item) => item.symbol.toUpperCase()));
-      setWatchlistPersisted(payload.persisted);
-    } catch (caught: unknown) {
-      setWatchlistSymbols(previous);
-      setWatchlistError(caught instanceof Error ? caught.message : "관심 기업을 저장하지 못했습니다.");
+      for (const key of category.settingKeys) {
+        if (preferences.settings[key] !== enabled) {
+          await updateSetting(key, enabled);
+        }
+      }
     } finally {
-      setWatchlistSaving(false);
-    }
-  };
-
-  const toggleCompanyAlert = (symbolValue: string) => {
-    const normalizedSymbol = symbolValue.toUpperCase();
-    if (!canUseNotificationPreferences || notificationPreferenceSavingKeys.has(`company:${normalizedSymbol}`)) {
-      return;
-    }
-    void updateCompanyOverride(
-      normalizedSymbol,
-      notificationPreferences.companyOverrides[normalizedSymbol] === false
-    );
-  };
-
-  const toggleExpanded = (conditionId: string) => {
-    setExpandedId((current) => current === conditionId ? null : conditionId);
-    setPendingDeleteId(null);
-    setReviewingId(null);
-  };
-
-  const toggleAlert = async (conditionId: string) => {
-    const condition = conditions.find((item) => item.id === conditionId);
-    if (!condition) return;
-    try {
-      const updated = await updatePriceCondition(conditionId, { alertsEnabled: !condition.alertsEnabled });
-      setConditions((current) => current.map((item) => item.id === conditionId ? updated : item));
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "알림 설정을 변경하지 못했습니다.");
-    }
-  };
-
-  const toggleStatus = async (conditionId: string) => {
-    const condition = conditions.find((item) => item.id === conditionId);
-    if (!condition) return;
-    try {
-      const updated = await updatePriceCondition(conditionId, {
-        status: condition.status === "paused" ? "watching" : "paused"
+      setUpdatingCategories((current) => {
+        const next = new Set(current);
+        next.delete(category.id);
+        return next;
       });
-      setConditions((current) => current.map((item) => item.id === conditionId ? updated : item));
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "감시 상태를 변경하지 못했습니다.");
     }
-  };
+  }, [preferences.settings, updateSetting, updatingCategories]);
 
-  const requestDelete = (conditionId: string) => {
-    setExpandedId(conditionId);
-    setPendingDeleteId(conditionId);
-    setReviewingId(null);
-  };
-
-  const deleteCondition = async (conditionId: string) => {
-    try {
-      await deletePriceCondition(conditionId);
-      setConditions((current) => current.filter((condition) => condition.id !== conditionId));
-      setExpandedId((current) => current === conditionId ? null : current);
-      setPendingDeleteId(null);
-      setReviewingId(null);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "가격 조건을 삭제하지 못했습니다.");
-    }
-  };
-
-  const openConditionBuilder = () => {
-    setDraft(initialConditionDraft(defaultSymbol));
-    setBuilderOpen(true);
-    setPendingDeleteId(null);
-    setReviewingId(null);
-  };
-
-  const addCondition = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!draftValid || submitting) return;
-    setSubmitting(true);
-    try {
-      const condition = await createPriceCondition({
-        symbol: normalizedDraftSymbol,
-        side: draft.side,
-        direction: draft.direction,
-        triggerPrice: numericDraftTriggerPrice,
-        limitPrice: numericDraftLimitPrice,
-        quantity: numericDraftQuantity,
-        validity: draft.validity,
-        alertsEnabled: true,
-        executionEnabled: true
-      });
-      setConditions((current) => [condition, ...current.filter((item) => item.id !== condition.id)]);
-      setExpandedId(condition.id);
-      setBuilderOpen(false);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "가격 조건을 추가하지 못했습니다.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const masterSaving = savingKeys.has("setting:master");
 
   return (
-    <section className="auto-trade-panel price-condition-hub" aria-label="가격조건, 알림 및 관심 기업 패널">
-      <header className="price-condition-hub-tabs" role="tablist" aria-label="가격조건 패널 메뉴">
-        {hubTabs.map((tab, index) => (
+    <section className="alerts-watchlist-panel" aria-label="알림 및 관심 기업 패널">
+      <div className="alerts-watchlist-tabs" role="tablist" aria-label="패널 메뉴">
+        {panelTabs.map((tab, index) => (
           <button
             key={tab.id}
-            ref={(element) => { tabButtonRefs.current[index] = element; }}
-            id={`price-condition-${tab.id}-tab`}
+            ref={(element) => { tabRefs.current[index] = element; }}
+            id={`alerts-watchlist-${tab.id}-tab`}
             type="button"
             role="tab"
-            aria-selected={activeHubTab === tab.id}
-            aria-controls={`price-condition-${tab.id}-panel`}
-            tabIndex={activeHubTab === tab.id ? 0 : -1}
-            className={activeHubTab === tab.id ? "is-active" : ""}
-            onClick={() => selectHubTab(tab.id)}
+            aria-selected={activeTab === tab.id}
+            aria-controls={`alerts-watchlist-${tab.id}-panel`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            className={activeTab === tab.id ? "is-active" : ""}
+            onClick={() => selectTab(tab.id)}
             onKeyDown={(event) => handleTabKeyDown(event, index)}
           >
             {tab.label}
           </button>
         ))}
-      </header>
+      </div>
 
-      {activeHubTab === "price" && (
-        <div
-          id="price-condition-price-panel"
-          className="price-condition-tab-panel is-price-tab"
-          role="tabpanel"
-          aria-labelledby="price-condition-price-tab"
-        >
-      <header className="auto-trade-overview">
-        <div className="auto-trade-overview-copy">
-          <div className="auto-trade-mode-badges" aria-label="가격 조건 동작 모드">
-            <span>PRICE CONDITION</span>
-            <span>SERVER SYNC</span>
-          </div>
-          <p>가격 조건을 감시하고 충족 시 리스크 확인 후 예약 주문을 제출합니다.</p>
-        </div>
-        <div className="auto-trade-overview-actions">
-          <button type="button" className="auto-trade-add-button" onClick={openConditionBuilder}>
-            <Plus size={13} aria-hidden="true" />
-            조건 추가
-          </button>
-          <dl className="auto-trade-status-counts" aria-label="가격 조건 상태 요약">
-            <div className="is-watching"><dt>감시</dt><dd>{statusCounts.watching}</dd></div>
-            <div className="is-triggered"><dt>충족</dt><dd>{statusCounts.triggered}</dd></div>
-            <div className="is-paused"><dt>중지</dt><dd>{statusCounts.paused}</dd></div>
-          </dl>
-        </div>
-      </header>
+      <section
+        id="alerts-watchlist-alerts-panel"
+        className="alerts-watchlist-tab-panel"
+        role="tabpanel"
+        aria-labelledby="alerts-watchlist-alerts-tab"
+        hidden={activeTab !== "alerts"}
+      >
+        <div className="notification-category-list">
+          <NotificationRow
+            label="전체 알림"
+            checked={preferences.settings.master}
+            disabled={!canUseNotificationPreferences || notificationLoading || masterSaving}
+            status={notificationStatus(
+              preferences.settings.master,
+              masterSaving,
+              canUseNotificationPreferences
+            )}
+            onToggle={(enabled) => void updateSetting("master", enabled)}
+            emphasized
+          />
 
-      {builderOpen && (
-        <div className="auto-trade-panel-builder-backdrop">
-          <form className="auto-trade-panel-builder" aria-label="가격 조건 직접 추가" onSubmit={addCondition}>
-            <header>
-              <div>
-                <span>NEW PRICE CONDITION</span>
-                <strong>가격 조건 직접 추가</strong>
-              </div>
-              <button type="button" aria-label="가격 조건 직접 추가 닫기" onClick={() => setBuilderOpen(false)}>
-                <X size={15} aria-hidden="true" />
-              </button>
-            </header>
-
-            <label className="auto-trade-panel-builder-symbol">
-              <span>종목</span>
-              <input
-                type="text"
-                maxLength={10}
-                value={draft.symbol}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  symbol: event.target.value.toUpperCase()
-                }))}
-              />
-            </label>
-
-            <div className="chart-price-condition-side" aria-label="매수 또는 매도 선택">
-              <button
-                type="button"
-                className={draft.side === "buy" ? "is-buy is-selected" : "is-buy"}
-                aria-pressed={draft.side === "buy"}
-                onClick={() => setDraft((current) => ({ ...current, side: "buy" }))}
-              >
-                매수
-              </button>
-              <button
-                type="button"
-                className={draft.side === "sell" ? "is-sell is-selected" : "is-sell"}
-                aria-pressed={draft.side === "sell"}
-                onClick={() => setDraft((current) => ({ ...current, side: "sell" }))}
-              >
-                매도
-              </button>
-            </div>
-
-            <div className="chart-price-condition-form-grid">
-              <label>
-                <span>발동 조건</span>
-                <select
-                  value={draft.direction}
-                  onChange={(event) => setDraft((current) => ({
-                    ...current,
-                    direction: event.target.value as PriceConditionDirection
-                  }))}
-                >
-                  <option value="atOrBelow">가격 이하 도달</option>
-                  <option value="atOrAbove">가격 이상 도달</option>
-                </select>
-              </label>
-              <label>
-                <span>발동 가격</span>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={draft.triggerPrice}
-                  onChange={(event) => setDraft((current) => ({ ...current, triggerPrice: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>주문 방식</span>
-                <select value="limit" disabled>
-                  <option value="limit">지정가</option>
-                </select>
-              </label>
-              <label>
-                <span>지정 가격</span>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={draft.limitPrice}
-                  onChange={(event) => setDraft((current) => ({ ...current, limitPrice: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>수량</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  inputMode="numeric"
-                  value={draft.quantity}
-                  onChange={(event) => setDraft((current) => ({ ...current, quantity: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>유효기간</span>
-                <select
-                  value={draft.validity}
-                  onChange={(event) => setDraft((current) => ({ ...current, validity: event.target.value }))}
-                >
-                  <option value="당일">당일</option>
-                  <option value="직접 취소 전">직접 취소 전</option>
-                </select>
-              </label>
-            </div>
-
-            <p className="chart-price-condition-warning">
-              차트가 없어도 조건을 추가할 수 있습니다. 조건 충족 시 계좌와 리스크를 다시 확인한 뒤 예약 주문을 제출합니다.
-            </p>
-
-            <footer className="auto-trade-panel-builder-actions">
-              <button type="button" onClick={() => setBuilderOpen(false)}>취소</button>
-              <button type="submit" className="is-primary" disabled={!draftValid || submitting}>{submitting ? "등록 중" : "조건 추가"}</button>
-            </footer>
-          </form>
-        </div>
-      )}
-
-      {error && <div className="auto-trade-empty is-error" role="alert"><span>{error}</span></div>}
-
-      {loading ? (
-        <div className="auto-trade-empty" role="status"><span>가격 조건을 불러오는 중입니다.</span></div>
-      ) : conditions.length > 0 ? (
-        <div className="auto-trade-strategy-list" role="list" aria-label="가격 조건 목록">
-          {conditions.map((condition) => {
-            const expanded = expandedId === condition.id;
-            const deletePending = pendingDeleteId === condition.id;
-            const reviewing = reviewingId === condition.id;
-            const detailId = `price-condition-detail-${condition.id}`;
-            const sideLabel = condition.side === "buy" ? "매수" : "매도";
-            const directionLabel = condition.direction === "atOrBelow" ? "이하" : "이상";
+          {notificationCategories.map((category) => {
+            const checked = category.settingKeys.every((key) => preferences.settings[key]);
+            const saving = updatingCategories.has(category.id)
+              || category.settingKeys.some((key) => savingKeys.has(`setting:${key}`));
             return (
-              <article
-                key={condition.id}
-                className={`auto-trade-strategy ${expanded ? "is-expanded" : ""}`}
-                data-status={condition.status}
-                role="listitem"
-              >
-                <div className="auto-trade-strategy-bar">
-                  <button
-                    type="button"
-                    className="auto-trade-strategy-main"
-                    aria-expanded={expanded}
-                    aria-controls={detailId}
-                    onClick={() => toggleExpanded(condition.id)}
-                  >
-                    <span className="auto-trade-strategy-company">
-                      <StockLogo symbol={condition.symbol} companyName={condition.companyName} size="sm" />
-                      <span className="auto-trade-strategy-identity">
-                        <span className={`auto-trade-status is-${condition.status}`}>
-                          <i aria-hidden="true" />
-                          {statusLabels[condition.status]}
-                        </span>
-                        <strong>{condition.symbol}</strong>
-                        <small className={`auto-trade-side is-${condition.side}`}>{sideLabel} 조건</small>
-                      </span>
-                    </span>
-                    <span className="auto-trade-strategy-conditions">
-                      <span className="auto-trade-condition-time">{condition.marketHours} · {condition.validity}</span>
-                      <strong>${formatPrice(condition.triggerPrice)} {directionLabel} 도달 시</strong>
-                      <small>지정가 ${formatPrice(condition.limitPrice)} · {condition.quantity}주 · 리스크 확인 후 제출</small>
-                    </span>
-                    <ChevronDown className="auto-trade-expand-icon" size={16} aria-hidden="true" />
-                  </button>
-                  <div className="auto-trade-strategy-actions">
-                    <button
-                      type="button"
-                      className={`auto-trade-icon-button auto-trade-alert-button ${condition.alertsEnabled ? "is-active" : ""}`}
-                      aria-label={`${condition.symbol} 가격 조건 알림 ${condition.alertsEnabled ? "끄기" : "켜기"}`}
-                      aria-pressed={condition.alertsEnabled}
-                      title={`가격 조건 알림 ${condition.alertsEnabled ? "끄기" : "켜기"}`}
-                      onClick={() => toggleAlert(condition.id)}
-                    >
-                      <Bell size={15} fill={condition.alertsEnabled ? "currentColor" : "none"} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="auto-trade-icon-button auto-trade-delete-button"
-                      aria-label={`${condition.symbol} 가격 조건 삭제`}
-                      title="가격 조건 삭제"
-                      onClick={() => requestDelete(condition.id)}
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-
-                {expanded && (
-                  <div className="auto-trade-strategy-detail" id={detailId}>
-                    <div className="auto-trade-detail-grid">
-                      <DetailItem label="발동 조건" value={`현재가가 $${formatPrice(condition.triggerPrice)} ${directionLabel}에 도달`} />
-                      <DetailItem label="주문 초안" value={`${sideLabel} 지정가 $${formatPrice(condition.limitPrice)} · ${condition.quantity}주`} />
-                      <DetailItem label="유효기간" value={condition.validity} />
-                      <DetailItem label="감시 시간" value={condition.marketHours} />
-                      <DetailItem label="최근 확인" value={condition.lastChecked} />
-                    </div>
-                    <div className="auto-trade-detail-footer">
-                      <span>발동 가격과 실제 체결 가격은 다를 수 있습니다.</span>
-                      {condition.status === "triggered" ? (
-                        <button
-                          type="button"
-                          className="auto-trade-status-control is-triggered"
-                          onClick={() => setReviewingId((current) => current === condition.id ? null : condition.id)}
-                        >
-                          <CheckCircle2 size={13} aria-hidden="true" />
-                          주문 상태 보기
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className={`auto-trade-status-control is-${condition.status}`}
-                          onClick={() => toggleStatus(condition.id)}
-                        >
-                          {condition.status === "paused"
-                            ? <Play size={13} aria-hidden="true" />
-                            : <Pause size={13} aria-hidden="true" />}
-                          {condition.status === "paused" ? "감시 재개" : "감시 중지"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {reviewing && (
-                  <div className="auto-trade-order-review" role="dialog" aria-label={`${condition.symbol} 예약 주문 상태`}>
-                    <div>
-                      <span>예약 주문 처리 상태</span>
-                      <strong>{condition.symbol} {sideLabel} · {condition.quantity}주 · 지정가 ${formatPrice(condition.limitPrice)}</strong>
-                      <small>{condition.orderId ? `주문번호 ${condition.orderId}` : condition.errorReason ?? condition.lastChecked}</small>
-                    </div>
-                    <div className="auto-trade-order-review-actions">
-                      <button type="button" onClick={() => setReviewingId(null)}>닫기</button>
-                    </div>
-                  </div>
-                )}
-
-                {deletePending && (
-                  <div
-                    className="auto-trade-delete-confirm"
-                    role="alertdialog"
-                    aria-labelledby={`price-condition-delete-title-${condition.id}`}
-                  >
-                    <div>
-                      <strong id={`price-condition-delete-title-${condition.id}`}>{condition.symbol} 가격 조건을 삭제할까요?</strong>
-                      <span>등록된 가격 감시와 예약 주문 조건이 함께 해제됩니다.</span>
-                    </div>
-                    <div className="auto-trade-delete-confirm-actions">
-                      <button type="button" onClick={() => setPendingDeleteId(null)}>
-                        <X size={13} aria-hidden="true" />
-                        취소
-                      </button>
-                      <button type="button" className="is-danger" onClick={() => deleteCondition(condition.id)}>
-                        <Trash2 size={13} aria-hidden="true" />
-                        삭제
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </article>
+              <NotificationRow
+                key={category.id}
+                label={category.label}
+                checked={checked}
+                disabled={
+                  !canUseNotificationPreferences
+                  || notificationLoading
+                  || !preferences.settings.master
+                  || saving
+                }
+                status={saving ? "저장 중" : checked ? "ON" : "OFF"}
+                onToggle={(enabled) => void toggleCategory(category, enabled)}
+              />
             );
           })}
         </div>
-      ) : (
-        <div className="auto-trade-empty" role="status">
-          <strong>표시할 가격 조건이 없습니다.</strong>
-          <span>상단 ‘조건 추가’ 버튼에서 새 조건을 만들 수 있습니다.</span>
-        </div>
-      )}
 
-      <footer className="auto-trade-panel-footer">
-        <span>조건은 계정에 저장되며 패널을 닫아도 가격 감시는 계속됩니다.</span>
-        <LogoDevAttribution className="auto-trade-logo-attribution" />
-      </footer>
-        </div>
-      )}
+        {notificationError && (
+          <div className="alerts-watchlist-state is-error" role="alert">{notificationError}</div>
+        )}
+      </section>
 
-      {activeHubTab === "alerts" && (
-        <NotificationSettingsView
-          settings={notificationPreferences.settings}
-          watchlistSymbols={watchlistSymbols}
-          symbols={symbols}
-          companyAlerts={notificationPreferences.companyOverrides}
-          canUse={canUseNotificationPreferences}
-          loading={notificationPreferencesLoading}
-          error={notificationPreferencesError}
-          savingKeys={notificationPreferenceSavingKeys}
-          onToggleSetting={toggleNotificationSetting}
-          onToggleCompanyAlert={toggleCompanyAlert}
-        />
-      )}
-
-      {activeHubTab === "watchlist" && (
-        <WatchlistSettingsView
-          symbols={symbols}
-          selectedCompany={selectedCompany}
-          watchlistSymbols={watchlistSymbols}
-          loading={watchlistLoading}
-          saving={watchlistSaving}
-          persisted={watchlistPersisted}
-          error={watchlistError}
-          onSelectCompany={setSelectedCompanySymbol}
-          onAddWatchlist={(symbol) => void addWatchlistSymbol(symbol)}
-          onOpenCompany={onOpenCompany}
-        />
-      )}
-    </section>
-  );
-}
-
-function NotificationSettingsView({
-  settings,
-  watchlistSymbols,
-  symbols,
-  companyAlerts,
-  canUse,
-  loading,
-  error,
-  savingKeys,
-  onToggleSetting,
-  onToggleCompanyAlert
-}: {
-  settings: PrototypeNotificationSettings;
-  watchlistSymbols: string[];
-  symbols: ChartSymbolDto[];
-  companyAlerts: Record<string, boolean>;
-  canUse: boolean;
-  loading: boolean;
-  error: string | null;
-  savingKeys: ReadonlySet<string>;
-  onToggleSetting: (key: PrototypeNotificationSetting) => void;
-  onToggleCompanyAlert: (symbol: string) => void;
-}) {
-  return (
-    <section
-      id="price-condition-alerts-panel"
-      className="price-condition-tab-panel is-settings-tab notification-settings-view"
-      role="tabpanel"
-      aria-labelledby="price-condition-alerts-tab"
-    >
-      <div className="prototype-settings-hero">
-        <div>
-          <span>NOTIFICATION CONTROL</span>
-          <strong>알림 설정</strong>
-          <p>시장 시간부터 기업 이슈까지, 받고 싶은 알림만 선택하세요.</p>
-        </div>
-        <PrototypeSwitch
-          checked={settings.master}
-          label="전체 알림"
-          description={settings.master ? "모든 선택 알림을 수신합니다." : "현재 모든 알림이 중지되어 있습니다."}
-          emphasized
-          disabled={!canUse || loading || savingKeys.has("setting:master")}
-          statusLabel={savingKeys.has("setting:master") ? "저장 중" : undefined}
-          onToggle={() => onToggleSetting("master")}
-        />
-      </div>
-
-      <div className={`prototype-settings-content ${settings.master ? "" : "is-master-off"}`}>
-        <div className="prototype-settings-groups">
-          {notificationGroups.map((group) => (
-            <section key={group.title} className="prototype-settings-group">
-              <header>
-                <strong>{group.title}</strong>
-                <span>{group.description}</span>
-              </header>
-              <div>
-                {group.items.map((item) => (
-                  <PrototypeSwitch
-                    key={item.key}
-                    checked={settings[item.key]}
-                    label={item.label}
-                    description={item.description}
-                    disabled={
-                      !canUse
-                      || loading
-                      || !settings.master
-                      || !readyNotificationSettingKeys.has(item.key)
-                      || savingKeys.has(`setting:${item.key}`)
-                    }
-                    statusLabel={
-                      !readyNotificationSettingKeys.has(item.key)
-                        ? "준비 중"
-                        : savingKeys.has(`setting:${item.key}`)
-                          ? "저장 중"
-                          : undefined
-                    }
-                    onToggle={() => onToggleSetting(item.key)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        <section className="prototype-settings-group company-alert-scope">
-          <header>
-            <strong>관심기업별 알림</strong>
-            <span>관심 기업마다 뉴스·이슈 알림을 따로 제어할 수 있습니다.</span>
-          </header>
-          <div>
-            {watchlistSymbols.map((symbol) => {
-              const company = companyForSymbol(symbols, symbol);
+      <section
+        id="alerts-watchlist-watchlist-panel"
+        className="alerts-watchlist-tab-panel"
+        role="tabpanel"
+        aria-labelledby="alerts-watchlist-watchlist-tab"
+        hidden={activeTab !== "watchlist"}
+      >
+        {watchlistLoading ? (
+          <div className="alerts-watchlist-state" role="status">관심 기업을 불러오는 중입니다.</div>
+        ) : watchlistError ? (
+          <div className="alerts-watchlist-state is-error" role="alert">{watchlistError}</div>
+        ) : companies.length === 0 ? (
+          <div className="alerts-watchlist-state" role="status">아직 관심 기업이 없습니다.</div>
+        ) : (
+          <div className="alerts-watchlist-company-list" role="list" aria-label="관심 기업 목록">
+            {companies.map((company) => {
+              const changePercent = changePercentBySymbol.get(company.symbol.toUpperCase());
+              const changeLabel = formatSignedPercent(changePercent);
               return (
-                <PrototypeSwitch
-                  key={symbol}
-                  checked={companyAlerts[symbol] !== false}
-                  label={`${company.symbol} · ${company.name}`}
-                  description="가격, 시장 움직임, 사회·리스크 이슈"
-                  disabled={!canUse || loading || !settings.master || savingKeys.has(`company:${symbol}`)}
-                  statusLabel={savingKeys.has(`company:${symbol}`) ? "저장 중" : undefined}
-                  logo={<StockLogo symbol={company.symbol} companyName={company.name} size="xs" />}
-                  onToggle={() => onToggleCompanyAlert(symbol)}
-                />
+                <button
+                  key={company.symbol}
+                  type="button"
+                  className="alerts-watchlist-company-row"
+                  role="listitem"
+                  aria-label={`${company.name}, ${sectorLabelKo(company.sector)}, 추적 중, ${changeLabel}`}
+                  onClick={() => onOpenCompany(company.symbol)}
+                >
+                  <StockLogo
+                    symbol={company.symbol}
+                    companyName={company.name}
+                    size="xs"
+                    className="alerts-watchlist-company-logo"
+                  />
+                  <span className="alerts-watchlist-company-copy">
+                    <strong>{company.name}</strong>
+                    <small>{sectorLabelKo(company.sector)}</small>
+                  </span>
+                  <span className="alerts-watchlist-company-change">
+                    <span aria-hidden="true" />
+                    {changeLabel}
+                  </span>
+                </button>
               );
             })}
-            {watchlistSymbols.length === 0 && (
-              <div className="prototype-settings-empty">관심 기업 탭에서 기업을 추가하면 여기에 표시됩니다.</div>
-            )}
           </div>
-        </section>
-      </div>
-
-      <footer className="prototype-panel-note">
-        <span>{loading ? "알림 설정을 불러오는 중입니다." : "알림 설정은 계정에 저장됩니다."}</span>
-        {!canUse && <strong>로그인 후 알림 설정을 저장할 수 있습니다.</strong>}
-        {error && <strong role="alert">{error}</strong>}
-      </footer>
+        )}
+      </section>
     </section>
   );
 }
 
-function PrototypeSwitch({
-  checked,
+function NotificationRow({
   label,
-  description,
-  disabled = false,
-  emphasized = false,
-  logo,
-  statusLabel,
-  onToggle
+  checked,
+  disabled,
+  status,
+  onToggle,
+  emphasized = false
 }: {
-  checked: boolean;
   label: string;
-  description: string;
-  disabled?: boolean;
+  checked: boolean;
+  disabled: boolean;
+  status: string;
+  onToggle: (enabled: boolean) => void;
   emphasized?: boolean;
-  logo?: ReactNode;
-  statusLabel?: string;
-  onToggle: () => void;
 }) {
   return (
-    <div className={`prototype-switch-row ${emphasized ? "is-emphasized" : ""} ${disabled ? "is-disabled" : ""}`}>
-      {logo}
-      <span className="prototype-switch-copy">
-        <strong>{label}</strong>
-        <small>{description}</small>
+    <div className={`notification-category-row ${emphasized ? "is-emphasized" : ""}`}>
+      <strong>{label}</strong>
+      <span className="notification-category-control">
+        <small>{status}</small>
+        <button
+          type="button"
+          className={`alerts-watchlist-switch ${checked ? "is-on" : ""}`}
+          role="switch"
+          aria-checked={checked}
+          aria-label={`${label} ${checked ? "끄기" : "켜기"}`}
+          disabled={disabled}
+          onClick={() => onToggle(!checked)}
+        >
+          <span aria-hidden="true" />
+        </button>
       </span>
-      {statusLabel && <small className="prototype-switch-status">{statusLabel}</small>}
-      <button
-        type="button"
-        className={`prototype-switch ${checked ? "is-on" : ""}`}
-        role="switch"
-        aria-checked={checked}
-        aria-label={`${label} ${checked ? "끄기" : "켜기"}`}
-        disabled={disabled}
-        onClick={onToggle}
-      >
-        <span aria-hidden="true" />
-      </button>
     </div>
   );
 }
 
-function WatchlistSettingsView({
-  symbols,
-  selectedCompany,
-  watchlistSymbols,
-  loading,
-  saving,
-  persisted,
-  error,
-  onSelectCompany,
-  onAddWatchlist,
-  onOpenCompany
-}: {
-  symbols: ChartSymbolDto[];
-  selectedCompany: ChartSymbolDto;
-  watchlistSymbols: string[];
-  loading: boolean;
-  saving: boolean;
-  persisted: boolean;
-  error: string | null;
-  onSelectCompany: (symbol: string) => void;
-  onAddWatchlist: (symbol: string) => void;
-  onOpenCompany: (symbol: string) => void;
-}) {
-  return (
-    <section
-      id="price-condition-watchlist-panel"
-      className="price-condition-tab-panel is-settings-tab watchlist-settings-view"
-      role="tabpanel"
-      aria-labelledby="price-condition-watchlist-tab"
-    >
-      <div className="watchlist-list-toolbar">
-        <SymbolSearch
-          symbols={symbols}
-          selectedSymbol={selectedCompany.symbol}
-          selectedLabel={`${selectedCompany.symbol} · ${selectedCompany.name}`}
-          placeholder="기업명 또는 티커 검색"
-          className="watchlist-company-search"
-          portalMenu={false}
-          onSelectSymbol={(symbol) => {
-            if (saving) {
-              return;
-            }
-            const normalizedSymbol = symbol.toUpperCase();
-            onSelectCompany(normalizedSymbol);
-            onAddWatchlist(normalizedSymbol);
-          }}
-        />
-        <span className="watchlist-list-count">{watchlistSymbols.length}개 관심 기업</span>
-      </div>
-
-      <div className="watchlist-company-list" role="list" aria-label="관심 기업 목록">
-        {watchlistSymbols.map((symbol) => {
-          const company = companyForSymbol(symbols, symbol);
-          return (
-            <button
-              key={symbol}
-              type="button"
-              className="watchlist-company-row"
-              role="listitem"
-              aria-label={`${company.symbol} 기업정보 열기`}
-              onClick={() => onOpenCompany(company.symbol)}
-            >
-              <StockLogo
-                symbol={company.symbol}
-                companyName={company.name}
-                size="xs"
-                className="watchlist-company-logo"
-              />
-              <span className="watchlist-company-symbol-line">
-                <strong>{company.symbol}</strong>
-                <small>추적 중</small>
-              </span>
-              <span className="watchlist-company-reasons">
-                <em>{company.name}의 뉴스와 공시를 모니터링합니다.</em>
-                <em>사회·리스크와 주요 기업 이슈를 추적합니다.</em>
-              </span>
-              <span className="watchlist-company-sector">{sectorLabelKo(company.sector)}</span>
-            </button>
-          );
-        })}
-        {watchlistSymbols.length === 0 && (
-          <div className="watchlist-company-empty" role="status">
-            <strong>아직 관심 기업이 없습니다.</strong>
-            <span>위 검색창에서 기업을 선택하면 목록에 추가됩니다.</span>
-          </div>
-        )}
-      </div>
-
-      <footer className="prototype-panel-note">
-        <span>
-          {loading
-            ? "관심 기업을 불러오는 중입니다."
-            : saving
-              ? "관심 기업을 저장하는 중입니다."
-              : persisted
-                ? "관심 기업은 계정에 저장되어 뉴스와 추천에 반영됩니다."
-                : "검색에서 기업을 추가하면 계정에 저장됩니다."}
-        </span>
-        {error && <strong role="alert">{error}</strong>}
-      </footer>
-    </section>
-  );
-}
-
-function initialPrototypeWatchlist(symbols: ChartSymbolDto[], defaultSymbol: string): string[] {
-  const available = new Set(symbols.map((item) => item.symbol.toUpperCase()));
-  const normalizedDefault = defaultSymbol.trim().toUpperCase();
-  const candidates = [normalizedDefault, "AAPL", "MSFT", "NVDA", ...symbols.map((item) => item.symbol.toUpperCase())];
-  const result: string[] = [];
-  candidates.forEach((symbol) => {
-    if (!symbol || result.includes(symbol) || (symbol !== normalizedDefault && !available.has(symbol))) {
-      return;
-    }
-    result.push(symbol);
-  });
-  return result.slice(0, 3);
-}
-
-function companyForSymbol(symbols: ChartSymbolDto[], symbolValue: string): ChartSymbolDto {
-  const normalizedSymbol = symbolValue.trim().toUpperCase();
-  return symbols.find((item) => item.symbol.toUpperCase() === normalizedSymbol) ?? {
-    symbol: normalizedSymbol || "NVDA",
-    name: normalizedSymbol || "NVDA"
+function mergeCompany(item: ChartSymbolDto, symbols: ChartSymbolDto[]): ChartSymbolDto {
+  const symbol = item.symbol.toUpperCase();
+  const catalogItem = symbols.find((candidate) => candidate.symbol.toUpperCase() === symbol);
+  return {
+    symbol,
+    name: item.name && item.name !== symbol ? item.name : catalogItem?.name ?? symbol,
+    sector: item.sector || catalogItem?.sector,
+    isMock: item.isMock ?? catalogItem?.isMock
   };
 }
 
-function DetailItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="auto-trade-detail-item">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+function notificationStatus(checked: boolean, saving: boolean, canUse: boolean): string {
+  if (!canUse) return "로그인 필요";
+  if (saving) return "저장 중";
+  return checked ? "ON" : "OFF";
 }
 
-function formatPrice(price: number): string {
-  return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatSignedPercent(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
