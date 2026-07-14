@@ -30,18 +30,28 @@ const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
   "utf-8"
 );
+const apiSource = readFileSync(
+  fileURLToPath(new URL("../src/simulator/simulatorApi.ts", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.match(controlSource, /window\.open\(article\.url/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);
 assert.match(controlSource, /document\.visibilityState === "hidden"/);
 assert.match(controlSource, /simulatorStatusPollIntervalMs\(latestStatusRef\.current\)/);
+assert.match(controlSource, /다음 시연 단계/);
+assert.match(controlSource, /setSimulatorPhase\(status\.nextPhase/);
+assert.match(apiSource, /\/api\/simulator\/phase/);
+
+const chartCommentarySource = readFileSync(
+  fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
+  "utf-8"
+);
+assert.match(chartCommentarySource, /GlossaryText/);
+assert.match(chartCommentarySource, /삼각 수렴 패턴/);
 
 const orderTicketSource = readFileSync(
   fileURLToPath(new URL("../src/components/OrderTicket.tsx", import.meta.url)),
-  "utf-8"
-);
-const apiSource = readFileSync(
-  fileURLToPath(new URL("../src/simulator/simulatorApi.ts", import.meta.url)),
   "utf-8"
 );
 assert.match(apiSource, /\/api\/simulator\/orders\/basket/);
