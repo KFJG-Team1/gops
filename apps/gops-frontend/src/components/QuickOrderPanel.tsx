@@ -12,15 +12,18 @@ import { replaceOrderFlowMinute, type OrderFlowMinuteDto } from "../chart/orderF
 import type { CandleEventDto } from "../chart/types";
 import {
   makeIdempotencyKey,
+  orderBalancePath,
   orderWebSocketUrl,
   parseRiskDetail,
   previewOrderRisk,
   submitOrderRequest,
+  type OrderExecutionMode,
   type OrderRequestPayload,
   type OrderSnapshot,
   type OrderSocketPayload,
   type RiskVerdict
 } from "../orders/orderClient";
+import { searchPaperSymbols } from "../orders/paperTradingClient";
 import {
   baseQuickOrderIntents,
   deltaTone,
@@ -37,6 +40,7 @@ type QuickOrderPanelProps = {
   symbolOptions: readonly WatchlistSymbol[];
   onSymbolChange?: (symbol: string) => void;
   onQtyChange?: (qty: number) => void;
+  executionMode?: OrderExecutionMode;
 };
 
 type StreamState = "idle" | "connecting" | "live" | "error";
@@ -51,13 +55,15 @@ export function QuickOrderPanel({
   savedQty = 1,
   symbolOptions,
   onSymbolChange,
-  onQtyChange
+  onQtyChange,
+  executionMode = "kis"
 }: QuickOrderPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const socketsRef = useRef(new Map<string, WebSocket>());
   const toastTimersRef = useRef(new Map<string, number>());
   const symbolSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [supportedSymbols, setSupportedSymbols] = useState<string[]>([]);
+  const [paperSymbolOptions, setPaperSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState(symbol.trim().toUpperCase());
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
   const [symbolSearchOpen, setSymbolSearchOpen] = useState(false);
@@ -91,16 +97,19 @@ export function QuickOrderPanel({
     return () => controller.abort();
   }, []);
 
-  const supported = supportedSymbols.includes(selectedSymbol);
+  const orderFlowSupported = supportedSymbols.includes(selectedSymbol);
+  const supported = executionMode === "paper" || orderFlowSupported;
   const quickOrderSymbolOptions = useMemo(() => {
-    const symbolMeta = new Map(symbolOptions.map((item) => [item.symbol.toUpperCase(), item]));
-    const candidates = supportedSymbols.length ? supportedSymbols : [selectedSymbol];
-    return candidates.map((candidate) => {
-      const normalized = candidate.toUpperCase();
+    const allOptions = [...symbolOptions, ...paperSymbolOptions];
+    const symbolMeta = new Map(allOptions.map((item) => [item.symbol.toUpperCase(), item]));
+    const candidates = executionMode === "paper"
+      ? [selectedSymbol, ...allOptions.map((item) => item.symbol)]
+      : supportedSymbols.length ? supportedSymbols : [selectedSymbol];
+    return Array.from(new Set(candidates.map((candidate) => candidate.toUpperCase()))).map((normalized) => {
       const meta = symbolMeta.get(normalized);
       return { symbol: normalized, name: meta?.name || normalized };
     });
-  }, [selectedSymbol, supportedSymbols, symbolOptions]);
+  }, [executionMode, paperSymbolOptions, selectedSymbol, supportedSymbols, symbolOptions]);
   const visibleSymbolOptions = useMemo(() => {
     const query = symbolSearchQuery.trim().toUpperCase();
     return quickOrderSymbolOptions
@@ -117,11 +126,29 @@ export function QuickOrderPanel({
   }, [symbolSearchOpen]);
 
   useEffect(() => {
+    if (executionMode !== "paper" || !symbolSearchOpen) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      searchPaperSymbols(symbolSearchQuery, controller.signal)
+        .then((items) => setPaperSymbolOptions(items.map((item) => ({
+          symbol: item.symbol,
+          name: item.name || item.symbol,
+          market: item.exchange || item.market || "US"
+        }))))
+        .catch(() => undefined);
+    }, 180);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [executionMode, symbolSearchOpen, symbolSearchQuery]);
+
+  useEffect(() => {
     setIntent(null);
     setRisk(undefined);
     setMinutes(new Map());
     setQuote(null);
-    if (!supported) return;
+    if (!orderFlowSupported) return;
     const controller = new AbortController();
     fetchOrderFlowIntraday(selectedSymbol, controller.signal)
       .then((response) => {
@@ -134,7 +161,7 @@ export function QuickOrderPanel({
         setQuote(null);
       });
     return () => controller.abort();
-  }, [selectedSymbol, supported]);
+  }, [orderFlowSupported, selectedSymbol]);
 
   useEffect(() => {
     if (!supported) {
@@ -147,9 +174,9 @@ export function QuickOrderPanel({
       if (event.type === "ORDER_FLOW_BINS_UPDATE") setMinutes((current) => replaceOrderFlowMinute(current, event.data));
     };
     const onState = (state: StreamState) => setStreamState(state);
-    const demoCleanup = subscribeOrderFlowDemoTicks(selectedSymbol, onEvent, onState);
+    const demoCleanup = orderFlowSupported ? subscribeOrderFlowDemoTicks(selectedSymbol, onEvent, onState) : undefined;
     return demoCleanup ?? openChartSocket(selectedSymbol, "1m", onEvent, onState);
-  }, [selectedSymbol, supported]);
+  }, [orderFlowSupported, selectedSymbol, supported]);
 
   const baseIntents = useMemo(() => baseQuickOrderIntents(quote), [quote]);
   const imbalances = useMemo(() => imbalanceCandidates(minutes, quote, priceBinSize), [minutes, priceBinSize, quote]);
@@ -159,7 +186,7 @@ export function QuickOrderPanel({
   const transportReady = streamState === "idle" || streamState === "live";
   const marketDataReady = quoteUsable && transportReady;
   const qty = parsePositiveInteger(qtyText);
-  const exchange = exchangeForSymbol(selectedSymbol, symbolOptions);
+  const exchange = exchangeForSymbol(selectedSymbol, [...symbolOptions, ...paperSymbolOptions]);
   const disabledReason = quickOrderDisabledReason({ supported, quoteUsable, streamState, submitting });
 
   useEffect(() => {
@@ -170,7 +197,7 @@ export function QuickOrderPanel({
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setRiskLoading(true);
-      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, intent), controller.signal)
+      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, intent), controller.signal, executionMode)
         .then(setRisk)
         .catch(() => setRisk(undefined))
         .finally(() => setRiskLoading(false));
@@ -179,7 +206,7 @@ export function QuickOrderPanel({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [exchange, intent, marketDataReady, qty, selectedSymbol, supported]);
+  }, [exchange, executionMode, intent, marketDataReady, qty, selectedSymbol, supported]);
 
   useEffect(() => {
     if (!intent || !marketDataReady) {
@@ -188,12 +215,12 @@ export function QuickOrderPanel({
     }
     const controller = new AbortController();
     const params = new URLSearchParams({ symbol: selectedSymbol, exchange, price: intent.price.toFixed(2) });
-    fetch(`/api/orders/balance?${params.toString()}`, { signal: controller.signal })
+    fetch(`${orderBalancePath(executionMode)}?${params.toString()}`, { signal: controller.signal })
       .then(async (response) => response.ok ? response.json() : Promise.reject())
       .then(setBalance)
       .catch(() => setBalance(undefined));
     return () => controller.abort();
-  }, [exchange, intent, marketDataReady, selectedSymbol]);
+  }, [exchange, executionMode, intent, marketDataReady, selectedSymbol]);
 
   useEffect(() => () => {
     socketsRef.current.forEach((socket) => socket.close());
@@ -249,7 +276,7 @@ export function QuickOrderPanel({
     const pendingToastId = `pending-${idempotencyKey}`;
     showToast({ id: pendingToastId, tone: "pending", message: `${selectedSymbol} 주문 전송 중` }, false);
     try {
-      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, intent), idempotencyKey);
+      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, intent), idempotencyKey, undefined, executionMode);
       removeToast(pendingToastId);
       showToast({ id: order.order_id, tone: "info", message: `${selectedSymbol} 주문이 접수되었습니다.` });
       if (order.simulation) {
@@ -276,7 +303,7 @@ export function QuickOrderPanel({
       oldest[1].close();
       socketsRef.current.delete(oldest[0]);
     }
-    const socket = new WebSocket(orderWebSocketUrl(order.order_id));
+    const socket = new WebSocket(orderWebSocketUrl(order.order_id, executionMode));
     socketsRef.current.set(order.order_id, socket);
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as OrderSocketPayload;
@@ -317,9 +344,9 @@ export function QuickOrderPanel({
   const cash = Number(balance?.orderable_cash);
 
   return (
-    <section className="quick-order-panel" data-stream-state={streamState} aria-label="빠른 주문 패널">
+    <section className="quick-order-panel" data-stream-state={streamState} data-execution-mode={executionMode} aria-label={executionMode === "paper" ? "가상 빠른 주문 패널" : "빠른 주문 패널"}>
       <header className="quick-order-header">
-        <span className="quick-order-title">빠른 주문</span>
+        <span className="quick-order-title">{executionMode === "paper" ? "가상 빠른 주문" : "빠른 주문"}</span>
         <div
           className="quick-order-symbol-picker"
           onBlur={(event) => {

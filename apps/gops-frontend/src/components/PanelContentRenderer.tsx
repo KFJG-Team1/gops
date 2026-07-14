@@ -38,6 +38,7 @@ import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { OrderTicket } from "./OrderTicket";
+import { PaperAccountPanel } from "./PaperAccountPanel";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import { QuickOrderPanel } from "./QuickOrderPanel";
 import {
@@ -361,6 +362,20 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "paperQuickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <QuickOrderPanel
+        executionMode="paper"
+        symbol={readQuickOrderSymbol(content, symbol)}
+        savedQty={readQuickOrderQty(content)}
+        symbolOptions={watchlistSymbols}
+        onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+        onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+      />
+    );
+  }
+
   if (content.kind === "trade") {
     const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
@@ -371,6 +386,23 @@ export function PanelContentRenderer({
         onSymbolOptionsRequest={() => undefined}
       />
     );
+  }
+
+  if (content.kind === "paperTrade") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <OrderTicket
+        executionMode="paper"
+        activeSymbol={symbol.toUpperCase()}
+        chartSymbols={watchlistSymbols}
+        symbolOptions={watchlistSymbols}
+        onSymbolOptionsRequest={() => undefined}
+      />
+    );
+  }
+
+  if (content.kind === "paperAccount") {
+    return <PaperAccountPanel />;
   }
 
   if (content.kind === "chartCommentary") {

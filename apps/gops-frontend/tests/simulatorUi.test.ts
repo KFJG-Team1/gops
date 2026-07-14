@@ -47,6 +47,24 @@ const apiSource = readFileSync(
 assert.match(apiSource, /\/api\/simulator\/orders\/basket/);
 assert.match(orderTicketSource, /submitSimulatorBasket\(form\.side/);
 assert.match(orderTicketSource, /onClick=\{submitOrder\}/);
+assert.match(orderTicketSource, /executionMode === "paper" \? "\/api\/paper\/orders" : "\/api\/orders"/);
+
+const paperClientSource = readFileSync(
+  fileURLToPath(new URL("../src/orders/paperTradingClient.ts", import.meta.url)),
+  "utf-8"
+);
+const quickOrderSource = readFileSync(
+  fileURLToPath(new URL("../src/components/QuickOrderPanel.tsx", import.meta.url)),
+  "utf-8"
+);
+const paperAccountSource = readFileSync(
+  fileURLToPath(new URL("../src/components/PaperAccountPanel.tsx", import.meta.url)),
+  "utf-8"
+);
+assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
+assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
+assert.match(paperAccountSource, /cancelPaperOrder/);
+assert.match(paperAccountSource, /resetPaperAccount/);
 
 const layoutPresetSource = readFileSync(
   fileURLToPath(new URL("../src/layout/layoutPresets.ts", import.meta.url)),

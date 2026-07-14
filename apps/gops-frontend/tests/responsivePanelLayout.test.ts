@@ -34,12 +34,19 @@ assert.deepEqual(readableMinGridSpanForKind("indices"), { colSpan: 1, rowSpan: 1
 assert.deepEqual(readableMinGridSpanForKind("news"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("chart"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("trade"), { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(readableMinGridSpanForKind("paperQuickOrder"), { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(readableMinGridSpanForKind("paperTrade"), { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(readableMinGridSpanForKind("paperAccount"), { colSpan: 3, rowSpan: 2 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("chart"), { width: 320, height: 220 });
 
 const initial = createInitialTiledPanelState({ width: 854, height: 480 }, {
   symbol: "NVDA",
   layoutMetrics: compact.metrics
 });
+assert.equal(
+  Object.values(initial.contents).some((content) => ["paperQuickOrder", "paperTrade", "paperAccount"].includes(content.kind)),
+  false
+);
 for (let leftIndex = 0; leftIndex < initial.slots.length; leftIndex += 1) {
   for (let rightIndex = leftIndex + 1; rightIndex < initial.slots.length; rightIndex += 1) {
     assert.equal(

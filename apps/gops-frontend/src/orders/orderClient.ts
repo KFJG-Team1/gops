@@ -1,4 +1,5 @@
 export type OrderSide = "buy" | "sell";
+export type OrderExecutionMode = "kis" | "paper";
 
 export type OrderRequestPayload = {
   market: "overseas";
@@ -39,8 +40,15 @@ export type OrderSnapshot = {
   status: string;
   symbol?: string;
   side?: string;
-  qty?: string;
-  price?: string;
+  qty?: string | number;
+  price?: string | number;
+  limit_price?: string | number;
+  fill_price?: string | number | null;
+  created_at?: string;
+  filled_at?: string | null;
+  cancelled_at?: string | null;
+  generation?: number;
+  execution_mode?: "paper";
   reason?: string | null;
   simulation?: boolean;
   risk?: RiskVerdict;
@@ -67,9 +75,14 @@ export function makeIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function orderWebSocketUrl(orderId: string): string {
+export function orderWebSocketUrl(orderId: string, executionMode: OrderExecutionMode = "kis"): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/orders/${orderId}`;
+  const path = executionMode === "paper" ? `/ws/paper/orders/${orderId}` : `/ws/orders/${orderId}`;
+  return `${protocol}//${window.location.host}${path}`;
+}
+
+export function orderBalancePath(executionMode: OrderExecutionMode = "kis"): string {
+  return executionMode === "paper" ? "/api/paper/account/balance" : "/api/orders/balance";
 }
 
 export function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
@@ -86,9 +99,10 @@ export function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
 export async function submitOrderRequest(
   payload: OrderRequestPayload,
   idempotencyKey: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  executionMode: OrderExecutionMode = "kis"
 ): Promise<OrderSnapshot> {
-  const response = await fetch("/api/orders", {
+  const response = await fetch(executionMode === "paper" ? "/api/paper/orders" : "/api/orders", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -106,8 +120,12 @@ export async function submitOrderRequest(
   return body as OrderSnapshot;
 }
 
-export async function previewOrderRisk(payload: OrderRequestPayload, signal?: AbortSignal): Promise<RiskVerdict> {
-  const response = await fetch("/api/risk/pretrade", {
+export async function previewOrderRisk(
+  payload: OrderRequestPayload,
+  signal?: AbortSignal,
+  executionMode: OrderExecutionMode = "kis"
+): Promise<RiskVerdict> {
+  const response = await fetch(executionMode === "paper" ? "/api/paper/risk/pretrade" : "/api/risk/pretrade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

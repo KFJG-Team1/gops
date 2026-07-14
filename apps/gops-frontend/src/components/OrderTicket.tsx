@@ -4,14 +4,17 @@ import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type Wat
 import { useAuth } from "../auth/AuthProvider";
 import {
   makeIdempotencyKey,
+  orderBalancePath,
   orderWebSocketUrl,
   parseRiskDetail,
+  type OrderExecutionMode,
   type OrderSide,
   type OrderSnapshot,
   type OrderSocketPayload,
   type RiskRule,
   type RiskVerdict
 } from "../orders/orderClient";
+import { searchPaperSymbols } from "../orders/paperTradingClient";
 import {
   fetchSimulatorStatus,
   requestPortfolioRefresh,
@@ -36,6 +39,7 @@ type OrderTicketProps = {
   chartSymbols: readonly WatchlistSymbol[];
   symbolOptions: readonly WatchlistSymbol[];
   onSymbolOptionsRequest: (query: string) => void;
+  executionMode?: OrderExecutionMode;
 };
 
 type OrderBalance = {
@@ -269,12 +273,14 @@ export function OrderTicket({
   activeSymbol,
   chartSymbols,
   symbolOptions,
-  onSymbolOptionsRequest
+  onSymbolOptionsRequest,
+  executionMode = "kis"
 }: OrderTicketProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const [form, setForm] = useState<OrderFormState>({ ...DEFAULT_FORM, symbol: activeSymbol });
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
   const [symbolSearchOpen, setSymbolSearchOpen] = useState(false);
+  const [paperSymbolOptions, setPaperSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [order, setOrder] = useState<OrderSnapshot | undefined>();
@@ -304,6 +310,10 @@ export function OrderTicket({
   }, []);
 
   useEffect(() => {
+    if (executionMode === "paper") {
+      setSimulationMode(false);
+      return;
+    }
     let cancelled = false;
     const refresh = () => void fetchSimulatorStatus()
       .then((status) => {
@@ -320,11 +330,29 @@ export function OrderTicket({
       cancelled = true;
       window.removeEventListener(simulatorStatusEvent, handleStatus);
     };
-  }, []);
+  }, [executionMode]);
+
+  useEffect(() => {
+    if (executionMode !== "paper" || !symbolSearchOpen) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      searchPaperSymbols(symbolSearchQuery, controller.signal)
+        .then((items) => setPaperSymbolOptions(items.map((item) => ({
+          symbol: item.symbol,
+          name: item.name || item.symbol,
+          market: item.exchange || item.market || "US"
+        }))))
+        .catch(() => undefined);
+    }, 180);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [executionMode, symbolSearchOpen, symbolSearchQuery]);
 
   const allSymbolOptions = useMemo(
-    () => dedupeSymbols([...chartSymbols, ...symbolOptions]),
-    [chartSymbols, symbolOptions]
+    () => dedupeSymbols([...chartSymbols, ...symbolOptions, ...paperSymbolOptions]),
+    [chartSymbols, paperSymbolOptions, symbolOptions]
   );
 
   const selectedSymbolMeta = useMemo(
@@ -364,7 +392,7 @@ export function OrderTicket({
           exchange: form.exchange,
           price: balanceQueryPrice
         });
-        const response = await fetch(`/api/orders/balance?${params.toString()}`, {
+        const response = await fetch(`${orderBalancePath(executionMode)}?${params.toString()}`, {
           signal: controller.signal
         });
         const payload = await response.json();
@@ -388,7 +416,7 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [form.exchange, form.price, form.symbol, simulationMode]);
+  }, [executionMode, form.exchange, form.price, form.symbol, simulationMode]);
 
   useEffect(() => {
     if (simulationMode && useDemoBasket) {
@@ -405,7 +433,7 @@ export function OrderTicket({
     const timeoutId = window.setTimeout(async () => {
       setRiskLoading(true);
       try {
-        const response = await fetch("/api/risk/pretrade", {
+        const response = await fetch(executionMode === "paper" ? "/api/paper/risk/pretrade" : "/api/risk/pretrade", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -439,7 +467,7 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [form.exchange, form.market, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
+  }, [executionMode, form.exchange, form.market, form.price, form.qty, form.side, form.symbol, simulationMode, useDemoBasket]);
 
   const applyRuleSuggestion = (rule: RiskRule) => {
     const quantity = rule.suggestedQty ? Number(rule.suggestedQty) : NaN;
@@ -479,7 +507,7 @@ export function OrderTicket({
 
   const connectSocket = (orderId: string) => {
     socketRef.current?.close();
-    const socket = new WebSocket(orderWebSocketUrl(orderId));
+    const socket = new WebSocket(orderWebSocketUrl(orderId, executionMode));
     socketRef.current = socket;
 
     socket.onerror = () => {
@@ -532,7 +560,7 @@ export function OrderTicket({
     const quantity = Number(form.qty);
     const price = Number(submitPrice);
     if (!Number.isInteger(quantity) || quantity <= 0) {
-      setError("해외주식 모의투자는 정수 수량만 주문할 수 있습니다.");
+      setError(executionMode === "paper" ? "가상투자는 정수 수량만 주문할 수 있습니다." : "해외주식 모의투자는 정수 수량만 주문할 수 있습니다.");
       setSubmitting(false);
       return;
     }
@@ -542,7 +570,7 @@ export function OrderTicket({
       return;
     }
     try {
-      const response = await fetch("/api/orders", {
+      const response = await fetch(executionMode === "paper" ? "/api/paper/orders" : "/api/orders", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -599,15 +627,16 @@ export function OrderTicket({
   const price = Number(form.price);
   const individualOrderReady = Number.isInteger(quantity) && quantity > 0 && Number.isFinite(price) && price > 0;
   const orderReady = simulationMode && useDemoBasket ? true : individualOrderReady;
-  const riskNeedsAcknowledgement = Boolean(risk && risk.verdict !== "allow");
+  const riskNeedsAcknowledgement = executionMode === "kis" && Boolean(risk && risk.verdict !== "allow");
+  const paperRiskBlocked = executionMode === "paper" && risk?.verdict === "block";
   const estimatedAmount = formatOrderAmount(form.qty, form.price);
   const orderSummary = `${form.symbol} ${form.qty || "-"}주 · ${sideLabels[form.side]} · 지정가`;
 
   return (
-    <section className="order-ticket order-ticket-v3" data-order-side={form.side} aria-label="주문 패널">
+    <section className="order-ticket order-ticket-v3" data-order-side={form.side} data-execution-mode={executionMode} aria-label={executionMode === "paper" ? "가상 주문 패널" : "주문 패널"}>
       <header className="order-ticket-heading">
         <div>
-          <strong>주문하기</strong>
+          <strong>{executionMode === "paper" ? "가상 주문하기" : "주문하기"}</strong>
           <span className="order-side-badge">{sideLabels[form.side]} 주문</span>
         </div>
         <p>주문 방향, 가격과 수량을 확인한 뒤 주문합니다.</p>
@@ -635,7 +664,7 @@ export function OrderTicket({
         </div>
       </section>
 
-      {simulationMode && (
+      {executionMode === "kis" && simulationMode && (
         <div className="simulation-order-banner">
           <div>
             <span>SIMULATION · 실제 주문 전송 없음</span>
@@ -807,7 +836,7 @@ export function OrderTicket({
         <button
           className="order-submit-button"
           type="button"
-          disabled={submitting || authLoading || riskLoading || !orderReady}
+          disabled={submitting || authLoading || riskLoading || !orderReady || paperRiskBlocked}
           onClick={submitOrder}
         >
           {submitting
@@ -817,6 +846,8 @@ export function OrderTicket({
             ? "주문 전송 중"
             : authEnabled && !user
               ? "로그인"
+              : paperRiskBlocked
+                ? "주문 가능 범위를 확인해 주세요"
               : simulationMode && useDemoBasket
                 ? form.side === "sell" ? "반도체 5종 매도 주문" : "에너지 3종 매수 주문"
                 : riskNeedsAcknowledgement
@@ -826,6 +857,8 @@ export function OrderTicket({
         <small>
           {riskNeedsAcknowledgement
             ? "리스크 안내를 확인한 뒤에도 입력한 가격과 수량 그대로 주문할 수 있습니다."
+            : executionMode === "paper"
+              ? `예상 주문 금액 ${estimatedAmount} · 가상계좌 주문으로 접수됩니다.`
             : simulationMode && useDemoBasket
             ? "버튼을 누르면 모의 주문이 바로 전송됩니다."
             : `예상 주문 금액 ${estimatedAmount} · 버튼을 누르면 주문이 바로 전송됩니다.`}
