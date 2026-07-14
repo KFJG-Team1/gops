@@ -13,25 +13,34 @@ import { readMarketOpenReminderEnabled } from "./marketOpenReminder";
 
 export const notificationSettingKeys = [
   "master",
-  "marketOpen",
-  "marketClose",
-  "extendedHoursMove",
   "targetPrice",
   "rapidMove",
   "volumeSpike",
-  "watchlistNews",
-  "earningsFiling",
-  "executiveChange",
+  "marketOpen",
+  "marketClose",
+  "extendedHoursMove",
+  "earningsD1",
   "socialIssue",
-  "regulationLegal",
-  "supplyChainMacro"
+  "aiAnomaly"
 ] as const;
 
 export type NotificationSettingKey = typeof notificationSettingKeys[number];
 export type NotificationSettings = Record<NotificationSettingKey, boolean>;
 
+export const notificationThresholdValues = {
+  rapidMovePct: [3, 5, 10],
+  volumeSpikeMultiple: [2, 3, 5]
+} as const;
+
+export type NotificationThresholdKey = keyof typeof notificationThresholdValues;
+export type NotificationThresholds = {
+  rapidMovePct: 3 | 5 | 10;
+  volumeSpikeMultiple: 2 | 3 | 5;
+};
+
 export type NotificationPreferences = {
   settings: NotificationSettings;
+  thresholds: NotificationThresholds;
   companyOverrides: Record<string, boolean>;
   persisted: boolean;
   updatedAt: string | null;
@@ -39,30 +48,38 @@ export type NotificationPreferences = {
 
 export const defaultNotificationSettings: NotificationSettings = {
   master: true,
-  marketOpen: true,
-  marketClose: false,
-  extendedHoursMove: false,
   targetPrice: true,
   rapidMove: true,
   volumeSpike: false,
-  watchlistNews: true,
-  earningsFiling: true,
-  executiveChange: false,
+  marketOpen: true,
+  marketClose: false,
+  extendedHoursMove: false,
+  earningsD1: true,
   socialIssue: true,
-  regulationLegal: true,
-  supplyChainMacro: false
+  aiAnomaly: true
+};
+
+export const defaultNotificationThresholds: NotificationThresholds = {
+  rapidMovePct: 5,
+  volumeSpikeMultiple: 3
 };
 
 export const readyNotificationSettingKeys = new Set<NotificationSettingKey>([
   "master",
   "marketOpen",
+  "marketClose",
+  "extendedHoursMove",
   "targetPrice",
   "rapidMove",
-  "volumeSpike"
+  "volumeSpike",
+  "earningsD1",
+  "socialIssue",
+  "aiAnomaly"
 ]);
 
 const defaultNotificationPreferences: NotificationPreferences = {
   settings: { ...defaultNotificationSettings },
+  thresholds: { ...defaultNotificationThresholds },
   companyOverrides: {},
   persisted: false,
   updatedAt: null
@@ -76,6 +93,10 @@ type NotificationPreferencesContextValue = {
   error: string | null;
   savingKeys: ReadonlySet<string>;
   updateSetting: (key: NotificationSettingKey, enabled: boolean) => Promise<void>;
+  updateThreshold: (
+    key: NotificationThresholdKey,
+    value: NotificationThresholds[NotificationThresholdKey]
+  ) => Promise<void>;
   updateCompanyOverride: (symbol: string, enabled: boolean) => Promise<void>;
 };
 
@@ -207,6 +228,41 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
     }
   }, [preferences.companyOverrides, savingKeys]);
 
+  const updateThreshold = useCallback(async (
+    key: NotificationThresholdKey,
+    value: NotificationThresholds[NotificationThresholdKey]
+  ) => {
+    const savingKey = `threshold:${key}`;
+    if (savingKeys.has(savingKey)) {
+      return;
+    }
+    const previous = preferences.thresholds[key];
+    setError(null);
+    setSavingKeys((current) => new Set(current).add(savingKey));
+    setPreferences((current) => ({
+      ...current,
+      thresholds: { ...current.thresholds, [key]: value }
+    }));
+    try {
+      const updated = await patchNotificationPreferences({
+        thresholds: { [key]: value } as Partial<NotificationThresholds>
+      });
+      setPreferences(updated);
+    } catch (caught: unknown) {
+      setPreferences((current) => ({
+        ...current,
+        thresholds: { ...current.thresholds, [key]: previous }
+      }));
+      setError(caught instanceof Error ? caught.message : "알림 임계값을 저장하지 못했습니다.");
+    } finally {
+      setSavingKeys((current) => {
+        const next = new Set(current);
+        next.delete(savingKey);
+        return next;
+      });
+    }
+  }, [preferences.thresholds, savingKeys]);
+
   const value = useMemo<NotificationPreferencesContextValue>(() => ({
     preferences,
     canUse: canUsePreferences,
@@ -215,8 +271,9 @@ export function NotificationPreferencesProvider({ children }: { children: ReactN
     error,
     savingKeys,
     updateSetting,
+    updateThreshold,
     updateCompanyOverride
-  }), [canUsePreferences, error, loading, preferences, ready, savingKeys, updateCompanyOverride, updateSetting]);
+  }), [canUsePreferences, error, loading, preferences, ready, savingKeys, updateCompanyOverride, updateSetting, updateThreshold]);
 
   return (
     <NotificationPreferencesContext.Provider value={value}>
@@ -237,6 +294,12 @@ export function notificationSettingForItem(notification: NotificationItem): Noti
   if (notification.type === "system.market_open" || notification.payload.kind === "market_open") {
     return "marketOpen";
   }
+  if (notification.type === "system.market_close_summary" || notification.payload.kind === "market_close_summary") {
+    return "marketClose";
+  }
+  if (notification.type === "system.earnings_d1" || notification.payload.kind === "earnings_d1") {
+    return "earningsD1";
+  }
   if (notification.type === "alert.price_cross") {
     return "targetPrice";
   }
@@ -252,26 +315,17 @@ export function notificationSettingForItem(notification: NotificationItem): Noti
   if (eventType === "volume_spike") {
     return "volumeSpike";
   }
-  if (["price_surge", "price_drop", "volatility_expansion", "risk_anomaly_surge"].includes(eventType)) {
+  if (["price_surge", "price_drop"].includes(eventType)) {
     return "rapidMove";
   }
-  if (["watchlist_news", "company_news"].includes(eventType)) {
-    return "watchlistNews";
+  if (["extended_hours_move", "premarket_move", "after_hours_move"].includes(eventType)) {
+    return "extendedHoursMove";
   }
-  if (["earnings", "guidance", "filing", "disclosure"].includes(eventType)) {
-    return "earningsFiling";
-  }
-  if (["executive_change", "management_change"].includes(eventType)) {
-    return "executiveChange";
+  if (["risk_anomaly_surge", "volatility_expansion"].includes(eventType)) {
+    return "aiAnomaly";
   }
   if (["social_issue", "controversy", "sentiment_crisis"].includes(eventType)) {
     return "socialIssue";
-  }
-  if (["regulation", "legal", "lawsuit"].includes(eventType)) {
-    return "regulationLegal";
-  }
-  if (["supply_chain", "macro", "interest_rate"].includes(eventType)) {
-    return "supplyChainMacro";
   }
   return null;
 }
@@ -284,8 +338,29 @@ export function shouldShowNotificationToast(
     return false;
   }
   const setting = notificationSettingForItem(notification);
+  if (!setting && notification.type === "AGENT_ALERT") {
+    return false;
+  }
   if (setting && !preferences.settings[setting]) {
     return false;
+  }
+  if (setting === "rapidMove") {
+    const change = notificationMetric(notification, "changePct", "changePercent", "percentChange");
+    if (change == null || Math.abs(change) < preferences.thresholds.rapidMovePct) {
+      return false;
+    }
+  }
+  if (setting === "volumeSpike") {
+    const multiple = notificationMetric(notification, "multiplier", "volumeMultiple", "volumeRatio");
+    if (multiple == null || multiple < preferences.thresholds.volumeSpikeMultiple) {
+      return false;
+    }
+  }
+  if (setting === "extendedHoursMove") {
+    const change = notificationMetric(notification, "changePct", "changePercent", "percentChange");
+    if (change == null || Math.abs(change) < 5) {
+      return false;
+    }
   }
   const symbol = notificationPreferenceSymbol(notification);
   return !symbol || preferences.companyOverrides[symbol] !== false;
@@ -305,6 +380,7 @@ export async function fetchNotificationPreferences(signal?: AbortSignal): Promis
 
 export async function patchNotificationPreferences(body: {
   settings?: Partial<NotificationSettings>;
+  thresholds?: Partial<NotificationThresholds>;
   companyOverrides?: Record<string, boolean>;
 }): Promise<NotificationPreferences> {
   const response = await fetch("/api/notification-preferences", {
@@ -325,11 +401,20 @@ export async function patchNotificationPreferences(body: {
 export function normalizeNotificationPreferences(payload: unknown): NotificationPreferences {
   const source = asRecord(payload);
   const rawSettings = asRecord(source.settings);
+  const rawThresholds = asRecord(source.thresholds);
   const rawOverrides = asRecord(source.companyOverrides);
   const settings = { ...defaultNotificationSettings };
   notificationSettingKeys.forEach((key) => {
     if (typeof rawSettings[key] === "boolean") {
       settings[key] = rawSettings[key];
+    }
+  });
+  const thresholds = { ...defaultNotificationThresholds };
+  (Object.keys(notificationThresholdValues) as NotificationThresholdKey[]).forEach((key) => {
+    const value = rawThresholds[key];
+    const allowed = notificationThresholdValues[key] as readonly number[];
+    if (typeof value === "number" && allowed.includes(value)) {
+      Object.assign(thresholds, { [key]: value });
     }
   });
   const companyOverrides: Record<string, boolean> = {};
@@ -341,6 +426,7 @@ export function normalizeNotificationPreferences(payload: unknown): Notification
   });
   return {
     settings,
+    thresholds,
     companyOverrides,
     persisted: source.persisted === true,
     updatedAt: asString(source.updatedAt) ?? null
@@ -351,6 +437,21 @@ function notificationPreferenceSymbol(notification: NotificationItem): string {
   const decision = asRecord(notification.payload.decision);
   const symbol = normalizeSymbol(asString(notification.payload.symbol ?? decision.symbol) ?? "");
   return symbol && !["MARKET", "PORTFOLIO", "UNKNOWN", "ALERT"].includes(symbol) ? symbol : "";
+}
+
+function notificationMetric(notification: NotificationItem, ...keys: string[]): number | null {
+  const payload = notification.payload;
+  const decision = asRecord(payload.decision);
+  const sources = [payload, asRecord(payload.metrics), decision, asRecord(decision.metrics)];
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
 
 function normalizeSymbol(value: string): string {

@@ -7,8 +7,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 import {
+  notificationThresholdValues,
   useNotificationPreferences,
-  type NotificationSettingKey
+  type NotificationSettingKey,
+  type NotificationThresholdKey,
+  type NotificationThresholds
 } from "../alerts/notificationPreferences";
 import type { ChartSymbolDto } from "../chart/types";
 import { fetchWatchlist } from "../chart/watchlistApi";
@@ -24,10 +27,16 @@ type PriceConditionPanelProps = {
 
 type PanelTab = "alerts" | "watchlist";
 
-type NotificationCategory = {
+type NotificationSettingDefinition = {
+  key: Exclude<NotificationSettingKey, "master">;
+  label: string;
+  threshold?: NotificationThresholdKey;
+};
+
+type NotificationSection = {
   id: string;
   label: string;
-  settingKeys: ReadonlyArray<Exclude<NotificationSettingKey, "master">>;
+  settings: NotificationSettingDefinition[];
 };
 
 const panelTabs: Array<{ id: PanelTab; label: string }> = [
@@ -35,26 +44,39 @@ const panelTabs: Array<{ id: PanelTab; label: string }> = [
   { id: "watchlist", label: "관심 기업" }
 ];
 
-const notificationCategories: NotificationCategory[] = [
-  {
-    id: "market-time",
-    label: "거래 시간",
-    settingKeys: ["marketOpen", "marketClose", "extendedHoursMove"]
-  },
+const notificationSections: NotificationSection[] = [
   {
     id: "price-market",
-    label: "가격·시장",
-    settingKeys: ["targetPrice", "rapidMove", "volumeSpike"]
+    label: "가격·시세",
+    settings: [
+      { key: "targetPrice", label: "목표가 도달" },
+      { key: "rapidMove", label: "급등/급락", threshold: "rapidMovePct" },
+      { key: "volumeSpike", label: "거래량 급증", threshold: "volumeSpikeMultiple" }
+    ]
+  },
+  {
+    id: "market-operation",
+    label: "장 운영",
+    settings: [
+      { key: "marketOpen", label: "개장 알림" },
+      { key: "marketClose", label: "장 마감 요약" },
+      { key: "extendedHoursMove", label: "프리장·애프터장 급변동" }
+    ]
   },
   {
     id: "company-event",
     label: "기업 이벤트",
-    settingKeys: ["watchlistNews", "earningsFiling", "executiveChange"]
+    settings: [
+      { key: "earningsD1", label: "실적 발표 D-1" },
+      { key: "socialIssue", label: "사회 이슈·논란" }
+    ]
   },
   {
-    id: "social-risk",
-    label: "사회·리스크",
-    settingKeys: ["socialIssue", "regulationLegal", "supplyChainMacro"]
+    id: "ai-analysis",
+    label: "AI 분석",
+    settings: [
+      { key: "aiAnomaly", label: "AI 이상 신호 (Beta)" }
+    ]
   }
 ];
 
@@ -65,14 +87,15 @@ export function PriceConditionPanel({ symbols, marketItems, onOpenCompany }: Pri
     loading: notificationLoading,
     error: notificationError,
     savingKeys,
-    updateSetting
+    updateSetting,
+    updateThreshold,
+    updateCompanyOverride
   } = useNotificationPreferences();
   const [activeTab, setActiveTab] = useState<PanelTab>("watchlist");
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [watchlistSymbols, setWatchlistSymbols] = useState<ChartSymbolDto[]>([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
   const [watchlistError, setWatchlistError] = useState<string | null>(null);
-  const [updatingCategories, setUpdatingCategories] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,24 +142,6 @@ export function PriceConditionPanel({ symbols, marketItems, onOpenCompany }: Pri
     tabRefs.current[nextIndex]?.focus();
   }, [selectTab]);
 
-  const toggleCategory = useCallback(async (category: NotificationCategory, enabled: boolean) => {
-    if (updatingCategories.has(category.id)) return;
-    setUpdatingCategories((current) => new Set(current).add(category.id));
-    try {
-      for (const key of category.settingKeys) {
-        if (preferences.settings[key] !== enabled) {
-          await updateSetting(key, enabled);
-        }
-      }
-    } finally {
-      setUpdatingCategories((current) => {
-        const next = new Set(current);
-        next.delete(category.id);
-        return next;
-      });
-    }
-  }, [preferences.settings, updateSetting, updatingCategories]);
-
   const masterSaving = savingKeys.has("setting:master");
 
   return (
@@ -182,26 +187,45 @@ export function PriceConditionPanel({ symbols, marketItems, onOpenCompany }: Pri
             emphasized
           />
 
-          {notificationCategories.map((category) => {
-            const checked = category.settingKeys.every((key) => preferences.settings[key]);
-            const saving = updatingCategories.has(category.id)
-              || category.settingKeys.some((key) => savingKeys.has(`setting:${key}`));
-            return (
-              <NotificationRow
-                key={category.id}
-                label={category.label}
-                checked={checked}
-                disabled={
-                  !canUseNotificationPreferences
-                  || notificationLoading
-                  || !preferences.settings.master
-                  || saving
-                }
-                status={saving ? "저장 중" : checked ? "ON" : "OFF"}
-                onToggle={(enabled) => void toggleCategory(category, enabled)}
-              />
-            );
-          })}
+          {notificationSections.map((section) => (
+            <section key={section.id} className="notification-settings-section" aria-labelledby={`notification-section-${section.id}`}>
+              <h3 id={`notification-section-${section.id}`}>{section.label}</h3>
+              {section.settings.map((setting) => {
+                const checked = preferences.settings[setting.key];
+                const saving = savingKeys.has(`setting:${setting.key}`);
+                const thresholdSaving = setting.threshold
+                  ? savingKeys.has(`threshold:${setting.threshold}`)
+                  : false;
+                return (
+                  <NotificationRow
+                    key={setting.key}
+                    label={setting.label}
+                    checked={checked}
+                    disabled={
+                      !canUseNotificationPreferences
+                      || notificationLoading
+                      || !preferences.settings.master
+                      || saving
+                    }
+                    status={notificationStatus(checked, saving, canUseNotificationPreferences)}
+                    onToggle={(enabled) => void updateSetting(setting.key, enabled)}
+                    threshold={setting.threshold ? {
+                      key: setting.threshold,
+                      value: preferences.thresholds[setting.threshold],
+                      disabled: (
+                        !canUseNotificationPreferences
+                        || notificationLoading
+                        || !preferences.settings.master
+                        || !checked
+                        || thresholdSaving
+                      ),
+                      onSelect: (value) => void updateThreshold(setting.threshold!, value)
+                    } : undefined}
+                  />
+                );
+              })}
+            </section>
+          ))}
         </div>
 
         {notificationError && (
@@ -225,32 +249,51 @@ export function PriceConditionPanel({ symbols, marketItems, onOpenCompany }: Pri
         ) : (
           <div className="alerts-watchlist-company-list" role="list" aria-label="관심 기업 목록">
             {companies.map((company) => {
-              const changePercent = changePercentBySymbol.get(company.symbol.toUpperCase());
+              const symbol = company.symbol.toUpperCase();
+              const changePercent = changePercentBySymbol.get(symbol);
               const changeLabel = formatSignedPercent(changePercent);
+              const companyNotificationsEnabled = preferences.companyOverrides[symbol] !== false;
+              const companySaving = savingKeys.has(`company:${symbol}`);
               return (
-                <button
+                <div
                   key={company.symbol}
-                  type="button"
                   className="alerts-watchlist-company-row"
                   role="listitem"
-                  aria-label={`${company.name}, ${sectorLabelKo(company.sector)}, 추적 중, ${changeLabel}`}
-                  onClick={() => onOpenCompany(company.symbol)}
                 >
-                  <StockLogo
-                    symbol={company.symbol}
-                    companyName={company.name}
-                    size="xs"
-                    className="alerts-watchlist-company-logo"
-                  />
-                  <span className="alerts-watchlist-company-copy">
-                    <strong>{company.name}</strong>
-                    <small>{sectorLabelKo(company.sector)}</small>
-                  </span>
-                  <span className="alerts-watchlist-company-change">
+                  <button
+                    type="button"
+                    className="alerts-watchlist-company-open"
+                    aria-label={`${company.name}, ${sectorLabelKo(company.sector)}, 추적 중, ${changeLabel}`}
+                    onClick={() => onOpenCompany(company.symbol)}
+                  >
+                    <StockLogo
+                      symbol={company.symbol}
+                      companyName={company.name}
+                      size="xs"
+                      className="alerts-watchlist-company-logo"
+                    />
+                    <span className="alerts-watchlist-company-copy">
+                      <strong>{company.name}</strong>
+                      <small>{sectorLabelKo(company.sector)}</small>
+                    </span>
+                    <span className="alerts-watchlist-company-change">
+                      <span aria-hidden="true" />
+                      {changeLabel}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`alerts-watchlist-switch is-company ${companyNotificationsEnabled ? "is-on" : ""}`}
+                    role="switch"
+                    aria-checked={companyNotificationsEnabled}
+                    aria-label={`${company.name} 알림 ${companyNotificationsEnabled ? "끄기" : "켜기"}`}
+                    title={companyNotificationsEnabled ? "이 기업 알림 끄기" : "이 기업 알림 켜기"}
+                    disabled={!canUseNotificationPreferences || notificationLoading || companySaving}
+                    onClick={() => void updateCompanyOverride(symbol, !companyNotificationsEnabled)}
+                  >
                     <span aria-hidden="true" />
-                    {changeLabel}
-                  </span>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -266,7 +309,8 @@ function NotificationRow({
   disabled,
   status,
   onToggle,
-  emphasized = false
+  emphasized = false,
+  threshold
 }: {
   label: string;
   checked: boolean;
@@ -274,26 +318,54 @@ function NotificationRow({
   status: string;
   onToggle: (enabled: boolean) => void;
   emphasized?: boolean;
+  threshold?: {
+    key: NotificationThresholdKey;
+    value: NotificationThresholds[NotificationThresholdKey];
+    disabled: boolean;
+    onSelect: (value: NotificationThresholds[NotificationThresholdKey]) => void;
+  };
 }) {
   return (
-    <div className={`notification-category-row ${emphasized ? "is-emphasized" : ""}`}>
-      <strong>{label}</strong>
-      <span className="notification-category-control">
-        <small>{status}</small>
-        <button
-          type="button"
-          className={`alerts-watchlist-switch ${checked ? "is-on" : ""}`}
-          role="switch"
-          aria-checked={checked}
-          aria-label={`${label} ${checked ? "끄기" : "켜기"}`}
-          disabled={disabled}
-          onClick={() => onToggle(!checked)}
-        >
-          <span aria-hidden="true" />
-        </button>
-      </span>
+    <div className={`notification-setting-item ${emphasized ? "is-emphasized" : ""}`}>
+      <div className="notification-category-row">
+        <strong>{label}</strong>
+        <span className="notification-category-control">
+          <small>{status}</small>
+          <button
+            type="button"
+            className={`alerts-watchlist-switch ${checked ? "is-on" : ""}`}
+            role="switch"
+            aria-checked={checked}
+            aria-label={`${label} ${checked ? "끄기" : "켜기"}`}
+            disabled={disabled}
+            onClick={() => onToggle(!checked)}
+          >
+            <span aria-hidden="true" />
+          </button>
+        </span>
+      </div>
+      {threshold && (
+        <div className="notification-threshold-chips" aria-label={`${label} 기준`}>
+          {notificationThresholdValues[threshold.key].map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={threshold.value === value ? "is-selected" : ""}
+              aria-pressed={threshold.value === value}
+              disabled={threshold.disabled}
+              onClick={() => threshold.onSelect(value)}
+            >
+              {thresholdLabel(threshold.key, value)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function thresholdLabel(key: NotificationThresholdKey, value: number): string {
+  return key === "rapidMovePct" ? `${value}%` : `${value}배`;
 }
 
 function mergeCompany(item: ChartSymbolDto, symbols: ChartSymbolDto[]): ChartSymbolDto {

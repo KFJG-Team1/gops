@@ -3632,16 +3632,22 @@ assert.match(priceConditionPanelSource, /알림/);
 assert.match(priceConditionPanelSource, /관심 기업/);
 assert.match(priceConditionPanelSource, /role="tabpanel"/);
 assert.match(priceConditionPanelSource, /fetchWatchlist/);
-assert.match(priceConditionPanelSource, /거래 시간/);
-assert.match(priceConditionPanelSource, /가격·시장/);
+assert.match(priceConditionPanelSource, /가격·시세/);
+assert.match(priceConditionPanelSource, /장 운영/);
 assert.match(priceConditionPanelSource, /기업 이벤트/);
-assert.match(priceConditionPanelSource, /사회·리스크/);
+assert.match(priceConditionPanelSource, /AI 분석/);
+assert.match(priceConditionPanelSource, /목표가 도달/);
+assert.match(priceConditionPanelSource, /급등\/급락/);
+assert.match(priceConditionPanelSource, /거래량 급증/);
+assert.match(priceConditionPanelSource, /실적 발표 D-1/);
+assert.match(priceConditionPanelSource, /notification-threshold-chips/);
+assert.match(priceConditionPanelSource, /updateCompanyOverride/);
+assert.match(priceConditionPanelSource, /로그인 필요/);
 assert.match(priceConditionPanelSource, /changePercentBySymbol/);
 assert.match(priceConditionPanelSource, /onClick=\{\(\) => onOpenCompany\(company\.symbol\)\}/);
 assert.doesNotMatch(priceConditionPanelSource, /가격조건|가격 조건/);
 assert.doesNotMatch(priceConditionPanelSource, /SymbolSearch|portalMenu|replaceWatchlistSymbols/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-list-toolbar|watchlist-company-reasons/);
-assert.doesNotMatch(priceConditionPanelSource, /is-selected|aria-pressed/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-candidate-card/);
 assert.doesNotMatch(priceConditionPanelSource, /watchlist-search-star|watchlist-row-star|onOpenNews|CompanyNewsPreview/);
 assert.doesNotMatch(priceConditionPanelSource, /localStorage/);
@@ -3656,6 +3662,13 @@ const targetPriceNotification = {
   payload: { symbol: "AAPL" }
 };
 const defaultPreferences = normalizeNotificationPreferences({ persisted: true });
+assert.deepEqual(defaultPreferences.thresholds, { rapidMovePct: 5, volumeSpikeMultiple: 3 });
+assert.deepEqual(normalizeNotificationPreferences({
+  thresholds: { rapidMovePct: 10, volumeSpikeMultiple: 5 }
+}).thresholds, { rapidMovePct: 10, volumeSpikeMultiple: 5 });
+assert.deepEqual(normalizeNotificationPreferences({
+  thresholds: { rapidMovePct: 7, volumeSpikeMultiple: 4 }
+}).thresholds, { rapidMovePct: 5, volumeSpikeMultiple: 3 });
 assert.equal(notificationSettingForItem(targetPriceNotification), "targetPrice");
 assert.equal(shouldShowNotificationToast(targetPriceNotification, defaultPreferences), true);
 assert.equal(shouldShowNotificationToast(targetPriceNotification, normalizeNotificationPreferences({
@@ -3672,6 +3685,38 @@ const volumeNotification = {
 };
 assert.equal(notificationSettingForItem(volumeNotification), "volumeSpike");
 assert.equal(shouldShowNotificationToast(volumeNotification, defaultPreferences), false);
+const rapidMoveNotification = {
+  id: -4,
+  eventId: "rapid-move",
+  type: "AGENT_ALERT",
+  payload: { decision: { symbol: "NVDA", eventType: "price_surge", metrics: { changePercent: 5 } } }
+};
+assert.equal(shouldShowNotificationToast(rapidMoveNotification, normalizeNotificationPreferences({
+  settings: { rapidMove: true },
+  thresholds: { rapidMovePct: 10 }
+})), false);
+assert.equal(shouldShowNotificationToast({
+  ...rapidMoveNotification,
+  payload: { decision: { symbol: "NVDA", eventType: "price_surge", metrics: { changePercent: 10 } } }
+}, normalizeNotificationPreferences({
+  settings: { rapidMove: true },
+  thresholds: { rapidMovePct: 10 }
+})), true);
+const anomalyNotification = {
+  id: -2,
+  eventId: "risk-anomaly",
+  type: "AGENT_ALERT",
+  payload: { decision: { symbol: "NVDA", eventType: "risk_anomaly_surge" } }
+};
+assert.equal(notificationSettingForItem(anomalyNotification), "aiAnomaly");
+const excludedEarningsResultNotification = {
+  id: -3,
+  eventId: "earnings-result",
+  type: "AGENT_ALERT",
+  payload: { decision: { symbol: "NVDA", eventType: "earnings" } }
+};
+assert.equal(notificationSettingForItem(excludedEarningsResultNotification), null);
+assert.equal(shouldShowNotificationToast(excludedEarningsResultNotification, defaultPreferences), false);
 
 const agentAnalysisClientSource = readFileSync(fileURLToPath(new URL("../src/agent/agentAnalysisClient.ts", import.meta.url)), "utf-8");
 assert.match(agentAnalysisClientSource, /\/api\/agents\/analyze/);
@@ -4210,8 +4255,9 @@ const frontendStylesSource = [
 ].join("\n");
 assert.match(frontendStylesSource, /\.stock-logo\.has-image\s*\{[^}]*background:\s*#fff;/);
 assert.match(frontendStylesSource, /\.alerts-watchlist-tabs button\.is-active::after \{[\s\S]*background: currentColor;/);
-assert.match(frontendStylesSource, /\.alerts-watchlist-company-row \{[\s\S]*grid-template-columns: 32px minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
-assert.match(frontendStylesSource, /\.alerts-watchlist-company-row:hover \{[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-company-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.alerts-watchlist-company-open \{[\s\S]*grid-template-columns: 32px minmax\(0, 1fr\) auto;[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.notification-threshold-chips button\.is-selected \{[\s\S]*background: color-mix/);
 assert.match(frontendStylesSource, /\.workspace-top-center-flip\.is-notice \.workspace-agent-notice \{[\s\S]*opacity: 1;[\s\S]*rotateX\(0deg\);/);
 assert.match(frontendStylesSource, /\.workspace-agent-notice \{[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/);
 assert.match(frontendStylesSource, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.workspace-top-center-face \{[\s\S]*transition: none;/);
