@@ -17,6 +17,10 @@ import {
   type StockRecommendationPayload
 } from "./recommendationApi";
 import { RecommendationSettingsDialog } from "./RecommendationSettingsDialog";
+import {
+  recommendationSimulationFallbackItems,
+  shouldUseRecommendationSimulationFallback
+} from "./recommendationSimulationFallback";
 
 const companyNameBySymbol = new Map(sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.companyName]));
 const RECOMMENDATION_STACK_INTERVAL_MS = 8_000;
@@ -100,7 +104,11 @@ export function StockRecommendationsPanel({
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
 
-  const items = useMemo(() => payload?.items ?? [], [payload?.items]);
+  const showingSimulationFallback = !loading && !error && shouldUseRecommendationSimulationFallback(payload);
+  const items = useMemo(
+    () => showingSimulationFallback ? recommendationSimulationFallbackItems : payload?.items ?? [],
+    [payload?.items, showingSimulationFallback]
+  );
 
   useEffect(() => {
     if (!loading && payload && selectedSymbol && !items.some((item) => item.symbol === selectedSymbol)) {
@@ -125,16 +133,21 @@ export function StockRecommendationsPanel({
           {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
         </button>
         <div className="stock-rec-toolbar">
-          <button
-            ref={settingsButtonRef}
-            className="stock-rec-settings-button panel-icon-button"
-            type="button"
-            title="추천 설정"
-            aria-label="추천 설정"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings size={14} aria-hidden="true" />
-          </button>
+          <div className="stock-rec-toolbar-leading">
+            <button
+              ref={settingsButtonRef}
+              className="stock-rec-settings-button panel-icon-button"
+              type="button"
+              title="추천 설정"
+              aria-label="추천 설정"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={14} aria-hidden="true" />
+            </button>
+            {showingSimulationFallback && (
+              <span className="stock-rec-simulation-badge" title="시뮬레이션 추천 데이터">simulation</span>
+            )}
+          </div>
           <div className="stock-rec-session-toggle" role="group" aria-label="추천 세션">
             <button
               type="button"

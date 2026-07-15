@@ -5566,6 +5566,29 @@ h2 {
   justify-content: space-between;
 }
 
+.stock-rec-toolbar-leading {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.stock-recommendations-panel .stock-rec-simulation-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
 .stock-recommendations-panel .stock-rec-toolbar span {
   color: #6f6f6f;
 }

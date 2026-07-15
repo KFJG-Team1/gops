@@ -5,14 +5,70 @@ let failNextSave = false;
 let profileSaved = false;
 let savedProfile: Record<string, unknown> | null = null;
 let latestSessionModes: string[] = [];
+let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" = "profile_required";
 
 test.beforeEach(async ({ page }) => {
   failNextSave = false;
   profileSaved = false;
   savedProfile = null;
   latestSessionModes = [];
+  recommendationResponseMode = "profile_required";
   await page.routeWebSocket("**/ws/**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
+});
+
+test("empty recommendation responses show the simulation fallback and keep Agent references", async ({ page }) => {
+  recommendationResponseMode = "empty";
+  await page.clock.install();
+  await openRecommendationsLayout(page);
+
+  const listPanel = page.getByRole("region", { name: "장중 매수 추천 목록" });
+  const cardPanel = page.getByRole("region", { name: "장중 매수 추천", exact: true });
+  const listRows = listPanel.locator(".stock-rec-list .stock-rec-row");
+  const cardRows = cardPanel.locator(".stock-rec-file-stack .stock-rec-row");
+
+  await expect(listRows).toHaveCount(10);
+  await expect(cardRows).toHaveCount(10);
+  await expect(listRows.nth(0)).toContainText("NVDA");
+  await expect(listRows.nth(1)).toContainText("AMD");
+  await expect(cardRows.nth(0)).toContainText("NVDA");
+  await expect(cardRows.nth(1)).toContainText("AMD");
+  await expect(listPanel.getByText("simulation", { exact: true })).toBeVisible();
+  await expect(cardPanel.getByText("simulation", { exact: true })).toBeVisible();
+  await expect(listPanel.getByText("추천할 종목이 없습니다")).toHaveCount(0);
+
+  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("NVDA");
+  await page.clock.fastForward(8_000);
+  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("AMD");
+  await cardPanel.locator(".stock-rec-file-stack").hover();
+  await page.clock.fastForward(8_000);
+  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("AMD");
+  await page.locator(".workspace-top-nav").hover();
+  await page.clock.fastForward(8_000);
+  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("MSFT");
+
+  await listRows.nth(1).click();
+  await expect(page.getByRole("button", { name: "AMD 추천 참조 해제" })).toBeVisible();
+  await expect(listRows.nth(1)).toHaveAttribute("aria-pressed", "true");
+
+  await expect(listPanel).toHaveScreenshot("recommendation-list-simulation-fallback.png");
+  await expect(cardPanel).toHaveScreenshot("recommendation-card-simulation-fallback.png");
+});
+
+test("market closed and API error states do not use the simulation fallback", async ({ page }) => {
+  recommendationResponseMode = "market_closed";
+  await openRecommendationsLayout(page);
+
+  const listPanel = page.getByRole("region", { name: "장중 매수 추천 목록" });
+  await expect(listPanel.getByText(/추천.*(시간|생성)/)).toBeVisible();
+  await expect(listPanel.locator(".stock-rec-row")).toHaveCount(0);
+  await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
+
+  recommendationResponseMode = "error";
+  await page.reload();
+  await expect(listPanel.getByText("recommendation unavailable")).toBeVisible();
+  await expect(listPanel.locator(".stock-rec-row")).toHaveCount(0);
+  await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
 });
 
 test("recommendation settings remain available and save from the panel dialog", async ({ page }) => {
@@ -26,6 +82,8 @@ test("recommendation settings remain available and save from the panel dialog", 
 
   await expect(listPanel.getByText("장중 추천 설정을 저장해 주세요")).toBeVisible();
   await expect(cardPanel.getByText("장중 추천 설정을 저장해 주세요")).toBeVisible();
+  await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
+  await expect(cardPanel.getByText("simulation", { exact: true })).toHaveCount(0);
   await expect(listSettings).toHaveCSS("opacity", "0");
   await expect(cardSettings).toHaveCSS("opacity", "0");
   await listSettings.focus();
@@ -76,6 +134,7 @@ test("recommendation settings remain available and save from the panel dialog", 
   await expect(dialog).toBeHidden();
   await expect(listSettings).toBeFocused();
   await expect.poll(() => latestSessionModes.length).toBeGreaterThan(requestsBeforeSuccessfulSave);
+  await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
   expect(savedProfile).toMatchObject({
     riskLevel: "aggressive",
     horizon: "intraday",
@@ -158,9 +217,18 @@ async function fulfillApi(route: Route): Promise<void> {
     payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   } else if (url.pathname === "/api/recommendations/stocks/latest") {
     latestSessionModes.push(url.searchParams.get("sessionMode") ?? "regular");
-    payload = profileSaved
-      ? readyRecommendationPayload()
-      : { status: "profile_required", items: [], profile: null };
+    if (recommendationResponseMode === "empty") {
+      payload = { status: "ready", items: [], profile: investmentProfile() };
+    } else if (recommendationResponseMode === "market_closed") {
+      payload = { status: "market_closed", items: [], profile: investmentProfile() };
+    } else if (recommendationResponseMode === "error") {
+      status = 503;
+      payload = { detail: "recommendation unavailable" };
+    } else {
+      payload = profileSaved
+        ? readyRecommendationPayload()
+        : { status: "profile_required", items: [], profile: null };
+    }
   } else if (url.pathname === "/api/recommendations/profile" && request.method() === "GET") {
     payload = { status: "ready", profile: investmentProfile() };
   } else if (url.pathname === "/api/recommendations/profile" && request.method() === "PUT") {
