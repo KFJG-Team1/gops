@@ -178,7 +178,28 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByText(/적용된 근거·제안 작도/)).toBeVisible();
 });
 
-test("price axis selection creates a 20-share paper trade condition after confirmation", async ({ page }) => {
+test("price axis reservation buy without a selected price asks for a price instead of chart analysis", async ({ page }) => {
+  const executionRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && [
+      "/api/trade-conditions",
+      "/api/trade-conditions/commands",
+      "/api/agents/analyze"
+    ].includes(pathname)) executionRequests.push(pathname);
+  });
+  await page.goto("/?symbol=NVDA");
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+
+  await page.getByLabel("Agent command").fill("예약 매수 해줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+
+  await expect(page.locator(".workspace-agent-notice")).toContainText("어느 가격에 예약할까요?");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  expect(executionRequests).toEqual([]);
+});
+
+test("price axis selection accepts a natural reservation buy command and creates a 20-share paper condition", async ({ page }) => {
   const executionRequests: string[] = [];
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
@@ -210,7 +231,7 @@ test("price axis selection creates a 20-share paper trade condition after confir
   expect(executionRequests).toEqual([]);
 
   const command = page.getByLabel("Agent command");
-  await command.fill("이 가격에 예약매매랑 알림 걸어줘");
+  await command.fill("예약 매수 해줘");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();

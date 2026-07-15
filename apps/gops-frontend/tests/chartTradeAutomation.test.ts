@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  chartPriceSelectionMatchesTradeSetup,
   createTradeAutomationConfirmationDraft,
   isTradeAutomationConfirmationIntent,
   priceConditionInputFromTradeAutomationDraft,
+  resolveTradeAutomationCommandIntent,
   tradeAutomationDraftMatchesSnapshot,
   type ChartPriceSelection,
   type ChartTradeSetupSnapshot
@@ -29,6 +31,20 @@ import {
   "예약매매가 뭐야?",
   "이 가격은 왜 중요해?"
 ].forEach((prompt) => assert.equal(isTradeAutomationConfirmationIntent(prompt), false, prompt));
+
+[
+  "예약 매수 해줘",
+  "예약매수 해달라",
+  "20주 예약 매도 해주세요",
+  "예약 주문해줘"
+].forEach((prompt) => assert.deepEqual(
+  resolveTradeAutomationCommandIntent(prompt),
+  { status: "missing_price" },
+  prompt
+));
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매가 뭐야?"), { status: "not_matched" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("매수해줘"), { status: "not_matched" });
 
 const setup: ChartTradeSetup = {
   version: "chart-trade-setup-v1",
@@ -70,6 +86,11 @@ const matchingSelection: ChartPriceSelection = {
   formattedPrice: "462.35",
   selectedAt: "2026-07-15T10:00:00Z"
 };
+assert.equal(chartPriceSelectionMatchesTradeSetup(snapshot, matchingSelection), true);
+assert.equal(chartPriceSelectionMatchesTradeSetup(snapshot, {
+  ...matchingSelection,
+  chartDocumentId: "chart-document-2"
+}), false);
 
 const selectedDraft = createTradeAutomationConfirmationDraft(snapshot, matchingSelection, "2026-07-15T10:01:00Z");
 assert.equal(selectedDraft?.reservationPrice, 462.35);
