@@ -1927,7 +1927,9 @@ export function App() {
           <PresetDock
             controls={presetControls}
             onShowHome={showTreeMap}
+            layoutEditMode={layoutEditMode}
             onEnterLayoutEdit={enterLayoutEditMode}
+            onExitLayoutEdit={exitLayoutEditMode}
           />
         ) : null}
         onAgentInputChange={setAgentInput}

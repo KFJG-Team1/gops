@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, LayoutPanelTop, Plus, Save, Settings2, ShieldCheck, Trash2, X } from "lucide-react";
+import { createLayoutEditControl } from "../layout/layoutEditControl";
 import { visibleLayoutPresets, type LayoutPreset } from "../layout/layoutPresets";
 import { incidentResponsePresetRole } from "../layout/incidentResponsePreset";
 import type { LayoutPresetControls } from "../layout/useLayoutPresets";
@@ -8,12 +9,22 @@ import type { LayoutPresetControls } from "../layout/useLayoutPresets";
 type PresetDockProps = {
   controls: LayoutPresetControls;
   onShowHome: () => void;
+  layoutEditMode: boolean;
   onEnterLayoutEdit: () => void;
+  onExitLayoutEdit: () => void;
   layoutEditDisabled?: boolean;
   isHome?: boolean;
 };
 
-export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEditDisabled = false, isHome = false }: PresetDockProps) {
+export function PresetDock({
+  controls,
+  onShowHome,
+  layoutEditMode,
+  onEnterLayoutEdit,
+  onExitLayoutEdit,
+  layoutEditDisabled = false,
+  isHome = false
+}: PresetDockProps) {
   const {
     presets,
     activePresetId,
@@ -44,6 +55,7 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
   const activePreset = dockPresets.find((preset) => preset.id === activePresetId) ?? null;
   const incidentPreset = allCustoms.find((preset) => preset.role === incidentResponsePresetRole) ?? null;
   const activePresetKey = isHome ? "__home__" : activePreset?.id ?? null;
+  const layoutEditControl = createLayoutEditControl(layoutEditMode, onEnterLayoutEdit, onExitLayoutEdit);
 
   const updateActiveIndicator = useCallback(() => {
     const button = activePresetKey ? presetButtonRefs.current.get(activePresetKey) : null;
@@ -414,13 +426,16 @@ export function PresetDock({ controls, onShowHome, onEnterLayoutEdit, layoutEdit
       <div className="layout-preset-dock-tail">
         <button
           type="button"
-          className="layout-preset-edit"
-          aria-label="레이아웃 수정모드 시작"
-          title="레이아웃 수정모드 시작"
+          className={`layout-preset-edit ${layoutEditMode ? "is-active" : ""}`}
+          aria-label={layoutEditControl.label}
+          title={layoutEditControl.label}
+          aria-pressed={layoutEditControl.pressed}
           disabled={layoutEditDisabled}
-          onClick={onEnterLayoutEdit}
+          onClick={layoutEditControl.onClick}
         >
-          <LayoutPanelTop size={15} aria-hidden="true" />
+          {layoutEditMode
+            ? <Check size={15} aria-hidden="true" />
+            : <LayoutPanelTop size={15} aria-hidden="true" />}
         </button>
         {activePreset && (
           <button type="button" className="layout-preset-action" aria-label="프리셋 저장" title="프리셋 저장" onClick={handleSave}>
