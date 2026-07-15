@@ -59,7 +59,6 @@ const breakingNotification = simulatorBreakingNotification({
   id: "demo-breaking",
   headline: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
   summary: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다.",
-  source: "GOPS Simulator",
   symbols: ["AMD", "OKE"]
 }, simulatorStatus);
 assert.equal(breakingNotification.type, "system.simulator_breaking_event");
@@ -67,10 +66,20 @@ assert.equal(notificationVisualTone(breakingNotification), "geopolitical-risk");
 assert.deepEqual(formatNotificationToastMessage(breakingNotification), {
   symbol: "AMD",
   chartSymbol: "AMD",
-  title: "지정학 이벤트",
+  title: "지정학 리스크 경보",
   message: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
   detail: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다."
 });
+assert.equal(breakingNotification.payload.source, "GOPS Market Wire");
+assert.doesNotMatch(
+  [
+    breakingNotification.payload.title,
+    breakingNotification.payload.summary,
+    breakingNotification.payload.detail,
+    breakingNotification.payload.source
+  ].join(" "),
+  /시뮬레이션|simulator|시연|실제 뉴스/i
+);
 assert.deepEqual(
   notificationUiProposals(breakingNotification).map(({ panelType, symbol }) => ({ panelType, symbol })),
   [
@@ -99,6 +108,10 @@ const bottomCommandBarSource = readFileSync(
   fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)),
   "utf-8"
 );
+const newsPanelSource = readFileSync(
+  fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.match(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
@@ -110,7 +123,9 @@ assert.match(controlSource, /setSimulatorPhase\(status\.nextPhase/);
 assert.match(apiSource, /\/api\/simulator\/phase/);
 assert.match(bottomCommandBarSource, /<SimulatorControl onNotification=\{receiveSimulatorNotification\}/);
 assert.match(bottomCommandBarSource, /receiveSimulatorNotification[\s\S]*mergeNotificationInboxState/);
+assert.match(bottomCommandBarSource, /system\.simulator_breaking_event[\s\S]*priority: "immediate"/);
 assert.match(bottomCommandBarSource, /notification\.id < 0/);
+assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),

@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import type { NotificationItem } from "../src/alerts/alertApi";
 import {
   createAlertToastQueueState,
+  enqueueAlertToastState,
   removeNotificationAlertToastState,
   removePersistedAlertToastState,
   type AlertToastQueueState
 } from "../src/alerts/alertToastQueue";
+import { normalizeNotificationPreferences } from "../src/alerts/notificationPreferences";
 import {
   markNotificationInboxItemRead,
   markNotificationInboxReadAll,
@@ -49,6 +51,23 @@ assert.deepEqual(withoutOne.queue.map((item) => item.notification.id), [-1]);
 const syntheticOnly = removePersistedAlertToastState(toastState);
 assert.equal(syntheticOnly.current?.notification.id, -1);
 assert.deepEqual(syntheticOnly.queue, []);
+
+const geopoliticalRisk: NotificationItem = {
+  id: -10_001,
+  eventId: "simulator:run-1:breaking-event",
+  type: "system.simulator_breaking_event",
+  payload: { symbol: "AMD", title: "지정학 리스크 경보" },
+  readAt: null
+};
+const prioritized = enqueueAlertToastState(
+  toastState,
+  geopoliticalRisk,
+  normalizeNotificationPreferences({ persisted: true }),
+  new Set(),
+  { priority: "immediate" }
+);
+assert.equal(prioritized.current?.notification.eventId, geopoliticalRisk.eventId);
+assert.deepEqual(prioritized.queue.map((item) => item.notification.id), [1, 3, -1]);
 
 function notification(id: number, readAt: string | null): NotificationItem {
   return {
