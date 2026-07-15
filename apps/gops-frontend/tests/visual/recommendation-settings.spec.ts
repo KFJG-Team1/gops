@@ -36,6 +36,9 @@ test("empty recommendation responses show the simulation fallback and keep Agent
   await expect(listPanel.getByText("simulation", { exact: true })).toBeVisible();
   await expect(cardPanel.getByText("simulation", { exact: true })).toBeVisible();
   await expect(listPanel.getByText("추천할 종목이 없습니다")).toHaveCount(0);
+  await expect(listPanel.getByText(/추천 데이터 준비 중 표시/)).toHaveCount(0);
+  await expect(listRows.nth(0)).toContainText("반도체 업종 내 상대강도");
+  await expect(listRows.nth(1)).toContainText("단기 하락 구간에서 매수세 유입");
 
   await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("NVDA");
   await page.clock.fastForward(8_000);
