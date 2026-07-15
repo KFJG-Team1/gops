@@ -36,7 +36,8 @@ assert.deepEqual(readableMinGridSpanForKind("chart"), { colSpan: 2, rowSpan: 2 }
 assert.deepEqual(readableMinGridSpanForKind("trade"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("paperQuickOrder"), { colSpan: 2, rowSpan: 2 });
 assert.deepEqual(readableMinGridSpanForKind("paperTrade"), { colSpan: 2, rowSpan: 2 });
-assert.deepEqual(readableMinGridSpanForKind("paperAccount"), { colSpan: 3, rowSpan: 2 });
+assert.deepEqual(readableMinGridSpanForKind("paperAccount"), { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(panelMinimumRenderedSizeForKind("paperAccount"), { width: 320, height: 220 });
 assert.deepEqual(readableMinGridSpanForKind("aiCoach"), { colSpan: 2, rowSpan: 3 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("aiCoach"), { width: 320, height: 500 });
 assert.deepEqual(readableMinGridSpanForKind("priceCondition"), { colSpan: 1, rowSpan: 1 });

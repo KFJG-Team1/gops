@@ -401,8 +401,8 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "가상계좌",
     agentPanelType: "paperAccount",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    readableMinSpan: { colSpan: 3, rowSpan: 2 },
-    minSizePx: { width: 420, height: 260 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
     defaultSpan: { colSpan: 4, rowSpan: 3 },
     defaultLayoutWeight: 55,
     insertable: true
