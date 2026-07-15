@@ -32,6 +32,7 @@ export function StockRecommendationsPanel({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   onSelectReference,
+  initialSessionMode,
   variant = "files"
 }: {
   activeSymbol: string;
@@ -40,10 +41,13 @@ export function StockRecommendationsPanel({
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   onSelectReference: (reference: AgentReference | null) => void;
+  initialSessionMode?: RecommendationSessionMode;
   variant?: "files" | "list";
 }) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
-  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => initialRecommendationSessionMode());
+  const [sessionMode, setSessionMode] = useState<RecommendationSessionMode>(() => (
+    initialSessionMode ?? initialRecommendationSessionMode()
+  ));
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
   const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
   const [loading, setLoading] = useState(true);
@@ -88,6 +92,10 @@ export function StockRecommendationsPanel({
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    setSessionMode(initialSessionMode ?? initialRecommendationSessionMode());
+  }, [initialSessionMode]);
 
   useEffect(() => {
     const updateLiveState = () => setRegularLive(isRegularSessionNow());

@@ -328,6 +328,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
+        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
       />
     );
   }
@@ -341,6 +342,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
+        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
         variant="list"
       />
     );
@@ -710,6 +712,10 @@ export function PanelContentRenderer({
       )}
     </div>
   );
+}
+
+function recommendationSessionMode(value: unknown): "pre" | "regular" | undefined {
+  return value === "pre" || value === "regular" ? value : undefined;
 }
 
 function normalizeChartType(value: string | undefined): ChartType {

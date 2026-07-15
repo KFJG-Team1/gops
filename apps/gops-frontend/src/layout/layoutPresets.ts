@@ -12,7 +12,7 @@ import {
 } from "./panelLayout";
 import type { AgentLayoutProposal } from "./agentLayoutTypes";
 
-export type DefaultPresetId = "market" | "stock" | "chart" | "compare" | "asset";
+export type DefaultPresetId = "market" | "stock" | "chart" | "compare" | "regular" | "asset";
 export type LayoutPresetRole = "incident-response";
 
 // Both default and custom presets are per-user editable. Defaults keep their built-in
@@ -78,6 +78,19 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
       { kind: "watchlistNews", gridRect: { col: 5, row: 4, colSpan: 4, rowSpan: 2 } }
     ]
   },
+  regular: {
+    name: "본장추천",
+    spec: [
+      {
+        kind: "recommendationsList",
+        gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 },
+        props: { initialSessionMode: "regular" }
+      },
+      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
+      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
+      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
+    ]
+  },
   asset: {
     name: "포트폴리오",
     spec: [
@@ -98,7 +111,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   }
 };
 
-export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "compare", "asset"];
+export const DEFAULT_PRESET_IDS: readonly DefaultPresetId[] = ["market", "stock", "compare", "regular", "asset"];
 
 export const DEFAULT_PRESETS: LayoutPreset[] = DEFAULT_PRESET_IDS.map((id): LayoutPreset => ({
   id,
@@ -561,6 +574,7 @@ const DEFAULT_PRESET_LEGACY_ALIASES: Partial<Record<DefaultPresetId, readonly st
   market: ["추천 종목", "오늘의 추천 종목", "시장분석"],
   stock: ["기업 분석", "종목분석"],
   compare: ["차트 분석", "비교분석"],
+  regular: ["본장 추천", "정규장 추천"],
   asset: ["자산현황"]
 };
 

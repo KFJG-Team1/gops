@@ -4174,7 +4174,13 @@ assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.prio
 
 assert.deepEqual(
   DEFAULT_PRESETS.map((preset) => [preset.id, preset.name]),
-  [["market", "추천종목"], ["stock", "기업분석"], ["compare", "차트분석"], ["asset", "포트폴리오"]]
+  [
+    ["market", "추천종목"],
+    ["stock", "기업분석"],
+    ["compare", "차트분석"],
+    ["regular", "본장추천"],
+    ["asset", "포트폴리오"]
+  ]
 );
 const recommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "market");
 assert.ok(recommendationPreset);
@@ -4227,6 +4233,18 @@ assert.ok(chartAnalysisLayout);
 assert.deepEqual(
   chartAnalysisLayout.slots.map((slot) => chartAnalysisLayout.contents[slot.contentId]?.kind),
   ["compare", "indices", "watchlistNews"]
+);
+const regularRecommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "regular");
+assert.ok(regularRecommendationPreset);
+const regularRecommendationLayout = buildPresetLayout(regularRecommendationPreset, { width: 1280, height: 720 });
+assert.ok(regularRecommendationLayout);
+assert.deepEqual(
+  regularRecommendationLayout.slots.map((slot) => regularRecommendationLayout.contents[slot.contentId]?.kind),
+  ["recommendationsList", "indices", "themeRadar", "news"]
+);
+assert.equal(
+  regularRecommendationLayout.contents[regularRecommendationLayout.slots[0].contentId]?.props?.initialSessionMode,
+  "regular"
 );
 
 const presetSummaries = buildAgentLayoutPresetSummaries([
