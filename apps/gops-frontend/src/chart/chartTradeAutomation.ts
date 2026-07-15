@@ -48,14 +48,45 @@ export type TradeAutomationConfirmationDraft = {
   status: "pending" | "confirmed" | "stale";
 };
 
+export type TradeAutomationCommandIntent =
+  | { status: "not_matched" }
+  | { status: "missing_price" }
+  | { status: "ready" };
+
 export function isTradeAutomationConfirmationIntent(value: string): boolean {
+  return resolveTradeAutomationCommandIntent(value).status === "ready";
+}
+
+export function resolveTradeAutomationCommandIntent(value: string): TradeAutomationCommandIntent {
   const compact = value
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[\s.,!?~'"“”‘’()\[\]{}:_-]+/g, "");
   const referencesCurrentChartPrice = /(이가격|해당가격|선택가격|진입가|이때|이시점)/.test(compact);
-  const requestsAutomation = /(예약(매매|주문)?|사자|살래|매수(하자|해|해줘|해주세요)|팔자|매도(하자|해|해줘|해주세요)|알림.*(걸|설정|등록))/.test(compact);
-  return referencesCurrentChartPrice && requestsAutomation;
+  const mentionsReservation = /예약(?:매매|주문|매수|매도)?/.test(compact);
+  const requestsReservation = /예약(?:매매|주문|매수|매도)?(?:해주세요|해달라|해줘요|해줘|하자|할래)/.test(compact);
+  const requestsDirectTrade = /(?:사자|살래|팔자|매수(?:해주세요|해달라|해줘요|해줘|하자)|매도(?:해주세요|해달라|해줘요|해줘|하자))/.test(compact);
+  const requestsAlert = /알림.*(?:걸어주세요|걸어줘|설정해주세요|설정해줘|등록해주세요|등록해줘)/.test(compact);
+  const requestsAutomation = requestsReservation || requestsDirectTrade || requestsAlert;
+  if (referencesCurrentChartPrice && requestsAutomation) {
+    return { status: "ready" };
+  }
+  if (mentionsReservation && requestsAutomation) {
+    return { status: "missing_price" };
+  }
+  return { status: "not_matched" };
+}
+
+export function chartPriceSelectionMatchesTradeSetup(
+  snapshot: ChartTradeSetupSnapshot,
+  selection: ChartPriceSelection | null
+): selection is ChartPriceSelection {
+  return Boolean(selection
+    && selection.chartDocumentId === snapshot.chartDocumentId
+    && selection.sourcePanelId === snapshot.sourcePanelId
+    && selection.symbol === snapshot.symbol
+    && selection.interval === snapshot.interval
+    && isPositiveFinite(selection.price));
 }
 
 export function createTradeAutomationConfirmationDraft(
@@ -67,14 +98,7 @@ export function createTradeAutomationConfirmationDraft(
   if (![setup.entryPrice, setup.targetPrice, setup.stopPrice].every(isPositiveFinite)) {
     return null;
   }
-  const matchingSelection = selection
-    && selection.chartDocumentId === snapshot.chartDocumentId
-    && selection.sourcePanelId === snapshot.sourcePanelId
-    && selection.symbol === snapshot.symbol
-    && selection.interval === snapshot.interval
-    && isPositiveFinite(selection.price)
-    ? selection
-    : null;
+  const matchingSelection = chartPriceSelectionMatchesTradeSetup(snapshot, selection) ? selection : null;
   const reservationPrice = matchingSelection?.price
     ?? (isPositiveFinite(snapshot.spotlightPrice) ? snapshot.spotlightPrice : setup.entryPrice);
   if (!isPositiveFinite(reservationPrice)) {

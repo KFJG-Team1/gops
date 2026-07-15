@@ -54,9 +54,10 @@ import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
 import {
+  chartPriceSelectionMatchesTradeSetup,
   createTradeAutomationConfirmationDraft,
-  isTradeAutomationConfirmationIntent,
   priceConditionInputFromTradeAutomationDraft,
+  resolveTradeAutomationCommandIntent,
   tradeAutomationDraftMatchesSnapshot,
   type ChartPriceSelection,
   type ChartTradeSetupSnapshot,
@@ -1200,7 +1201,12 @@ export function App() {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
     }
-    if (isTradeAutomationConfirmationIntent(prompt)) {
+    const tradeAutomationIntent = resolveTradeAutomationCommandIntent(prompt);
+    if (tradeAutomationIntent.status === "missing_price" && !chartPriceSelection) {
+      showAgentNotice("어느 가격에 예약할까요? 차트 가격축을 선택한 뒤 다시 요청해 주세요.", "info");
+      return "notice";
+    }
+    if (tradeAutomationIntent.status !== "not_matched") {
       const resolution = resolveTradeAutomationChart(
         chartPanelHandlesRef.current,
         lastInteractedChartContentIdRef.current,
@@ -1217,6 +1223,11 @@ export function App() {
       }
       if (!resolution.snapshot) {
         showAgentNotice("현재 차트에 유효한 진입가·목표가·손절가 트레이드 플랜이 없습니다.", "info");
+        return "notice";
+      }
+      if (tradeAutomationIntent.status === "missing_price"
+        && !chartPriceSelectionMatchesTradeSetup(resolution.snapshot, chartPriceSelection)) {
+        showAgentNotice("어느 가격에 예약할까요? 대상 차트의 가격축을 선택한 뒤 다시 요청해 주세요.", "info");
         return "notice";
       }
       const draft = createTradeAutomationConfirmationDraft(
