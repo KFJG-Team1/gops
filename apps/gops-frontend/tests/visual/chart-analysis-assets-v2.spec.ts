@@ -178,7 +178,7 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByText(/적용된 근거·제안 작도/)).toBeVisible();
 });
 
-test("price axis reservation buy without a selected price asks for a price instead of chart analysis", async ({ page }) => {
+test("reservation buy with quantity and alternate verb asks for a price instead of chart analysis", async ({ page }) => {
   const executionRequests: string[] = [];
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
@@ -191,7 +191,7 @@ test("price axis reservation buy without a selected price asks for a price inste
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
 
-  await page.getByLabel("Agent command").fill("예약 매수 해줘");
+  await page.getByLabel("Agent command").fill("AMD 예약 매수 20주 걸어줘");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
 
   await expect(page.locator(".workspace-agent-notice")).toContainText("어느 가격에 예약할까요?");

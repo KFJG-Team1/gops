@@ -36,14 +36,19 @@ import {
   "예약 매수 해줘",
   "예약매수 해달라",
   "20주 예약 매도 해주세요",
-  "예약 주문해줘"
+  "예약 주문해줘",
+  "AMD 예약 매수 20주 걸어줘",
+  "AMD 예약 매수 20주 해줘",
+  "545달러에 예약매수 20개 넣어줘"
 ].forEach((prompt) => assert.deepEqual(
   resolveTradeAutomationCommandIntent(prompt),
   { status: "missing_price" },
   prompt
 ));
 assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매가 뭐야?"), { status: "not_matched" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매를 설명해줘"), { status: "not_matched" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("매수해줘"), { status: "not_matched" });
 
 const setup: ChartTradeSetup = {
