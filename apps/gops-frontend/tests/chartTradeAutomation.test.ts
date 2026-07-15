@@ -33,19 +33,19 @@ import {
 ].forEach((prompt) => assert.equal(isTradeAutomationConfirmationIntent(prompt), false, prompt));
 
 [
-  "예약 매수 해줘",
-  "예약매수 해달라",
-  "20주 예약 매도 해주세요",
-  "예약 주문해줘",
-  "AMD 예약 매수 20주 걸어줘",
-  "AMD 예약 매수 20주 해줘"
-].forEach((prompt) => assert.deepEqual(
-  resolveTradeAutomationCommandIntent(prompt),
-  { status: "missing_price" },
-  prompt
+  ["예약 매수 해줘", "buy_candidate"],
+  ["예약매수 해달라", "buy_candidate"],
+  ["20주 예약 매도 해주세요", "sell_candidate"],
+  ["예약 주문해줘", null],
+  ["AMD 예약 매수 20주 걸어줘", "buy_candidate"],
+  ["AMD 예약 매수 20주 해줘", "buy_candidate"]
+].forEach(([prompt, action]) => assert.deepEqual(
+  resolveTradeAutomationCommandIntent(String(prompt)),
+  { status: "missing_price", action },
+  String(prompt)
 ));
-assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready", reservationPrice: null });
-assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready", reservationPrice: null });
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready", reservationPrice: null, action: "buy_candidate" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready", reservationPrice: null, action: "buy_candidate" });
 [
   ["AMD 545달러에 예약 매수 20주 걸어줘", 545],
   ["AMD $545.25 예약매수 해줘", 545.25],
@@ -55,9 +55,14 @@ assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 �
   ["545달러에 예약매수 20개 넣어줘", 545]
 ].forEach(([prompt, reservationPrice]) => assert.deepEqual(
   resolveTradeAutomationCommandIntent(String(prompt)),
-  { status: "ready", reservationPrice },
+  { status: "ready", reservationPrice, action: "buy_candidate" },
   String(prompt)
 ));
+assert.deepEqual(resolveTradeAutomationCommandIntent("AMD 575달러에 예약 매도 20주 걸어줘"), {
+  status: "ready",
+  reservationPrice: 575,
+  action: "sell_candidate"
+});
 assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매가 뭐야?"), { status: "not_matched" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매를 설명해줘"), { status: "not_matched" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("매수해줘"), { status: "not_matched" });
@@ -137,6 +142,29 @@ const promptPriceDraft = createTradeAutomationConfirmationDraft(snapshot, matchi
 });
 assert.equal(promptPriceDraft?.reservationPrice, 545.25);
 assert.equal(promptPriceDraft?.requestedAt, "2026-07-15T10:02:00Z");
+const promptSellDraft = createTradeAutomationConfirmationDraft(snapshot, matchingSelection, {
+  action: "sell_candidate",
+  requestedAt: "2026-07-15T10:03:00Z",
+  reservationPrice: 575
+});
+assert.equal(promptSellDraft?.action, "sell_candidate");
+assert.equal(promptSellDraft?.sourceAction, "buy_candidate");
+assert.equal(promptSellDraft?.reservationPrice, 575);
+assert.equal(promptSellDraft?.targetPrice, setup.stopPrice);
+assert.equal(promptSellDraft?.stopPrice, setup.targetPrice);
+assert.equal(tradeAutomationDraftMatchesSnapshot(promptSellDraft!, snapshot), true);
+assert.deepEqual(priceConditionInputFromTradeAutomationDraft(promptSellDraft!), {
+  symbol: "AMD",
+  side: "sell",
+  direction: "atOrAbove",
+  triggerPrice: 575,
+  limitPrice: 575,
+  quantity: 20,
+  exchange: "NASD",
+  executionEnabled: true,
+  alertsEnabled: true,
+  validity: "GTC"
+});
 assert.equal(tradeAutomationDraftMatchesSnapshot(selectedDraft!, {
   ...snapshot,
   assetIdentity: { ...snapshot.assetIdentity, inputDigest: "changed" }

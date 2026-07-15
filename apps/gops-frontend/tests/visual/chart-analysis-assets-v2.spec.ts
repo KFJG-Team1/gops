@@ -223,6 +223,45 @@ test("reservation buy uses a price written in the prompt without a price-axis se
   expect(executionRequests).toEqual([]);
 });
 
+test("reservation sell uses the prompt side even when the chart setup is a buy candidate", async ({ page }) => {
+  const executionRequests: string[] = [];
+  let conditionBody: Record<string, unknown> | null = null;
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && [
+      "/api/trade-conditions",
+      "/api/trade-conditions/commands",
+      "/api/agents/analyze"
+    ].includes(pathname)) {
+      executionRequests.push(pathname);
+      if (pathname === "/api/trade-conditions") conditionBody = request.postDataJSON();
+    }
+  });
+  await page.goto("/?symbol=NVDA");
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+
+  await page.getByLabel("Agent command").fill("NVDA 190달러에 예약 매도 20주 걸어줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("매도 후보 확인");
+  await expect(dialog).toContainText("분석 하락 목표가 (참고)");
+  await expect(dialog).toContainText("분석 매도 무효화가 (참고)");
+  await expect(dialog).toContainText("$190.00");
+  await dialog.getByRole("button", { name: "확인" }).click();
+  await expect(page.locator(".workspace-agent-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
+  expect(executionRequests).toEqual(["/api/trade-conditions"]);
+  expect(conditionBody).toMatchObject({
+    symbol: "NVDA",
+    side: "sell",
+    direction: "atOrAbove",
+    triggerPrice: 190,
+    limitPrice: 190,
+    quantity: 20
+  });
+});
+
 test("price axis selection accepts a natural reservation buy command and creates a 20-share paper condition", async ({ page }) => {
   const executionRequests: string[] = [];
   page.on("request", (request) => {
