@@ -27,6 +27,8 @@ assert.deepEqual(steps.map((step) => step.id), ["evidence", "entry", "target", "
 assert.match(steps[1].body, /100\.00/);
 assert.match(steps[2].body, /\+10\.00%/);
 assert.match(steps[3].body, /-5\.00%/);
+assert.match(steps[3].body, /이 기준을 벗어나면 매수 관점을 다시 검토합니다/);
+assert.doesNotMatch(steps[3].body, /시나리오 무효화 조건/);
 assert.deepEqual(steps[4].drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
 
 const sellSteps = buildChartCommentaryModel(asset, {
@@ -44,5 +46,6 @@ assert.match(sellSteps[1].body, /매도 기준가 118\.00/);
 assert.match(sellSteps[1].body, /근거 주기는 4h/);
 assert.match(sellSteps[2].body, /하락 목표가 110\.00/);
 assert.match(sellSteps[3].body, /매도 무효화가 122\.00/);
+assert.match(sellSteps[3].body, /이 기준을 벗어나면 매도 관점을 다시 검토합니다/);
 assert.match(sellSteps[4].body, /조건부 매도 후보/);
 assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["evidence", "observe"]);

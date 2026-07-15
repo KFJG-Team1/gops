@@ -38,9 +38,11 @@ const sectorSet = new Set<string>(sectorOptions);
 const symbolSet = new Set(symbolOptions.map((item) => item.symbol));
 
 export function InvestmentProfileForm({
-  disabled
+  disabled,
+  onSaved
 }: {
   disabled?: boolean;
+  onSaved?: (profile: InvestmentProfile) => void;
 }) {
   const [profile, setProfile] = useState<InvestmentProfile>(defaultProfile);
   const [preferredSectorQuery, setPreferredSectorQuery] = useState("");
@@ -58,12 +60,21 @@ export function InvestmentProfileForm({
     }
     const controller = new AbortController();
     setLoading(true);
+    setError(null);
     void fetchInvestmentProfile(controller.signal)
       .then((payload) => {
         setProfile(normalizeProfileForUniverse(payload ?? defaultProfile));
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "투자 설정을 불러오지 못했습니다."))
-      .finally(() => setLoading(false));
+      .catch((caught) => {
+        if (!controller.signal.aborted) {
+          setError(caught instanceof Error ? caught.message : "투자 설정을 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
     return () => controller.abort();
   }, [disabled]);
 
@@ -75,14 +86,19 @@ export function InvestmentProfileForm({
     setSaving(true);
     setError(null);
     setMessage(null);
+    let savedProfile: InvestmentProfile | null = null;
     try {
       const saved = await saveInvestmentProfile(normalizeProfileForUniverse(profile));
-      setProfile(normalizeProfileForUniverse(saved));
+      savedProfile = normalizeProfileForUniverse(saved);
+      setProfile(savedProfile);
       setMessage("저장됨");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "투자 설정을 저장하지 못했습니다.");
     } finally {
       setSaving(false);
+    }
+    if (savedProfile) {
+      onSaved?.(savedProfile);
     }
   };
 

@@ -9,6 +9,7 @@ let includeConditionalEvidence = true;
 let delayAgentAnswer = false;
 let watchlistSymbols: string[] = [];
 let watchlistWrites: string[][] = [];
+let nearbyIntervalFallback = false;
 
 test.beforeEach(async ({ page }, testInfo) => {
   postedSymbols = null;
@@ -18,6 +19,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   delayAgentAnswer = false;
   watchlistSymbols = [];
   watchlistWrites = [];
+  nearbyIntervalFallback = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
@@ -89,6 +91,59 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   await expect(page.getByRole("button", { name: "작도 분석 레이어 끄기" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toBeDisabled();
   await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
+});
+
+test("nearby interval setup stays stable during crosshair and user pan", async ({ page }) => {
+  includeTradePlan = false;
+  nearbyIntervalFallback = true;
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel").first();
+  const canvas = chart.locator(".chart-canvas");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toBeEnabled();
+
+  const initialSnapshot = await page.evaluate(async () => {
+    const store = await import("/src/chart/chartTradeSetupStore.ts");
+    const snapshot = store.getChartTradeSetupSnapshot("asset-visual-chart");
+    let notifications = 0;
+    const unsubscribe = store.subscribeChartTradeSetup("asset-visual-chart", () => {
+      notifications += 1;
+    });
+    Object.assign(window, {
+      __chartSetupNotificationCount: () => notifications,
+      __chartSetupUnsubscribe: unsubscribe
+    });
+    return snapshot ? {
+      sourceInterval: snapshot.setup.sourceInterval,
+      entryPrice: snapshot.setup.entryPrice,
+      targetPrice: snapshot.setup.targetPrice,
+      stopPrice: snapshot.setup.stopPrice
+    } : null;
+  });
+  expect(initialSnapshot).toEqual({ sourceInterval: "4h", entryPrice: 178, targetPrice: 206, stopPrice: 164 });
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("chart canvas is not visible");
+  for (let index = 0; index < 60; index += 1) {
+    await page.mouse.move(
+      box.x + 20 + (index % 30) * Math.max(2, (box.width - 100) / 30),
+      box.y + 90 + (index % 6) * 8
+    );
+  }
+  expect(await page.evaluate(() => (window as typeof window & {
+    __chartSetupNotificationCount?: () => number;
+  }).__chartSetupNotificationCount?.())).toBe(0);
+
+  const beforePan = Number(await chart.getAttribute("data-chart-right-offset"));
+  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.55);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.55, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await chart.getAttribute("data-chart-right-offset"))).not.toBe(beforePan);
+  const pannedOffset = Number(await chart.getAttribute("data-chart-right-offset"));
+  await page.waitForTimeout(500);
+  expect(Number(await chart.getAttribute("data-chart-right-offset"))).toBe(pannedOffset);
+  await page.evaluate(() => (window as typeof window & { __chartSetupUnsubscribe?: () => void }).__chartSetupUnsubscribe?.());
 });
 
 test("commentary chart selection targets one chart document at a time", async ({ page }) => {
@@ -420,7 +475,7 @@ function assetResponse(): Record<string, unknown> {
     coverage: { state: "partial", targetBars: 380, actualBars: 140, contiguousBars: 140, missingBars: 240 },
     geometry: {
       drawings: [hline, upper, lower],
-      supports: includeConditionalEvidence
+      supports: includeConditionalEvidence && !nearbyIntervalFallback
         ? [{ id: "support", role: "support", price: 164, zoneLow: 163.4, zoneHigh: 164.6, halfWidthAtr: .4, score: .8, touches: 2, anchors: hline.anchors }]
         : [],
       resistances: [], patterns: [], primaryPattern: null,
@@ -431,11 +486,31 @@ function assetResponse(): Record<string, unknown> {
         patternState: "confirmed", action: "buy_candidate", direction: "long", signalAt: asOf, entryTrigger: 177.5,
         entryPrice: 178, stopPrice: 170, targetPrice: 194, riskPerShare: 8, rewardPerShare: 16, rewardRiskRatio: 2,
         minimumRewardRisk: 2, projectionBars: 10, reasons: ["confirmed_upward_breakout", "reward_risk_passed"]
+      } } : nearbyIntervalFallback ? { tradePlan: {
+        version: "pattern-trade-timing-v1", symbol: "NVDA", interval: "1D", patternId: "triangle", patternKind: "ascending_triangle",
+        patternState: "forming", action: "watch", direction: null, signalAt: null, entryTrigger: null,
+        entryPrice: null, stopPrice: null, targetPrice: null, riskPerShare: null, rewardPerShare: null,
+        rewardRiskRatio: null, minimumRewardRisk: 2, projectionBars: 10, reasons: ["breakout_not_confirmed"]
       } } : {})
     },
     indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } }
   };
-  return { symbol: "NVDA", assets: { "1D": asset }, meta: { servedAt: asOf } };
+  const nearbyAsset = nearbyIntervalFallback ? {
+    ...asset,
+    interval: "4h",
+    sourceInterval: "4h",
+    inputDigest: "sha256:fixture-4h",
+    geometry: {
+      ...asset.geometry,
+      drawings: [],
+      supports: [{ id: "support-4h", role: "support", price: 164, score: .8, touches: 3, anchors: [] }],
+      resistances: [{ id: "resistance-4h", role: "resistance", price: 178, score: .82, touches: 3, anchors: [] }],
+      primaryPattern: null,
+      primaryTriangle: null,
+      tradePlan: null
+    }
+  } : null;
+  return { symbol: "NVDA", assets: { "1D": asset, ...(nearbyAsset ? { "4h": nearbyAsset } : {}) }, meta: { servedAt: asOf } };
 }
 
 function assetLayout(): Record<string, unknown> {

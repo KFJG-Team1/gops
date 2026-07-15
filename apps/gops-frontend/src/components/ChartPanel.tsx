@@ -63,6 +63,7 @@ import {
 } from "../chart/analysisAssetsApi";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
+import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
 import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
@@ -261,7 +262,6 @@ type ChartPanelProps = {
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
   onPriceSelection?: (selection: ChartPriceSelection) => void;
-  onTradeSetupChange?: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
   toolbarLeading?: ReactNode;
   toolbarAfterViewControls?: ReactNode;
 };
@@ -399,7 +399,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartHoverChange,
   onHeaderChange,
   onPriceSelection,
-  onTradeSetupChange,
   toolbarLeading,
   toolbarAfterViewControls
 }: ChartPanelProps, ref) {
@@ -412,7 +411,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
   const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
-  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
   const [postCreateFocusDrawingId, setPostCreateFocusDrawingId] = useState<string | null>(null);
@@ -569,6 +567,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const chartAddMenuRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
+  const hoveredSemanticNodeIdRef = useRef<string | undefined>(undefined);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
   const olderRangeRetryAfterRef = useRef<Map<string, number>>(new Map());
@@ -582,6 +581,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
   const priceAxisPointerRef = useRef<PriceAxisPointer | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
+  const pendingTransientDrawingsRef = useRef<DrawingEntity[] | null>(null);
+  const interactionRenderFrameRef = useRef<number | null>(null);
+  const pendingViewportRenderRef = useRef(false);
+  const pendingDrawingsRenderRef = useRef(false);
   const wheelViewportRef = useRef<ChartViewport | null>(null);
   const wheelRenderFrameRef = useRef<number | null>(null);
   const wheelCommitTimerRef = useRef<number | null>(null);
@@ -589,6 +592,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
   const appliedAnalysisAssetKeyRef = useRef("");
+  const proposalAutoFrameKeyRef = useRef("");
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -621,6 +625,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     activeExpansionsRef.current = activeExpansions;
   }, [activeExpansions]);
+
+  const setHoveredSemanticUnit = useCallback((unit: SemanticRenderUnit | null | undefined) => {
+    const nextId = unit?.id;
+    if (hoveredSemanticNodeIdRef.current === nextId) return;
+    hoveredSemanticNodeIdRef.current = nextId;
+    setHoveredSemanticNodeId(nextId);
+    setHoverSnapshot(unit ? snapshotFromSemanticUnit(unit) : null);
+  }, []);
 
   const commandTarget = useMemo(() => ({
     panelId,
@@ -686,14 +698,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
     : null;
-  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles, analysisAssets?.assets);
-  const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
+  const activeAnalysisAsset = useMemo(() => resolveAnalysisAssetForCandles(
+    rawActiveAnalysisAsset,
+    chart.candles,
+    analysisAssets?.assets
+  ), [analysisAssets?.assets, chart.candles, rawActiveAnalysisAsset]);
+  const activeAnalysisAssetStale = useMemo(() => activeAnalysisAsset ? isAnalysisAssetStale(
     activeAnalysisAsset.asOf,
     chart.candles,
     activeAnalysisAsset.assetVersion,
     activeAnalysisAsset.interval
-  ) : false;
-  const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
+  ) : false, [activeAnalysisAsset, chart.candles]);
+  const latestClosedAssetCandleTimestamp = useMemo(() => latestClosedTimestamp(chart.candles), [chart.candles]);
   const chartTradeSetup = useMemo(() => projectChartTradeSetup(
     activeAnalysisAsset,
     chart.candles,
@@ -711,9 +727,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   } : null, [chart.interval, chart.symbol, chartTradeSetup, document.id, panelId, spotlightProposalPrice]);
 
   useEffect(() => {
-    onTradeSetupChange?.(document.id, chartTradeSetupSnapshot);
-    return () => onTradeSetupChange?.(document.id, null);
-  }, [chartTradeSetupSnapshot, document.id, onTradeSetupChange]);
+    setChartTradeSetupSnapshot(document.id, chartTradeSetupSnapshot);
+  }, [chartTradeSetupSnapshot, document.id]);
+
+  useEffect(() => () => {
+    clearChartTradeSetupSnapshot(document.id);
+  }, [document.id]);
 
   useEffect(() => {
     setActiveTradePlan(document.id, projectActiveTradePlan(
@@ -733,16 +752,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
-    const rawAsset = supportedInterval
-      && latestClosedAssetCandleTimestamp
-      && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
-      ? analysisAssets.assets[interval]
-      : null;
-    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles, analysisAssets?.assets);
-    const asset = resolvedAsset
-      ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
-          resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
-        ))
+    const asset = supportedInterval && latestClosedAssetCandleTimestamp && activeAnalysisAsset
+      ? staleAnalysisAsset(activeAnalysisAsset, activeAnalysisAssetStale)
       : null;
     const applyKey = [
       chart.symbol,
@@ -765,7 +776,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     );
     dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
   }, [
-    analysisAssets,
+    activeAnalysisAsset,
+    activeAnalysisAssetStale,
     chart.candles,
     chart.interval,
     chart.selectedDrawingId,
@@ -1557,7 +1569,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     drawings: transientDrawings ?? chart.drawings
   }), [chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
-  const previewDrawings: DrawingEntity[] = [];
+  const previewDrawings = useMemo<DrawingEntity[]>(() => [], []);
   const currentPriceTimeText = useMemo(() => (
     currentPriceMarker ? currentPriceMarkerTimeText(currentPriceMarker, currentPriceClock) : null
   ), [currentPriceClock, currentPriceMarker]);
@@ -1588,11 +1600,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const clearSemanticState = useCallback(() => {
-    setHoveredSemanticNodeId(undefined);
-    setHoverSnapshot(null);
+    setHoveredSemanticUnit(null);
     setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-  }, []);
+  }, [setHoveredSemanticUnit]);
 
   useEffect(() => {
     activeExpansionsRef.current = [];
@@ -1740,17 +1751,34 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand, loadOlderCandles]);
 
   useEffect(() => {
+    const proposalDrawing = chartTradeSetupSnapshot
+      ? chart.drawings.find((drawing) => (
+        drawing.id === chartTradeSetupSnapshot.setup.drawingIds.plan
+        && drawing.visible !== false
+        && drawing.style.zoneSplit === true
+      ))
+      : undefined;
+    if (!proposalDrawing || !chartTradeSetupSnapshot) return;
+    const autoFrameKey = [
+      document.id,
+      chartTradeSetupSnapshot.assetIdentity.algorithmVersion,
+      chartTradeSetupSnapshot.assetIdentity.inputDigest,
+      chartTradeSetupSnapshot.assetIdentity.asOf,
+      proposalDrawing.id
+    ].join("|");
+    if (proposalAutoFrameKeyRef.current === autoFrameKey) return;
+    proposalAutoFrameKeyRef.current = autoFrameKey;
+    if (chart.rightOffset > 0) return;
     const lastCandleIndex = chart.candles.length - 1;
-    const projectionBars = chart.drawings
-      .filter((drawing) => drawing.visible !== false && drawing.style.zoneSplit === true)
-      .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.logicalIndex))
+    const projectionBars = proposalDrawing.anchors
+      .map((anchor) => anchor.logicalIndex)
       .filter((logicalIndex): logicalIndex is number => typeof logicalIndex === "number" && Number.isFinite(logicalIndex))
       .reduce((maximum, logicalIndex) => Math.max(maximum, logicalIndex - lastCandleIndex), 0);
-    if (projectionBars <= 0 || chart.rightOffset < 0) return;
+    if (projectionBars <= 0) return;
     const sceneVisibleCount = sceneRef.current?.visibleSlotCount ?? chart.visibleCount;
     const futureSlots = Math.max(projectionBars + 2, Math.floor(sceneVisibleCount / 4));
     applyViewport({ visibleCount: chart.visibleCount, rightOffset: -futureSlots }, "external");
-  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount]);
+  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount, chartTradeSetupSnapshot, document.id]);
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
@@ -1903,6 +1931,39 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }, 100);
   }, [applyViewport]);
 
+  const scheduleInteractionRender = useCallback(() => {
+    if (interactionRenderFrameRef.current !== null) return;
+    interactionRenderFrameRef.current = window.requestAnimationFrame(() => {
+      interactionRenderFrameRef.current = null;
+      if (pendingViewportRenderRef.current) {
+        pendingViewportRenderRef.current = false;
+        setTransientViewport(transientViewportRef.current);
+      }
+      if (pendingDrawingsRenderRef.current) {
+        pendingDrawingsRenderRef.current = false;
+        setTransientDrawings(pendingTransientDrawingsRef.current);
+      }
+    });
+  }, []);
+
+  const cancelInteractionRender = useCallback(() => {
+    if (interactionRenderFrameRef.current !== null) {
+      window.cancelAnimationFrame(interactionRenderFrameRef.current);
+      interactionRenderFrameRef.current = null;
+    }
+    pendingViewportRenderRef.current = false;
+    pendingDrawingsRenderRef.current = false;
+    pendingTransientDrawingsRef.current = null;
+  }, []);
+
+  const queueTransientDrawings = useCallback((drawings: DrawingEntity[] | null) => {
+    pendingTransientDrawingsRef.current = drawings;
+    pendingDrawingsRenderRef.current = true;
+    scheduleInteractionRender();
+  }, [scheduleInteractionRender]);
+
+  useEffect(() => cancelInteractionRender, [cancelInteractionRender]);
+
   useEffect(() => () => {
     if (wheelRenderFrameRef.current !== null) {
       window.cancelAnimationFrame(wheelRenderFrameRef.current);
@@ -1996,14 +2057,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const priceAxisPoint = chartPriceAxisPoint(scene, point.x, point.y);
     if (priceAxisPoint) {
       priceAxisPointerRef.current = { pointerId: event.pointerId, x: point.x, y: point.y };
-      setCrosshair(point);
-      setHoveredSemanticNodeId(undefined);
-      setHoverSnapshot(null);
+      setHoveredSemanticUnit(null);
       event.currentTarget.style.cursor = "crosshair";
       return;
     }
     if (isChartRightAxisPoint(scene, point.x, point.y)) {
-      setCrosshair(undefined);
       return;
     }
     const drawingHit = chart.toolMode === "select" ? hitTestDrawing(scene, point.x, point.y) : null;
@@ -2171,7 +2229,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     onChartHoverChange?.(true);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    setCrosshair(point);
     const scene = sceneRef.current;
     if (!scene) {
       return;
@@ -2192,8 +2249,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
 
     if (rightAxisPoint && !paneResize && !drawingDragRef.current && !dragAnchorRef.current) {
-      setHoveredSemanticNodeId(undefined);
-      setHoverSnapshot(null);
+      setHoveredSemanticUnit(null);
       setTransientDrawings(null);
       return;
     }
@@ -2230,8 +2286,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
     const hoveredUnit = semanticHit ?? axisDigUnit;
-    setHoveredSemanticNodeId(hoveredUnit?.id);
-    setHoverSnapshot(hoveredUnit ? snapshotFromSemanticUnit(hoveredUnit) : null);
+    setHoveredSemanticUnit(hoveredUnit);
 
     const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
@@ -2244,7 +2299,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
       const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
-      setTransientDrawings(chart.drawings.map((drawing) => (
+      queueTransientDrawings(chart.drawings.map((drawing) => (
         drawing.id === drawingDrag.drawing.id ? { ...drawing, anchors, updatedAt: new Date().toISOString() } : drawing
       )));
       return;
@@ -2254,10 +2309,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (activeDrawingType && drawingRequiredAnchorCount(activeDrawingType) === 1) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
-        setTransientDrawings(null);
+        queueTransientDrawings(null);
         return;
       }
-      setTransientDrawings([
+      queueTransientDrawings([
         ...chart.drawings,
         buildSingleAnchorPreviewDrawing(activeDrawingType, anchor, chart.trendLineExtension, chart.interval)
       ]);
@@ -2267,10 +2322,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (drawingDraft && drawingTypeFromToolMode(chart.toolMode) === drawingDraft.type) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
-        setTransientDrawings(null);
+        queueTransientDrawings(null);
         return;
       }
-      setTransientDrawings([
+      queueTransientDrawings([
         ...chart.drawings,
         buildDraftPreviewDrawing(drawingDraft, anchor, chart.trendLineExtension, chart.parallelLineCount)
       ]);
@@ -2293,7 +2348,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       )
     };
     transientViewportRef.current = nextViewport;
-    setTransientViewport(nextViewport);
+    pendingViewportRenderRef.current = true;
+    scheduleInteractionRender();
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -2304,6 +2360,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
     const nextRatios = transientPaneRatiosRef.current;
+    cancelInteractionRender();
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
@@ -2386,6 +2443,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const cancelDrag = () => {
+    cancelInteractionRender();
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
@@ -2396,9 +2454,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setTransientViewport(null);
     setTransientDrawings(null);
     setTransientPaneRatios(null);
-    setHoveredSemanticNodeId(undefined);
-    setHoverSnapshot(null);
-    setCrosshair(undefined);
+    setHoveredSemanticUnit(null);
     onChartHoverChange?.(false);
   };
 
@@ -2536,7 +2592,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           hoveredNodeId={hoveredSemanticNodeId}
           selectedNodeId={selectedSemanticNode?.nodeId}
           emphasizeSelectedNode={emphasizeSelection}
-          crosshair={crosshair}
           editingDrawingId={labelEditor?.drawingId}
           spotlightDrawingIds={spotlightDrawingIds}
           spotlightCandleTimestamp={spotlightCandleTimestamp}
@@ -2546,13 +2601,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerMove={handlePointerMove}
           onPointerLeave={() => {
             priceAxisPointerRef.current = null;
-            setHoveredSemanticNodeId(undefined);
-            setHoverSnapshot(null);
+            setHoveredSemanticUnit(null);
             if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               onChartHoverChange?.(false);
-            }
-            if (!dragAnchorRef.current && !paneResizeRef.current) {
-              setCrosshair(undefined);
             }
             if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               setTransientDrawings(null);
