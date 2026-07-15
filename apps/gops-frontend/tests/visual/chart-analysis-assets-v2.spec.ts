@@ -199,6 +199,30 @@ test("reservation buy with quantity and alternate verb asks for a price instead 
   expect(executionRequests).toEqual([]);
 });
 
+test("reservation buy uses a price written in the prompt without a price-axis selection", async ({ page }) => {
+  const executionRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && [
+      "/api/trade-conditions",
+      "/api/trade-conditions/commands",
+      "/api/agents/analyze"
+    ].includes(pathname)) executionRequests.push(pathname);
+  });
+  await page.goto("/?symbol=NVDA");
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+
+  await page.getByLabel("Agent command").fill("NVDA 185.50달러에 예약 매수 20주 걸어줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("NVDA · 1D");
+  await expect(dialog).toContainText("$185.50");
+  await expect(dialog.getByLabel("예약 수량")).toHaveValue("20");
+  expect(executionRequests).toEqual([]);
+});
+
 test("price axis selection accepts a natural reservation buy command and creates a 20-share paper condition", async ({ page }) => {
   const executionRequests: string[] = [];
   page.on("request", (request) => {

@@ -45,8 +45,19 @@ import {
   { status: "missing_price" },
   prompt
 ));
-assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready" });
-assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready" });
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready", reservationPrice: null });
+assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready", reservationPrice: null });
+[
+  ["AMD 545달러에 예약 매수 20주 걸어줘", 545],
+  ["AMD $545.25 예약매수 해줘", 545.25],
+  ["AMD USD 545.50에 예약 주문해줘", 545.5],
+  ["AMD 가격 545로 예약 매수해줘", 545],
+  ["AMD 545에 예약 매수 20주 해줘", 545]
+].forEach(([prompt, reservationPrice]) => assert.deepEqual(
+  resolveTradeAutomationCommandIntent(String(prompt)),
+  { status: "ready", reservationPrice },
+  String(prompt)
+));
 assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매가 뭐야?"), { status: "not_matched" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("예약매매를 설명해줘"), { status: "not_matched" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("매수해줘"), { status: "not_matched" });
@@ -120,6 +131,12 @@ assert.deepEqual(priceConditionInputFromTradeAutomationDraft(selectedDraft!), {
 const otherChartSelection = { ...matchingSelection, chartDocumentId: "chart-document-2", price: 999 };
 assert.equal(createTradeAutomationConfirmationDraft(snapshot, otherChartSelection)?.reservationPrice, 470.25);
 assert.equal(createTradeAutomationConfirmationDraft({ ...snapshot, spotlightPrice: null }, null)?.reservationPrice, setup.entryPrice);
+const promptPriceDraft = createTradeAutomationConfirmationDraft(snapshot, matchingSelection, {
+  requestedAt: "2026-07-15T10:02:00Z",
+  reservationPrice: 545.25
+});
+assert.equal(promptPriceDraft?.reservationPrice, 545.25);
+assert.equal(promptPriceDraft?.requestedAt, "2026-07-15T10:02:00Z");
 assert.equal(tradeAutomationDraftMatchesSnapshot(selectedDraft!, {
   ...snapshot,
   assetIdentity: { ...snapshot.assetIdentity, inputDigest: "changed" }
