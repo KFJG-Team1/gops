@@ -64,7 +64,12 @@ export function resolveTradeAutomationCommandIntent(value: string): TradeAutomat
     .replace(/[\s.,!?~'"“”‘’()\[\]{}:_-]+/g, "");
   const referencesCurrentChartPrice = /(이가격|해당가격|선택가격|진입가|이때|이시점)/.test(compact);
   const mentionsReservation = /예약(?:매매|주문|매수|매도)?/.test(compact);
-  const requestsReservation = /예약(?:매매|주문|매수|매도)?(?:해주세요|해달라|해줘요|해줘|하자|할래)/.test(compact);
+  const requestsReservationDirectly = /예약(?:매매|주문|매수|매도)?(?:해주세요|해달라|해줘요|해줘|해줄래|하자|할래|부탁해|부탁합니다)/.test(compact);
+  const requestsReservationWithExecutionVerb = /예약(?:매매|주문|매수|매도)?.*(?:걸어(?:주세요|줘요|줘|줄래)|설정해(?:주세요|줘요|줘|줄래)|등록해(?:주세요|줘요|줘|줄래)|추가해(?:주세요|줘요|줘|줄래)|넣어(?:주세요|줘요|줘|줄래)|주문해(?:주세요|줘요|줘|줄래)|진행해(?:주세요|줘요|줘|줄래))/.test(compact);
+  const requestsReservationWithQuantity = /예약(?:매매|주문|매수|매도)?\d+(?:\.\d+)?(?:주|개)(?:만|를|로|씩)?(?:해주세요|해달라|해줘요|해줘|해줄래|하자|할래|부탁해|부탁합니다)/.test(compact);
+  const requestsReservation = requestsReservationDirectly
+    || requestsReservationWithExecutionVerb
+    || requestsReservationWithQuantity;
   const requestsDirectTrade = /(?:사자|살래|팔자|매수(?:해주세요|해달라|해줘요|해줘|하자)|매도(?:해주세요|해달라|해줘요|해줘|하자))/.test(compact);
   const requestsAlert = /알림.*(?:걸어주세요|걸어줘|설정해주세요|설정해줘|등록해주세요|등록해줘)/.test(compact);
   const requestsAutomation = requestsReservation || requestsDirectTrade || requestsAlert;
