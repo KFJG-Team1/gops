@@ -47,15 +47,15 @@ import {
 assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 예약 매수 해줘"), { status: "ready", reservationPrice: null, action: "buy_candidate" });
 assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 예약 매수 걸어줘"), { status: "ready", reservationPrice: null, action: "buy_candidate" });
 [
-  ["AMD 545달러에 예약 매수 20주 걸어줘", 545],
-  ["AMD $545.25 예약매수 해줘", 545.25],
-  ["AMD USD 545.50에 예약 주문해줘", 545.5],
-  ["AMD 가격 545로 예약 매수해줘", 545],
-  ["AMD 545에 예약 매수 20주 해줘", 545],
-  ["545달러에 예약매수 20개 넣어줘", 545]
-].forEach(([prompt, reservationPrice]) => assert.deepEqual(
+  ["AMD 545달러에 예약 매수 20주 걸어줘", 545, "buy_candidate"],
+  ["AMD $545.25 예약매수 해줘", 545.25, "buy_candidate"],
+  ["AMD USD 545.50에 예약 주문해줘", 545.5, null],
+  ["AMD 가격 545로 예약 매수해줘", 545, "buy_candidate"],
+  ["AMD 545에 예약 매수 20주 해줘", 545, "buy_candidate"],
+  ["545달러에 예약매수 20개 넣어줘", 545, "buy_candidate"]
+].forEach(([prompt, reservationPrice, action]) => assert.deepEqual(
   resolveTradeAutomationCommandIntent(String(prompt)),
-  { status: "ready", reservationPrice, action: "buy_candidate" },
+  { status: "ready", reservationPrice, action },
   String(prompt)
 ));
 assert.deepEqual(resolveTradeAutomationCommandIntent("AMD 575달러에 예약 매도 20주 걸어줘"), {

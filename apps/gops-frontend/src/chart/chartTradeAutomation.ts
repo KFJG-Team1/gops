@@ -4,6 +4,8 @@ import type { CreatePriceConditionInput } from "../priceCondition/priceCondition
 
 export const DEFAULT_PAPER_TRADE_QUANTITY = 20;
 
+export type TradeAutomationAction = "buy_candidate" | "sell_candidate";
+
 export type ChartPriceSelection = {
   version: "chart-price-selection-v1";
   chartDocumentId: string;
@@ -38,7 +40,8 @@ export type TradeAutomationConfirmationDraft = {
   sourcePanelId: string;
   symbol: string;
   interval: ChartInterval;
-  action: "buy_candidate" | "sell_candidate";
+  action: TradeAutomationAction;
+  sourceAction: TradeAutomationAction;
   reservationPrice: number;
   quantity: number;
   targetPrice: number;
@@ -50,10 +53,11 @@ export type TradeAutomationConfirmationDraft = {
 
 export type TradeAutomationCommandIntent =
   | { status: "not_matched" }
-  | { status: "missing_price" }
-  | { status: "ready"; reservationPrice: number | null };
+  | { status: "missing_price"; action: TradeAutomationAction | null }
+  | { status: "ready"; reservationPrice: number | null; action: TradeAutomationAction | null };
 
 export type TradeAutomationDraftOptions = {
+  action?: TradeAutomationAction | null;
   requestedAt?: string;
   reservationPrice?: number | null;
 };
@@ -78,11 +82,18 @@ export function resolveTradeAutomationCommandIntent(value: string): TradeAutomat
   const requestsDirectTrade = /(?:사자|살래|팔자|매수(?:해주세요|해달라|해줘요|해줘|하자)|매도(?:해주세요|해달라|해줘요|해줘|하자))/.test(compact);
   const requestsAlert = /알림.*(?:걸어주세요|걸어줘|설정해주세요|설정해줘|등록해주세요|등록해줘)/.test(compact);
   const requestsAutomation = requestsReservation || requestsDirectTrade || requestsAlert;
+  const requestsBuy = /(?:예약매수|매수|사자|살래)/.test(compact);
+  const requestsSell = /(?:예약매도|매도|팔자|팔래)/.test(compact);
+  const action: TradeAutomationAction | null = requestsBuy === requestsSell
+    ? null
+    : requestsBuy
+      ? "buy_candidate"
+      : "sell_candidate";
   if ((referencesCurrentChartPrice || reservationPrice !== null) && requestsAutomation) {
-    return { status: "ready", reservationPrice };
+    return { status: "ready", reservationPrice, action };
   }
   if (mentionsReservation && requestsAutomation) {
-    return { status: "missing_price" };
+    return { status: "missing_price", action };
   }
   return { status: "not_matched" };
 }
@@ -113,6 +124,9 @@ export function createTradeAutomationConfirmationDraft(
   if (explicitReservationPrice !== null && !isPositiveFinite(explicitReservationPrice)) {
     return null;
   }
+  const sourceAction = setup.action;
+  const action = resolvedOptions.action ?? sourceAction;
+  const reversesSetupDirection = action !== sourceAction;
   const matchingSelection = chartPriceSelectionMatchesTradeSetup(snapshot, selection) ? selection : null;
   const reservationPrice = explicitReservationPrice
     ?? matchingSelection?.price
@@ -126,11 +140,12 @@ export function createTradeAutomationConfirmationDraft(
     sourcePanelId: snapshot.sourcePanelId,
     symbol: snapshot.symbol,
     interval: snapshot.interval,
-    action: setup.action,
+    action,
+    sourceAction,
     reservationPrice,
     quantity: DEFAULT_PAPER_TRADE_QUANTITY,
-    targetPrice: setup.targetPrice,
-    stopPrice: setup.stopPrice,
+    targetPrice: reversesSetupDirection ? setup.stopPrice : setup.targetPrice,
+    stopPrice: reversesSetupDirection ? setup.targetPrice : setup.stopPrice,
     assetIdentity: { ...snapshot.assetIdentity },
     requestedAt: resolvedOptions.requestedAt ?? new Date().toISOString(),
     status: "pending"
@@ -184,7 +199,7 @@ export function tradeAutomationDraftMatchesSnapshot(
     && snapshot.sourcePanelId === draft.sourcePanelId
     && snapshot.symbol === draft.symbol
     && snapshot.interval === draft.interval
-    && snapshot.setup.action === draft.action
+    && snapshot.setup.action === draft.sourceAction
     && snapshot.assetIdentity.algorithmVersion === draft.assetIdentity.algorithmVersion
     && snapshot.assetIdentity.inputDigest === draft.assetIdentity.inputDigest
     && snapshot.assetIdentity.asOf === draft.assetIdentity.asOf);

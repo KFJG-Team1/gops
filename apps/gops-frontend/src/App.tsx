@@ -1234,6 +1234,7 @@ export function App() {
         resolution.snapshot,
         chartPriceSelection,
         {
+          action: tradeAutomationIntent.action,
           reservationPrice: tradeAutomationIntent.status === "ready"
             ? tradeAutomationIntent.reservationPrice
             : null
