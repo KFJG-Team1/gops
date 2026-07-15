@@ -160,12 +160,20 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   asset: ChartAnalysisAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
 }) {
+  const drawingIdsKey = drawingIds.join("\u0000");
+  const diagnostics = useMemo(() => asset
+    ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets)
+    : null, [asset, availableAssets, candles, drawingIdsKey]);
+  const setup = useMemo(() => diagnostics
+    ? projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets)
+    : null, [availableAssets, candles, diagnostics]);
+  const model = useMemo(() => diagnostics
+    ? buildChartCommentaryModel(diagnostics.resolvedAsset, setup)
+    : [], [diagnostics, setup]);
   if (!sourceAvailable) return <Empty text="원본 차트 없음" />;
   if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
   if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
-  const diagnostics = analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets);
-  const setup = projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets);
-  const model = buildChartCommentaryModel(diagnostics.resolvedAsset, setup);
+  if (!diagnostics) return <Empty text="Geometry 자산을 해석할 수 없습니다" />;
   const focusDrawing = (ids: string[], mode: FocusMode, price?: number) => {
     if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, ids, mode, undefined, price);
   };

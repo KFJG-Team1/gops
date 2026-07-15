@@ -75,12 +75,13 @@ export function resolveAnalysisAssetForCandles(
 ): ChartAnalysisAsset | null {
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
+  const visibleTimestamps = [...timestampByKey.values()].sort((left, right) => Date.parse(left) - Date.parse(right));
   const levelDrawingIds = analysisLevelDrawingIds(asset);
   const errors: Array<{ drawingId: string; reason: string }> = [];
   const drawings = asset.geometry.drawings.filter((drawing) => (
     !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
   )).flatMap((drawing) => {
-    const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey);
+    const resolved = resolveDrawingAnchors(drawing, asset.interval, timestampByKey, visibleTimestamps);
     if (!resolved) {
       errors.push({ drawingId: drawing.id, reason: "anchor_not_in_canonical_candles" });
       return [];
@@ -302,8 +303,12 @@ function averageClose(candles: CandleDto[], endIndex: number, period: number): n
   return total / period;
 }
 
-function resolveDrawingAnchors<T extends DrawingEntity>(drawing: T, interval: AnalysisAssetInterval, timestampByKey: Map<string, string>): T | null {
-  const visibleTimestamps = [...timestampByKey.values()].sort((left, right) => Date.parse(left) - Date.parse(right));
+function resolveDrawingAnchors<T extends DrawingEntity>(
+  drawing: T,
+  interval: AnalysisAssetInterval,
+  timestampByKey: Map<string, string>,
+  visibleTimestamps: readonly string[]
+): T | null {
   if (drawing.type === "horizontalLine" && visibleTimestamps.length) {
     const anchors = drawing.anchors.map((anchor, index): DrawingAnchor => {
       if (anchor.timestamp === undefined) return anchor;

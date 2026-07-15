@@ -4038,8 +4038,12 @@ assert.match(chartCanvasSource, /function drawOrderFlowColumns/);
 assert.match(chartCanvasSource, /drawOrderFlowChartColumn\(context, rect, ladder, colors/);
 assert.match(chartCanvasSource, /candle: unit\.candle/);
 assert.match(chartCanvasSource, /drawOrderFlowGapColumns/);
-assert.match(chartCanvasSource, /if \(canvas\.width !== pixelWidth\)/);
-assert.match(chartCanvasSource, /if \(canvas\.height !== pixelHeight\)/);
+assert.match(chartCanvasSource, /if \(canvas\.width !== pixelWidth\) canvas\.width = pixelWidth/);
+assert.match(chartCanvasSource, /if \(canvas\.height !== pixelHeight\) canvas\.height = pixelHeight/);
+assert.match(chartCanvasSource, /className="chart-canvas-layer chart-canvas-base"/);
+assert.match(chartCanvasSource, /className="chart-canvas chart-canvas-layer chart-canvas-overlay"/);
+assert.match(chartCanvasSource, /scheduleOverlayDrawRef\.current\(\)/);
+assert.match(chartCanvasSource, /const drawingBatch = drawingRenderBatch\(scene, scene\.chart\.drawings, false\)/);
 assert.match(orderFlowRenderSource, /projectOrderFlowChartRows/);
 assert.match(orderFlowRenderSource, /drawChartCandle/);
 assert.doesNotMatch(orderFlowRenderSource, /ChartColumnTier|packedChartPriceMapper|isLive/);
@@ -4071,12 +4075,22 @@ assert.match(panelCurrentPriceSource, /const isClosed = latest\.isClosed;/);
 assert.doesNotMatch(panelCurrentPriceSource, /liveTrade/);
 assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene,");
-const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, scene.chart.drawings");
+const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, drawingBatch");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");
 const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, scene, crosshair)");
 assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
+const baseChartSource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("function drawBaseChart"),
+  chartCanvasSource.indexOf("function drawTransientOverlay")
+);
+const transientOverlaySource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("function drawTransientOverlay"),
+  chartCanvasSource.indexOf("function basePriceLayerVisible")
+);
+assert.doesNotMatch(baseChartSource, /drawCrosshair\(/);
+assert.match(transientOverlaySource, /drawCrosshair\(context, scene, crosshair\)/);
 assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);

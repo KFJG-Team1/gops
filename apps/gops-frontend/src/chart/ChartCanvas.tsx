@@ -53,7 +53,6 @@ type ChartCanvasProps = {
   hoveredNodeId?: string;
   selectedNodeId?: string;
   emphasizeSelectedNode?: boolean;
-  crosshair?: { x: number; y: number };
   editingDrawingId?: string;
   spotlightDrawingIds?: string[];
   spotlightCandleTimestamp?: string;
@@ -84,18 +83,21 @@ const volumeProfileAlpha = {
 } as const;
 const orderFlowBucketCache = new OrderFlowBucketCache();
 const orderFlowLadderCache = new WeakMap<OrderFlowBucket, Map<string, OrderFlowLadder>>();
+const emptyExpansions: SemanticExpansion[] = [];
+const emptyPreviewDrawings: DrawingEntity[] = [];
+const emptyAgentVisualOverlays: AgentVisualOverlay[] = [];
+const emptySpotlightDrawingIds: string[] = [];
 
 export function ChartCanvas({
   chart,
-  expansions = [],
-  previewDrawings = [],
-  agentVisualOverlays = [],
+  expansions = emptyExpansions,
+  previewDrawings = emptyPreviewDrawings,
+  agentVisualOverlays = emptyAgentVisualOverlays,
   hoveredNodeId,
   selectedNodeId,
   emphasizeSelectedNode = false,
-  crosshair,
   editingDrawingId,
-  spotlightDrawingIds = [],
+  spotlightDrawingIds = emptySpotlightDrawingIds,
   spotlightCandleTimestamp,
   onScene,
   onWheel,
@@ -106,8 +108,13 @@ export function ChartCanvas({
   onPointerCancel,
   onLostPointerCapture
 }: ChartCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const scheduleDrawRef = useRef<() => void>(() => undefined);
+  const stackRef = useRef<HTMLDivElement | null>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sceneRef = useRef<ChartScene | null>(null);
+  const crosshairRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const scheduleBaseDrawRef = useRef<() => void>(() => undefined);
+  const scheduleOverlayDrawRef = useRef<() => void>(() => undefined);
   const renderInputRef = useRef({
     chart,
     expansions,
@@ -116,7 +123,6 @@ export function ChartCanvas({
     hoveredNodeId,
     selectedNodeId,
     emphasizeSelectedNode,
-    crosshair,
     editingDrawingId,
     spotlightDrawingIds,
     spotlightCandleTimestamp,
@@ -130,7 +136,6 @@ export function ChartCanvas({
     hoveredNodeId,
     selectedNodeId,
     emphasizeSelectedNode,
-    crosshair,
     editingDrawingId,
     spotlightDrawingIds,
     spotlightCandleTimestamp,
@@ -138,24 +143,46 @@ export function ChartCanvas({
   };
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
+    const stack = stackRef.current;
+    const baseCanvas = baseCanvasRef.current;
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!stack || !baseCanvas || !overlayCanvas) {
       return;
     }
-    let animationFrame: number | null = null;
+    let baseAnimationFrame: number | null = null;
+    let overlayAnimationFrame: number | null = null;
 
-    const draw = () => {
-      const rect = canvas.getBoundingClientRect();
+    const drawOverlay = () => {
+      const scene = sceneRef.current;
+      if (!scene) {
+        return;
+      }
       const ratio = window.devicePixelRatio || 1;
-      const pixelWidth = Math.max(1, Math.floor(rect.width * ratio));
-      const pixelHeight = Math.max(1, Math.floor(rect.height * ratio));
-      if (canvas.width !== pixelWidth) {
-        canvas.width = pixelWidth;
+      resizeCanvas(overlayCanvas, scene.width, scene.height, ratio);
+      const context = overlayCanvas.getContext("2d");
+      if (!context) {
+        return;
       }
-      if (canvas.height !== pixelHeight) {
-        canvas.height = pixelHeight;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, scene.width, scene.height);
+      drawTransientOverlay(context, scene, crosshairRef.current);
+    };
+
+    const scheduleOverlayDraw = () => {
+      if (overlayAnimationFrame !== null) {
+        return;
       }
-      const context = canvas.getContext("2d");
+      overlayAnimationFrame = window.requestAnimationFrame(() => {
+        overlayAnimationFrame = null;
+        drawOverlay();
+      });
+    };
+
+    const drawBase = () => {
+      const rect = stack.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      resizeCanvas(baseCanvas, rect.width, rect.height, ratio);
+      const context = baseCanvas.getContext("2d");
       if (!context) {
         return;
       }
@@ -167,61 +194,122 @@ export function ChartCanvas({
         selectedNodeId: input.selectedNodeId,
         emphasizeSelectedNode: input.emphasizeSelectedNode
       });
+      sceneRef.current = scene;
       input.onScene?.(scene);
-      drawChart(context, scene, input.crosshair, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId, input.spotlightDrawingIds, input.spotlightCandleTimestamp);
+      drawBaseChart(context, scene, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId, input.spotlightDrawingIds, input.spotlightCandleTimestamp);
+      scheduleOverlayDraw();
     };
 
-    const scheduleDraw = () => {
-      if (animationFrame !== null) {
+    const scheduleBaseDraw = () => {
+      if (baseAnimationFrame !== null) {
         return;
       }
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = null;
-        draw();
+      baseAnimationFrame = window.requestAnimationFrame(() => {
+        baseAnimationFrame = null;
+        drawBase();
       });
     };
 
-    const observer = new ResizeObserver(scheduleDraw);
-    scheduleDrawRef.current = scheduleDraw;
-    observer.observe(canvas);
-    window.addEventListener("resize", scheduleDraw);
-    scheduleDraw();
+    const observer = new ResizeObserver(scheduleBaseDraw);
+    scheduleBaseDrawRef.current = scheduleBaseDraw;
+    scheduleOverlayDrawRef.current = scheduleOverlayDraw;
+    observer.observe(stack);
+    window.addEventListener("resize", scheduleBaseDraw);
+    scheduleBaseDraw();
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", scheduleDraw);
-      scheduleDrawRef.current = () => undefined;
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", scheduleBaseDraw);
+      scheduleBaseDrawRef.current = () => undefined;
+      scheduleOverlayDrawRef.current = () => undefined;
+      if (baseAnimationFrame !== null) {
+        window.cancelAnimationFrame(baseAnimationFrame);
+      }
+      if (overlayAnimationFrame !== null) {
+        window.cancelAnimationFrame(overlayAnimationFrame);
       }
     };
   }, []);
 
   useEffect(() => {
-    scheduleDrawRef.current();
-  }, [agentVisualOverlays, chart, crosshair, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
+    scheduleBaseDrawRef.current();
+  }, [agentVisualOverlays, chart, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
+
+  const rememberPointer: PointerEventHandler<HTMLCanvasElement> = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    crosshairRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    scheduleOverlayDrawRef.current();
+  };
+
+  const handlePointerMove: PointerEventHandler<HTMLCanvasElement> = (event) => {
+    rememberPointer(event);
+    onPointerMove?.(event);
+  };
+
+  const handlePointerDown: PointerEventHandler<HTMLCanvasElement> = (event) => {
+    rememberPointer(event);
+    onPointerDown?.(event);
+  };
+
+  const clearPointer = () => {
+    crosshairRef.current = undefined;
+    scheduleOverlayDrawRef.current();
+  };
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="chart-canvas"
-      tabIndex={0}
-      aria-label={`GOPS ${chart.chartType} chart`}
-      data-order-flow-minute-count={chart.orderFlow?.minutes.size}
-      onWheel={onWheel}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerLeave={onPointerLeave}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      onLostPointerCapture={onLostPointerCapture}
-    />
+    <div ref={stackRef} className="chart-canvas-stack">
+      <canvas ref={baseCanvasRef} className="chart-canvas-layer chart-canvas-base" aria-hidden="true" />
+      <canvas
+        ref={overlayCanvasRef}
+        className="chart-canvas chart-canvas-layer chart-canvas-overlay"
+        tabIndex={0}
+        aria-label={`GOPS ${chart.chartType} chart`}
+        data-order-flow-minute-count={chart.orderFlow?.minutes.size}
+        onWheel={onWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={(event) => {
+          clearPointer();
+          onPointerLeave?.(event);
+        }}
+        onPointerUp={onPointerUp}
+        onPointerCancel={(event) => {
+          clearPointer();
+          onPointerCancel?.(event);
+        }}
+        onLostPointerCapture={(event) => {
+          clearPointer();
+          onLostPointerCapture?.(event);
+        }}
+      />
+    </div>
   );
 }
 
-function drawChart(
+function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, ratio: number): void {
+  const pixelWidth = Math.max(1, Math.floor(width * ratio));
+  const pixelHeight = Math.max(1, Math.floor(height * ratio));
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+}
+
+type DrawingRenderBatch = {
+  drawings: DrawingEntity[];
+  renderItems: DrawingRenderItem[];
+  fullDrawingIds: ReadonlySet<string>;
+};
+
+function drawingRenderBatch(scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean): DrawingRenderBatch {
+  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
+  return {
+    drawings,
+    renderItems,
+    fullDrawingIds: new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id))
+  };
+}
+
+function drawBaseChart(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
-  crosshair?: { x: number; y: number },
   previewDrawings: DrawingEntity[] = [],
   agentVisualOverlays: AgentVisualOverlay[] = [],
   editingDrawingId?: string,
@@ -241,13 +329,15 @@ function drawChart(
 
   const standardLayersVisible = scene.chart.chartType !== "bidask";
   const spotlight = spotlightDrawingIds.length ? new Set(spotlightDrawingIds) : null;
+  const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false);
+  const previewDrawingBatch = drawingRenderBatch(scene, previewDrawings, true);
   const layers: Array<() => void> = [
-    () => drawExpansionRanges(context, scene, Boolean(crosshair)),
+    () => drawExpansionRanges(context, scene),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
-    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, scene.chart.drawings, false, spotlight)),
-    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawings, true)),
+    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, drawingBatch, false, spotlight)),
+    () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawingBatch, true)),
     () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
     () => spotlightCandleTimestamp && drawSpotlightCandle(context, scene, spotlightCandleTimestamp),
     () => standardLayersVisible && hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
@@ -267,15 +357,28 @@ function drawChart(
     () => drawAxes(context, scene),
     () => drawPriceAxis(context, scene),
     () => drawOpenedDigMarkers(context, scene),
-    () => drawDrawings(context, scene, scene.chart.drawings, false, editingDrawingId, spotlight),
-    () => drawDrawings(context, scene, previewDrawings, true),
+    () => drawDrawings(context, scene, drawingBatch, false, editingDrawingId, spotlight),
+    () => drawDrawings(context, scene, previewDrawingBatch, true),
     () => drawDrawingLabelsOnAxes(context, scene, spotlight),
-    () => drawCurrentPriceMarker(context, scene),
-    () => drawCrosshair(context, scene, crosshair),
-    () => drawLineHoverDot(context, scene, crosshair),
-    () => drawTimeAxisDigHover(context, scene, crosshair)
+    () => drawCurrentPriceMarker(context, scene)
   ];
   layers.forEach((drawLayer) => drawLayer());
+}
+
+function drawTransientOverlay(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  crosshair?: { x: number; y: number }
+): void {
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = "source-over";
+  context.setLineDash([]);
+  context.clearRect(0, 0, scene.width, scene.height);
+  if (!crosshair) return;
+  drawExpansionHoverShadows(context, scene);
+  drawCrosshair(context, scene, crosshair);
+  drawLineHoverDot(context, scene, crosshair);
+  drawTimeAxisDigHover(context, scene, crosshair);
 }
 
 function basePriceLayerVisible(scene: ChartScene): boolean {
@@ -1414,12 +1517,10 @@ function drawMacdHistogram(
   });
 }
 
-function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean, spotlight: ReadonlySet<string> | null = null) {
+function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, batch: DrawingRenderBatch, previewLayer: boolean, spotlight: ReadonlySet<string> | null = null) {
   const transform = createCoordinateTransform(scene);
-  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
-  const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
-  drawings
-    .filter((drawing) => drawing.visible !== false && fullDrawingIds.has(drawing.id))
+  batch.drawings
+    .filter((drawing) => drawing.visible !== false && batch.fullDrawingIds.has(drawing.id))
     .forEach((drawing) => {
       const points = drawing.anchors
         .map((anchor) => transform.anchorToPoint(anchor))
@@ -1513,7 +1614,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
       context.restore();
     });
 
-  renderItems.forEach((item) => {
+  batch.renderItems.forEach((item) => {
     const style = item.drawing.style ?? {};
     if (item.kind === "timeWarpedParallelLines") {
       context.save();
@@ -1552,15 +1653,13 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
 function drawDrawings(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
-  drawings: DrawingEntity[],
+  batch: DrawingRenderBatch,
   previewLayer: boolean,
   editingDrawingId?: string,
   spotlight: ReadonlySet<string> | null = null
 ) {
   const transform = createCoordinateTransform(scene);
-  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
-  const fullDrawingIds = new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id));
-  drawings.filter((drawing) => drawing.visible !== false && fullDrawingIds.has(drawing.id)).forEach((drawing) => {
+  batch.drawings.filter((drawing) => drawing.visible !== false && batch.fullDrawingIds.has(drawing.id)).forEach((drawing) => {
     const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
     const preview = previewLayer || drawing.id === "drawing-draft-preview";
     const style = drawing.style ?? {};
@@ -1642,7 +1741,7 @@ function drawDrawings(
     context.restore();
   });
 
-  renderItems.forEach((item) => {
+  batch.renderItems.forEach((item) => {
     if (item.kind === "timeWarpedLine") {
       drawTimeWarpedLine(context, scene, item, previewLayer);
     } else if (item.kind === "timeWarpedParallelLines") {
@@ -2863,7 +2962,7 @@ function horizontalGuideRight(scene: ChartScene): number {
   return scene.plot.right;
 }
 
-function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScene, active: boolean) {
+function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScene) {
   scene.semantic.expansionRanges.forEach((range) => {
     const left = Math.max(scene.plot.left, range.left);
     const right = Math.min(scene.plot.right, range.right);
@@ -2880,15 +2979,6 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
     context.globalAlpha = depthAlpha;
     context.fillRect(left, 0, width, scene.height);
 
-    if (active) {
-      if (range.left >= scene.plot.left) {
-        drawExpansionSideShadow(context, left, scene.height, "left", width);
-      }
-
-      if (range.right <= scene.plot.right) {
-        drawExpansionSideShadow(context, right, scene.height, "right", width);
-      }
-    }
     context.restore();
   });
   scene.semantic.units.forEach((unit) => {
@@ -2898,6 +2988,26 @@ function drawExpansionRanges(context: CanvasRenderingContext2D, scene: ChartScen
     if (unit.kind === "placeholder") {
       drawSemanticPlaceholder(context, scene, unit);
     }
+  });
+}
+
+function drawExpansionHoverShadows(context: CanvasRenderingContext2D, scene: ChartScene): void {
+  scene.semantic.expansionRanges.forEach((range) => {
+    const left = Math.max(scene.plot.left, range.left);
+    const right = Math.min(scene.plot.right, range.right);
+    const width = right - left;
+    if (width <= 4) return;
+    context.save();
+    context.beginPath();
+    context.rect(left, 0, width, scene.height);
+    context.clip();
+    if (range.left >= scene.plot.left) {
+      drawExpansionSideShadow(context, left, scene.height, "left", width);
+    }
+    if (range.right <= scene.plot.right) {
+      drawExpansionSideShadow(context, right, scene.height, "right", width);
+    }
+    context.restore();
   });
 }
 

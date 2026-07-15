@@ -7,6 +7,12 @@ import {
   type ChartTradeSetupSnapshot
 } from "../src/chart/chartTradeAutomation";
 import type { ChartTradeSetup } from "../src/chart/chartTradeSetup";
+import {
+  clearChartTradeSetupSnapshot,
+  getChartTradeSetupSnapshot,
+  setChartTradeSetupSnapshot,
+  subscribeChartTradeSetup
+} from "../src/chart/chartTradeSetupStore";
 
 [
   "이 가격에 예약매매랑 알림 걸어줘",
@@ -92,3 +98,43 @@ assert.equal(sellDraft?.action, "sell_candidate");
 assert.equal(sellDraft?.reservationPrice, setup.entryPrice);
 assert.equal(sellDraft?.targetPrice, 420);
 assert.equal(sellDraft?.stopPrice, 480);
+
+let documentOneNotifications = 0;
+let documentTwoNotifications = 0;
+const unsubscribeDocumentOne = subscribeChartTradeSetup("chart-document-1", () => {
+  documentOneNotifications += 1;
+});
+const unsubscribeDocumentTwo = subscribeChartTradeSetup("chart-document-2", () => {
+  documentTwoNotifications += 1;
+});
+assert.equal(setChartTradeSetupSnapshot("chart-document-1", snapshot), true);
+assert.equal(documentOneNotifications, 1);
+assert.equal(setChartTradeSetupSnapshot("chart-document-1", {
+  ...snapshot,
+  setup: {
+    ...snapshot.setup,
+    reasons: [...snapshot.setup.reasons],
+    drawingIds: { ...snapshot.setup.drawingIds },
+    priceSources: { ...snapshot.setup.priceSources }
+  },
+  assetIdentity: { ...snapshot.assetIdentity }
+}), false);
+assert.equal(documentOneNotifications, 1);
+assert.equal(setChartTradeSetupSnapshot("chart-document-1", {
+  ...snapshot,
+  setup: { ...snapshot.setup, entryPrice: snapshot.setup.entryPrice + 1 }
+}), true);
+assert.equal(documentOneNotifications, 2);
+assert.equal(setChartTradeSetupSnapshot("chart-document-1", {
+  ...snapshot,
+  assetIdentity: { ...snapshot.assetIdentity, inputDigest: "digest-2" }
+}), true);
+assert.equal(documentOneNotifications, 3);
+assert.equal(documentTwoNotifications, 0);
+assert.equal(getChartTradeSetupSnapshot("chart-document-2"), null);
+assert.equal(clearChartTradeSetupSnapshot("chart-document-1"), true);
+assert.equal(documentOneNotifications, 4);
+assert.equal(clearChartTradeSetupSnapshot("chart-document-1"), false);
+assert.equal(documentOneNotifications, 4);
+unsubscribeDocumentOne();
+unsubscribeDocumentTwo();

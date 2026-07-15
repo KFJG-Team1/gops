@@ -30,7 +30,7 @@ import {
   rememberChartCommentaryState
 } from "../agent/chartCommentaryHistory";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
-import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
+import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
@@ -128,7 +128,6 @@ type PanelWorkspaceProps = {
   onSelectWildPanel: (slotId: string | null) => void;
   chartPriceSelection: ChartPriceSelection | null;
   onChartPriceSelection: (selection: ChartPriceSelection) => void;
-  onChartTradeSetupChange: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
   onActiveChartChange: (contentId: string) => void;
   presetDock?: ReactNode;
   placementPickerOverlay?: ReactNode;
@@ -217,7 +216,6 @@ export function PanelWorkspace({
   onSelectWildPanel,
   chartPriceSelection,
   onChartPriceSelection,
-  onChartTradeSetupChange,
   onActiveChartChange,
   presetDock,
   placementPickerOverlay
@@ -987,7 +985,6 @@ export function PanelWorkspace({
         chartSelectionActive={chartLinkCommentaryContentId === content.id}
         orderPriceSelection={selectedOrderContentId === content.id ? chartPriceSelection : null}
         onChartPriceSelection={onChartPriceSelection}
-        onChartTradeSetupChange={onChartTradeSetupChange}
         onChartSelectionToggle={(contentId) => setChartLinkCommentaryContentId((current) => current === contentId ? null : contentId)}
         onCommentaryChartChange={(contentId, chartDocumentId) => {
           rebindCommentaryChart(contentId, chartDocumentId);

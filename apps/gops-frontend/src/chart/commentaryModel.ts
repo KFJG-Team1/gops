@@ -47,7 +47,7 @@ export function buildChartCommentaryModel(
       {
         id: "stop",
         title: isBuy ? "손절" : "매도 무효화",
-        body: `${isBuy ? "손절가" : "매도 무효화가"} ${formatPrice(setup.stopPrice)}는 기준가 대비 ${formatSignedPercent(setup.stopPrice, setup.entryPrice)}이며 시나리오 무효화 조건입니다.`,
+        body: `${isBuy ? "손절가" : "매도 무효화가"} ${formatPrice(setup.stopPrice)}는 기준가 대비 ${formatSignedPercent(setup.stopPrice, setup.entryPrice)}입니다. 이 기준을 벗어나면 ${isBuy ? "매수" : "매도"} 관점을 다시 검토합니다.`,
         drawingIds: [setup.drawingIds.plan],
         focusPrice: setup.stopPrice
       },

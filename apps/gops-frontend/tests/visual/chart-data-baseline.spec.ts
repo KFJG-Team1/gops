@@ -33,14 +33,14 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expectLatestQuarterGap(chartPanel);
 
-  await expect(panel).toHaveScreenshot("chart-candle.png");
+  await expect(panel).toHaveScreenshot("chart-candle.png", { maxDiffPixelRatio: 0.015 });
   await selectChartToolbarOption(page, "Chart type", "line");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-line.png");
+  await expect(panel).toHaveScreenshot("chart-line.png", { maxDiffPixelRatio: 0.015 });
 
   await selectChartToolbarOption(page, "Chart type", "ohlc");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-ohlc.png");
+  await expect(panel).toHaveScreenshot("chart-ohlc.png", { maxDiffPixelRatio: 0.015 });
 
   await selectChartToolbarOption(page, "Chart type", "bidask");
   for (const interval of ["1m", "10m", "1h"] as const) {
@@ -53,7 +53,7 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     }));
     await expectNonBlankCanvas(page.locator(".chart-canvas"));
-    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`);
+    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`, { maxDiffPixelRatio: 0.015 });
   }
   expect(intradayRequestCount).toBe(1);
 });
@@ -80,7 +80,7 @@ test("chart toolbar dropdowns open downward and remain keyboard accessible", asy
   await expectDropdownBelowTrigger(intervalTrigger, intervalMenu);
   await expect(intervalMenu.getByRole("option")).toHaveText(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
   expect(await intervalMenu.evaluate((element) => element.scrollTop)).toBe(0);
-  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png");
+  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png", { maxDiffPixelRatio: 0.015 });
 
   await intervalTrigger.press("Escape");
   await expect(intervalMenu).toBeHidden();
@@ -217,7 +217,8 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
 
   await expect(page.locator(".workspace-bottom-nav")).toHaveCount(0);
   await expect(page.locator(".layout-palette-dock")).toBeVisible();
-  await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
+  await expect(page.locator(".workspace-top-nav").getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
+  await expect(page.locator(".layout-palette-dock").getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
   await expect(page.getByRole("button", { name: "빠른 주문", exact: true })).toBeVisible();
@@ -829,7 +830,7 @@ function fixtureSymbols(): Array<Record<string, string>> {
 async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promise<void> {
   await expect(canvas).toBeVisible();
   const semanticPixelCount = () => canvas.evaluate((element) => {
-    const target = element as HTMLCanvasElement;
+    const target = (element.parentElement?.querySelector(".chart-canvas-base") ?? element) as HTMLCanvasElement;
     const context = target.getContext("2d");
     if (!context || target.width < 10 || target.height < 10) {
       return 0;

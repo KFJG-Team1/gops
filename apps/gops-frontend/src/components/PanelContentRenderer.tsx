@@ -1,11 +1,11 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import { rememberChartCommentaryState } from "../agent/chartCommentaryHistory";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
-import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
+import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import {
   bidAskChartIntervals,
@@ -127,7 +127,6 @@ type PanelContentRendererProps = {
   chartSelectionActive: boolean;
   orderPriceSelection: ChartPriceSelection | null;
   onChartPriceSelection: (selection: ChartPriceSelection) => void;
-  onChartTradeSetupChange: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
   onChartSelectionToggle: (contentId: string) => void;
   onCommentaryChartChange: (contentId: string, chartDocumentId: string) => void;
 };
@@ -177,7 +176,6 @@ export function PanelContentRenderer({
   chartSelectionActive,
   orderPriceSelection,
   onChartPriceSelection,
-  onChartTradeSetupChange,
   onChartSelectionToggle,
   onCommentaryChartChange
 }: PanelContentRendererProps) {
@@ -196,6 +194,11 @@ export function PanelContentRenderer({
       setActiveTab(content.props?.view === "company" ? "company" : "chart");
     }
   }, [content.kind, content.props?.view]);
+
+  const activeChartDrawingIds = useMemo(
+    () => (activeChartDocument?.drawings ?? []).map((drawing) => drawing.id),
+    [activeChartDocument?.drawings]
+  );
 
   if (content.kind === "company") {
     return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
@@ -537,7 +540,7 @@ export function PanelContentRenderer({
           symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
           interval={normalizeChartInterval(activeChartDocument?.timeframe)}
           candles={activeChartCandles}
-          drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+          drawingIds={activeChartDrawingIds}
           commentaryState={content.props?.commentaryState}
           onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, {
             commentaryState: state,
@@ -565,7 +568,7 @@ export function PanelContentRenderer({
           currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
           currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
           currentCandles={activeChartCandles}
-          currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+          currentDrawingIds={activeChartDrawingIds}
         />
       </Suspense>
     );
@@ -694,7 +697,6 @@ export function PanelContentRenderer({
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
           onPriceSelection={onChartPriceSelection}
-          onTradeSetupChange={onChartTradeSetupChange}
           toolbarLeading={chartNavigationLeading}
           toolbarAfterViewControls={companyToggleButton}
         />

@@ -1816,6 +1816,24 @@ h2 {
   touch-action: none;
 }
 
+.chart-canvas-stack,
+.chart-canvas-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.chart-canvas-base {
+  pointer-events: none;
+}
+
+.chart-canvas-overlay {
+  background: transparent;
+}
+
 .chart-comparison-legend {
   position: absolute;
   top: 48px;
@@ -5545,7 +5563,7 @@ h2 {
 }
 
 .stock-recommendations-panel .stock-rec-toolbar {
-  justify-content: flex-end;
+  justify-content: space-between;
 }
 
 .stock-recommendations-panel .stock-rec-toolbar span {
@@ -5582,7 +5600,16 @@ h2 {
   border-radius: calc(var(--app-glass-radius) - 2px);
 }
 
+.stock-recommendations-panel .stock-rec-settings-button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+}
+
 .workspace-panel-body .stock-recommendations-panel .panel-reload-overlay,
+.workspace-panel-body .stock-recommendations-panel .stock-rec-settings-button,
 .stock-recommendations-panel .stock-rec-session-toggle {
   opacity: 0;
   pointer-events: none;
@@ -5591,10 +5618,263 @@ h2 {
 
 .workspace-panel-body .stock-recommendations-panel:hover .panel-reload-overlay,
 .workspace-panel-body .stock-recommendations-panel:focus-within .panel-reload-overlay,
+.workspace-panel-body .stock-recommendations-panel:hover .stock-rec-settings-button,
+.workspace-panel-body .stock-recommendations-panel:focus-within .stock-rec-settings-button,
 .stock-recommendations-panel:hover .stock-rec-session-toggle,
 .stock-recommendations-panel:focus-within .stock-rec-session-toggle {
   opacity: 1;
   pointer-events: auto;
+}
+
+.stock-rec-settings-button:focus-visible,
+.recommendation-settings-close:focus-visible,
+.investment-profile-form :is(button, input, select):focus-visible {
+  outline: 2px solid var(--coinbase-primary);
+  outline-offset: 2px;
+}
+
+.recommendation-settings-backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgb(4 8 14 / 0.58);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.recommendation-settings-dialog {
+  display: grid;
+  gap: 18px;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--coinbase-panel-strong);
+  color: var(--coinbase-ink);
+  box-shadow: var(--surface-floating-depth-shadow);
+  font-family: var(--font-data-sans);
+}
+
+.recommendation-settings-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.recommendation-settings-dialog > header > div {
+  display: grid;
+  gap: 5px;
+}
+
+.recommendation-settings-dialog > header strong {
+  font: var(--type-title-lg);
+}
+
+.recommendation-settings-dialog > header span {
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.recommendation-settings-close {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 6px;
+  background: var(--coinbase-panel-strong);
+  color: var(--coinbase-ink);
+}
+
+.recommendation-settings-close:hover {
+  border-color: var(--coinbase-primary);
+  color: var(--coinbase-primary);
+}
+
+.investment-profile-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.investment-profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--coinbase-hairline);
+}
+
+.investment-profile-head strong {
+  font: var(--type-title-sm);
+}
+
+.investment-profile-field {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--coinbase-ink);
+}
+
+.investment-profile-field > span {
+  color: var(--color-muted);
+  font: var(--type-label-md);
+}
+
+.investment-profile-field > :is(input, select) {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 6px;
+  padding: 0 11px;
+  background: var(--coinbase-panel-strong);
+  color: var(--coinbase-ink);
+  font: var(--type-body-md);
+}
+
+.investment-profile-field > :is(input, select):disabled,
+.investment-profile-form button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.investment-profile-selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.investment-profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--coinbase-primary) 36%, var(--coinbase-hairline));
+  border-radius: 999px;
+  padding: 0 9px;
+  background: color-mix(in srgb, var(--coinbase-primary) 8%, var(--coinbase-panel-strong));
+  color: var(--coinbase-ink);
+  font: var(--type-caption);
+}
+
+.investment-profile-option-list {
+  display: grid;
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 7px;
+  padding: 5px;
+  background: var(--coinbase-panel-strong);
+  box-shadow: var(--surface-floating-depth-shadow);
+}
+
+.investment-profile-option-list.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.investment-profile-option-list button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--coinbase-ink);
+  text-align: left;
+}
+
+.investment-profile-option-list button:hover {
+  background: color-mix(in srgb, var(--coinbase-primary) 8%, transparent);
+}
+
+.investment-profile-sector-option {
+  padding: 0 9px;
+}
+
+.investment-profile-option-button {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+}
+
+.investment-profile-option-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.investment-profile-option-button em {
+  color: var(--color-muted);
+  font: var(--type-caption);
+  font-style: normal;
+}
+
+.investment-profile-empty,
+.investment-profile-message,
+.investment-profile-error {
+  margin: 0;
+  font: var(--type-caption);
+}
+
+.investment-profile-empty {
+  padding: 10px;
+  color: var(--color-muted);
+}
+
+.investment-profile-message {
+  color: var(--coinbase-primary);
+}
+
+.investment-profile-error {
+  color: var(--color-danger);
+}
+
+.investment-profile-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  border: 1px solid var(--coinbase-primary);
+  border-radius: 6px;
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+  font: var(--type-button);
+}
+
+@media (max-width: 560px) {
+  .recommendation-settings-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .recommendation-settings-dialog {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 12px 12px 0 0;
+    padding: 16px;
+  }
+
+  .investment-profile-option-list.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .investment-profile-option-button {
+    grid-template-columns: 54px minmax(0, 1fr);
+  }
+
+  .investment-profile-option-button em {
+    display: none;
+  }
 }
 
 .stock-recommendations-panel .stock-rec-list {
@@ -11028,10 +11308,15 @@ textarea:focus,
 }
 
 .chart-canvas,
+.chart-canvas-base,
 .ontology-panel,
 .ontology-graph,
 .ontology-graph-svg {
   background: var(--coinbase-panel-glass);
+}
+
+.chart-canvas-overlay {
+  background: transparent;
 }
 
 .treemap-canvas {

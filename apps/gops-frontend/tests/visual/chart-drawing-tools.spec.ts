@@ -805,7 +805,7 @@ function fixtureCandles(interval: string): Array<Record<string, number | string 
 async function expectNonBlankCanvas(canvas: Locator): Promise<void> {
   await expect(canvas).toBeVisible();
   await expect.poll(async () => canvas.evaluate((element) => {
-    const target = element as HTMLCanvasElement;
+    const target = (element.parentElement?.querySelector(".chart-canvas-base") ?? element) as HTMLCanvasElement;
     const context = target.getContext("2d");
     if (!context || target.width < 10 || target.height < 10) {
       return 0;
@@ -845,7 +845,7 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
       endAngle: number,
       counterclockwise?: boolean
     ): void {
-      if (this.canvas.classList.contains("chart-canvas")) {
+      if (this.canvas.classList.contains("chart-canvas-layer")) {
         trackedWindow.__gopsDrawingArcCalls?.push({ x, y, radius });
       }
       originalArc.call(this, x, y, radius, startAngle, endAngle, counterclockwise);
@@ -857,7 +857,7 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
       width: number,
       height: number
     ): void {
-      if (this.canvas.classList.contains("chart-canvas")) {
+      if (this.canvas.classList.contains("chart-canvas-layer")) {
         trackedWindow.__gopsDrawingStrokeRectCalls?.push({ x, y, width, height });
       }
       originalStrokeRect.call(this, x, y, width, height);
@@ -869,7 +869,7 @@ async function installCanvasArcTracker(page: Page): Promise<void> {
       y: number,
       maxWidth?: number
     ): void {
-      if (this.canvas.classList.contains("chart-canvas")) {
+      if (this.canvas.classList.contains("chart-canvas-layer")) {
         trackedWindow.__gopsDrawingTextCalls?.push({ text, x, y, textAlign: this.textAlign });
       }
       if (maxWidth === undefined) {
