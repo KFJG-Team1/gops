@@ -1,5 +1,8 @@
 import type { ChartTradeSetup } from "./chartTradeSetup";
 import type { ChartInterval } from "./types";
+import type { CreatePriceConditionInput } from "../priceCondition/priceConditionApi";
+
+export const DEFAULT_PAPER_TRADE_QUANTITY = 20;
 
 export type ChartPriceSelection = {
   version: "chart-price-selection-v1";
@@ -37,6 +40,7 @@ export type TradeAutomationConfirmationDraft = {
   interval: ChartInterval;
   action: "buy_candidate" | "sell_candidate";
   reservationPrice: number;
+  quantity: number;
   targetPrice: number;
   stopPrice: number;
   assetIdentity: ChartTradeSetupAssetIdentity;
@@ -84,11 +88,30 @@ export function createTradeAutomationConfirmationDraft(
     interval: snapshot.interval,
     action: setup.action,
     reservationPrice,
+    quantity: DEFAULT_PAPER_TRADE_QUANTITY,
     targetPrice: setup.targetPrice,
     stopPrice: setup.stopPrice,
     assetIdentity: { ...snapshot.assetIdentity },
     requestedAt,
     status: "pending"
+  };
+}
+
+export function priceConditionInputFromTradeAutomationDraft(
+  draft: TradeAutomationConfirmationDraft,
+  quantity = draft.quantity
+): CreatePriceConditionInput {
+  return {
+    symbol: draft.symbol,
+    side: draft.action === "buy_candidate" ? "buy" : "sell",
+    direction: draft.action === "buy_candidate" ? "atOrBelow" : "atOrAbove",
+    triggerPrice: draft.reservationPrice,
+    limitPrice: draft.reservationPrice,
+    quantity,
+    exchange: "NASD",
+    executionEnabled: true,
+    alertsEnabled: true,
+    validity: "GTC"
   };
 }
 

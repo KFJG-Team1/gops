@@ -7,6 +7,8 @@ let densePatternCoverage = false;
 let includeTradePlan = true;
 let includeConditionalEvidence = true;
 let delayAgentAnswer = false;
+let watchlistSymbols: string[] = [];
+let watchlistWrites: string[][] = [];
 
 test.beforeEach(async ({ page }, testInfo) => {
   postedSymbols = null;
@@ -14,6 +16,8 @@ test.beforeEach(async ({ page }, testInfo) => {
   includeTradePlan = true;
   includeConditionalEvidence = true;
   delayAgentAnswer = false;
+  watchlistSymbols = [];
+  watchlistWrites = [];
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
@@ -165,7 +169,7 @@ test("price axis selection creates a 20-share paper trade condition after confir
   const cancel = dialog.getByRole("button", { name: "취소" });
   const confirm = dialog.getByRole("button", { name: "확인" });
   await expect(cancel).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
   await expect(confirm).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -174,7 +178,7 @@ test("price axis selection creates a 20-share paper trade condition after confir
   await command.fill("이 때 사자");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "확인" }).click();
-  await expect(page.locator(".agent-header-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
+  await expect(page.locator(".workspace-agent-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
   expect(executionRequests).toEqual(["/api/trade-conditions"]);
 });
 
@@ -194,6 +198,22 @@ test("price axis targets the last interacted panel when multiple order panels ex
   await expect(orderPanels.nth(1).getByLabel("빠른 주문 가격 직접 입력")).not.toHaveValue("");
   await expect(orderPanels.nth(0).getByLabel("주문 수량 직접 입력")).toHaveValue("1");
   await expect(orderPanels.nth(1).getByLabel("주문 수량 직접 입력")).toHaveValue("7");
+});
+
+test("agent prompt adds the current chart symbol to the watchlist idempotently", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const command = page.getByLabel("Agent command");
+
+  await command.fill("이 종목을 관심종목에 추가해줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+  await expect(page.locator(".workspace-agent-notice")).toContainText("관심종목에 NVDA를 추가했습니다");
+  await expect.poll(() => watchlistSymbols).toEqual(["NVDA"]);
+  expect(watchlistWrites).toEqual([["NVDA"]]);
+
+  await command.fill("이 종목을 관심종목에 추가해줘");
+  await page.getByRole("button", { name: "Agent에게 전송" }).click();
+  await expect(page.locator(".workspace-agent-notice")).toContainText("관심종목에 NVDA를 추가했습니다");
+  expect(watchlistWrites).toEqual([["NVDA"]]);
 });
 
 test("asset ops wording and comma-separated input remain readable", async ({ page }) => {
@@ -254,6 +274,24 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/order-flow/symbols") payload = { symbols: ["NVDA"], priceBinSize: .01 };
   else if (url.pathname === "/api/charts/order-flow/intraday") payload = { symbol: "NVDA", sessionDate: "2026-07-14", dataStatus: "ready", supportedSymbols: ["NVDA"], priceBinSize: .01, minutes: [] };
   else if (url.pathname === "/api/orders/balance") payload = { currency: "USD", orderable_cash: "10000.00" };
+  else if (url.pathname === "/api/charts/watchlist" && request.method() === "GET") {
+    payload = {
+      source: "fixture",
+      feed: "sip",
+      persisted: true,
+      symbols: watchlistSymbols.map((symbol) => ({ symbol, name: symbol }))
+    };
+  }
+  else if (url.pathname === "/api/charts/watchlist" && request.method() === "PUT") {
+    watchlistSymbols = request.postDataJSON().symbols;
+    watchlistWrites.push([...watchlistSymbols]);
+    payload = {
+      source: "fixture",
+      feed: "sip",
+      persisted: true,
+      symbols: watchlistSymbols.map((symbol) => ({ symbol, name: symbol }))
+    };
+  }
   else if (url.pathname === "/api/trade-conditions" && request.method() === "POST") {
     const body = request.postDataJSON();
     payload = {
@@ -286,7 +324,6 @@ async function fulfillApi(route: Route): Promise<void> {
     payload = { detail: "fixture queue disabled" };
   } else if (url.pathname === "/api/charts/indicators") payload = { symbol: "NVDA", interval: "1D", series: {} };
   else if (url.pathname === "/api/charts/volume-profile-bins") payload = { bins: [] };
-  else if (url.pathname === "/api/watchlist") payload = { symbols: [] };
   else if (url.pathname === "/api/market/heatmap") payload = { items: [] };
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
 }

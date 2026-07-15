@@ -5,7 +5,7 @@ import type { TradeAutomationConfirmationDraft } from "../chart/chartTradeAutoma
 type TradeAutomationConfirmationDialogProps = {
   draft: TradeAutomationConfirmationDraft;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (quantity: number) => boolean | Promise<boolean>;
 };
 
 export function TradeAutomationConfirmationDialog({
@@ -16,6 +16,8 @@ export function TradeAutomationConfirmationDialog({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [quantity, setQuantity] = useState(String(draft.quantity));
+  const [validationError, setValidationError] = useState<string | null>(null);
   const isStale = draft.status === "stale";
   const isBuy = draft.action === "buy_candidate";
 
@@ -55,12 +57,21 @@ export function TradeAutomationConfirmationDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onCancel]);
 
-  const confirm = () => {
+  const confirm = async () => {
     if (confirming || isStale) {
       return;
     }
+    const parsedQuantity = Number(quantity);
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0 || parsedQuantity > 1_000_000) {
+      setValidationError("수량은 1주 이상 정수로 입력해 주세요.");
+      return;
+    }
+    setValidationError(null);
     setConfirming(true);
-    onConfirm();
+    const completed = await onConfirm(parsedQuantity);
+    if (!completed) {
+      setConfirming(false);
+    }
   };
 
   const dialog = (
@@ -75,23 +86,40 @@ export function TradeAutomationConfirmationDialog({
         aria-labelledby="trade-automation-dialog-title"
         aria-describedby="trade-automation-dialog-description"
         tabIndex={-1}
-        data-preview-mode="frontend_preview_only"
+        data-execution-mode="paper"
       >
         <header>
           <span>{draft.symbol} · {draft.interval}</span>
           <strong id="trade-automation-dialog-title">{isBuy ? "매수 후보" : "매도 후보"} 확인</strong>
         </header>
-        <p id="trade-automation-dialog-description">예약매매 및 목표·손절 근처 알림을 준비합니다.</p>
+        <p id="trade-automation-dialog-description">선택한 가격에 가상계좌 예약매매와 가격 알림을 등록합니다.</p>
         <dl>
           <div><dt>예약 기준 가격</dt><dd>{formatPrice(draft.reservationPrice)}</dd></div>
-          <div><dt>{isBuy ? "목표가" : "하락 목표가"}</dt><dd>{formatPrice(draft.targetPrice)}</dd></div>
-          <div><dt>{isBuy ? "손절가" : "매도 무효화가"}</dt><dd>{formatPrice(draft.stopPrice)}</dd></div>
+          <div>
+            <dt><label htmlFor="trade-automation-quantity">예약 수량</label></dt>
+            <dd>
+              <input
+                id="trade-automation-quantity"
+                aria-label="예약 수량"
+                type="number"
+                min="1"
+                max="1000000"
+                step="1"
+                value={quantity}
+                disabled={confirming || isStale}
+                onChange={(event) => setQuantity(event.target.value)}
+              />
+            </dd>
+          </div>
+          <div><dt>{isBuy ? "분석 목표가 (참고)" : "분석 하락 목표가 (참고)"}</dt><dd>{formatPrice(draft.targetPrice)}</dd></div>
+          <div><dt>{isBuy ? "분석 손절가 (참고)" : "분석 매도 무효화가 (참고)"}</dt><dd>{formatPrice(draft.stopPrice)}</dd></div>
         </dl>
         {isStale && <p className="trade-automation-dialog-stale" role="alert">분석 기준이 변경되어 확인할 수 없습니다. 현재 차트의 트레이드 플랜을 다시 확인해 주세요.</p>}
-        <p className="trade-automation-dialog-preview-note">개발 단계 미리보기입니다. 실제 주문·예약매매·알림은 생성되지 않습니다. · frontend_preview_only</p>
+        {validationError && <p className="trade-automation-dialog-stale" role="alert">{validationError}</p>}
+        <p className="trade-automation-dialog-execution-note">확인하면 가상계좌 예약매매와 가격 알림이 실제로 등록됩니다. 실계좌 주문은 발생하지 않습니다.</p>
         <footer>
           <button ref={cancelButtonRef} type="button" onClick={onCancel}>취소</button>
-          <button type="button" className="is-primary" disabled={confirming || isStale} onClick={confirm}>
+          <button type="button" className="is-primary" disabled={confirming || isStale} onClick={() => void confirm()}>
             {confirming ? "확인 중" : "확인"}
           </button>
         </footer>

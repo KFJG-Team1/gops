@@ -22068,7 +22068,7 @@ textarea:focus,
 }
 
 .trade-automation-dialog > header span,
-.trade-automation-dialog-preview-note {
+.trade-automation-dialog-execution-note {
   color: var(--color-muted);
   font: var(--type-caption);
 }
@@ -22105,6 +22105,23 @@ textarea:focus,
   color: var(--color-signal);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+}
+
+.trade-automation-dialog dd input {
+  width: 104px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: right;
+}
+
+.trade-automation-dialog dd input:focus-visible {
+  border-color: var(--color-signal);
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 28%, transparent);
+  outline-offset: 1px;
 }
 
 .trade-automation-dialog-stale {

@@ -38,6 +38,7 @@ import {
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { agentReportCompletionMessage, type AgentHeaderNotice, type AgentHeaderNoticeTone } from "./agent/agentHeaderNotice";
+import { resolveWatchlistAgentCommand } from "./agent/watchlistAgentCommand";
 import {
   attachChartCommentaryReport,
   beginChartCommentaryRequest,
@@ -46,7 +47,7 @@ import {
   type ChartCommentaryRequestSnapshot
 } from "./agent/chartCommentaryHistory";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type FrontendPreviewToast } from "./components/BottomCommandBar";
+import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
@@ -55,11 +56,13 @@ import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
 import {
   createTradeAutomationConfirmationDraft,
   isTradeAutomationConfirmationIntent,
+  priceConditionInputFromTradeAutomationDraft,
   tradeAutomationDraftMatchesSnapshot,
   type ChartPriceSelection,
   type ChartTradeSetupSnapshot,
   type TradeAutomationConfirmationDraft
 } from "./chart/chartTradeAutomation";
+import { addWatchlistSymbol } from "./chart/watchlistApi";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { gridGutter } from "./layout/grid";
 import {
@@ -464,7 +467,6 @@ export function App() {
   const [chartPriceSelection, setChartPriceSelection] = useState<ChartPriceSelection | null>(null);
   const [chartTradeSetupSnapshots, setChartTradeSetupSnapshots] = useState<Record<string, ChartTradeSetupSnapshot>>({});
   const [tradeAutomationDraft, setTradeAutomationDraft] = useState<TradeAutomationConfirmationDraft | null>(null);
-  const [frontendPreviewToast, setFrontendPreviewToast] = useState<FrontendPreviewToast | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
   const lastInteractedChartContentIdRef = useRef<string | null>(null);
@@ -475,8 +477,6 @@ export function App() {
   const lastSavedAgentProposalRef = useRef<string | null>(null);
   const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
   const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
-  const confirmedTradeAutomationDraftRef = useRef<TradeAutomationConfirmationDraft | null>(null);
-  const confirmedTradeAutomationSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
@@ -971,18 +971,6 @@ export function App() {
         setTradeAutomationDraft((current) => current?.status === "pending" ? { ...current, status: "stale" } : current);
       }
     }
-    const confirmedDraft = confirmedTradeAutomationDraftRef.current;
-    if (confirmedDraft?.status === "confirmed") {
-      const snapshot = chartTradeSetupSnapshots[confirmedDraft.chartDocumentId] ?? null;
-      if (!chartRuntime.documents[confirmedDraft.chartDocumentId]
-        || !tradeAutomationDraftMatchesSnapshot(
-          confirmedDraft,
-          snapshot,
-          confirmedTradeAutomationSnapshotRef.current
-        )) {
-        confirmedTradeAutomationDraftRef.current = { ...confirmedDraft, status: "stale" };
-      }
-    }
   }, [chartRuntime.documents, chartTradeSetupSnapshots, tradeAutomationDraft]);
 
   const handleSemanticSelectionChange = useCallback((selection: SemanticSelectionSnapshot | null) => {
@@ -1215,6 +1203,10 @@ export function App() {
       return "ignored";
     }
     setAgentInput("");
+    if (!canUseAgent) {
+      showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
+      return "notice";
+    }
     if (isTradeAutomationConfirmationIntent(prompt)) {
       const resolution = resolveTradeAutomationChart(
         chartPanelHandlesRef.current,
@@ -1247,10 +1239,6 @@ export function App() {
       setTradeAutomationDraft(draft);
       return "ui-action";
     }
-    if (!canUseAgent) {
-      showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
-      return "notice";
-    }
     const recommendationNavigation = resolveRecommendationCompanyNavigation(
       prompt,
       presetControls.activePresetId,
@@ -1271,50 +1259,24 @@ export function App() {
     const analysisIntent = incidentResponsePrompt
       ? incidentResponseAnalysisIntent(prompt, agentContextSymbol)
       : prompt;
-    const alertDraft = alertCommandDraftRef.current;
-    if (alertDraft || isLikelyAlertCommand(prompt)) {
-    setAgentBusy(true);
-    try {
-      const chartDocument = mainView.mode === "chart"
-        ? Object.values(chartRuntime.documents).find((document) => document.symbol === agentContextSymbol)
-        : undefined;
-      const requestId = alertDraft?.requestId ?? createAgentAnalysisRequestId();
-      const command = await submitAlertCommand({
-        text: prompt,
-        contextSymbol: agentContextSymbol,
-        contextInterval: chartDocument?.timeframe,
-        clarificationId: alertDraft?.clarificationId,
-        requestId
-      });
-      if (command.status === "created") {
-        alertCommandDraftRef.current = null;
-        showAgentNotice(`${command.alert.symbol} 알림을 설정했습니다.`);
-        return "ui-action";
-      }
-      if (command.status === "clarify") {
-        alertCommandDraftRef.current = {
-          clarificationId: command.clarificationId,
-          requestId
-        };
-        showAgentNotice(command.clarification, "info");
-        return "notice";
-      }
-      if (command.status === "rejected") {
-        alertCommandDraftRef.current = null;
-        showAgentNotice(command.clarification, "error");
-        return "notice";
-      }
-      alertCommandDraftRef.current = null;
-    } catch (error) {
-      if (alertDraft || isLikelyAlertCommand(prompt)) {
-        showAgentNotice(error instanceof Error ? error.message : "알림 명령을 처리하지 못했습니다.", "error");
-        return "notice";
-      }
-      // An unrelated agent prompt still follows the normal analysis path if
-      // the alert fast-path is temporarily unavailable.
-    } finally {
-      setAgentBusy(false);
+    const watchlistContextSymbol = mainView.mode === "chart" ? mainView.symbol : agentContextSymbol;
+    const watchlistCommand = resolveWatchlistAgentCommand(prompt, watchlistContextSymbol);
+    if (watchlistCommand.status === "clarify") {
+      showAgentNotice("관심종목에 추가할 기업을 먼저 선택해 주세요.", "info");
+      return "notice";
     }
+    if (watchlistCommand.status === "add") {
+      setAgentBusy(true);
+      try {
+        await addWatchlistSymbol(watchlistCommand.symbol);
+        showAgentNotice(`관심종목에 ${watchlistCommand.symbol}를 추가했습니다.`);
+        return "ui-action";
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "관심종목을 추가하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
     }
     const activeTradeProposal = activeTradeConditionProposalRef.current;
     if (activeTradeProposal) {
@@ -1341,6 +1303,47 @@ export function App() {
         }
       } catch (error) {
         showAgentNotice(error instanceof Error ? error.message : "가격 조건 명령을 처리하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
+    }
+    const alertDraft = alertCommandDraftRef.current;
+    if (alertDraft || isLikelyAlertCommand(prompt)) {
+      setAgentBusy(true);
+      try {
+        const chartDocument = mainView.mode === "chart"
+          ? Object.values(chartRuntime.documents).find((document) => document.symbol === agentContextSymbol)
+          : undefined;
+        const requestId = alertDraft?.requestId ?? createAgentAnalysisRequestId();
+        const command = await submitAlertCommand({
+          text: prompt,
+          contextSymbol: agentContextSymbol,
+          contextInterval: chartDocument?.timeframe,
+          clarificationId: alertDraft?.clarificationId,
+          requestId
+        });
+        if (command.status === "created") {
+          alertCommandDraftRef.current = null;
+          showAgentNotice(`${command.alert.symbol} 알림을 설정했습니다.`);
+          return "ui-action";
+        }
+        if (command.status === "clarify") {
+          alertCommandDraftRef.current = {
+            clarificationId: command.clarificationId,
+            requestId
+          };
+          showAgentNotice(command.clarification, "info");
+          return "notice";
+        }
+        if (command.status === "rejected") {
+          alertCommandDraftRef.current = null;
+          showAgentNotice(command.clarification, "error");
+          return "notice";
+        }
+        alertCommandDraftRef.current = null;
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "알림 명령을 처리하지 못했습니다.", "error");
         return "notice";
       } finally {
         setAgentBusy(false);
@@ -1813,9 +1816,9 @@ export function App() {
     setAgentComposerRequest((current) => current + 1);
   }, []);
 
-  const confirmTradeAutomationPreview = useCallback(() => {
+  const confirmTradeAutomation = useCallback(async (quantity: number): Promise<boolean> => {
     if (!tradeAutomationDraft || tradeAutomationDraft.status !== "pending") {
-      return;
+      return false;
     }
     const snapshot = chartTradeSetupSnapshots[tradeAutomationDraft.chartDocumentId] ?? null;
     if (!chartRuntime.documents[tradeAutomationDraft.chartDocumentId]
@@ -1825,23 +1828,31 @@ export function App() {
         tradeAutomationRequestedSnapshotRef.current
       )) {
       setTradeAutomationDraft({ ...tradeAutomationDraft, status: "stale" });
-      return;
+      return false;
     }
-    const confirmedDraft: TradeAutomationConfirmationDraft = {
-      ...tradeAutomationDraft,
-      status: "confirmed"
-    };
-    confirmedTradeAutomationDraftRef.current = confirmedDraft;
-    confirmedTradeAutomationSnapshotRef.current = tradeAutomationRequestedSnapshotRef.current;
-    tradeAutomationRequestedSnapshotRef.current = null;
-    console.info("[frontend_preview_only] trade automation confirmed", confirmedDraft);
-    setFrontendPreviewToast({
-      id: `trade-automation-preview-${confirmedDraft.requestedAt}`,
-      message: `${confirmedDraft.symbol} 예약매매와 목표가·손절가 알림 요청이 반영되었습니다`
-    });
-    setTradeAutomationDraft(null);
-    setAgentComposerRequest((current) => current + 1);
-  }, [chartRuntime.documents, chartTradeSetupSnapshots, tradeAutomationDraft]);
+    setAgentBusy(true);
+    try {
+      const { createPriceCondition } = await import("./priceCondition/priceConditionApi");
+      const confirmedDraft: TradeAutomationConfirmationDraft = {
+        ...tradeAutomationDraft,
+        quantity,
+        status: "confirmed"
+      };
+      const condition = await createPriceCondition(
+        priceConditionInputFromTradeAutomationDraft(confirmedDraft)
+      );
+      tradeAutomationRequestedSnapshotRef.current = null;
+      setTradeAutomationDraft(null);
+      setAgentComposerRequest((current) => current + 1);
+      showAgentNotice(`${condition.symbol} ${condition.quantity}주 예약매매와 가격 알림을 등록했습니다.`);
+      return true;
+    } catch (error) {
+      showAgentNotice(error instanceof Error ? error.message : "예약매매와 가격 알림을 등록하지 못했습니다.", "error");
+      return false;
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [chartRuntime.documents, chartTradeSetupSnapshots, showAgentNotice, tradeAutomationDraft]);
   return (
     <main className="app-shell" style={workspaceStyle}>
       <div className="heatmap-background-layer" aria-hidden="true">
@@ -1942,14 +1953,13 @@ export function App() {
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
         onApplyLayoutProposal={applyAgentLayoutProposal}
-        frontendPreviewToast={frontendPreviewToast}
       />
       {tradeAutomationDraft && (
         <Suspense fallback={null}>
           <TradeAutomationConfirmationDialog
             draft={tradeAutomationDraft}
             onCancel={closeTradeAutomationDialog}
-            onConfirm={confirmTradeAutomationPreview}
+            onConfirm={confirmTradeAutomation}
           />
         </Suspense>
       )}
