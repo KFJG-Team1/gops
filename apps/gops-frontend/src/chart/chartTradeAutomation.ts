@@ -51,17 +51,22 @@ export type TradeAutomationConfirmationDraft = {
 export type TradeAutomationCommandIntent =
   | { status: "not_matched" }
   | { status: "missing_price" }
-  | { status: "ready" };
+  | { status: "ready"; reservationPrice: number | null };
+
+export type TradeAutomationDraftOptions = {
+  requestedAt?: string;
+  reservationPrice?: number | null;
+};
 
 export function isTradeAutomationConfirmationIntent(value: string): boolean {
   return resolveTradeAutomationCommandIntent(value).status === "ready";
 }
 
 export function resolveTradeAutomationCommandIntent(value: string): TradeAutomationCommandIntent {
-  const compact = value
-    .normalize("NFKC")
-    .toLowerCase()
+  const normalized = value.normalize("NFKC").toLowerCase();
+  const compact = normalized
     .replace(/[\s.,!?~'"“”‘’()\[\]{}:_-]+/g, "");
+  const reservationPrice = extractExplicitReservationPrice(normalized);
   const referencesCurrentChartPrice = /(이가격|해당가격|선택가격|진입가|이때|이시점)/.test(compact);
   const mentionsReservation = /예약(?:매매|주문|매수|매도)?/.test(compact);
   const requestsReservationDirectly = /예약(?:매매|주문|매수|매도)?(?:해주세요|해달라|해줘요|해줘|해줄래|하자|할래|부탁해|부탁합니다)/.test(compact);
@@ -73,8 +78,8 @@ export function resolveTradeAutomationCommandIntent(value: string): TradeAutomat
   const requestsDirectTrade = /(?:사자|살래|팔자|매수(?:해주세요|해달라|해줘요|해줘|하자)|매도(?:해주세요|해달라|해줘요|해줘|하자))/.test(compact);
   const requestsAlert = /알림.*(?:걸어주세요|걸어줘|설정해주세요|설정해줘|등록해주세요|등록해줘)/.test(compact);
   const requestsAutomation = requestsReservation || requestsDirectTrade || requestsAlert;
-  if (referencesCurrentChartPrice && requestsAutomation) {
-    return { status: "ready" };
+  if ((referencesCurrentChartPrice || reservationPrice !== null) && requestsAutomation) {
+    return { status: "ready", reservationPrice };
   }
   if (mentionsReservation && requestsAutomation) {
     return { status: "missing_price" };
@@ -97,14 +102,20 @@ export function chartPriceSelectionMatchesTradeSetup(
 export function createTradeAutomationConfirmationDraft(
   snapshot: ChartTradeSetupSnapshot,
   selection: ChartPriceSelection | null,
-  requestedAt = new Date().toISOString()
+  options: TradeAutomationDraftOptions | string = {}
 ): TradeAutomationConfirmationDraft | null {
   const setup = snapshot.setup;
   if (![setup.entryPrice, setup.targetPrice, setup.stopPrice].every(isPositiveFinite)) {
     return null;
   }
+  const resolvedOptions = typeof options === "string" ? { requestedAt: options } : options;
+  const explicitReservationPrice = resolvedOptions.reservationPrice ?? null;
+  if (explicitReservationPrice !== null && !isPositiveFinite(explicitReservationPrice)) {
+    return null;
+  }
   const matchingSelection = chartPriceSelectionMatchesTradeSetup(snapshot, selection) ? selection : null;
-  const reservationPrice = matchingSelection?.price
+  const reservationPrice = explicitReservationPrice
+    ?? matchingSelection?.price
     ?? (isPositiveFinite(snapshot.spotlightPrice) ? snapshot.spotlightPrice : setup.entryPrice);
   if (!isPositiveFinite(reservationPrice)) {
     return null;
@@ -121,9 +132,28 @@ export function createTradeAutomationConfirmationDraft(
     targetPrice: setup.targetPrice,
     stopPrice: setup.stopPrice,
     assetIdentity: { ...snapshot.assetIdentity },
-    requestedAt,
+    requestedAt: resolvedOptions.requestedAt ?? new Date().toISOString(),
     status: "pending"
   };
+}
+
+function extractExplicitReservationPrice(value: string): number | null {
+  const pricePatterns = [
+    /\$\s*(\d[\d,]*(?:\.\d+)?)/,
+    /usd\s*(\d[\d,]*(?:\.\d+)?)/,
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:usd|달러|불)/,
+    /(?:가격|지정가|예약가|매수가)\s*(?:은|는|을|를|:)?\s*\$?\s*(\d[\d,]*(?:\.\d+)?)/,
+    /(\d[\d,]*(?:\.\d+)?)\s*(?:에|로)\s*(?:예약|매수|매도|주문)/
+  ];
+  for (const pattern of pricePatterns) {
+    const rawPrice = pattern.exec(value)?.[1];
+    if (!rawPrice) continue;
+    const price = Number(rawPrice.replace(/,/g, ""));
+    if (isPositiveFinite(price)) {
+      return price;
+    }
+  }
+  return null;
 }
 
 export function priceConditionInputFromTradeAutomationDraft(

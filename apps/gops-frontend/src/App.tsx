@@ -1232,7 +1232,12 @@ export function App() {
       }
       const draft = createTradeAutomationConfirmationDraft(
         resolution.snapshot,
-        chartPriceSelection
+        chartPriceSelection,
+        {
+          reservationPrice: tradeAutomationIntent.status === "ready"
+            ? tradeAutomationIntent.reservationPrice
+            : null
+        }
       );
       if (!draft) {
         showAgentNotice("현재 트레이드 플랜의 진입가·목표가·손절가를 모두 확인할 수 없습니다.", "info");

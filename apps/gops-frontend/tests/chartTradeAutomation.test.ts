@@ -38,8 +38,7 @@ import {
   "20주 예약 매도 해주세요",
   "예약 주문해줘",
   "AMD 예약 매수 20주 걸어줘",
-  "AMD 예약 매수 20주 해줘",
-  "545달러에 예약매수 20개 넣어줘"
+  "AMD 예약 매수 20주 해줘"
 ].forEach((prompt) => assert.deepEqual(
   resolveTradeAutomationCommandIntent(prompt),
   { status: "missing_price" },
@@ -52,7 +51,8 @@ assert.deepEqual(resolveTradeAutomationCommandIntent("이 가격에 AMD 20주 �
   ["AMD $545.25 예약매수 해줘", 545.25],
   ["AMD USD 545.50에 예약 주문해줘", 545.5],
   ["AMD 가격 545로 예약 매수해줘", 545],
-  ["AMD 545에 예약 매수 20주 해줘", 545]
+  ["AMD 545에 예약 매수 20주 해줘", 545],
+  ["545달러에 예약매수 20개 넣어줘", 545]
 ].forEach(([prompt, reservationPrice]) => assert.deepEqual(
   resolveTradeAutomationCommandIntent(String(prompt)),
   { status: "ready", reservationPrice },
