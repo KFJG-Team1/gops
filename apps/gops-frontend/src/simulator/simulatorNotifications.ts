@@ -20,10 +20,10 @@ export function simulatorBreakingNotification(
     createdAt: new Date().toISOString(),
     payload: {
       symbol: "AMD",
-      title: "지정학 이벤트",
+      title: "지정학 리스크 경보",
       summary: article.headline,
       detail: article.summary ?? "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다.",
-      source: article.source ?? "GOPS Simulator",
+      source: article.source ?? "GOPS Market Wire",
       decision: {
         eventId: article.id,
         eventType: "simulator_geopolitical_risk",

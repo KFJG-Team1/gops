@@ -23,7 +23,8 @@ import {
   enqueueAlertToastState,
   reconcileAlertToastState,
   removeNotificationAlertToastState,
-  removePersistedAlertToastState
+  removePersistedAlertToastState,
+  type AlertToastQueueOptions
 } from "../alerts/alertToastQueue";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
 import {
@@ -111,7 +112,7 @@ export function BottomCommandBar({
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
   const canReceiveAlerts = canUseAlerts && notificationPreferencesReady;
 
-  const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
+  const enqueueAlertToast = (notification: NotificationItem, options: AlertToastQueueOptions = {}) => {
     setAlertToastState((current) => enqueueAlertToastState(
       current,
       notification,
@@ -123,7 +124,10 @@ export function BottomCommandBar({
 
   const receiveSimulatorNotification = (notification: NotificationItem) => {
     setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
-    enqueueAlertToast(notification);
+    const options = notification.type === "system.simulator_breaking_event"
+      ? { priority: "immediate" as const }
+      : {};
+    enqueueAlertToast(notification, options);
   };
 
   useEffect(() => {

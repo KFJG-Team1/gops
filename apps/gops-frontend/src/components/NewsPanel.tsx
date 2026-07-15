@@ -92,7 +92,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
       if (simulatorStatus?.mode === "simulation") {
         const response = await fetch("/api/simulator/news", { signal });
         const simulatorPayload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(`시뮬레이션 뉴스 API 응답 오류 ${response.status}`);
+        if (!response.ok) throw new Error(`뉴스 API 응답 오류 ${response.status}`);
         const articles = Array.isArray(simulatorPayload.news) ? simulatorPayload.news as SimulatorNewsArticle[] : [];
         setPayload(simulatorNewsResponse(symbol, articles));
         return;

@@ -14,6 +14,11 @@ export type AlertToastQueueState = {
   queue: AlertToastQueueItem[];
 };
 
+export type AlertToastQueueOptions = {
+  autoDismissMs?: number;
+  priority?: "normal" | "immediate";
+};
+
 export function createAlertToastQueueState(): AlertToastQueueState {
   return { current: null, queue: [] };
 }
@@ -23,7 +28,7 @@ export function enqueueAlertToastState(
   notification: NotificationItem,
   preferences: NotificationPreferences,
   seenKeys: Set<string>,
-  options: { autoDismissMs?: number } = {}
+  options: AlertToastQueueOptions = {}
 ): AlertToastQueueState {
   if (notification.readAt || !shouldShowNotificationToast(notification, preferences)) {
     return current;
@@ -34,6 +39,9 @@ export function enqueueAlertToastState(
   }
   seenKeys.add(key);
   const item = { notification, autoDismissMs: options.autoDismissMs };
+  if (options.priority === "immediate" && current.current) {
+    return { current: item, queue: [current.current, ...current.queue] };
+  }
   return current.current
     ? { current: current.current, queue: [...current.queue, item] }
     : { current: item, queue: [] };
