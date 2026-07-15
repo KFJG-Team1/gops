@@ -4,6 +4,10 @@ import { build } from "esbuild";
 
 const testCases = [
   {
+    entry: new URL("../tests/layoutEditControl.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/layout-edit-control-test.mjs", import.meta.url)
+  },
+  {
     entry: new URL("../tests/responsivePanelLayout.test.ts", import.meta.url),
     outfile: new URL("../.tmp/responsive-panel-layout-test.mjs", import.meta.url)
   },
