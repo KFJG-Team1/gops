@@ -2,6 +2,7 @@ import { LoaderCircle, LogIn, Search, SendHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
+import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
 import {
   makeIdempotencyKey,
   orderWebSocketUrl,
@@ -40,6 +41,7 @@ type OrderTicketProps = {
   symbolOptions: readonly WatchlistSymbol[];
   onSymbolOptionsRequest: (query: string) => void;
   executionMode?: OrderExecutionMode;
+  chartPriceSelection?: ChartPriceSelection | null;
 };
 
 function riskVerdictLabel(risk: RiskVerdict): string {
@@ -186,6 +188,10 @@ function normalizeDecimalText(value: string): string {
   return value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
 }
 
+function isSymbolOrPriceValidationError(message: string): boolean {
+  return /(종목|가격 입력|주문 가격|유효한 가격)/.test(message);
+}
+
 function marketToExchange(market: string | undefined, fallback = "NASD"): string {
   switch (market?.trim().toUpperCase()) {
     case "NASDAQ":
@@ -255,7 +261,8 @@ export function OrderTicket({
   chartSymbols,
   symbolOptions,
   onSymbolOptionsRequest,
-  executionMode = "kis"
+  executionMode = "kis",
+  chartPriceSelection = null
 }: OrderTicketProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const [form, setForm] = useState<OrderFormState>({ ...DEFAULT_FORM, symbol: activeSymbol });
@@ -270,8 +277,10 @@ export function OrderTicket({
   const [useDemoBasket, setUseDemoBasket] = useState(true);
   const [risk, setRisk] = useState<RiskVerdict | undefined>();
   const [riskLoading, setRiskLoading] = useState(false);
+  const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const symbolSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const appliedChartPriceSelectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     const activeMeta = getSymbolMeta(activeSymbol);
@@ -282,6 +291,30 @@ export function OrderTicket({
       exchange: marketToExchange(activeMeta.market, current.exchange)
     }));
   }, [activeSymbol]);
+
+  useEffect(() => {
+    if (!chartPriceSelection || appliedChartPriceSelectionRef.current === chartPriceSelection.selectedAt) {
+      return;
+    }
+    const symbol = normalizeSupportedSymbol(chartPriceSelection.symbol);
+    if (!symbol) {
+      return;
+    }
+    const meta = resolveSymbolMeta(symbol, [...chartSymbols, ...symbolOptions, ...paperSymbolOptions]);
+    appliedChartPriceSelectionRef.current = chartPriceSelection.selectedAt;
+    setForm((current) => ({
+      ...current,
+      symbol,
+      price: chartPriceSelection.formattedPrice,
+      exchange: marketToExchange(meta.market, current.exchange)
+    }));
+    setPriceType("limit");
+    setRisk(undefined);
+    setError((current) => current && isSymbolOrPriceValidationError(current) ? undefined : current);
+    setSymbolSearchQuery("");
+    setSymbolSearchOpen(false);
+    setChartPriceSource(`${symbol} 차트에서 $${chartPriceSelection.formattedPrice} 적용`);
+  }, [chartPriceSelection, chartSymbols, paperSymbolOptions, symbolOptions]);
 
   useEffect(() => {
     return () => {
@@ -679,6 +712,8 @@ export function OrderTicket({
           {symbolPicker}
         </header>
       )}
+
+      {chartPriceSource && <p className="order-chart-price-source" role="status">{chartPriceSource}</p>}
 
       <section className="order-ticket-section order-side-section" aria-label="주문 유형 선택">
         <div className="order-side-control" role="group" aria-label="매수 매도 선택">

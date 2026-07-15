@@ -173,12 +173,12 @@ const levelAsset: ChartAnalysisAsset = {
 };
 const projectedLevelAsset = resolveAnalysisAssetForCandles(levelAsset, candles);
 assert.equal(projectedLevelAsset?.geometry.drawings.length, 1);
-assert.equal(projectedLevelAsset?.geometry.drawings[0]?.type, "horizontalParallelLines");
-assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, []);
+assert.equal(projectedLevelAsset?.geometry.drawings[0]?.type, "horizontalLine");
+assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, undefined);
 assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.colorToken, "evidenceSupport");
-assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.fillOpacity, .08);
+assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.lineWidth, 2.5);
 assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.labelPlacement, "axis");
-assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.price), [244.9, 246.5]);
+assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.price), [245.7, 245.7]);
 assert.deepEqual(
   projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
   [candles[0]?.timestamp, candles[candles.length - 1]?.timestamp]

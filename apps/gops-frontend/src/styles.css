@@ -22027,3 +22027,342 @@ textarea:focus,
 .workspace-panel-frame .chart-compare-panel.has-scroll-rule::after {
   display: none !important;
 }
+
+.order-chart-price-source {
+  margin: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 30%, transparent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--color-signal) 9%, transparent);
+  color: var(--color-signal);
+  font: var(--type-caption);
+}
+
+.trade-automation-dialog-backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+}
+
+.trade-automation-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 34%, var(--color-border));
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  box-shadow: var(--surface-floating-depth-shadow);
+}
+
+.trade-automation-dialog > header {
+  display: grid;
+  gap: 4px;
+}
+
+.trade-automation-dialog > header span,
+.trade-automation-dialog-preview-note {
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.trade-automation-dialog > header strong {
+  font: var(--type-title-lg);
+}
+
+.trade-automation-dialog > p {
+  margin: 0;
+}
+
+.trade-automation-dialog dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.trade-automation-dialog dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 9px 0;
+}
+
+.trade-automation-dialog dt {
+  color: var(--color-muted);
+}
+
+.trade-automation-dialog dd {
+  margin: 0;
+  color: var(--color-signal);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-automation-dialog-stale {
+  border: 1px solid color-mix(in srgb, var(--color-down) 34%, transparent);
+  border-radius: 7px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--color-down) 10%, transparent);
+  color: var(--color-down);
+}
+
+.trade-automation-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.trade-automation-dialog > footer button {
+  min-width: 82px;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.trade-automation-dialog > footer button.is-primary {
+  border-color: color-mix(in srgb, var(--color-signal) 55%, transparent);
+  background: color-mix(in srgb, var(--color-signal) 18%, var(--color-surface));
+  color: var(--color-signal);
+  font-weight: 800;
+}
+
+.trade-automation-dialog > footer button:disabled {
+  opacity: 0.48;
+}
+
+.preset-manager-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 88;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 8 14 / 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.preset-manager-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 48px));
+  padding: 22px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--surface-raised-surface);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 0.38);
+  color: var(--color-text);
+}
+
+.preset-manager-header,
+.preset-manager-row,
+.preset-manager-actions {
+  display: flex;
+  align-items: center;
+}
+
+.preset-manager-header {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.preset-manager-header h2 {
+  margin: 3px 0 0;
+  font: var(--type-title-lg);
+}
+
+.preset-manager-eyebrow {
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font: var(--type-label-sm);
+}
+
+.preset-manager-copy,
+.preset-manager-message,
+.preset-manager-empty {
+  margin: 0;
+  font: var(--type-body-md);
+}
+
+.preset-manager-copy,
+.preset-manager-empty {
+  color: var(--color-muted);
+}
+
+.preset-manager-response-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 58%, var(--color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-signal) 8%, var(--color-surface));
+}
+
+.preset-manager-primary {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--color-signal);
+  border-radius: 9px;
+  background: var(--color-signal);
+  color: var(--color-tile-text-inverse);
+  font: var(--type-button);
+}
+
+.preset-manager-primary:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.preset-manager-section-heading {
+  display: grid;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.preset-manager-section-heading strong {
+  font: var(--type-label-lg);
+}
+
+.preset-manager-section-heading span {
+  color: var(--color-muted);
+  font: var(--type-body-sm);
+}
+
+.preset-manager-list {
+  display: grid;
+  gap: 8px;
+}
+
+.preset-manager-row {
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 70px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.preset-manager-row.is-incident {
+  border-color: color-mix(in srgb, var(--color-signal) 52%, var(--color-border));
+  background: color-mix(in srgb, var(--color-signal) 7%, var(--color-surface));
+}
+
+.preset-manager-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.preset-manager-row-copy strong {
+  font: var(--type-label-lg);
+}
+
+.preset-manager-row-copy span {
+  color: var(--color-muted);
+  font: var(--type-body-sm);
+}
+
+.preset-manager-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.preset-manager-button,
+.preset-manager-icon {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+}
+
+.preset-manager-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  font: var(--type-button);
+}
+
+.preset-manager-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.preset-manager-button:hover:not(:disabled),
+.preset-manager-icon:hover:not(:disabled) {
+  border-color: var(--color-text);
+}
+
+.preset-manager-button.role.is-active {
+  border-color: var(--color-signal);
+  background: var(--color-signal);
+  color: var(--color-tile-text-inverse);
+}
+
+.preset-manager-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.preset-manager-icon.danger {
+  color: var(--color-danger);
+}
+
+.preset-manager-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+}
+
+@media (max-width: 720px) {
+  .preset-manager-backdrop {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .preset-manager-dialog {
+    width: 100%;
+    max-height: calc(100vh - 20px);
+  }
+
+  .preset-manager-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preset-manager-response-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preset-manager-actions {
+    justify-content: flex-start;
+  }
+}

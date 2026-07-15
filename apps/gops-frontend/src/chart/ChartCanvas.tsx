@@ -2,7 +2,7 @@ import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
-import { buildChartScene, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
+import { buildChartScene, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
   drawingLabelLayout,
   normalizeLineExtension,
@@ -1468,9 +1468,10 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
             const left = planZoneFillLeft(scene, geometry.left);
             const width = Math.max(0, geometry.right - left);
             if (width > 0) {
-              context.fillStyle = colors.upSoft;
+              const sell = style.proposalAction === "sell_candidate";
+              context.fillStyle = sell ? colors.downSoft : colors.upSoft;
               context.fillRect(left, Math.min(geometry.entryY, geometry.targetY), width, Math.abs(geometry.entryY - geometry.targetY));
-              context.fillStyle = colors.downSoft;
+              context.fillStyle = sell ? colors.upSoft : colors.downSoft;
               context.fillRect(left, Math.min(geometry.entryY, geometry.stopY), width, Math.abs(geometry.entryY - geometry.stopY));
             }
           } else {
@@ -1564,13 +1565,19 @@ function drawDrawings(
     const preview = previewLayer || drawing.id === "drawing-draft-preview";
     const style = drawing.style ?? {};
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
-    const strokeColor = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+    const spotlighted = Boolean(spotlight?.has(drawing.id));
+    const strokeColor = spotlighted
+      ? colors.signal
+      : resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
 
     context.save();
     context.globalAlpha = (preview ? 0.58 : style.opacity ?? 1) * drawingSpotlightOpacity(drawing, spotlight);
     context.strokeStyle = strokeColor;
     context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
-    context.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1.0) : style.lineWidth ?? 1.0;
+    const baseLineWidth = style.lineWidth ?? 1;
+    context.lineWidth = spotlighted
+      ? Math.min(5, baseLineWidth + 1.5)
+      : selected ? Math.max(1.8, baseLineWidth) : baseLineWidth;
     context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
 
     if (drawing.type === "horizontalLine" && points[0]) {
@@ -1884,16 +1891,21 @@ function drawRiskRewardForeground(
       context.setLineDash([6, 4]);
       line(context, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
       context.setLineDash([]);
-      context.strokeStyle = colors.upSoft;
+      const sell = drawing.style.proposalAction === "sell_candidate";
+      context.strokeStyle = sell ? colors.downSoft : colors.upSoft;
       line(context, zoneLeft, geometry.targetY, geometry.right, geometry.targetY);
-      context.strokeStyle = colors.downSoft;
+      context.strokeStyle = sell ? colors.upSoft : colors.downSoft;
       line(context, zoneLeft, geometry.stopY, geometry.right, geometry.stopY);
       context.restore();
     });
     const ratio = Math.abs(targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice - stopPrice));
-    drawPlanChip(context, drawing.label ?? "제안", zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 12, colors.proposal);
-    drawPlanChip(context, `손익비 1 : ${ratio.toFixed(2)}`, zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 32, colors.proposal);
-    drawPlanChip(context, "돌파 시 진입", Math.max(zoneLeft + 6, geometry.left + 6), geometry.entryY - 12, colors.proposal);
+    const proposalColor = drawing.style.proposalAction === "sell_candidate" ? colors.down : colors.up;
+    const conditionLabel = drawing.style.proposalKind === "conditional"
+      ? "조건 충족 시"
+      : drawing.style.proposalAction === "sell_candidate" ? "이탈 시 매도" : "돌파 시 진입";
+    drawPlanChip(context, drawing.label ?? "제안", zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 12, proposalColor);
+    drawPlanChip(context, `손익비 1 : ${ratio.toFixed(2)}`, zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 32, proposalColor);
+    drawPlanChip(context, conditionLabel, Math.max(zoneLeft + 6, geometry.left + 6), geometry.entryY - 12, proposalColor);
     return;
   }
   drawPricePlotClipped(context, scene, () => {
@@ -2118,7 +2130,9 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
     if (!anchor) {
       return;
     }
-    const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
+    const axisLabelColor = spotlight?.has(drawing.id)
+      ? colors.signal
+      : resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
     const placement = drawing.style?.labelPlacement;
     if (placement === "inline" || placement === "none") {
       return;
@@ -2187,10 +2201,11 @@ function drawTradePlanAxisPills(
   const [entry, stop, target] = drawing.anchors;
   if (typeof entry.price !== "number" || typeof stop.price !== "number" || typeof target.price !== "number") return;
   const denominator = Math.max(0.0000001, Math.abs(entry.price));
+  const sell = drawing.style.proposalAction === "sell_candidate";
   const items = [
-    { anchor: entry, text: `진입 ${entry.price.toFixed(2)}`, color: colors.proposal },
-    { anchor: target, text: `목표 ${target.price.toFixed(2)} ${signedPercent((target.price - entry.price) / denominator)}`, color: colors.upSoft },
-    { anchor: stop, text: `손절 ${stop.price.toFixed(2)} ${signedPercent((stop.price - entry.price) / denominator)}`, color: colors.downSoft }
+    { anchor: entry, text: `${sell ? "매도" : "진입"} ${entry.price.toFixed(2)}`, color: sell ? colors.down : colors.up },
+    { anchor: target, text: `${sell ? "하락 목표" : "목표"} ${target.price.toFixed(2)} ${signedPercent((target.price - entry.price) / denominator)}`, color: sell ? colors.downSoft : colors.upSoft },
+    { anchor: stop, text: `${sell ? "매도 무효화" : "손절"} ${stop.price.toFixed(2)} ${signedPercent((stop.price - entry.price) / denominator)}`, color: sell ? colors.upSoft : colors.downSoft }
   ];
   items.forEach(({ anchor, text, color }) => {
     const point = transform.anchorToPoint(anchor);
@@ -2561,7 +2576,23 @@ function hasVolumePane(scene: ChartScene): boolean {
 }
 
 function drawCrosshair(context: CanvasRenderingContext2D, scene: ChartScene, crosshair?: { x: number; y: number }) {
-  if (!crosshair || crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
+  if (!crosshair) {
+    return;
+  }
+  const priceAxisPoint = chartPriceAxisPoint(scene, crosshair.x, crosshair.y);
+  if (priceAxisPoint) {
+    context.save();
+    context.strokeStyle = colors.crosshair;
+    context.globalAlpha = 0.22;
+    context.lineWidth = 1;
+    context.setLineDash([]);
+    line(context, scene.plot.left, crosshair.y, scene.width, crosshair.y);
+    context.globalAlpha = 1;
+    drawAxisPill(context, priceAxisPoint.formattedPrice, rightAxisPillX(scene), crosshair.y, "right");
+    context.restore();
+    return;
+  }
+  if (crosshair.x < scene.plot.left || crosshair.x > scene.plot.right || crosshair.y < scene.plot.top || crosshair.y > scene.plot.bottom) {
     return;
   }
   const timeTarget = resolveCrosshairTimeTarget(scene, crosshair.x, crosshair.y);

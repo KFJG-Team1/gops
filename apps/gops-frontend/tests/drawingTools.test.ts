@@ -81,10 +81,11 @@ const restoredLegacyDocument = restoreChartDocumentSnapshot(legacySnapshotSource
 assert.equal(restoredLegacyDocument.interactionState.parallelLineCount, 3);
 
 assert.equal(nearestDrawingLineWidthStage(undefined), 1);
-assert.equal(nearestDrawingLineWidthStage(1.49), 1);
-assert.equal(nearestDrawingLineWidthStage(1.5), 2);
-assert.equal(nearestDrawingLineWidthStage(2.25), 2);
-assert.equal(nearestDrawingLineWidthStage(2.5), 3);
+assert.equal(nearestDrawingLineWidthStage(1.49), 1.5);
+assert.equal(nearestDrawingLineWidthStage(1.5), 1.5);
+assert.equal(nearestDrawingLineWidthStage(2.25), 2.5);
+assert.equal(nearestDrawingLineWidthStage(2.5), 2.5);
+assert.equal(nearestDrawingLineWidthStage(5.4), 5);
 
 const lineWidthDocument = createChartDocument("drawing-line-width-document", "AAPL", "1m");
 const lineWidthAdd = executeChartCommand(
@@ -107,7 +108,7 @@ assert.equal(loadedOnePointFive.drawings[0]?.style.lineWidth, 1.5);
 persistedLineWidthSnapshot.drawings[0].style.lineWidth = 2.25;
 const loadedTwoPointTwoFive = restoreChartDocumentSnapshot(lineWidthAdd.document, persistedLineWidthSnapshot);
 assert.equal(loadedTwoPointTwoFive.drawings[0]?.style.lineWidth, 2.25);
-assert.equal(nearestDrawingLineWidthStage(loadedTwoPointTwoFive.drawings[0]?.style.lineWidth), 2);
+assert.equal(nearestDrawingLineWidthStage(loadedTwoPointTwoFive.drawings[0]?.style.lineWidth), 2.5);
 
 const lineWidthUpdate = executeChartCommand(
   loadedTwoPointTwoFive,

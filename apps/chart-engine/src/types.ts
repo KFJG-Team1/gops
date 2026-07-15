@@ -441,6 +441,8 @@ export type DrawingStyle = {
   extension?: ChartLineExtension;
   labelPlacement?: "inline" | "axis" | "none";
   zoneSplit?: boolean;
+  proposalAction?: "buy_candidate" | "sell_candidate";
+  proposalKind?: "confirmed" | "conditional";
 };
 
 export type DrawingEntity = {

@@ -311,9 +311,10 @@ function drawDrawingFills(ctx: CanvasRenderingContext2D, scene: RenderScene, dra
         if (style.zoneSplit) {
           const left = planZoneLeft(scene, geometry.left, geometry.right);
           const width = Math.max(0, geometry.right - left);
-          ctx.fillStyle = scene.document.style.bullish;
+          const sell = style.proposalAction === "sell_candidate";
+          ctx.fillStyle = sell ? scene.document.style.bearish : scene.document.style.bullish;
           ctx.fillRect(left, Math.min(geometry.entryY, geometry.targetY), width, Math.abs(geometry.entryY - geometry.targetY));
-          ctx.fillStyle = scene.document.style.bearish;
+          ctx.fillStyle = sell ? scene.document.style.bullish : scene.document.style.bearish;
           ctx.fillRect(left, Math.min(geometry.entryY, geometry.stopY), width, Math.abs(geometry.entryY - geometry.stopY));
         } else {
           ctx.fillStyle = scene.document.style.bullish;
@@ -365,13 +366,15 @@ function drawDrawingForeground(ctx: CanvasRenderingContext2D, scene: RenderScene
     const selected = !preview && scene.document.selectedDrawingId === drawing.id;
     const style = drawing.style ?? {};
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is DrawingPoint => Boolean(point));
-    const strokeColor = resolveDrawingColor(scene, style, "colorToken", "color", preview ? "preview" : "drawing");
+    const strokeColor = selected
+      ? scene.document.style.signal
+      : resolveDrawingColor(scene, style, "colorToken", "color", preview ? "preview" : "drawing");
 
     ctx.save();
     ctx.globalAlpha = preview ? 0.58 : clampOpacity(style.opacity, 1);
     ctx.strokeStyle = strokeColor;
     ctx.fillStyle = strokeColor;
-    ctx.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1.0) : style.lineWidth ?? 1.0;
+    ctx.lineWidth = selected ? Math.min(5, (style.lineWidth ?? 1) + 1.5) : style.lineWidth ?? 1.0;
     ctx.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
 
     if (drawing.type === "horizontalLine" && points[0]) {
@@ -660,9 +663,10 @@ function drawRiskRewardForeground(
       ctx.setLineDash([6, 4]);
       line(ctx, geometry.left, geometry.entryY, geometry.right, geometry.entryY);
       ctx.setLineDash([]);
-      ctx.strokeStyle = scene.document.style.bullish;
+      const sell = drawing.style.proposalAction === "sell_candidate";
+      ctx.strokeStyle = sell ? scene.document.style.bearish : scene.document.style.bullish;
       line(ctx, zoneLeft, geometry.targetY, geometry.right, geometry.targetY);
-      ctx.strokeStyle = scene.document.style.bearish;
+      ctx.strokeStyle = sell ? scene.document.style.bullish : scene.document.style.bearish;
       line(ctx, zoneLeft, geometry.stopY, geometry.right, geometry.stopY);
       ctx.restore();
     });
@@ -807,9 +811,10 @@ function drawDrawingAxisLabels(ctx: CanvasRenderingContext2D, scene: RenderScene
     } else if (drawing.type === "riskRewardBox" && drawing.anchors.length >= 3) {
       const [entry, stop, target] = drawing.anchors.map((anchor) => anchor.price);
       if (typeof entry !== "number" || typeof stop !== "number" || typeof target !== "number") return;
-      drawEngineAxisPill(ctx, scene, entry, scene.document.style.proposal, `진입 ${entry.toFixed(2)}`);
-      drawEngineAxisPill(ctx, scene, target, scene.document.style.bullish, `목표 ${target.toFixed(2)}`);
-      drawEngineAxisPill(ctx, scene, stop, scene.document.style.bearish, `손절 ${stop.toFixed(2)}`);
+      const sell = drawing.style.proposalAction === "sell_candidate";
+      drawEngineAxisPill(ctx, scene, entry, sell ? scene.document.style.bearish : scene.document.style.bullish, `${sell ? "매도" : "진입"} ${entry.toFixed(2)}`);
+      drawEngineAxisPill(ctx, scene, target, sell ? scene.document.style.bearish : scene.document.style.bullish, `${sell ? "하락 목표" : "목표"} ${target.toFixed(2)}`);
+      drawEngineAxisPill(ctx, scene, stop, sell ? scene.document.style.bullish : scene.document.style.bearish, `${sell ? "매도 무효화" : "손절"} ${stop.toFixed(2)}`);
     }
   });
 }

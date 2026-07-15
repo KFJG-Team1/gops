@@ -10,6 +10,7 @@ import "./tradeTimingOverlay.test";
 import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";
+import "./chartTradeAutomation.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
@@ -84,9 +85,12 @@ import {
 import { resolveDrawingRenderItems } from "../src/chart/drawingProjection";
 import {
   buildChartScene as buildFrontendChartScene,
+  chartPriceAxisPoint,
   createCoordinateTransform as createFrontendCoordinateTransform,
   formatPriceAxisValue as formatFrontendPriceAxisValue,
   paneSeparatorYs,
+  isChartRightAxisPoint,
+  isPriceAxisPricePanePoint,
   resolveCrosshairTimeTarget,
   viewportAnchorRatioAtX,
   viewportSlotWidth
@@ -356,6 +360,41 @@ assert.equal(marketOpenToast.title, "본장 시작");
 assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.");
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
+
+const volumeAgentNotification = {
+  id: -1,
+  eventId: "agent-volume-spike",
+  type: "AGENT_ALERT",
+  payload: {
+    symbol: "NVDA",
+    decision: {
+      symbol: "NVDA",
+      eventType: "volume_spike",
+      summary: "NVDA 1m candle volume rose 2.40x above its rolling baseline.",
+      metrics: { interval: "1m", multiplier: 2.4 }
+    }
+  }
+};
+const volumeAgentToast = formatNotificationToastMessage(volumeAgentNotification);
+assert.equal(volumeAgentToast.title, "거래량 급증");
+assert.equal(volumeAgentToast.message, "NVDA 1분봉 거래량이 최근 평균의 2.4배까지 증가했습니다.");
+
+const dailyLossAgentNotification = {
+  id: -1,
+  eventId: "agent-daily-loss",
+  type: "AGENT_ALERT",
+  payload: {
+    symbol: "PORTFOLIO",
+    decision: {
+      symbol: "PORTFOLIO",
+      eventType: "risk_daily_loss_limit",
+      summary: "오늘 손실이 설정한 일일 손실 보호 한도에 도달했습니다."
+    }
+  }
+};
+const dailyLossAgentToast = formatNotificationToastMessage(dailyLossAgentNotification);
+assert.equal(dailyLossAgentToast.title, "일일 손실 한도");
+assert.equal(dailyLossAgentToast.message, "오늘 손실이 설정한 일일 손실 보호 한도에 도달했습니다.");
 
 const originalAlertApiFetch = globalThis.fetch;
 try {
@@ -1156,6 +1195,14 @@ assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
 assert.equal(formatFrontendPriceAxisValue(-12.3), "-12.30");
 assert.equal(formatFrontendPriceAxisValue(1.2345, 4), "1.2345");
 assert.equal(formatFrontendPriceAxisValue(Number.NaN), "-");
+const priceAxisMidY = (multiBelowPaneScene.plot.top + multiBelowPaneScene.plot.priceBottom) / 2;
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, priceAxisMidY), true);
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right - 1, priceAxisMidY), false);
+assert.equal(isPriceAxisPricePanePoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.priceBottom + 1), false);
+assert.equal(isChartRightAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.priceBottom + 1), true);
+const selectedAxisPrice = chartPriceAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, priceAxisMidY);
+assert.equal(selectedAxisPrice?.formattedPrice, selectedAxisPrice?.price.toFixed(2));
+assert.equal(chartPriceAxisPoint(multiBelowPaneScene, multiBelowPaneScene.plot.right + 10, multiBelowPaneScene.plot.bottom), null);
 const priceDensityCandles = [
   testCandle("2026-07-09T00:00:00.000Z", 150),
   testCandle("2026-07-10T00:00:00.000Z", 164)
@@ -4027,7 +4074,7 @@ const crosshairLayerIndex = chartCanvasSource.indexOf("drawCrosshair(context, sc
 assert.ok(drawingLayerIndex >= 0 && drawingLabelLayerIndex > drawingLayerIndex);
 assert.ok(currentPriceLayerIndex > drawingLabelLayerIndex);
 assert.ok(crosshairLayerIndex > currentPriceLayerIndex);
-assert.match(chartCanvasSource, /const axisLabelColor = resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 
@@ -4682,7 +4729,10 @@ const trendLineResult = executeChartCommand(
   makeChartCommand("chart.drawing.add", "user", target("panel-a", documentA.id), {
     drawingType: "trendLine",
     anchors: [anchorA, anchorB],
-    style: { color: "#0a0b0d", lineWidth: 1.5, extension: "ray", labelPlacement: "axis", zoneSplit: true },
+    style: {
+      color: "#0a0b0d", lineWidth: 6, extension: "ray", labelPlacement: "axis", zoneSplit: true,
+      proposalAction: "buy_candidate", proposalKind: "confirmed"
+    },
     label: "Trend ray"
   })
 );
@@ -4691,23 +4741,37 @@ if (trendLineResult.ok) {
   assert.equal(trendLineResult.document.drawings[0]?.style.extension, "ray");
   assert.equal(trendLineResult.document.drawings[0]?.style.labelPlacement, "axis");
   assert.equal(trendLineResult.document.drawings[0]?.style.zoneSplit, true);
+  assert.equal(trendLineResult.document.drawings[0]?.style.lineWidth, 5);
+  assert.equal(trendLineResult.document.drawings[0]?.style.proposalAction, "buy_candidate");
+  assert.equal(trendLineResult.document.drawings[0]?.style.proposalKind, "confirmed");
   const stylePatchResult = executeChartCommand(
     trendLineResult.document,
     makeChartCommand("chart.drawing.update", "user", target("panel-a", documentA.id), {
       drawingId: trendLineResult.document.drawings[0]?.id,
-      drawingPatch: { style: { labelPlacement: "inline", zoneSplit: false } }
+      drawingPatch: {
+        style: {
+          labelPlacement: "inline", zoneSplit: false,
+          proposalAction: "sell_candidate", proposalKind: "conditional"
+        }
+      }
     })
   );
   assert.equal(stylePatchResult.ok, true);
   if (stylePatchResult.ok) {
     assert.equal(stylePatchResult.document.drawings[0]?.style.labelPlacement, "inline");
     assert.equal(stylePatchResult.document.drawings[0]?.style.zoneSplit, false);
+    assert.equal(stylePatchResult.document.drawings[0]?.style.proposalAction, "sell_candidate");
+    assert.equal(stylePatchResult.document.drawings[0]?.style.proposalKind, "conditional");
     const styleUndo = executeChartCommand(
       stylePatchResult.document,
       makeChartCommand("chart.undo", "user", target("panel-a", documentA.id))
     );
     assert.equal(styleUndo.ok, true);
-    if (styleUndo.ok) assert.equal(styleUndo.document.drawings[0]?.style.labelPlacement, "axis");
+    if (styleUndo.ok) {
+      assert.equal(styleUndo.document.drawings[0]?.style.labelPlacement, "axis");
+      assert.equal(styleUndo.document.drawings[0]?.style.proposalAction, "buy_candidate");
+      assert.equal(styleUndo.document.drawings[0]?.style.proposalKind, "confirmed");
+    }
   }
 }
 

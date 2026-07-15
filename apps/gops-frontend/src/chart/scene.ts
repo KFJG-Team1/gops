@@ -157,6 +157,37 @@ export type ChartSceneOptions = {
   emphasizeSelectedNode?: boolean;
 };
 
+export type ChartPriceAxisPoint = {
+  price: number;
+  formattedPrice: string;
+};
+
+export function isChartRightAxisPoint(scene: ChartScene, x: number, y: number): boolean {
+  return Number.isFinite(x)
+    && Number.isFinite(y)
+    && x >= scene.plot.right
+    && x <= scene.width
+    && y >= scene.plot.top
+    && y <= scene.plot.bottom;
+}
+
+export function isPriceAxisPricePanePoint(scene: ChartScene, x: number, y: number): boolean {
+  return isChartRightAxisPoint(scene, x, y)
+    && y <= scene.plot.priceBottom;
+}
+
+export function chartPriceAxisPoint(scene: ChartScene, x: number, y: number): ChartPriceAxisPoint | null {
+  if (!isPriceAxisPricePanePoint(scene, x, y)) {
+    return null;
+  }
+  const decimalPlaces = scene.chart.chartType === "bidask"
+    ? decimalPlacesForPriceStep(scene.chart.orderFlow?.priceBinSize ?? 0.01)
+    : 2;
+  const formattedPrice = formatPriceAxisValue(createCoordinateTransform(scene).yToPrice(y), decimalPlaces);
+  const price = Number(formattedPrice);
+  return Number.isFinite(price) && price > 0 ? { price, formattedPrice } : null;
+}
+
 export function buildChartScene(chart: ChartState, width: number, height: number, options: ChartSceneOptions = {}): ChartScene {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);

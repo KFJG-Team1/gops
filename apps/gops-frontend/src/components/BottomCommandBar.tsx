@@ -64,6 +64,12 @@ type BottomCommandBarProps = {
   onLogout: () => void;
   onSelectSymbol: (symbol: string) => void;
   onApplyLayoutProposal?: (proposal: AgentLayoutProposal) => void;
+  frontendPreviewToast?: FrontendPreviewToast | null;
+};
+
+export type FrontendPreviewToast = {
+  id: string;
+  message: string;
 };
 
 const alertToastAdvanceMs = 6000;
@@ -90,7 +96,8 @@ export function BottomCommandBar({
   onLogin,
   onLogout,
   onSelectSymbol,
-  onApplyLayoutProposal
+  onApplyLayoutProposal,
+  frontendPreviewToast = null
 }: BottomCommandBarProps) {
   const { preferences: notificationPreferences, ready: notificationPreferencesReady } = useNotificationPreferences();
   const [alertToastState, setAlertToastState] = useState(createAlertToastQueueState);
@@ -123,6 +130,35 @@ export function BottomCommandBar({
     notificationPreferencesRef.current = notificationPreferences;
     setAlertToastState((current) => reconcileAlertToastState(current, notificationPreferences));
   }, [notificationPreferences]);
+
+  useEffect(() => {
+    if (!frontendPreviewToast) {
+      return;
+    }
+    const seenKey = `frontend-preview:${frontendPreviewToast.id}`;
+    if (seenAlertToastKeysRef.current.has(seenKey)) {
+      return;
+    }
+    seenAlertToastKeysRef.current.add(seenKey);
+    const notification: NotificationItem = {
+      id: -Math.max(1, stablePreviewToastId(frontendPreviewToast.id)),
+      eventId: frontendPreviewToast.id,
+      type: "system.frontend_preview_only",
+      payload: {
+        title: "매매 요청 미리보기",
+        summary: frontendPreviewToast.message,
+        detail: "frontend_preview_only · 실제 주문·알림 미생성"
+      },
+      createdAt: new Date().toISOString(),
+      readAt: null
+    };
+    setAlertToastState((current) => {
+      const item = { notification, autoDismissMs: alertToastAdvanceMs };
+      return current.current
+        ? { current: current.current, queue: [...current.queue, item] }
+        : { current: item, queue: [] };
+    });
+  }, [frontendPreviewToast]);
 
   const advanceAlertToast = () => {
     setAlertToastState(advanceAlertToastState);
@@ -547,6 +583,14 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stablePreviewToastId(value: string): number {
+  let hash = 0;
+  for (const character of value) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 function agentAlertNotification(payload: Record<string, unknown>): NotificationItem | null {

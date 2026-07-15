@@ -25,7 +25,12 @@ import {
   useState
 } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import {
+  chartCommentaryStateForDocument,
+  rememberChartCommentaryState
+} from "../agent/chartCommentaryHistory";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import type { ChartSymbolDto } from "../chart/types";
 import {
@@ -121,6 +126,10 @@ type PanelWorkspaceProps = {
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   selectedWildPanelSlotId: string | null;
   onSelectWildPanel: (slotId: string | null) => void;
+  chartPriceSelection: ChartPriceSelection | null;
+  onChartPriceSelection: (selection: ChartPriceSelection) => void;
+  onChartTradeSetupChange: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
+  onActiveChartChange: (contentId: string) => void;
   presetDock?: ReactNode;
   placementPickerOverlay?: ReactNode;
 };
@@ -206,6 +215,10 @@ export function PanelWorkspace({
   onSelectPatternAsset,
   selectedWildPanelSlotId,
   onSelectWildPanel,
+  chartPriceSelection,
+  onChartPriceSelection,
+  onChartTradeSetupChange,
+  onActiveChartChange,
   presetDock,
   placementPickerOverlay
 }: PanelWorkspaceProps) {
@@ -217,7 +230,18 @@ export function PanelWorkspace({
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
   const [paletteStatus, setPaletteStatus] = useState<string | null>(null);
   const [paletteOverflow, setPaletteOverflow] = useState({ left: false, right: false });
+  const [chartLinkCommentaryContentId, setChartLinkCommentaryContentId] = useState<string | null>(null);
+  const [lastInteractedOrderContentId, setLastInteractedOrderContentId] = useState<string | null>(null);
   const paletteScrollerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (
+      chartLinkCommentaryContentId
+      && panelState.contents[chartLinkCommentaryContentId]?.kind !== "chartCommentary"
+    ) {
+      setChartLinkCommentaryContentId(null);
+    }
+  }, [chartLinkCommentaryContentId, panelState.contents]);
 
   // Track horizontal overflow of the palette scroller so the < > arrows only
   // appear (and enable) when there is actually somewhere to scroll.
@@ -269,6 +293,21 @@ export function PanelWorkspace({
   const companyItemsBySymbol = useMemo(() => (
     new Map(companyItems.map((item) => [item.symbol.toUpperCase(), item]))
   ), [companyItems]);
+  const visibleOrderContentIds = useMemo(() => panelState.slots
+    .filter((slot) => !slot.wildPanel || slot.wildPanel.activePageId === wildPanelBasePageId)
+    .sort((left, right) => left.gridRect.row - right.gridRect.row || left.gridRect.col - right.gridRect.col)
+    .map((slot) => panelState.contents[slot.contentId])
+    .filter((content): content is PanelContentInstance => Boolean(content && isChartPriceOrderPanelKind(content.kind)))
+    .map((content) => content.id), [panelState]);
+  const selectedOrderContentId = lastInteractedOrderContentId && visibleOrderContentIds.includes(lastInteractedOrderContentId)
+    ? lastInteractedOrderContentId
+    : visibleOrderContentIds[0] ?? null;
+
+  useEffect(() => {
+    if (lastInteractedOrderContentId && !visibleOrderContentIds.includes(lastInteractedOrderContentId)) {
+      setLastInteractedOrderContentId(null);
+    }
+  }, [lastInteractedOrderContentId, visibleOrderContentIds]);
 
   useEffect(() => {
     panelStateRef.current = panelState;
@@ -811,6 +850,33 @@ export function PanelWorkspace({
   const primaryChartCandles = primaryChartDocument
     ? getCandlesForDocument(chartRuntime, primaryChartDocument) as CandleDto[]
     : [];
+  const chartLinkOptions = panelState.slots.flatMap((panelSlot) => {
+    const panelContent = panelState.contents[panelSlot.contentId];
+    if (panelContent?.kind !== "chart") return [];
+    const chartDocumentId = chartDocumentIdForContent(panelContent);
+    const chartDocument = chartRuntime.documents[chartDocumentId];
+    return chartDocument ? [{ chartDocumentId, symbol: chartDocument.symbol, interval: chartDocument.timeframe }] : [];
+  });
+  const chartLinkCurrentDocumentId = chartLinkCommentaryContentId
+    ? readString(panelState.contents[chartLinkCommentaryContentId]?.props?.chartDocumentId)
+    : null;
+  const rebindCommentaryChart = (contentId: string, chartDocumentId: string) => {
+    const commentary = panelState.contents[contentId];
+    if (commentary?.kind !== "chartCommentary") return;
+    const currentDocumentId = readString(commentary.props?.chartDocumentId);
+    const history = currentDocumentId
+      ? rememberChartCommentaryState(
+        commentary.props?.commentaryHistoryByDocument,
+        currentDocumentId,
+        commentary.props?.commentaryState
+      )
+      : commentary.props?.commentaryHistoryByDocument;
+    updatePanelProps(contentId, {
+      chartDocumentId,
+      commentaryState: chartCommentaryStateForDocument(history, chartDocumentId),
+      commentaryHistoryByDocument: history
+    });
+  };
   const renderWorkspacePanel = (slot: PanelSlot) => {
     const content = panelState.contents[slot.contentId];
     if (!content) {
@@ -854,6 +920,13 @@ export function PanelWorkspace({
         : `에이전트 답변 · ${activeWildPage.role}`
       : content.title;
     const selectWildPanel = (event: ReactPointerEvent<HTMLElement>) => {
+      if (chartLinkCommentaryContentId && isChart && chartDocument) {
+        event.preventDefault();
+        event.stopPropagation();
+        rebindCommentaryChart(chartLinkCommentaryContentId, chartDocument.id);
+        setChartLinkCommentaryContentId(null);
+        return;
+      }
       if (event.target instanceof Element && event.target.closest(".wild-panel-toggle")) {
         return;
       }
@@ -910,6 +983,16 @@ export function PanelWorkspace({
         onSelectRecommendationReference={onSelectRecommendationReference}
         onOpenCompany={onOpenCompany}
         onSelectPatternAsset={onSelectPatternAsset}
+        chartLinkOptions={chartLinkOptions}
+        chartSelectionActive={chartLinkCommentaryContentId === content.id}
+        orderPriceSelection={selectedOrderContentId === content.id ? chartPriceSelection : null}
+        onChartPriceSelection={onChartPriceSelection}
+        onChartTradeSetupChange={onChartTradeSetupChange}
+        onChartSelectionToggle={(contentId) => setChartLinkCommentaryContentId((current) => current === contentId ? null : contentId)}
+        onCommentaryChartChange={(contentId, chartDocumentId) => {
+          rebindCommentaryChart(contentId, chartDocumentId);
+          setChartLinkCommentaryContentId(null);
+        }}
       />
     );
     return (
@@ -926,6 +1009,8 @@ export function PanelWorkspace({
           isLayoutResizing ? "is-layout-resizing" : "",
           slot.wildPanel ? "is-wild-panel" : "",
           selectedWildPanelSlotId === slot.id ? "is-selected-wild-panel" : "",
+          chartLinkCommentaryContentId && isChart ? "is-chart-link-target" : "",
+          chartLinkCommentaryContentId && isChart && chartDocument?.id === chartLinkCurrentDocumentId ? "is-chart-link-current" : "",
           `is-layout-${layoutMode}`,
           layoutEditMode ? "is-layout-editing" : ""
         ].filter(Boolean).join(" ")}
@@ -940,8 +1025,22 @@ export function PanelWorkspace({
             setChartSlotHover(slot.id, false);
           }
         }}
-        onPointerDownCapture={selectWildPanel}
+        onPointerDownCapture={(event) => {
+          if (isChart) {
+            onActiveChartChange(content.id);
+          }
+          if (isChartPriceOrderPanelKind(content.kind)) {
+            setLastInteractedOrderContentId(content.id);
+          }
+          selectWildPanel(event);
+        }}
         onFocusCapture={() => {
+          if (isChart) {
+            onActiveChartChange(content.id);
+          }
+          if (isChartPriceOrderPanelKind(content.kind)) {
+            setLastInteractedOrderContentId(content.id);
+          }
           if (!layoutEditMode && slot.wildPanel && selectedWildPanelSlotId !== slot.id) {
             onSelectWildPanel(slot.id);
           }
@@ -1352,6 +1451,13 @@ function readContentSymbol(content: PanelContentInstance): string | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isChartPriceOrderPanelKind(kind: PanelContentKind): boolean {
+  return kind === "trade"
+    || kind === "quickOrder"
+    || kind === "paperTrade"
+    || kind === "paperQuickOrder";
 }
 
 function isPortfolioPanelKind(kind: PanelContentKind): boolean {

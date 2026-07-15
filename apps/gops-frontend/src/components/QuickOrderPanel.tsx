@@ -2,6 +2,7 @@ import { AlertTriangle, LoaderCircle, Minus, Plus, Search, SendHorizontal } from
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
+import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
 import { openChartSocket } from "../chart/cdcClient";
 import {
   fetchOrderFlowIntraday,
@@ -41,6 +42,7 @@ type QuickOrderPanelProps = {
   onSymbolChange?: (symbol: string) => void;
   onQtyChange?: (qty: number) => void;
   executionMode?: OrderExecutionMode;
+  chartPriceSelection?: ChartPriceSelection | null;
 };
 
 type StreamState = "idle" | "connecting" | "live" | "error";
@@ -56,12 +58,15 @@ export function QuickOrderPanel({
   symbolOptions,
   onSymbolChange,
   onQtyChange,
-  executionMode = "kis"
+  executionMode = "kis",
+  chartPriceSelection = null
 }: QuickOrderPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
   const socketsRef = useRef(new Map<string, WebSocket>());
   const toastTimersRef = useRef(new Map<string, number>());
   const symbolSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const appliedChartPriceSelectionRef = useRef<string | null>(null);
+  const lastIntentSideRef = useRef<QuickOrderIntent["side"]>("buy");
   const [supportedSymbols, setSupportedSymbols] = useState<string[]>([]);
   const [paperSymbolOptions, setPaperSymbolOptions] = useState<WatchlistSymbol[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState(symbol.trim().toUpperCase());
@@ -79,6 +84,7 @@ export function QuickOrderPanel({
   const [balance, setBalance] = useState<Balance>();
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedSymbol(symbol.trim().toUpperCase());
@@ -86,6 +92,22 @@ export function QuickOrderPanel({
     setSymbolSearchOpen(false);
   }, [symbol]);
   useEffect(() => setQtyText(String(Math.max(1, Math.floor(savedQty)))), [savedQty]);
+
+  useEffect(() => {
+    if (!chartPriceSelection || appliedChartPriceSelectionRef.current === chartPriceSelection.selectedAt) {
+      return;
+    }
+    const normalizedSymbol = chartPriceSelection.symbol.trim().toUpperCase();
+    if (!normalizedSymbol || !Number.isFinite(chartPriceSelection.price) || chartPriceSelection.price <= 0) {
+      return;
+    }
+    appliedChartPriceSelectionRef.current = chartPriceSelection.selectedAt;
+    setSelectedSymbol(normalizedSymbol);
+    setSymbolSearchQuery("");
+    setSymbolSearchOpen(false);
+    setChartPriceSource(`${normalizedSymbol} 차트에서 $${chartPriceSelection.formattedPrice} 적용`);
+    onSymbolChange?.(normalizedSymbol);
+  }, [chartPriceSelection, onSymbolChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,6 +141,12 @@ export function QuickOrderPanel({
       .slice(0, 8);
   }, [quickOrderSymbolOptions, symbolSearchQuery]);
   const selectedSymbolName = quickOrderSymbolOptions.find((item) => item.symbol === selectedSymbol)?.name;
+
+  useEffect(() => {
+    if (intent) {
+      lastIntentSideRef.current = intent.side;
+    }
+  }, [intent]);
 
   useEffect(() => {
     if (!symbolSearchOpen) return;
@@ -164,6 +192,22 @@ export function QuickOrderPanel({
       });
     return () => controller.abort();
   }, [orderFlowSupported, selectedSymbol]);
+
+  useEffect(() => {
+    if (!chartPriceSelection
+      || appliedChartPriceSelectionRef.current !== chartPriceSelection.selectedAt
+      || chartPriceSelection.symbol.trim().toUpperCase() !== selectedSymbol) {
+      return;
+    }
+    setIntent({
+      side: lastIntentSideRef.current,
+      price: chartPriceSelection.price,
+      source: "manual",
+      label: "차트 선택 가격"
+    });
+    setPriceText(chartPriceSelection.formattedPrice);
+    setRisk(undefined);
+  }, [chartPriceSelection, selectedSymbol]);
 
   useEffect(() => {
     if (!supported) {
@@ -448,6 +492,8 @@ export function QuickOrderPanel({
           {symbolPicker}
         </header>
       )}
+
+      {chartPriceSource && <p className="order-chart-price-source" role="status">{chartPriceSource}</p>}
 
       <div className="quick-order-quote-grid" role="group" aria-label="주문 가격 선택">
         <button type="button" className={`quick-order-quote buy ${intent?.source === "best-bid" ? "selected" : ""}`} aria-pressed={intent?.source === "best-bid"} disabled={Boolean(disabledReason)} onClick={() => bidIntent && selectIntent(bidIntent)}>

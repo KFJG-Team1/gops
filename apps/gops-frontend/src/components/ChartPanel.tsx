@@ -61,6 +61,8 @@ import {
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
+import { projectChartTradeSetup } from "../chart/chartTradeSetup";
+import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
@@ -114,7 +116,7 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
@@ -192,6 +194,12 @@ type PendingSemanticClick = {
   y: number;
 };
 
+type PriceAxisPointer = {
+  pointerId: number;
+  x: number;
+  y: number;
+};
+
 type ExpansionOverlay = {
   id: string;
   label: string;
@@ -252,6 +260,8 @@ type ChartPanelProps = {
   emphasizeSelection?: boolean;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
+  onPriceSelection?: (selection: ChartPriceSelection) => void;
+  onTradeSetupChange?: (chartDocumentId: string, snapshot: ChartTradeSetupSnapshot | null) => void;
   toolbarLeading?: ReactNode;
   toolbarAfterViewControls?: ReactNode;
 };
@@ -260,6 +270,7 @@ export type ChartPanelHandle = {
   getSnapshot: () => ChartState;
   getChartDocumentId: () => string;
   getAnalysisAssetIdentity: () => Record<string, unknown> | null;
+  getTradeSetupSnapshot: () => ChartTradeSetupSnapshot | null;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
   clearSemanticSelection: () => void;
@@ -387,6 +398,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   emphasizeSelection = false,
   onChartHoverChange,
   onHeaderChange,
+  onPriceSelection,
+  onTradeSetupChange,
   toolbarLeading,
   toolbarAfterViewControls
 }: ChartPanelProps, ref) {
@@ -425,6 +438,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   });
   const [spotlightDrawingIds, setSpotlightDrawingIds] = useState<string[]>([]);
   const [spotlightCandleTimestamp, setSpotlightCandleTimestamp] = useState<string | undefined>();
+  const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -566,6 +580,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const labelEditorInputRef = useRef<HTMLInputElement | null>(null);
   const cancelLabelEditRef = useRef(false);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
+  const priceAxisPointerRef = useRef<PriceAxisPointer | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
   const wheelViewportRef = useRef<ChartViewport | null>(null);
   const wheelRenderFrameRef = useRef<number | null>(null);
@@ -671,7 +686,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
     : null;
-  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
+  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles, analysisAssets?.assets);
   const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
     activeAnalysisAsset.asOf,
     chart.candles,
@@ -679,6 +694,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeAnalysisAsset.interval
   ) : false;
   const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
+  const chartTradeSetup = useMemo(() => projectChartTradeSetup(
+    activeAnalysisAsset,
+    chart.candles,
+    analysisAssets?.assets
+  ), [activeAnalysisAsset, analysisAssets?.assets, chart.candles]);
+  const chartTradeSetupSnapshot = useMemo<ChartTradeSetupSnapshot | null>(() => chartTradeSetup ? {
+    version: "chart-trade-setup-snapshot-v1",
+    chartDocumentId: document.id,
+    sourcePanelId: panelId,
+    symbol: chart.symbol.trim().toUpperCase(),
+    interval: chart.interval,
+    setup: chartTradeSetup,
+    assetIdentity: { ...chartTradeSetup.assetIdentity },
+    spotlightPrice: spotlightProposalPrice
+  } : null, [chart.interval, chart.symbol, chartTradeSetup, document.id, panelId, spotlightProposalPrice]);
+
+  useEffect(() => {
+    onTradeSetupChange?.(document.id, chartTradeSetupSnapshot);
+    return () => onTradeSetupChange?.(document.id, null);
+  }, [chartTradeSetupSnapshot, document.id, onTradeSetupChange]);
 
   useEffect(() => {
     setActiveTradePlan(document.id, projectActiveTradePlan(
@@ -703,7 +738,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
       ? analysisAssets.assets[interval]
       : null;
-    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
+    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles, analysisAssets?.assets);
     const asset = resolvedAsset
       ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
           resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
@@ -764,6 +799,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         drawingIds?: string[];
         mode?: "select" | "spotlight" | "clear";
         anchor?: { timestamp?: string | null } | null;
+        price?: number | null;
       }>).detail;
       if (detail?.chartDocumentId) {
         if (detail.chartDocumentId !== document.id) return;
@@ -771,6 +807,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (detail.mode === "clear") {
         setSpotlightDrawingIds([]);
         setSpotlightCandleTimestamp(undefined);
+        setSpotlightProposalPrice(null);
         return;
       }
       const analysisInterval = isAnalysisAssetInterval(chart.interval) ? chart.interval : null;
@@ -781,6 +818,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         ? chartRef.current.candles.find((candle) => candleKeyForTimestamp(candle.timestamp, analysisInterval!) === anchorKey)
         : undefined;
       setSpotlightCandleTimestamp(anchorCandle?.timestamp);
+      setSpotlightProposalPrice(typeof detail.price === "number" && Number.isFinite(detail.price) && detail.price > 0
+        ? detail.price
+        : null);
       const validIds = detail.drawingIds?.filter((id) => chartRef.current.drawings.some((drawing) => drawing.id === id)) ?? [];
       if (detail.mode === "spotlight") {
         setSpotlightDrawingIds(validIds);
@@ -788,6 +828,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       const drawingId = validIds[0];
       if (!drawingId) return;
+      setSpotlightDrawingIds(validIds);
       dispatchExternalCommandGroup([
         makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
         makeChartCommand("chart.drawing.select", "system", commandTarget, { drawingId }, undefined, "external")
@@ -800,6 +841,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     setSpotlightDrawingIds([]);
     setSpotlightCandleTimestamp(undefined);
+    setSpotlightProposalPrice(null);
   }, [chart.interval, chart.symbol, document.id]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
@@ -1697,6 +1739,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.viewport.set", nextViewport, "user", historyScope);
   }, [dispatchDocumentCommand, loadOlderCandles]);
 
+  useEffect(() => {
+    const lastCandleIndex = chart.candles.length - 1;
+    const projectionBars = chart.drawings
+      .filter((drawing) => drawing.visible !== false && drawing.style.zoneSplit === true)
+      .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.logicalIndex))
+      .filter((logicalIndex): logicalIndex is number => typeof logicalIndex === "number" && Number.isFinite(logicalIndex))
+      .reduce((maximum, logicalIndex) => Math.max(maximum, logicalIndex - lastCandleIndex), 0);
+    if (projectionBars <= 0 || chart.rightOffset < 0) return;
+    const sceneVisibleCount = sceneRef.current?.visibleSlotCount ?? chart.visibleCount;
+    const futureSlots = Math.max(projectionBars + 2, Math.floor(sceneVisibleCount / 4));
+    applyViewport({ visibleCount: chart.visibleCount, rightOffset: -futureSlots }, "external");
+  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount]);
+
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
     const nextProfileSceneRange = volumeProfileSceneRangeFromScene(scene);
@@ -1813,12 +1868,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       symbol: activeAnalysisAsset.symbol,
       interval: activeAnalysisAsset.interval
     } : null,
+    getTradeSetupSnapshot: () => chartTradeSetupSnapshot,
     setInterval,
     setChartType,
     // Lets the agent reference chip clear this chart's candle highlight when the
     // reference is removed from the input strip.
     clearSemanticSelection: () => setSelectedSemanticNode(null)
-  }), [activeAnalysisAsset, document.id, setChartType, setInterval]);
+  }), [activeAnalysisAsset, chartTradeSetupSnapshot, document.id, setChartType, setInterval]);
 
   const queueWheelViewport = useCallback((viewport: ChartViewport) => {
     wheelViewportRef.current = viewport;
@@ -1937,6 +1993,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const priceAxisPoint = chartPriceAxisPoint(scene, point.x, point.y);
+    if (priceAxisPoint) {
+      priceAxisPointerRef.current = { pointerId: event.pointerId, x: point.x, y: point.y };
+      setCrosshair(point);
+      setHoveredSemanticNodeId(undefined);
+      setHoverSnapshot(null);
+      event.currentTarget.style.cursor = "crosshair";
+      return;
+    }
+    if (isChartRightAxisPoint(scene, point.x, point.y)) {
+      setCrosshair(undefined);
+      return;
+    }
     const drawingHit = chart.toolMode === "select" ? hitTestDrawing(scene, point.x, point.y) : null;
 
     // A canvas pointer-down can unmount the absolute editor before the browser
@@ -2108,6 +2177,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return;
     }
     const paneResize = paneResizeRef.current;
+    const rightAxisPoint = isChartRightAxisPoint(scene, point.x, point.y);
     const boundaryHit = findBoundaryHit(scene, point);
     const axisDigUnit = !paneResize && !boundaryHit && semanticDigEnabled
       ? hitTestTimeAxisUnit(scene, point.x, point.y)
@@ -2119,6 +2189,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       event.currentTarget.style.cursor = "none";
     } else {
       event.currentTarget.style.cursor = "crosshair";
+    }
+
+    if (rightAxisPoint && !paneResize && !drawingDragRef.current && !dragAnchorRef.current) {
+      setHoveredSemanticNodeId(undefined);
+      setHoverSnapshot(null);
+      setTransientDrawings(null);
+      return;
     }
 
     if (paneResize) {
@@ -2220,6 +2297,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const priceAxisPointer = priceAxisPointerRef.current;
     const drawingDrag = drawingDragRef.current;
     const dragAnchor = dragAnchorRef.current;
     const paneResize = paneResizeRef.current;
@@ -2230,6 +2308,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
+    priceAxisPointerRef.current = null;
     transientViewportRef.current = null;
     transientPaneRatiosRef.current = null;
     setTransientViewport(null);
@@ -2239,6 +2318,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
       // Pointer capture can be released by the browser before this handler runs.
+    }
+    if (priceAxisPointer) {
+      const scene = sceneRef.current;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const axisPoint = scene ? chartPriceAxisPoint(scene, point.x, point.y) : null;
+      const clickDistance = Math.hypot(point.x - priceAxisPointer.x, point.y - priceAxisPointer.y);
+      if (axisPoint && priceAxisPointer.pointerId === event.pointerId && clickDistance <= 5) {
+        onPriceSelection?.({
+          version: "chart-price-selection-v1",
+          chartDocumentId: document.id,
+          sourcePanelId: panelId,
+          symbol: chart.symbol.trim().toUpperCase(),
+          interval: chart.interval,
+          price: axisPoint.price,
+          formattedPrice: axisPoint.formattedPrice,
+          selectedAt: new Date().toISOString()
+        });
+      }
+      return;
     }
     if (drawingDrag) {
       if (!drawingDrag.moved) {
@@ -2291,6 +2390,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
+    priceAxisPointerRef.current = null;
     transientViewportRef.current = null;
     transientPaneRatiosRef.current = null;
     setTransientViewport(null);
@@ -2445,6 +2545,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerLeave={() => {
+            priceAxisPointerRef.current = null;
             setHoveredSemanticNodeId(undefined);
             setHoverSnapshot(null);
             if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
@@ -2761,7 +2862,7 @@ export function ChartDrawingDock({
     });
     setOpenDrawingMenu(null);
   };
-  const updateSelectedDrawingLineWidth = (lineWidth: 1 | 2 | 3) => {
+  const updateSelectedDrawingLineWidth = (lineWidth: number) => {
     if (!selectedDrawing) {
       return;
     }
@@ -2871,25 +2972,17 @@ export function ChartDrawingDock({
           })}
           <div className="chart-drawing-width-divider" aria-hidden="true" />
           <div className="chart-drawing-width-options" role="group" aria-label="선 두께">
-            {([1, 2, 3] as const).map((lineWidth) => {
-              const active = selectedLineWidthStage === lineWidth;
-              return (
-                <button
-                  key={`width-${lineWidth}`}
-                  type="button"
-                  className={active ? "active" : ""}
-                  aria-label={`선 두께 ${lineWidth}`}
-                  aria-pressed={active}
-                  onClick={() => updateSelectedDrawingLineWidth(lineWidth)}
-                >
-                  <span
-                    className="chart-drawing-width-sample"
-                    style={{ height: lineWidth }}
-                    aria-hidden="true"
-                  />
-                </button>
-              );
-            })}
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="0.5"
+              value={selectedLineWidthStage}
+              aria-label="선 두께 1에서 5"
+              aria-valuetext={`${selectedLineWidthStage}`}
+              onChange={(event) => updateSelectedDrawingLineWidth(Number(event.target.value))}
+            />
+            <output aria-live="polite">{selectedLineWidthStage.toFixed(1)}</output>
           </div>
         </div>,
         window.document.body

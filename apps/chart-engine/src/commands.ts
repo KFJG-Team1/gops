@@ -688,7 +688,7 @@ function readStyle(value: unknown): DrawingStyle {
   return {
     color: color ?? undefined,
     colorToken: readString(source.colorToken) ?? (color ? undefined : "drawing"),
-    lineWidth: readNumber(source.lineWidth) ?? 1.0,
+    lineWidth: normalizeDrawingLineWidth(source.lineWidth, 1),
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
     fillColor: fillColor ?? undefined,
     fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),
@@ -699,7 +699,9 @@ function readStyle(value: unknown): DrawingStyle {
     opacity: readNumber(source.opacity) ?? 1,
     extension: isLineExtension(source.extension) ? source.extension : undefined,
     labelPlacement: isLabelPlacement(source.labelPlacement) ? source.labelPlacement : undefined,
-    zoneSplit: typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined
+    zoneSplit: typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined,
+    proposalAction: source.proposalAction === "buy_candidate" || source.proposalAction === "sell_candidate" ? source.proposalAction : undefined,
+    proposalKind: source.proposalKind === "confirmed" || source.proposalKind === "conditional" ? source.proposalKind : undefined
   };
 }
 
@@ -716,7 +718,9 @@ function readStylePatch(value: unknown): DrawingStyle {
   }
   for (const key of ["lineWidth", "fillOpacity", "fontSize", "opacity"] as const) {
     if (key in source) {
-      patch[key] = readNumber(source[key]) ?? undefined;
+      patch[key] = key === "lineWidth"
+        ? normalizeDrawingLineWidth(source[key], undefined)
+        : readNumber(source[key]) ?? undefined;
     }
   }
   if ("lineDash" in source) {
@@ -733,7 +737,18 @@ function readStylePatch(value: unknown): DrawingStyle {
   if ("zoneSplit" in source) {
     patch.zoneSplit = typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined;
   }
+  if ("proposalAction" in source) {
+    patch.proposalAction = source.proposalAction === "buy_candidate" || source.proposalAction === "sell_candidate" ? source.proposalAction : undefined;
+  }
+  if ("proposalKind" in source) {
+    patch.proposalKind = source.proposalKind === "confirmed" || source.proposalKind === "conditional" ? source.proposalKind : undefined;
+  }
   return patch;
+}
+
+function normalizeDrawingLineWidth(value: unknown, fallback: number | undefined): number | undefined {
+  const width = readNumber(value);
+  return width === null ? fallback : Math.max(1, Math.min(5, width));
 }
 
 function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: string): DrawingEntity | null {
