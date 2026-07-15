@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createTradeAutomationConfirmationDraft,
   isTradeAutomationConfirmationIntent,
+  priceConditionInputFromTradeAutomationDraft,
   tradeAutomationDraftMatchesSnapshot,
   type ChartPriceSelection,
   type ChartTradeSetupSnapshot
@@ -66,10 +67,23 @@ const matchingSelection: ChartPriceSelection = {
 
 const selectedDraft = createTradeAutomationConfirmationDraft(snapshot, matchingSelection, "2026-07-15T10:01:00Z");
 assert.equal(selectedDraft?.reservationPrice, 462.35);
+assert.equal(selectedDraft?.quantity, 20);
 assert.equal(selectedDraft?.targetPrice, setup.targetPrice);
 assert.equal(selectedDraft?.stopPrice, setup.stopPrice);
 assert.equal(selectedDraft?.status, "pending");
 assert.equal(tradeAutomationDraftMatchesSnapshot(selectedDraft!, snapshot), true);
+assert.deepEqual(priceConditionInputFromTradeAutomationDraft(selectedDraft!), {
+  symbol: "AMD",
+  side: "buy",
+  direction: "atOrBelow",
+  triggerPrice: 462.35,
+  limitPrice: 462.35,
+  quantity: 20,
+  exchange: "NASD",
+  executionEnabled: true,
+  alertsEnabled: true,
+  validity: "GTC"
+});
 
 const otherChartSelection = { ...matchingSelection, chartDocumentId: "chart-document-2", price: 999 };
 assert.equal(createTradeAutomationConfirmationDraft(snapshot, otherChartSelection)?.reservationPrice, 470.25);

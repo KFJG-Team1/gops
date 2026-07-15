@@ -11,6 +11,7 @@ import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";
 import "./chartTradeAutomation.test";
+import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";

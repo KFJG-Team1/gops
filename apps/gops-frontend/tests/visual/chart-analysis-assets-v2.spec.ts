@@ -119,7 +119,7 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByText(/적용된 근거·제안 작도/)).toBeVisible();
 });
 
-test("price axis selection syncs one order panel and local trade automation stays preview-only", async ({ page }) => {
+test("price axis selection creates a 20-share paper trade condition after confirmation", async ({ page }) => {
   const executionRequests: string[] = [];
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname;
@@ -128,6 +128,7 @@ test("price axis selection syncs one order panel and local trade automation stay
       "/api/paper/orders",
       "/api/alerts",
       "/api/alerts/commands",
+      "/api/trade-conditions",
       "/api/trade-conditions/commands",
       "/api/agents/analyze"
     ].includes(pathname)) executionRequests.push(pathname);
@@ -159,7 +160,8 @@ test("price axis selection syncs one order panel and local trade automation stay
   await expect(dialog).toContainText(`$${selectedPrice}`);
   await expect(dialog).toContainText("$194.00");
   await expect(dialog).toContainText("$170.00");
-  await expect(dialog).toContainText("frontend_preview_only");
+  await expect(dialog.getByLabel("예약 수량")).toHaveValue("20");
+  await expect(dialog).toContainText("가상계좌 예약매매와 가격 알림이 실제로 등록됩니다");
   const cancel = dialog.getByRole("button", { name: "취소" });
   const confirm = dialog.getByRole("button", { name: "확인" });
   await expect(cancel).toBeFocused();
@@ -172,8 +174,8 @@ test("price axis selection syncs one order panel and local trade automation stay
   await command.fill("이 때 사자");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "확인" }).click();
-  await expect(page.locator(".alert-toast")).toContainText("NVDA 예약매매와 목표가·손절가 알림 요청이 반영되었습니다");
-  expect(executionRequests).toEqual([]);
+  await expect(page.locator(".agent-header-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
+  expect(executionRequests).toEqual(["/api/trade-conditions"]);
 });
 
 test("price axis targets the last interacted panel when multiple order panels exist", async ({ page }) => {
@@ -252,6 +254,28 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/order-flow/symbols") payload = { symbols: ["NVDA"], priceBinSize: .01 };
   else if (url.pathname === "/api/charts/order-flow/intraday") payload = { symbol: "NVDA", sessionDate: "2026-07-14", dataStatus: "ready", supportedSymbols: ["NVDA"], priceBinSize: .01, minutes: [] };
   else if (url.pathname === "/api/orders/balance") payload = { currency: "USD", orderable_cash: "10000.00" };
+  else if (url.pathname === "/api/trade-conditions" && request.method() === "POST") {
+    const body = request.postDataJSON();
+    payload = {
+      condition: {
+        id: 1,
+        alert_id: 11,
+        symbol: body.symbol,
+        side: body.side,
+        direction: body.direction,
+        target_price: body.triggerPrice,
+        limit_price: body.limitPrice,
+        quantity: body.quantity,
+        status: "watching",
+        execution_enabled: true,
+        notifications_enabled: true,
+        validity: body.validity,
+        market_hours: "REGULAR"
+      },
+      projectionStatus: "synced"
+    };
+    status = 201;
+  }
   else if (url.pathname === "/api/agents/analyze" && request.method() === "POST") {
     if (delayAgentAnswer) await new Promise((resolve) => setTimeout(resolve, 1_200));
     payload = chartAnalysisReport(request.postDataJSON());
