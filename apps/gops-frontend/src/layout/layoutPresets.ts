@@ -57,9 +57,10 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   stock: {
     name: "기업분석",
     spec: [
-      { kind: "chart", gridRect: { col: 1, row: 1, colSpan: 6, rowSpan: 3 } },
-      { kind: "company", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 3 } },
-      { kind: "watchlistNews", gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 2 } }
+      { kind: "companyCompare", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 4 } },
+      { kind: "chart", gridRect: { col: 1, row: 5, colSpan: 4, rowSpan: 2 } },
+      { kind: "company", gridRect: { col: 5, row: 5, colSpan: 2, rowSpan: 2 } },
+      { kind: "watchlistNews", gridRect: { col: 7, row: 5, colSpan: 2, rowSpan: 2 } }
     ]
   },
   chart: {
@@ -130,7 +131,11 @@ export function buildPresetLayout(
     const shouldReplaceLegacyAssetLayout = preset.id === "asset"
       && isStoredTiledPanelStateShape(layout)
       && !hasCurrentAssetPortfolioLayout(layout);
-    if (!shouldReplaceLegacyAssetLayout) {
+    const shouldReplaceLegacyStockLayout = preset.kind === "default"
+      && preset.id === "stock"
+      && isStoredTiledPanelStateShape(layout)
+      && !storedLayoutHasPanelKind(layout, "companyCompare");
+    if (!shouldReplaceLegacyAssetLayout && !shouldReplaceLegacyStockLayout) {
       const restored = restoreTiledPanelStateSnapshot(layout, viewport, options.layoutMetrics);
       if (restored) {
         return restored;
@@ -422,6 +427,10 @@ function isStoredTiledPanelStateShape(value: unknown): value is StoredTiledPanel
     && Array.isArray((value as { slots?: unknown }).slots)
     && Boolean((value as { contents?: unknown }).contents)
     && typeof (value as { contents?: unknown }).contents === "object";
+}
+
+function storedLayoutHasPanelKind(layout: StoredTiledPanelState, kind: PanelContentKind): boolean {
+  return Object.values(layout.contents).some((content) => content.kind === kind);
 }
 
 const CUSTOM_PRESET_PLACEHOLDER = "사용자지정";

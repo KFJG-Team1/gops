@@ -86,6 +86,9 @@ const OrderTicket = lazy(() => import("./OrderTicket").then((module) => ({
 const QuickOrderPanel = lazy(() => import("./QuickOrderPanel").then((module) => ({
   default: module.QuickOrderPanel
 })));
+const CompanyComparePanel = lazy(() => import("../companyCompare/CompanyComparePanel").then((module) => ({
+  default: module.CompanyComparePanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -264,6 +267,21 @@ export function PanelContentRenderer({
           symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols.filter((item) => item.toUpperCase() !== nextSymbol.toUpperCase())])
         })}
       />
+    );
+  }
+
+  if (content.kind === "companyCompare") {
+    const baseSymbol = readCompanyCompareBaseSymbol(content, symbol);
+    const compareSymbols = readCompanyCompareSymbols(content, baseSymbol);
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">기업 비교 패널을 불러오는 중입니다</div>}>
+        <CompanyComparePanel
+          baseSymbol={baseSymbol}
+          compareSymbols={compareSymbols}
+          symbols={symbols}
+          onCompareSymbolsChange={(nextSymbols) => onUpdatePanelProps(content.id, { compareSymbols: nextSymbols })}
+        />
+      </Suspense>
     );
   }
 
@@ -828,6 +846,17 @@ function readCompareSymbols(content: PanelContentInstance, baseSymbol: string): 
 function readCompareRange(content: PanelContentInstance): ChartCompareRange {
   const raw = typeof content.props?.range === "string" ? content.props.range.toUpperCase() : "";
   return raw === "1D" || raw === "1M" || raw === "6M" || raw === "1Y" || raw === "5Y" ? raw : "1D";
+}
+
+function readCompanyCompareBaseSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  return (readString(content.props?.baseSymbol) ?? fallbackSymbol).trim().toUpperCase();
+}
+
+function readCompanyCompareSymbols(content: PanelContentInstance, baseSymbol: string): string[] {
+  const values = Array.isArray(content.props?.compareSymbols) ? content.props.compareSymbols : [];
+  return normalizeCompareSymbols(values.filter((value): value is string => typeof value === "string"))
+    .filter((symbol) => symbol !== baseSymbol.toUpperCase())
+    .slice(0, 3);
 }
 
 function normalizeCompareSymbols(values: string[]): string[] {

@@ -4341,7 +4341,7 @@ assert.doesNotMatch(panelLayoutSource, /insertPanelAtBoundary|canInsertPanelAtBo
 assert.match(panelLayoutSource, /detectResizablePanelBoundaries/);
 assert.match(panelLayoutSource, /resizeFreeformBoundary/);
 assert.match(panelLayoutSource, /normalizeFreeformRectsToGridLayout/);
-assert.match(panelLayoutSource, /const inheritsSymbol = item\.kind === "chart" \|\| item\.kind === "company" \|\| item\.kind === "compare";/);
+assert.match(panelLayoutSource, /const inheritsSymbol = item\.kind === "chart" \|\| item\.kind === "company" \|\| item\.kind === "compare" \|\| item\.kind === "companyCompare";/);
 const panelWorkspaceSource = readFileSync(fileURLToPath(new URL("../src/components/PanelWorkspace.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelWorkspaceSource, /panel-boundary-add|panel-add-menu|insertPanelAtBoundary|canInsertPanelAtBoundary|beginPanelSwap|hitTestSwappableSlot|boundaryAddMenuPosition/);
 assert.match(panelWorkspaceSource, /content\.kind === "priceCondition"/);
@@ -4425,6 +4425,28 @@ assert.ok(recommendationLayout);
 assert.deepEqual(
   recommendationLayout.slots.map((slot) => recommendationLayout.contents[slot.contentId]?.kind),
   ["recommendationsList", "indices", "themeRadar", "news"]
+);
+const companyAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "stock");
+assert.ok(companyAnalysisPreset);
+const companyAnalysisLayout = buildPresetLayout(companyAnalysisPreset, { width: 1280, height: 720 });
+assert.ok(companyAnalysisLayout);
+assert.deepEqual(
+  companyAnalysisLayout.slots.map((slot) => companyAnalysisLayout.contents[slot.contentId]?.kind),
+  ["companyCompare", "chart", "company", "watchlistNews"]
+);
+assert.deepEqual(companyAnalysisLayout.slots[0]?.gridRect, { col: 1, row: 1, colSpan: 8, rowSpan: 4 });
+const migratedCompanyAnalysisLayout = buildPresetLayout(
+  {
+    ...companyAnalysisPreset,
+    layout: serializeTiledPanelState(createInitialTiledPanelState({ width: 1280, height: 720 }, { symbol: "NVDA" }))
+  },
+  { width: 1280, height: 720 },
+  { symbol: "NVDA" }
+);
+assert.ok(migratedCompanyAnalysisLayout);
+assert.equal(
+  migratedCompanyAnalysisLayout.slots.some((slot) => migratedCompanyAnalysisLayout.contents[slot.contentId]?.kind === "companyCompare"),
+  true
 );
 const recommendationReference = stockRecommendationReference({
   symbol: "msft",
