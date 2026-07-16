@@ -243,12 +243,100 @@
 }
 
 .chart-commentary-panel {
+  display: grid;
   box-sizing: border-box;
   min-height: 0;
   flex: 1 1 auto;
+  align-content: start;
+  gap: var(--panel-gap);
   overflow: auto;
-  padding: 16px;
+  padding: var(--panel-padding);
+  background: transparent;
   color: var(--color-text);
+}
+
+.chart-commentary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--panel-gap);
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  padding-bottom: var(--panel-gap);
+}
+
+.chart-commentary-instrument {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-commentary-instrument h2 {
+  margin: 0;
+  overflow: hidden;
+  text-transform: var(--type-instrument-name-text-transform);
+  letter-spacing: var(--type-instrument-name-letter-spacing);
+  font: var(--type-instrument-name);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-commentary-interval {
+  flex: 0 0 auto;
+  border: 1px solid var(--coinbase-primary);
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--coinbase-primary);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.chart-commentary-header .chart-commentary-meta {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  text-align: right;
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+}
+
+.chart-commentary-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  padding-bottom: var(--panel-gap);
+}
+
+.chart-commentary-overview div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-right: 1px solid var(--coinbase-hairline-strong);
+  padding: 0 var(--panel-padding);
+}
+
+.chart-commentary-overview div:first-child { padding-left: 0; }
+.chart-commentary-overview div:last-child { border-right: 0; padding-right: 0; }
+
+.chart-commentary-overview span {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-commentary-overview strong {
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .chart-commentary-shell > .chart-commentary-empty,
@@ -474,6 +562,17 @@
 
 @keyframes chart-commentary-spin {
   to { transform: rotate(360deg); }
+}
+
+@container workspace-panel (max-width: 420px) {
+  .chart-commentary-header {
+    display: grid;
+  }
+
+  .chart-commentary-header .chart-commentary-meta {
+    justify-content: flex-start;
+    text-align: left;
+  }
 }
 
 .glossary-term {

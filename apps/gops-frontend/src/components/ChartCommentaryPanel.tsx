@@ -179,6 +179,7 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
   if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
   if (!diagnostics) return <Empty text="Geometry 자산을 해석할 수 없습니다" />;
+  const coverageLabel = asset.coverage.state === "full" ? "전체 데이터" : "부분 데이터";
   const focusStep = (stepId: string | null, mode: FocusMode) => {
     if (!chartDocumentId) return;
     const step = model.find((candidate) => candidate.id === stepId);
@@ -199,13 +200,22 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   };
   return (
     <article className="chart-commentary-panel">
-      <header className="chart-commentary-meta">
-        <span className="chart-commentary-badge">{symbol} · {interval}</span>
-        <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
-        <span className="chart-commentary-badge is-muted">{asset.coverage.state}</span>
+      <header className="chart-commentary-header">
+        <div className="chart-commentary-instrument">
+          <h2>{symbol}</h2>
+          <span className="chart-commentary-interval">{interval}</span>
+        </div>
+        <div className="chart-commentary-meta">
+          <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
+          <span>{coverageLabel}</span>
+        </div>
       </header>
+      <section className="chart-commentary-overview" aria-label="차트 해설 요약">
+        <div><span>지지선</span><strong>{asset.geometry.supports.length}</strong></div>
+        <div><span>저항선</span><strong>{asset.geometry.resistances.length}</strong></div>
+        <div><span>차트 적용</span><strong>{diagnostics.appliedDrawingCount}</strong></div>
+      </section>
       <h3 className="chart-commentary-headline"><GlossaryText text="차트 해설" /></h3>
-      <p className="chart-commentary-text"><GlossaryText text={`적용된 근거·제안 작도 ${diagnostics.appliedDrawingCount}개`} /></p>
       <section className="chart-commentary-focus" aria-label="차트 시나리오 단계">
         <ol>{model.map((step) => {
           const pinned = pinnedStepId === step.id;

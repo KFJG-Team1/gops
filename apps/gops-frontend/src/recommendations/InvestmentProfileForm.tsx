@@ -6,11 +6,13 @@ import {
   fetchInvestmentProfile,
   saveInvestmentProfile,
   type InvestmentProfile,
+  type RecommendationStyle,
   type RiskLevel
 } from "./recommendationApi";
 
 const defaultProfile: InvestmentProfile = {
   riskLevel: "balanced",
+  recommendationStyle: "balanced",
   horizon: "intraday",
   maxDrawdownPct: 6,
   preferredSectors: [],
@@ -108,6 +110,19 @@ export function InvestmentProfileForm({
         <strong>장중 추천 설정</strong>
         {loading && <LoaderCircle size={14} className="spin" />}
       </div>
+      <label className="investment-profile-field">
+        <span>추천 스타일</span>
+        <select
+          value={profile.recommendationStyle}
+          disabled={disabled || loading || saving}
+          onChange={(event) => setProfile((current) => ({ ...current, recommendationStyle: event.target.value as RecommendationStyle }))}
+        >
+          <option value="momentum">모멘텀 · 급등/추세</option>
+          <option value="balanced">균형 · 수익/안정</option>
+          <option value="stable">안정 · 유동성/저변동</option>
+        </select>
+        <small>종목 신호의 전문 팩터 비중을 선택합니다. 위험성향과는 별도로 적용됩니다.</small>
+      </label>
       <label className="investment-profile-field">
         <span>위험성향</span>
         <select

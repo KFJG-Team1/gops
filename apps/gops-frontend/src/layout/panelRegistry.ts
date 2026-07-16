@@ -162,6 +162,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "recommendationExplain",
+    title: "추천 해설",
+    agentPanelType: "stockRecommendationExplain",
+    minSpan: { colSpan: 3, rowSpan: 3 },
+    readableMinSpan: { colSpan: 5, rowSpan: 4 },
+    minSizePx: { width: 720, height: 460 },
+    defaultSpan: { colSpan: 5, rowSpan: 4 },
+    defaultLayoutWeight: 62,
+    insertable: true
+  },
+  {
     kind: "themeRadar",
     title: "분야추천",
     agentPanelType: "themeRadar",
@@ -180,6 +191,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     minSizePx: { width: 300, height: 200 },
     defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 50
+  },
+  {
+    kind: "companyJournal",
+    title: "AI 기업저널",
+    agentPanelType: "companyJournal",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 4, rowSpan: 3 },
+    minSizePx: { width: 640, height: 420 },
+    defaultSpan: { colSpan: 4, rowSpan: 4 },
+    defaultLayoutWeight: 88
   },
   {
     kind: "companyMulti",

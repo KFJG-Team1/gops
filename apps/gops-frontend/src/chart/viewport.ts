@@ -18,19 +18,17 @@ export type ViewportClampOptions = {
 
 export function clampVisibleCount(
   visibleCount: number,
-  candleCount: number,
+  _candleCount: number,
   plotWidth?: number,
-  options: Pick<ViewportClampOptions, "minimumVisibleSlots"> = {}
+  _options: Pick<ViewportClampOptions, "minimumVisibleSlots"> = {}
 ): number {
   const widthBound = typeof plotWidth === "number"
     ? Math.max(MIN_VISIBLE_CANDLES, Math.floor(Math.max(1, plotWidth) / MIN_READABLE_SLOT_WIDTH))
     : MAX_VISIBLE_CANDLES;
-  const minimumVisibleSlots = Math.max(0, Math.ceil(options.minimumVisibleSlots ?? 0));
-  // Once real candles are available, do not let a larger request limit create
-  // leading empty chart space that becomes the mouse-wheel zoom anchor.
-  const visibleDataBound = candleCount > 0 ? candleCount : minimumVisibleSlots;
-  const dataBound = visibleDataBound > 0 ? Math.max(MIN_VISIBLE_CANDLES, visibleDataBound) : MAX_VISIBLE_CANDLES;
-  const maxVisibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(MAX_VISIBLE_CANDLES, widthBound, dataBound));
+  // Viewport scale is a user interaction state. Candle availability and
+  // historical backfill only decide which slots contain data, never how far
+  // the user may zoom out.
+  const maxVisibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(MAX_VISIBLE_CANDLES, widthBound));
   return Math.max(MIN_VISIBLE_CANDLES, Math.min(maxVisibleCount, Math.round(visibleCount)));
 }
 

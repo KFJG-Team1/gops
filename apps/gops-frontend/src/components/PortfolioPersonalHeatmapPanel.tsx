@@ -45,6 +45,10 @@ export function PortfolioPersonalHeatmapPanel({
     () => mergeMarketUniverse(marketItems, sp500UniverseSeed),
     [marketItems]
   );
+  const marketOpacityDomain = useMemo(
+    () => universe.map((item) => item.changePercent ?? undefined),
+    [universe]
+  );
 
   useEffect(() => {
     if (positions.length === 0) return;
@@ -137,9 +141,11 @@ export function PortfolioPersonalHeatmapPanel({
         ) : (
           <TreeMapCanvas
             items={items}
+            opacityDomain={marketOpacityDomain}
             highlightedSymbol={view === "relations" ? anchorSymbol : undefined}
             ariaLabel={view === "holdings" ? "보유 종목 평가금 히트맵" : `${anchorSymbol} 관계 기업 트리맵`}
             onSelectSymbol={selectSymbol}
+            compact
           />
         )}
         {relationsLoading && view === "relations" ? (
@@ -280,9 +286,9 @@ function buildRelationHeatmapItems(
     const item = marketIndex.get(entry.symbol) ?? (entry.symbol === anchorSymbol ? anchor : baseMarketItem(entry.symbol, entry.symbol));
     return {
       ...item,
-      sector: "Related Companies",
-      sectorLabelKo: "관계 기업",
-      industry: entry.relation,
+      sector: item.sector || "Unclassified",
+      sectorLabelKo: item.sectorLabelKo || "미분류",
+      industry: item.industry || entry.relation,
       marketCap: positiveNumber(item.marketCap, 1),
       layoutMarketCap: Math.max(0.12, entry.score) * 1_000_000_000_000,
       indexWeight: undefined
