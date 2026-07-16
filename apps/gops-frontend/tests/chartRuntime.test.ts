@@ -111,6 +111,7 @@ import {
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
+  syncChartEventMarkerPositions,
   type ChartEventsResponse
 } from "../src/chart/chartEvents";
 import { volumeProfilePartialRetryDelaysMs, volumeProfileResponseMatchesRequest } from "../src/chart/volumeProfilePolicy";
@@ -577,6 +578,19 @@ assert.equal(dailyEventMarkers.length, 2);
 assert.equal(dailyEventMarkers[0].label, "E");
 assert.equal(dailyEventMarkers[1].label, "N 3");
 assert.notEqual(dailyEventMarkers[0].x, dailyEventMarkers[1].x);
+const movingEventElement = {
+  dataset: { chartEventId: dailyEventMarkers[0].id },
+  style: { left: "0px", top: "0px", visibility: "" }
+};
+const staleEventElement = {
+  dataset: { chartEventId: "news:AAPL:stale" },
+  style: { left: "10px", top: "10px", visibility: "" }
+};
+syncChartEventMarkerPositions({
+  querySelectorAll: () => [movingEventElement, staleEventElement]
+} as unknown as ParentNode, [{ ...dailyEventMarkers[0], x: 123.25, top: 271.5 }]);
+assert.deepEqual(movingEventElement.style, { left: "123.25px", top: "271.5px", visibility: "" });
+assert.equal(staleEventElement.style.visibility, "hidden");
 const intradayEventScene = buildFrontendChartScene(frontendChartState({
   interval: "1h",
   candles: [
@@ -4253,6 +4267,7 @@ assert.match(companySummaryPanelSource, /height: Math\.min\(measuredSize\.height
 assert.equal(companySummaryPanelSource.match(/<svg ref=\{chartRef\} className="company-(?:profitability|stability)/g)?.length, 1);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
+const chartEventOverlaySource = readFileSync(fileURLToPath(new URL("../src/components/ChartEventOverlay.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
 const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
@@ -4270,6 +4285,11 @@ assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
 assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
+assert.match(chartEventOverlaySource, /data-chart-event-id=\{marker\.id\}/);
+assert.ok(
+  chartPanelSource.indexOf("syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers)")
+    < chartPanelSource.indexOf("setChartEventMarkers(nextEventMarkers)")
+);
 assert.match(chartPanelSource, /liveTradePrice/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.match(chartPanelSource, /variant="drawing-tool"/);
