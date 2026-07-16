@@ -81,13 +81,6 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
 
   const loadNews = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (simulatorMode === "simulation") {
-      setPayload(null);
-      setLoading(false);
-      setRefreshing(false);
-      setError("시뮬레이션 시각 기준 뉴스 데이터가 없어 표시하지 않습니다.");
-      return;
-    }
     if (showRefreshing) {
       setRefreshing(true);
     } else {
@@ -96,7 +89,8 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
     setError(undefined);
     try {
       const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
-      const response = await fetch(`/api/market/news/daily?${params.toString()}`, { signal });
+      const endpoint = simulatorMode === "simulation" ? "/api/market/news/latest" : "/api/market/news/daily";
+      const response = await fetch(`${endpoint}?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(`뉴스 API 응답 오류 ${response.status}`);
