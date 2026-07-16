@@ -211,12 +211,14 @@ import {
 } from "../../chart-engine/src/viewport";
 import {
   clampRightOffset as frontendClampRightOffset,
+  clampVisibleCount as frontendClampVisibleCount,
   dragDeltaToRightOffset as frontendDragDeltaToRightOffset,
   futureEmptySlotCount as frontendFutureEmptySlotCount,
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
   latestCandleRightOffset as frontendLatestCandleRightOffset,
   normalizeViewport as frontendNormalizeViewport,
-  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
+  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta,
+  zoomViewport as frontendZoomViewport
 } from "../src/chart/viewport";
 import {
   createTreeMapOpacityScale,
@@ -3058,9 +3060,14 @@ assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120
   visibleCount: 72,
   rightOffset: -62
 });
+assert.equal(frontendClampVisibleCount(120, 3, 640, { minimumVisibleSlots: 120 }), 120);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 120, rightOffset: 0 }, 3, 640, { minimumVisibleSlots: 120 }), {
-  visibleCount: 6,
+  visibleCount: 120,
   rightOffset: 0
+});
+assert.deepEqual(frontendZoomViewport({ visibleCount: 6, rightOffset: -1 }, 18, 3, 640), {
+  visibleCount: 24,
+  rightOffset: -1
 });
 assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
 assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
@@ -3082,7 +3089,7 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+  { visibleCount: 120, rightOffset: frontendLatestCandleRightOffset(120) }
 );
 assert.deepEqual(
   viewportAfterSnapshotCandlesChange(
@@ -3094,7 +3101,7 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 6, rightOffset: frontendLatestCandleRightOffset(6) }
+  { visibleCount: 120, rightOffset: frontendLatestCandleRightOffset(120) }
 );
 const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -3103,9 +3110,9 @@ const sparseDailyScene = buildFrontendChartScene(frontendChartState({
   rightOffset: 0,
   requestedLimit: 120
 }), 640, 360);
-assert.equal(sparseDailyScene.visibleSlotCount, 6);
+assert.equal(sparseDailyScene.visibleSlotCount, 120);
 assert.equal(sparseDailyScene.candles.length, 3);
-assert.equal(sparseDailyScene.viewportStartIndex, -3);
+assert.equal(sparseDailyScene.viewportStartIndex, -117);
 const restoredDailyCandles = [
   ...Array.from({ length: 117 }, (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 80 + index)),
   ...sparseDailyCandles
@@ -3130,7 +3137,7 @@ assert.deepEqual(
     640,
     { minimumVisibleSlots: 120 }
   ),
-  { visibleCount: 6, rightOffset: 0 }
+  { visibleCount: 120, rightOffset: 0 }
 );
 const visibleCandlesBeforePrepend = Array.from({ length: 10 }, (_, index) => testCandle(`2026-06-25T13:${String(30 + index).padStart(2, "0")}:00Z`, 100 + index));
 const prependedCandles = Array.from({ length: 5 }, (_, index) => testCandle(`2026-06-25T13:${String(25 + index).padStart(2, "0")}:00Z`, 90 + index));
