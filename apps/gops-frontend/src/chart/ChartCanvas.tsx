@@ -2532,7 +2532,7 @@ function drawHoldingAveragePriceMarker(context: CanvasRenderingContext2D, scene:
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
   context.globalAlpha = 1;
   context.setLineDash([]);
-  drawPlanChip(context, paperHoldingOverlayLabel(holding), scene.plot.left + 8, y, colors.pointYellow);
+  drawDarkAxisPill(context, paperHoldingOverlayLabel(holding), rightAxisPillX(scene), y, "right", colors.pointYellow);
   context.restore();
 }
 
