@@ -82,8 +82,9 @@
   left: 10px;
   display: flex;
   max-width: calc(100% - 20px);
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   color: var(--color-muted);
 }
 
@@ -100,7 +101,7 @@
 
 .chart-analysis-layer-buttons button {
   display: inline-flex;
-  min-width: 54px;
+  min-width: 48px;
   height: 26px;
   align-items: center;
   justify-content: center;
@@ -135,7 +136,7 @@
 
 .chart-analysis-asof {
   overflow: hidden;
-  max-width: 120px;
+  max-width: 100%;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -372,6 +373,53 @@
 
 .chart-commentary-focus button span {
   color: var(--color-muted);
+}
+
+.chart-commentary-metric-panel {
+  margin-top: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 28%, var(--color-border));
+  border-radius: 5px;
+  padding: 7px;
+  background: color-mix(in srgb, var(--color-signal) 5%, var(--coinbase-panel-muted));
+}
+
+.chart-commentary-metric-panel[hidden] {
+  display: none;
+}
+
+.chart-commentary-metric-panel > p,
+.chart-commentary-metric-card h4 {
+  margin: 0;
+}
+
+.chart-commentary-metric-card + .chart-commentary-metric-card {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+.chart-commentary-metric-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  margin: 6px 0 0;
+}
+
+.chart-commentary-metric-card dl > div {
+  min-width: 0;
+}
+
+.chart-commentary-metric-card dt {
+  color: var(--color-muted);
+}
+
+.chart-commentary-metric-card dd {
+  overflow: hidden;
+  margin: 1px 0 0;
+  color: var(--color-text);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-commentary-levels {

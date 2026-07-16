@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { chartExplanationMatchesAsset, chartExplanationMatchesSource, type ChartExplanationAnchor } from "../agent/chartExplanation";
 import {
   normalizeChartCommentaryState,
@@ -160,6 +160,8 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   asset: ChartAnalysisAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
 }) {
+  const metricIdPrefix = useId().replace(/[^A-Za-z0-9_-]/g, "");
+  const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
   const diagnostics = useMemo(() => asset
     ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets)
@@ -170,12 +172,30 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   const model = useMemo(() => diagnostics
     ? buildChartCommentaryModel(diagnostics.resolvedAsset, setup)
     : [], [diagnostics, setup]);
+  useEffect(() => {
+    setPinnedStepId(null);
+  }, [asset?.algorithmVersion, asset?.asOf, asset?.inputDigest, chartDocumentId, interval, symbol]);
   if (!sourceAvailable) return <Empty text="원본 차트 없음" />;
   if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
   if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
   if (!diagnostics) return <Empty text="Geometry 자산을 해석할 수 없습니다" />;
-  const focusDrawing = (ids: string[], mode: FocusMode, price?: number) => {
-    if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, ids, mode, undefined, price);
+  const focusStep = (stepId: string | null, mode: FocusMode) => {
+    if (!chartDocumentId) return;
+    const step = model.find((candidate) => candidate.id === stepId);
+    dispatchFocus(
+      chartDocumentId,
+      symbol,
+      interval,
+      step?.drawingIds ?? [],
+      step ? mode : "clear",
+      undefined,
+      step?.focusPrice,
+      step?.candidateIds,
+      step?.evidenceRefs
+    );
+  };
+  const restorePinned = () => {
+    focusStep(pinnedStepId, pinnedStepId ? "select" : "clear");
   };
   return (
     <article className="chart-commentary-panel">
@@ -187,16 +207,38 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
       <h3 className="chart-commentary-headline"><GlossaryText text="차트 해설" /></h3>
       <p className="chart-commentary-text"><GlossaryText text={`적용된 근거·제안 작도 ${diagnostics.appliedDrawingCount}개`} /></p>
       <section className="chart-commentary-focus" aria-label="차트 시나리오 단계">
-        <ol>{model.map((step) => <li key={step.id}>
-          <FocusButton
-            drawingIds={step.drawingIds}
-            price={step.focusPrice}
-            onFocus={(ids, mode, _anchor, price) => focusDrawing(ids, mode, price)}
-          >
-            <strong><GlossaryText text={step.title} /></strong>
-            <span><GlossaryText text={step.body} /></span>
-          </FocusButton>
-        </li>)}</ol>
+        <ol>{model.map((step) => {
+          const pinned = pinnedStepId === step.id;
+          const metricPanelId = `chart-commentary-${metricIdPrefix}-metrics-${step.id}`;
+          return <li key={step.id}>
+            <button
+              className={pinned ? "is-pinned" : undefined}
+              type="button"
+              aria-expanded={pinned}
+              aria-controls={metricPanelId}
+              onMouseEnter={() => focusStep(step.id, "spotlight")}
+              onMouseLeave={restorePinned}
+              onFocus={() => focusStep(step.id, "spotlight")}
+              onBlur={restorePinned}
+              onClick={() => {
+                const next = pinned ? null : step.id;
+                setPinnedStepId(next);
+                focusStep(next, next ? "select" : "clear");
+              }}
+            >
+              <strong><GlossaryText text={step.title} /></strong>
+              <span><GlossaryText text={step.body} /></span>
+            </button>
+            <div id={metricPanelId} className="chart-commentary-metric-panel" hidden={!pinned}>
+              {step.metricCards?.length
+                ? step.metricCards.map((card) => <section key={card.id} className="chart-commentary-metric-card">
+                  <h4>{card.title}</h4>
+                  <dl>{card.items.map((item) => <div key={`${card.id}-${item.label}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
+                </section>)
+                : <p>저장된 수치 근거가 없습니다.</p>}
+            </div>
+          </li>;
+        })}</ol>
       </section>
       {diagnostics.stale && <p className="chart-commentary-invalidation"><GlossaryText text="새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다." /></p>}
     </article>
@@ -221,9 +263,9 @@ function QuestionAnswer({ answer, chartDocumentId, sourceAvailable, currentAsset
   const groups = explanation.focusGroups;
   const focusActions = [
     { key: "evidence", label: "전체 근거", ids: groups?.evidence ?? explanation.focusIds },
+    { key: "levels", label: "지지·저항", ids: groups?.levels ?? [...(groups?.support ?? []), ...(groups?.resistance ?? [])] },
+    { key: "trend", label: "추세", ids: groups?.trend ?? [] },
     { key: "pattern", label: "패턴", ids: groups?.pattern ?? [] },
-    { key: "support", label: "지지", ids: groups?.support ?? [] },
-    { key: "resistance", label: "저항", ids: groups?.resistance ?? [] }
   ].map((item) => ({ ...item, ids: item.ids.filter((id) => availableDrawingIds.has(id)) }))
     .filter((item) => identityMatches && item.ids.length > 0);
   const planMatches = Boolean(sourceMatches && activePlan && chartExplanationMatchesAsset(explanation, {
@@ -330,7 +372,9 @@ function dispatchFocus(
   drawingIds: string[],
   mode: FocusMode,
   anchor?: ChartExplanationAnchor | null,
-  price?: number
+  price?: number,
+  candidateIds?: string[],
+  evidenceRefs?: string[]
 ) {
   window.dispatchEvent(new CustomEvent("gops:chart-asset-focus", {
     detail: {
@@ -340,7 +384,9 @@ function dispatchFocus(
       drawingIds,
       mode,
       ...(anchor ? { anchor } : {}),
-      ...(typeof price === "number" && Number.isFinite(price) ? { price } : {})
+      ...(typeof price === "number" && Number.isFinite(price) ? { price } : {}),
+      ...(candidateIds?.length ? { candidateIds } : {}),
+      ...(evidenceRefs?.length ? { evidenceRefs } : {})
     }
   }));
 }

@@ -54,6 +54,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
+import { buildAnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { candleKeyForTimestamp, isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
@@ -68,6 +69,7 @@ import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
+  defaultAnalysisLayerVisibility,
   isChartAssetDrawing,
   hasAnalysisLayerDrawings,
   type AnalysisLayerKey,
@@ -430,13 +432,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
-  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    evidence: true,
-    proposal: true
-  });
+  const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>(() => ({
+    ...defaultAnalysisLayerVisibility
+  }));
   const [spotlightDrawingIds, setSpotlightDrawingIds] = useState<string[]>([]);
   const [spotlightCandleTimestamp, setSpotlightCandleTimestamp] = useState<string | undefined>();
   const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
+  const [spotlightCandidateIds, setSpotlightCandidateIds] = useState<string[]>([]);
+  const [spotlightEvidenceRefs, setSpotlightEvidenceRefs] = useState<string[]>([]);
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -709,6 +712,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     activeAnalysisAsset.assetVersion,
     activeAnalysisAsset.interval
   ) : false, [activeAnalysisAsset, chart.candles]);
+  const analysisTraceOverlay = useMemo(() => buildAnalysisTraceOverlay(activeAnalysisAsset, {
+    visible: analysisLayerVisibility.interpretation,
+    candidateIds: spotlightCandidateIds,
+    evidenceRefs: spotlightEvidenceRefs
+  }), [activeAnalysisAsset, analysisLayerVisibility.interpretation, spotlightCandidateIds, spotlightEvidenceRefs]);
   const latestClosedAssetCandleTimestamp = useMemo(() => latestClosedTimestamp(chart.candles), [chart.candles]);
   const chartTradeSetup = useMemo(() => projectChartTradeSetup(
     activeAnalysisAsset,
@@ -747,6 +755,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     setSpotlightDrawingIds([]);
+    setSpotlightCandidateIds([]);
+    setSpotlightEvidenceRefs([]);
   }, [activeAnalysisAsset?.generatedAt, chart.interval, chart.symbol, document.id]);
 
   useEffect(() => {
@@ -812,6 +822,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         mode?: "select" | "spotlight" | "clear";
         anchor?: { timestamp?: string | null } | null;
         price?: number | null;
+        candidateIds?: string[];
+        evidenceRefs?: string[];
       }>).detail;
       if (detail?.chartDocumentId) {
         if (detail.chartDocumentId !== document.id) return;
@@ -820,6 +832,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         setSpotlightDrawingIds([]);
         setSpotlightCandleTimestamp(undefined);
         setSpotlightProposalPrice(null);
+        setSpotlightCandidateIds([]);
+        setSpotlightEvidenceRefs([]);
         return;
       }
       const analysisInterval = isAnalysisAssetInterval(chart.interval) ? chart.interval : null;
@@ -833,18 +847,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       setSpotlightProposalPrice(typeof detail.price === "number" && Number.isFinite(detail.price) && detail.price > 0
         ? detail.price
         : null);
+      setSpotlightCandidateIds(detail.candidateIds?.filter((id) => typeof id === "string" && id.length > 0) ?? []);
+      setSpotlightEvidenceRefs(detail.evidenceRefs?.filter((id) => typeof id === "string" && id.length > 0) ?? []);
       const validIds = detail.drawingIds?.filter((id) => chartRef.current.drawings.some((drawing) => drawing.id === id)) ?? [];
-      if (detail.mode === "spotlight") {
-        setSpotlightDrawingIds(validIds);
-        return;
-      }
-      const drawingId = validIds[0];
-      if (!drawingId) return;
+      // Commentary focus is a non-persistent visual overlay. A pinned section
+      // keeps the spotlight active, but must not replace the user's drawing
+      // selection or leak a selection into undo/history when focus is cleared.
       setSpotlightDrawingIds(validIds);
-      dispatchExternalCommandGroup([
-        makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
-        makeChartCommand("chart.drawing.select", "system", commandTarget, { drawingId }, undefined, "external")
-      ], "Focus chart analysis drawing");
     };
     window.addEventListener("gops:chart-asset-focus", handleFocus);
     return () => window.removeEventListener("gops:chart-asset-focus", handleFocus);
@@ -854,6 +863,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setSpotlightDrawingIds([]);
     setSpotlightCandleTimestamp(undefined);
     setSpotlightProposalPrice(null);
+    setSpotlightCandidateIds([]);
+    setSpotlightEvidenceRefs([]);
   }, [chart.interval, chart.symbol, document.id]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
@@ -2595,6 +2606,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           editingDrawingId={labelEditor?.drawingId}
           spotlightDrawingIds={spotlightDrawingIds}
           spotlightCandleTimestamp={spotlightCandleTimestamp}
+          analysisTraceOverlay={analysisTraceOverlay}
           onScene={handleScene}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
@@ -2616,7 +2628,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            evidence: !hasAnalysisLayerDrawings(activeAnalysisAsset, "evidence"),
+            interpretation: !hasAnalysisLayerDrawings(activeAnalysisAsset, "interpretation"),
+            levels: !hasAnalysisLayerDrawings(activeAnalysisAsset, "levels"),
+            trend: !hasAnalysisLayerDrawings(activeAnalysisAsset, "trend"),
+            pattern: !hasAnalysisLayerDrawings(activeAnalysisAsset, "pattern"),
             proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
           }}
           asOf={activeAnalysisAsset?.asOf}

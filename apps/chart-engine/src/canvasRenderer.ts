@@ -417,7 +417,8 @@ function drawDrawingForeground(ctx: CanvasRenderingContext2D, scene: RenderScene
         points[1],
         points[2],
         scene.plot,
-        normalizeParallelLineCount(drawing.parallelLineCount)
+        normalizeParallelLineCount(drawing.parallelLineCount),
+        normalizeLineExtension(style.extension ?? "line")
       );
       drawParallelLineStrokes(ctx, scene, lines);
       const labelLine = lines[trendParallelBaseLineIndex(drawing.parallelLineCount ?? 3)];
@@ -482,7 +483,8 @@ function parallelLinesForDrawing(drawing: DrawingEntity, points: DrawingPoint[],
       points[1],
       points[2],
       scene.plot,
-      normalizeParallelLineCount(drawing.parallelLineCount)
+      normalizeParallelLineCount(drawing.parallelLineCount),
+      normalizeLineExtension(drawing.style.extension ?? "line")
     );
   }
   return [];

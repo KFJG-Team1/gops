@@ -10,6 +10,8 @@ export type ChartExplanationFocusGroups = {
   pattern: string[];
   support: string[];
   resistance: string[];
+  levels?: string[];
+  trend?: string[];
 };
 
 export type ChartExplanationAnchor = {
@@ -36,6 +38,7 @@ export type ChartExplanation = {
   };
   facts: {
     pattern: Record<string, unknown> | null;
+    trend?: Record<string, unknown> | null;
     support: Record<string, unknown> | null;
     resistance: Record<string, unknown> | null;
     tradeScenario: Record<string, unknown> | null;
@@ -100,6 +103,7 @@ export function normalizeChartExplanation(value: unknown): ChartExplanation | nu
     } : {}),
     facts: {
       pattern: readObject(facts.pattern),
+      trend: readObject(facts.trend),
       support: readObject(facts.support),
       resistance: readObject(facts.resistance),
       tradeScenario: readObject(facts.tradeScenario),
@@ -141,11 +145,15 @@ function normalizeFocusGroups(value: unknown, focusIds: Set<string>): ChartExpla
   const source = readObject(value);
   if (!source) return null;
   const normalize = (items: unknown) => uniqueStrings(readArray(items)).filter((id) => focusIds.has(id));
+  const levels = normalize(source.levels);
+  const trend = normalize(source.trend);
   return {
     evidence: normalize(source.evidence),
     pattern: normalize(source.pattern),
     support: normalize(source.support),
-    resistance: normalize(source.resistance)
+    resistance: normalize(source.resistance),
+    ...(levels.length ? { levels } : {}),
+    ...(trend.length ? { trend } : {})
   };
 }
 

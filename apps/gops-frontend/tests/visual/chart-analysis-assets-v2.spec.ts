@@ -30,7 +30,7 @@ test.beforeEach(async ({ page }, testInfo) => {
       ? tradeAutomationLayout()
     : testInfo.title.includes("commentary chart selection")
       ? chartLinkLayout()
-    : testInfo.title.includes("evidence and proposal layers")
+    : testInfo.title.includes("five analysis layers")
       ? analysisLayersLayout((page.viewportSize()?.width ?? 1440) < 900)
       : testInfo.title.includes("pattern symbol panel")
         ? patternListLayout()
@@ -42,30 +42,48 @@ test.beforeEach(async ({ page }, testInfo) => {
   }, { key: layoutStorageKey, layout });
 });
 
-test("evidence and proposal layers render independently with commentary spotlight", async ({ page }) => {
+test("five analysis layers render independently with commentary focus and cards", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
-  const evidenceToggle = page.getByRole("button", { name: "작도 분석 레이어 끄기" });
-  const proposalToggle = page.getByRole("button", { name: "제안 분석 레이어 끄기" });
-  await expect(evidenceToggle).toBeEnabled();
+  const interpretationToggle = page.getByRole("button", { name: "해석 분석 레이어 켜기" });
+  const levelsToggle = page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" });
+  const trendToggle = page.getByRole("button", { name: "추세 분석 레이어 끄기" });
+  const patternToggle = page.getByRole("button", { name: "패턴 분석 레이어 끄기" });
+  const proposalToggle = page.getByRole("button", { name: "제안 분석 레이어 켜기" });
+  await expect(interpretationToggle).toBeEnabled();
+  await expect(levelsToggle).toBeEnabled();
+  await expect(trendToggle).toBeEnabled();
+  await expect(patternToggle).toBeEnabled();
   await expect(proposalToggle).toBeEnabled();
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   await expect(canvas).toBeVisible();
   await expect(page).toHaveScreenshot("chart-assets-layers-both.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
 
-  await evidenceToggle.click();
-  await expect(page.getByRole("button", { name: "작도 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
-  await expect(proposalToggle).toHaveAttribute("aria-pressed", "true");
+  await trendToggle.click();
+  await expect(page.getByRole("button", { name: "추세 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(patternToggle).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
+  await patternToggle.click();
+  await expect(page.getByRole("button", { name: "패턴 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "추세 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "패턴 분석 레이어 켜기" }).click();
+
+  await levelsToggle.click();
+  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(patternToggle).toHaveAttribute("aria-pressed", "true");
   await expect(page).toHaveScreenshot("chart-assets-proposal-only.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
-  await page.getByRole("button", { name: "작도 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
 
   await proposalToggle.click();
-  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page).toHaveScreenshot("chart-assets-evidence-only.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
-  await page.getByRole("button", { name: "제안 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "제안 분석 레이어 끄기" }).click();
+
+  await interpretationToggle.click();
+  await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
 
   const evidenceStep = page.locator(".chart-commentary-focus button").first();
   await evidenceStep.hover();
@@ -81,6 +99,25 @@ test("evidence and proposal layers render independently with commentary spotligh
   await expect(glossaryTerm).toBeFocused();
   await expect(page.locator("#gops-glossary-tooltip")).toBeVisible();
   await glossaryTerm.blur();
+
+  const commentarySteps = page.locator(".chart-commentary-focus button");
+  const trendStep = commentarySteps.nth(1);
+  const patternStep = commentarySteps.nth(2);
+  await evidenceStep.click();
+  await expect(evidenceStep).toHaveAttribute("aria-expanded", "true");
+  await trendStep.click();
+  await expect(evidenceStep).toHaveAttribute("aria-expanded", "false");
+  await expect(trendStep).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('.chart-commentary-focus button[aria-expanded="true"]')).toHaveCount(1);
+  await patternStep.hover();
+  await page.locator(".chart-commentary-headline").hover();
+  await expect(trendStep).toHaveAttribute("aria-expanded", "true");
+  await trendStep.click();
+  await patternStep.focus();
+  await patternStep.press("Enter");
+  await expect(patternStep).toHaveAttribute("aria-expanded", "true");
+  await patternStep.press("Enter");
+  await expect(patternStep).toHaveAttribute("aria-expanded", "false");
 });
 
 test("proposal toggle is disabled when the asset has no proposal drawings", async ({ page }) => {
@@ -88,8 +125,8 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   includeConditionalEvidence = false;
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
-  await expect(page.getByRole("button", { name: "작도 분석 레이어 끄기" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeDisabled();
   await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
 });
 
@@ -100,7 +137,7 @@ test("nearby interval setup stays stable during crosshair and user pan", async (
   const chart = page.locator(".chart-panel").first();
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
-  await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
 
   const initialSnapshot = await page.evaluate(async () => {
     const store = await import("/src/chart/chartTradeSetupStore.ts");
@@ -171,7 +208,7 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByRole("button", { name: "현재 해설" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("기존 Geometry 자산의 지지·패턴을 기준으로 해설했습니다.")).toBeVisible();
   await expect(page.getByLabel("질문 답변 선택")).toHaveValue("analysis-visual-chart");
-  const supportFocus = page.locator(".chart-commentary-answer-focus").getByRole("button", { name: "지지" });
+  const supportFocus = page.locator(".chart-commentary-answer-focus").getByRole("button", { name: "지지·저항" });
   await supportFocus.hover();
   await expect(page).toHaveScreenshot("chart-commentary-question-answer.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await page.getByRole("button", { name: "현재 해설" }).click();
@@ -559,12 +596,46 @@ function assetResponse(): Record<string, unknown> {
     coverage: { state: "partial", targetBars: 380, actualBars: 140, contiguousBars: 140, missingBars: 240 },
     geometry: {
       drawings: [hline, upper, lower],
+      drawingGroups: {
+        levels: [hline.id],
+        trend: [],
+        pattern: [upper.id, lower.id]
+      },
       supports: includeConditionalEvidence && !nearbyIntervalFallback
         ? [{ id: "support", role: "support", price: 164, zoneLow: 163.4, zoneHigh: 164.6, halfWidthAtr: .4, score: .8, touches: 2, anchors: hline.anchors }]
         : [],
       resistances: [], patterns: [], primaryPattern: null,
       primaryTriangle: { kind: "ascending_triangle", state: "confirmed", score: .9, touches: 5, geometryHash: "triangle" },
       historicalTriangle: null,
+      analysisTrace: {
+        version: "geometry-analysis-trace-v1",
+        pivots: includeConditionalEvidence && !nearbyIntervalFallback ? [
+          { id: "pivot-support", kind: "L", timestamp: candles[50].timestamp, confirmedAt: candles[52].timestamp, price: 164 },
+          { id: "pivot-rejected", kind: "H", timestamp: candles[75].timestamp, confirmedAt: candles[77].timestamp, price: 172 }
+        ] : [],
+        levelCandidates: includeConditionalEvidence && !nearbyIntervalFallback ? [{
+          id: "support", category: "level", role: "support", score: .8, selected: true,
+          hardPass: true, evidencePass: true, activePass: true, rejectReasons: [],
+          anchors: [{ timestamp: candles[50].timestamp, price: 164 }, { timestamp: candles[100].timestamp, price: 164 }],
+          evidenceRefs: ["pivot-support"], touchRefs: ["touch-support"], reactionRefs: ["touch-support"],
+          touches: [{ id: "touch-support", timestamp: candles[100].timestamp, price: 164, barIndex: 100, outcome: "reaction" }],
+          metrics: { price: 164, touchCount: 2, reactionCount: 1, currentDistanceAtr: .5 }
+        }, {
+          id: "rejected-resistance", category: "level", role: "resistance", score: .42, selected: false,
+          hardPass: false, evidencePass: true, activePass: false, rejectReasons: ["stale"],
+          anchors: [{ timestamp: candles[75].timestamp, price: 172 }, { timestamp: candles[120].timestamp, price: 172 }],
+          evidenceRefs: ["pivot-rejected"], touchRefs: ["touch-rejected"], reactionRefs: [],
+          touches: [{ id: "touch-rejected", timestamp: candles[120].timestamp, price: 172, barIndex: 120, outcome: "touch" }],
+          metrics: { price: 172, touchCount: 1, reactionCount: 0, currentDistanceAtr: 1.6 }
+        }] : [],
+        trendCandidates: [],
+        patternCandidates: [],
+        selections: {
+          levelCandidateIds: includeConditionalEvidence && !nearbyIntervalFallback ? ["support"] : [],
+          trendCandidateIds: [], patternCandidateIds: []
+        },
+        omittedCounts: { levelCandidates: 0, trendCandidates: 0, patternCandidates: 0, touchEpisodes: 0 }
+      },
       ...(includeTradePlan ? { tradePlan: {
         version: "pattern-trade-timing-v1", symbol: "NVDA", interval: "1D", patternId: "triangle", patternKind: "ascending_triangle",
         patternState: "confirmed", action: "buy_candidate", direction: "long", signalAt: asOf, entryTrigger: 177.5,

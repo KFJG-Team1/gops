@@ -35,7 +35,7 @@ import { applyCandleEvent, applySnapshotToCandles, candleKey } from "../../chart
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
-import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
+import { buildTrendParallelLines, projectTrendLine } from "../../chart-engine/src/drawingGeometry";
 import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
@@ -4124,6 +4124,26 @@ const transientOverlaySource = chartCanvasSource.slice(
 );
 assert.doesNotMatch(baseChartSource, /drawCrosshair\(/);
 assert.match(transientOverlaySource, /drawCrosshair\(context, scene, crosshair\)/);
+assert.match(
+  baseChartSource,
+  /spotlightDrawingIds\.length \|\| analysisTraceOverlay\?\.focused[\s\S]*new Set\(spotlightDrawingIds\)/,
+  "trace-only commentary focus still creates an empty drawing spotlight"
+);
+assert.match(
+  baseChartSource,
+  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.35 : 1, draw\)/,
+  "trace-only focus dims the base chart while leaving trace evidence emphasized"
+);
+assert.match(
+  chartCanvasSource,
+  /const selected = candidate\.selected === true;[\s\S]*const color = selected \? traceCandidateColor\(candidate\) : colors\.muted/,
+  "rejected analysis candidates use the muted color instead of a category color"
+);
+assert.match(
+  chartCanvasSource,
+  /candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, points\[0\]\.y, scene\.plot\.right, points\[0\]\.y\)/,
+  "level analysis candidates render as full-width H-lines"
+);
 assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
@@ -4811,6 +4831,16 @@ const anchorB = { timestamp: candleB.timestamp, price: 11.1, paneId: "price", sy
 const projectedRay = projectTrendLine({ x: 20, y: 80 }, { x: 40, y: 60 }, { left: 0, right: 100, top: 0, priceBottom: 100 }, "ray");
 assert.deepEqual(projectedRay, [{ x: 20, y: 80 }, { x: 100, y: 0 }]);
 const projectedLine = projectTrendLine({ x: 20, y: 80 }, { x: 40, y: 60 }, { left: 0, right: 100, top: 0, priceBottom: 100 }, "line");
+const projectedChannelRay = buildTrendParallelLines(
+  { x: 20, y: 80 },
+  { x: 40, y: 60 },
+  { x: 20, y: 60 },
+  { left: 0, right: 100, top: 0, priceBottom: 100 },
+  2,
+  "ray"
+);
+assert.deepEqual(projectedChannelRay[0], [{ x: 20, y: 80 }, { x: 100, y: 0 }], "trend channels honor right-ray extension");
+assert.deepEqual(projectedChannelRay.at(-1)?.[1], { x: 80, y: 0 }, "parallel channel boundaries extend to the plot edge");
 assert.deepEqual(projectedLine, [{ x: 0, y: 100 }, { x: 100, y: 0 }]);
 
 const trendLineResult = executeChartCommand(

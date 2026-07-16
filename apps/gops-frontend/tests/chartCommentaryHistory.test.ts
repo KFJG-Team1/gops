@@ -41,6 +41,16 @@ assert.equal(chartExplanationMatchesSource(normalizedExplanation, "doc-a"), true
 assert.equal(chartExplanationMatchesSource(normalizedExplanation, "doc-b"), false);
 assert.equal(chartExplanationMatchesSource({ ...normalizedExplanation, source: undefined }, "doc-a"), true, "old v1 answers without source remain compatible");
 assert.ok(normalizeChartExplanation({ ...explanation(), focusGroups: undefined }), "v1 readers accept reports created before focusGroups was added");
+const trendId = "chart-asset:NVDA:1D:trend-up";
+const explanationWithV6Groups = normalizeChartExplanation({
+  ...explanation(),
+  focusIds: [...explanation().focusIds, trendId],
+  focusGroups: { ...explanation().focusGroups, levels: explanation().focusGroups?.support, trend: [trendId] },
+  facts: { ...explanation().facts, trend: { id: "trend-up", direction: "up" } }
+});
+assert.deepEqual(explanationWithV6Groups?.focusGroups?.levels, ["chart-asset:NVDA:1D:support-1"]);
+assert.deepEqual(explanationWithV6Groups?.focusGroups?.trend, [trendId]);
+assert.deepEqual(explanationWithV6Groups?.facts.trend, { id: "trend-up", direction: "up" });
 assert.equal(normalizeChartExplanation({ ...explanation(), version: "chart-explanation.v2" }), null);
 
 const initial = panelState();

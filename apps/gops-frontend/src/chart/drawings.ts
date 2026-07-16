@@ -277,7 +277,7 @@ export function projectTrendLine(
 }
 
 export function parallelLinesForDrawing(
-  drawing: Pick<DrawingEntity, "type" | "parallelLineCount">,
+  drawing: Pick<DrawingEntity, "type" | "parallelLineCount"> & { style?: DrawingEntity["style"] },
   points: DrawingPoint[],
   plot: { left: number; right: number; top: number; priceBottom: number }
 ): DrawingLine[] {
@@ -289,17 +289,24 @@ export function parallelLinesForDrawing(
   }
   if (drawing.type === "trendParallelLines") {
     if (points.length >= 3) {
-      return buildTrendParallelLines(points[0], points[1], points[2], plot, normalizeParallelLineCount(drawing.parallelLineCount));
+      return buildTrendParallelLines(
+        points[0],
+        points[1],
+        points[2],
+        plot,
+        normalizeParallelLineCount(drawing.parallelLineCount),
+        normalizeLineExtension(drawing.style?.extension ?? "line")
+      );
     }
     if (points.length >= 2) {
-      return [projectTrendLine(points[0], points[1], plot, "line")];
+      return [projectTrendLine(points[0], points[1], plot, normalizeLineExtension(drawing.style?.extension ?? "line"))];
     }
   }
   return [];
 }
 
 export function parallelBandsForDrawing(
-  drawing: Pick<DrawingEntity, "type" | "parallelLineCount">,
+  drawing: Pick<DrawingEntity, "type" | "parallelLineCount"> & { style?: DrawingEntity["style"] },
   points: DrawingPoint[],
   plot: { left: number; right: number; top: number; priceBottom: number }
 ): DrawingPoint[][] {

@@ -11,10 +11,108 @@ export type GeometryLevel = {
   zoneLow?: number;
   zoneHigh?: number;
   halfWidthAtr?: number;
-  selectionTier?: "confirmed" | "contextual";
+  selectionTier?: "confirmed" | "contextual" | "reference";
+  importanceTier?: "major" | "standard" | "minor";
+  importanceRank?: number;
   score: number;
   touches: number;
+  reactionCount?: number;
+  lastTouchAgeBars?: number;
+  currentDistanceAtr?: number;
   anchors: Array<{ timestamp: string; price: number }>;
+};
+
+export type GeometryAnchor = { timestamp: string; price: number; role?: string };
+
+export type GeometryTrend = {
+  id: string;
+  kind: "uptrend" | "downtrend" | "channel";
+  direction: "up" | "down";
+  score: number;
+  drawingId: string;
+  anchors: GeometryAnchor[];
+  anchorPivotIds: string[];
+  touchPivotIds: string[];
+  reactionPivotIds: string[];
+  touchCount: number;
+  reactionCount: number;
+  slopeAtrPerBar: number;
+  medianResidualAtr: number;
+  currentDistanceAtr: number;
+  lastTouchAgeBars: number;
+  channelWidthAtr?: number;
+  parallelSlopeError?: number;
+  containment?: number;
+  activeInvalidation?: boolean;
+  violationCount?: number;
+  invalidation?: string | null;
+};
+
+export type GeometryDrawingGroups = {
+  levels: string[];
+  trend: string[];
+  pattern: string[];
+};
+
+export type GeometryTracePivot = {
+  id: string;
+  timestamp: string;
+  price: number;
+  kind?: string;
+  role?: string;
+  confirmedAt?: string;
+  outcome?: string;
+};
+
+export type GeometryTraceTouch = {
+  id: string;
+  timestamp: string;
+  price: number;
+  barIndex?: number;
+  outcome?: string | null;
+  mfeAtr?: number | null;
+  maeAtr?: number | null;
+  residualAtr?: number | null;
+};
+
+export type GeometryTraceCandidate = {
+  id: string;
+  category: "level" | "levels" | "trend" | "pattern";
+  role?: "support" | "resistance" | string;
+  kind?: string;
+  score?: number;
+  selected?: boolean;
+  hardPass?: boolean;
+  evidencePass?: boolean;
+  activePass?: boolean;
+  rejectReasons?: string[];
+  selectionTier?: "confirmed" | "contextual" | "reference" | string | null;
+  importanceTier?: "major" | "standard" | "minor" | string | null;
+  importanceRank?: number | null;
+  anchors?: GeometryAnchor[];
+  pivotIds?: string[];
+  anchorPivotIds?: string[];
+  touchPivotIds?: string[];
+  reactionPivotIds?: string[];
+  evidenceRefs?: string[];
+  touchRefs?: string[];
+  reactionRefs?: string[];
+  touches?: GeometryTraceTouch[];
+  metrics?: Record<string, unknown>;
+};
+
+export type GeometryAnalysisTrace = {
+  version: "geometry-analysis-trace-v1";
+  pivots: GeometryTracePivot[];
+  levelCandidates: GeometryTraceCandidate[];
+  trendCandidates: GeometryTraceCandidate[];
+  patternCandidates: GeometryTraceCandidate[];
+  selections: {
+    levelCandidateIds: string[];
+    trendCandidateIds: string[];
+    patternCandidateIds: string[];
+  };
+  omittedCounts: Record<string, number>;
 };
 
 export type GeometryPatternKind =
@@ -34,6 +132,7 @@ export type GeometryPattern = {
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+  metrics?: Record<string, unknown>;
   upper?: GeometryPatternBoundary;
   lower?: GeometryPatternBoundary;
   confirmation?: {
@@ -107,6 +206,10 @@ export type ChartAnalysisAsset = {
     resistances: GeometryLevel[];
     patterns?: GeometryPattern[];
     primaryPattern?: GeometryPattern | null;
+    trends?: GeometryTrend[];
+    primaryTrend?: GeometryTrend | null;
+    drawingGroups?: GeometryDrawingGroups;
+    analysisTrace?: GeometryAnalysisTrace;
     tradePlan?: GeometryTradePlan | null;
     primaryTriangle: GeometryTriangle | null;
     historicalTriangle: GeometryTriangle | null;

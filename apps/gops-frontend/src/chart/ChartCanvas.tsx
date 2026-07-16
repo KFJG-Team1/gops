@@ -1,6 +1,7 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
+import type { AnalysisTraceOverlay, AnalysisTraceOverlayCandidate } from "./analysisTraceOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
 import { buildChartScene, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
@@ -56,6 +57,7 @@ type ChartCanvasProps = {
   editingDrawingId?: string;
   spotlightDrawingIds?: string[];
   spotlightCandleTimestamp?: string;
+  analysisTraceOverlay?: AnalysisTraceOverlay | null;
   onScene?: (scene: ChartScene) => void;
   onWheel?: WheelEventHandler<HTMLCanvasElement>;
   onPointerDown?: PointerEventHandler<HTMLCanvasElement>;
@@ -99,6 +101,7 @@ export function ChartCanvas({
   editingDrawingId,
   spotlightDrawingIds = emptySpotlightDrawingIds,
   spotlightCandleTimestamp,
+  analysisTraceOverlay = null,
   onScene,
   onWheel,
   onPointerDown,
@@ -126,6 +129,7 @@ export function ChartCanvas({
     editingDrawingId,
     spotlightDrawingIds,
     spotlightCandleTimestamp,
+    analysisTraceOverlay,
     onScene
   });
   renderInputRef.current = {
@@ -139,6 +143,7 @@ export function ChartCanvas({
     editingDrawingId,
     spotlightDrawingIds,
     spotlightCandleTimestamp,
+    analysisTraceOverlay,
     onScene
   };
 
@@ -196,7 +201,7 @@ export function ChartCanvas({
       });
       sceneRef.current = scene;
       input.onScene?.(scene);
-      drawBaseChart(context, scene, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId, input.spotlightDrawingIds, input.spotlightCandleTimestamp);
+      drawBaseChart(context, scene, input.previewDrawings, input.agentVisualOverlays, input.editingDrawingId, input.spotlightDrawingIds, input.spotlightCandleTimestamp, input.analysisTraceOverlay);
       scheduleOverlayDraw();
     };
 
@@ -232,7 +237,7 @@ export function ChartCanvas({
 
   useEffect(() => {
     scheduleBaseDrawRef.current();
-  }, [agentVisualOverlays, chart, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
+  }, [agentVisualOverlays, analysisTraceOverlay, chart, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
 
   const rememberPointer: PointerEventHandler<HTMLCanvasElement> = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -314,7 +319,8 @@ function drawBaseChart(
   agentVisualOverlays: AgentVisualOverlay[] = [],
   editingDrawingId?: string,
   spotlightDrawingIds: string[] = [],
-  spotlightCandleTimestamp?: string
+  spotlightCandleTimestamp?: string,
+  analysisTraceOverlay: AnalysisTraceOverlay | null = null
 ) {
   colors = readThemeColors();
   context.globalAlpha = 1;
@@ -328,7 +334,10 @@ function drawBaseChart(
   }
 
   const standardLayersVisible = scene.chart.chartType !== "bidask";
-  const spotlight = spotlightDrawingIds.length ? new Set(spotlightDrawingIds) : null;
+  const spotlight = spotlightDrawingIds.length || analysisTraceOverlay?.focused
+    ? new Set(spotlightDrawingIds)
+    : null;
+  const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.35 : 1, draw);
   const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false);
   const previewDrawingBatch = drawingRenderBatch(scene, previewDrawings, true);
   const layers: Array<() => void> = [
@@ -338,20 +347,21 @@ function drawBaseChart(
     () => drawTimePeriodDividers(context, scene),
     () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, drawingBatch, false, spotlight)),
     () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawingBatch, true)),
-    () => drawAgentVisualOverlays(context, scene, agentVisualOverlays),
+    () => drawDimmedBase(() => drawAgentVisualOverlays(context, scene, agentVisualOverlays)),
     () => spotlightCandleTimestamp && drawSpotlightCandle(context, scene, spotlightCandleTimestamp),
-    () => standardLayersVisible && hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawVolume(context, scene)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawVolumeProfile(context, scene)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "sma:120", Boolean(scene.chart.layers["sma:120"]), colors.purple)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution)),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"]))),
-    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => withCanvasAlpha(context, spotlight ? 0.35 : 1, () => drawBasePriceLayer(context, scene))),
-    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawComparisons(context, scene)),
-    () => standardLayersVisible && drawBelowIndicatorPanes(context, scene),
+    () => standardLayersVisible && hasVolumePane(scene) && drawPaneClipped(context, scene, paneById(scene, "volume"), () => drawDimmedBase(() => drawVolume(context, scene))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawVolumeProfile(context, scene))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawMovingAverage(context, scene, "ma5", movingAverageLayerVisible(scene, "ma5"), colors.ma5))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawMovingAverage(context, scene, "ma20", movingAverageLayerVisible(scene, "ma20"), colors.ma20))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawMovingAverage(context, scene, "ma60", movingAverageLayerVisible(scene, "ma60"), colors.ma60))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawLineIndicator(context, scene, "sma:120", Boolean(scene.chart.layers["sma:120"]), colors.purple))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawLineIndicator(context, scene, "ema:20", Boolean(scene.chart.layers["ema:20"]), colors.signal))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution))),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"])))),
+    () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawBasePriceLayer(context, scene))),
+    () => analysisTraceOverlay && drawPlotClipped(context, scene, () => drawAnalysisTraceOverlay(context, scene, analysisTraceOverlay)),
+    () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawComparisons(context, scene))),
+    () => standardLayersVisible && drawDimmedBase(() => drawBelowIndicatorPanes(context, scene)),
     () => standardLayersVisible && drawPaneSeparators(context, scene),
     () => drawExpansionParentSummaries(context, scene),
     () => drawAxes(context, scene),
@@ -724,6 +734,95 @@ function drawAgentVisualOverlays(context: CanvasRenderingContext2D, scene: Chart
     });
   });
   context.restore();
+}
+
+function drawAnalysisTraceOverlay(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  overlay: AnalysisTraceOverlay
+): void {
+  const transform = createCoordinateTransform(scene);
+  const pivotById = new Map(overlay.pivots.map((pivot) => [pivot.id, pivot]));
+  const pivotColor = new Map<string, string>();
+  const touchIds = new Set<string>();
+  const reactionIds = new Set<string>();
+  const rememberPivotColor = (id: string, color: string, selected: boolean) => {
+    if (selected || !pivotColor.has(id)) pivotColor.set(id, color);
+  };
+
+  overlay.candidates.forEach((candidate) => {
+    const selected = candidate.selected === true;
+    const color = selected ? traceCandidateColor(candidate) : colors.muted;
+    candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, color, selected); });
+    candidate.touchPivotIds.forEach((id) => { touchIds.add(id); rememberPivotColor(id, color, selected); });
+    candidate.reactionPivotIds.forEach((id) => { reactionIds.add(id); rememberPivotColor(id, color, selected); });
+    const anchors = candidate.anchors.length
+      ? candidate.anchors
+      : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
+    const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
+    context.save();
+    context.strokeStyle = color;
+    context.globalAlpha = selected ? 0.45 : 0.25;
+    context.lineWidth = selected ? 1.5 : 1;
+    context.setLineDash(selected ? [] : [4, 4]);
+    if (points.length >= 1 && candidate.category === "levels") {
+      line(context, scene.plot.left, points[0].y, scene.plot.right, points[0].y);
+    } else if (candidate.kind === "channel" && points.length >= 3) {
+      line(context, points[0].x, points[0].y, points[1].x, points[1].y);
+      const baseSpanX = points[1].x - points[0].x;
+      const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
+        ? points[0].y
+        : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
+      const offsetY = points[2].y - baseYAtOffset;
+      line(context, points[0].x, points[0].y + offsetY, points[1].x, points[1].y + offsetY);
+    } else {
+      for (let index = 0; index + 1 < points.length; index += 2) {
+        line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
+      }
+      if (points.length === 3 && candidate.kind !== "channel") {
+        line(context, points[1].x, points[1].y, points[2].x, points[2].y);
+      }
+    }
+    context.restore();
+  });
+
+  overlay.pivots.forEach((pivot) => {
+    const point = transform.anchorToPoint(pivot);
+    if (!point || point.x < scene.plot.left || point.x > scene.plot.right) return;
+    const color = pivotColor.get(pivot.id) ?? (pivot.kind === "H" ? colors.evidenceResistance : pivot.kind === "L" ? colors.evidenceSupport : colors.evidencePattern);
+    context.save();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.globalAlpha = overlay.focused ? 0.95 : 0.72;
+    context.lineWidth = 1.25;
+    if (reactionIds.has(pivot.id)) {
+      circle(context, point.x, point.y, 4);
+      context.fill();
+    } else if (touchIds.has(pivot.id)) {
+      circle(context, point.x, point.y, 3);
+      context.fillStyle = colors.background;
+      context.fill();
+      context.stroke();
+    } else {
+      const radius = 4;
+      context.beginPath();
+      context.moveTo(point.x, point.y - radius);
+      context.lineTo(point.x + radius, point.y);
+      context.lineTo(point.x, point.y + radius);
+      context.lineTo(point.x - radius, point.y);
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  });
+}
+
+function traceCandidateColor(candidate: AnalysisTraceOverlayCandidate): string {
+  if (candidate.category === "levels") {
+    return candidate.role === "resistance" ? colors.evidenceResistance : colors.evidenceSupport;
+  }
+  if (candidate.category === "pattern") return colors.evidencePattern;
+  return candidate.kind?.includes("down") || candidate.role === "resistance" ? colors.down : colors.up;
 }
 
 function drawSpotlightCandle(context: CanvasRenderingContext2D, scene: ChartScene, timestamp: string) {
