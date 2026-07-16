@@ -1,5 +1,6 @@
 import { sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
+import type { SimulatorMode } from "../simulator/simulatorApi";
 import type { StockRecommendationItem, StockRecommendationPayload } from "./recommendationApi";
 
 const FALLBACK_SYMBOLS = ["NVDA", "AMD", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "JPM"] as const;
@@ -53,6 +54,10 @@ export const recommendationSimulationFallbackItems: StockRecommendationItem[] = 
   };
 });
 
-export function shouldUseRecommendationSimulationFallback(payload: StockRecommendationPayload | null): boolean {
-  return Boolean(payload && payload.items.length === 0 && FALLBACK_STATUSES.has(payload.status));
+export function shouldUseRecommendationSimulationFallback(
+  payload: StockRecommendationPayload | null,
+  simulatorMode: SimulatorMode
+): boolean {
+  return simulatorMode === "simulation"
+    && Boolean(payload && payload.items.length === 0 && FALLBACK_STATUSES.has(payload.status));
 }
