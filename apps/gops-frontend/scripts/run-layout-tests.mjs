@@ -30,6 +30,10 @@ const testCases = [
   {
     entry: new URL("../tests/aiCoachLayoutPrivacy.test.ts", import.meta.url),
     outfile: new URL("../.tmp/ai-coach-layout-privacy-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/recommendationPanelStyle.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/recommendation-panel-style-test.mjs", import.meta.url)
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });

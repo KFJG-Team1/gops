@@ -6836,8 +6836,9 @@ h2 {
 
 .stock-recommendations-panel .stock-rec-row.is-selected,
 .stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected {
-  background: color-mix(in srgb, var(--color-caution) 18%, var(--color-surface));
-  box-shadow: inset 3px 0 0 var(--color-caution), inset 0 0 0 1px color-mix(in srgb, var(--color-caution) 48%, transparent);
+  background: #fff;
+  color: #0a0a0a;
+  box-shadow: inset 0 0 0 1px rgb(10 10 10 / 0.12);
 }
 
 .stock-recommendations-panel .stock-rec-row.is-agent-reference-emphasized,
@@ -6913,6 +6914,35 @@ h2 {
 
 .stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-reasons .risk {
   color: var(--gops-caution);
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-main strong {
+  color: #0a0a0a;
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-change {
+  color: rgb(10 10 10 / 0.62);
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-change.up {
+  color: var(--color-change-up);
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-change.down {
+  color: var(--color-change-down);
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-reasons em,
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-sector {
+  color: rgb(10 10 10 / 0.62);
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-reasons .risk {
+  color: #b15c00;
+}
+
+.stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-list .stock-rec-row.is-selected .stock-rec-logo {
+  border-color: rgb(10 10 10 / 0.18);
 }
 
 .stock-recommendations-panel.stock-recommendations-list-panel .stock-rec-state,

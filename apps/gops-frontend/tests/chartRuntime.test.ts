@@ -35,7 +35,7 @@ import { applyCandleEvent, applySnapshotToCandles, candleKey } from "../../chart
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
-import { projectTrendLine } from "../../chart-engine/src/drawingGeometry";
+import { buildTrendParallelLines, projectTrendLine } from "../../chart-engine/src/drawingGeometry";
 import { applyDisplayContinuity } from "../../chart-engine/src/displayContinuity";
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "../../chart-engine/src/intervals";
 import { isRealtimeControlPayload, isRealtimeLayerPayload, normalizeCandleEvent, normalizeCandleSnapshot, normalizeRealtimeLayerEvent } from "../../chart-engine/src/marketDataAdapter";
@@ -1158,6 +1158,7 @@ const semanticFutureScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 80,
   rightOffset: futureOffsetWithSemanticWidth
 }), 800, 360, { expansions: [semanticFutureExpansion] });
+assert.equal(semanticFutureScene.plot.top, 64);
 assert.equal(semanticFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
 assert.equal(Math.ceil(semanticFutureScene.semantic.expansionExtraSlots), semanticFutureExtraSlots);
 const latestExpansionRange = semanticFutureScene.semantic.expansionRanges.find(
@@ -1224,7 +1225,8 @@ multiBelowPaneSeparatorYs.forEach((separatorY, index) => {
   const paneTop = multiBelowPaneScene.plot.belowPanes[index].top;
   assert.ok(separatorY > previousBottom && separatorY < paneTop);
 });
-assert.equal(multiBelowPaneScene.plot.top, 42);
+assert.equal(multiBelowPaneScene.plot.top, 38);
+assert.equal(multiBelowPaneScene.plot.bottom, 428);
 assert.equal(multiBelowPaneScene.width - multiBelowPaneScene.plot.right, 68);
 assert.equal(formatFrontendPriceAxisValue(210), "210.00");
 assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
@@ -1253,6 +1255,7 @@ const tallPriceDensityScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 6,
   layers: { candles: true, volume: false }
 }), 800, 760);
+assert.equal(compactPriceDensityScene.plot.bottom, 334);
 assert.equal(tallPriceDensityScene.scales.minPrice, compactPriceDensityScene.scales.minPrice);
 assert.equal(tallPriceDensityScene.scales.maxPrice, compactPriceDensityScene.scales.maxPrice);
 assert.equal(
@@ -1877,9 +1880,54 @@ const ordinaryNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 1,
   requestedLimit: 1
 }), 600, 320);
-assert.equal(ordinaryNarrowPriceScene.scales.minPrice, 210);
-assert.equal(ordinaryNarrowPriceScene.scales.maxPrice, 212);
+assert.equal(ordinaryNarrowPriceScene.scales.minPrice, 210.5);
+assert.equal(ordinaryNarrowPriceScene.scales.maxPrice, 211);
 assert.equal(ordinaryNarrowPriceScene.scales.bidAskPriceGrid, undefined);
+const lowPriceCandles = [
+  {
+    timestamp: "2026-07-08T13:30:00.000Z",
+    open: 0.19,
+    high: 0.21,
+    low: 0.18,
+    close: 0.2,
+    volume: 100,
+    isClosed: true
+  },
+  {
+    timestamp: "2026-07-08T13:31:00.000Z",
+    open: 0.2,
+    high: 0.23,
+    low: 0.19,
+    close: 0.22,
+    volume: 110,
+    isClosed: true
+  }
+] as CandleDto[];
+const guardedSmaScene = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: lowPriceCandles,
+  visibleCount: 2,
+  layers: { candles: true, volume: false, "sma:120": true },
+  indicatorSeries: {
+    "sma:120": [
+      { timestamp: lowPriceCandles[0].timestamp, value: 0 },
+      { timestamp: lowPriceCandles[1].timestamp, value: 100 }
+    ]
+  }
+}), 600, 320);
+assert.ok(guardedSmaScene.scales.minPrice >= 0);
+assert.ok(guardedSmaScene.scales.maxPrice < 1);
+assert.ok(guardedSmaScene.scales.priceTicks.every((tick) => tick >= 0));
+const nearbySmaScene = buildFrontendChartScene(frontendChartState({
+  candles: [narrowPriceCandle],
+  visibleCount: 1,
+  layers: { candles: true, volume: false, "sma:120": true },
+  indicatorSeries: {
+    "sma:120": [{ timestamp: narrowPriceCandle.timestamp, value: 208 }]
+  }
+}), 600, 320);
+assert.ok(nearbySmaScene.scales.minPrice <= 208);
+assert.ok(nearbySmaScene.scales.priceTicks.every((tick) => tick >= 0));
 const bidAskNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   chartType: "bidask",
   interval: "1m",
@@ -3320,6 +3368,15 @@ const hiddenProposalPriceRangeScene = buildFrontendChartScene({
   drawings: proposalPriceRangeState.drawings.map((drawing) => ({ ...drawing, visible: false }))
 }, 640, 360);
 assert.ok(hiddenProposalPriceRangeScene.scales.maxPrice < 120);
+const extremeProposalPriceRangeScene = buildFrontendChartScene({
+  ...proposalPriceRangeState,
+  drawings: proposalPriceRangeState.drawings.map((drawing) => ({
+    ...drawing,
+    anchors: drawing.anchors.map((anchor, index) => index === 2 ? { ...anchor, price: 10_000 } : anchor)
+  }))
+}, 640, 360);
+assert.ok(extremeProposalPriceRangeScene.scales.minPrice >= 0);
+assert.ok(extremeProposalPriceRangeScene.scales.maxPrice < 1_000);
 
 const continuousAnchorBaseScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -4136,6 +4193,26 @@ const transientOverlaySource = chartCanvasSource.slice(
 );
 assert.doesNotMatch(baseChartSource, /drawCrosshair\(/);
 assert.match(transientOverlaySource, /drawCrosshair\(context, scene, crosshair\)/);
+assert.match(
+  baseChartSource,
+  /spotlightDrawingIds\.length \|\| analysisTraceOverlay\?\.focused[\s\S]*new Set\(spotlightDrawingIds\)/,
+  "trace-only commentary focus still creates an empty drawing spotlight"
+);
+assert.match(
+  baseChartSource,
+  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.35 : 1, draw\)/,
+  "trace-only focus dims the base chart while leaving trace evidence emphasized"
+);
+assert.match(
+  chartCanvasSource,
+  /const selected = candidate\.selected === true;[\s\S]*const color = selected \? traceCandidateColor\(candidate\) : colors\.muted/,
+  "rejected analysis candidates use the muted color instead of a category color"
+);
+assert.match(
+  chartCanvasSource,
+  /candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, points\[0\]\.y, scene\.plot\.right, points\[0\]\.y\)/,
+  "level analysis candidates render as full-width H-lines"
+);
 assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
@@ -4824,6 +4901,16 @@ const anchorB = { timestamp: candleB.timestamp, price: 11.1, paneId: "price", sy
 const projectedRay = projectTrendLine({ x: 20, y: 80 }, { x: 40, y: 60 }, { left: 0, right: 100, top: 0, priceBottom: 100 }, "ray");
 assert.deepEqual(projectedRay, [{ x: 20, y: 80 }, { x: 100, y: 0 }]);
 const projectedLine = projectTrendLine({ x: 20, y: 80 }, { x: 40, y: 60 }, { left: 0, right: 100, top: 0, priceBottom: 100 }, "line");
+const projectedChannelRay = buildTrendParallelLines(
+  { x: 20, y: 80 },
+  { x: 40, y: 60 },
+  { x: 20, y: 60 },
+  { left: 0, right: 100, top: 0, priceBottom: 100 },
+  2,
+  "ray"
+);
+assert.deepEqual(projectedChannelRay[0], [{ x: 20, y: 80 }, { x: 100, y: 0 }], "trend channels honor right-ray extension");
+assert.deepEqual(projectedChannelRay.at(-1)?.[1], { x: 80, y: 0 }, "parallel channel boundaries extend to the plot edge");
 assert.deepEqual(projectedLine, [{ x: 0, y: 100 }, { x: 100, y: 0 }]);
 
 const trendLineResult = executeChartCommand(

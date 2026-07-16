@@ -166,6 +166,21 @@ for (let lineCount = 2; lineCount <= 10; lineCount += 1) {
   });
 }
 
+const legacyProjectedParallel = parallelLinesForDrawing(
+  { type: "trendParallelLines", parallelLineCount: 2 },
+  [baseStart, baseEnd, spacingPoint],
+  plot
+)[0];
+assert.equal(legacyProjectedParallel[0].x, plot.left, "legacy channels keep their full-line projection");
+assert.equal(legacyProjectedParallel[1].x, plot.right, "legacy channels keep their full-line projection");
+const rightRayParallel = parallelLinesForDrawing(
+  { type: "trendParallelLines", parallelLineCount: 2, style: { extension: "ray" } },
+  [baseStart, baseEnd, spacingPoint],
+  plot
+)[0];
+assert.deepEqual(rightRayParallel[0], baseStart, "channel rays begin at the base anchor");
+assert.equal(rightRayParallel[1].x, plot.right, "channel rays extend toward the right plot edge");
+
 for (const lineCount of [2, 3, 6, 10]) {
   const offsets = trendParallelOffsets(lineCount);
   assert.equal(offsets.length, lineCount);

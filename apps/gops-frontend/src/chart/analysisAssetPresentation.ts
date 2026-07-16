@@ -175,13 +175,24 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
     const level = [...(asset.geometry.supports ?? []), ...(asset.geometry.resistances ?? [])]
       .find((candidate) => drawing.id === candidate.id || drawing.id.endsWith(`:${candidate.id}`));
     if (!level || drawing.type !== "horizontalLine") return drawing;
+    const importance = level.importanceTier;
+    const importanceStyle = importance === "major"
+      ? { lineWidth: 3, opacity: 0.95, lineDash: undefined, labelPlacement: "axis" as const }
+      : importance === "standard"
+        ? { lineWidth: 2.25, opacity: 0.72, lineDash: [6, 4], labelPlacement: "axis" as const }
+        : importance === "minor"
+          ? { lineWidth: 1.5, opacity: 0.45, lineDash: [2, 4], labelPlacement: "axis" as const }
+          : { lineWidth: 2.5, labelPlacement: "axis" as const };
+    const roleLabel = level.role === "support" ? "지지" : "저항";
+    const importanceLabel = importance === "standard" ? `보조 ${roleLabel}` : importance === "minor" ? `참고 ${roleLabel}` : roleLabel;
     return {
       ...drawing,
       style: evidenceStyle(
         drawing.style,
         level.role === "support" ? "evidenceSupport" : "evidenceResistance",
-        { lineWidth: 2.5, labelPlacement: "axis" }
-      )
+        importanceStyle
+      ),
+      ...(importance ? { label: importanceLabel } : {})
     } as T;
   }
   if (isPatternDrawing(drawing, asset)) {
@@ -192,6 +203,29 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
         opacity: Math.min(0.9, drawing.style.opacity ?? 1),
         labelPlacement: drawing.id.endsWith("-upper") ? "inline" : drawing.id.endsWith("-lower") ? "axis" : "none"
       })
+    };
+  }
+  if (isTrendDrawing(drawing, asset)) {
+    const trend = (asset.geometry.trends ?? []).find((candidate) => (
+      drawing.id === candidate.drawingId || drawing.id.endsWith(`:${candidate.id}`)
+    )) ?? asset.geometry.primaryTrend;
+    const direction = trend?.direction;
+    const token = direction === "down" ? "down" : "up";
+    return {
+      ...drawing,
+      style: {
+        ...drawing.style,
+        color: undefined,
+        fillColor: undefined,
+        textColor: undefined,
+        colorToken: token,
+        fillToken: token,
+        textToken: token,
+        lineWidth: 2.75,
+        opacity: 0.86,
+        lineDash: undefined,
+        extension: "ray"
+      }
     };
   }
   return drawing;
@@ -222,6 +256,11 @@ function isPatternDrawing(drawing: Pick<DrawingEntity, "id">, asset: ChartAnalys
     asset.geometry.historicalTriangle
   ].filter(Boolean);
   return patterns.some((pattern) => drawing.id.includes(pattern!.geometryHash));
+}
+
+function isTrendDrawing(drawing: Pick<DrawingEntity, "id">, asset: ChartAnalysisAsset): boolean {
+  if (asset.geometry.drawingGroups?.trend.includes(drawing.id)) return true;
+  return (asset.geometry.trends ?? []).some((trend) => drawing.id === trend.drawingId || drawing.id.endsWith(`:${trend.id}`));
 }
 
 function isMovingAverageCrossDrawing(drawing: Pick<DrawingEntity, "id">): boolean {

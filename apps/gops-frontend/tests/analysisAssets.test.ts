@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
-import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
+import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
+import { buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
@@ -38,6 +39,7 @@ const candles = [
   { timestamp: now, open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true },
   { timestamp: "2026-07-11T20:00:00.000Z", open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true }
 ];
+const allEvidenceVisible = { ...defaultAnalysisLayerVisibility, proposal: true };
 
 assert.equal(isChartAssetDrawing(upper), true);
 assert.equal(candleKeyForTimestamp("2026-07-06T00:00:00.000Z", "1W"), "2026-07-06");
@@ -122,12 +124,13 @@ assert.equal(stale.state, "stale_asset");
 assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .45);
 
 const userDrawing: DrawingEntity = { ...upper, id: "user", sourceProposalId: undefined, createdBy: "user" };
-const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, { evidence: true, proposal: true }, { mode: "pan" });
+const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, allEvidenceVisible, { mode: "pan" });
 assert.equal(commands.filter((command) => command.type === "chart.drawing.add").length, 3);
 assert.ok(commands.some((command) => command.type === "chart.drawing.add" && command.payload.drawing?.label === "골든크로스 · SMA60/120"));
 assert.equal(commands.filter((command) => command.type === "chart.layer.visibility.set").length, 2);
 assert.ok(commands.some((command) => command.type === "chart.layer.visibility.set" && command.payload.layer === "sma:120"));
-assert.equal(analysisLayerToggleCommands(target, [], resolved!, "evidence", true).length, 3);
+assert.equal(analysisLayerToggleCommands(target, [], resolved!, "pattern", true).length, 2);
+assert.equal(analysisLayerToggleCommands(target, [], resolved!, "trend", true).length, 3, "trend adds the SMA cross and two SMA visibility commands");
 
 const document = createChartDocument(target.chartDocumentId, "AAPL", "1D");
 const result = executeChartCommandGroup(document, commands, "Apply Geometry asset");
@@ -135,7 +138,10 @@ assert.equal(result.ok, true);
 if (!result.ok) assert.fail(result.message);
 const hiddenResult = executeChartCommandGroup(
   result.document,
-  analysisLayerToggleCommands(target, result.document.drawings, resolved!, "evidence", false),
+  [
+    ...analysisLayerToggleCommands(target, result.document.drawings, resolved!, "pattern", false),
+    ...analysisLayerToggleCommands(target, result.document.drawings, resolved!, "trend", false)
+  ],
   "Hide Geometry asset"
 );
 assert.equal(hiddenResult.ok, true);
@@ -185,7 +191,7 @@ assert.deepEqual(
 );
 assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.type === "trendLine")?.style.lineDash, undefined);
 assert.equal(analysisAssetPresentationDiagnostics(levelAsset, candles, [support.id]).state, "ready");
-const levelCommands = analysisAssetApplyCommands(target, [], projectedLevelAsset, { evidence: true, proposal: true }, { mode: "pan" });
+const levelCommands = analysisAssetApplyCommands(target, [], projectedLevelAsset, allEvidenceVisible, { mode: "pan" });
 const levelResult = executeChartCommandGroup(document, levelCommands, "Apply Geometry level asset");
 assert.equal(levelResult.ok, true);
 assert.equal(levelResult.document.drawings[0]?.anchors.length, 2);
@@ -208,6 +214,11 @@ assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
 assert.match(commentarySource, /buildChartCommentaryModel/);
+assert.match(commentarySource, /aria-expanded=\{pinned\}/);
+assert.match(commentarySource, /aria-controls=\{metricPanelId\}/);
+assert.match(commentarySource, /candidateIds/);
+assert.match(commentarySource, /evidenceRefs/);
+assert.match(commentarySource, /chart-commentary-metric-card/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);
 const patternPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPatternListPanel.tsx", import.meta.url)), "utf-8");
 assert.match(patternPanelSource, /fetchChartAssetCoverage/);
@@ -218,10 +229,30 @@ assert.match(patternPanelSource, /패턴 종목 검색/);
 assert.match(patternPanelSource, /활성 패턴이 있는 종목이 없습니다/);
 assert.match(patternPanelSource, /필터와 일치하는 종목이 없습니다/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
-assert.match(toggleSource, /label="작도"/);
+assert.match(toggleSource, /label="해석"/);
+assert.match(toggleSource, /label="저항"/);
+assert.match(toggleSource, /accessibleLabel="지지·저항"/);
+assert.match(toggleSource, /label="추세"/);
+assert.match(toggleSource, /label="패턴"/);
 assert.match(toggleSource, /label="제안"/);
-assert.doesNotMatch(toggleSource, /인사이트|추세 분석 레이어/);
-assert.equal(analysisLayerOfDrawing(upper), "evidence");
+assert.match(toggleSource, /data-state=\{state\}/);
+assert.match(toggleSource, /unavailable \? undefined : visibility\[layer\]/);
+assert.match(toggleSource, /분석 레이어 사용 불가/);
+assert.deepEqual(defaultAnalysisLayerVisibility, { interpretation: false, levels: true, trend: true, pattern: true, proposal: false });
+assert.equal(analysisLayerOfDrawing(upper), "pattern");
+assert.equal(analysisLayerOfDrawing(support), "levels");
+assert.equal(analysisLayerOfDrawing(goldenCrossDrawing!), "trend");
+const legacyHorizontalDrawing: DrawingEntity = {
+  ...upper,
+  id: "chart-asset:AAPL:1D:legacy-price-boundary",
+  type: "horizontalLine",
+  label: "Legacy boundary"
+};
+assert.equal(
+  analysisLayerOfDrawing(legacyHorizontalDrawing),
+  "levels",
+  "legacy chart-asset horizontal lines fall back to the levels layer"
+);
 
 const proposalDrawing: DrawingEntity = {
   ...upper,
@@ -229,7 +260,9 @@ const proposalDrawing: DrawingEntity = {
   sourceProposalId: "chart-plan:AAPL:1D:trade-timing"
 };
 assert.equal(analysisLayerOfDrawing(proposalDrawing), "proposal");
-assert.equal(hasAnalysisLayerDrawings(asset, "evidence"), true);
+assert.equal(hasAnalysisLayerDrawings(asset, "pattern"), true);
+assert.equal(hasAnalysisLayerDrawings(asset, "trend"), true);
+assert.equal(hasAnalysisLayerDrawings(asset, "interpretation"), false);
 assert.equal(hasAnalysisLayerDrawings(asset, "proposal"), false);
 const splitLayerAsset: ChartAnalysisAsset = {
   ...asset,
@@ -241,10 +274,108 @@ const splitCommands = analysisAssetApplyCommands(
   target,
   [],
   splitLayerAsset,
-  { evidence: false, proposal: true },
+  { ...defaultAnalysisLayerVisibility, pattern: false, proposal: true },
   { mode: "pan" }
 );
 const splitAdds = splitCommands.filter((command) => command.type === "chart.drawing.add");
 assert.equal((splitAdds[0]?.payload.drawing as DrawingEntity).visible, false);
 assert.equal((splitAdds[1]?.payload.drawing as DrawingEntity).visible, true);
 assert.equal(analysisLayerToggleCommands(target, [upper, proposalDrawing], splitLayerAsset, "proposal", false).length, 1);
+
+const traceAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    drawingGroups: { levels: [], trend: [], pattern: [upper.id, lower.id] },
+    analysisTrace: {
+      version: "geometry-analysis-trace-v1",
+      pivots: [{ id: "pivot-1", timestamp: now, price: 170, kind: "L", confirmedAt: now }],
+      levelCandidates: [{
+        id: "level-candidate-1", category: "level", role: "support", selected: true, hardPass: true,
+        anchors: [{ timestamp: now, price: 170 }, { timestamp: candles[2].timestamp, price: 170 }],
+        evidenceRefs: ["pivot-1"], touchRefs: ["touch-1", "touch-2"], reactionRefs: ["touch-2"],
+        touches: [
+          { id: "touch-1", timestamp: now, price: 170, outcome: "touch" },
+          { id: "touch-2", timestamp: candles[2].timestamp, price: 170, outcome: "reaction" }
+        ],
+        metrics: { touchCount: 2, reactionCount: 1 }
+      }],
+      trendCandidates: [], patternCandidates: [],
+      selections: { levelCandidateIds: ["level-candidate-1"], trendCandidateIds: [], patternCandidateIds: [] },
+      omittedCounts: { levelCandidates: 0, trendCandidates: 0, patternCandidates: 0, touchEpisodes: 0 }
+    }
+  }
+};
+const normalizedTraceAsset = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": traceAsset } }, "AAPL").assets["1D"];
+assert.equal(normalizedTraceAsset?.geometry.analysisTrace?.version, "geometry-analysis-trace-v1");
+assert.equal(hasAnalysisLayerDrawings(traceAsset, "interpretation"), true);
+assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: false }), null, "interpretation stays off by default");
+const focusedTrace = buildAnalysisTraceOverlay(traceAsset, { visible: false, candidateIds: ["level-candidate-1"] });
+assert.equal(focusedTrace?.focused, true);
+assert.deepEqual(focusedTrace?.candidates[0]?.touchPivotIds, ["touch-1", "touch-2"]);
+assert.deepEqual(focusedTrace?.candidates[0]?.reactionPivotIds, ["touch-2"]);
+assert.deepEqual(focusedTrace?.pivots.map((pivot) => pivot.id).sort(), ["pivot-1", "touch-1", "touch-2"]);
+assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 1);
+const legacyTraceAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: { ...asset.geometry, evidence: [{ id: "legacy-pivot", timestamp: now, price: 171, kind: "H" }] }
+};
+assert.deepEqual(buildAnalysisTraceOverlay(legacyTraceAsset, { visible: true })?.pivots.map((pivot) => pivot.id), ["legacy-pivot"]);
+
+const importanceStyles = [
+  { importanceTier: "major" as const, lineWidth: 3, opacity: .95, lineDash: undefined, label: "지지" },
+  { importanceTier: "standard" as const, lineWidth: 2.25, opacity: .72, lineDash: [6, 4], label: "보조 지지" },
+  { importanceTier: "minor" as const, lineWidth: 1.5, opacity: .45, lineDash: [2, 4], label: "참고 지지" }
+];
+importanceStyles.forEach((expected) => {
+  const styled = resolveAnalysisAssetForCandles({
+    ...levelAsset,
+    geometry: {
+      ...levelAsset.geometry,
+      supports: [{ ...levelAsset.geometry.supports[0], importanceTier: expected.importanceTier }]
+    }
+  }, candles)?.geometry.drawings[0];
+  assert.equal(styled?.style.lineWidth, expected.lineWidth);
+  assert.equal(styled?.style.opacity, expected.opacity);
+  assert.deepEqual(styled?.style.lineDash, expected.lineDash);
+  assert.equal(styled?.label, expected.label);
+});
+
+const trendDrawing: DrawingEntity = {
+  ...upper,
+  id: "chart-asset:AAPL:1D:trend-up",
+  label: "상승 추세선"
+};
+const trendAsset: ChartAnalysisAsset = {
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    drawings: [trendDrawing],
+    primaryTriangle: null,
+    drawingGroups: { levels: [], trend: [trendDrawing.id], pattern: [] },
+    trends: [{
+      id: "trend-up", kind: "uptrend", direction: "up", score: .91, drawingId: trendDrawing.id,
+      anchors: trendDrawing.anchors as Array<{ timestamp: string; price: number }>,
+      anchorPivotIds: ["pivot-a", "pivot-b"], touchPivotIds: [], reactionPivotIds: [],
+      touchCount: 3, reactionCount: 2, slopeAtrPerBar: .1, medianResidualAtr: .2,
+      currentDistanceAtr: .4, lastTouchAgeBars: 2
+    }],
+    primaryTrend: null
+  },
+  indicators: { ...asset.indicators, cross: { status: "none" } }
+};
+const resolvedTrend = resolveAnalysisAssetForCandles(trendAsset, candles)?.geometry.drawings[0];
+assert.equal(analysisLayerOfDrawing(trendDrawing, trendAsset), "trend");
+assert.equal(resolvedTrend?.style.lineWidth, 2.75);
+assert.equal(resolvedTrend?.style.opacity, .86);
+assert.equal(resolvedTrend?.style.extension, "ray");
+assert.deepEqual(resolvedTrend?.style.lineDash, undefined);
+assert.equal(resolvedTrend?.style.colorToken, "up");
+const resolvedDownTrend = resolveAnalysisAssetForCandles({
+  ...trendAsset,
+  geometry: {
+    ...trendAsset.geometry,
+    trends: trendAsset.geometry.trends?.map((trend) => ({ ...trend, kind: "downtrend", direction: "down" }))
+  }
+}, candles)?.geometry.drawings[0];
+assert.equal(resolvedDownTrend?.style.colorToken, "down");

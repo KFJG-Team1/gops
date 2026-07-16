@@ -23,13 +23,17 @@ const plan: ChartTradeSetup = {
   priceSources: { entry: "server", target: "server", stop: "server" }
 };
 const steps = buildChartCommentaryModel(asset, plan);
-assert.deepEqual(steps.map((step) => step.id), ["evidence", "entry", "target", "stop", "summary"]);
-assert.match(steps[1].body, /100\.00/);
-assert.match(steps[2].body, /\+10\.00%/);
-assert.match(steps[3].body, /-5\.00%/);
-assert.match(steps[3].body, /이 기준을 벗어나면 매수 관점을 다시 검토합니다/);
-assert.doesNotMatch(steps[3].body, /시나리오 무효화 조건/);
-assert.deepEqual(steps[4].drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
+assert.deepEqual(steps.map((step) => step.id), ["levels", "trend", "pattern", "entry", "target", "stop", "summary"]);
+assert.match(steps[0].body, /지지선 1개와 저항선 0개/);
+assert.equal(steps[0].metricCards?.[0]?.items.find((item) => item.label === "가격")?.value, "98");
+assert.equal(steps[1].body, "적격 대각 추세 없음");
+assert.equal(steps[2].body, "적격 패턴 없음");
+assert.match(steps[3].body, /100\.00/);
+assert.match(steps[4].body, /\+10\.00%/);
+assert.match(steps[5].body, /-5\.00%/);
+assert.match(steps[5].body, /이 기준을 벗어나면 매수 관점을 다시 검토합니다/);
+assert.doesNotMatch(steps[5].body, /시나리오 무효화 조건/);
+assert.deepEqual(steps[6].drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
 
 const sellSteps = buildChartCommentaryModel(asset, {
   ...plan,
@@ -41,11 +45,78 @@ const sellSteps = buildChartCommentaryModel(asset, {
   stopPrice: 122,
   rewardRiskRatio: 2
 });
-assert.equal(sellSteps[1].title, "매도 기준");
-assert.match(sellSteps[1].body, /매도 기준가 118\.00/);
-assert.match(sellSteps[1].body, /근거 주기는 4h/);
-assert.match(sellSteps[2].body, /하락 목표가 110\.00/);
-assert.match(sellSteps[3].body, /매도 무효화가 122\.00/);
-assert.match(sellSteps[3].body, /이 기준을 벗어나면 매도 관점을 다시 검토합니다/);
-assert.match(sellSteps[4].body, /조건부 매도 후보/);
-assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["evidence", "observe"]);
+assert.equal(sellSteps[3].title, "매도 기준");
+assert.match(sellSteps[3].body, /매도 기준가 118\.00/);
+assert.match(sellSteps[3].body, /근거 주기는 4h/);
+assert.match(sellSteps[4].body, /하락 목표가 110\.00/);
+assert.match(sellSteps[5].body, /매도 무효화가 122\.00/);
+assert.match(sellSteps[5].body, /이 기준을 벗어나면 매도 관점을 다시 검토합니다/);
+assert.match(sellSteps[6].body, /조건부 매도 후보/);
+assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["levels", "trend", "pattern", "observe"]);
+
+const trendWithInvalidation = {
+  id: "trend-channel",
+  kind: "channel" as const,
+  direction: "up" as const,
+  score: .91,
+  drawingId: "chart-asset:AAPL:1D:trend-channel",
+  anchors: [
+    { timestamp: "2026-07-01T00:00:00.000Z", price: 95 },
+    { timestamp: "2026-07-13T00:00:00.000Z", price: 101 },
+    { timestamp: "2026-07-01T00:00:00.000Z", price: 100 }
+  ],
+  anchorPivotIds: ["pivot-a", "pivot-b"],
+  touchPivotIds: ["pivot-a", "pivot-b", "pivot-c"],
+  reactionPivotIds: ["pivot-b", "pivot-c"],
+  touchCount: 3,
+  reactionCount: 2,
+  slopeAtrPerBar: .08,
+  medianResidualAtr: .17,
+  currentDistanceAtr: .42,
+  lastTouchAgeBars: 3,
+  channelWidthAtr: 2.4,
+  parallelSlopeError: .03,
+  containment: .88,
+  activeInvalidation: false,
+  violationCount: 1,
+  invalidation: "adverse_close"
+};
+const trendSteps = buildChartCommentaryModel({
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    trends: [trendWithInvalidation],
+    primaryTrend: trendWithInvalidation,
+    drawingGroups: { levels: [], trend: [trendWithInvalidation.drawingId], pattern: [] }
+  }
+}, null);
+const trendMetrics = new Map(trendSteps[1].metricCards?.[0]?.items.map((item) => [item.label, item.value]));
+assert.equal(trendMetrics.get("활성 무효화"), "false");
+assert.equal(trendMetrics.get("위반 횟수"), "1");
+assert.equal(trendMetrics.get("무효화"), "adverse_close");
+
+const legacyLevelId = "chart-asset:AAPL:1D:legacy-boundary";
+const legacyPatternId = "chart-asset:AAPL:1D:legacy-evidence";
+const legacyCommentarySteps = buildChartCommentaryModel({
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    drawings: [
+      {
+        id: legacyLevelId, type: "horizontalLine", anchors: [{ timestamp: asset.asOf, price: 98 }],
+        symbol: "AAPL", interval: "1D", sourceInterval: "1D", style: { lineWidth: 2.5 }, label: "Legacy level",
+        visible: true, createdBy: "system", sourceProposalId: legacyLevelId, createdAt: asset.asOf, updatedAt: asset.asOf
+      },
+      {
+        id: legacyPatternId, type: "trendLine", anchors: [
+          { timestamp: "2026-07-01T00:00:00.000Z", price: 95 },
+          { timestamp: asset.asOf, price: 101 }
+        ],
+        symbol: "AAPL", interval: "1D", sourceInterval: "1D", style: { lineWidth: 2.5 }, label: "Legacy evidence",
+        visible: true, createdBy: "system", sourceProposalId: legacyPatternId, createdAt: asset.asOf, updatedAt: asset.asOf
+      }
+    ]
+  }
+}, null);
+assert.deepEqual(legacyCommentarySteps[0].drawingIds, [legacyLevelId]);
+assert.deepEqual(legacyCommentarySteps[2].drawingIds, [legacyPatternId]);

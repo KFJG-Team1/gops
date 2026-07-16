@@ -191,6 +191,8 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
 
   await expect.poll(() => requestedLayers.some((layers) => layers.split(",").includes("sma:120"))).toBe(true);
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await expect(panel).toHaveScreenshot("chart-sma120-autoscale.png", { maxDiffPixelRatio: 0.015 });
 });
 
 test("bidask wheel zoom keeps one visual grammar and skips viewport history", async ({ page }) => {

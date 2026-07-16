@@ -94,7 +94,8 @@ export function buildTrendParallelLines(
   baseEnd: DrawingPoint,
   spacingPoint: DrawingPoint,
   plot: PlotBounds,
-  lineCount: number
+  lineCount: number,
+  extension: ChartLineExtension = "line"
 ): DrawingLine[] {
   const dx = baseEnd.x - baseStart.x;
   const dy = baseEnd.y - baseStart.y;
@@ -109,7 +110,7 @@ export function buildTrendParallelLines(
       x: baseStart.x + normal.x * spacing * offset,
       y: baseStart.y + normal.y * spacing * offset
     };
-    return projectTrendLine(start, { x: start.x + dx, y: start.y + dy }, plot, "line");
+    return projectTrendLine(start, { x: start.x + dx, y: start.y + dy }, plot, extension);
   });
 }
 

@@ -23,6 +23,10 @@ const fourDigitPriceAxisWidth = 68;
 const fourDigitPriceLabelLength = "1356.22".length;
 const priceAxisLabelContentWidth = 60;
 const priceTickSubdivisionThreshold = 120;
+const standardPriceDomainPaddingRatio = 0.05;
+const minimumStandardPriceStep = 0.01;
+const overlayRangeMultiplier = 4;
+const overlayMidPriceGuardRatio = 0.5;
 
 export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
   if (!Number.isFinite(value)) {
@@ -197,9 +201,9 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   // area downward to make that room.
   const hasDigExpansions = (options.expansions?.length ?? 0) > 0;
   const padding = {
-    top: hasDigExpansions ? 68 : 42,
+    top: hasDigExpansions ? 64 : 38,
     right: priceAxisWidthForChart(chart),
-    bottom: belowPaneIds.length ? 36 : 30,
+    bottom: belowPaneIds.length ? 32 : 26,
     left: 0
   };
   const allActivePaneIds = ["price", ...belowPaneIds];
@@ -760,14 +764,17 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
       bidAskPriceGrid
     };
   }
-  const values = candleUnits.flatMap((unit) => [
+  const baseValues = candleUnits.flatMap((unit) => [
     unit.candle.high,
-    unit.candle.low,
+    unit.candle.low
+  ])
+    .concat(carryPrices)
+    .filter(isPositivePrice);
+  const overlayValues = candleUnits.flatMap((unit) => [
     (chart.layers["sma:5"] ?? chart.layers.ma5) ? unit.candle.ma5 : undefined,
     (chart.layers["sma:20"] ?? chart.layers.ma20) ? unit.candle.ma20 : undefined,
     (chart.layers["sma:60"] ?? chart.layers.ma60) ? unit.candle.ma60 : undefined
   ])
-    .concat(carryPrices)
     .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), candleUnits))
     .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), candleUnits))
     .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), candleUnits))
@@ -776,8 +783,11 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .concat(proposalDomainValues(chart))
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  return priceDomainFromValues(values, plotHeight);
+    .filter(isPositivePrice);
+  return priceDomainFromValues(
+    baseValues.concat(overlayValuesWithinBaseRange(baseValues, overlayValues)),
+    plotHeight
+  );
 }
 
 function proposalDomainValues(chart: ChartState): number[] {
@@ -791,19 +801,42 @@ function proposalDomainValues(chart: ChartState): number[] {
 }
 
 function priceDomainFromValues(source: Array<number | undefined>, plotHeight: number): { min: number; max: number; ticks: number[] } {
-  const values = source.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const values = source.filter(isPositivePrice);
   if (!values.length) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const rawRange = Math.max(0.01, max - min);
-  const pad = Math.max(0.5, rawRange * 0.08);
-  const domain = integerPriceDomain(min - pad, max + pad);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  let rawRange = max - min;
+  if (rawRange <= 0) {
+    rawRange = Math.max(Math.abs(max) * 0.01, minimumStandardPriceStep);
+    min = Math.max(0, min - rawRange / 2);
+    max += rawRange / 2;
+  }
+  const pad = rawRange * standardPriceDomainPaddingRatio;
+  const domain = standardPriceDomain(Math.max(0, min - pad), max + pad);
   return {
     ...domain,
     ticks: subdividePriceTicksForHeight(domain.ticks, plotHeight)
   };
+}
+
+function overlayValuesWithinBaseRange(baseValues: number[], overlayValues: number[]): number[] {
+  if (!baseValues.length) {
+    return overlayValues;
+  }
+  const baseMin = Math.min(...baseValues);
+  const baseMax = Math.max(...baseValues);
+  const midPrice = (baseMin + baseMax) / 2;
+  const baseRange = Math.max(baseMax - baseMin, Math.max(midPrice * 0.01, minimumStandardPriceStep));
+  const guard = Math.max(baseRange * overlayRangeMultiplier, midPrice * overlayMidPriceGuardRatio);
+  const lowerBound = Math.max(0, baseMin - guard);
+  const upperBound = baseMax + guard;
+  return overlayValues.filter((value) => value >= lowerBound && value <= upperBound);
+}
+
+function isPositivePrice(value: number | undefined | null): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function subdividePriceTicksForHeight(ticks: number[], plotHeight: number): number[] {
@@ -858,46 +891,45 @@ function bollingerDomainValues(
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
-function integerPriceDomain(min: number, max: number): { min: number; max: number; ticks: number[] } {
+function standardPriceDomain(min: number, max: number): { min: number; max: number; ticks: number[] } {
   if (!Number.isFinite(min) || !Number.isFinite(max)) {
     return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }
   if (max <= min) {
-    const center = Math.round(max || min || 0);
-    return { min: center - 2, max: center + 2, ticks: [center - 2, center - 1, center, center + 1, center + 2] };
+    return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
   }
   const targetGaps = 4;
-  let step = niceIntegerStep((max - min) / targetGaps);
-  let domainMin = Math.floor(min / step) * step;
+  let step = nicePriceStep((max - min) / targetGaps);
+  let domainMin = Math.max(0, Math.floor(min / step) * step);
   let domainMax = Math.ceil(max / step) * step;
   let tickCount = Math.round((domainMax - domainMin) / step) + 1;
   while (tickCount > 7) {
-    step = niceIntegerStep(step * 1.5);
-    domainMin = Math.floor(min / step) * step;
+    step = nicePriceStep(step * 1.5);
+    domainMin = Math.max(0, Math.floor(min / step) * step);
     domainMax = Math.ceil(max / step) * step;
     tickCount = Math.round((domainMax - domainMin) / step) + 1;
   }
   while (tickCount < 3) {
-    domainMin -= step;
     domainMax += step;
-    tickCount = Math.round((domainMax - domainMin) / step) + 1;
+    tickCount += 1;
   }
+  const decimalPlaces = decimalPlacesForPriceStep(step);
   const ticks: number[] = [];
-  for (let value = domainMin; value <= domainMax + step / 2; value += step) {
-    ticks.push(Math.round(value));
+  for (let index = 0; index < tickCount; index += 1) {
+    ticks.push(Number((domainMin + index * step).toFixed(decimalPlaces)));
   }
-  return { min: domainMin, max: domainMax, ticks };
+  return { min: ticks[0], max: ticks[ticks.length - 1], ticks };
 }
 
-function niceIntegerStep(rawStep: number): number {
-  if (!Number.isFinite(rawStep) || rawStep <= 1) {
-    return 1;
+function nicePriceStep(rawStep: number): number {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) {
+    return minimumStandardPriceStep;
   }
   const exponent = Math.floor(Math.log10(rawStep));
   const magnitude = 10 ** exponent;
   const normalized = rawStep / magnitude;
   const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  return Math.max(1, Math.round(nice * magnitude));
+  return Math.max(minimumStandardPriceStep, nice * magnitude);
 }
 
 function volumeDomain(maxVolume: number): { max: number; ticks: number[] } {
