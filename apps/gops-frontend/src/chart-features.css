@@ -75,6 +75,15 @@
   overflow: clip;
 }
 
+.chart-holding-price-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .chart-analysis-layer-controls {
   position: absolute;
   z-index: 4;

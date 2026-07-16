@@ -783,6 +783,7 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .concat(proposalDomainValues(chart))
+    .concat(chart.holdingOverlay?.averagePrice)
     .filter(isPositivePrice);
   return priceDomainFromValues(
     baseValues.concat(overlayValuesWithinBaseRange(baseValues, overlayValues)),

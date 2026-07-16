@@ -4,6 +4,8 @@ import {
   formatPaperHoldingQuantity,
   paperHoldingOverlayLabel
 } from "../src/chart/paperHoldingPrice";
+import { buildChartScene } from "../src/chart/scene";
+import type { ChartState } from "../src/chart/types";
 
 const positions = [
   {
@@ -48,3 +50,38 @@ assert.equal(formatPaperHoldingQuantity(20), "20주");
 assert.equal(formatPaperHoldingQuantity(0.125), "0.125주");
 assert.equal(paperHoldingOverlayLabel({ symbol: "AMD", quantity: 20, averagePrice: 552.75 }), "평균 매입가 $552.75 · 20주");
 
+const chartWithHolding = {
+  symbol: "AMD",
+  chartType: "candle",
+  interval: "1D",
+  candles: [{
+    timestamp: "2026-07-15T04:00:00.000Z",
+    open: 100,
+    high: 102,
+    low: 98,
+    close: 101,
+    volume: 1_000,
+    isClosed: true
+  }],
+  status: "ready",
+  layers: { candles: true },
+  volumeRatio: 0.2,
+  visibleCount: 20,
+  rightOffset: 0,
+  toolMode: "select",
+  trendLineExtension: "segment",
+  parallelLineCount: 2,
+  drawings: [],
+  comparisons: [],
+  streamState: "idle",
+  holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 90 }
+} satisfies ChartState;
+const holdingScene = buildChartScene(chartWithHolding, 640, 360);
+assert.ok(holdingScene.scales.minPrice <= 90);
+assert.ok(holdingScene.scales.maxPrice >= 102);
+
+const extremeHoldingScene = buildChartScene({
+  ...chartWithHolding,
+  holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 1 }
+}, 640, 360);
+assert.ok(extremeHoldingScene.scales.minPrice > 10);
