@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { NotificationItem } from "../src/alerts/alertApi";
+import { formatNotificationToastMessage } from "../src/alerts/alertPresentation";
 import {
+  advanceAlertToastState,
   createAlertToastQueueState,
   enqueueAlertToastState,
+  isNotificationToastExpired,
   removeNotificationAlertToastState,
   removePersistedAlertToastState,
   type AlertToastQueueState
@@ -68,6 +73,69 @@ const prioritized = enqueueAlertToastState(
 );
 assert.equal(prioritized.current?.notification.eventId, geopoliticalRisk.eventId);
 assert.deepEqual(prioritized.queue.map((item) => item.notification.id), [1, 3, -1]);
+
+const expiredMarketOpen: NotificationItem = {
+  id: 20,
+  eventId: "system.market_opened:2026-07-14:user-a",
+  type: "system.market_opened",
+  payload: {
+    kind: "market_opened",
+    effectiveAt: "2026-07-14T13:30:00Z",
+    expiresAt: "2026-07-14T13:32:00Z"
+  },
+  createdAt: "2026-07-14T13:30:00Z",
+  readAt: null
+};
+const afterExpiry = Date.parse("2026-07-14T13:33:00Z");
+assert.equal(isNotificationToastExpired(expiredMarketOpen, afterExpiry), true);
+assert.deepEqual(
+  enqueueAlertToastState(
+    createAlertToastQueueState(),
+    expiredMarketOpen,
+    normalizeNotificationPreferences({ persisted: true }),
+    new Set(),
+    {},
+    afterExpiry
+  ),
+  createAlertToastQueueState()
+);
+const promoted = advanceAlertToastState({
+  current: { notification: unread },
+  queue: [
+    { notification: expiredMarketOpen },
+    { notification: notification(30, null) }
+  ]
+}, afterExpiry);
+assert.equal(promoted.current?.notification.id, 30);
+
+const marketMove: NotificationItem = {
+  id: 40,
+  eventId: "market-move:2026-07-14:user-a:NVDA:down:5",
+  type: "system.market_move",
+  payload: {
+    kind: "market_move",
+    symbol: "NVDA",
+    title: "NVDA 정규장 급락",
+    summary: "전일 정규장 종가 대비 -5.75% 하락했습니다.",
+    previousClose: 100,
+    lastPrice: 94.25,
+    changePercent: -5.75
+  },
+  readAt: null
+};
+const marketMoveToast = formatNotificationToastMessage(marketMove);
+assert.equal(marketMoveToast.message, "전일 정규장 종가 대비 -5.75% 하락했습니다.");
+assert.equal(marketMoveToast.detail, "현재가 94.25 · 전일 정규장 종가 100");
+
+const bottomCommandBarSource = readFileSync(
+  fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)),
+  "utf-8"
+);
+const snapshotStart = bottomCommandBarSource.indexOf('if (payload.type === "snapshot")');
+const realtimeStart = bottomCommandBarSource.indexOf('if (payload.type === "notification")', snapshotStart);
+assert.ok(snapshotStart >= 0 && realtimeStart > snapshotStart);
+assert.doesNotMatch(bottomCommandBarSource.slice(snapshotStart, realtimeStart), /enqueueAlertToast/);
+assert.match(bottomCommandBarSource, /setTimeout\(\(\) => \{[\s\S]*advanceAlertToast\(\);[\s\S]*alertToastAdvanceMs/);
 
 function notification(id: number, readAt: string | null): NotificationItem {
   return {
