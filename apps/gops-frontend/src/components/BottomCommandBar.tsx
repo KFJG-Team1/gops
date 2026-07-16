@@ -13,7 +13,6 @@ import {
   publishAlertRulesChanged,
   type NotificationItem
 } from "../alerts/alertApi";
-import { isMarketOpenNotification } from "../alerts/marketOpenReminder";
 import {
   useNotificationPreferences
 } from "../alerts/notificationPreferences";
@@ -275,10 +274,6 @@ export function BottomCommandBar({
             notifications,
             asNumber(payload.unreadCount) ?? notifications.filter((item) => !item.readAt).length
           ));
-          notifications
-            .filter((item) => !item.readAt)
-            .reverse()
-            .forEach((notification) => enqueueAlertToast(notification));
           setNotificationInboxError(null);
           return;
         }
@@ -347,18 +342,9 @@ export function BottomCommandBar({
     if (!alertToastState.current) {
       return undefined;
     }
-    if (isMarketOpenNotification(alertToastState.current.notification) && alertToastState.queue.length === 0) {
-      return undefined;
-    }
-    const timeoutMs = alertToastState.queue.length > 0
-      ? alertToastAdvanceMs
-      : alertToastState.current.autoDismissMs;
-    if (!timeoutMs) {
-      return undefined;
-    }
     const timer = window.setTimeout(() => {
       advanceAlertToast();
-    }, timeoutMs);
+    }, alertToastAdvanceMs);
     return () => window.clearTimeout(timer);
   }, [
     alertToastState.current?.notification.eventId,

@@ -23,6 +23,9 @@ const volumeScalePadding = 1.18;
 const fourDigitPriceAxisWidth = 68;
 const fourDigitPriceLabelLength = "1356.22".length;
 const priceAxisLabelContentWidth = 60;
+const holdingOverlayRangeMultiplier = 4;
+const holdingOverlayMidPriceGuardRatio = 0.5;
+const minimumHoldingOverlayPriceStep = 0.01;
 
 export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
   if (!Number.isFinite(value)) {
@@ -807,10 +810,11 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .concat(proposalDomainValues(chart))
     .filter(isPositivePrice);
+  const holdingPrice = holdingDomainValues(baseValues, chart.holdingOverlay?.averagePrice);
   const livePrice = chart.streamState === "live" && isPositivePrice(chart.liveTrade?.price)
     ? [chart.liveTrade.price]
     : [];
-  return priceDomainFromValues(baseValues.concat(overlayValues, livePrice), plotHeight);
+  return priceDomainFromValues(baseValues.concat(overlayValues, holdingPrice, livePrice), plotHeight);
 }
 
 function proposalDomainValues(chart: ChartState): number[] {
@@ -830,6 +834,30 @@ function priceDomainFromValues(source: Array<number | undefined>, plotHeight: nu
     max: scale.domainMax,
     ticks: scale.ticks
   };
+}
+
+function holdingDomainValues(baseValues: number[], averagePrice: number | undefined): number[] {
+  if (!isPositivePrice(averagePrice)) {
+    return [];
+  }
+  if (!baseValues.length) {
+    return [averagePrice];
+  }
+  const baseMin = Math.min(...baseValues);
+  const baseMax = Math.max(...baseValues);
+  const midPrice = (baseMin + baseMax) / 2;
+  const baseRange = Math.max(
+    baseMax - baseMin,
+    midPrice * 0.01,
+    minimumHoldingOverlayPriceStep
+  );
+  const guard = Math.max(
+    baseRange * holdingOverlayRangeMultiplier,
+    midPrice * holdingOverlayMidPriceGuardRatio
+  );
+  return averagePrice >= Math.max(0, baseMin - guard) && averagePrice <= baseMax + guard
+    ? [averagePrice]
+    : [];
 }
 
 function isPositivePrice(value: number | undefined | null): value is number {

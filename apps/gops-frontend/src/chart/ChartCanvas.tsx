@@ -40,6 +40,7 @@ import {
 } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
+import { paperHoldingOverlayLabel } from "./paperHoldingPrice";
 import {
   applyCanvasTypography,
   CANVAS_FONT_FAMILY,
@@ -399,6 +400,7 @@ function drawBaseChart(
     () => drawDrawings(context, scene, drawingBatch, false, editingDrawingId, spotlight),
     () => drawDrawings(context, scene, previewDrawingBatch, true),
     () => drawDrawingLabelsOnAxes(context, scene, spotlight),
+    () => drawHoldingAveragePriceMarker(context, scene),
     () => drawCurrentPriceMarker(context, scene)
   ];
   layers.forEach((drawLayer) => drawLayer());
@@ -2480,6 +2482,28 @@ function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartS
   context.globalAlpha = 1;
   context.setLineDash([]);
   drawAxisPill(context, price.toFixed(2), rightAxisPillX(scene), y, "right", "currentPrice");
+  context.restore();
+}
+
+function drawHoldingAveragePriceMarker(context: CanvasRenderingContext2D, scene: ChartScene) {
+  const holding = scene.chart.holdingOverlay;
+  if (!holding || holding.symbol !== scene.chart.symbol.trim().toUpperCase()) {
+    return;
+  }
+  const y = priceToY(scene, holding.averagePrice);
+  if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = colors.pointYellow;
+  context.globalAlpha = 0.92;
+  context.lineWidth = 1;
+  context.setLineDash([6, 4]);
+  line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
+  context.globalAlpha = 1;
+  context.setLineDash([]);
+  drawDarkAxisPill(context, paperHoldingOverlayLabel(holding), rightAxisPillX(scene), y, "right", colors.pointYellow);
   context.restore();
 }
 

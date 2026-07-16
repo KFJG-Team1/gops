@@ -25588,8 +25588,13 @@ textarea:focus,
   display: grid;
   grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 0;
-  margin-top: 16px;
+  margin-top: 10px;
   overflow: hidden;
+}
+
+.compare-cockpit-metrics.is-qualitative {
+  grid-template-rows: repeat(3, auto);
+  align-content: space-evenly;
 }
 
 .compare-cockpit-metric-row {
@@ -25666,6 +25671,7 @@ textarea:focus,
 
 .compare-cockpit-metric-row.is-qualitative {
   grid-template-columns: minmax(110px, 0.22fr) minmax(0, 1fr);
+  overflow: visible;
 }
 
 .compare-cockpit-paired-copy {
@@ -25686,15 +25692,12 @@ textarea:focus,
 }
 
 .compare-cockpit-paired-copy strong {
-  display: -webkit-box;
+  display: block;
   min-width: 0;
   color: #ffffff;
   font: var(--type-body-md);
   letter-spacing: var(--type-body-md-letter-spacing);
   text-transform: var(--type-body-md-text-transform);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
   overflow-wrap: anywhere;
 }
 
@@ -25703,9 +25706,9 @@ textarea:focus,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 18px;
-  margin-top: 10px;
-  padding-top: 16px;
-  border-top: 1px solid #333333;
+  margin-top: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #333333;
 }
 
 .compare-cockpit-brief > svg {
@@ -25735,10 +25738,378 @@ textarea:focus,
   text-transform: inherit;
 }
 
-@container (max-width: 1400px) {
-  .compare-cockpit-brief-secondary {
-    display: none;
-  }
+.compare-cockpit-special-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.compare-cockpit-special-loading {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #999999;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.compare-cockpit-trend-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.compare-cockpit-trend-block {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  gap: 8px;
+}
+
+.compare-cockpit-trend-block + .compare-cockpit-trend-block {
+  padding-left: 20px;
+  border-left: 1px solid #333333;
+}
+
+.compare-cockpit-trend-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.compare-cockpit-trend-heading > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.compare-cockpit-trend-heading strong {
+  color: #ffffff;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.compare-cockpit-trend-heading > div:first-child > span,
+.compare-cockpit-trend-legend,
+.compare-cockpit-trend-note strong {
+  color: #999999;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.compare-cockpit-trend-legend {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compare-cockpit-trend-legend span,
+.compare-cockpit-filing-row.is-head span,
+.compare-cockpit-relationship-row.is-head span,
+.compare-cockpit-issue-row.is-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compare-cockpit-trend-legend i,
+.compare-cockpit-filing-row.is-head i,
+.compare-cockpit-relationship-row.is-head i,
+.compare-cockpit-issue-row.is-head i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.compare-cockpit-trend-legend i.is-base,
+.compare-cockpit-filing-row.is-head i.is-base,
+.compare-cockpit-relationship-row.is-head i.is-base,
+.compare-cockpit-issue-row.is-head i.is-base {
+  background: #33adff;
+}
+
+.compare-cockpit-trend-legend i.is-compare,
+.compare-cockpit-filing-row.is-head i.is-compare,
+.compare-cockpit-relationship-row.is-head i.is-compare,
+.compare-cockpit-issue-row.is-head i.is-compare {
+  background: #ff7a3d;
+}
+
+.compare-cockpit-trend-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 260px;
+  display: block;
+}
+
+.compare-cockpit-chart-grid line {
+  stroke: #333333;
+  stroke-width: 1;
+}
+
+.compare-cockpit-chart-grid text,
+.compare-cockpit-chart-periods text,
+.compare-cockpit-trend-points text {
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.compare-cockpit-chart-grid text {
+  fill: #999999;
+  text-anchor: end;
+}
+
+.compare-cockpit-chart-periods text {
+  fill: #999999;
+  text-anchor: middle;
+}
+
+.compare-cockpit-trend-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.compare-cockpit-trend-line.is-base {
+  stroke: #33adff;
+}
+
+.compare-cockpit-trend-line.is-compare {
+  stroke: #ff7a3d;
+}
+
+.compare-cockpit-trend-points.is-base circle,
+.compare-cockpit-trend-points.is-base path {
+  fill: #33adff;
+}
+
+.compare-cockpit-trend-points.is-compare circle,
+.compare-cockpit-trend-points.is-compare path {
+  fill: #ff7a3d;
+}
+
+.compare-cockpit-trend-points text {
+  fill: #ffffff;
+  text-anchor: middle;
+}
+
+.compare-cockpit-trend-note {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #333333;
+}
+
+.compare-cockpit-trend-note span {
+  color: #ffffff;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+}
+
+.compare-cockpit-filing-matrix,
+.compare-cockpit-relationship-matrix,
+.compare-cockpit-issue-matrix {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: stretch;
+}
+
+.compare-cockpit-filing-matrix {
+  grid-auto-rows: auto;
+  align-content: space-between;
+}
+
+.compare-cockpit-filing-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(112px, 0.16fr) repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+  padding: 7px 0;
+  border-bottom: 1px solid #333333;
+}
+
+.compare-cockpit-filing-row.is-head {
+  color: #999999;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.compare-cockpit-filing-row > strong {
+  color: #ffffff;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.compare-cockpit-filing-row > span:not([role="columnheader"]) {
+  min-width: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-filing-row > span:last-child:not([role="columnheader"]) {
+  padding-left: 20px;
+  border-left: 1px solid #333333;
+}
+
+.compare-cockpit-relationship-matrix {
+  grid-auto-rows: auto;
+  align-content: space-between;
+}
+
+.compare-cockpit-relationship-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(96px, 0.16fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 4px 0;
+  border-bottom: 1px solid #333333;
+}
+
+.compare-cockpit-relationship-row.is-head,
+.compare-cockpit-issue-row.is-head {
+  color: #999999;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.compare-cockpit-relationship-row > strong,
+.compare-cockpit-issue-row > strong {
+  color: #ffffff;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.compare-cockpit-relationship-row > span:not(.is-shared) {
+  min-width: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-relationship-row .is-shared {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding-inline: 14px;
+  border-inline: 1px solid #333333;
+}
+
+.compare-cockpit-relationship-row .is-shared b {
+  color: #ffffff;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-relationship-row .is-shared em {
+  color: #999999;
+  font: var(--type-body-md);
+  font-style: normal;
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-matrix {
+  grid-auto-rows: auto;
+  align-content: space-between;
+}
+
+.compare-cockpit-issue-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(112px, 0.16fr) repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+  padding: 2px 0;
+  border-bottom: 1px solid #333333;
+}
+
+.compare-cockpit-issue-cell {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+}
+
+.compare-cockpit-issue-cell time,
+.compare-cockpit-issue-source,
+.compare-cockpit-issue-cell a {
+  color: #999999;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.compare-cockpit-issue-cell b {
+  color: #ffffff;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-cell p {
+  margin: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-cell a {
+  width: fit-content;
+  color: #33adff;
+  text-decoration: none;
+}
+
+.compare-cockpit-issue-cell a:hover,
+.compare-cockpit-issue-cell a:focus-visible {
+  text-decoration: underline;
+}
+
+.compare-cockpit-issue-cell.is-empty b,
+.compare-cockpit-issue-cell.is-empty p {
+  color: #999999;
 }
 
 .compare-cockpit-no-data,
@@ -25908,6 +26279,57 @@ textarea:focus,
     padding: 22px 16px 18px;
   }
 
+  .compare-cockpit-trend-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .compare-cockpit-trend-block {
+    grid-template-columns: minmax(140px, 0.34fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .compare-cockpit-trend-block + .compare-cockpit-trend-block {
+    padding-top: 10px;
+    padding-left: 0;
+    border-top: 1px solid #333333;
+    border-left: 0;
+  }
+
+  .compare-cockpit-trend-heading {
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .compare-cockpit-trend-chart {
+    min-height: 0;
+    max-height: 160px;
+  }
+
+  .compare-cockpit-relationship-row {
+    grid-template-columns: minmax(82px, 0.18fr) repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .compare-cockpit-filing-row {
+    grid-template-columns: minmax(92px, 0.2fr) repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .compare-cockpit-filing-row > span:last-child:not([role="columnheader"]) {
+    padding-left: 12px;
+  }
+
+  .compare-cockpit-relationship-row .is-shared {
+    padding-inline: 9px;
+  }
+
+  .compare-cockpit-issue-row {
+    grid-template-columns: minmax(92px, 0.2fr) repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
   .compare-cockpit-metric-row {
     grid-template-columns: minmax(100px, 0.3fr) minmax(120px, 1fr) minmax(90px, 0.25fr);
     gap: 14px;
@@ -25972,6 +26394,17 @@ textarea:focus,
 
   .compare-cockpit-brief {
     gap: 12px;
+  }
+
+  .compare-cockpit-trend-note {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .compare-cockpit-relationship-row,
+  .compare-cockpit-filing-row,
+  .compare-cockpit-issue-row {
+    gap: 8px;
   }
 
   .compare-cockpit-candidates {

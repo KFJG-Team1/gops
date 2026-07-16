@@ -476,12 +476,19 @@ export type ChartAction =
   | { type: "selectDrawing"; drawingId?: string }
   | { type: "clearDrawings" };
 
+export type ChartHoldingOverlay = {
+  symbol: string;
+  quantity: number;
+  averagePrice: number;
+};
+
 export type ChartState = {
   symbol: string;
   chartType: ChartType;
   interval: ChartInterval;
   candles: CandleDto[];
   liveTrade?: TradeTickData;
+  holdingOverlay?: ChartHoldingOverlay | null;
   status: CandleQueryResponseDto["status"] | "loading";
   message?: string;
   requestedLimit?: number;

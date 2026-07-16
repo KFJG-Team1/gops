@@ -58,6 +58,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
+import { findPaperHoldingOverlay, paperHoldingOverlayLabel } from "../chart/paperHoldingPrice";
 import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
@@ -91,6 +92,7 @@ import {
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
+  syncChartEventMarkerPositions,
   type ChartEventCoverage,
   type ChartEventMarker,
   type ChartEventsResponse
@@ -156,6 +158,7 @@ import {
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import { simulationAwareNowMs } from "../simulator/simulatorApi";
 import {
   defaultBidAskInterval,
   defaultVisibleBarsForBidAskInterval,
@@ -180,6 +183,7 @@ import { ChartEventOverlay } from "./ChartEventOverlay";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import type { ThemeColorToken } from "../theme/colors";
+import { usePaperAccount } from "../orders/PaperAccountProvider";
 
 function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
@@ -424,6 +428,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   toolbarLeading,
   toolbarAfterViewControls
 }: ChartPanelProps, ref) {
+  const { snapshot: paperAccountSnapshot } = usePaperAccount();
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
@@ -431,7 +436,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
-  const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
+  const [currentPriceClock, setCurrentPriceClock] = useState(() => simulationAwareNowMs(Date.now()));
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
   const [postCreateFocusDrawingId, setPostCreateFocusDrawingId] = useState<string | null>(null);
@@ -485,6 +490,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? { ...sourceChart, candles: bidAskCandlesForSession(sourceChart.candles, bidAskSessionDate) }
       : sourceChart
   ), [bidAskSessionDate, sourceChart]);
+  const holdingOverlay = useMemo(() => (
+    findPaperHoldingOverlay(paperAccountSnapshot?.positions ?? [], chart.symbol)
+  ), [chart.symbol, paperAccountSnapshot?.positions]);
   const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
   const earningsEventsVisible = chart.layers["events:earnings"] !== false;
   const newsEventsVisible = chart.layers["events:news"] !== false;
@@ -742,7 +750,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!currentPriceMarker || currentPriceMarker.isClosed || currentPriceMarker.streamState !== "live") {
       return undefined;
     }
-    const timer = window.setInterval(() => setCurrentPriceClock(Date.now()), 1000);
+    const timer = window.setInterval(() => setCurrentPriceClock(simulationAwareNowMs(Date.now())), 1000);
     return () => window.clearInterval(timer);
   }, [currentPriceMarker]);
 
@@ -1730,6 +1738,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ), [chart.comparisons, chart.interval, comparisonScopeData, comparisonScopeRequests]);
   const renderChart = useMemo(() => ({
     ...chart,
+    holdingOverlay,
     indicatorSeries,
     volumeProfile,
     orderFlow: orderFlowActive ? {
@@ -1748,7 +1757,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       heightRatio: transientPaneRatios?.[pane.id] ?? pane.heightRatio
     })) ?? [],
     drawings: transientDrawings ?? chart.drawings
-  }), [chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
+  }), [chart, holdingOverlay, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
   const previewDrawings = useMemo<DrawingEntity[]>(() => [], []);
   const currentPriceTimeText = useMemo(() => (
@@ -2030,6 +2039,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       earnings: earningsEventsVisible,
       news: newsEventsVisible
     });
+    syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers);
     const nextEventMarkerKey = chartEventMarkerLayoutKey(nextEventMarkers);
     if (nextEventMarkerKey !== chartEventMarkerKeyRef.current) {
       chartEventMarkerKeyRef.current = nextEventMarkerKey;
@@ -2852,6 +2862,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {holdingOverlay && (
+          <span className="chart-holding-price-description" role="note">
+            {chart.symbol} {paperHoldingOverlayLabel(holdingOverlay)}
+          </span>
+        )}
         <ChartEventOverlay
           containerRef={chartWrapRef}
           markers={chartEventMarkers}

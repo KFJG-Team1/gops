@@ -303,13 +303,18 @@ export function useNotificationPreferences(): NotificationPreferencesContextValu
 }
 
 export function notificationSettingForItem(notification: NotificationItem): NotificationSettingKey | null {
-  if (notification.type === "system.market_open" || notification.payload.kind === "market_open") {
+  if (
+    ["system.market_open", "system.market_opened"].includes(notification.type)
+    || ["market_open", "market_opened"].includes(String(notification.payload.kind || ""))
+  ) {
     return "marketOpen";
   }
   if (
     notification.type === "system.market_close"
+    || notification.type === "system.market_closed"
     || notification.type === "system.market_close_summary"
     || notification.payload.kind === "market_close"
+    || notification.payload.kind === "market_closed"
     || notification.payload.kind === "market_close_summary"
   ) {
     return "marketClose";
@@ -323,7 +328,7 @@ export function notificationSettingForItem(notification: NotificationItem): Noti
   if (notification.type === "alert.price_cross") {
     return "targetPrice";
   }
-  if (notification.type === "alert.spike") {
+  if (notification.type === "alert.spike" || notification.type === "system.market_move" || notification.payload.kind === "market_move") {
     return "rapidMove";
   }
 

@@ -38,6 +38,7 @@ export const simulatorActivePollIntervalMs = 1_000;
 export const simulatorIdlePollIntervalMs = 30_000;
 const portfolioRefreshListeners = new Set<() => void>();
 let latestPublishedSimulatorStatus: SimulatorStatus | null = null;
+let latestPublishedSimulatorStatusAtMs: number | null = null;
 
 export function simulatorStatusPollIntervalMs(status: Pick<SimulatorStatus, "available" | "mode" | "state">): number {
   return status.available && status.mode === "simulation" && status.state === "running"
@@ -80,6 +81,30 @@ export function formatSimulatorVirtualTime(value: string): string {
   return `${valueFor("month")}/${valueFor("day")} ${valueFor("hour")}:${valueFor("minute")}:${valueFor("second")}`;
 }
 
+export function simulationAwareNowMs(
+  wallNowMs = Date.now(),
+  status: SimulatorStatus | null = latestPublishedSimulatorStatus,
+  observedAtMs: number | null = latestPublishedSimulatorStatusAtMs
+): number {
+  if (status?.mode !== "simulation") {
+    return wallNowMs;
+  }
+  const virtualTimeMs = Date.parse(status.virtualTime);
+  if (!Number.isFinite(virtualTimeMs)) {
+    return wallNowMs;
+  }
+  if (status.state !== "running" || observedAtMs === null || !Number.isFinite(observedAtMs)) {
+    return virtualTimeMs;
+  }
+  const elapsedWallMs = Math.max(0, wallNowMs - observedAtMs);
+  const effectiveSpeed = Number.isFinite(status.effectiveSpeed)
+    ? Math.max(0, status.effectiveSpeed)
+    : 0;
+  const extrapolatedMs = virtualTimeMs + elapsedWallMs * effectiveSpeed;
+  const endTimeMs = Date.parse(status.endTime);
+  return Number.isFinite(endTimeMs) ? Math.min(extrapolatedMs, endTimeMs) : extrapolatedMs;
+}
+
 export async function fetchSimulatorStatus(signal?: AbortSignal): Promise<SimulatorStatus> {
   return requestJson<SimulatorStatus>("/api/simulator/status", { signal });
 }
@@ -110,6 +135,7 @@ export async function setSimulatorSpeed(speed: SimulatorSpeed): Promise<Simulato
 
 export function publishSimulatorStatus(status: SimulatorStatus): void {
   latestPublishedSimulatorStatus = status;
+  latestPublishedSimulatorStatusAtMs = Date.now();
   window.dispatchEvent(new CustomEvent<SimulatorStatus>(simulatorStatusEvent, { detail: status }));
 }
 

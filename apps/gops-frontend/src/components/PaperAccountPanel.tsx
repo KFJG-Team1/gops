@@ -1,16 +1,14 @@
 import { LoaderCircle, LogIn, XCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { OrderSnapshot } from "../orders/orderClient";
 import { useAuth } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import {
   cancelPaperOrder,
-  fetchPaperAccount,
-  fetchPaperOrders,
-  paperAccountWebSocketUrl,
-  type PaperAccountSnapshot
+  fetchPaperOrders
 } from "../orders/paperTradingClient";
+import { usePaperAccount } from "../orders/PaperAccountProvider";
 import { PriceConditionPanel } from "./PriceConditionPanel";
 
 type AccountTab = "holdings" | "open" | "history" | "conditions";
@@ -23,30 +21,12 @@ type PaperAccountPanelProps = {
 
 export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: PaperAccountPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
-  const socketRef = useRef<WebSocket | null>(null);
-  const [snapshot, setSnapshot] = useState<PaperAccountSnapshot>();
+  const { snapshot, loading, error: accountError, refresh } = usePaperAccount();
   const [history, setHistory] = useState<OrderSnapshot[]>([]);
   const [tab, setTab] = useState<AccountTab>("holdings");
-  const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [error, setError] = useState<string>();
+  const [actionError, setActionError] = useState<string>();
   const [cancellingOrderId, setCancellingOrderId] = useState<string>();
-
-  const refresh = useCallback(async () => {
-    if (authEnabled && !user) {
-      setLoading(false);
-      return;
-    }
-    setError(undefined);
-    try {
-      const account = await fetchPaperAccount();
-      setSnapshot(account);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "가상계좌를 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, [authEnabled, user]);
 
   const refreshHistory = useCallback(async () => {
     if (authEnabled && !user) return;
@@ -54,44 +34,24 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
     try {
       setHistory(await fetchPaperOrders());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "거래내역을 불러오지 못했습니다.");
+      setActionError(caught instanceof Error ? caught.message : "거래내역을 불러오지 못했습니다.");
     } finally {
       setHistoryLoading(false);
     }
   }, [authEnabled, user]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
     if (tab === "history") void refreshHistory();
   }, [refreshHistory, tab]);
 
-  useEffect(() => {
-    if (authEnabled && !user) return;
-    const socket = new WebSocket(paperAccountWebSocketUrl());
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as { type?: string; account?: PaperAccountSnapshot; detail?: string };
-      if (payload.account) setSnapshot(payload.account);
-      if (payload.type === "error") setError(payload.detail || "가상계좌 실시간 연결 오류");
-    };
-    socket.onerror = () => setError("가상계좌 실시간 연결을 확인하고 있습니다.");
-    return () => {
-      socketRef.current = null;
-      socket.close();
-    };
-  }, [authEnabled, user]);
-
   const cancelOrder = async (orderId: string) => {
     setCancellingOrderId(orderId);
-    setError(undefined);
+    setActionError(undefined);
     try {
       await cancelPaperOrder(orderId);
       await Promise.all([refresh(), refreshHistory()]);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "주문을 취소하지 못했습니다.");
+      setActionError(caught instanceof Error ? caught.message : "주문을 취소하지 못했습니다.");
     } finally {
       setCancellingOrderId(undefined);
     }
@@ -188,7 +148,7 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
         </>
       ) : null}
 
-      {error && <div className="paper-account-error">{error}</div>}
+      {(actionError || accountError) && <div className="paper-account-error">{actionError || accountError}</div>}
     </section>
   );
 }

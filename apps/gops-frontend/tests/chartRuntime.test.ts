@@ -15,6 +15,7 @@ import "./chartTradeAutomation.test";
 import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
+import "./paperHoldingPrice.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -111,6 +112,7 @@ import {
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
+  syncChartEventMarkerPositions,
   type ChartEventsResponse
 } from "../src/chart/chartEvents";
 import { volumeProfilePartialRetryDelaysMs, volumeProfileResponseMatchesRequest } from "../src/chart/volumeProfilePolicy";
@@ -377,6 +379,43 @@ assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.")
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
 
+const marketClosedNotification = {
+  id: 3,
+  eventId: "system.market_closed:2026-07-14:user-a",
+  type: "system.market_closed",
+  payload: {
+    kind: "market_closed",
+    title: "미국 정규장 마감",
+    summary: "미국 정규장이 마감했습니다.",
+    effectiveAt: "2026-07-14T20:00:00Z",
+    expiresAt: "2026-07-14T20:02:00Z"
+  }
+};
+const marketClosedToast = formatNotificationToastMessage(marketClosedNotification);
+assert.equal(marketClosedToast.title, "미국 정규장 마감");
+assert.equal(marketClosedToast.message, "미국 정규장이 마감했습니다.");
+assert.equal(marketClosedToast.chartSymbol, "");
+
+const marketMoveNotification = {
+  id: 4,
+  eventId: "market-move:2026-07-14:user-a:NVDA:down:5",
+  type: "system.market_move",
+  payload: {
+    kind: "market_move",
+    symbol: "NVDA",
+    title: "NVDA 정규장 급락",
+    summary: "전일 정규장 종가 대비 -5.75% 하락했습니다.",
+    previousClose: 100,
+    lastPrice: 94.25,
+    changePercent: -5.75,
+    quoteAsOf: "2026-07-14T14:00:00Z"
+  }
+};
+const marketMoveToast = formatNotificationToastMessage(marketMoveNotification);
+assert.equal(marketMoveToast.message, "전일 정규장 종가 대비 -5.75% 하락했습니다.");
+assert.equal(marketMoveToast.detail, "현재가 94.25 · 전일 정규장 종가 100");
+assert.equal(notificationSettingForItem(marketMoveNotification), "rapidMove");
+
 const volumeAgentNotification = {
   id: -1,
   eventId: "agent-volume-spike",
@@ -577,6 +616,19 @@ assert.equal(dailyEventMarkers.length, 2);
 assert.equal(dailyEventMarkers[0].label, "E");
 assert.equal(dailyEventMarkers[1].label, "N 3");
 assert.notEqual(dailyEventMarkers[0].x, dailyEventMarkers[1].x);
+const movingEventElement = {
+  dataset: { chartEventId: dailyEventMarkers[0].id },
+  style: { left: "0px", top: "0px", visibility: "" }
+};
+const staleEventElement = {
+  dataset: { chartEventId: "news:AAPL:stale" },
+  style: { left: "10px", top: "10px", visibility: "" }
+};
+syncChartEventMarkerPositions({
+  querySelectorAll: () => [movingEventElement, staleEventElement]
+} as unknown as ParentNode, [{ ...dailyEventMarkers[0], x: 123.25, top: 271.5 }]);
+assert.deepEqual(movingEventElement.style, { left: "123.25px", top: "271.5px", visibility: "" });
+assert.equal(staleEventElement.style.visibility, "hidden");
 const intradayEventScene = buildFrontendChartScene(frontendChartState({
   interval: "1h",
   candles: [
@@ -4093,11 +4145,12 @@ assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.doesNotMatch(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel|PortfolioInvestmentStatusPanel|SettingsMenu/);
 assert.doesNotMatch(bottomCommandBarSource, /fetchNextMarketOpen/);
-assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
-assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
+assert.doesNotMatch(bottomCommandBarSource, /isMarketOpenNotification/);
+assert.doesNotMatch(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /payload\.type === "snapshot"/);
-assert.match(bottomCommandBarSource, /\.reverse\(\)[\s\S]*enqueueAlertToast/);
+assert.doesNotMatch(bottomCommandBarSource, /\.reverse\(\)[\s\S]*enqueueAlertToast/);
+assert.match(bottomCommandBarSource, /setTimeout\(\(\) => \{[\s\S]*advanceAlertToast\(\);[\s\S]*alertToastAdvanceMs/);
 assert.match(bottomCommandBarSource, /onOpenChart=\{openAlertToastChart\}/);
 assert.match(bottomCommandBarSource, /onSelectSymbol\(symbol\)/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");
@@ -4291,6 +4344,7 @@ assert.match(companySummaryPanelSource, /height: Math\.min\(measuredSize\.height
 assert.equal(companySummaryPanelSource.match(/<svg ref=\{chartRef\} className="company-(?:profitability|stability)/g)?.length, 1);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
+const chartEventOverlaySource = readFileSync(fileURLToPath(new URL("../src/components/ChartEventOverlay.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
 const symbolSearchSource = readFileSync(fileURLToPath(new URL("../src/components/SymbolSearch.tsx", import.meta.url)), "utf-8");
 const orderFlowPanelSource = readFileSync(fileURLToPath(new URL("../src/components/OrderFlowPanel.tsx", import.meta.url)), "utf-8");
@@ -4308,6 +4362,11 @@ assert.match(chartPanelSource, /ChartDrawingDock/);
 assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
 assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
+assert.match(chartEventOverlaySource, /data-chart-event-id=\{marker\.id\}/);
+assert.ok(
+  chartPanelSource.indexOf("syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers)")
+    < chartPanelSource.indexOf("setChartEventMarkers(nextEventMarkers)")
+);
 assert.match(chartPanelSource, /liveTradePrice/);
 assert.doesNotMatch(chartPanelSource, /applyChartAction|applyChartActions/);
 assert.match(chartPanelSource, /variant="drawing-tool"/);
