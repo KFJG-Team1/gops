@@ -195,6 +195,10 @@ import {
   resolveRecommendationCompanyNavigation
 } from "../src/recommendations/recommendationNavigation";
 import {
+  recommendationSimulationFallbackItems,
+  shouldUseRecommendationSimulationFallback
+} from "../src/recommendations/recommendationSimulationFallback";
+import {
   clampRightOffset,
   clampVisibleCount,
   dragDeltaToRightOffset,
@@ -4170,7 +4174,13 @@ assert.equal(layoutResolve.layoutProposal?.commands[0]?.type, "layout.panel.prio
 
 assert.deepEqual(
   DEFAULT_PRESETS.map((preset) => [preset.id, preset.name]),
-  [["market", "추천종목"], ["stock", "기업분석"], ["compare", "차트분석"], ["asset", "포트폴리오"]]
+  [
+    ["market", "추천종목"],
+    ["stock", "기업분석"],
+    ["compare", "차트분석"],
+    ["regular", "본장추천"],
+    ["asset", "포트폴리오"]
+  ]
 );
 const recommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "market");
 assert.ok(recommendationPreset);
@@ -4198,6 +4208,27 @@ assert.equal(recommendationReference.data.symbol, "MSFT");
 assert.equal(agentReferenceTicker(recommendationReference), "MSFT");
 assert.equal(agentReferenceChipKind(recommendationReference), "recommendation");
 assert.deepEqual(recommendationReference.data.riskWarnings, ["변동성 확대에 유의하세요."]);
+assert.deepEqual(
+  recommendationSimulationFallbackItems.map((item) => item.symbol),
+  ["NVDA", "AMD", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "JPM"]
+);
+assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.score), [90, 86, 82, 78, 74, 70, 66, 62, 58, 54]);
+assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.confidence), [0.84, 0.81, 0.78, 0.75, 0.72, 0.69, 0.66, 0.63, 0.60, 0.57]);
+assert.equal(recommendationSimulationFallbackItems[1]?.rank, 2);
+assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.source, "frontend-recommendation-fallback");
+assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.synthetic, true);
+assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.simulation, true);
+assert.equal(new Set(recommendationSimulationFallbackItems.map((item) => item.reasons[0]?.text)).size, 10);
+assert.equal(recommendationSimulationFallbackItems.some((item) => item.reasons[0]?.text.includes("추천 데이터 준비 중")), false);
+assert.equal(recommendationSimulationFallbackItems.every((item) => item.riskWarnings.length === 1), true);
+const emptyRecommendationPayload = { status: "ready" as const, items: [] };
+assert.equal(shouldUseRecommendationSimulationFallback(emptyRecommendationPayload), true);
+assert.equal(shouldUseRecommendationSimulationFallback({ status: "empty", items: [] }), true);
+assert.equal(shouldUseRecommendationSimulationFallback({ status: "stale", items: [] }), true);
+assert.equal(shouldUseRecommendationSimulationFallback({ status: "profile_required", items: [] }), false);
+assert.equal(shouldUseRecommendationSimulationFallback({ status: "market_closed", items: [] }), false);
+assert.equal(shouldUseRecommendationSimulationFallback({ status: "error", items: [] }), false);
+assert.equal(shouldUseRecommendationSimulationFallback({ ...emptyRecommendationPayload, items: [recommendationSimulationFallbackItems[0]!] }), false);
 const chartAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "compare");
 assert.ok(chartAnalysisPreset);
 const chartAnalysisLayout = buildPresetLayout(chartAnalysisPreset, { width: 1280, height: 720 });
@@ -4205,6 +4236,18 @@ assert.ok(chartAnalysisLayout);
 assert.deepEqual(
   chartAnalysisLayout.slots.map((slot) => chartAnalysisLayout.contents[slot.contentId]?.kind),
   ["compare", "indices", "watchlistNews"]
+);
+const regularRecommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "regular");
+assert.ok(regularRecommendationPreset);
+const regularRecommendationLayout = buildPresetLayout(regularRecommendationPreset, { width: 1280, height: 720 });
+assert.ok(regularRecommendationLayout);
+assert.deepEqual(
+  regularRecommendationLayout.slots.map((slot) => regularRecommendationLayout.contents[slot.contentId]?.kind),
+  ["recommendationsList", "indices", "themeRadar", "news"]
+);
+assert.equal(
+  regularRecommendationLayout.contents[regularRecommendationLayout.slots[0].contentId]?.props?.initialSessionMode,
+  "regular"
 );
 
 const presetSummaries = buildAgentLayoutPresetSummaries([
