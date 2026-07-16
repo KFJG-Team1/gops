@@ -5,7 +5,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
-import { buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
+import { analysisTraceDataMode, buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
@@ -93,6 +93,14 @@ const mixedInterval = { ...asset, geometry: { ...asset.geometry, drawings: [{ ..
 assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": mixedInterval } }, "AAPL").assets["1D"], null);
 const resolved = resolveAnalysisAssetForCandles(asset, candles);
 assert.equal(resolved?.geometry.drawings.length, 3);
+assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .72);
+assert.equal(resolveAnalysisAssetForCandles({
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    primaryTriangle: { ...asset.geometry.primaryTriangle!, state: "confirmed" }
+  }
+}, candles)?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .92);
 const goldenCrossDrawing = resolved?.geometry.drawings.find((drawing) => drawing.id.includes(":sma-cross:"));
 assert.equal(goldenCrossDrawing?.type, "flagMarker");
 assert.equal(goldenCrossDrawing?.label, "골든크로스 · SMA60/120");
@@ -121,7 +129,7 @@ assert.equal(resolveAnalysisAssetForCandles(asset, [])?.geometry.drawings.length
 assert.equal(analysisAssetPresentationDiagnostics(asset, candles, [upper.id, lower.id]).state, "ready");
 const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...candles[0], timestamp: "2026-07-14T20:00:00.000Z" }]);
 assert.equal(stale.state, "stale_asset");
-assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .45);
+assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .60);
 
 const userDrawing: DrawingEntity = { ...upper, id: "user", sourceProposalId: undefined, createdBy: "user" };
 const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, allEvidenceVisible, { mode: "pan" });
@@ -316,16 +324,43 @@ assert.deepEqual(focusedTrace?.candidates[0]?.touchPivotIds, ["touch-1", "touch-
 assert.deepEqual(focusedTrace?.candidates[0]?.reactionPivotIds, ["touch-2"]);
 assert.deepEqual(focusedTrace?.pivots.map((pivot) => pivot.id).sort(), ["pivot-1", "touch-1", "touch-2"]);
 assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 1);
+const v2TraceAsset: ChartAnalysisAsset = {
+  ...traceAsset,
+  geometry: {
+    ...traceAsset.geometry,
+    analysisTrace: {
+      ...traceAsset.geometry.analysisTrace!,
+      version: "geometry-analysis-trace-v2",
+      levelCandidates: traceAsset.geometry.analysisTrace!.levelCandidates.map((candidate, index) => ({
+        ...candidate,
+        categoryRank: index + 1,
+        disposition: "selected" as const,
+        selectionReasons: ["confirmed"],
+        render: { drawingType: "horizontalLine" as const, extension: "plot" as const }
+      })),
+      completeness: {
+        complete: true,
+        detected: { levels: 1, trends: 0, patterns: 0 },
+        stored: { levels: 1, trends: 0, patterns: 0 }
+      }
+    }
+  }
+};
+assert.equal(analysisTraceDataMode(v2TraceAsset), "complete");
+assert.equal(buildAnalysisTraceOverlay(v2TraceAsset, { visible: true })?.showCandidateLines, true);
+assert.equal(buildAnalysisTraceOverlay(v2TraceAsset, { visible: false, candidateIds: ["level-candidate-1"] })?.showCandidateLines, false);
 const legacyTraceAsset: ChartAnalysisAsset = {
   ...asset,
   geometry: { ...asset.geometry, evidence: [{ id: "legacy-pivot", timestamp: now, price: 171, kind: "H" }] }
 };
 assert.deepEqual(buildAnalysisTraceOverlay(legacyTraceAsset, { visible: true })?.pivots.map((pivot) => pivot.id), ["legacy-pivot"]);
+assert.equal(analysisTraceDataMode(traceAsset), "bounded");
+assert.equal(analysisTraceDataMode(legacyTraceAsset), "legacy");
 
 const importanceStyles = [
   { importanceTier: "major" as const, lineWidth: 3, opacity: .95, lineDash: undefined, label: "지지" },
-  { importanceTier: "standard" as const, lineWidth: 2.25, opacity: .72, lineDash: [6, 4], label: "보조 지지" },
-  { importanceTier: "minor" as const, lineWidth: 1.5, opacity: .45, lineDash: [2, 4], label: "참고 지지" }
+  { importanceTier: "standard" as const, lineWidth: 2.25, opacity: .82, lineDash: [6, 4], label: "보조 지지" },
+  { importanceTier: "minor" as const, lineWidth: 1.5, opacity: .62, lineDash: [2, 4], label: "참고 지지" }
 ];
 importanceStyles.forEach((expected) => {
   const styled = resolveAnalysisAssetForCandles({
@@ -367,7 +402,7 @@ const trendAsset: ChartAnalysisAsset = {
 const resolvedTrend = resolveAnalysisAssetForCandles(trendAsset, candles)?.geometry.drawings[0];
 assert.equal(analysisLayerOfDrawing(trendDrawing, trendAsset), "trend");
 assert.equal(resolvedTrend?.style.lineWidth, 2.75);
-assert.equal(resolvedTrend?.style.opacity, .86);
+assert.equal(resolvedTrend?.style.opacity, .90);
 assert.equal(resolvedTrend?.style.extension, "ray");
 assert.deepEqual(resolvedTrend?.style.lineDash, undefined);
 assert.equal(resolvedTrend?.style.colorToken, "up");

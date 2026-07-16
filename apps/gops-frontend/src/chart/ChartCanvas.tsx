@@ -303,10 +303,20 @@ type DrawingRenderBatch = {
   fullDrawingIds: ReadonlySet<string>;
 };
 
-function drawingRenderBatch(scene: ChartScene, drawings: DrawingEntity[], previewLayer: boolean): DrawingRenderBatch {
-  const renderItems = resolveDrawingRenderItems(scene, drawings, { enableSemanticProjection: !previewLayer });
+function drawingRenderBatch(
+  scene: ChartScene,
+  drawings: DrawingEntity[],
+  previewLayer: boolean,
+  spotlight: ReadonlySet<string> | null = null
+): DrawingRenderBatch {
+  const renderDrawings = previewLayer || !spotlight
+    ? drawings
+    : drawings.map((drawing) => spotlight.has(drawing.id) && drawing.visible === false
+      ? { ...drawing, visible: true }
+      : drawing);
+  const renderItems = resolveDrawingRenderItems(scene, renderDrawings, { enableSemanticProjection: !previewLayer });
   return {
-    drawings,
+    drawings: renderDrawings,
     renderItems,
     fullDrawingIds: new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id))
   };
@@ -337,8 +347,8 @@ function drawBaseChart(
   const spotlight = spotlightDrawingIds.length || analysisTraceOverlay?.focused
     ? new Set(spotlightDrawingIds)
     : null;
-  const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.35 : 1, draw);
-  const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false);
+  const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.60 : 1, draw);
+  const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false, spotlight);
   const previewDrawingBatch = drawingRenderBatch(scene, previewDrawings, true);
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene),
@@ -746,13 +756,16 @@ function drawAnalysisTraceOverlay(
   const pivotColor = new Map<string, string>();
   const touchIds = new Set<string>();
   const reactionIds = new Set<string>();
+  const focusedCandidateIds = new Set(overlay.focusedCandidateIds);
   const rememberPivotColor = (id: string, color: string, selected: boolean) => {
     if (selected || !pivotColor.has(id)) pivotColor.set(id, color);
   };
 
   overlay.candidates.forEach((candidate) => {
     const selected = candidate.selected === true;
-    const color = selected ? traceCandidateColor(candidate) : colors.muted;
+    const disposition = candidate.disposition
+      ?? (selected ? "selected" : candidate.hardPass ? "qualified_not_selected" : "rejected");
+    const color = disposition === "rejected" ? colors.muted : traceCandidateColor(candidate);
     candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, color, selected); });
     candidate.touchPivotIds.forEach((id) => { touchIds.add(id); rememberPivotColor(id, color, selected); });
     candidate.reactionPivotIds.forEach((id) => { reactionIds.add(id); rememberPivotColor(id, color, selected); });
@@ -760,30 +773,46 @@ function drawAnalysisTraceOverlay(
       ? candidate.anchors
       : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
     const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
-    context.save();
-    context.strokeStyle = color;
-    context.globalAlpha = selected ? 0.45 : 0.25;
-    context.lineWidth = selected ? 1.5 : 1;
-    context.setLineDash(selected ? [] : [4, 4]);
-    if (points.length >= 1 && candidate.category === "levels") {
-      line(context, scene.plot.left, points[0].y, scene.plot.right, points[0].y);
-    } else if (candidate.kind === "channel" && points.length >= 3) {
-      line(context, points[0].x, points[0].y, points[1].x, points[1].y);
-      const baseSpanX = points[1].x - points[0].x;
-      const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
-        ? points[0].y
-        : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
-      const offsetY = points[2].y - baseYAtOffset;
-      line(context, points[0].x, points[0].y + offsetY, points[1].x, points[1].y + offsetY);
-    } else {
-      for (let index = 0; index + 1 < points.length; index += 2) {
-        line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
+    if (overlay.showCandidateLines) {
+      const baseAlpha = disposition === "selected" ? 0.58 : disposition === "qualified_not_selected" ? 0.44 : 0.34;
+      const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.45 : 1;
+      context.save();
+      context.strokeStyle = color;
+      context.globalAlpha = baseAlpha * focusMultiplier;
+      context.lineWidth = disposition === "selected" ? 1.75 : disposition === "qualified_not_selected" ? 1.25 : 1;
+      context.setLineDash(disposition === "selected" ? [] : disposition === "qualified_not_selected" ? [6, 4] : [3, 4]);
+      if (points.length >= 1 && candidate.category === "levels") {
+        line(context, scene.plot.left, points[0].y, scene.plot.right, points[0].y);
+      } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
+        const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
+        line(context, base[0].x, base[0].y, base[1].x, base[1].y);
+        const baseSpanX = points[1].x - points[0].x;
+        const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
+          ? points[0].y
+          : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
+        const offsetY = points[2].y - baseYAtOffset;
+        const parallel = projectTrendLine(
+          { x: points[0].x, y: points[0].y + offsetY },
+          { x: points[1].x, y: points[1].y + offsetY },
+          scene.plot,
+          "ray"
+        );
+        line(context, parallel[0].x, parallel[0].y, parallel[1].x, parallel[1].y);
+      } else if ((candidate.render?.drawingType === "trendLine" || candidate.category === "trend") && points.length >= 2) {
+        const projected = projectTrendLine(points[0], points[1], scene.plot, "ray");
+        line(context, projected[0].x, projected[0].y, projected[1].x, projected[1].y);
+      } else if (candidate.render?.drawingType === "segments" && candidate.render.segments?.length) {
+        candidate.render.segments.forEach(([startIndex, endIndex]) => {
+          const start = points[startIndex], end = points[endIndex];
+          if (start && end) line(context, start.x, start.y, end.x, end.y);
+        });
+      } else {
+        for (let index = 0; index + 1 < points.length; index += 2) {
+          line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
+        }
       }
-      if (points.length === 3 && candidate.kind !== "channel") {
-        line(context, points[1].x, points[1].y, points[2].x, points[2].y);
-      }
+      context.restore();
     }
-    context.restore();
   });
 
   overlay.pivots.forEach((pivot) => {
@@ -793,7 +822,7 @@ function drawAnalysisTraceOverlay(
     context.save();
     context.strokeStyle = color;
     context.fillStyle = color;
-    context.globalAlpha = overlay.focused ? 0.95 : 0.72;
+    context.globalAlpha = overlay.focused ? 1 : 0.78;
     context.lineWidth = 1.25;
     if (reactionIds.has(pivot.id)) {
       circle(context, point.x, point.y, 4);
@@ -1769,7 +1798,7 @@ function drawDrawings(
       : resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
 
     context.save();
-    context.globalAlpha = (preview ? 0.58 : style.opacity ?? 1) * drawingSpotlightOpacity(drawing, spotlight);
+    context.globalAlpha = preview ? 0.58 : drawingStrokeOpacity(drawing, spotlight, style.opacity ?? 1);
     context.strokeStyle = strokeColor;
     context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
     const baseLineWidth = style.lineWidth ?? 1;
@@ -2317,7 +2346,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
   const drawings = scene.chart.drawings;
 
   drawings.forEach((drawing) => {
-    if (drawing.visible === false) {
+    if (!drawingVisibleForRender(drawing, spotlight)) {
       return;
     }
     // Only show labels for completed drawings (exclude drafts during drawing process)
@@ -2336,7 +2365,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
       return;
     }
     context.save();
-    context.globalAlpha *= (drawing.style.opacity ?? 1) * drawingSpotlightOpacity(drawing, spotlight);
+    context.globalAlpha *= drawingStrokeOpacity(drawing, spotlight, drawing.style.opacity ?? 1);
 
     if (drawing.type === "horizontalLine" || drawing.type === "horizontalParallelLines") {
       const anchors = drawing.type === "horizontalParallelLines" && placement === "axis"
@@ -2375,7 +2404,23 @@ function drawingSpotlightOpacity(drawing: Pick<DrawingEntity, "id" | "sourceProp
   if (spotlight.has(drawing.id)) return 1;
   const analysis = drawing.id.startsWith("chart-asset:") || drawing.id.startsWith("chart-plan:")
     || drawing.sourceProposalId?.startsWith("chart-asset:") || drawing.sourceProposalId?.startsWith("chart-plan:");
-  return analysis ? 0.15 : 0.5;
+  return analysis ? 0.45 : 0.65;
+}
+
+function drawingStrokeOpacity(
+  drawing: Pick<DrawingEntity, "id" | "sourceProposalId">,
+  spotlight: ReadonlySet<string> | null,
+  baseOpacity: number
+): number {
+  if (spotlight?.has(drawing.id)) return 1;
+  return baseOpacity * drawingSpotlightOpacity(drawing, spotlight);
+}
+
+function drawingVisibleForRender(
+  drawing: Pick<DrawingEntity, "id" | "visible">,
+  spotlight: ReadonlySet<string> | null
+): boolean {
+  return drawing.visible !== false || Boolean(spotlight?.has(drawing.id));
 }
 
 function withCanvasAlpha(context: CanvasRenderingContext2D, alpha: number, draw: () => void) {

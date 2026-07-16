@@ -53,6 +53,7 @@ test("five analysis layers render independently with commentary focus and cards"
   const trendToggle = page.getByRole("button", { name: "추세 분석 레이어 끄기" });
   const patternToggle = page.getByRole("button", { name: "패턴 분석 레이어 끄기" });
   const proposalToggle = page.getByRole("button", { name: "제안 분석 레이어 켜기" });
+  const evidenceStep = page.locator(".chart-commentary-focus button").first();
   await expect(interpretationToggle).toBeEnabled();
   await expect(levelsToggle).toBeEnabled();
   await expect(trendToggle).toBeEnabled();
@@ -80,6 +81,9 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(patternToggle).toHaveAttribute("aria-pressed", "true");
   await expect(page).toHaveScreenshot("chart-assets-proposal-only.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await evidenceStep.hover();
+  await expect(page).toHaveScreenshot("chart-assets-hidden-level-hover.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await page.locator(".chart-commentary-headline").hover();
   await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
 
   await proposalToggle.click();
@@ -89,8 +93,8 @@ test("five analysis layers render independently with commentary focus and cards"
 
   await interpretationToggle.click();
   await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveScreenshot("chart-assets-interpretation-all-candidates.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
 
-  const evidenceStep = page.locator(".chart-commentary-focus button").first();
   await evidenceStep.hover();
   await expect(page).toHaveScreenshot("chart-assets-spotlight.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await evidenceStep.focus();
@@ -616,14 +620,20 @@ function assetResponse(): Record<string, unknown> {
       primaryTriangle: { kind: "ascending_triangle", state: "confirmed", score: .9, touches: 5, geometryHash: "triangle" },
       historicalTriangle: null,
       analysisTrace: {
-        version: "geometry-analysis-trace-v1",
+        version: "geometry-analysis-trace-v2",
         pivots: includeConditionalEvidence && !nearbyIntervalFallback ? [
           { id: "pivot-support", kind: "L", timestamp: candles[50].timestamp, confirmedAt: candles[52].timestamp, price: 164 },
-          { id: "pivot-rejected", kind: "H", timestamp: candles[75].timestamp, confirmedAt: candles[77].timestamp, price: 172 }
+          { id: "pivot-rejected", kind: "H", timestamp: candles[75].timestamp, confirmedAt: candles[77].timestamp, price: 168 },
+          { id: "pivot-trend-a", kind: "L", timestamp: candles[30].timestamp, confirmedAt: candles[32].timestamp, price: 158 },
+          { id: "pivot-trend-b", kind: "L", timestamp: candles[90].timestamp, confirmedAt: candles[92].timestamp, price: 166 },
+          { id: "pivot-pattern-upper", kind: "H", timestamp: candles[40].timestamp, confirmedAt: candles[42].timestamp, price: 176 },
+          { id: "pivot-pattern-lower", kind: "L", timestamp: candles[60].timestamp, confirmedAt: candles[62].timestamp, price: 161 }
         ] : [],
         levelCandidates: includeConditionalEvidence && !nearbyIntervalFallback ? [{
           id: "support", category: "level", role: "support", score: .8, selected: true,
           hardPass: true, evidencePass: true, activePass: true, rejectReasons: [],
+          categoryRank: 1, disposition: "selected", selectionReasons: ["confirmed"],
+          render: { drawingType: "horizontalLine", extension: "plot" },
           anchors: [{ timestamp: candles[50].timestamp, price: 164 }, { timestamp: candles[100].timestamp, price: 164 }],
           evidenceRefs: ["pivot-support"], touchRefs: ["touch-support"], reactionRefs: ["touch-support"],
           touches: [{ id: "touch-support", timestamp: candles[100].timestamp, price: 164, barIndex: 100, outcome: "reaction" }],
@@ -631,18 +641,46 @@ function assetResponse(): Record<string, unknown> {
         }, {
           id: "rejected-resistance", category: "level", role: "resistance", score: .42, selected: false,
           hardPass: false, evidencePass: true, activePass: false, rejectReasons: ["stale"],
-          anchors: [{ timestamp: candles[75].timestamp, price: 172 }, { timestamp: candles[120].timestamp, price: 172 }],
+          categoryRank: 2, disposition: "rejected", selectionReasons: [],
+          render: { drawingType: "horizontalLine", extension: "plot" },
+          anchors: [{ timestamp: candles[75].timestamp, price: 168 }, { timestamp: candles[120].timestamp, price: 168 }],
           evidenceRefs: ["pivot-rejected"], touchRefs: ["touch-rejected"], reactionRefs: [],
-          touches: [{ id: "touch-rejected", timestamp: candles[120].timestamp, price: 172, barIndex: 120, outcome: "touch" }],
-          metrics: { price: 172, touchCount: 1, reactionCount: 0, currentDistanceAtr: 1.6 }
+          touches: [{ id: "touch-rejected", timestamp: candles[120].timestamp, price: 168, barIndex: 120, outcome: "touch" }],
+          metrics: { price: 168, touchCount: 1, reactionCount: 0, currentDistanceAtr: 1.6 }
         }] : [],
-        trendCandidates: [],
-        patternCandidates: [],
+        trendCandidates: includeConditionalEvidence && !nearbyIntervalFallback ? [{
+          id: "rejected-uptrend", category: "trend", kind: "uptrend", direction: "up", score: .55,
+          selected: false, hardPass: false, evidencePass: true, activePass: false,
+          rejectReasons: ["stale"], categoryRank: 1, disposition: "rejected", selectionReasons: [],
+          render: { drawingType: "trendLine", extension: "ray", direction: "up" },
+          anchors: [{ timestamp: candles[30].timestamp, price: 158 }, { timestamp: candles[90].timestamp, price: 166 }],
+          evidenceRefs: ["pivot-trend-a", "pivot-trend-b"], anchorPivotIds: ["pivot-trend-a", "pivot-trend-b"],
+          touchPivotIds: ["pivot-trend-a", "pivot-trend-b"], reactionPivotIds: [], touchRefs: [], reactionRefs: [], touches: [],
+          metrics: { slopeAtrPerBar: .08, currentDistanceAtr: 2.2 }
+        }] : [],
+        patternCandidates: includeConditionalEvidence && !nearbyIntervalFallback ? [{
+          id: "triangle", category: "pattern", kind: "ascending_triangle", score: .9,
+          selected: true, hardPass: true, evidencePass: true, activePass: true,
+          rejectReasons: [], categoryRank: 1, disposition: "selected", selectionReasons: ["ranked_primary"],
+          render: { drawingType: "segments", extension: "segment", segments: [[0, 1], [2, 3]] },
+          anchors: [
+            { timestamp: candles[40].timestamp, price: 176 }, { timestamp: candles[139].timestamp, price: 176 },
+            { timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 174 }
+          ],
+          evidenceRefs: ["pivot-pattern-upper", "pivot-pattern-lower"], anchorPivotIds: [],
+          touchPivotIds: ["pivot-pattern-upper", "pivot-pattern-lower"], reactionPivotIds: [],
+          touchRefs: [], reactionRefs: [], touches: [], metrics: { touchCount: 5, containment: .9 }
+        }] : [],
         selections: {
           levelCandidateIds: includeConditionalEvidence && !nearbyIntervalFallback ? ["support"] : [],
-          trendCandidateIds: [], patternCandidateIds: []
+          trendCandidateIds: [], patternCandidateIds: includeConditionalEvidence && !nearbyIntervalFallback ? ["triangle"] : []
         },
-        omittedCounts: { levelCandidates: 0, trendCandidates: 0, patternCandidates: 0, touchEpisodes: 0 }
+        omittedCounts: { levelCandidates: 0, trendCandidates: 0, patternCandidates: 0, touchEpisodes: 0 },
+        completeness: {
+          complete: true,
+          detected: { levels: includeConditionalEvidence && !nearbyIntervalFallback ? 2 : 0, trends: includeConditionalEvidence && !nearbyIntervalFallback ? 1 : 0, patterns: includeConditionalEvidence && !nearbyIntervalFallback ? 1 : 0 },
+          stored: { levels: includeConditionalEvidence && !nearbyIntervalFallback ? 2 : 0, trends: includeConditionalEvidence && !nearbyIntervalFallback ? 1 : 0, patterns: includeConditionalEvidence && !nearbyIntervalFallback ? 1 : 0 }
+        }
       },
       ...(includeTradePlan ? { tradePlan: {
         version: "pattern-trade-timing-v1", symbol: "NVDA", interval: "1D", patternId: "triangle", patternKind: "ascending_triangle",

@@ -62,6 +62,11 @@ export type GeometryTracePivot = {
   role?: string;
   confirmedAt?: string;
   outcome?: string;
+  barIndex?: number;
+  grade?: "tactical" | "structural";
+  strength?: number;
+  reversalAtr?: number;
+  prominenceAtr?: number;
 };
 
 export type GeometryTraceTouch = {
@@ -73,6 +78,15 @@ export type GeometryTraceTouch = {
   mfeAtr?: number | null;
   maeAtr?: number | null;
   residualAtr?: number | null;
+  boundary?: string;
+};
+
+export type GeometryTraceRender = {
+  drawingType: "horizontalLine" | "trendLine" | "trendParallelLines" | "segments";
+  extension: "plot" | "ray" | "segment";
+  direction?: "up" | "down";
+  parallelLineCount?: 2;
+  segments?: Array<[number, number]>;
 };
 
 export type GeometryTraceCandidate = {
@@ -89,6 +103,11 @@ export type GeometryTraceCandidate = {
   selectionTier?: "confirmed" | "contextual" | "reference" | string | null;
   importanceTier?: "major" | "standard" | "minor" | string | null;
   importanceRank?: number | null;
+  categoryRank?: number;
+  disposition?: "selected" | "qualified_not_selected" | "rejected";
+  selectionReasons?: string[];
+  direction?: "up" | "down";
+  render?: GeometryTraceRender;
   anchors?: GeometryAnchor[];
   pivotIds?: string[];
   anchorPivotIds?: string[];
@@ -102,7 +121,7 @@ export type GeometryTraceCandidate = {
 };
 
 export type GeometryAnalysisTrace = {
-  version: "geometry-analysis-trace-v1";
+  version: "geometry-analysis-trace-v1" | "geometry-analysis-trace-v2";
   pivots: GeometryTracePivot[];
   levelCandidates: GeometryTraceCandidate[];
   trendCandidates: GeometryTraceCandidate[];
@@ -113,6 +132,11 @@ export type GeometryAnalysisTrace = {
     patternCandidateIds: string[];
   };
   omittedCounts: Record<string, number>;
+  completeness?: {
+    complete: true;
+    detected: { levels: number; trends: number; patterns: number };
+    stored: { levels: number; trends: number; patterns: number };
+  };
 };
 
 export type GeometryPatternKind =

@@ -201,9 +201,9 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   // area downward to make that room.
   const hasDigExpansions = (options.expansions?.length ?? 0) > 0;
   const padding = {
-    top: hasDigExpansions ? 64 : 38,
+    top: hasDigExpansions ? 60 : 34,
     right: priceAxisWidthForChart(chart),
-    bottom: belowPaneIds.length ? 32 : 26,
+    bottom: belowPaneIds.length ? 40 : 34,
     left: 0
   };
   const allActivePaneIds = ["price", ...belowPaneIds];

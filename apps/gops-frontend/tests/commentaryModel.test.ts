@@ -95,6 +95,26 @@ assert.equal(trendMetrics.get("활성 무효화"), "false");
 assert.equal(trendMetrics.get("위반 횟수"), "1");
 assert.equal(trendMetrics.get("무효화"), "adverse_close");
 
+const selectedEvidenceSteps = buildChartCommentaryModel({
+  ...asset,
+  geometry: {
+    ...asset.geometry,
+    analysisTrace: {
+      version: "geometry-analysis-trace-v1",
+      pivots: [],
+      levelCandidates: [
+        { id: "selected-level", category: "level", selected: true, hardPass: true, evidenceRefs: ["pivot-selected"] },
+        { id: "rejected-level", category: "level", selected: false, hardPass: false, evidenceRefs: ["pivot-rejected"] }
+      ],
+      trendCandidates: [], patternCandidates: [],
+      selections: { levelCandidateIds: ["selected-level"], trendCandidateIds: [], patternCandidateIds: [] },
+      omittedCounts: {}
+    }
+  }
+}, null);
+assert.deepEqual(selectedEvidenceSteps[0].candidateIds, ["selected-level"]);
+assert.deepEqual(selectedEvidenceSteps[0].evidenceRefs, ["pivot-selected"]);
+
 const legacyLevelId = "chart-asset:AAPL:1D:legacy-boundary";
 const legacyPatternId = "chart-asset:AAPL:1D:legacy-evidence";
 const legacyCommentarySteps = buildChartCommentaryModel({

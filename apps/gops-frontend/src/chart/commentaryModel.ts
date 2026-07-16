@@ -32,9 +32,16 @@ export function buildChartCommentaryModel(
 ): ChartCommentaryStep[] {
   const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
   const primaryTrend = asset.geometry.primaryTrend ?? asset.geometry.trends?.[0] ?? null;
-  const levelCandidates = asset.geometry.analysisTrace?.levelCandidates ?? [];
-  const trendCandidates = asset.geometry.analysisTrace?.trendCandidates ?? [];
-  const patternCandidates = asset.geometry.analysisTrace?.patternCandidates ?? [];
+  const trace = asset.geometry.analysisTrace;
+  const levelCandidates = selectedCandidates(
+    trace?.levelCandidates ?? [], trace?.selections.levelCandidateIds ?? []
+  );
+  const trendCandidates = selectedCandidates(
+    trace?.trendCandidates ?? [], trace?.selections.trendCandidateIds ?? []
+  );
+  const patternCandidates = selectedCandidates(
+    trace?.patternCandidates ?? [], trace?.selections.patternCandidateIds ?? []
+  );
   const levelCount = asset.geometry.supports.length + asset.geometry.resistances.length;
   const evidenceIds = allEvidenceDrawingIds(asset);
   const steps: ChartCommentaryStep[] = [
@@ -147,6 +154,12 @@ function candidateEvidenceRefs(candidates: GeometryTraceCandidate[]): string[] {
 
 function selectedCandidate(candidates: GeometryTraceCandidate[]): GeometryTraceCandidate | undefined {
   return candidates.find((candidate) => candidate.selected) ?? candidates.find((candidate) => candidate.hardPass);
+}
+
+function selectedCandidates(candidates: GeometryTraceCandidate[], selectionIds: string[]): GeometryTraceCandidate[] {
+  const selectedIds = new Set(selectionIds);
+  const selected = candidates.filter((candidate) => selectedIds.has(candidate.id) || candidate.selected === true);
+  return selected.length ? selected : candidates.filter((candidate) => candidate.hardPass).slice(0, 1);
 }
 
 function levelMetricCard(level: GeometryLevel): ChartCommentaryMetricCard {

@@ -17,7 +17,21 @@ export type AnalysisTraceOverlay = {
   candidates: AnalysisTraceOverlayCandidate[];
   pivots: GeometryTracePivot[];
   focused: boolean;
+  focusedCandidateIds: string[];
+  showCandidateLines: boolean;
+  dataMode: "complete" | "bounded" | "legacy";
 };
+
+export type AnalysisTraceDataMode = AnalysisTraceOverlay["dataMode"] | "none";
+
+export function analysisTraceDataMode(asset: ChartAnalysisAsset | null): AnalysisTraceDataMode {
+  if (!asset) return "none";
+  const trace = asset.geometry.analysisTrace;
+  if (!trace) return asset.geometry.evidence?.length ? "legacy" : "none";
+  return trace.version === "geometry-analysis-trace-v2" && trace.completeness?.complete
+    ? "complete"
+    : "bounded";
+}
 
 export function buildAnalysisTraceOverlay(
   asset: ChartAnalysisAsset | null,
@@ -36,7 +50,9 @@ export function buildAnalysisTraceOverlay(
   const trace = asset.geometry.analysisTrace;
   if (!trace) {
     const pivots = legacyPivots(asset).filter((pivot) => !focused || evidenceFilter.has(pivot.id));
-    return pivots.length ? { candidates: [], pivots, focused } : null;
+    return pivots.length ? {
+      candidates: [], pivots, focused, focusedCandidateIds: [], showCandidateLines: false, dataMode: "legacy"
+    } : null;
   }
 
   const selectionIds = new Set([
@@ -44,26 +60,40 @@ export function buildAnalysisTraceOverlay(
     ...(trace.selections?.trendCandidateIds ?? []),
     ...(trace.selections?.patternCandidateIds ?? [])
   ]);
-  const candidates = [
+  const allCandidates = [
     ...trace.levelCandidates.map((candidate) => normalizeCandidate(candidate, "levels", selectionIds)),
     ...trace.trendCandidates.map((candidate) => normalizeCandidate(candidate, "trend", selectionIds)),
     ...trace.patternCandidates.map((candidate) => normalizeCandidate(candidate, "pattern", selectionIds))
-  ].filter((candidate) => !focused || candidateFilter.has(candidate.id));
+  ];
+  const focusedCandidates = focused
+    ? allCandidates.filter((candidate) => candidateFilter.has(candidate.id))
+    : allCandidates;
+  const candidates = options.visible ? allCandidates : focusedCandidates;
+  const markerCandidates = focused ? focusedCandidates : allCandidates;
   const referencedPivotIds = new Set(evidenceFilter);
-  candidates.forEach((candidate) => {
+  markerCandidates.forEach((candidate) => {
     candidate.anchorPivotIds.forEach((id) => referencedPivotIds.add(id));
     candidate.touchPivotIds.forEach((id) => referencedPivotIds.add(id));
     candidate.reactionPivotIds.forEach((id) => referencedPivotIds.add(id));
   });
   const tracePivots = trace.pivots.filter((pivot) => !focused || referencedPivotIds.has(pivot.id));
-  const touchPivots = candidates.flatMap((candidate) => (candidate.touches ?? []).map((touch) => ({
+  const touchPivots = markerCandidates.flatMap((candidate) => (candidate.touches ?? []).map((touch) => ({
     id: touch.id,
     timestamp: touch.timestamp,
     price: touch.price,
     ...(typeof touch.outcome === "string" ? { outcome: touch.outcome } : {})
   })));
   const pivots = [...new Map([...tracePivots, ...touchPivots].map((pivot) => [pivot.id, pivot])).values()];
-  return candidates.length || pivots.length ? { candidates, pivots, focused } : null;
+  return candidates.length || pivots.length ? {
+    candidates,
+    pivots,
+    focused,
+    focusedCandidateIds: [...candidateFilter],
+    showCandidateLines: options.visible,
+    dataMode: trace.version === "geometry-analysis-trace-v2" && trace.completeness?.complete
+      ? "complete"
+      : "bounded"
+  } : null;
 }
 
 function normalizeCandidate(
@@ -75,6 +105,10 @@ function normalizeCandidate(
     ...candidate,
     category,
     selected: candidate.selected === true || selectionIds.has(candidate.id),
+    disposition: candidate.disposition
+      ?? (candidate.selected === true || selectionIds.has(candidate.id)
+        ? "selected"
+        : candidate.hardPass ? "qualified_not_selected" : "rejected"),
     anchors: validAnchors(candidate.anchors),
     anchorPivotIds: uniqueStrings(
       candidate.anchorPivotIds?.length ? candidate.anchorPivotIds

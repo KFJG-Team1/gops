@@ -1157,7 +1157,7 @@ const semanticFutureScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 80,
   rightOffset: futureOffsetWithSemanticWidth
 }), 800, 360, { expansions: [semanticFutureExpansion] });
-assert.equal(semanticFutureScene.plot.top, 64);
+assert.equal(semanticFutureScene.plot.top, 60);
 assert.equal(semanticFutureScene.viewportStartIndex, frontendFutureEmptySlotCount(80) + semanticFutureExtraSlots);
 assert.equal(Math.ceil(semanticFutureScene.semantic.expansionExtraSlots), semanticFutureExtraSlots);
 const latestExpansionRange = semanticFutureScene.semantic.expansionRanges.find(
@@ -1224,8 +1224,8 @@ multiBelowPaneSeparatorYs.forEach((separatorY, index) => {
   const paneTop = multiBelowPaneScene.plot.belowPanes[index].top;
   assert.ok(separatorY > previousBottom && separatorY < paneTop);
 });
-assert.equal(multiBelowPaneScene.plot.top, 38);
-assert.equal(multiBelowPaneScene.plot.bottom, 428);
+assert.equal(multiBelowPaneScene.plot.top, 34);
+assert.equal(multiBelowPaneScene.plot.bottom, 420);
 assert.equal(multiBelowPaneScene.width - multiBelowPaneScene.plot.right, 68);
 assert.equal(formatFrontendPriceAxisValue(210), "210.00");
 assert.equal(formatFrontendPriceAxisValue(1356.22), "1356.22");
@@ -1254,7 +1254,7 @@ const tallPriceDensityScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 6,
   layers: { candles: true, volume: false }
 }), 800, 760);
-assert.equal(compactPriceDensityScene.plot.bottom, 334);
+assert.equal(compactPriceDensityScene.plot.bottom, 326);
 assert.equal(tallPriceDensityScene.scales.minPrice, compactPriceDensityScene.scales.minPrice);
 assert.equal(tallPriceDensityScene.scales.maxPrice, compactPriceDensityScene.scales.maxPrice);
 assert.equal(
@@ -4141,7 +4141,7 @@ assert.match(chartCanvasSource, /if \(canvas\.height !== pixelHeight\) canvas\.h
 assert.match(chartCanvasSource, /className="chart-canvas-layer chart-canvas-base"/);
 assert.match(chartCanvasSource, /className="chart-canvas chart-canvas-layer chart-canvas-overlay"/);
 assert.match(chartCanvasSource, /scheduleOverlayDrawRef\.current\(\)/);
-assert.match(chartCanvasSource, /const drawingBatch = drawingRenderBatch\(scene, scene\.chart\.drawings, false\)/);
+assert.match(chartCanvasSource, /const drawingBatch = drawingRenderBatch\(scene, scene\.chart\.drawings, false, spotlight\)/);
 assert.match(orderFlowRenderSource, /projectOrderFlowChartRows/);
 assert.match(orderFlowRenderSource, /drawChartCandle/);
 assert.doesNotMatch(orderFlowRenderSource, /ChartColumnTier|packedChartPriceMapper|isLive/);
@@ -4196,13 +4196,13 @@ assert.match(
 );
 assert.match(
   baseChartSource,
-  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.35 : 1, draw\)/,
+  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.60 : 1, draw\)/,
   "trace-only focus dims the base chart while leaving trace evidence emphasized"
 );
 assert.match(
   chartCanvasSource,
-  /const selected = candidate\.selected === true;[\s\S]*const color = selected \? traceCandidateColor\(candidate\) : colors\.muted/,
-  "rejected analysis candidates use the muted color instead of a category color"
+  /const disposition = candidate\.disposition[\s\S]*const color = disposition === "rejected" \? colors\.muted : traceCandidateColor\(candidate\)/,
+  "rejected candidates are muted while qualified competitors keep their category color"
 );
 assert.match(
   chartCanvasSource,
@@ -4210,6 +4210,8 @@ assert.match(
   "level analysis candidates render as full-width H-lines"
 );
 assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.match(chartCanvasSource, /if \(spotlight\?\.has\(drawing\.id\)\) return 1;/);
+assert.match(chartCanvasSource, /return analysis \? 0\.45 : 0\.65;/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 

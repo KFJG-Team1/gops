@@ -108,7 +108,7 @@ export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): C
       ...asset.geometry,
       drawings: asset.geometry.drawings.map((drawing) => ({
         ...drawing,
-        style: { ...drawing.style, opacity: Math.min(0.45, drawing.style.opacity ?? 1) }
+        style: { ...drawing.style, opacity: Math.min(0.60, drawing.style.opacity ?? 1) }
       }))
     }
   };
@@ -179,9 +179,9 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
     const importanceStyle = importance === "major"
       ? { lineWidth: 3, opacity: 0.95, lineDash: undefined, labelPlacement: "axis" as const }
       : importance === "standard"
-        ? { lineWidth: 2.25, opacity: 0.72, lineDash: [6, 4], labelPlacement: "axis" as const }
+        ? { lineWidth: 2.25, opacity: 0.82, lineDash: [6, 4], labelPlacement: "axis" as const }
         : importance === "minor"
-          ? { lineWidth: 1.5, opacity: 0.45, lineDash: [2, 4], labelPlacement: "axis" as const }
+          ? { lineWidth: 1.5, opacity: 0.62, lineDash: [2, 4], labelPlacement: "axis" as const }
           : { lineWidth: 2.5, labelPlacement: "axis" as const };
     const roleLabel = level.role === "support" ? "지지" : "저항";
     const importanceLabel = importance === "standard" ? `보조 ${roleLabel}` : importance === "minor" ? `참고 ${roleLabel}` : roleLabel;
@@ -196,11 +196,15 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
     } as T;
   }
   if (isPatternDrawing(drawing, asset)) {
+    const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
+    const patternOpacity = primaryPattern?.state === "confirmed"
+      ? 0.92
+      : primaryPattern?.state === "forming" ? 0.72 : 0.60;
     return {
       ...drawing,
       style: evidenceStyle(drawing.style, "evidencePattern", {
         lineWidth: 3.5,
-        opacity: Math.min(0.9, drawing.style.opacity ?? 1),
+        opacity: patternOpacity,
         labelPlacement: drawing.id.endsWith("-upper") ? "inline" : drawing.id.endsWith("-lower") ? "axis" : "none"
       })
     };
@@ -222,7 +226,7 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
         fillToken: token,
         textToken: token,
         lineWidth: 2.75,
-        opacity: 0.86,
+        opacity: 0.90,
         lineDash: undefined,
         extension: "ray"
       }

@@ -2,31 +2,33 @@ import { BrainCircuit, ChartNoAxesCombined, Goal, Minus, TrendingUp } from "luci
 import type { ReactNode } from "react";
 import { formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysisLayerController";
+import type { AnalysisTraceDataMode } from "../chart/analysisTraceOverlay";
 
 export function ChartAnalysisLayerToggles({
-  visibility, disabled, asOf, stale = false, onToggle
+  visibility, disabled, asOf, stale = false, interpretationMode = "none", onToggle
 }: {
   visibility: AnalysisLayerVisibility;
   disabled: Record<AnalysisLayerKey, boolean>;
   asOf?: string;
   stale?: boolean;
+  interpretationMode?: AnalysisTraceDataMode;
   onToggle: (layer: AnalysisLayerKey) => void;
 }) {
   return (
     <div className="chart-analysis-layer-controls" aria-label="차트 분석 레이어">
       <div className="chart-analysis-layer-buttons">
-        <LayerButton layer="interpretation" label="해석" icon={<BrainCircuit size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
+        <LayerButton layer="interpretation" label="해석" icon={<BrainCircuit size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} interpretationMode={interpretationMode} />
         <LayerButton layer="levels" label="저항" accessibleLabel="지지·저항" icon={<Minus size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="trend" label="추세" icon={<TrendingUp size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="pattern" label="패턴" icon={<ChartNoAxesCombined size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="proposal" label="제안" icon={<Goal size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
       </div>
-      {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAnalysisAssetAsOf(asOf)}{stale ? " · stale" : ""}</span>}
+      {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAnalysisAssetAsOf(asOf)}{stale ? " · stale" : ""}{interpretationMode === "complete" ? " · 해석 전체 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}</span>}
     </div>
   );
 }
 
-function LayerButton({ layer, label, accessibleLabel = label, icon, visibility, disabled, onToggle }: {
+function LayerButton({ layer, label, accessibleLabel = label, icon, visibility, disabled, onToggle, interpretationMode }: {
   layer: AnalysisLayerKey;
   label: string;
   accessibleLabel?: string;
@@ -34,6 +36,7 @@ function LayerButton({ layer, label, accessibleLabel = label, icon, visibility, 
   visibility: AnalysisLayerVisibility;
   disabled: Record<AnalysisLayerKey, boolean>;
   onToggle: (layer: AnalysisLayerKey) => void;
+  interpretationMode?: AnalysisTraceDataMode;
 }) {
   const unavailable = disabled[layer];
   const state = unavailable ? "unavailable" : visibility[layer] ? "on" : "off";
@@ -46,7 +49,15 @@ function LayerButton({ layer, label, accessibleLabel = label, icon, visibility, 
       : `${accessibleLabel} 분석 레이어 ${visibility[layer] ? "끄기" : "켜기"}`}
     aria-pressed={unavailable ? undefined : visibility[layer]}
     disabled={unavailable}
-    title={unavailable ? `${accessibleLabel} 자산 없음` : `${accessibleLabel} 분석 레이어`}
+    title={unavailable
+      ? `${accessibleLabel} 자산 없음`
+      : layer === "interpretation" && interpretationMode === "complete"
+        ? "전체 작도 후보와 선택 근거"
+        : layer === "interpretation" && interpretationMode === "bounded"
+          ? "일부 상위 후보만 포함된 구자산"
+          : layer === "interpretation" && interpretationMode === "legacy"
+            ? "근거 피벗만 포함된 구자산 · 재생성 필요"
+            : `${accessibleLabel} 분석 레이어`}
     onPointerDown={(event) => event.stopPropagation()}
     onClick={() => onToggle(layer)}
   >

@@ -54,7 +54,7 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { buildAnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
+import { analysisTraceDataMode, buildAnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { candleKeyForTimestamp, isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
@@ -2636,6 +2636,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}
+          interpretationMode={analysisTraceDataMode(activeAnalysisAsset)}
           onToggle={toggleAnalysisLayer}
         />
         {selectedSemanticNode && onAgentAsk && (
