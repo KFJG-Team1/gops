@@ -13,6 +13,7 @@ export type ViewportSize = {
 export type PanelContentKind =
   | "chart"
   | "compare"
+  | "companyCompare"
   | "company"
   | "companyJournal"
   | "companyMulti"
@@ -257,7 +258,7 @@ export function createTiledPanelStateFromSpec(
   const slots: PanelSlot[] = [];
   let instance = 1;
   spec.forEach((item) => {
-    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare";
+    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare" || item.kind === "companyCompare";
     const symbol = item.symbol ?? (inheritsSymbol ? options.symbol : undefined);
     const content = createPanelContent(item.kind, instance, {
       symbol: symbol?.trim().toUpperCase(),

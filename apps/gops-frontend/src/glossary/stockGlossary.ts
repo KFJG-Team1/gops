@@ -133,6 +133,76 @@ export const extraGlossary: GlossaryEntry[] = [
     aliases: ["손익비", "보상 위험 비율", "reward risk ratio", "R:R"],
     description: "예상 손실과 기대 이익의 비율로, 1:2는 손실 1에 이익 2를 기대한다는 뜻입니다.",
     category: "general"
+  },
+  {
+    id: "operating_margin",
+    term: "영업이익률",
+    aliases: ["영업이익률", "operating margin"],
+    description: "매출에서 영업비용을 뺀 이익이 매출의 몇 %인지 나타냅니다. 본업에서 얼마나 남기는지를 보여줍니다.",
+    category: "general"
+  },
+  {
+    id: "net_margin",
+    term: "순이익률",
+    aliases: ["순이익률", "net margin"],
+    description: "세금과 이자까지 모두 반영한 최종 이익이 매출의 몇 %인지 나타냅니다.",
+    category: "general"
+  },
+  {
+    id: "roe",
+    term: "ROE",
+    aliases: ["ROE", "자기자본이익률"],
+    description: "주주가 투자한 자본으로 1년에 얼마의 이익을 냈는지 나타내는 비율입니다.",
+    category: "general"
+  },
+  {
+    id: "debt_to_equity",
+    term: "부채/자본",
+    aliases: ["부채/자본", "부채비율", "debt to equity", "D/E"],
+    description: "자기자본 대비 빌린 돈의 비율입니다. 낮을수록 빚에 덜 의존하는 구조입니다.",
+    category: "general"
+  },
+  {
+    id: "consensus",
+    term: "컨센서스",
+    aliases: ["컨센서스", "consensus", "시장 예상치"],
+    description: "여러 애널리스트가 예상한 실적 전망치의 평균입니다. 실제 실적과 비교하는 기준이 됩니다.",
+    category: "general"
+  },
+  {
+    id: "earnings_surprise",
+    term: "어닝 서프라이즈",
+    aliases: ["어닝 서프라이즈", "earnings surprise", "예상치 상회"],
+    description: "실제 실적이 애널리스트 예상치보다 높게 나온 경우를 말합니다.",
+    category: "general"
+  },
+  {
+    id: "fabless",
+    term: "팹리스",
+    aliases: ["팹리스", "fabless"],
+    description: "반도체를 설계만 하고 생산은 외부 공장에 맡기는 사업 방식입니다.",
+    category: "general"
+  },
+  {
+    id: "foundry",
+    term: "파운드리",
+    aliases: ["파운드리", "foundry"],
+    description: "다른 회사가 설계한 반도체를 위탁 생산해 주는 사업 방식입니다.",
+    category: "general"
+  },
+  {
+    id: "free_cash_flow",
+    term: "잉여현금흐름",
+    aliases: ["잉여현금흐름", "FCF", "free cash flow"],
+    description: "영업으로 번 현금에서 설비 투자 지출을 뺀, 회사가 자유롭게 쓸 수 있는 현금입니다.",
+    category: "general"
+  },
+  {
+    id: "gross_margin_percentile",
+    term: "섹터 백분위",
+    aliases: ["섹터 백분위", "백분위", "percentile"],
+    description: "같은 섹터 기업들 사이에서 이 수치가 어느 위치인지 0~100으로 나타낸 값입니다. 상위 5%는 100개 중 5등 안이라는 뜻입니다.",
+    category: "general"
   }
 ];
 
