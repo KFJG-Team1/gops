@@ -264,6 +264,24 @@ export function chartEventMarkerLayoutKey(markers: ChartEventMarker[]): string {
   return markers.map((marker) => `${marker.id}:${Math.round(marker.x)}:${Math.round(marker.top)}`).join("|");
 }
 
+export function syncChartEventMarkerPositions(
+  container: ParentNode | null,
+  markers: ChartEventMarker[]
+): void {
+  if (!container) return;
+  const positions = new Map(markers.map((marker) => [marker.id, marker]));
+  container.querySelectorAll<HTMLElement>("[data-chart-event-id]").forEach((element) => {
+    const marker = positions.get(element.dataset.chartEventId ?? "");
+    if (!marker) {
+      element.style.visibility = "hidden";
+      return;
+    }
+    element.style.left = `${marker.x}px`;
+    element.style.top = `${marker.top}px`;
+    element.style.visibility = "";
+  });
+}
+
 export function marketDateForTimestamp(timestamp: string): string {
   const parsed = new Date(timestamp);
   if (!Number.isFinite(parsed.getTime())) return "";

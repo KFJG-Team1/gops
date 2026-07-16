@@ -87,6 +87,7 @@ import {
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
+  syncChartEventMarkerPositions,
   type ChartEventCoverage,
   type ChartEventMarker,
   type ChartEventsResponse
@@ -1974,6 +1975,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       earnings: earningsEventsVisible,
       news: newsEventsVisible
     });
+    syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers);
     const nextEventMarkerKey = chartEventMarkerLayoutKey(nextEventMarkers);
     if (nextEventMarkerKey !== chartEventMarkerKeyRef.current) {
       chartEventMarkerKeyRef.current = nextEventMarkerKey;
