@@ -38,6 +38,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   popular: "popularStocks",
   recommendations: "stockRecommendations",
   recommendationsList: "stockRecommendations",
+  recommendationExplain: "stockRecommendationExplain",
   themeRadar: "themeRadar",
   news: "newsFeed",
   newsList: "newsFeed",

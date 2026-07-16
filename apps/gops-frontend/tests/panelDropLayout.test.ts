@@ -30,6 +30,7 @@ const recommendedSpans: Array<[PanelContentKind, Pick<PanelGridRect, "colSpan" |
   ["chartPatternList", { colSpan: 2, rowSpan: 2 }],
   ["priceCondition", { colSpan: 1, rowSpan: 3 }],
   ["themeRadar", { colSpan: 3, rowSpan: 2 }],
+  ["recommendationExplain", { colSpan: 5, rowSpan: 4 }],
   ["portfolioHoldings", { colSpan: 5, rowSpan: 3 }]
 ];
 

@@ -17,6 +17,7 @@ export type AgentLayoutPanelType =
   | "popularStocks"
   | "newsFeed"
   | "stockRecommendations"
+  | "stockRecommendationExplain"
   | "themeRadar"
   | "ontologyGraph"
   | "portfolioDashboard"

@@ -23,6 +23,7 @@ import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
+import { StockRecommendationExplainPanel } from "../recommendations/StockRecommendationExplainPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
@@ -360,6 +361,14 @@ export function PanelContentRenderer({
         onSelectReference={onSelectRecommendationReference}
         initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
         variant="list"
+      />
+    );
+  }
+
+  if (content.kind === "recommendationExplain") {
+    return (
+      <StockRecommendationExplainPanel
+        preferredSymbol={selectedRecommendationSymbol ?? symbol.toUpperCase()}
       />
     );
   }
