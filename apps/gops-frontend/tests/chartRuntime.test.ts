@@ -211,12 +211,14 @@ import {
 } from "../../chart-engine/src/viewport";
 import {
   clampRightOffset as frontendClampRightOffset,
+  clampVisibleCount as frontendClampVisibleCount,
   dragDeltaToRightOffset as frontendDragDeltaToRightOffset,
   futureEmptySlotCount as frontendFutureEmptySlotCount,
   horizontalWheelDeltaToRightOffset as frontendHorizontalWheelDeltaToRightOffset,
   latestCandleRightOffset as frontendLatestCandleRightOffset,
   normalizeViewport as frontendNormalizeViewport,
-  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta
+  resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta,
+  zoomViewport as frontendZoomViewport
 } from "../src/chart/viewport";
 import {
   createTreeMapOpacityScale,
@@ -3058,9 +3060,14 @@ assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120
   visibleCount: 72,
   rightOffset: -62
 });
+assert.equal(frontendClampVisibleCount(120, 3, 640, { minimumVisibleSlots: 120 }), 120);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 120, rightOffset: 0 }, 3, 640, { minimumVisibleSlots: 120 }), {
-  visibleCount: 6,
+  visibleCount: 120,
   rightOffset: 0
+});
+assert.deepEqual(frontendZoomViewport({ visibleCount: 6, rightOffset: -1 }, 18, 3, 640), {
+  visibleCount: 24,
+  rightOffset: -1
 });
 assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
 assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);

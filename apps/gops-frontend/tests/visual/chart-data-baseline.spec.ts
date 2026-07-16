@@ -6,6 +6,7 @@ let omittedCandleIndex: number | null = null;
 let omittedOrderFlowMinute: number | null = null;
 let alignBidAskFixtures = false;
 let partialThenReadyCandles = false;
+let sparseCandlesWithoutBackfill = false;
 let candleRequestCount = 0;
 
 test.beforeEach(async ({ page }) => {
@@ -13,6 +14,7 @@ test.beforeEach(async ({ page }) => {
   omittedOrderFlowMinute = null;
   alignBidAskFixtures = false;
   partialThenReadyCandles = false;
+  sparseCandlesWithoutBackfill = false;
   candleRequestCount = 0;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
@@ -111,6 +113,33 @@ test("partial retry locks zoom and keeps the latest quarter gap", async ({ page 
   await expect(chartPanel).toHaveAttribute("data-chart-right-offset", firstRightOffset ?? "-1");
   await expectLatestQuarterGap(chartPanel);
   await expectNonBlankCanvas(chartPanel.locator(".chart-canvas"));
+});
+
+test("wheel zoom out remains available without historical backfill", async ({ page }) => {
+  sparseCandlesWithoutBackfill = true;
+  await openFixtureLayout(page, chartOnlyLayout());
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "3");
+  const initialVisibleCount = Number(await chartPanel.getAttribute("data-chart-visible-count"));
+
+  await canvas.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    for (let index = 0; index < 6; index += 1) {
+      element.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width * 0.5,
+        clientY: rect.top + rect.height * 0.45,
+        deltaY: 70
+      }));
+    }
+  });
+
+  await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count")))
+    .toBeGreaterThan(initialVisibleCount);
+  expect(candleRequestCount).toBe(1);
+  await expectNonBlankCanvas(canvas);
 });
 
 test("fixed and optional derived layers preserve chart geometry", async ({ page }) => {
@@ -571,7 +600,17 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
     const symbol = url.searchParams.get("symbol") ?? "NVDA";
     const interval = url.searchParams.get("interval") ?? "1m";
     const fullPayload = candlePayload(symbol, interval);
-    if (partialThenReadyCandles && candleRequestCount === 0) {
+    if (sparseCandlesWithoutBackfill) {
+      const candles = (fullPayload.candles as Array<Record<string, unknown>>).slice(-3);
+      payload = {
+        ...fullPayload,
+        request: { limit: candles.length },
+        candles,
+        requestedLimit: candles.length,
+        returnedCount: candles.length,
+        hasMoreBefore: false
+      };
+    } else if (partialThenReadyCandles && candleRequestCount === 0) {
       const candles = (fullPayload.candles as Array<Record<string, unknown>>).slice(-3);
       payload = {
         ...fullPayload,
