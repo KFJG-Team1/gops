@@ -220,10 +220,12 @@ import {
 } from "../src/chart/viewport";
 import {
   createTreeMapOpacityScale,
+  formatTreeMapChange,
   tileFillForChange,
   tileOpacityForChange,
   tileTextForOpacity
 } from "../src/treemap/treemapColors";
+import { layoutSp500TreeMap } from "../src/treemap/treemapLayout";
 
 function target(panelId: string, chartDocumentId: string) {
   return { panelId, chartDocumentId };
@@ -556,6 +558,32 @@ const emptyTreeMapScale = createTreeMapOpacityScale([undefined, Number.NaN]);
 assert.equal(tileOpacityForChange(5, emptyTreeMapScale), 0.48);
 assert.equal(tileTextForOpacity(0.57, treeMapTestTheme), treeMapTestTheme.tileText);
 assert.equal(tileTextForOpacity(0.58, treeMapTestTheme), treeMapTestTheme.tileTextInverse);
+assert.equal(formatTreeMapChange(null), "—");
+assert.equal(formatTreeMapChange(undefined), "—");
+assert.equal(formatTreeMapChange(0), "0.00%");
+assert.equal(formatTreeMapChange(1.234), "+1.23%");
+const nullableChangeTiles = layoutSp500TreeMap([
+  {
+    symbol: "AAPL",
+    companyName: "Apple",
+    sector: "Information Technology",
+    industry: "Hardware",
+    value: 100,
+    marketCap: 100,
+    changePercent: 10
+  },
+  {
+    symbol: "MSFT",
+    companyName: "Microsoft",
+    sector: "Information Technology",
+    industry: "Software",
+    value: 100,
+    marketCap: 100,
+    changePercent: null
+  }
+], { x: 0, y: 0, width: 400, height: 240 });
+assert.equal(nullableChangeTiles.find((tile) => tile.kind === "sector")?.changePercent, 10);
+assert.equal(nullableChangeTiles.find((tile) => tile.symbol === "MSFT")?.changePercent, null);
 
 assert.deepEqual(resolveMainViewFromUrl("http://localhost/?view=home").view, { mode: "treemap" });
 assert.equal(resolveMainViewFromUrl("http://localhost/").url, "/?view=home");
