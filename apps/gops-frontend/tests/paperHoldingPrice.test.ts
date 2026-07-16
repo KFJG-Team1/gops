@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   findPaperHoldingOverlay,
   formatPaperHoldingQuantity,
@@ -85,3 +87,14 @@ const extremeHoldingScene = buildChartScene({
   holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 1 }
 }, 640, 360);
 assert.ok(extremeHoldingScene.scales.minPrice > 10);
+
+const chartCanvasSource = readFileSync(
+  resolve(process.cwd(), "src/chart/ChartCanvas.tsx"),
+  "utf-8"
+);
+const holdingMarkerSource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("function drawHoldingAveragePriceMarker"),
+  chartCanvasSource.indexOf("function currentPriceForScene")
+);
+assert.match(holdingMarkerSource, /drawDarkAxisPill\(context, paperHoldingOverlayLabel\(holding\), rightAxisPillX\(scene\), y, "right", colors\.pointYellow\)/);
+assert.doesNotMatch(holdingMarkerSource, /scene\.plot\.left \+ 8/);
