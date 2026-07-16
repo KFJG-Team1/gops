@@ -14,6 +14,7 @@ export type PanelContentKind =
   | "chart"
   | "compare"
   | "company"
+  | "companyJournal"
   | "companyMulti"
   | "companyValuation"
   | "companyProfitability"

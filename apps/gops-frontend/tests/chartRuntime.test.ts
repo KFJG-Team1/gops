@@ -3964,12 +3964,13 @@ assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 
 const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
-assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 2);
-assert.doesNotMatch(companySummaryPanelSource, /company-(?:profitability|stability)-plot[^>]*preserveAspectRatio="none"/);
+assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 1);
+assert.match(companySummaryPanelSource, /company-profitability-plot[^>]*preserveAspectRatio="none"/);
+assert.match(companySummaryPanelSource, /company-stability-ratios-plot[^>]*preserveAspectRatio="none"/);
 assert.match(companySummaryPanelSource, /function useFinancialChartSize\(\)[\s\S]*new ResizeObserver\(measure\)/);
 assert.match(companySummaryPanelSource, /financialChartPlotAspectRatio = \(620 - 112 - 20\) \/ \(360 - 10 - 34\)/);
 assert.match(companySummaryPanelSource, /height: Math\.min\(measuredSize\.height, Math\.round\(proportionalHeight\)\)/);
-assert.equal(companySummaryPanelSource.match(/<svg ref=\{chartRef\} className="company-(?:profitability|stability)/g)?.length, 2);
+assert.equal(companySummaryPanelSource.match(/<svg ref=\{chartRef\} className="company-(?:profitability|stability)/g)?.length, 1);
 
 const chartPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)), "utf-8");
 const chartDocumentAdapterSource = readFileSync(fileURLToPath(new URL("../src/chart/chartDocumentAdapter.ts", import.meta.url)), "utf-8");
@@ -4142,6 +4143,7 @@ const workspacePanelFrameSource = readFileSync(fileURLToPath(new URL("../src/com
 assert.doesNotMatch(workspacePanelFrameSource, /workspace-panel-close|canClose|onClose/);
 const panelRegistrySource = readFileSync(fileURLToPath(new URL("../src/layout/panelRegistry.ts", import.meta.url)), "utf-8");
 assert.match(panelRegistrySource, /kind: "compare"[\s\S]*title: "비교"/);
+assert.match(panelRegistrySource, /kind: "companyJournal"[\s\S]*title: "AI 기업저널"/);
 assert.match(panelRegistrySource, /kind: "orderFlow"[\s\S]*agentPanelType: "orderFlowProfile"/);
 assert.match(panelRegistrySource, /kind: "trade"[\s\S]*title: "주문"/);
 assert.match(panelRegistrySource, /kind: "chartPatternList"[\s\S]*title: "패턴 종목"[\s\S]*agentPanelType: "chartPatternList"/);

@@ -27,6 +27,7 @@ import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./C
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import type { CoachReport } from "./ai-coach/types";
+import { CompanyJournalPanel } from "./CompanyJournalPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -202,6 +203,21 @@ export function PanelContentRenderer({
 
   if (content.kind === "company") {
     return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
+  }
+
+  if (content.kind === "companyJournal") {
+    return (
+      <CompanyJournalPanel
+        symbol={symbol.toUpperCase()}
+        item={companyItem}
+        items={companyItems}
+        sourcePanelId={content.id}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onAgentReferenceSelect={onAgentReferenceSelect}
+        onAgentAsk={onAgentAsk}
+      />
+    );
   }
 
   if (content.kind === "companyMulti") {

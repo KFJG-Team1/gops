@@ -46,7 +46,7 @@ export function PortfolioPersonalHeatmapPanel({
     [marketItems]
   );
   const marketOpacityDomain = useMemo(
-    () => universe.map((item) => item.changePercent),
+    () => universe.map((item) => item.changePercent ?? undefined),
     [universe]
   );
 

@@ -182,6 +182,16 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "companyJournal",
+    title: "AI 기업저널",
+    agentPanelType: "companyJournal",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 4, rowSpan: 3 },
+    minSizePx: { width: 640, height: 420 },
+    defaultSpan: { colSpan: 4, rowSpan: 4 },
+    defaultLayoutWeight: 88
+  },
+  {
     kind: "companyMulti",
     title: "기업 멀티",
     agentPanelType: "companyMulti",

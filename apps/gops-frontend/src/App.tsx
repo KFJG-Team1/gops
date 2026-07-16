@@ -171,6 +171,7 @@ const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   uiScale: appUiScale
 };
 const orderFlowDemoDefaultSymbol = "NVDA";
+const companyJournalPreviewDefaultSymbol = "NVDA";
 
 function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
@@ -181,6 +182,12 @@ function initialPanelState(): TiledPanelState {
   const viewport = currentViewportSize();
   const responsiveLayout = resolveResponsivePanelLayout(viewport, chartWorkspaceLayoutMetrics);
   const initialView = resolveAppMainViewFromUrl(window.location.href).view;
+  if (isCompanyJournalPreviewRoute(window.location.href)) {
+    return createCompanyJournalPreviewPanelState(
+      viewport,
+      initialView.mode === "chart" ? initialView.symbol : companyJournalPreviewDefaultSymbol
+    );
+  }
   if (isOrderFlowDemoRoute(window.location.href)) {
     return createOrderFlowDemoPanelState(
       viewport,
@@ -210,6 +217,21 @@ function initialPanelState(): TiledPanelState {
   return createInitialTiledPanelState(viewport, {
     layoutMetrics: responsiveLayout.metrics,
     symbol: initialView.mode === "chart" ? initialView.symbol : undefined
+  });
+}
+
+function createCompanyJournalPreviewPanelState(viewport: ViewportSize, symbol: string): TiledPanelState {
+  const normalizedSymbol = normalizeStoredSymbol(symbol) || companyJournalPreviewDefaultSymbol;
+  return createTiledPanelStateFromSpec([
+    {
+      kind: "companyJournal",
+      gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 6 },
+      props: { symbol: normalizedSymbol },
+      layoutWeight: 100
+    }
+  ], viewport, {
+    symbol: normalizedSymbol,
+    layoutMetrics: resolveResponsivePanelLayout(viewport, chartWorkspaceLayoutMetrics).metrics
   });
 }
 
@@ -824,7 +846,7 @@ export function App() {
     if (typeof window === "undefined") {
       return;
     }
-    if (isOrderFlowDemoRoute(window.location.href)) {
+    if (isOrderFlowDemoRoute(window.location.href) || isCompanyJournalPreviewRoute(window.location.href)) {
       return;
     }
     try {
@@ -2127,6 +2149,14 @@ function isOrderFlowDemoRoute(value: string | URL): boolean {
   }
   const url = value instanceof URL ? value : new URL(value, "http://gops.local");
   return url.searchParams.has("orderFlowDemo");
+}
+
+function isCompanyJournalPreviewRoute(value: string | URL): boolean {
+  if (import.meta.env.DEV !== true) {
+    return false;
+  }
+  const url = value instanceof URL ? value : new URL(value, "http://gops.local");
+  return url.searchParams.get("companyJournalPreview") === "1";
 }
 
 function persistMainView(view: MainView) {

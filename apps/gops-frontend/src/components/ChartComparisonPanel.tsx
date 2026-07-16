@@ -126,7 +126,6 @@ export function ChartComparisonPanel({
   const xTicks = makeTimeTicks(timeScale, range === "1D" ? 7 : 6);
   const yTicks = makePercentTicks(percentDomain, 5);
   const hasRenderableSeries = series.length > 0;
-  const cacheLabel = response?.cache?.hit ? "cached" : response ? "fresh" : "";
   const hoverSnapshot = useMemo(
     () => buildHoverSnapshot(hoverX, series, timeScale, percentDomain, plot),
     [hoverX, percentDomain, plot, series, timeScale]
@@ -135,9 +134,6 @@ export function ChartComparisonPanel({
     () => buildLineLabels(series, percentDomain, plot),
     [percentDomain, plot, series]
   );
-  const primaryItem = displayItems[0];
-  const primaryPercent = hoverSnapshot?.points.find((entry) => entry.item.symbol === primaryItem?.symbol)?.point.returnPercent ?? primaryItem?.changePercent;
-  const heroPercent = typeof primaryPercent === "number" && Number.isFinite(primaryPercent) ? primaryPercent : 0;
   const listRef = useRef<HTMLDivElement>(null);
   const listScrolls = useVerticalOverflow(listRef);
 
@@ -169,114 +165,100 @@ export function ChartComparisonPanel({
           onClick={() => setSidebarOpen(false)}
         />
         <aside id="chart-compare-sidebar" className="chart-compare-sidebar" aria-label="비교 종목 관리">
-        <div className="chart-compare-sidebar-top">
-          <span className="chart-compare-brand">GOPS</span>
-          <span className="chart-compare-overview">Comparison Overview</span>
-          <button
-            type="button"
-            className="chart-compare-sidebar-close"
-            aria-label="비교 종목 패널 닫기"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X size={15} />
-          </button>
-        </div>
-        <div className="chart-compare-hero">
-          <span>{primaryItem?.symbol ?? symbol.toUpperCase()} · 기준</span>
-          <strong className={toneClass(heroPercent)}>{formatSignedPercent(heroPercent)}</strong>
-          <p>
-            {requestSymbols.length}/{maxCompareSymbols} symbols · {response?.timeframe ?? timeframeLabel(range)}
-            {cacheLabel ? ` · ${cacheLabel}` : ""}
-          </p>
-        </div>
-        {requestSymbols.length < maxCompareSymbols && (
-          <SymbolSearch
-            symbols={availableSymbols}
-            className="chart-compare-symbol-search"
-            selectedLabel=""
-            placeholder="기업 추가"
-            compact
-            menuPlacement="bottom"
-            onSelectSymbol={onAddSymbol}
-          />
-        )}
-        <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
-          {displayItems.map((item, index) => {
-            const removable = item.symbol !== symbol.toUpperCase();
-            const hoverEntry = hoverSnapshot?.points.find((entry) => entry.item.symbol === item.symbol);
-            const rowPrice = hoverEntry?.point.price ?? item.lastPrice;
-            const rowChange = hoverEntry ? changeFromBase(hoverEntry.point, item) : item.change;
-            const rowPercent = hoverEntry?.point.returnPercent ?? item.changePercent;
-            return (
-              <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""} ${hoverEntry ? "is-synced" : ""}`}>
-                <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
-                <StockLogo
-                  symbol={item.symbol}
-                  companyName={item.companyName ?? item.symbol}
-                  size="xs"
-                  className="chart-compare-row-logo"
-                />
-                <div className="chart-compare-row-name">
-                  <strong>{item.companyName ?? item.symbol}</strong>
-                  <span>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</span>
+          <div className="chart-compare-sidebar-top">
+            <button
+              type="button"
+              className="chart-compare-sidebar-close"
+              aria-label="비교 종목 패널 닫기"
+              onClick={() => setSidebarOpen(false)}
+            >
+              <X size={15} />
+            </button>
+          </div>
+          {requestSymbols.length < maxCompareSymbols && (
+            <SymbolSearch
+              symbols={availableSymbols}
+              className="chart-compare-symbol-search"
+              selectedLabel=""
+              placeholder="기업 추가"
+              compact
+              menuPlacement="bottom"
+              onSelectSymbol={onAddSymbol}
+            />
+          )}
+          <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
+            {displayItems.map((item, index) => {
+              const removable = item.symbol !== symbol.toUpperCase();
+              const hoverEntry = hoverSnapshot?.points.find((entry) => entry.item.symbol === item.symbol);
+              const rowPrice = hoverEntry?.point.price ?? item.lastPrice;
+              const rowChange = hoverEntry ? changeFromBase(hoverEntry.point, item) : item.change;
+              const rowPercent = hoverEntry?.point.returnPercent ?? item.changePercent;
+              return (
+                <div key={item.symbol} className={`chart-compare-list-row ${item.error ? "error" : ""} ${hoverEntry ? "is-synced" : ""}`}>
+                  <span className="chart-compare-row-swatch" style={{ background: item.color }} aria-hidden="true" />
+                  <StockLogo
+                    symbol={item.symbol}
+                    companyName={item.companyName ?? item.symbol}
+                    size="xs"
+                    className="chart-compare-row-logo"
+                  />
+                  <div className="chart-compare-row-name">
+                    <strong>{item.companyName ?? item.symbol}</strong>
+                    <span>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ""}</span>
+                  </div>
+                  <div className="chart-compare-row-metrics">
+                    <span className="chart-compare-row-price">{formatPrice(rowPrice)}</span>
+                    <span className={`chart-compare-row-percent ${toneClass(rowPercent)}`}>{formatSignedPercent(rowPercent)}</span>
+                  </div>
+                  {removable ? (
+                    <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
+                      <X size={15} />
+                    </button>
+                  ) : (
+                    <span className="chart-compare-row-anchor">{index === 0 ? "기준" : ""}</span>
+                  )}
+                  <span className={`chart-compare-row-change ${toneClass(rowPercent)}`}>{formatChange(rowChange)}</span>
                 </div>
-                <div className="chart-compare-row-metrics">
-                  <span className="chart-compare-row-price">{formatPrice(rowPrice)}</span>
-                  <span className={`chart-compare-row-percent ${toneClass(rowPercent)}`}>{formatSignedPercent(rowPercent)}</span>
-                </div>
-                {removable ? (
-                  <button type="button" aria-label={`${item.symbol} 비교 삭제`} title={`${item.symbol} 비교 삭제`} onClick={() => onRemoveSymbol(item.symbol)}>
-                    <X size={15} />
-                  </button>
-                ) : (
-                  <span className="chart-compare-row-anchor">{index === 0 ? "기준" : ""}</span>
-                )}
-                <span className={`chart-compare-row-change ${toneClass(rowPercent)}`}>{formatChange(rowChange)}</span>
-              </div>
-            );
-          })}
-        </div>
-      </aside>
+              );
+            })}
+          </div>
+        </aside>
 
-      <section className="chart-compare-main" aria-label="수익률 비교 그래프">
-        <div className="chart-compare-header">
-          <div>
-            <strong>Return graph</strong>
-            <span>{hoverSnapshot ? formatHoverTime(hoverSnapshot.timestamp, range) : "first close 기준 수익률"}</span>
+        <section className="chart-compare-main" aria-label="수익률 비교 그래프">
+          <div className="chart-compare-header">
+            <button
+              type="button"
+              className="chart-compare-sidebar-toggle"
+              aria-controls="chart-compare-sidebar"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+            >
+              비교 {requestSymbols.length}/{maxCompareSymbols}
+            </button>
+            <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
+              {compareRanges.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={item === range ? "active" : ""}
+                  onClick={() => onRangeChange(item)}
+                  aria-pressed={item === range}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            type="button"
-            className="chart-compare-sidebar-toggle"
-            aria-controls="chart-compare-sidebar"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen(true)}
+          <svg
+            ref={chartRef}
+            className="chart-compare-svg"
+            viewBox={`0 0 ${chartSize.width} ${chartSize.height}`}
+            role="img"
+            aria-label="종목 수익률 비교 차트"
+            onPointerMove={handleComparePointerMove}
+            onPointerDown={handleComparePointerMove}
+            onPointerLeave={() => setHoverX(null)}
           >
-            비교 {requestSymbols.length}/{maxCompareSymbols}
-          </button>
-          <div className="chart-compare-range-tabs" role="tablist" aria-label="비교 기간">
-            {compareRanges.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={item === range ? "active" : ""}
-                onClick={() => onRangeChange(item)}
-                aria-pressed={item === range}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-        <svg
-          ref={chartRef}
-          className="chart-compare-svg"
-          viewBox={`0 0 ${chartSize.width} ${chartSize.height}`}
-          role="img"
-          aria-label="종목 수익률 비교 차트"
-          onPointerMove={handleComparePointerMove}
-          onPointerDown={handleComparePointerMove}
-          onPointerLeave={() => setHoverX(null)}
-        >
           {yTicks.map((tick) => {
             const y = yForPercent(tick, percentDomain, plot);
             return (
@@ -609,19 +591,6 @@ function formatHoverTime(value: number, range: ChartCompareRange): string {
     return date.toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
   return date.toLocaleDateString("ko-KR", { year: "2-digit", month: "short", day: "numeric" });
-}
-
-function timeframeLabel(range: ChartCompareRange): string {
-  if (range === "1D") {
-    return "1분";
-  }
-  if (range === "1M") {
-    return "1시간";
-  }
-  if (range === "5Y") {
-    return "1주";
-  }
-  return "1일";
 }
 
 function formatPrice(value: number | null | undefined): string {
