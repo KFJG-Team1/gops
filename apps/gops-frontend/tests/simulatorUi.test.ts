@@ -3,28 +3,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
-  basketForOrderSide,
-  formatSimulatorClock,
+  formatSimulatorVirtualTime,
   requestPortfolioRefresh,
+  simulatorSpeeds,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh
 } from "../src/simulator/simulatorApi";
-import {
-  simulatorBreakingNotification,
-  simulatorPhaseNotification
-} from "../src/simulator/simulatorNotifications";
-import {
-  formatNotificationToastMessage,
-  notificationVisualTone,
-  notificationUiProposals
-} from "../src/alerts/alertPresentation";
 
 
-assert.equal(basketForOrderSide("sell"), "semiconductor");
-assert.equal(basketForOrderSide("buy"), "energy");
-assert.equal(formatSimulatorClock(0), "00:00");
-assert.equal(formatSimulatorClock(65.8), "01:05");
+assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60, 300]);
+assert.equal(formatSimulatorVirtualTime("2026-07-14T15:00:00Z"), "07/15 00:00:00");
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "running" }), 1_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "live", state: "idle" }), 30_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: false, mode: "live", state: "idle" }), 30_000);
@@ -32,69 +21,13 @@ assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation"
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), true);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
+assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
 unsubscribeRefresh();
 requestPortfolioRefresh();
 assert.equal(refreshCalls, 1);
-
-const simulatorStatus = {
-  available: true,
-  mode: "simulation" as const,
-  state: "running" as const,
-  scenarioId: "saturday-demo-amd-iff-oke",
-  runId: "sim-test",
-  phase: "breaking-event",
-  phaseLabel: "지정학 이벤트",
-  phaseIndex: 1,
-  nextPhase: "market-close",
-  elapsedSeconds: 210,
-  durationSeconds: 300,
-  breakingNewsAtSeconds: 210,
-  breakingNewsReleased: true,
-  symbols: []
-};
-const breakingNotification = simulatorBreakingNotification({
-  id: "demo-breaking",
-  headline: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
-  summary: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다.",
-  symbols: ["AMD", "OKE"]
-}, simulatorStatus);
-assert.equal(breakingNotification.type, "system.simulator_breaking_event");
-assert.equal(notificationVisualTone(breakingNotification), "geopolitical-risk");
-assert.deepEqual(formatNotificationToastMessage(breakingNotification), {
-  symbol: "AMD",
-  chartSymbol: "AMD",
-  title: "지정학 리스크 경보",
-  message: "지정학적 리스크 확대로 반도체 약세·에너지 강세",
-  detail: "AMD 위험 관리와 OKE 수혜 가능성을 함께 점검합니다."
-});
-assert.equal(breakingNotification.payload.source, "GOPS Market Wire");
-assert.doesNotMatch(
-  [
-    breakingNotification.payload.title,
-    breakingNotification.payload.summary,
-    breakingNotification.payload.detail,
-    breakingNotification.payload.source
-  ].join(" "),
-  /시뮬레이션|simulator|시연|실제 뉴스/i
-);
-assert.deepEqual(
-  notificationUiProposals(breakingNotification).map(({ panelType, symbol }) => ({ panelType, symbol })),
-  [
-    { panelType: "portfolioHoldings", symbol: undefined },
-    { panelType: "chart", symbol: "AMD" },
-    { panelType: "paperAccount", symbol: undefined },
-    { panelType: "priceCondition", symbol: "AMD" },
-    { panelType: "orderFlowProfile", symbol: "OKE" }
-  ]
-);
-const closeNotification = simulatorPhaseNotification({ ...simulatorStatus, phase: "market-close", phaseLabel: "장 마감·복기" });
-assert.ok(closeNotification);
-assert.equal(closeNotification?.type, "system.simulator_market_close");
-assert.equal(notificationVisualTone(closeNotification!), "default");
-assert.equal(formatNotificationToastMessage(closeNotification!).title, "본장 종료");
 
 const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
@@ -113,17 +46,18 @@ const newsPanelSource = readFileSync(
   "utf-8"
 );
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
-assert.match(controlSource, /onNotification/);
+assert.doesNotMatch(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);
 assert.match(controlSource, /document\.visibilityState === "hidden"/);
 assert.match(controlSource, /simulatorStatusPollIntervalMs\(latestStatusRef\.current\)/);
-assert.match(controlSource, /다음 시연 단계/);
-assert.match(controlSource, /setSimulatorPhase\(status\.nextPhase/);
-assert.match(apiSource, /\/api\/simulator\/phase/);
-assert.match(bottomCommandBarSource, /<SimulatorControl onNotification=\{receiveSimulatorNotification\}/);
-assert.match(bottomCommandBarSource, /receiveSimulatorNotification[\s\S]*mergeNotificationInboxState/);
-assert.match(bottomCommandBarSource, /system\.simulator_breaking_event[\s\S]*priority: "immediate"/);
+assert.doesNotMatch(controlSource, /다음 시연 단계|setSimulatorPhase|breakingNews/);
+assert.match(controlSource, /formatSimulatorVirtualTime\(status\.virtualTime\)/);
+assert.match(controlSource, /setSimulatorSpeed/);
+assert.match(controlSource, /시뮬레이션 재생/);
+assert.match(apiSource, /\/api\/simulator\/speed/);
+assert.doesNotMatch(apiSource, /\/api\/simulator\/phase|\/api\/simulator\/orders\/basket/);
+assert.match(bottomCommandBarSource, /<SimulatorControl \/>/);
 assert.match(bottomCommandBarSource, /notification\.id < 0/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
 
@@ -131,24 +65,15 @@ const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
   "utf-8"
 );
-const saturdayDemoFixturesSource = readFileSync(
-  fileURLToPath(new URL("../src/simulator/saturdayDemoFixtures.ts", import.meta.url)),
-  "utf-8"
-);
 assert.match(chartCommentarySource, /GlossaryText/);
 assert.match(chartCommentarySource, /buildChartCommentaryViewModel/);
 assert.match(chartCommentarySource, /GlossaryText text=\{step\.body\}/);
-assert.match(saturdayDemoFixturesSource, /entryTrigger: 82\.6/);
-assert.match(saturdayDemoFixturesSource, /entryPrice: 82\.7/);
-assert.match(saturdayDemoFixturesSource, /stopPrice: 81\.1/);
-assert.match(saturdayDemoFixturesSource, /targetPrice: 87\.5/);
 
 const orderTicketSource = readFileSync(
   fileURLToPath(new URL("../src/components/OrderTicket.tsx", import.meta.url)),
   "utf-8"
 );
-assert.match(apiSource, /\/api\/simulator\/orders\/basket/);
-assert.match(orderTicketSource, /submitSimulatorBasket\(form\.side/);
+assert.doesNotMatch(orderTicketSource, /submitSimulatorBasket/);
 assert.match(orderTicketSource, /onClick=\{submitOrder\}/);
 assert.match(orderTicketSource, /executionMode === "paper" \? "\/api\/paper\/orders" : "\/api\/orders"/);
 
@@ -223,7 +148,8 @@ assert.match(orderTicketSource, />예상 주문액</);
 assert.doesNotMatch(orderTicketSource, /주문 가능 금액/);
 assert.doesNotMatch(orderTicketSource, /\/api\/orders\/balance/);
 assert.match(orderTicketSource, /priceType === "market"/);
-assert.match(orderTicketSource, /시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다/);
+assert.doesNotMatch(orderTicketSource, /시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다/);
+assert.match(orderTicketSource, /order_type: priceType/);
 
 const layoutPresetSource = readFileSync(
   fileURLToPath(new URL("../src/layout/layoutPresets.ts", import.meta.url)),

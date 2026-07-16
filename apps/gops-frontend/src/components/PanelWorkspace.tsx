@@ -91,6 +91,7 @@ import type { WorkspaceLayoutMode } from "../layout/responsivePanelLayout";
 import { workspaceBottomInset } from "../layout/workspaceMetrics";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import type { StockRecommendationSelection } from "../recommendations/StockRecommendationsPanel";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { boundaryStyle } from "./panelWorkspaceGeometry";
 import { WorkspacePanelFrame } from "./WorkspacePanelFrame";
@@ -121,7 +122,12 @@ type PanelWorkspaceProps = {
   onChartHandleChange: (contentId: string, handle: ChartPanelHandle | null) => void;
   onSelectSymbol: (symbol: string) => void;
   selectedRecommendationSymbol: string | null;
-  onSelectRecommendationReference: (reference: AgentReference | null) => void;
+  selectedRecommendation: StockRecommendationSelection | null;
+  onSelectRecommendationReference: (
+    reference: AgentReference | null,
+    selection?: StockRecommendationSelection | null,
+    replaceExisting?: boolean
+  ) => void;
   onOpenCompany: (symbol: string) => void;
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   selectedWildPanelSlotId: string | null;
@@ -209,6 +215,7 @@ export function PanelWorkspace({
   onChartHandleChange,
   onSelectSymbol,
   selectedRecommendationSymbol,
+  selectedRecommendation,
   onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset,
@@ -978,6 +985,7 @@ export function PanelWorkspace({
         onChangePanelChartSymbol={changePanelChartSymbol}
         onSelectSymbol={onSelectSymbol}
         selectedRecommendationSymbol={selectedRecommendationSymbol}
+        selectedRecommendation={selectedRecommendation}
         onSelectRecommendationReference={onSelectRecommendationReference}
         onOpenCompany={onOpenCompany}
         onSelectPatternAsset={onSelectPatternAsset}

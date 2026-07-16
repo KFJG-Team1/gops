@@ -130,6 +130,7 @@ import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
 import type { AgentAnalysisReport } from "./agents/agentAnalysis";
 import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
 import { resolveRecommendationCompanyNavigation } from "./recommendations/recommendationNavigation";
+import type { StockRecommendationSelection } from "./recommendations/StockRecommendationsPanel";
 
 const TradeAutomationConfirmationDialog = lazy(() => import("./components/TradeAutomationConfirmationDialog")
   .then((module) => ({ default: module.TradeAutomationConfirmationDialog })));
@@ -481,6 +482,8 @@ export function App() {
   const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
   const [pendingPlacementPick, setPendingPlacementPick] = useState<PendingPlacementPick | null>(null);
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
+  const [selectedRecommendation, setSelectedRecommendation] = useState<StockRecommendationSelection | null>(null);
+  const selectedRecommendationRef = useRef<StockRecommendationSelection | null>(null);
   const [agentInput, setAgentInput] = useState("");
   const [agentComposerRequest, setAgentComposerRequest] = useState(0);
   const [agentNotice, setAgentNotice] = useState<AgentHeaderNotice | null>(null);
@@ -507,6 +510,7 @@ export function App() {
   const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
+  const previousSimulatorRunIdRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
 
@@ -560,8 +564,10 @@ export function App() {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
       if (!status) return;
       const previousMode = previousSimulatorModeRef.current;
+      const previousRunId = previousSimulatorRunIdRef.current;
       previousSimulatorModeRef.current = status.mode;
-      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode)) {
+      previousSimulatorRunIdRef.current = status.runId ?? null;
+      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
         chartPanelHandlesRef.current.clear();
         setSemanticSelection(null);
         setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
@@ -577,7 +583,7 @@ export function App() {
           lastPrice: update.price,
           changePercent: update.changePercent ?? item.changePercent,
           priceSource: "gops-simulator",
-          priceUpdatedAt: new Date().toISOString()
+          priceUpdatedAt: status.virtualTime
         };
       }));
     };
@@ -662,12 +668,7 @@ export function App() {
   const selectedAgentReferenceKeys = useMemo(() => (
     agentReferences.map((reference) => agentReferenceKey(reference))
   ), [agentReferences]);
-  const selectedRecommendationReference = useMemo(() => (
-    agentReferences.find((reference) => reference.type === "recommendation.stock") ?? null
-  ), [agentReferences]);
-  const selectedRecommendationSymbol = selectedRecommendationReference
-    ? agentReferenceTicker(selectedRecommendationReference) || null
-    : null;
+  const selectedRecommendationSymbol = selectedRecommendation?.item.symbol ?? null;
   const agentReferenceChips = useMemo<AgentReferenceChip[]>(() => {
     const chips: AgentReferenceChip[] = agentReferences.map((reference) => ({
       key: agentReferenceKey(reference),
@@ -1168,16 +1169,23 @@ export function App() {
     });
   }, []);
 
-  const handleRecommendationReferenceSelect = useCallback((reference: AgentReference | null) => {
+  const handleRecommendationReferenceSelect = useCallback((
+    reference: AgentReference | null,
+    selection: StockRecommendationSelection | null = null,
+    replaceExisting = false
+  ) => {
+    const currentSelection = selectedRecommendationRef.current;
+    const wasSelected = !replaceExisting
+      && Boolean(reference && currentSelection
+        && agentReferenceKey(currentSelection.reference) === agentReferenceKey(reference));
+    const nextSelection = !reference || wasSelected ? null : selection;
+    selectedRecommendationRef.current = nextSelection;
+    setSelectedRecommendation(nextSelection);
     setAgentReferences((current) => {
-      const selectedKey = reference ? agentReferenceKey(reference) : null;
-      const wasSelected = selectedKey
-        ? current.some((item) => item.type === "recommendation.stock" && agentReferenceKey(item) === selectedKey)
-        : false;
       const withoutRecommendation = current.filter((item) => item.type !== "recommendation.stock");
-      return !reference || wasSelected
-        ? withoutRecommendation
-        : [reference, ...withoutRecommendation].slice(0, 5);
+      return nextSelection
+        ? [nextSelection.reference, ...withoutRecommendation].slice(0, 5)
+        : withoutRecommendation;
     });
     setEmphasizedReferenceKeys([]);
   }, []);
@@ -1206,6 +1214,11 @@ export function App() {
       clearChartSemanticSelections();
     } else {
       setAgentReferences((current) => current.filter((item) => agentReferenceKey(item) !== key));
+      if (selectedRecommendationRef.current
+        && agentReferenceKey(selectedRecommendationRef.current.reference) === key) {
+        selectedRecommendationRef.current = null;
+        setSelectedRecommendation(null);
+      }
     }
     setEmphasizedReferenceKeys((current) => current.filter((item) => item !== key));
   }, [clearChartSemanticSelections]);
@@ -1934,6 +1947,7 @@ export function App() {
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
             selectedRecommendationSymbol={selectedRecommendationSymbol}
+            selectedRecommendation={selectedRecommendation}
             onSelectRecommendationReference={handleRecommendationReferenceSelect}
             onOpenCompany={openCompanyPage}
             onSelectPatternAsset={openPatternAsset}

@@ -32,7 +32,7 @@ import {
   resolveAgentSendContent
 } from "../../chart-engine/src/agentReference";
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "../../chart-engine/src/candleStore";
-import { createChartDocument } from "../../chart-engine/src/chartDocuments";
+import { createChartDocument, normalizeChartDocument } from "../../chart-engine/src/chartDocuments";
 import { findTargetChartPanel } from "../../chart-engine/src/chartPanelSelection";
 import { executeChartCommand, executeChartCommandGroup, makeChartCommand, validateChartProposal } from "../../chart-engine/src/commands";
 import { buildTrendParallelLines, projectTrendLine } from "../../chart-engine/src/drawingGeometry";
@@ -104,6 +104,14 @@ import {
 } from "../src/chart/indicatorLayerPolicy";
 import { derivedClientCacheMaxEntries, stableVolumeProfileRangeKey } from "../src/chart/derivedRequestPolicy";
 import { fetchVolumeProfile } from "../src/chart/cdcClient";
+import {
+  chartEventMarkersForScene,
+  chartEventRequestRange,
+  latestChartEventRefreshRange,
+  mergeChartEventsResponses,
+  missingChartEventRanges,
+  type ChartEventsResponse
+} from "../src/chart/chartEvents";
 import { volumeProfilePartialRetryDelaysMs, volumeProfileResponseMatchesRequest } from "../src/chart/volumeProfilePolicy";
 import { indicatorRequestLimitForInterval, maxIndicatorRequestBars } from "../src/chart/indicatorRequestPolicy";
 import {
@@ -195,10 +203,6 @@ import {
   isSelectedRecommendationCompanyPrompt,
   resolveRecommendationCompanyNavigation
 } from "../src/recommendations/recommendationNavigation";
-import {
-  recommendationSimulationFallbackItems,
-  shouldUseRecommendationSimulationFallback
-} from "../src/recommendations/recommendationSimulationFallback";
 import {
   clampRightOffset,
   clampVisibleCount,
@@ -492,6 +496,20 @@ assert.equal(chartTypeDefaultDocument.chartType, "candle");
 assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
 assert.equal(chartTypeDefaultDocument.layers.ma5, true);
 assert.equal(chartTypeDefaultDocument.layers["sma:120"], false);
+assert.equal(chartTypeDefaultDocument.layers["events:earnings"], true);
+assert.equal(chartTypeDefaultDocument.layers["events:news"], true);
+const legacyEventLayerDocument = createChartDocument("chart-doc-event-layer-legacy", "AAPL", "1D");
+delete legacyEventLayerDocument.layers["events:earnings"];
+delete legacyEventLayerDocument.layers["events:news"];
+const normalizedLegacyEventLayers = normalizeChartDocument(legacyEventLayerDocument);
+assert.equal(normalizedLegacyEventLayers.layers["events:earnings"], true);
+assert.equal(normalizedLegacyEventLayers.layers["events:news"], true);
+const explicitHiddenEventLayerDocument = createChartDocument("chart-doc-event-layer-hidden", "AAPL", "1D");
+explicitHiddenEventLayerDocument.layers["events:earnings"] = false;
+explicitHiddenEventLayerDocument.layers["events:news"] = false;
+const normalizedHiddenEventLayers = normalizeChartDocument(explicitHiddenEventLayerDocument);
+assert.equal(normalizedHiddenEventLayers.layers["events:earnings"], false);
+assert.equal(normalizedHiddenEventLayers.layers["events:news"], false);
 assert.equal(fallbackChartStyle.background, "#090909");
 assert.equal(fallbackChartStyle.text, "#ffffff");
 assert.equal(fallbackChartStyle.grid, "rgba(255, 255, 255, 0.08)");
@@ -510,6 +528,104 @@ assert.equal(themedDocument.style.bullish, "#05b169");
 assert.equal(themedDocument.style.bearish, "#cf202f");
 assert.equal(themedDocument.style.ma5, "#0052ff");
 setDefaultChartStyle(fallbackChartStyle);
+
+const chartEventsFixture: ChartEventsResponse = {
+  symbol: "AAPL",
+  from: "2026-07-01T00:00:00.000Z",
+  to: "2026-07-31T23:59:59.000Z",
+  status: { earnings: "ready", news: "ready" },
+  earnings: [{
+    id: "earnings:AAPL:2026-07-15",
+    type: "earnings",
+    eventAt: "2026-07-15T20:05:00.000Z",
+    status: "reported",
+    session: "after",
+    eps: { actual: 1.4, estimate: 1.25, surprise: 0.15, surprisePercent: 12 },
+    source: "yahoo-finance",
+    sourceAsOf: "2026-07-16T22:30:00.000Z"
+  }],
+  newsDays: [{
+    id: "news:AAPL:2026-07-15",
+    type: "news",
+    date: "2026-07-15",
+    articleCount: 3,
+    summary: "Apple daily news",
+    keyPoints: ["Product launch"],
+    impactDirection: "mixed",
+    sentiment: "neutral",
+    sources: [{ title: "Apple launch", url: "https://example.com/apple", publishedAt: "2026-07-15T14:10:00.000Z" }]
+  }],
+  upcomingEarnings: null
+};
+assert.deepEqual(chartEventRequestRange([testCandle("2026-07-15T04:00:00.000Z")], "1D"), {
+  from: "2026-07-15T04:00:00.000Z",
+  to: "2026-07-16T03:59:59.999Z"
+});
+const dailyEventScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: [
+    testCandle("2026-07-14T04:00:00.000Z"),
+    testCandle("2026-07-15T04:00:00.000Z"),
+    testCandle("2026-07-16T04:00:00.000Z")
+  ],
+  visibleCount: 3,
+  layers: { candles: true, volume: false, "events:earnings": true, "events:news": true }
+}), 800, 360);
+const dailyEventMarkers = chartEventMarkersForScene(dailyEventScene, chartEventsFixture, { earnings: true, news: true });
+assert.equal(dailyEventMarkers.length, 2);
+assert.equal(dailyEventMarkers[0].label, "E");
+assert.equal(dailyEventMarkers[1].label, "N 3");
+assert.notEqual(dailyEventMarkers[0].x, dailyEventMarkers[1].x);
+const intradayEventScene = buildFrontendChartScene(frontendChartState({
+  interval: "1h",
+  candles: [
+    testCandle("2026-07-15T13:30:00.000Z"),
+    testCandle("2026-07-15T14:30:00.000Z"),
+    testCandle("2026-07-15T20:00:00.000Z")
+  ],
+  visibleCount: 3,
+  layers: { candles: true, volume: false, "events:earnings": true, "events:news": true }
+}), 800, 360);
+assert.equal(chartEventMarkersForScene(intradayEventScene, chartEventsFixture, { earnings: true, news: true }).length, 2);
+const weeklyEventScene = buildFrontendChartScene(frontendChartState({
+  interval: "1W",
+  candles: [testCandle("2026-07-13T04:00:00.000Z")],
+  visibleCount: 1,
+  layers: { candles: true, volume: false, "events:earnings": true, "events:news": true }
+}), 800, 360);
+assert.equal(chartEventMarkersForScene(weeklyEventScene, chartEventsFixture, { earnings: true, news: true }).length, 2);
+const monthlyEventScene = buildFrontendChartScene(frontendChartState({
+  interval: "1M",
+  candles: [testCandle("2026-07-01T04:00:00.000Z")],
+  visibleCount: 1,
+  layers: { candles: true, volume: false, "events:earnings": true, "events:news": true }
+}), 800, 360);
+assert.equal(chartEventMarkersForScene(monthlyEventScene, chartEventsFixture, { earnings: true, news: true }).length, 2);
+assert.equal(chartEventMarkersForScene(dailyEventScene, chartEventsFixture, { earnings: false, news: true }).length, 1);
+assert.deepEqual(missingChartEventRanges(
+  { symbol: "AAPL", from: "2026-07-10T00:00:00.000Z", to: "2026-07-31T23:59:59.000Z" },
+  { symbol: "AAPL", from: "2026-07-01T00:00:00.000Z", to: "2026-07-31T23:59:59.000Z" }
+), [{ from: "2026-07-01T00:00:00.000Z", to: "2026-07-10T00:00:00.000Z" }]);
+const refreshedNewsFixture: ChartEventsResponse = {
+  ...chartEventsFixture,
+  from: "2026-07-31T23:59:58.000Z",
+  newsDays: [{
+    ...chartEventsFixture.newsDays[0],
+    articleCount: 4,
+    summary: "Updated Apple daily news"
+  }]
+};
+const mergedChartEvents = mergeChartEventsResponses(chartEventsFixture, [refreshedNewsFixture], {
+  symbol: "AAPL",
+  from: chartEventsFixture.from,
+  to: chartEventsFixture.to
+});
+assert.equal(mergedChartEvents?.newsDays[0]?.articleCount, 4);
+assert.equal(mergedChartEvents?.earnings.length, 1);
+assert.deepEqual(latestChartEventRefreshRange({ from: chartEventsFixture.from, to: chartEventsFixture.to }), {
+  from: "2026-07-31T23:59:58.000Z",
+  to: chartEventsFixture.to
+});
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#05b169" }).background, fallbackChartStyle.background);
 assert.equal(normalizeChartStyle({ background: "#ffffff", bullish: "#05b169" }).bullish, fallbackChartStyle.bullish);
 
@@ -4423,27 +4539,6 @@ assert.equal(recommendationReference.data.symbol, "MSFT");
 assert.equal(agentReferenceTicker(recommendationReference), "MSFT");
 assert.equal(agentReferenceChipKind(recommendationReference), "recommendation");
 assert.deepEqual(recommendationReference.data.riskWarnings, ["변동성 확대에 유의하세요."]);
-assert.deepEqual(
-  recommendationSimulationFallbackItems.map((item) => item.symbol),
-  ["NVDA", "AMD", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "JPM"]
-);
-assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.score), [90, 86, 82, 78, 74, 70, 66, 62, 58, 54]);
-assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.confidence), [0.84, 0.81, 0.78, 0.75, 0.72, 0.69, 0.66, 0.63, 0.60, 0.57]);
-assert.equal(recommendationSimulationFallbackItems[1]?.rank, 2);
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.source, "frontend-recommendation-fallback");
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.synthetic, true);
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.simulation, true);
-assert.equal(new Set(recommendationSimulationFallbackItems.map((item) => item.reasons[0]?.text)).size, 10);
-assert.equal(recommendationSimulationFallbackItems.some((item) => item.reasons[0]?.text.includes("추천 데이터 준비 중")), false);
-assert.equal(recommendationSimulationFallbackItems.every((item) => item.riskWarnings.length === 1), true);
-const emptyRecommendationPayload = { status: "ready" as const, items: [] };
-assert.equal(shouldUseRecommendationSimulationFallback(emptyRecommendationPayload), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "empty", items: [] }), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "stale", items: [] }), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "profile_required", items: [] }), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "market_closed", items: [] }), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "error", items: [] }), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ ...emptyRecommendationPayload, items: [recommendationSimulationFallbackItems[0]!] }), false);
 const chartAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "compare");
 assert.ok(chartAnalysisPreset);
 const chartAnalysisLayout = buildPresetLayout(chartAnalysisPreset, { width: 1280, height: 720 });

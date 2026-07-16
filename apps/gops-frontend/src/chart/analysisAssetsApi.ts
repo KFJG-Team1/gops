@@ -1,4 +1,3 @@
-import { latestSimulatorStatus } from "../simulator/simulatorApi";
 import type { DrawingEntity } from "./types";
 
 export type AnalysisAssetInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W";
@@ -269,11 +268,6 @@ let globalGeneration = 0;
 
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
-  const simulatorStatus = latestSimulatorStatus();
-  if (simulatorStatus?.scenarioId === "saturday-demo-amd-iff-oke" && normalized === "IFF") {
-    return import("../simulator/saturdayDemoFixtures")
-      .then(({ saturdayDemoAnalysisAssets }) => saturdayDemoAnalysisAssets(normalized));
-  }
   const cached = responseCache.get(normalized);
   if (cached) return Promise.resolve(cached);
   const pending = inFlight.get(normalized);

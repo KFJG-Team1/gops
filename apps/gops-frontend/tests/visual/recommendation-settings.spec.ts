@@ -5,7 +5,7 @@ let failNextSave = false;
 let profileSaved = false;
 let savedProfile: Record<string, unknown> | null = null;
 let latestSessionModes: string[] = [];
-let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" = "profile_required";
+let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" | "session_specific" = "profile_required";
 
 test.beforeEach(async ({ page }) => {
   failNextSave = false;
@@ -17,9 +17,8 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", async (route) => fulfillApi(route));
 });
 
-test("empty recommendation responses show the simulation fallback and keep Agent references", async ({ page }) => {
+test("empty recommendation responses stay empty in live mode", async ({ page }) => {
   recommendationResponseMode = "empty";
-  await page.clock.install();
   await openRecommendationsLayout(page);
 
   const listPanel = page.getByRole("region", { name: "장중 매수 추천 목록" });
@@ -27,35 +26,13 @@ test("empty recommendation responses show the simulation fallback and keep Agent
   const listRows = listPanel.locator(".stock-rec-list .stock-rec-row");
   const cardRows = cardPanel.locator(".stock-rec-file-stack .stock-rec-row");
 
-  await expect(listRows).toHaveCount(10);
-  await expect(cardRows).toHaveCount(10);
-  await expect(listRows.nth(0)).toContainText("NVDA");
-  await expect(listRows.nth(1)).toContainText("AMD");
-  await expect(cardRows.nth(0)).toContainText("NVDA");
-  await expect(cardRows.nth(1)).toContainText("AMD");
-  await expect(listPanel.getByText("simulation", { exact: true })).toBeVisible();
-  await expect(cardPanel.getByText("simulation", { exact: true })).toBeVisible();
-  await expect(listPanel.getByText("추천할 종목이 없습니다")).toHaveCount(0);
-  await expect(listPanel.getByText(/추천 데이터 준비 중 표시/)).toHaveCount(0);
-  await expect(listRows.nth(0)).toContainText("반도체 업종 내 상대강도");
-  await expect(listRows.nth(1)).toContainText("단기 하락 구간에서 매수세 유입");
-
-  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("NVDA");
-  await page.clock.fastForward(8_000);
-  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("AMD");
-  await cardPanel.locator(".stock-rec-file-stack").hover();
-  await page.clock.fastForward(8_000);
-  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("AMD");
-  await page.locator(".workspace-top-nav").hover();
-  await page.clock.fastForward(8_000);
-  await expect(cardPanel.locator(".stock-rec-row.is-active")).toContainText("MSFT");
-
-  await listRows.nth(1).click();
-  await expect(page.getByRole("button", { name: "AMD 추천 참조 해제" })).toBeVisible();
-  await expect(listRows.nth(1)).toHaveAttribute("aria-pressed", "true");
-
-  await expect(listPanel).toHaveScreenshot("recommendation-list-simulation-fallback.png");
-  await expect(cardPanel).toHaveScreenshot("recommendation-card-simulation-fallback.png");
+  await expect(listRows).toHaveCount(0);
+  await expect(cardRows).toHaveCount(0);
+  await expect(listPanel.getByText("추천할 종목이 없습니다", { exact: true })).toBeVisible();
+  await expect(cardPanel.getByText("추천할 종목이 없습니다", { exact: true })).toBeVisible();
+  await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
+  await expect(cardPanel.getByText("simulation", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /추천 참조 해제/ })).toHaveCount(0);
 });
 
 test("market closed and API error states do not use the simulation fallback", async ({ page }) => {
@@ -72,6 +49,23 @@ test("market closed and API error states do not use the simulation fallback", as
   await expect(listPanel.getByText("recommendation unavailable")).toBeVisible();
   await expect(listPanel.locator(".stock-rec-row")).toHaveCount(0);
   await expect(listPanel.getByText("simulation", { exact: true })).toHaveCount(0);
+});
+
+test("recommendation explanation uses the exact selected list snapshot across sessions", async ({ page }) => {
+  recommendationResponseMode = "session_specific";
+  await openRecommendationsLayout(page, recommendationSyncLayout());
+
+  const listPanel = page.getByRole("region", { name: "장중 매수 추천 목록" });
+  await listPanel.getByRole("button", { name: "장전" }).click({ force: true });
+  const amdRow = listPanel.getByRole("button", { name: "1위 AMD 추천 선택" });
+  await expect(amdRow).toBeVisible();
+  await amdRow.click();
+
+  const explanation = page.getByRole("region", { name: "AMD 추천 해설" });
+  await expect(explanation).toBeVisible();
+  await expect(explanation.getByRole("heading", { name: "AMD" })).toBeVisible();
+  await expect(explanation.getByText("장전 / 데이장", { exact: true })).toBeVisible();
+  await expect(explanation.getByLabel("추천 점수 91점")).toBeVisible();
 });
 
 test("recommendation settings remain available and save from the panel dialog", async ({ page }) => {
@@ -160,15 +154,52 @@ async function expectSettingLeftOfSession(panel: Locator): Promise<void> {
   }
 }
 
-async function openRecommendationsLayout(page: Page): Promise<void> {
+async function openRecommendationsLayout(page: Page, storedLayout = recommendationsLayout()): Promise<void> {
   await page.addInitScript(({ storageKey, storedLayout }) => {
     window.localStorage.clear();
     window.localStorage.setItem(storageKey, JSON.stringify(storedLayout));
     window.localStorage.setItem("gops:last-chart-symbol", "NVDA");
-  }, { storageKey: layoutStorageKey, storedLayout: recommendationsLayout() });
+  }, { storageKey: layoutStorageKey, storedLayout });
   await page.goto("/?symbol=NVDA");
   await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}" });
   await expect(page.locator(".canvas-workspace.view-chart")).toBeVisible();
+}
+
+function recommendationSyncLayout(): Record<string, unknown> {
+  return {
+    version: 1,
+    nextInstance: 3,
+    contents: {
+      "content-recommendations-list-1": {
+        id: "content-recommendations-list-1",
+        kind: "recommendationsList",
+        title: "추천 목록",
+        instanceIndex: 1,
+        layoutWeight: 50,
+        props: { initialSessionMode: "regular" }
+      },
+      "content-recommendation-explain-2": {
+        id: "content-recommendation-explain-2",
+        kind: "recommendationExplain",
+        title: "추천 해설",
+        instanceIndex: 2,
+        layoutWeight: 50,
+        props: {}
+      }
+    },
+    slots: [
+      {
+        id: "slot-recommendations-list-1",
+        contentId: "content-recommendations-list-1",
+        gridRect: { col: 1, row: 1, colSpan: 3, rowSpan: 6 }
+      },
+      {
+        id: "slot-recommendation-explain-2",
+        contentId: "content-recommendation-explain-2",
+        gridRect: { col: 4, row: 1, colSpan: 5, rowSpan: 6 }
+      }
+    ]
+  };
 }
 
 function recommendationsLayout(): Record<string, unknown> {
@@ -220,7 +251,9 @@ async function fulfillApi(route: Route): Promise<void> {
     payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   } else if (url.pathname === "/api/recommendations/stocks/latest") {
     latestSessionModes.push(url.searchParams.get("sessionMode") ?? "regular");
-    if (recommendationResponseMode === "empty") {
+    if (recommendationResponseMode === "session_specific") {
+      payload = sessionRecommendationPayload(url.searchParams.get("sessionMode") ?? "regular");
+    } else if (recommendationResponseMode === "empty") {
       payload = { status: "ready", items: [], profile: investmentProfile() };
     } else if (recommendationResponseMode === "market_closed") {
       payload = { status: "market_closed", items: [], profile: investmentProfile() };
@@ -286,5 +319,25 @@ function readyRecommendationPayload(): Record<string, unknown> {
       metricsSnapshot: {}
     }],
     profile: savedProfile
+  };
+}
+
+function sessionRecommendationPayload(sessionMode: string): Record<string, unknown> {
+  const pre = sessionMode === "pre";
+  return {
+    status: "ready",
+    generatedAt: pre ? "2026-07-16T08:55:00-04:00" : "2026-07-16T10:15:00-04:00",
+    summary: { sessionMode },
+    items: [{
+      symbol: pre ? "AMD" : "NVDA",
+      action: "buy",
+      rank: 1,
+      score: pre ? 91 : 77,
+      confidence: pre ? 0.9 : 0.7,
+      reasons: [{ type: "momentum", text: pre ? "장전 상대강도 확인" : "본장 상대강도 확인" }],
+      riskWarnings: [],
+      metricsSnapshot: {}
+    }],
+    profile: investmentProfile()
   };
 }

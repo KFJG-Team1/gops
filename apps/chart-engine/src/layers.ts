@@ -163,6 +163,24 @@ export const chartLayerMetadata: Record<ChartLayerKey, ChartLayerMetadata> = {
     source: "derived",
     placement: "overlay",
     supportedPlacements: ["overlay"]
+  },
+  "events:earnings": {
+    id: "events:earnings",
+    kind: "event-overlay",
+    label: "Earnings events",
+    paneId: "price",
+    source: "event",
+    placement: "overlay",
+    supportedPlacements: ["overlay"]
+  },
+  "events:news": {
+    id: "events:news",
+    kind: "event-overlay",
+    label: "News events",
+    paneId: "price",
+    source: "event",
+    placement: "overlay",
+    supportedPlacements: ["overlay"]
   }
 };
 
