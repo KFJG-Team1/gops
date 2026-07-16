@@ -58,7 +58,10 @@ export function StockRecommendationsPanel({
     initialSessionMode ?? initialRecommendationSessionMode()
   ));
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
-  const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
+  const [simulatorKey, setSimulatorKey] = useState(() => {
+    const status = latestSimulatorStatus();
+    return `${status?.mode ?? "live"}:${status?.runId ?? ""}:${status?.phase ?? ""}`;
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +69,7 @@ export function StockRecommendationsPanel({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (simulatorMode === "simulation") {
+    if (latestSimulatorStatus()?.mode === "simulation") {
       setPayload(null);
       setLoading(false);
       setError("시뮬레이션 시각 기준 추천 데이터가 없어 표시하지 않습니다.");
@@ -86,7 +89,7 @@ export function StockRecommendationsPanel({
         setLoading(false);
       }
     }
-  }, [sessionMode, simulatorMode]);
+  }, [sessionMode, simulatorKey]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -120,7 +123,8 @@ export function StockRecommendationsPanel({
 
   useEffect(() => {
     const handleStatus = (event: Event) => {
-      setSimulatorMode((event as CustomEvent<SimulatorStatus>).detail?.mode ?? "live");
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      setSimulatorKey(`${status?.mode ?? "live"}:${status?.runId ?? ""}:${status?.phase ?? ""}`);
     };
     window.addEventListener(simulatorStatusEvent, handleStatus);
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
@@ -217,7 +221,14 @@ export function StockRecommendationsPanel({
           </div>
         )}
 
-        {!loading && !error && payload?.status !== "profile_required" && payload?.status !== "market_closed" && items.length === 0 && (
+        {!loading && !error && payload?.status === "data_not_ready" && (
+          <div className="stock-rec-state">
+            <AlertTriangle size={15} />
+            <span>{emptyMessage(payload, sessionMode)}</span>
+          </div>
+        )}
+
+        {!loading && !error && payload?.status !== "profile_required" && payload?.status !== "market_closed" && payload?.status !== "data_not_ready" && items.length === 0 && (
           <div className="stock-rec-state">{emptyMessage(payload, sessionMode)}</div>
         )}
 
@@ -401,6 +412,18 @@ function marketClosedMessage(sessionMode: RecommendationSessionMode) {
 
 function emptyMessage(payload: StockRecommendationPayload | null, sessionMode: RecommendationSessionMode) {
   const reason = typeof payload?.summary?.emptyReason === "string" ? payload.summary.emptyReason : "";
+  if (reason === "opening_data_accumulating") {
+    return "09:30 개장 데이터 누적 중 · 첫 V3 추천은 10:00입니다";
+  }
+  if (reason === "fixture_not_extracted") {
+    return "실데이터 fixture가 준비되지 않아 추천을 표시하지 않습니다";
+  }
+  if (reason === "benchmark_data_not_ready") {
+    return "SPY 기준 데이터가 준비되지 않아 V3 추천을 생성하지 않았습니다";
+  }
+  if (reason === "candidate_data_not_ready") {
+    return "근거 신뢰도 기준을 충족한 후보가 15개 미만입니다";
+  }
   if (reason === "insufficient_session_data") {
     return sessionMode === "regular"
       ? "본장 데이터가 더 쌓이면 추천을 다시 계산합니다"
@@ -437,7 +460,7 @@ function RecommendationRow({
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
   const visibleReasons = recommendationVisibleReasons(item);
-  const visibleRiskWarnings = item.riskWarnings.slice(0, 1);
+  const visibleRiskWarnings = recommendationVisibleRiskWarnings(item);
   return (
     <button
       className={`stock-rec-row ${className} ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
@@ -490,7 +513,7 @@ function RecommendationListRow({
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
   const visibleReasons = recommendationVisibleReasons(item);
-  const visibleRiskWarnings = item.riskWarnings.slice(0, 1);
+  const visibleRiskWarnings = recommendationVisibleRiskWarnings(item);
   return (
     <button
       className={`stock-rec-row ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
@@ -536,10 +559,20 @@ function formatChangePercent(value?: number): string {
 }
 
 function recommendationVisibleReasons(item: StockRecommendationItem) {
+  if (item.algorithmVersion === "deterministic-evidence-v3" && item.explanation) {
+    return [{ type: "v3_narrative", text: item.explanation.primary.headline }];
+  }
   const riskTexts = item.riskWarnings.map(normalizeRecommendationText).filter(Boolean);
   return item.reasons
     .filter((reason) => !duplicatesRiskWarning(reason.text, riskTexts))
     .slice(0, item.riskWarnings.length ? 1 : 2);
+}
+
+function recommendationVisibleRiskWarnings(item: StockRecommendationItem) {
+  if (item.algorithmVersion === "deterministic-evidence-v3" && item.explanation) {
+    return item.explanation.deterministic.risks.slice(0, 1).map((risk) => risk.sentence);
+  }
+  return item.riskWarnings.slice(0, 1);
 }
 
 function duplicatesRiskWarning(text: string, riskTexts: string[]) {

@@ -7,9 +7,10 @@ import {
   ShieldAlert,
   Sparkles
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StockLogo } from "../components/StockLogo";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   fetchStockRecommendations,
   type StockRecommendationItem,
@@ -40,6 +41,8 @@ export function StockRecommendationExplainPanel({
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const simulatorPhaseRef = useRef("");
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setError(null);
@@ -62,6 +65,19 @@ export function StockRecommendationExplainPanel({
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
+  }, [load]);
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      setSimulatorStatus(status);
+      const key = `${status.mode}:${status.runId ?? ""}:${status.phase ?? ""}`;
+      if (key === simulatorPhaseRef.current) return;
+      simulatorPhaseRef.current = key;
+      void load();
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, [load]);
 
   const preferred = preferredSymbol?.trim().toUpperCase();
@@ -88,7 +104,9 @@ export function StockRecommendationExplainPanel({
     return (
       <PanelState
         icon={<AlertTriangle size={16} />}
-        message={emptyMessage(displayPayload)}
+        message={simulatorStatus?.mode === "simulation"
+          ? `${simulatorStatus.scenarioTitle ?? "실데이터 리플레이"} · ${emptyMessage(displayPayload)}`
+          : emptyMessage(displayPayload)}
         onRetry={() => void load()}
       />
     );
@@ -99,9 +117,16 @@ export function StockRecommendationExplainPanel({
   const confidence = normalizeConfidence(item.confidence);
   const metrics = buildMetricViews(item);
   const generatedAt = formatTimestamp(displayPayload?.generatedAt ?? displayPayload?.slotStart);
+  const v3 = item.algorithmVersion === "deterministic-evidence-v3" ? item.explanation : undefined;
 
   return (
     <section className={styles.panel} aria-label={`${item.symbol} 추천 해설`}>
+      {simulatorStatus?.mode === "simulation" && (
+        <div className={styles.replayBanner}>
+          <strong>{simulatorStatus.scenarioTitle ?? "실데이터 리플레이"}</strong>
+          <span>기준 시각 {formatTimestamp(simulatorStatus.activeCutoff ?? undefined)}</span>
+        </div>
+      )}
       <header className={styles.header}>
         <div className={styles.identity}>
           <StockLogo symbol={item.symbol} companyName={companyName} size="lg" className={styles.logo} />
@@ -119,9 +144,10 @@ export function StockRecommendationExplainPanel({
 
       <div className={styles.verdict}>
         <div className={styles.verdictCopy}>
-          <strong>매수 관찰</strong>
+          <strong>{v3?.decisionLabel ?? "매수 관찰"}</strong>
         </div>
-        <div className={styles.scoreBlock} aria-label={`추천 점수 ${Math.round(score)}점`}>
+        <div className={styles.scoreBlock} aria-label={`${v3 ? "V3 종합 점수" : "추천 점수"} ${Math.round(score)}점`}>
+          <span className={styles.scoreLabel}>{v3 ? "V3 종합 점수" : "추천 점수"}</span>
           <div className={styles.scoreValue}>
             <strong>{Math.round(score)}</strong>
             <span>/ 100</span>
@@ -130,7 +156,7 @@ export function StockRecommendationExplainPanel({
             <span style={{ width: `${score}%` }} />
           </div>
           <div className={styles.scoreMeta}>
-            <span>신뢰도</span>
+            <span>{v3 ? "근거 신뢰도" : "신뢰도"}</span>
             <strong>{Math.round(confidence)}%</strong>
           </div>
         </div>
@@ -138,6 +164,15 @@ export function StockRecommendationExplainPanel({
 
       <div className={styles.contentGrid}>
         <div className={styles.primaryColumn}>
+          {v3 && (
+            <section className={`${styles.section} ${styles.narrative}`}>
+              <SectionTitle icon={<Sparkles size={16} />} title="추천 설명" />
+              <h3>{v3.primary.headline}</h3>
+              <p>{v3.primary.body}</p>
+              <small>{v3.primary.source === "llm" ? "OpenAI 문장 정리 · 결정론적 근거 권위 유지" : "결정론적 설명 fallback"}</small>
+            </section>
+          )}
+          {v3 ? <V3Evidence item={item} /> : <>
           <section className={styles.section}>
             <SectionTitle icon={<BarChart3 size={16} />} title="핵심 신호" />
             <div className={styles.metricList}>
@@ -160,19 +195,24 @@ export function StockRecommendationExplainPanel({
                 <div className={styles.reasonRow} key={`${reason.type}-${reason.text}`}>
                   <span className={styles.reasonIndex}>{String(index + 1).padStart(2, "0")}</span>
                   <p>{reason.text}</p>
-                  {typeof reason.weight === "number" && <strong>+{formatNumber(reason.weight)}</strong>}
+                  {typeof reason.weight === "number" && <strong>{formatSigned(reason.weight)}</strong>}
                 </div>
               )) : (
                 <p className={styles.mutedCopy}>제공된 정성 근거가 없습니다. 지표 스냅샷을 확인하세요.</p>
               )}
             </div>
           </section>
+          </>}
         </div>
 
         <aside className={styles.secondaryColumn}>
           <section className={styles.section}>
             <SectionTitle icon={<ShieldAlert size={16} />} title="리스크 체크" />
-            {item.riskWarnings.length > 0 ? (
+            {v3 && v3.deterministic.risks.length > 0 ? (
+              <ul className={styles.riskList}>
+                {v3.deterministic.risks.map((risk) => <li key={risk.code}>{risk.sentence}</li>)}
+              </ul>
+            ) : item.riskWarnings.length > 0 ? (
               <ul className={styles.riskList}>
                 {item.riskWarnings.map((warning) => <li key={warning}>{warning}</li>)}
               </ul>
@@ -198,6 +238,50 @@ export function StockRecommendationExplainPanel({
         </aside>
       </div>
     </section>
+  );
+}
+
+function V3Evidence({ item }: { item: StockRecommendationItem }) {
+  const explanation = item.explanation!;
+  const quality = explanation.deterministic.dataQuality;
+  return (
+    <>
+      <section className={styles.section}>
+        <SectionTitle icon={<BarChart3 size={16} />} title="결정론적 근거" />
+        <p className={styles.summaryCopy}>{explanation.deterministic.summary}</p>
+        <div className={styles.evidenceGrid}>
+          {explanation.deterministic.evidence.map((row) => (
+            <div className={styles.evidenceRow} key={row.code}>
+              <span>{row.label}</span>
+              <strong className={row.contribution >= 0 ? styles.positive : styles.caution}>
+                {formatSigned(row.contribution)}
+              </strong>
+              <small>{row.sentence}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className={styles.section}>
+        <SectionTitle icon={<Activity size={16} />} title="데이터 품질" />
+        <p className={styles.summaryCopy}>{quality.sentence}</p>
+        <dl className={styles.contextList}>
+          <div><dt>근거 신뢰도</dt><dd>{quality.evidenceReliability.toFixed(1)} / 100</dd></div>
+          <div><dt>기준 시각</dt><dd>{formatTimestamp(quality.cutoff ?? undefined)}</dd></div>
+          <div><dt>누락 근거</dt><dd>{quality.missingFactors.length ? quality.missingFactors.map(factorLabel).join(", ") : "없음"}</dd></div>
+          <div><dt>신선도</dt><dd>{quality.stale ? "기준 초과" : "기준 충족"}</dd></div>
+        </dl>
+        <p className={styles.reliabilityNotice}>근거 신뢰도는 예측 성공 확률이 아닙니다.</p>
+      </section>
+      <section className={styles.section}>
+        <SectionTitle icon={<ShieldAlert size={16} />} title="알고리즘 출처" />
+        <dl className={styles.contextList}>
+          <div><dt>알고리즘</dt><dd>{explanation.provenance.algorithmVersion}</dd></div>
+          <div><dt>규칙 세트</dt><dd>{explanation.provenance.ruleSetVersion}</dd></div>
+          <div><dt>근거 snapshot</dt><dd>{explanation.provenance.evidenceSnapshotId || "없음"}</dd></div>
+          <div><dt>입력 digest</dt><dd className={styles.digest}>{explanation.provenance.inputDigest || "없음"}</dd></div>
+        </dl>
+      </section>
+    </>
   );
 }
 
@@ -289,7 +373,12 @@ function factorLabel(key: string) {
     value: "가치",
     quality: "품질",
     growth: "성장",
-    earningsRevision: "실적 추정 변화"
+    earningsRevision: "실적 추정 변화",
+    catalystQuality: "촉매 품질",
+    valueQuality: "가치 품질",
+    companyQuality: "기업 품질",
+    growthQuality: "성장 품질",
+    earningsRevisionQuality: "실적 추정 변화"
   };
   return labels[key] ?? key;
 }
@@ -422,11 +511,24 @@ function buildMetricViews(item: StockRecommendationItem): MetricView[] {
 }
 
 function emptyMessage(payload: StockRecommendationPayload | null) {
+  const reason = payload?.summary?.emptyReason;
+  if (reason === "opening_data_accumulating") {
+    return "09:30 개장 데이터가 누적 중이며 첫 V3 추천은 10:00에 표시됩니다.";
+  }
+  if (reason === "fixture_not_extracted") {
+    return "실데이터 fixture가 gate를 통과하지 않아 추천을 표시하지 않습니다.";
+  }
   if (payload?.status === "profile_required") {
     return "추천 설정을 저장하면 종목별 설명이 표시됩니다.";
   }
   if (payload?.status === "market_closed") {
     return "미국 본장 추천이 생성되면 설명이 표시됩니다.";
+  }
+  if (payload?.status === "data_not_ready") {
+    const reason = payload.summary?.emptyReason;
+    return reason === "benchmark_data_not_ready"
+      ? "SPY 기준 데이터가 아직 준비되지 않아 V3 추천을 만들지 않았습니다."
+      : "신뢰도 기준을 충족한 후보가 15개 미만이라 V3 추천을 만들지 않았습니다.";
   }
   return "설명할 추천 종목이 없습니다.";
 }
@@ -441,6 +543,9 @@ function algorithmLabel(item: StockRecommendationItem) {
   }
   if (item.algorithmVersion === "professional-personalization-v1") {
     return "전문 개인화 V1";
+  }
+  if (item.algorithmVersion === "deterministic-evidence-v3") {
+    return "결정론적 근거 V3";
   }
   return "규칙 기반 점수화";
 }
@@ -494,6 +599,11 @@ function formatAbsolutePercent(value: number | null) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatSigned(value: number) {
+  const formatted = formatNumber(value);
+  return value > 0 ? `+${formatted}` : formatted;
 }
 
 function formatScore(value?: number) {

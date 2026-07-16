@@ -15,6 +15,10 @@ export type SimulatorStatus = {
   mode: SimulatorMode;
   state: SimulatorState;
   datasetId: string;
+  phase?: string | null;
+  scenarioTitle?: string | null;
+  activeCutoff?: string | null;
+  recommendations?: unknown;
   runId?: string | null;
   virtualTime: string;
   startTime: string;

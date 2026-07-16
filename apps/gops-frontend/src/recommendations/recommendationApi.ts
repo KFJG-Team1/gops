@@ -1,9 +1,10 @@
 import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
+import { latestSimulatorStatus } from "../simulator/simulatorApi";
 
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
 export type RecommendationStyle = "momentum" | "balanced" | "stable";
 export type RecommendationSessionMode = "pre" | "regular";
-export type RecommendationStatus = "profile_required" | "market_closed" | "loading" | "empty" | "ready" | "stale" | "error" | "completed";
+export type RecommendationStatus = "profile_required" | "market_closed" | "data_not_ready" | "loading" | "empty" | "ready" | "stale" | "error" | "completed";
 
 export type InvestmentProfile = {
   riskLevel: RiskLevel;
@@ -20,6 +21,40 @@ export type RecommendationReason = {
   type: string;
   text: string;
   weight?: number;
+};
+
+export type RecommendationExplanation = {
+  version: "recommendation-explanation.v1";
+  locale: "ko-KR";
+  decisionLabel: string;
+  primary: {
+    source: "llm" | "deterministic";
+    status: "ready" | "fallback";
+    headline: string;
+    body: string;
+    model?: string | null;
+    promptVersion?: string | null;
+    generatedAt?: string | null;
+  };
+  deterministic: {
+    summary: string;
+    evidence: Array<{ code: string; label: string; sentence: string; score: number; contribution: number }>;
+    risks: Array<{ code: string; sentence: string; penalty?: number }>;
+    dataQuality: {
+      sentence: string;
+      evidenceReliability: number;
+      confidenceMeaning: "evidence_reliability_not_success_probability";
+      cutoff?: string | null;
+      missingFactors: string[];
+      stale: boolean;
+    };
+  };
+  provenance: {
+    algorithmVersion: string;
+    ruleSetVersion: string;
+    evidenceSnapshotId: string;
+    inputDigest: string;
+  };
 };
 
 export type StockRecommendationItem = {
@@ -49,6 +84,7 @@ export type StockRecommendationItem = {
   sectorLabelKo?: string;
   reasons: RecommendationReason[];
   riskWarnings: string[];
+  explanation?: RecommendationExplanation;
   metricsSnapshot: Record<string, unknown>;
 };
 
@@ -95,6 +131,10 @@ export async function saveInvestmentProfile(profile: InvestmentProfile): Promise
 }
 
 export async function fetchStockRecommendations(sessionMode: RecommendationSessionMode = "regular", signal?: AbortSignal): Promise<StockRecommendationPayload> {
+  const simulatorStatus = latestSimulatorStatus();
+  if (simulatorStatus?.mode === "simulation" && simulatorStatus.recommendations) {
+    return normalizeRecommendationPayload(simulatorStatus.recommendations);
+  }
   const params = new URLSearchParams({ sessionMode });
   return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest?${params.toString()}`, { signal }));
 }
@@ -104,6 +144,10 @@ export async function refreshStockRecommendations(
   sessionMode: RecommendationSessionMode = "regular",
   signal?: AbortSignal
 ): Promise<StockRecommendationPayload> {
+  const simulatorStatus = latestSimulatorStatus();
+  if (simulatorStatus?.mode === "simulation" && simulatorStatus.recommendations) {
+    return normalizeRecommendationPayload(simulatorStatus.recommendations);
+  }
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -169,6 +213,7 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
       ? source.reasons.map(normalizeReason).filter((item): item is RecommendationReason => Boolean(item))
       : [],
     riskWarnings: Array.isArray(source.riskWarnings) ? source.riskWarnings.map((item) => String(item)).filter(Boolean) : [],
+    explanation: normalizeExplanation(source.explanation),
     metricsSnapshot
   };
 }
@@ -233,10 +278,62 @@ function readApiErrorMessage(response: Response, payload: unknown): string {
 }
 
 function normalizeStatus(value: unknown): RecommendationStatus {
-  if (value === "profile_required" || value === "market_closed" || value === "empty" || value === "stale" || value === "error" || value === "completed") {
+  if (value === "profile_required" || value === "market_closed" || value === "data_not_ready" || value === "empty" || value === "stale" || value === "error" || value === "completed") {
     return value;
   }
   return "ready";
+}
+
+function normalizeExplanation(value: unknown): RecommendationExplanation | undefined {
+  const source = asRecord(value);
+  if (source.version !== "recommendation-explanation.v1") return undefined;
+  const primary = asRecord(source.primary);
+  const deterministic = asRecord(source.deterministic);
+  const dataQuality = asRecord(deterministic.dataQuality);
+  const provenance = asRecord(source.provenance);
+  const evidence = Array.isArray(deterministic.evidence) ? deterministic.evidence.map((value) => {
+    const row = asRecord(value);
+    const score = asNumber(row.score);
+    const contribution = asNumber(row.contribution);
+    if (!asString(row.code) || !asString(row.label) || !asString(row.sentence) || score === undefined || contribution === undefined) return null;
+    return { code: String(row.code), label: String(row.label), sentence: String(row.sentence), score, contribution };
+  }).filter((row): row is NonNullable<typeof row> => row !== null) : [];
+  const risks = Array.isArray(deterministic.risks) ? deterministic.risks.map((value) => {
+    const row = asRecord(value);
+    if (!asString(row.code) || !asString(row.sentence)) return null;
+    return { code: String(row.code), sentence: String(row.sentence), penalty: asNumber(row.penalty) };
+  }).filter((row): row is NonNullable<typeof row> => row !== null) : [];
+  const reliability = asNumber(dataQuality.evidenceReliability);
+  if (!asString(primary.headline) || !asString(primary.body) || reliability === undefined) return undefined;
+  return {
+    version: "recommendation-explanation.v1",
+    locale: "ko-KR",
+    decisionLabel: asString(source.decisionLabel) || "매수 관찰",
+    primary: {
+      source: primary.source === "llm" ? "llm" : "deterministic",
+      status: primary.status === "ready" ? "ready" : "fallback",
+      headline: String(primary.headline), body: String(primary.body),
+      model: asString(primary.model), promptVersion: asString(primary.promptVersion), generatedAt: asString(primary.generatedAt)
+    },
+    deterministic: {
+      summary: asString(deterministic.summary) || "",
+      evidence, risks,
+      dataQuality: {
+        sentence: asString(dataQuality.sentence) || "",
+        evidenceReliability: reliability,
+        confidenceMeaning: "evidence_reliability_not_success_probability",
+        cutoff: asString(dataQuality.cutoff),
+        missingFactors: stringArray(dataQuality.missingFactors),
+        stale: dataQuality.stale === true
+      }
+    },
+    provenance: {
+      algorithmVersion: asString(provenance.algorithmVersion) || "",
+      ruleSetVersion: asString(provenance.ruleSetVersion) || "",
+      evidenceSnapshotId: asString(provenance.evidenceSnapshotId) || "",
+      inputDigest: asString(provenance.inputDigest) || ""
+    }
+  };
 }
 
 function stringArray(value: unknown): string[] {
