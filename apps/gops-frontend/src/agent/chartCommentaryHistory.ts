@@ -16,7 +16,7 @@ import {
 } from "../layout/panelLayout";
 import { userVisibleWarnings } from "../layout/wildPanel";
 
-export const chartCommentaryHistoryLimit = 10;
+export const chartCommentaryHistoryLimit = 5;
 
 export type ChartCommentaryRequestSnapshot = ComparableChartAssetIdentity & {
   chartDocumentId: string;
@@ -46,10 +46,10 @@ export type ChartCommentaryAnswer = {
 };
 
 export type ChartCommentaryState = {
-  version: "chart-commentary-history.v1";
+  version: "chart-commentary-history.v2";
   chartDocumentId: string;
-  activeView: "current" | string;
-  answers: ChartCommentaryAnswer[];
+  mode: "commentary" | "conversation";
+  turns: ChartCommentaryAnswer[];
   pending: ChartCommentaryPending | null;
 };
 
@@ -125,6 +125,7 @@ export function beginChartCommentaryRequest(
       chartDocumentId: source.chartDocumentId,
       commentaryState: {
         ...commentaryState,
+        mode: "commentary",
         pending: { requestId, question, requestedAt, snapshot: source }
       }
     })
@@ -149,7 +150,13 @@ export function clearChartCommentaryPending(
   chartDocumentId: string
 ): TiledPanelState {
   return updateCommentaryForDocument(state, chartDocumentId, (commentaryState) => (
-    commentaryState.pending ? { ...commentaryState, pending: null } : commentaryState
+    commentaryState.pending
+      ? {
+        ...commentaryState,
+        mode: commentaryState.turns.length > 0 ? commentaryState.mode : "commentary",
+        pending: null
+      }
+      : commentaryState
   ));
 }
 
@@ -185,8 +192,8 @@ export function attachChartCommentaryReport(
     ]),
     chartExplanation: explanation
   };
-  const answers = [
-    ...commentaryState.answers.filter((item) => item.analysisId !== answer.analysisId),
+  const turns = [
+    ...commentaryState.turns.filter((item) => item.analysisId !== answer.analysisId),
     answer
   ].slice(-chartCommentaryHistoryLimit);
   return {
@@ -195,41 +202,44 @@ export function attachChartCommentaryReport(
       chartDocumentId: source.chartDocumentId,
       commentaryState: {
         ...commentaryState,
-        activeView: answer.analysisId,
-        answers,
+        mode: "conversation",
+        turns,
         pending: null
       }
     })
   };
 }
 
-export function setChartCommentaryActiveView(
+export function setChartCommentaryMode(
   state: ChartCommentaryState,
-  activeView: string
+  mode: ChartCommentaryState["mode"]
 ): ChartCommentaryState {
-  return activeView === "current" || state.answers.some((answer) => answer.analysisId === activeView)
-    ? { ...state, activeView }
-    : state;
+  if (mode === "conversation" && state.turns.length === 0 && !state.pending) return state;
+  return state.mode === mode ? state : { ...state, mode };
 }
 
 export function normalizeChartCommentaryState(value: unknown, chartDocumentId: string): ChartCommentaryState {
   const source = readObject(value);
-  if (!source || source.version !== "chart-commentary-history.v1") {
+  if (!source || !["chart-commentary-history.v1", "chart-commentary-history.v2"].includes(String(source.version))) {
     return emptyChartCommentaryState(chartDocumentId);
   }
-  const answers = readArray(source.answers)
+  const turns = readArray(source.version === "chart-commentary-history.v2" ? source.turns : source.answers)
     .map(normalizeAnswer)
     .filter((answer): answer is ChartCommentaryAnswer => Boolean(answer))
     .slice(-chartCommentaryHistoryLimit);
-  const activeView = readString(source.activeView) ?? "current";
+  const legacyActiveView = readString(source.activeView) ?? "current";
+  const requestedMode = source.version === "chart-commentary-history.v2"
+    ? readString(source.mode)
+    : legacyActiveView === "current" ? "commentary" : "conversation";
+  const pending = normalizePending(source.pending, chartDocumentId);
   return {
-    version: "chart-commentary-history.v1",
+    version: "chart-commentary-history.v2",
     chartDocumentId,
-    activeView: activeView === "current" || answers.some((answer) => answer.analysisId === activeView)
-      ? activeView
-      : "current",
-    answers,
-    pending: normalizePending(source.pending, chartDocumentId)
+    mode: requestedMode === "conversation" && (turns.length > 0 || pending)
+      ? "conversation"
+      : "commentary",
+    turns,
+    pending
   };
 }
 
@@ -255,10 +265,10 @@ export function rememberChartCommentaryState(
 
 export function emptyChartCommentaryState(chartDocumentId: string): ChartCommentaryState {
   return {
-    version: "chart-commentary-history.v1",
+    version: "chart-commentary-history.v2",
     chartDocumentId,
-    activeView: "current",
-    answers: [],
+    mode: "commentary",
+    turns: [],
     pending: null
   };
 }

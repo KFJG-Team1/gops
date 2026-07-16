@@ -1,3 +1,5 @@
+import { decimalPlacesForPriceStep, resolvePriceScale } from "./priceScale";
+
 export type OrderFlowLevelDto = {
   priceBin: number;
   askVolume: number;
@@ -160,9 +162,9 @@ export function buildBidAskPriceGrid(
   plotHeight: number
 ): BidAskPriceGrid {
   const normalizedSourceStep = isFiniteNumber(sourceStep) && sourceStep > 0 ? sourceStep : 0.01;
-  const values = sourceValues.filter((value): value is number => isFiniteNumber(value));
+  const values = sourceValues.filter((value): value is number => isFiniteNumber(value) && value > 0);
   if (!values.length) {
-    return fallbackBidAskPriceGrid(normalizedSourceStep);
+    return fallbackBidAskPriceGrid(normalizedSourceStep, plotHeight);
   }
 
   const rawMin = Math.min(...values);
@@ -186,17 +188,16 @@ export function buildBidAskPriceGrid(
   }
 
   const firstRow = roundPrice(dataMax + priceStep);
-  const lastRow = roundPrice(dataMin - priceStep);
+  const lastRow = roundPrice(Math.max(0, dataMin - priceStep));
   const rowPrices = descendingPrices(firstRow, lastRow, priceStep);
-  const domainMin = roundPrice(lastRow - priceStep / 2);
-  const domainMax = roundPrice(firstRow + priceStep / 2);
+  const priceScale = resolvePriceScale(values, plotHeight);
   return {
-    domainMin,
-    domainMax,
+    domainMin: priceScale.domainMin,
+    domainMax: priceScale.domainMax,
     priceStep,
     rowPrices,
-    axisTicks: bidAskAxisTicks(rowPrices),
-    decimalPlaces: decimalPlacesForStep(priceStep)
+    axisTicks: priceScale.ticks,
+    decimalPlaces: Math.max(priceScale.decimalPlaces, decimalPlacesForPriceStep(normalizedSourceStep))
   };
 }
 
@@ -416,15 +417,16 @@ function assertRebinCompatible(fromStep: number, toStep: number): void {
   }
 }
 
-function fallbackBidAskPriceGrid(sourceStep: number): BidAskPriceGrid {
-  const rowPrices = [roundPrice(sourceStep), 0, roundPrice(-sourceStep)];
+function fallbackBidAskPriceGrid(sourceStep: number, plotHeight: number): BidAskPriceGrid {
+  const rowPrices = [roundPrice(sourceStep), 0];
+  const priceScale = resolvePriceScale([sourceStep], plotHeight);
   return {
-    domainMin: roundPrice(-sourceStep * 1.5),
-    domainMax: roundPrice(sourceStep * 1.5),
+    domainMin: priceScale.domainMin,
+    domainMax: priceScale.domainMax,
     priceStep: sourceStep,
     rowPrices,
-    axisTicks: rowPrices,
-    decimalPlaces: decimalPlacesForStep(sourceStep)
+    axisTicks: priceScale.ticks,
+    decimalPlaces: Math.max(priceScale.decimalPlaces, decimalPlacesForPriceStep(sourceStep))
   };
 }
 
@@ -456,29 +458,6 @@ function alignedRowCount(min: number, max: number, step: number): number {
 function descendingPrices(first: number, last: number, step: number): number[] {
   const count = alignedRowCount(last, first, step);
   return Array.from({ length: count }, (_, index) => roundPrice(first - index * step));
-}
-
-function bidAskAxisTicks(rowPrices: number[]): number[] {
-  if (rowPrices.length <= 6) {
-    return [...rowPrices].reverse();
-  }
-  const stride = Math.max(1, Math.ceil((rowPrices.length - 1) / 4));
-  const indices = new Set([0, rowPrices.length - 1]);
-  for (let index = stride; index < rowPrices.length - 1; index += stride) {
-    indices.add(index);
-  }
-  return Array.from(indices)
-    .sort((left, right) => right - left)
-    .map((index) => rowPrices[index]);
-}
-
-function decimalPlacesForStep(step: number): number {
-  for (let places = 0; places <= 6; places += 1) {
-    if (Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-8) {
-      return places;
-    }
-  }
-  return 6;
 }
 
 function emptyAccumulator(priceBin: number): OrderFlowAccumulator {

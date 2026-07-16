@@ -10,8 +10,8 @@ allGlossaryEntries.forEach((entry) => {
 Object.values(stockGlossary).forEach((entry) => {
   assert.equal(entry.aliases.some((alias) => /[A-Za-z]/.test(alias)), true, `${entry.id} requires an English alias`);
 });
-assert.equal(allGlossaryEntries.length, 70);
-assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 70);
+assert.equal(allGlossaryEntries.length, 80);
+assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 80);
 const glossaryById = new Map(allGlossaryEntries.map((entry) => [entry.id, entry]));
 assert.equal(
   glossaryById.get("invalidation")?.description,
@@ -74,8 +74,9 @@ assert.equal(
     .some((segment) => segment.glossaryId),
   false
 );
-assert.equal(
+assert.deepEqual(
   annotateGlossaryTerms("일봉과 주봉의 거래량, 상승 추세, 컨센서스를 확인합니다.")
-    .some((segment) => segment.glossaryId),
-  false
+    .filter((segment) => segment.glossaryId)
+    .map((segment) => segment.glossaryId),
+  ["consensus"]
 );

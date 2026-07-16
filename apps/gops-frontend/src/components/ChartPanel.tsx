@@ -57,8 +57,8 @@ import {
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
 import { findPaperHoldingOverlay, paperHoldingOverlayLabel } from "../chart/paperHoldingPrice";
-import { analysisTraceDataMode, buildAnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
-import { candleKeyForTimestamp, isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
+import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
+import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -453,6 +453,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>(() => ({
     ...defaultAnalysisLayerVisibility
   }));
+  const [analysisCandidateCounts, setAnalysisCandidateCounts] = useState<{ total: number; visible: number } | null>(null);
   const [spotlightDrawingIds, setSpotlightDrawingIds] = useState<string[]>([]);
   const [spotlightCandleTimestamp, setSpotlightCandleTimestamp] = useState<string | undefined>();
   const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
@@ -824,17 +825,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.candles,
     analysisAssets?.assets
   ), [analysisAssets?.assets, chart.candles, rawActiveAnalysisAsset]);
-  const activeAnalysisAssetStale = useMemo(() => activeAnalysisAsset ? isAnalysisAssetStale(
-    activeAnalysisAsset.asOf,
-    chart.candles,
-    activeAnalysisAsset.assetVersion,
-    activeAnalysisAsset.interval
-  ) : false, [activeAnalysisAsset, chart.candles]);
+  const activeAnalysisAssetFreshness = useMemo(() => activeAnalysisAsset
+    ? analysisAssetFreshness(activeAnalysisAsset, chart.candles)
+    : null, [activeAnalysisAsset, chart.candles]);
   const analysisTraceOverlay = useMemo(() => buildAnalysisTraceOverlay(activeAnalysisAsset, {
     visible: analysisLayerVisibility.interpretation,
     candidateIds: spotlightCandidateIds,
     evidenceRefs: spotlightEvidenceRefs
   }), [activeAnalysisAsset, analysisLayerVisibility.interpretation, spotlightCandidateIds, spotlightEvidenceRefs]);
+  const analysisTraceDiagnosticOverlay = useMemo(() => buildAnalysisTraceOverlay(activeAnalysisAsset, {
+    visible: true
+  }), [activeAnalysisAsset]);
   const latestClosedAssetCandleTimestamp = useMemo(() => latestClosedTimestamp(chart.candles), [chart.candles]);
   const chartTradeSetup = useMemo(() => projectChartTradeSetup(
     activeAnalysisAsset,
@@ -865,9 +866,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       activeAnalysisAsset,
       chart.candles,
       document.id,
-      activeAnalysisAssetStale ? "stale" : "active"
+      activeAnalysisAssetFreshness?.state === "current" ? "active" : "stale"
     ));
-  }, [activeAnalysisAsset, activeAnalysisAssetStale, chart.candles, document.id]);
+  }, [activeAnalysisAsset, activeAnalysisAssetFreshness?.state, chart.candles, document.id]);
 
   useEffect(() => () => clearActiveTradePlan(document.id), [document.id]);
 
@@ -881,7 +882,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
     const asset = supportedInterval && latestClosedAssetCandleTimestamp && activeAnalysisAsset
-      ? staleAnalysisAsset(activeAnalysisAsset, activeAnalysisAssetStale)
+      ? staleAnalysisAsset(activeAnalysisAsset, activeAnalysisAssetFreshness?.state === "source_invalid")
       : null;
     const applyKey = [
       chart.symbol,
@@ -905,7 +906,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
   }, [
     activeAnalysisAsset,
-    activeAnalysisAssetStale,
+    activeAnalysisAssetFreshness?.state,
     chart.candles,
     chart.interval,
     chart.selectedDrawingId,
@@ -1937,6 +1938,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const nextCandidateCounts = analysisTraceCandidateCounts(analysisTraceDiagnosticOverlay, scene);
+    setAnalysisCandidateCounts((current) => (
+      analysisCandidateCountsEqual(current, nextCandidateCounts) ? current : nextCandidateCounts
+    ));
     const nextProfileSceneRange = volumeProfileSceneRangeFromScene(scene);
     setVolumeProfileSceneRange((current) => (
       volumeProfileSceneRangeEquals(current, nextProfileSceneRange) ? current : nextProfileSceneRange
@@ -1984,7 +1989,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setHoverOhlcTop((current) => (
       Math.abs(current - nextHoverOhlcTop) < 0.5 ? current : nextHoverOhlcTop
     ));
-  }, [chartEvents, earningsEventsVisible, newsEventsVisible]);
+  }, [analysisTraceDiagnosticOverlay, chartEvents, earningsEventsVisible, newsEventsVisible]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
     if (unit.kind !== "candle") {
@@ -2807,8 +2812,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
           }}
           asOf={activeAnalysisAsset?.asOf}
-          stale={activeAnalysisAssetStale}
+          freshness={activeAnalysisAssetFreshness}
           interpretationMode={analysisTraceDataMode(activeAnalysisAsset)}
+          candidateCounts={analysisCandidateCounts}
           onToggle={toggleAnalysisLayer}
         />
         {selectedSemanticNode && onAgentAsk && (
@@ -4017,7 +4023,7 @@ function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisA
 
 function latestClosedTimestamp(candles: CandleDto[]): string | null {
   for (let index = candles.length - 1; index >= 0; index -= 1) {
-    if (candles[index]?.isClosed !== false) {
+    if (candles[index]?.isClosed === true) {
       return candles[index]?.timestamp ?? null;
     }
   }
@@ -4201,6 +4207,73 @@ function visibleRightAnchorTimestamp(scene: ChartScene | null, chart: ChartState
     return scene.allCandles[index]?.timestamp ?? chart.candles.at(-1)?.timestamp;
   }
   return chart.candles.at(-1)?.timestamp;
+}
+
+function analysisTraceCandidateCounts(
+  overlay: AnalysisTraceOverlay | null,
+  scene: ChartScene
+): { total: number; visible: number } | null {
+  if (!overlay || overlay.dataMode === "legacy") return null;
+  const transform = createCoordinateTransform(scene);
+  const pivotById = new Map(overlay.pivots.map((pivot) => [pivot.id, pivot]));
+  const visible = overlay.candidates.filter((candidate) => {
+    const anchors = candidate.anchors.length
+      ? candidate.anchors
+      : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
+    const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
+    if (!points.length) return false;
+    if (candidate.category === "levels") {
+      return points[0].y >= scene.plot.top && points[0].y <= scene.plot.priceBottom;
+    }
+    if (candidate.category === "trend" && points.length >= 2) {
+      return projectedLineIntersectsPlot(points[0], points[1], scene);
+    }
+    for (let index = 0; index + 1 < points.length; index += 2) {
+      if (segmentIntersectsPlot(points[index], points[index + 1], scene)) return true;
+    }
+    return points.some((point) => point.x >= scene.plot.left && point.x <= scene.plot.right
+      && point.y >= scene.plot.top && point.y <= scene.plot.priceBottom);
+  }).length;
+  return { total: overlay.candidates.length, visible };
+}
+
+function projectedLineIntersectsPlot(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  scene: ChartScene
+): boolean {
+  const span = end.x - start.x;
+  if (Math.abs(span) < 0.0001) return start.x >= scene.plot.left && start.x <= scene.plot.right;
+  const yAt = (x: number) => start.y + ((x - start.x) / span) * (end.y - start.y);
+  const fromX = Math.max(scene.plot.left, Math.min(start.x, scene.plot.right));
+  const toX = scene.plot.right;
+  const fromY = yAt(fromX);
+  const toY = yAt(toX);
+  return Math.max(fromY, toY) >= scene.plot.top && Math.min(fromY, toY) <= scene.plot.priceBottom;
+}
+
+function segmentIntersectsPlot(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  scene: ChartScene
+): boolean {
+  if (Math.max(start.x, end.x) < scene.plot.left || Math.min(start.x, end.x) > scene.plot.right) return false;
+  const span = end.x - start.x;
+  if (Math.abs(span) < 0.0001) {
+    return Math.max(start.y, end.y) >= scene.plot.top && Math.min(start.y, end.y) <= scene.plot.priceBottom;
+  }
+  const left = Math.max(scene.plot.left, Math.min(start.x, end.x));
+  const right = Math.min(scene.plot.right, Math.max(start.x, end.x));
+  const yAt = (x: number) => start.y + ((x - start.x) / span) * (end.y - start.y);
+  const leftY = yAt(left), rightY = yAt(right);
+  return Math.max(leftY, rightY) >= scene.plot.top && Math.min(leftY, rightY) <= scene.plot.priceBottom;
+}
+
+function analysisCandidateCountsEqual(
+  left: { total: number; visible: number } | null,
+  right: { total: number; visible: number } | null
+): boolean {
+  return left === right || Boolean(left && right && left.total === right.total && left.visible === right.visible);
 }
 
 function viewportClampOptionsForChart(chart: ChartState, scene: ChartScene | null | undefined): ViewportClampOptions {

@@ -1,19 +1,22 @@
-import { useEffect, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { chartExplanationMatchesAsset, chartExplanationMatchesSource, type ChartExplanationAnchor } from "../agent/chartExplanation";
 import {
   normalizeChartCommentaryState,
-  setChartCommentaryActiveView,
+  setChartCommentaryMode,
   type ChartCommentaryAnswer,
+  type ChartCommentaryPending,
   type ChartCommentaryState
 } from "../agent/chartCommentaryHistory";
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval, type ChartAnalysisAsset } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
-import { buildChartCommentaryModel } from "../chart/commentaryModel";
+import { buildChartCommentaryViewModel } from "../chart/commentaryModel";
+import { chartCommentaryHoldingDisplay } from "../chart/commentaryHoldings";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
-import { AnalysisAnswerPage } from "./AnalysisAnswerPage";
+import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
+import type { PortfolioPosition } from "./portfolioHoldingsApi";
 
 type ChartCommentaryPanelProps = {
   chartDocumentId?: string;
@@ -51,14 +54,17 @@ export function ChartCommentaryPanel({
     () => normalizeChartCommentaryState(rawCommentaryState, chartDocumentId ?? "unbound"),
     [chartDocumentId, rawCommentaryState]
   );
-  const activeAnswer = state.activeView === "current"
-    ? null
-    : state.answers.find((answer) => answer.analysisId === state.activeView) ?? null;
   const activePlan = useSyncExternalStore(
     subscribeActiveTradePlans,
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
+  const holdings = usePortfolioHoldingsData(undefined, "kis");
+  const holding = useMemo(
+    () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
+    [holdings.positions, normalizedSymbol]
+  );
+  const verifiedHolding = holdings.loading || holdings.error ? null : holding;
 
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
@@ -85,48 +91,45 @@ export function ChartCommentaryPanel({
     if (chartDocumentId) dispatchFocus(chartDocumentId, normalizedSymbol, interval, [], "clear");
   }, [chartDocumentId, interval, normalizedSymbol]);
 
-  const changeActiveView = (activeView: string) => {
-    onCommentaryStateChange?.(setChartCommentaryActiveView(state, activeView));
+  const changeMode = (mode: ChartCommentaryState["mode"]) => {
+    onCommentaryStateChange?.(setChartCommentaryMode(state, mode));
     if (chartDocumentId) dispatchFocus(chartDocumentId, normalizedSymbol, interval, [], "clear");
   };
   const asset = isAnalysisAssetInterval(interval) ? assets?.assets[interval] ?? null : null;
+  const diagnostics = useMemo(() => asset
+    ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, assets?.assets)
+    : null, [asset, assets?.assets, candles, drawingIds]);
+  const hasConversation = state.turns.length > 0 || Boolean(state.pending);
+  const freshnessLabel = diagnostics?.stale
+    ? "데이터 불일치"
+    : diagnostics?.outdated
+      ? `${diagnostics.freshness.lagBars}봉 전`
+      : asset ? "최신" : "분석 없음";
 
   return (
     <article className="chart-commentary-shell">
       <header className="chart-commentary-source">
         <strong>{normalizedSymbol} · {interval}</strong>
-        <button type="button" className={chartSelectionActive ? "is-active" : ""} aria-pressed={chartSelectionActive} onClick={onChartSelectionToggle}>차트 선택</button>
+        <span className="chart-commentary-source-meta">{freshnessLabel}{asset ? ` · ${formatAnalysisAssetAsOf(asset.asOf)}` : ""}</span>
+        {chartOptions.length > 1 && <button type="button" className={chartSelectionActive ? "is-active" : ""} aria-pressed={chartSelectionActive} onClick={onChartSelectionToggle}>연결</button>}
+        {hasConversation && <button
+          type="button"
+          aria-pressed={state.mode === "conversation"}
+          onClick={() => changeMode(state.mode === "conversation" ? "commentary" : "conversation")}
+        >{state.mode === "conversation" ? "해설" : "대화"}</button>}
         {chartSelectionActive && chartOptions.length > 1 && <select aria-label="연결할 차트" value={chartDocumentId ?? ""} onChange={(event) => onChartDocumentChange?.(event.target.value)}>
           {chartOptions.map((option) => <option key={option.chartDocumentId} value={option.chartDocumentId}>{option.symbol} · {option.interval}</option>)}
         </select>}
       </header>
-      <nav className="chart-commentary-view-nav" aria-label="차트 해설 보기">
-        <button
-          type="button"
-          className={state.activeView === "current" ? "is-active" : ""}
-          aria-pressed={state.activeView === "current"}
-          onClick={() => changeActiveView("current")}
-        >현재 해설</button>
-        <select
-          aria-label="질문 답변 선택"
-          value={activeAnswer?.analysisId ?? ""}
-          disabled={state.answers.length === 0}
-          onChange={(event) => changeActiveView(event.target.value)}
-        >
-          <option value="">질문 답변 {state.answers.length}개</option>
-          {[...state.answers].reverse().map((answer) => (
-            <option key={answer.analysisId} value={answer.analysisId}>{answer.symbol} {answer.interval} · {answer.question}</option>
-          ))}
-        </select>
-      </nav>
-      {state.pending && (
+      {state.mode === "commentary" && state.pending && (
         <p className="chart-commentary-pending" role="status">
           <GlossaryText text={`${state.pending.snapshot.symbol} ${state.pending.snapshot.interval} 질문을 분석하고 있습니다. 현재 해설은 그대로 유지됩니다.`} />
         </p>
       )}
-      {activeAnswer
-        ? <QuestionAnswer
-          answer={activeAnswer}
+      {state.mode === "conversation"
+        ? <ConversationView
+          turns={state.turns}
+          pending={state.pending}
           chartDocumentId={chartDocumentId}
           sourceAvailable={sourceAvailable}
           currentAsset={asset}
@@ -145,12 +148,19 @@ export function ChartCommentaryPanel({
           drawingIds={drawingIds}
           asset={asset}
           availableAssets={assets?.assets}
+          holding={verifiedHolding}
+          holdingsLoading={holdings.loading}
+          holdingsError={holdings.error}
+          holdingsErrorStatus={holdings.errorStatus}
         />}
     </article>
   );
 }
 
-function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets }: {
+function CurrentCommentary({
+  chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets,
+  holding, holdingsLoading, holdingsError, holdingsErrorStatus
+}: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
   symbol: string;
@@ -159,8 +169,11 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   drawingIds: string[];
   asset: ChartAnalysisAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
+  holding: PortfolioPosition | null;
+  holdingsLoading: boolean;
+  holdingsError?: string;
+  holdingsErrorStatus?: number;
 }) {
-  const metricIdPrefix = useId().replace(/[^A-Za-z0-9_-]/g, "");
   const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
   const diagnostics = useMemo(() => asset
@@ -169,20 +182,28 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   const setup = useMemo(() => diagnostics
     ? projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets)
     : null, [availableAssets, candles, diagnostics]);
-  const model = useMemo(() => diagnostics
-    ? buildChartCommentaryModel(diagnostics.resolvedAsset, setup)
-    : [], [diagnostics, setup]);
+  const currentPrice = useMemo(() => {
+    const candle = [...candles].reverse().find((item) => Number.isFinite(item.close) && item.close > 0);
+    return candle?.close ?? null;
+  }, [candles]);
+  const viewModel = useMemo(() => diagnostics
+    ? buildChartCommentaryViewModel(diagnostics.resolvedAsset, setup, currentPrice, holding)
+    : null, [currentPrice, diagnostics, holding, setup]);
   useEffect(() => {
     setPinnedStepId(null);
   }, [asset?.algorithmVersion, asset?.asOf, asset?.inputDigest, chartDocumentId, interval, symbol]);
-  if (!sourceAvailable) return <Empty text="원본 차트 없음" />;
-  if (!isAnalysisAssetInterval(interval)) return <Empty text="이 interval은 Geometry 작도를 지원하지 않습니다" />;
-  if (!asset) return <Empty text="Geometry 자산이 준비되지 않았습니다" />;
-  if (!diagnostics) return <Empty text="Geometry 자산을 해석할 수 없습니다" />;
-  const coverageLabel = asset.coverage.state === "full" ? "전체 데이터" : "부분 데이터";
+  const emptyText = !sourceAvailable
+    ? "연결된 원본 차트가 없습니다"
+    : !isAnalysisAssetInterval(interval)
+      ? "이 주기는 차트 해설을 지원하지 않습니다"
+      : !asset
+        ? "아직 생성된 차트 해설이 없습니다"
+        : !diagnostics || !viewModel
+          ? "차트 해설을 불러오지 못했습니다"
+          : null;
   const focusStep = (stepId: string | null, mode: FocusMode) => {
     if (!chartDocumentId) return;
-    const step = model.find((candidate) => candidate.id === stepId);
+    const step = viewModel?.evidence.find((candidate) => candidate.id === stepId);
     dispatchFocus(
       chartDocumentId,
       symbol,
@@ -200,32 +221,56 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
   };
   return (
     <article className="chart-commentary-panel">
-      <header className="chart-commentary-header">
-        <div className="chart-commentary-instrument">
-          <h2>{symbol}</h2>
-          <span className="chart-commentary-interval">{interval}</span>
-        </div>
-        <div className="chart-commentary-meta">
-          <span className={diagnostics.stale ? "is-stale" : ""}>분석 기준 {formatAnalysisAssetAsOf(asset.asOf)}</span>
-          <span>{coverageLabel}</span>
-        </div>
-      </header>
-      <section className="chart-commentary-overview" aria-label="차트 해설 요약">
-        <div><span>지지선</span><strong>{asset.geometry.supports.length}</strong></div>
-        <div><span>저항선</span><strong>{asset.geometry.resistances.length}</strong></div>
-        <div><span>차트 적용</span><strong>{diagnostics.appliedDrawingCount}</strong></div>
+      <HoldingSummary
+        holding={holding}
+        loading={holdingsLoading}
+        error={holdingsError}
+        errorStatus={holdingsErrorStatus}
+      />
+      {emptyText || !diagnostics || !viewModel || !asset
+        ? <Empty text={emptyText ?? "차트 해설을 불러오지 못했습니다"} />
+        : <>
+      <section className="chart-commentary-summary" aria-label="종합 해설">
+        {viewModel.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
       </section>
-      <h3 className="chart-commentary-headline"><GlossaryText text="차트 해설" /></h3>
-      <section className="chart-commentary-focus" aria-label="차트 시나리오 단계">
-        <ol>{model.map((step) => {
+      {viewModel.keyPrices.length > 0 && <section className="chart-commentary-key-prices" aria-label="주요 가격">
+        <div className="chart-commentary-price-table" role="table">
+          <div className="chart-commentary-price-head" role="row">
+            <span role="columnheader">기준</span><span role="columnheader">가격</span><span role="columnheader">현재가 대비</span>
+          </div>
+          {viewModel.keyPrices.map((item) => <button
+            key={item.id}
+            type="button"
+            role="row"
+            onMouseEnter={() => chartDocumentId && dispatchFocus(chartDocumentId, symbol, interval, item.drawingIds, "spotlight", undefined, item.price)}
+            onMouseLeave={restorePinned}
+            onFocus={() => chartDocumentId && dispatchFocus(chartDocumentId, symbol, interval, item.drawingIds, "spotlight", undefined, item.price)}
+            onBlur={restorePinned}
+          >
+            <span role="cell">{item.label}</span>
+            <strong role="cell">{formatPrice(item.price)}</strong>
+            <span role="cell">{item.distancePercent == null ? "—" : `${item.distancePercent >= 0 ? "+" : ""}${item.distancePercent.toFixed(2)}%`}</span>
+          </button>)}
+        </div>
+      </section>}
+      {viewModel.scenario && <section
+        className="chart-commentary-scenario"
+        aria-label="조건부 시나리오"
+        onMouseEnter={() => chartDocumentId && dispatchFocus(chartDocumentId, symbol, interval, viewModel.scenario!.drawingIds, "spotlight")}
+        onMouseLeave={restorePinned}
+      >
+        <span className="chart-commentary-scenario-status">{viewModel.scenario.status}</span>
+        <p>{viewModel.scenario.confirmation} · 목표 {formatPrice(viewModel.scenario.targetPrice)} · 무효화 {formatPrice(viewModel.scenario.invalidationPrice)}</p>
+        <p>손익비 1 : {viewModel.scenario.rewardRiskRatio.toFixed(2)} · 유효기간 {viewModel.scenario.projectionBars}개 봉</p>
+      </section>}
+      <section className="chart-commentary-focus" aria-label="판단 근거">
+        <ol>{viewModel.evidence.map((step) => {
           const pinned = pinnedStepId === step.id;
-          const metricPanelId = `chart-commentary-${metricIdPrefix}-metrics-${step.id}`;
           return <li key={step.id}>
             <button
               className={pinned ? "is-pinned" : undefined}
               type="button"
-              aria-expanded={pinned}
-              aria-controls={metricPanelId}
+              aria-pressed={pinned}
               onMouseEnter={() => focusStep(step.id, "spotlight")}
               onMouseLeave={restorePinned}
               onFocus={() => focusStep(step.id, "spotlight")}
@@ -239,20 +284,77 @@ function CurrentCommentary({ chartDocumentId, sourceAvailable, symbol, interval,
               <strong><GlossaryText text={step.title} /></strong>
               <span><GlossaryText text={step.body} /></span>
             </button>
-            <div id={metricPanelId} className="chart-commentary-metric-panel" hidden={!pinned}>
-              {step.metricCards?.length
-                ? step.metricCards.map((card) => <section key={card.id} className="chart-commentary-metric-card">
-                  <h4>{card.title}</h4>
-                  <dl>{card.items.map((item) => <div key={`${card.id}-${item.label}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
-                </section>)
-                : <p>저장된 수치 근거가 없습니다.</p>}
-            </div>
           </li>;
         })}</ol>
       </section>
-      {diagnostics.stale && <p className="chart-commentary-invalidation"><GlossaryText text="새 완료 봉이 있어 낮은 불투명도로 이전 자산을 표시합니다." /></p>}
+      <details className="chart-commentary-metrics">
+        <summary>수치 근거 자세히</summary>
+        {viewModel.evidence.flatMap((step) => step.metricCards ?? []).length > 0
+          ? viewModel.evidence.flatMap((step) => step.metricCards ?? []).map((card) => <section key={card.id} className="chart-commentary-metric-card">
+            <h4>{card.title}</h4>
+            <dl>{card.items.map((item) => <div key={`${card.id}-${item.label}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
+          </section>)
+          : <p>저장된 수치 근거가 없습니다.</p>}
+      </details>
+      {diagnostics.outdated && <p className="chart-commentary-invalidation"><GlossaryText text={`${diagnostics.freshness.lagBars}개 완료 봉 전 분석 스냅샷입니다. 당시 작도를 원래 선명도로 표시합니다.`} /></p>}
+      {diagnostics.stale && <p className="chart-commentary-invalidation"><GlossaryText text="자산 기준 봉과 데이터 watermark가 일치하지 않아 작도를 낮은 불투명도로 표시합니다." /></p>}
+        </>}
     </article>
   );
+}
+
+function HoldingSummary({ holding, loading, error, errorStatus }: {
+  holding: PortfolioPosition | null;
+  loading: boolean;
+  error?: string;
+  errorStatus?: number;
+}) {
+  const display = chartCommentaryHoldingDisplay(holding, loading, error, errorStatus);
+  return <section className="chart-commentary-holding" aria-label="실계좌 보유 현황">
+    <table>
+      <thead><tr><th>보유 상태</th><th>평균 매입가</th><th>보유 수량</th></tr></thead>
+      <tbody><tr>
+        <td>{display.status}</td>
+        <td>{display.averagePrice != null ? `$${formatPrice(display.averagePrice)}` : "—"}</td>
+        <td>{display.quantity != null ? `${formatQuantity(display.quantity)}주` : "—"}</td>
+      </tr></tbody>
+    </table>
+  </section>;
+}
+
+function ConversationView({ turns, pending, ...answerProps }: {
+  turns: ChartCommentaryAnswer[];
+  pending: ChartCommentaryPending | null;
+  chartDocumentId?: string;
+  sourceAvailable: boolean;
+  currentAsset: ChartAnalysisAsset | null;
+  activePlan: ActiveTradePlan | null;
+  currentSymbol: string;
+  currentInterval: ChartInterval;
+  candles: CandleDto[];
+  drawingIds: string[];
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [pending?.requestId, turns.length]);
+  return <div ref={scrollRef} className="chart-commentary-conversation" aria-label="차트 대화 기록">
+    {turns.map((turn) => <article key={turn.analysisId} className="chart-commentary-turn">
+      <div className="chart-commentary-message is-user">
+        <span>나</span>
+        <p><GlossaryText text={turn.question} /></p>
+      </div>
+      <div className="chart-commentary-message is-assistant">
+        <span>해설</span>
+        <QuestionAnswer answer={turn} {...answerProps} />
+      </div>
+    </article>)}
+    {pending && <article className="chart-commentary-turn is-pending" aria-live="polite">
+      <div className="chart-commentary-message is-user"><span>나</span><p><GlossaryText text={pending.question} /></p></div>
+      <div className="chart-commentary-message is-assistant"><span>해설</span><p><i className="chart-commentary-spinner" aria-hidden="true" /> 분석하고 있습니다.</p></div>
+    </article>}
+  </div>;
 }
 
 function QuestionAnswer({ answer, chartDocumentId, sourceAvailable, currentAsset, activePlan, currentSymbol, currentInterval, candles, drawingIds }: {
@@ -300,33 +402,29 @@ function QuestionAnswer({ answer, chartDocumentId, sourceAvailable, currentAsset
   const focus = (ids: string[], mode: FocusMode, targetAnchor?: ChartExplanationAnchor | null) => {
     if (chartDocumentId && canFocus) dispatchFocus(chartDocumentId, explanation.symbol, explanation.interval, ids, mode, targetAnchor);
   };
-  return <AnalysisAnswerPage
-    kicker="질문 답변"
-    symbol={answer.symbol}
-    title={answer.finalAnswer.title}
-    summary={answer.finalAnswer.summary}
-    sections={answer.finalAnswer.sections}
-    citations={answer.finalAnswer.citations}
-    limitations={answer.finalAnswer.limitations}
-    warnings={answer.warnings}
-    className="chart-commentary-answer"
-    beforeBody={<>
-      <p className="chart-commentary-question"><GlossaryText text={`질문: ${answer.question}`} /></p>
+  return <section className="chart-commentary-answer">
+    <header>
+      <h3><GlossaryText text={answer.finalAnswer.title} /></h3>
       <div className="chart-commentary-meta">
-        <span className="chart-commentary-badge">{answer.interval}</span>
-        <span>요청 기준 {formatAnalysisAssetAsOf(answer.asOf)}</span>
-        {explanation.quality.stale && <span className="chart-commentary-badge is-stale">stale</span>}
+        <span>{answer.interval} · {formatAnalysisAssetAsOf(answer.asOf)} 기준</span>
+        {explanation.quality.stale && <span className="chart-commentary-badge is-stale">이전 데이터</span>}
         {!sourceAvailable && <span className="chart-commentary-badge is-stale">원본 차트 없음</span>}
         {sourceAvailable && !identityMatches && <span className="chart-commentary-badge is-stale">분석 기준 변경됨</span>}
       </div>
-      {canFocus && (focusActions.length > 0 || anchor) && (
-        <div className="chart-commentary-answer-focus" aria-label="답변 근거 포커스">
-          {focusActions.map((action) => <FocusButton key={action.key} drawingIds={action.ids} onFocus={focus}>{action.label}</FocusButton>)}
-          {anchor && <FocusButton drawingIds={[]} anchor={anchor} onFocus={focus}>선택 봉</FocusButton>}
-        </div>
-      )}
-    </>}
-  />;
+    </header>
+    <p className="chart-commentary-answer-summary"><GlossaryText text={answer.finalAnswer.summary} /></p>
+    {answer.finalAnswer.sections.map((section) => section.title && section.bullets.length > 0 && <section key={section.title}>
+      <h4><GlossaryText text={section.title} /></h4>
+      <ul>{section.bullets.map((bullet, index) => <li key={`${index}-${bullet}`}><GlossaryText text={bullet} /></li>)}</ul>
+    </section>)}
+    {answer.warnings.length > 0 && <section className="is-warning"><h4>주의사항</h4><ul>{answer.warnings.map((warning) => <li key={warning}><GlossaryText text={warning} /></li>)}</ul></section>}
+    {answer.finalAnswer.limitations.length > 0 && <section className="is-limitation"><h4>한계</h4><ul>{answer.finalAnswer.limitations.map((limitation) => <li key={limitation}><GlossaryText text={limitation} /></li>)}</ul></section>}
+    {answer.finalAnswer.citations.some((citation) => Boolean(citation.url)) && <section><h4>근거 링크</h4><ul>{answer.finalAnswer.citations.filter((citation) => citation.url).map((citation) => <li key={`${citation.title}-${citation.url}`}><a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a></li>)}</ul></section>}
+    {canFocus && (focusActions.length > 0 || anchor) && <div className="chart-commentary-answer-focus" aria-label="답변 근거 포커스">
+      {focusActions.map((action) => <FocusButton key={action.key} drawingIds={action.ids} onFocus={focus}>{action.label}</FocusButton>)}
+      {anchor && <FocusButton drawingIds={[]} anchor={anchor} onFocus={focus}>선택 봉</FocusButton>}
+    </div>}
+  </section>;
 }
 
 function FocusButton({ drawingIds, anchor, price, onFocus, children }: {
@@ -363,6 +461,14 @@ function currentAnchor(anchor: ChartExplanationAnchor | null, candles: CandleDto
 
 function Empty({ text }: { text: string }) {
   return <div className="chart-commentary-empty" role="status"><GlossaryText text={text} /></div>;
+}
+
+function formatPrice(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatQuantity(value: number): string {
+  return value.toLocaleString("ko-KR", { maximumFractionDigits: 6 });
 }
 
 type FocusMode = "select" | "spotlight" | "clear";

@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
-import { parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
+import { PortfolioHoldingsApiError, parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
@@ -95,18 +95,18 @@ type PortfolioHoldingsDataState = {
   loading: boolean;
   refreshing: boolean;
   error?: string;
+  errorStatus?: number;
 };
 
-const portfolioStoreListeners = new Set<() => void>();
-let portfolioStoreState: PortfolioHoldingsDataState = {
-  payload: null,
-  loading: true,
-  refreshing: false,
-  error: undefined
+export type PortfolioHoldingsSource = "active" | "kis";
+type PortfolioHoldingsStore = {
+  state: PortfolioHoldingsDataState;
+  listeners: Set<() => void>;
+  inflight: Promise<void> | null;
+  intervalId: number | null;
+  refreshQueued: boolean;
 };
-let portfolioStoreInflight: Promise<void> | null = null;
-let portfolioStoreIntervalId: number | null = null;
-let portfolioStoreRefreshQueued = false;
+const portfolioStores = new Map<PortfolioHoldingsSource, PortfolioHoldingsStore>();
 const portfolioSelectionListeners = new Set<() => void>();
 type PortfolioSelectionState = { symbol: string | null; revision: number };
 const emptyPortfolioSelection: PortfolioSelectionState = { symbol: null, revision: 0 };
@@ -133,87 +133,111 @@ export function usePortfolioSelectedSymbol(): PortfolioSelectionState {
   );
 }
 
-function setPortfolioStoreState(next: Partial<PortfolioHoldingsDataState>): void {
-  portfolioStoreState = { ...portfolioStoreState, ...next };
-  portfolioStoreListeners.forEach((listener) => listener());
+function portfolioStore(source: PortfolioHoldingsSource): PortfolioHoldingsStore {
+  const existing = portfolioStores.get(source);
+  if (existing) return existing;
+  const created: PortfolioHoldingsStore = {
+    state: { payload: null, loading: true, refreshing: false, error: undefined, errorStatus: undefined },
+    listeners: new Set(), inflight: null, intervalId: null, refreshQueued: false
+  };
+  portfolioStores.set(source, created);
+  return created;
 }
 
-function loadPortfolioHoldingsStore(showRefreshing = false): Promise<void> {
-  if (portfolioStoreInflight) {
-    portfolioStoreRefreshQueued ||= showRefreshing;
-    return portfolioStoreInflight;
+function setPortfolioStoreState(source: PortfolioHoldingsSource, next: Partial<PortfolioHoldingsDataState>): void {
+  const store = portfolioStore(source);
+  store.state = { ...store.state, ...next };
+  store.listeners.forEach((listener) => listener());
+}
+
+function loadPortfolioHoldingsStore(source: PortfolioHoldingsSource, showRefreshing = false): Promise<void> {
+  const store = portfolioStore(source);
+  if (store.inflight) {
+    store.refreshQueued ||= showRefreshing;
+    return store.inflight;
   }
-  setPortfolioStoreState({
-    loading: showRefreshing ? portfolioStoreState.loading : portfolioStoreState.payload == null,
+  setPortfolioStoreState(source, {
+    loading: showRefreshing ? store.state.loading : store.state.payload == null,
     refreshing: showRefreshing,
-    error: undefined
+    error: undefined,
+    errorStatus: undefined
   });
-  portfolioStoreInflight = fetch("/api/account/holdings?market=overseas&currency=USD")
+  const query = new URLSearchParams({ market: "overseas", currency: "USD", source });
+  store.inflight = fetch(`/api/account/holdings?${query.toString()}`)
     .then(async (response) => {
       const nextPayload = await parsePortfolioHoldingsApiResponse(response);
-      setPortfolioStoreState({ payload: nextPayload, loading: false, refreshing: false, error: undefined });
+      setPortfolioStoreState(source, { payload: nextPayload, loading: false, refreshing: false, error: undefined, errorStatus: undefined });
     })
     .catch((caught) => {
-      if (DEMO_PORTFOLIO_ENABLED) {
-        setPortfolioStoreState({
+      if (DEMO_PORTFOLIO_ENABLED && source === "active") {
+        setPortfolioStoreState(source, {
           payload: buildDemoPortfolioPayload(),
           loading: false,
           refreshing: false,
-          error: undefined
+          error: undefined,
+          errorStatus: undefined
         });
       } else {
-        setPortfolioStoreState({
+        setPortfolioStoreState(source, {
+          payload: source === "kis" ? null : store.state.payload,
           loading: false,
           refreshing: false,
-          error: caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다."
+          error: caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다.",
+          errorStatus: caught instanceof PortfolioHoldingsApiError ? caught.status : undefined
         });
       }
     })
     .finally(() => {
-      portfolioStoreInflight = null;
-      if (portfolioStoreRefreshQueued) {
-        portfolioStoreRefreshQueued = false;
-        void loadPortfolioHoldingsStore(true);
+      store.inflight = null;
+      if (store.refreshQueued) {
+        store.refreshQueued = false;
+        void loadPortfolioHoldingsStore(source, true);
       }
     });
-  return portfolioStoreInflight;
+  return store.inflight;
 }
 
-function refreshPortfolioHoldingsStore(): void {
-  void loadPortfolioHoldingsStore(true);
+function refreshPortfolioHoldingsStore(source: PortfolioHoldingsSource): void {
+  void loadPortfolioHoldingsStore(source, true);
 }
 
-function subscribePortfolioHoldingsStore(listener: () => void): () => void {
-  portfolioStoreListeners.add(listener);
-  if (portfolioStoreListeners.size === 1) {
-    void loadPortfolioHoldingsStore(false);
+function subscribePortfolioHoldingsStore(source: PortfolioHoldingsSource, listener: () => void): () => void {
+  const store = portfolioStore(source);
+  store.listeners.add(listener);
+  if (store.listeners.size === 1) {
+    void loadPortfolioHoldingsStore(source, false);
     if (typeof window !== "undefined") {
-      portfolioStoreIntervalId = window.setInterval(() => {
-        void loadPortfolioHoldingsStore(true);
-      }, activePortfolioRefreshIntervalMs);
+      store.intervalId = window.setInterval(() => {
+        void loadPortfolioHoldingsStore(source, true);
+      }, source === "active" ? activePortfolioRefreshIntervalMs : REFRESH_INTERVAL_MS);
     }
   }
   return () => {
-    portfolioStoreListeners.delete(listener);
-    if (portfolioStoreListeners.size === 0 && typeof window !== "undefined") {
-      if (portfolioStoreIntervalId != null) {
-        window.clearInterval(portfolioStoreIntervalId);
-        portfolioStoreIntervalId = null;
+    store.listeners.delete(listener);
+    if (store.listeners.size === 0 && typeof window !== "undefined") {
+      if (store.intervalId != null) {
+        window.clearInterval(store.intervalId);
+        store.intervalId = null;
       }
     }
   };
 }
 
-export function usePortfolioHoldingsData(onPortfolioSymbolsChange?: (symbols: readonly string[]) => void) {
-  const [state, setState] = useState<PortfolioHoldingsDataState>(portfolioStoreState);
+export function usePortfolioHoldingsData(
+  onPortfolioSymbolsChange?: (symbols: readonly string[]) => void,
+  source: PortfolioHoldingsSource = "active"
+) {
+  const [state, setState] = useState<PortfolioHoldingsDataState>(() => portfolioStore(source).state);
 
   useEffect(() => {
-    return subscribePortfolioHoldingsStore(() => setState(portfolioStoreState));
-  }, []);
+    const store = portfolioStore(source);
+    setState(store.state);
+    return subscribePortfolioHoldingsStore(source, () => setState(portfolioStore(source).state));
+  }, [source]);
 
   useEffect(() => {
-    return subscribePortfolioRefresh(refreshPortfolioHoldingsStore);
-  }, []);
+    return subscribePortfolioRefresh(() => refreshPortfolioHoldingsStore(source));
+  }, [source]);
 
   useEffect(() => {
     if (state.payload) {
@@ -224,8 +248,8 @@ export function usePortfolioHoldingsData(onPortfolioSymbolsChange?: (symbols: re
   const positions = useMemo(() => sortPositions(state.payload?.positions ?? [], "value"), [state.payload?.positions]);
   const account = state.payload?.account;
   const dashboard = useMemo(() => buildPortfolioDashboard(account, state.payload?.positions ?? []), [account, state.payload?.positions]);
-  const loadHoldings = useCallback(() => loadPortfolioHoldingsStore(true), []);
-  return { payload: state.payload, loading: state.loading, refreshing: state.refreshing, error: state.error, positions, dashboard, loadHoldings };
+  const loadHoldings = useCallback(() => loadPortfolioHoldingsStore(source, true), [source]);
+  return { payload: state.payload, loading: state.loading, refreshing: state.refreshing, error: state.error, errorStatus: state.errorStatus, positions, dashboard, loadHoldings };
 }
 
 export function PortfolioHoldingsPanel({

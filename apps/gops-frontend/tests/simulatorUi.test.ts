@@ -66,7 +66,7 @@ const chartCommentarySource = readFileSync(
   "utf-8"
 );
 assert.match(chartCommentarySource, /GlossaryText/);
-assert.match(chartCommentarySource, /buildChartCommentaryModel/);
+assert.match(chartCommentarySource, /buildChartCommentaryViewModel/);
 assert.match(chartCommentarySource, /GlossaryText text=\{step\.body\}/);
 
 const orderTicketSource = readFileSync(
@@ -165,10 +165,10 @@ const portfolioHoldingsSource = readFileSync(
   fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)),
   "utf-8"
 );
-assert.match(portfolioHoldingsSource, /portfolioStoreRefreshQueued/);
+assert.match(portfolioHoldingsSource, /portfolioStores/);
 assert.match(
   portfolioHoldingsSource,
-  /usePortfolioHoldingsData[\s\S]*subscribePortfolioRefresh\(refreshPortfolioHoldingsStore\)/
+  /usePortfolioHoldingsData[\s\S]*subscribePortfolioRefresh\(\(\) => refreshPortfolioHoldingsStore\(source\)\)/
 );
 assert.match(apiSource, /function requestPortfolioRefresh/);
 assert.match(portfolioHoldingsSource, /DEMO_PORTFOLIO_ENABLED \? 1_000 : REFRESH_INTERVAL_MS/);

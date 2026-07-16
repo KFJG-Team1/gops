@@ -17,16 +17,15 @@ import {
   type SemanticRenderUnit,
   type SemanticTimeline
 } from "./semanticTimeline";
+import { decimalPlacesForPriceStep, resolvePriceScale } from "./priceScale";
 
 const volumeScalePadding = 1.18;
 const fourDigitPriceAxisWidth = 68;
 const fourDigitPriceLabelLength = "1356.22".length;
 const priceAxisLabelContentWidth = 60;
-const priceTickSubdivisionThreshold = 120;
-const standardPriceDomainPaddingRatio = 0.05;
-const minimumStandardPriceStep = 0.01;
-const overlayRangeMultiplier = 4;
-const overlayMidPriceGuardRatio = 0.5;
+const holdingOverlayRangeMultiplier = 4;
+const holdingOverlayMidPriceGuardRatio = 0.5;
+const minimumHoldingOverlayPriceStep = 0.01;
 
 export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
   if (!Number.isFinite(value)) {
@@ -81,13 +80,20 @@ function priceAxisWidthForChart(chart: ChartState): number {
   return Math.round(Math.min(146, Math.max(fourDigitPriceAxisWidth, widestLabelWidth + 8)));
 }
 
-function decimalPlacesForPriceStep(step: number): number {
-  for (let places = 0; places <= 8; places += 1) {
-    if (Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-8) {
-      return places;
-    }
+function priceAxisWidthForResolvedTicks(chart: ChartState, ticks: number[], decimalPlaces: number): number {
+  const latest = chart.candles[chart.candles.length - 1];
+  const livePrice = chart.streamState === "live" && Number.isFinite(chart.liveTrade?.price)
+    ? chart.liveTrade?.price
+    : undefined;
+  const currentPrice = livePrice ?? latest?.close;
+  const showsClock = chart.streamState === "live"
+    && latest?.isClosed === false
+    && (chart.interval === "1m" || chart.interval === "5m" || chart.interval === "10m" || chart.interval === "1h" || chart.interval === "4h");
+  const labels = ticks.map((tick) => priceAxisLabelWidth(formatPriceAxisValue(tick, decimalPlaces)));
+  if (typeof currentPrice === "number" && Number.isFinite(currentPrice)) {
+    labels.push(priceAxisLabelWidth(formatPriceAxisValue(currentPrice, decimalPlaces), showsClock));
   }
-  return 8;
+  return Math.round(Math.min(146, Math.max(fourDigitPriceAxisWidth, Math.max(0, ...labels) + 8)));
 }
 
 export type ChartPlot = {
@@ -185,7 +191,7 @@ export function chartPriceAxisPoint(scene: ChartScene, x: number, y: number): Ch
     return null;
   }
   const decimalPlaces = scene.chart.chartType === "bidask"
-    ? decimalPlacesForPriceStep(scene.chart.orderFlow?.priceBinSize ?? 0.01)
+    ? scene.scales.bidAskPriceGrid?.decimalPlaces ?? decimalPlacesForPriceStep(scene.chart.orderFlow?.priceBinSize ?? 0.01)
     : 2;
   const formattedPrice = formatPriceAxisValue(createCoordinateTransform(scene).yToPrice(y), decimalPlaces);
   const price = Number(formattedPrice);
@@ -193,6 +199,26 @@ export function chartPriceAxisPoint(scene: ChartScene, x: number, y: number): Ch
 }
 
 export function buildChartScene(chart: ChartState, width: number, height: number, options: ChartSceneOptions = {}): ChartScene {
+  const initialAxisWidth = priceAxisWidthForChart(chart);
+  const initialScene = buildChartScenePass(chart, width, height, options, initialAxisWidth);
+  const resolvedAxisWidth = priceAxisWidthForResolvedTicks(
+    chart,
+    initialScene.scales.priceTicks,
+    initialScene.scales.bidAskPriceGrid?.decimalPlaces ?? 2
+  );
+  const finalAxisWidth = Math.max(initialAxisWidth, resolvedAxisWidth);
+  return finalAxisWidth > initialAxisWidth
+    ? buildChartScenePass(chart, width, height, options, finalAxisWidth)
+    : initialScene;
+}
+
+function buildChartScenePass(
+  chart: ChartState,
+  width: number,
+  height: number,
+  options: ChartSceneOptions,
+  priceAxisWidth: number
+): ChartScene {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);
   const belowPaneIds = activeBelowPaneIds(chart);
@@ -202,7 +228,7 @@ export function buildChartScene(chart: ChartState, width: number, height: number
   const hasDigExpansions = (options.expansions?.length ?? 0) > 0;
   const padding = {
     top: hasDigExpansions ? 60 : 34,
-    right: priceAxisWidthForChart(chart),
+    right: priceAxisWidth,
     bottom: belowPaneIds.length ? 40 : 34,
     left: 0
   };
@@ -783,12 +809,12 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
     .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
     .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
     .concat(proposalDomainValues(chart))
-    .concat(chart.holdingOverlay?.averagePrice)
     .filter(isPositivePrice);
-  return priceDomainFromValues(
-    baseValues.concat(overlayValuesWithinBaseRange(baseValues, overlayValues)),
-    plotHeight
-  );
+  const holdingPrice = holdingDomainValues(baseValues, chart.holdingOverlay?.averagePrice);
+  const livePrice = chart.streamState === "live" && isPositivePrice(chart.liveTrade?.price)
+    ? [chart.liveTrade.price]
+    : [];
+  return priceDomainFromValues(baseValues.concat(overlayValues, holdingPrice, livePrice), plotHeight);
 }
 
 function proposalDomainValues(chart: ChartState): number[] {
@@ -802,61 +828,40 @@ function proposalDomainValues(chart: ChartState): number[] {
 }
 
 function priceDomainFromValues(source: Array<number | undefined>, plotHeight: number): { min: number; max: number; ticks: number[] } {
-  const values = source.filter(isPositivePrice);
-  if (!values.length) {
-    return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
-  }
-  let min = Math.min(...values);
-  let max = Math.max(...values);
-  let rawRange = max - min;
-  if (rawRange <= 0) {
-    rawRange = Math.max(Math.abs(max) * 0.01, minimumStandardPriceStep);
-    min = Math.max(0, min - rawRange / 2);
-    max += rawRange / 2;
-  }
-  const pad = rawRange * standardPriceDomainPaddingRatio;
-  const domain = standardPriceDomain(Math.max(0, min - pad), max + pad);
+  const scale = resolvePriceScale(source, plotHeight);
   return {
-    ...domain,
-    ticks: subdividePriceTicksForHeight(domain.ticks, plotHeight)
+    min: scale.domainMin,
+    max: scale.domainMax,
+    ticks: scale.ticks
   };
 }
 
-function overlayValuesWithinBaseRange(baseValues: number[], overlayValues: number[]): number[] {
+function holdingDomainValues(baseValues: number[], averagePrice: number | undefined): number[] {
+  if (!isPositivePrice(averagePrice)) {
+    return [];
+  }
   if (!baseValues.length) {
-    return overlayValues;
+    return [averagePrice];
   }
   const baseMin = Math.min(...baseValues);
   const baseMax = Math.max(...baseValues);
   const midPrice = (baseMin + baseMax) / 2;
-  const baseRange = Math.max(baseMax - baseMin, Math.max(midPrice * 0.01, minimumStandardPriceStep));
-  const guard = Math.max(baseRange * overlayRangeMultiplier, midPrice * overlayMidPriceGuardRatio);
-  const lowerBound = Math.max(0, baseMin - guard);
-  const upperBound = baseMax + guard;
-  return overlayValues.filter((value) => value >= lowerBound && value <= upperBound);
+  const baseRange = Math.max(
+    baseMax - baseMin,
+    midPrice * 0.01,
+    minimumHoldingOverlayPriceStep
+  );
+  const guard = Math.max(
+    baseRange * holdingOverlayRangeMultiplier,
+    midPrice * holdingOverlayMidPriceGuardRatio
+  );
+  return averagePrice >= Math.max(0, baseMin - guard) && averagePrice <= baseMax + guard
+    ? [averagePrice]
+    : [];
 }
 
 function isPositivePrice(value: number | undefined | null): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-function subdividePriceTicksForHeight(ticks: number[], plotHeight: number): number[] {
-  if (ticks.length < 2 || !Number.isFinite(plotHeight)) {
-    return ticks;
-  }
-  const gapHeight = Math.max(0, plotHeight) / Math.max(1, ticks.length - 1);
-  if (gapHeight < priceTickSubdivisionThreshold) {
-    return ticks;
-  }
-  const subdivided: number[] = [];
-  ticks.forEach((tick, index) => {
-    subdivided.push(tick);
-    const nextTick = ticks[index + 1];
-    if (typeof nextTick === "number") {
-      subdivided.push(Number(((tick + nextTick) / 2).toFixed(8)));
-    }
-  });
-  return subdivided;
 }
 
 function indicatorDomainValues(
@@ -890,47 +895,6 @@ function bollingerDomainValues(
       return [point?.upper, point?.lower];
     })
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-}
-
-function standardPriceDomain(min: number, max: number): { min: number; max: number; ticks: number[] } {
-  if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
-  }
-  if (max <= min) {
-    return { min: 0, max: 4, ticks: [0, 1, 2, 3, 4] };
-  }
-  const targetGaps = 4;
-  let step = nicePriceStep((max - min) / targetGaps);
-  let domainMin = Math.max(0, Math.floor(min / step) * step);
-  let domainMax = Math.ceil(max / step) * step;
-  let tickCount = Math.round((domainMax - domainMin) / step) + 1;
-  while (tickCount > 7) {
-    step = nicePriceStep(step * 1.5);
-    domainMin = Math.max(0, Math.floor(min / step) * step);
-    domainMax = Math.ceil(max / step) * step;
-    tickCount = Math.round((domainMax - domainMin) / step) + 1;
-  }
-  while (tickCount < 3) {
-    domainMax += step;
-    tickCount += 1;
-  }
-  const decimalPlaces = decimalPlacesForPriceStep(step);
-  const ticks: number[] = [];
-  for (let index = 0; index < tickCount; index += 1) {
-    ticks.push(Number((domainMin + index * step).toFixed(decimalPlaces)));
-  }
-  return { min: ticks[0], max: ticks[ticks.length - 1], ticks };
-}
-
-function nicePriceStep(rawStep: number): number {
-  if (!Number.isFinite(rawStep) || rawStep <= 0) {
-    return minimumStandardPriceStep;
-  }
-  const exponent = Math.floor(Math.log10(rawStep));
-  const magnitude = 10 ** exponent;
-  const normalized = rawStep / magnitude;
-  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  return Math.max(minimumStandardPriceStep, nice * magnitude);
 }
 
 function volumeDomain(maxVolume: number): { max: number; ticks: number[] } {

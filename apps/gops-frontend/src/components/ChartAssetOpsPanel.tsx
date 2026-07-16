@@ -9,7 +9,8 @@ import {
   type ChartAssetBuildStatus,
   type ChartAssetCoverageItem
 } from "../chart/assetBuildApi";
-import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatDetectedPattern } from "../chart/analysisAssetPresentation";
+import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf, formatDetectedPattern } from "../chart/analysisAssetPresentation";
+import { analysisTraceDataMode } from "../chart/analysisTraceOverlay";
 import {
   fetchAnalysisAssets,
   invalidateAnalysisAssets,
@@ -138,6 +139,16 @@ export function ChartAssetOpsPanel({
     ? analysisAssetPresentationDiagnostics(currentAsset, currentCandles, currentDrawingIds)
     : null;
   const currentPattern = detectedPatternSummary(currentAsset);
+  const currentTrace = currentAsset?.geometry.analysisTrace;
+  const currentTraceCounts = currentTrace ? {
+    levels: currentTrace.levelCandidates.length,
+    trends: currentTrace.trendCandidates.length,
+    patterns: currentTrace.patternCandidates.length
+  } : null;
+  const buildSummaries = parseBuildSummaries(job?.logs ?? []);
+  const unverifiedSavedCount = (job?.recentItems ?? []).filter((item) => (
+    item.status === "saved" && !buildSummaries.get(`${item.symbol}:${item.interval}`)?.writeVerified
+  )).length;
 
   const runBuild = async (retrySymbols?: string[], force = false) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
@@ -202,7 +213,7 @@ export function ChartAssetOpsPanel({
           <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>1m·1D 선택</button>
         </div>
         <div className="chart-asset-ops-actions">
-          <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
+          <button type="button" disabled={running} onClick={() => void runBuild()}>없는 자산 생성</button>
           <button
             type="button"
             disabled={running || useSp500}
@@ -212,9 +223,9 @@ export function ChartAssetOpsPanel({
                 void runBuild(undefined, true);
               }
             }}
-          >선택 자산 수동 갱신</button>
+          >기존 자산 강제 재생성</button>
           {running && <button type="button" onClick={() => accepted && void cancelChartAssetBuild(accepted.jobId).then(setJob).catch((reason) => setError(String(reason)))}>중단</button>}
-          {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols)}>실패분 재실행</button>}
+          {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols, true)}>실패분 강제 재실행</button>}
         </div>
       </section>
 
@@ -222,7 +233,7 @@ export function ChartAssetOpsPanel({
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status}{unverifiedSavedCount ? ` · 저장 미검증 ${unverifiedSavedCount}` : ""} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
@@ -234,6 +245,17 @@ export function ChartAssetOpsPanel({
             </p>
           )}
           <div ref={logRef} className="chart-asset-ops-log" aria-label="빌드 로그">{(job.logs ?? []).slice(-200).map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}</div>
+          {job.recentItems.length > 0 && <div className="chart-asset-ops-table-wrap"><table>
+            <thead><tr><th>종목</th><th>주기</th><th>결과</th><th>사유</th><th>저장 검증</th></tr></thead>
+            <tbody>{job.recentItems.map((item) => {
+              const summary = buildSummaries.get(`${item.symbol}:${item.interval}`);
+              return <tr key={`${item.symbol}:${item.interval}`}>
+                <td>{item.symbol}</td><td>{item.interval}</td><td>{item.status === "saved" && !summary?.writeVerified ? "미검증(saved 보고)" : item.status}</td>
+                <td>{item.error ?? item.reason ?? item.warning ?? "-"}</td>
+                <td>{summary ? `${summary.algorithmVersion} · ${summary.traceMode} · 후보 ${summary.traceCandidates.levelCandidates}/${summary.traceCandidates.trendCandidates}/${summary.traceCandidates.patternCandidates} · as-of ${formatAnalysisAssetAsOf(summary.asOf)} · ${summary.writeVerified ? "확인" : "이전 자산 유지"}` : item.status === "saved" ? "검증 정보 없음 · worker 버전 확인" : "저장 없음"}</td>
+              </tr>;
+            })}</tbody>
+          </table></div>}
           {failedSymbols.length > 0 && <p>실패: {failedSymbols.join(", ")}</p>}
         </section>
       )}
@@ -243,7 +265,9 @@ export function ChartAssetOpsPanel({
         {currentDiagnostics ? (
           <>
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
-            <p>판정 {currentDiagnostics.state}</p>
+            <p>판정 {currentDiagnostics.state} · {currentDiagnostics.freshness.state}{currentDiagnostics.outdated ? ` (${currentDiagnostics.freshness.lagBars}봉 전)` : ""}</p>
+            {currentAsset && <p>algorithm {currentAsset.algorithmVersion} · as-of {currentAsset.asOf}</p>}
+            {currentAsset && <p>해석 {analysisTraceDataMode(currentAsset)}{currentTraceCounts ? ` · 후보 레벨 ${currentTraceCounts.levels} / 추세 ${currentTraceCounts.trends} / 패턴 ${currentTraceCounts.patterns}` : " · 후보선 없는 구자산"}</p>}
             {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
             {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}
             {currentPattern && (
@@ -262,7 +286,7 @@ export function ChartAssetOpsPanel({
         <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
         <div className="chart-asset-ops-table-wrap">
           <table>
-            <thead><tr><th>심볼</th><th>주기</th><th>감지 패턴</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
+            <thead><tr><th>심볼</th><th>주기</th><th>감지 패턴</th><th>상태</th><th>해석 후보</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
             <tbody>{coverage.map((item) => {
               const key = `${item.symbol}-${item.interval}`;
               return <tr key={key}>
@@ -270,6 +294,9 @@ export function ChartAssetOpsPanel({
                 <td>{item.interval}</td>
                 <td>{formatDetectedPattern(item.primaryPattern)}{item.primaryPattern ? ` · 점수 ${item.primaryPattern.score.toFixed(2)}` : ""}</td>
                 <td>{coverageStatus(item)}</td>
+                <td>{item.traceMode === "geometry-analysis-trace-v2" && item.traceCandidateCounts
+                  ? `${item.traceCandidateCounts.levels}/${item.traceCandidateCounts.trends}/${item.traceCandidateCounts.patterns}`
+                  : item.traceMode === "geometry-analysis-trace-v1" ? "일부" : "재생성 필요"}</td>
                 <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
                 <td>{formatGeneratedAt(item.generatedAt)}</td>
                 <td><button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button></td>
@@ -313,4 +340,46 @@ function crossLabel(direction: "golden" | "dead" | null | undefined, status: str
   if (status === "insufficient_previous_bar") return "직전 봉 부족";
   if (status !== "crossed" || !direction) return "없음";
   return direction === "golden" ? "골든크로스" : "데드크로스";
+}
+
+type BuildSummary = {
+  symbol: string;
+  interval: string;
+  algorithmVersion: string;
+  asOf: string;
+  traceMode: string;
+  writeVerified: boolean;
+  traceCandidates: {
+    levelCandidates: number;
+    trendCandidates: number;
+    patternCandidates: number;
+  };
+};
+
+function parseBuildSummaries(lines: readonly string[]): Map<string, BuildSummary> {
+  const summaries = new Map<string, BuildSummary>();
+  lines.forEach((line) => {
+    try {
+      const value = JSON.parse(line) as Partial<BuildSummary> & { event?: string };
+      if (!value.event?.startsWith("chart_asset_") || typeof value.symbol !== "string" || typeof value.interval !== "string") return;
+      const counts = value.traceCandidates;
+      if (!counts || typeof value.algorithmVersion !== "string" || typeof value.asOf !== "string") return;
+      summaries.set(`${value.symbol}:${value.interval}`, {
+        symbol: value.symbol,
+        interval: value.interval,
+        algorithmVersion: value.algorithmVersion,
+        asOf: value.asOf,
+        traceMode: typeof value.traceMode === "string" ? value.traceMode : "none",
+        writeVerified: value.writeVerified === true,
+        traceCandidates: {
+          levelCandidates: Number(counts.levelCandidates ?? 0),
+          trendCandidates: Number(counts.trendCandidates ?? 0),
+          patternCandidates: Number(counts.patternCandidates ?? 0)
+        }
+      });
+    } catch {
+      return;
+    }
+  });
+  return summaries;
 }

@@ -193,6 +193,11 @@
   color: var(--gops-caution);
 }
 
+.chart-analysis-asof.is-outdated,
+.chart-commentary-meta .is-outdated {
+  color: var(--color-muted);
+}
+
 .chart-commentary-shell {
   display: flex;
   box-sizing: border-box;
@@ -205,30 +210,54 @@
 
 .chart-commentary-source {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px 0;
+  gap: 7px;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 9px 12px;
 }
 
 .chart-commentary-source strong {
-  margin-right: auto;
+  flex: 0 1 auto;
+  overflow: hidden;
   color: var(--color-text);
   font: var(--type-body-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-commentary-source-meta {
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-commentary-source button,
 .chart-commentary-source select {
+  flex: 0 0 auto;
   min-height: 28px;
   border: 1px solid var(--color-border);
   border-radius: 7px;
+  padding: 4px 8px;
   background: var(--color-surface-strong);
   color: var(--color-text);
   font: var(--type-caption);
+  cursor: pointer;
 }
 
-.chart-commentary-source button.is-active {
+.chart-commentary-source button.is-active,
+.chart-commentary-source button[aria-pressed="true"] {
   border-color: var(--color-signal);
   color: var(--color-signal);
+}
+
+.chart-commentary-source select {
+  max-width: 132px;
 }
 
 .workspace-panel-frame.is-chart-link-target {
@@ -301,6 +330,245 @@
   padding: var(--panel-padding);
   background: transparent;
   color: var(--color-text);
+}
+
+.chart-commentary-panel h3,
+.chart-commentary-panel h4,
+.chart-commentary-panel p {
+  margin-top: 0;
+}
+
+.chart-commentary-holding,
+.chart-commentary-summary,
+.chart-commentary-key-prices,
+.chart-commentary-focus,
+.chart-commentary-metrics {
+  min-width: 0;
+}
+
+.chart-commentary-holding h3,
+.chart-commentary-summary h3,
+.chart-commentary-key-prices h3,
+.chart-commentary-scenario h3,
+.chart-commentary-focus h3 {
+  margin: 0 0 7px;
+  color: var(--color-text);
+  font: var(--type-title-sm);
+}
+
+.chart-commentary-holding table {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 7px;
+  table-layout: fixed;
+  text-align: left;
+}
+
+.chart-commentary-holding th,
+.chart-commentary-holding td {
+  width: 33.333%;
+  border-right: 1px solid var(--color-border);
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-commentary-holding th:last-child,
+.chart-commentary-holding td:last-child {
+  border-right: 0;
+}
+
+.chart-commentary-holding th {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--coinbase-panel-muted);
+  color: var(--color-muted);
+  font: var(--type-caption);
+  font-weight: 500;
+}
+
+.chart-commentary-holding td {
+  color: var(--color-text);
+  font: var(--type-body-sm);
+}
+
+.chart-commentary-summary {
+  border-left: 2px solid var(--color-signal);
+  padding: 2px 0 2px 10px;
+}
+
+.chart-commentary-summary p {
+  margin-bottom: 5px;
+  color: var(--color-text);
+  line-height: 1.55;
+}
+
+.chart-commentary-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.chart-commentary-price-table {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+}
+
+.chart-commentary-price-head,
+.chart-commentary-price-table > button {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.9fr) minmax(80px, 1fr) minmax(88px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.chart-commentary-price-head {
+  background: var(--coinbase-panel-muted);
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.chart-commentary-price-table > button {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font: var(--type-body-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-commentary-price-table > button:hover,
+.chart-commentary-price-table > button:focus-visible {
+  background: color-mix(in srgb, var(--color-signal) 8%, transparent);
+  outline: none;
+}
+
+.chart-commentary-price-table > button strong,
+.chart-commentary-price-table > button span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-commentary-scenario {
+  border: 1px solid color-mix(in srgb, var(--color-signal) 28%, var(--color-border));
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--color-signal) 5%, transparent);
+}
+
+.chart-commentary-scenario-status {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-signal);
+  font: var(--type-caption);
+  text-align: right;
+}
+
+.chart-commentary-scenario p {
+  margin-bottom: 4px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-commentary-scenario p:last-child {
+  margin-bottom: 0;
+}
+
+.chart-commentary-metrics {
+  border-top: 1px solid var(--color-border);
+  padding-top: 9px;
+}
+
+.chart-commentary-metrics > summary {
+  color: var(--color-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chart-commentary-metrics[open] > summary {
+  margin-bottom: 9px;
+  color: var(--color-text);
+}
+
+.chart-commentary-conversation {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 12px;
+  scroll-behavior: smooth;
+}
+
+.chart-commentary-turn {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.chart-commentary-message {
+  display: grid;
+  gap: 4px;
+  max-width: 92%;
+}
+
+.chart-commentary-message > span {
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.chart-commentary-message > p {
+  margin: 0;
+}
+
+.chart-commentary-message.is-user {
+  justify-self: end;
+  justify-items: end;
+}
+
+.chart-commentary-message.is-user > p {
+  border-radius: 12px 12px 3px 12px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--color-signal) 18%, var(--coinbase-panel-muted));
+  color: var(--color-text);
+}
+
+.chart-commentary-message.is-assistant {
+  max-width: 100%;
+}
+
+.chart-commentary-message.is-assistant > p,
+.chart-commentary-answer {
+  border: 1px solid var(--color-border);
+  border-radius: 3px 10px 10px 10px;
+  padding: 10px;
+  background: var(--coinbase-panel-muted);
+}
+
+.chart-commentary-answer header h3 {
+  margin: 0 0 4px;
+}
+
+.chart-commentary-answer-summary {
+  margin: 10px 0;
+  line-height: 1.5;
+}
+
+.chart-commentary-answer > section h4 {
+  margin: 10px 0 5px;
+}
+
+.chart-commentary-answer ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.chart-commentary-answer .is-warning {
+  color: var(--gops-caution);
+}
+
+.chart-commentary-answer .is-limitation {
+  color: var(--color-muted);
 }
 
 .chart-commentary-header {
@@ -395,7 +663,7 @@
 }
 
 .chart-commentary-answer {
-  padding: 16px;
+  padding: 10px;
 }
 
 .chart-commentary-question {
@@ -613,6 +881,15 @@
 }
 
 @container workspace-panel (max-width: 420px) {
+  .chart-commentary-source {
+    flex-wrap: wrap;
+  }
+
+  .chart-commentary-source select {
+    max-width: none;
+    flex-basis: 100%;
+  }
+
   .chart-commentary-header {
     display: grid;
   }

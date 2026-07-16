@@ -157,6 +157,7 @@ import {
 } from "../src/chart/orderFlow";
 import { orderFlowChartRowScaleMax, projectOrderFlowChartRows } from "../src/chart/orderFlowRender";
 import { OrderFlowBucketCache } from "../src/chart/orderFlowBucketCache";
+import { priceScaleHeadroom, priceTickCountForHeight, resolvePriceScale } from "../src/chart/priceScale";
 import {
   addPanelSlotAtGridRect,
   applyPanelResizeWithYield,
@@ -1373,25 +1374,74 @@ const tallPriceDensityScene = buildFrontendChartScene(frontendChartState({
   layers: { candles: true, volume: false }
 }), 800, 760);
 assert.equal(compactPriceDensityScene.plot.bottom, 326);
-assert.equal(tallPriceDensityScene.scales.minPrice, compactPriceDensityScene.scales.minPrice);
-assert.equal(tallPriceDensityScene.scales.maxPrice, compactPriceDensityScene.scales.maxPrice);
+const compactPricePaneHeight = compactPriceDensityScene.plot.priceBottom - compactPriceDensityScene.plot.top;
+const tallPricePaneHeight = tallPriceDensityScene.plot.priceBottom - tallPriceDensityScene.plot.top;
+assert.equal(
+  compactPriceDensityScene.scales.priceTicks.length,
+  priceTickCountForHeight(compactPricePaneHeight)
+);
 assert.equal(
   tallPriceDensityScene.scales.priceTicks.length,
-  compactPriceDensityScene.scales.priceTicks.length * 2 - 1
+  priceTickCountForHeight(tallPricePaneHeight)
 );
-assert.equal(
-  tallPriceDensityScene.scales.priceTicks[1],
-  (compactPriceDensityScene.scales.priceTicks[0] + compactPriceDensityScene.scales.priceTicks[1]) / 2
-);
-assert.equal(formatFrontendPriceAxisValue(tallPriceDensityScene.scales.priceTicks[1]), "147.50");
-assert.ok(
-  (compactPriceDensityScene.plot.priceBottom - compactPriceDensityScene.plot.top)
-    / (compactPriceDensityScene.scales.priceTicks.length - 1) < 120
-);
-assert.ok(
-  (tallPriceDensityScene.plot.priceBottom - tallPriceDensityScene.plot.top)
-    / (compactPriceDensityScene.scales.priceTicks.length - 1) >= 120
-);
+const compactPriceTransform = createFrontendCoordinateTransform(compactPriceDensityScene);
+const visiblePriceMax = Math.max(...priceDensityCandles.map((candle) => candle.high));
+const visiblePriceMin = Math.min(...priceDensityCandles.map((candle) => candle.low));
+const compactHeadroom = priceScaleHeadroom(compactPricePaneHeight);
+assert.ok(Math.abs(compactPriceTransform.priceToY(visiblePriceMax) - compactPriceDensityScene.plot.top - compactHeadroom.topPx) < 0.000001);
+assert.ok(Math.abs(compactPriceDensityScene.plot.priceBottom - compactPriceTransform.priceToY(visiblePriceMin) - compactHeadroom.bottomPx) < 0.000001);
+assert.ok(Math.abs(compactPriceTransform.yToPrice(compactPriceTransform.priceToY(157.25)) - 157.25) < 0.000001);
+assert.ok(compactPriceDensityScene.scales.priceTicks.every((tick) => (
+  tick >= compactPriceDensityScene.scales.minPrice && tick <= compactPriceDensityScene.scales.maxPrice
+)));
+
+const lowerNiceBoundaryScale = resolvePriceScale([100, 107.27], compactPricePaneHeight);
+const upperNiceBoundaryScale = resolvePriceScale([100, 107.28], compactPricePaneHeight);
+const lowerNiceBoundarySpan = lowerNiceBoundaryScale.domainMax - lowerNiceBoundaryScale.domainMin;
+const upperNiceBoundarySpan = upperNiceBoundaryScale.domainMax - upperNiceBoundaryScale.domainMin;
+assert.equal(lowerNiceBoundaryScale.tickCount, upperNiceBoundaryScale.tickCount);
+assert.ok(Math.abs(upperNiceBoundarySpan - lowerNiceBoundarySpan) / lowerNiceBoundarySpan < 0.01);
+assert.ok(lowerNiceBoundaryScale.ticks.every((tick) => tick >= lowerNiceBoundaryScale.domainMin && tick <= lowerNiceBoundaryScale.domainMax));
+assert.ok(upperNiceBoundaryScale.ticks.every((tick) => tick >= upperNiceBoundaryScale.domainMin && tick <= upperNiceBoundaryScale.domainMax));
+assert.equal(priceTickCountForHeight(279), 4);
+assert.equal(priceTickCountForHeight(280), 5);
+assert.equal(priceTickCountForHeight(343), 5);
+assert.equal(priceTickCountForHeight(344), 6);
+
+const panTickCountCandles = Array.from({ length: 40 }, (_, index) => (
+  testCandle(new Date(Date.parse("2026-06-01T00:00:00.000Z") + index * 86_400_000).toISOString(), 100 + index * 0.7)
+));
+const panTickCountScene = buildFrontendChartScene(frontendChartState({
+  candles: panTickCountCandles,
+  visibleCount: 12,
+  rightOffset: 18,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+const zoomTickCountScene = buildFrontendChartScene(frontendChartState({
+  candles: panTickCountCandles,
+  visibleCount: 30,
+  rightOffset: 0,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+assert.equal(panTickCountScene.scales.priceTicks.length, compactPriceDensityScene.scales.priceTicks.length);
+assert.equal(zoomTickCountScene.scales.priceTicks.length, compactPriceDensityScene.scales.priceTicks.length);
+
+const livePriceScaleScene = buildFrontendChartScene(frontendChartState({
+  candles: [testCandle("2026-07-10T13:30:00.000Z", 100)],
+  visibleCount: 6,
+  layers: { candles: true, volume: false },
+  streamState: "live",
+  liveTrade: { price: 120, timestamp: "2026-07-10T13:30:30.000Z" }
+}), 800, 360);
+const idleLivePriceScaleScene = buildFrontendChartScene(frontendChartState({
+  candles: [testCandle("2026-07-10T13:30:00.000Z", 100)],
+  visibleCount: 6,
+  layers: { candles: true, volume: false },
+  streamState: "idle",
+  liveTrade: { price: 120, timestamp: "2026-07-10T13:30:30.000Z" }
+}), 800, 360);
+assert.ok(livePriceScaleScene.scales.maxPrice > 120);
+assert.ok(idleLivePriceScaleScene.scales.maxPrice < 110);
 const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
   candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
   visibleCount: 1
@@ -1972,17 +2022,25 @@ assert.deepEqual(buildLadder(rebinnedWithCountsSource, 0.01).totals, buildLadder
 
 const narrowBidAskGrid = buildBidAskPriceGrid([210.6, 210.9], 0.01, 320);
 assert.equal(narrowBidAskGrid.priceStep, 0.01);
-assert.equal(narrowBidAskGrid.domainMin, 210.585);
-assert.equal(narrowBidAskGrid.domainMax, 210.915);
+const narrowBidAskHeadroom = priceScaleHeadroom(320);
+const narrowBidAskPricePerPixel = 0.3 / (320 - narrowBidAskHeadroom.topPx - narrowBidAskHeadroom.bottomPx);
+assert.ok(Math.abs(narrowBidAskGrid.domainMin - (210.6 - narrowBidAskPricePerPixel * narrowBidAskHeadroom.bottomPx)) < 0.000001);
+assert.ok(Math.abs(narrowBidAskGrid.domainMax - (210.9 + narrowBidAskPricePerPixel * narrowBidAskHeadroom.topPx)) < 0.000001);
 assert.equal(narrowBidAskGrid.decimalPlaces, 2);
 assert.ok(narrowBidAskGrid.rowPrices.length <= 64);
 assert.ok(narrowBidAskGrid.domainMax - narrowBidAskGrid.domainMin < 0.35);
+assert.equal(narrowBidAskGrid.axisTicks.length, priceTickCountForHeight(320));
 const compactBidAskGrid = buildBidAskPriceGrid([210.6, 210.9], 0.01, 100);
 assert.equal(compactBidAskGrid.priceStep, 0.02);
 assert.ok(compactBidAskGrid.rowPrices.length <= 20);
+assert.equal(compactBidAskGrid.axisTicks.length, priceTickCountForHeight(100));
 const expandedBidAskGrid = buildBidAskPriceGrid([210.6, 212.8], 0.01, 320);
 assert.ok(expandedBidAskGrid.priceStep > narrowBidAskGrid.priceStep);
 assert.ok(expandedBidAskGrid.domainMax > 212.8);
+assert.equal(expandedBidAskGrid.axisTicks.length, narrowBidAskGrid.axisTicks.length);
+assert.ok(expandedBidAskGrid.axisTicks.every((tick) => (
+  tick >= 0 && tick >= expandedBidAskGrid.domainMin && tick <= expandedBidAskGrid.domainMax
+)));
 const narrowPriceCandle: CandleDto = {
   timestamp: "2026-07-08T13:30:00.000Z",
   open: 210.7,
@@ -1997,8 +2055,12 @@ const ordinaryNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   visibleCount: 1,
   requestedLimit: 1
 }), 600, 320);
-assert.equal(ordinaryNarrowPriceScene.scales.minPrice, 210.5);
-assert.equal(ordinaryNarrowPriceScene.scales.maxPrice, 211);
+assert.ok(ordinaryNarrowPriceScene.scales.minPrice < narrowPriceCandle.low);
+assert.ok(ordinaryNarrowPriceScene.scales.maxPrice > narrowPriceCandle.high);
+assert.equal(
+  ordinaryNarrowPriceScene.scales.priceTicks.length,
+  priceTickCountForHeight(ordinaryNarrowPriceScene.plot.priceBottom - ordinaryNarrowPriceScene.plot.top)
+);
 assert.equal(ordinaryNarrowPriceScene.scales.bidAskPriceGrid, undefined);
 const lowPriceCandles = [
   {
@@ -2033,8 +2095,35 @@ const guardedSmaScene = buildFrontendChartScene(frontendChartState({
   }
 }), 600, 320);
 assert.ok(guardedSmaScene.scales.minPrice >= 0);
-assert.ok(guardedSmaScene.scales.maxPrice < 1);
+assert.ok(guardedSmaScene.scales.maxPrice > 100);
 assert.ok(guardedSmaScene.scales.priceTicks.every((tick) => tick >= 0));
+const invalidOverlayScale = resolvePriceScale([0.18, 0.23, Number.NaN, Number.POSITIVE_INFINITY, 0, -1], 240);
+assert.ok(invalidOverlayScale.domainMax < 1);
+assert.ok(invalidOverlayScale.ticks.every((tick) => tick >= 0));
+const invalidIndicatorScene = buildFrontendChartScene(frontendChartState({
+  candles: [narrowPriceCandle],
+  visibleCount: 1,
+  layers: {
+    candles: true,
+    volume: false,
+    "sma:120": true,
+    "ema:20": true,
+    "wma:20": true,
+    "bollinger:20:2": true
+  },
+  indicatorSeries: {
+    "sma:120": [{ timestamp: narrowPriceCandle.timestamp, value: Number.NaN }],
+    "ema:20": [{ timestamp: narrowPriceCandle.timestamp, value: Number.POSITIVE_INFINITY }],
+    "wma:20": [{ timestamp: narrowPriceCandle.timestamp, value: 0 }],
+    "bollinger:20:2": [{
+      timestamp: narrowPriceCandle.timestamp,
+      upper: Number.NEGATIVE_INFINITY,
+      lower: -1
+    }]
+  }
+}), 600, 320);
+assert.ok(invalidIndicatorScene.scales.maxPrice < 220);
+assert.ok(invalidIndicatorScene.scales.minPrice >= 0);
 const nearbySmaScene = buildFrontendChartScene(frontendChartState({
   candles: [narrowPriceCandle],
   visibleCount: 1,
@@ -3493,7 +3582,11 @@ const extremeProposalPriceRangeScene = buildFrontendChartScene({
   }))
 }, 640, 360);
 assert.ok(extremeProposalPriceRangeScene.scales.minPrice >= 0);
-assert.ok(extremeProposalPriceRangeScene.scales.maxPrice < 1_000);
+assert.ok(extremeProposalPriceRangeScene.scales.maxPrice > 10_000);
+assert.equal(
+  extremeProposalPriceRangeScene.scales.priceTicks.length,
+  priceTickCountForHeight(extremeProposalPriceRangeScene.plot.priceBottom - extremeProposalPriceRangeScene.plot.top)
+);
 
 const continuousAnchorBaseScene = buildFrontendChartScene(frontendChartState({
   interval: "1D",
@@ -4144,7 +4237,9 @@ assert.match(chartToolbarSelectSource, /chart-toolbar-select-option-icon/);
 const portfolioHoldingsPanelSource = readFileSync(fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)), "utf-8");
 assert.match(portfolioHoldingsPanelSource, /RefreshCcw/);
 assert.match(portfolioHoldingsPanelSource, /포트폴리오 새로고침/);
-assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(true\)/);
+assert.match(portfolioHoldingsPanelSource, /loadPortfolioHoldingsStore\(source, true\)/);
+assert.match(portfolioHoldingsPanelSource, /new Map<PortfolioHoldingsSource, PortfolioHoldingsStore>/);
+assert.match(portfolioHoldingsPanelSource, /new URLSearchParams\(\{ market: "overseas", currency: "USD", source \}\)/);
 assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
 

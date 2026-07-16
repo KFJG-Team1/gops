@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { buildChartCommentaryModel } from "../src/chart/commentaryModel";
+import { buildChartCommentaryModel, buildChartCommentaryViewModel } from "../src/chart/commentaryModel";
+import { chartCommentaryHoldingDisplay } from "../src/chart/commentaryHoldings";
 import type { ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import type { ChartTradeSetup } from "../src/chart/chartTradeSetup";
 
@@ -23,19 +24,42 @@ const plan: ChartTradeSetup = {
   priceSources: { entry: "server", target: "server", stop: "server" }
 };
 const steps = buildChartCommentaryModel(asset, plan);
-assert.deepEqual(steps.map((step) => step.id), ["levels", "trend", "pattern", "entry", "target", "stop", "summary"]);
+assert.deepEqual(steps.map((step) => step.id), ["levels", "trend", "pattern"]);
 assert.match(steps[0].body, /지지선 1개와 저항선 0개/);
 assert.equal(steps[0].metricCards?.[0]?.items.find((item) => item.label === "가격")?.value, "98");
 assert.equal(steps[1].body, "적격 대각 추세 없음");
 assert.equal(steps[2].body, "적격 패턴 없음");
-assert.match(steps[3].body, /100\.00/);
-assert.match(steps[4].body, /\+10\.00%/);
-assert.match(steps[5].body, /-5\.00%/);
-assert.match(steps[5].body, /이 기준을 벗어나면 매수 관점을 다시 검토합니다/);
-assert.doesNotMatch(steps[5].body, /시나리오 무효화 조건/);
-assert.deepEqual(steps[6].drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
+const view = buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90, quantity: 18 });
+assert.deepEqual(view.keyPrices.map((item) => item.id), ["support", "entry", "target", "invalidation"]);
+assert.equal(view.keyPrices[0]?.distancePercent?.toFixed(2), "-2.97");
+assert.equal(view.scenario?.status, "매수 검토");
+assert.equal(view.scenario?.confirmation, "진입 기준 100.00 확인");
+assert.equal(view.scenario?.rewardRiskRatio, 2);
+assert.equal(view.scenario?.projectionBars, 10);
+assert.deepEqual(view.scenario?.drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
+assert.match(view.summary.join(" "), /현재가 101\.00/);
+assert.match(view.summary.join(" "), /98\.00/);
+assert.match(view.summary.join(" "), /95\.00 이탈 시/);
+assert.match(view.summary.join(" "), /평균 매입가 90\.00 대비 현재가는 \+12\.22%/);
+assert.equal(view.summary.length, 4);
+assert.deepEqual(buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90 }), view, "same facts always produce the same commentary");
 
-const sellSteps = buildChartCommentaryModel(asset, {
+const withoutHolding = buildChartCommentaryViewModel(asset, null, null, null);
+assert.equal(withoutHolding.scenario, null);
+assert.deepEqual(withoutHolding.keyPrices.map((item) => item.id), ["support"]);
+assert.doesNotMatch(withoutHolding.summary.join(" "), /현재가|평균 매입가|진입 기준/);
+assert.equal(withoutHolding.summary.length, 2);
+
+assert.deepEqual(chartCommentaryHoldingDisplay({ symbol: "AAPL", averagePrice: 148.42, quantity: 18 }, false), {
+  status: "보유", averagePrice: 148.42, quantity: 18
+});
+assert.deepEqual(chartCommentaryHoldingDisplay(null, false), { status: "미보유", averagePrice: null, quantity: null });
+assert.deepEqual(chartCommentaryHoldingDisplay(null, false, "로그인이 필요합니다", 401), { status: "계좌 미연결", averagePrice: null, quantity: null });
+assert.deepEqual(chartCommentaryHoldingDisplay({ symbol: "AAPL", averagePrice: 148.42, quantity: 18 }, false, "조회 실패", 503), {
+  status: "확인 불가", averagePrice: null, quantity: null
+});
+
+const sellView = buildChartCommentaryViewModel(asset, {
   ...plan,
   action: "sell_candidate",
   sourceKind: "conditional",
@@ -44,15 +68,11 @@ const sellSteps = buildChartCommentaryModel(asset, {
   targetPrice: 110,
   stopPrice: 122,
   rewardRiskRatio: 2
-});
-assert.equal(sellSteps[3].title, "매도 기준");
-assert.match(sellSteps[3].body, /매도 기준가 118\.00/);
-assert.match(sellSteps[3].body, /근거 주기는 4h/);
-assert.match(sellSteps[4].body, /하락 목표가 110\.00/);
-assert.match(sellSteps[5].body, /매도 무효화가 122\.00/);
-assert.match(sellSteps[5].body, /이 기준을 벗어나면 매도 관점을 다시 검토합니다/);
-assert.match(sellSteps[6].body, /조건부 매도 후보/);
-assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["levels", "trend", "pattern", "observe"]);
+}, 118, null);
+assert.equal(sellView.scenario?.status, "조건 확인 전 · 매도 검토");
+assert.equal(sellView.scenario?.confirmation, "매도 기준 118.00 확인");
+assert.match(sellView.summary.join(" "), /조건이 확인되면 118\.00을 매도 기준/);
+assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["levels", "trend", "pattern"]);
 
 const trendWithInvalidation = {
   id: "trend-channel",

@@ -1,17 +1,18 @@
 import { BrainCircuit, ChartNoAxesCombined, Goal, Minus, TrendingUp } from "lucide-react";
 import type { ReactNode } from "react";
-import { formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
+import { formatAnalysisAssetAsOf, type AnalysisAssetFreshness } from "../chart/analysisAssetPresentation";
 import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysisLayerController";
 import type { AnalysisTraceDataMode } from "../chart/analysisTraceOverlay";
 
 export function ChartAnalysisLayerToggles({
-  visibility, disabled, asOf, stale = false, interpretationMode = "none", onToggle
+  visibility, disabled, asOf, freshness = null, interpretationMode = "none", candidateCounts, onToggle
 }: {
   visibility: AnalysisLayerVisibility;
   disabled: Record<AnalysisLayerKey, boolean>;
   asOf?: string;
-  stale?: boolean;
+  freshness?: AnalysisAssetFreshness | null;
   interpretationMode?: AnalysisTraceDataMode;
+  candidateCounts?: { total: number; visible: number } | null;
   onToggle: (layer: AnalysisLayerKey) => void;
 }) {
   return (
@@ -23,7 +24,12 @@ export function ChartAnalysisLayerToggles({
         <LayerButton layer="pattern" label="패턴" icon={<ChartNoAxesCombined size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="proposal" label="제안" icon={<Goal size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
       </div>
-      {asOf && <span className={`chart-analysis-asof ${stale ? "is-stale" : ""}`}>분석 기준 {formatAnalysisAssetAsOf(asOf)}{stale ? " · stale" : ""}{interpretationMode === "complete" ? " · 해석 전체 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}</span>}
+      {asOf && <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
+        분석 기준 {formatAnalysisAssetAsOf(asOf)}
+        {freshness?.state === "source_invalid" ? " · 데이터 불일치" : freshness?.state === "outdated_snapshot" ? ` · ${freshness.lagBars}봉 전` : ""}
+        {interpretationMode === "complete" ? " · 해석 전체 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}
+        {interpretationMode === "complete" && candidateCounts ? ` · 후보 ${candidateCounts.visible}/${candidateCounts.total}` : ""}
+      </span>}
     </div>
   );
 }

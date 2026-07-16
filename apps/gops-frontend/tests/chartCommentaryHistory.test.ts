@@ -11,6 +11,7 @@ import {
   ensureChartCommentaryPanel,
   normalizeChartCommentaryState,
   rememberChartCommentaryState,
+  setChartCommentaryMode,
   type ChartCommentaryRequestSnapshot
 } from "../src/agent/chartCommentaryHistory";
 import type { AgentAnalysisReport } from "../src/agents/agentAnalysis";
@@ -62,8 +63,9 @@ assert.equal(Object.values(ensured.state.contents).filter((item) => item.kind ==
 const begun = beginChartCommentaryRequest(initial, source, "client-1", "차트 분석해줘", viewport);
 const begunContent = begun.contentId ? begun.state.contents[begun.contentId] : null;
 const begunState = normalizeChartCommentaryState(begunContent?.props?.commentaryState, source.chartDocumentId);
-assert.equal(begunState.activeView, "current", "pending work does not replace the current commentary");
+assert.equal(begunState.mode, "commentary", "pending work does not replace the current commentary");
 assert.equal(begunState.pending?.requestId, "client-1");
+assert.equal(setChartCommentaryMode(begunState, "conversation").mode, "conversation", "pending work makes conversation available");
 
 let withAnswers = begun.state;
 for (let index = 0; index < chartCommentaryHistoryLimit + 2; index += 1) {
@@ -79,25 +81,57 @@ for (let index = 0; index < chartCommentaryHistoryLimit + 2; index += 1) {
 }
 const answerContent = Object.values(withAnswers.contents).find((item) => item.kind === "chartCommentary");
 const answerState = normalizeChartCommentaryState(answerContent?.props?.commentaryState, source.chartDocumentId);
-assert.equal(answerState.answers.length, chartCommentaryHistoryLimit);
-assert.equal(answerState.answers[0]?.analysisId, "analysis-2");
-assert.equal(answerState.activeView, `analysis-${chartCommentaryHistoryLimit + 1}`);
+assert.equal(answerState.turns.length, chartCommentaryHistoryLimit);
+assert.equal(answerState.turns[0]?.analysisId, "analysis-2");
+assert.equal(answerState.mode, "conversation");
 assert.equal(answerState.pending, null);
+
+const repeatedRequest = beginChartCommentaryRequest(withAnswers, source, "client-next", "다시 분석해줘", viewport);
+const repeatedContent = Object.values(repeatedRequest.state.contents).find((item) => item.kind === "chartCommentary");
+const repeatedState = normalizeChartCommentaryState(repeatedContent?.props?.commentaryState, "doc-a");
+assert.equal(repeatedState.mode, "commentary", "a new question keeps the commentary visible while pending");
+assert.equal(repeatedState.turns.length, chartCommentaryHistoryLimit);
+assert.equal(repeatedState.pending?.requestId, "client-next");
+
+const deduplicated = attachChartCommentaryReport(
+  withAnswers,
+  source,
+  report(`analysis-${chartCommentaryHistoryLimit + 1}`),
+  "중복 질문",
+  viewport
+).state;
+const deduplicatedContent = Object.values(deduplicated.contents).find((item) => item.kind === "chartCommentary");
+assert.equal(normalizeChartCommentaryState(deduplicatedContent?.props?.commentaryState, "doc-a").turns.length, chartCommentaryHistoryLimit);
 
 const perDocumentHistory = rememberChartCommentaryState(undefined, "doc-a", answerState);
 const docBState = chartCommentaryStateForDocument(perDocumentHistory, "doc-b");
-assert.equal(docBState.answers.length, 0, "another chart starts with isolated commentary history");
+assert.equal(docBState.turns.length, 0, "another chart starts with isolated commentary history");
 const withDocB = rememberChartCommentaryState(perDocumentHistory, "doc-b", {
   ...docBState,
   pending: { requestId: "doc-b-request", question: "이 봉 분석해줘", requestedAt: source.asOf, snapshot: { ...source, chartDocumentId: "doc-b" } }
 });
-assert.equal(chartCommentaryStateForDocument(withDocB, "doc-a").answers.length, chartCommentaryHistoryLimit);
+assert.equal(chartCommentaryStateForDocument(withDocB, "doc-a").turns.length, chartCommentaryHistoryLimit);
 assert.equal(chartCommentaryStateForDocument(withDocB, "doc-b").pending?.requestId, "doc-b-request");
 
 const restored = restoreTiledPanelStateSnapshot(serializeTiledPanelState(withAnswers), viewport);
 const restoredContent = Object.values(restored?.contents ?? {}).find((item) => item.kind === "chartCommentary");
 const restoredState = normalizeChartCommentaryState(restoredContent?.props?.commentaryState, source.chartDocumentId);
-assert.equal(restoredState.answers.length, chartCommentaryHistoryLimit, "answer history persists with the workspace layout");
+assert.equal(restoredState.turns.length, chartCommentaryHistoryLimit, "answer history persists with the workspace layout");
+
+const migrated = normalizeChartCommentaryState({
+  version: "chart-commentary-history.v1",
+  chartDocumentId: "doc-a",
+  activeView: "analysis-6",
+  answers: [
+    ...answerState.turns,
+    { ...answerState.turns[answerState.turns.length - 1]!, analysisId: "legacy-extra", question: "가장 최근 과거 질문" }
+  ],
+  pending: null
+}, "doc-a");
+assert.equal(migrated.version, "chart-commentary-history.v2");
+assert.equal(migrated.mode, "conversation");
+assert.equal(migrated.turns.length, chartCommentaryHistoryLimit);
+assert.equal(migrated.turns.at(-1)?.analysisId, "legacy-extra");
 
 const cleared = clearChartCommentaryPending(begun.state, "doc-a");
 const clearedContent = Object.values(cleared.contents).find((item) => item.kind === "chartCommentary");

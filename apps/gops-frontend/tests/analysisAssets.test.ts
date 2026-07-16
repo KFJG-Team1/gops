@@ -6,7 +6,7 @@ import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/s
 import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import { analysisTraceDataMode, buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
-import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
+import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
 import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
@@ -61,6 +61,7 @@ assert.equal(formatDetectedPattern(flagPattern), "상승 깃발형 · 돌파 확
 assert.equal(formatDetectedPattern(null), "감지 없음");
 assert.equal(formatDetectedPattern({ kind: "future_pattern", state: "forming" }), "future_pattern · 형성 중");
 assert.equal(isAnalysisAssetStale(asset.asOf, candles, "geometry", "1D"), false);
+assert.equal(isAnalysisAssetStale(asset.asOf, [{ ...candles[0], timestamp: "2026-07-14T20:00:00.000Z", isClosed: undefined } as unknown as typeof candles[number]], "geometry", "1D"), false);
 
 const patternCoverage: ChartAssetCoverageItem[] = [
   { symbol: "MSFT", interval: "1D", generatedAt: "2026-07-10T20:00:00.000Z", status: "ready", primaryPattern: { kind: "bearish_flag", state: "forming", score: .95 } },
@@ -128,8 +129,19 @@ assert.equal(deadCrossDrawing?.anchors[0]?.price, 168.75);
 assert.equal(resolveAnalysisAssetForCandles(asset, [])?.geometry.drawings.length, 0);
 assert.equal(analysisAssetPresentationDiagnostics(asset, candles, [upper.id, lower.id]).state, "ready");
 const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...candles[0], timestamp: "2026-07-14T20:00:00.000Z" }]);
-assert.equal(stale.state, "stale_asset");
-assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .60);
+assert.equal(stale.state, "outdated_snapshot");
+assert.equal(stale.outdated, true);
+assert.equal(stale.freshness.lagBars, 1);
+assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .72);
+const sourceInvalidAsset: ChartAnalysisAsset = {
+  ...asset,
+  coverage: { ...asset.coverage, lastActualClosedAt: previous }
+};
+const sourceInvalid = analysisAssetPresentationDiagnostics(sourceInvalidAsset, candles);
+assert.equal(sourceInvalid.state, "source_invalid");
+assert.equal(sourceInvalid.stale, true);
+assert.equal(sourceInvalid.resolvedAsset.geometry.drawings[0].style.opacity, .60);
+assert.equal(analysisAssetFreshness(sourceInvalidAsset, candles).reason, "coverage_watermark_mismatch");
 
 const userDrawing: DrawingEntity = { ...upper, id: "user", sourceProposalId: undefined, createdBy: "user" };
 const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, allEvidenceVisible, { mode: "pan" });
@@ -221,12 +233,14 @@ assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
-assert.match(commentarySource, /buildChartCommentaryModel/);
-assert.match(commentarySource, /aria-expanded=\{pinned\}/);
-assert.match(commentarySource, /aria-controls=\{metricPanelId\}/);
+assert.match(commentarySource, /buildChartCommentaryViewModel/);
+assert.match(commentarySource, /aria-pressed=\{pinned\}/);
+assert.match(commentarySource, /수치 근거 자세히/);
 assert.match(commentarySource, /candidateIds/);
 assert.match(commentarySource, /evidenceRefs/);
 assert.match(commentarySource, /chart-commentary-metric-card/);
+assert.match(commentarySource, /실계좌 보유 현황/);
+assert.match(commentarySource, /ConversationView/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);
 const patternPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPatternListPanel.tsx", import.meta.url)), "utf-8");
 assert.match(patternPanelSource, /fetchChartAssetCoverage/);
