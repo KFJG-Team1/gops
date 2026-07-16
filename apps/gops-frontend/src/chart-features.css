@@ -84,54 +84,93 @@
   max-width: calc(100% - 20px);
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 5px;
   color: var(--color-muted);
 }
 
 .chart-analysis-layer-buttons {
   display: inline-flex;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--coinbase-panel-strong) 88%, transparent);
-  box-shadow: var(--coinbase-glass-shadow);
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, var(--color-text));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--coinbase-panel-strong) 94%, transparent);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 0.16);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
 
 .chart-analysis-layer-buttons button {
+  position: relative;
   display: inline-flex;
-  min-width: 48px;
-  height: 26px;
+  min-width: 56px;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: 5px;
+  padding: 0 9px;
   border: 0;
   border-right: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-surface-strong) 82%, transparent);
+  color: var(--color-text);
   cursor: pointer;
 }
 
-.chart-analysis-layer-buttons button span {
-  font-size: 10px;
-  font-weight: 700;
+.chart-analysis-layer-buttons .chart-analysis-layer-label {
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .chart-analysis-layer-buttons button:last-child {
   border-right: 0;
 }
 
-.chart-analysis-layer-buttons button.is-active {
-  background: rgb(var(--framer-accent-blue-rgb) / 0.15);
+.chart-analysis-layer-buttons button.is-on {
+  background: rgb(var(--framer-accent-blue-rgb) / 0.22);
   color: var(--framer-accent-blue);
+  box-shadow: inset 0 -2px 0 var(--framer-accent-blue);
+}
+
+.chart-analysis-layer-buttons button.is-off:hover {
+  background: color-mix(in srgb, var(--color-surface-strong) 92%, var(--framer-accent-blue) 8%);
+}
+
+.chart-analysis-layer-state {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.78;
+}
+
+.chart-analysis-layer-buttons button.is-on .chart-analysis-layer-state {
+  border-color: var(--framer-accent-blue);
+  background: var(--framer-accent-blue);
+  box-shadow: 0 0 0 2px rgb(var(--framer-accent-blue-rgb) / 0.12);
+  opacity: 1;
+}
+
+.chart-analysis-layer-buttons button:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--framer-accent-blue);
+  outline-offset: -2px;
 }
 
 .chart-analysis-layer-buttons button:disabled {
   color: var(--color-muted-soft);
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.48;
+}
+
+.chart-analysis-layer-buttons button.is-unavailable .chart-analysis-layer-state {
+  top: 7px;
+  width: 6px;
+  height: 1px;
+  border: 0;
+  border-radius: 1px;
+  background: currentColor;
 }
 
 .chart-analysis-asof {

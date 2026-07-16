@@ -58,6 +58,11 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(trendToggle).toBeEnabled();
   await expect(patternToggle).toBeEnabled();
   await expect(proposalToggle).toBeEnabled();
+  await expect(interpretationToggle).toHaveAttribute("data-state", "off");
+  await expect(levelsToggle).toHaveAttribute("data-state", "on");
+  await expect(trendToggle).toHaveAttribute("data-state", "on");
+  await expect(patternToggle).toHaveAttribute("data-state", "on");
+  await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   await expect(canvas).toBeVisible();
   await expect(page).toHaveScreenshot("chart-assets-layers-both.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
@@ -126,7 +131,10 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeDisabled();
+  const unavailableProposalToggle = page.getByRole("button", { name: "제안 분석 레이어 사용 불가" });
+  await expect(unavailableProposalToggle).toBeDisabled();
+  await expect(unavailableProposalToggle).toHaveAttribute("data-state", "unavailable");
+  await expect(unavailableProposalToggle).not.toHaveAttribute("aria-pressed", /.+/);
   await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
 });
 
@@ -212,7 +220,7 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await supportFocus.hover();
   await expect(page).toHaveScreenshot("chart-commentary-question-answer.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await page.getByRole("button", { name: "현재 해설" }).click();
-  await expect(page.getByText(/적용된 근거·제안 작도/)).toBeVisible();
+  await expect(page.getByText(/지지선 1개와 저항선 0개를 관찰합니다/)).toBeVisible();
 });
 
 test("reservation buy with quantity and alternate verb asks for a price instead of chart analysis", async ({ page }) => {
