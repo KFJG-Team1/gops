@@ -7,7 +7,9 @@ let omittedOrderFlowMinute: number | null = null;
 let alignBidAskFixtures = false;
 let partialThenReadyCandles = false;
 let sparseCandlesWithoutBackfill = false;
+let backfillWhenPastBoundaryVisible = false;
 let candleRequestCount = 0;
+let olderCandleRequestCount = 0;
 
 test.beforeEach(async ({ page }) => {
   omittedCandleIndex = null;
@@ -15,7 +17,9 @@ test.beforeEach(async ({ page }) => {
   alignBidAskFixtures = false;
   partialThenReadyCandles = false;
   sparseCandlesWithoutBackfill = false;
+  backfillWhenPastBoundaryVisible = false;
   candleRequestCount = 0;
+  olderCandleRequestCount = 0;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
 });
@@ -139,6 +143,19 @@ test("wheel zoom out remains available without historical backfill", async ({ pa
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count")))
     .toBeGreaterThan(initialVisibleCount);
   expect(candleRequestCount).toBe(1);
+  await expectNonBlankCanvas(canvas);
+});
+
+test("visible past boundary requests older candles without horizontal pan", async ({ page }) => {
+  backfillWhenPastBoundaryVisible = true;
+  await openFixtureLayout(page, chartOnlyLayout());
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "20");
+  await expect(chartPanel).toHaveAttribute("data-chart-right-offset", /^-/);
+
+  await expect.poll(() => olderCandleRequestCount).toBe(1);
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "140");
   await expectNonBlankCanvas(canvas);
 });
 
@@ -602,7 +619,22 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
     const symbol = url.searchParams.get("symbol") ?? "NVDA";
     const interval = url.searchParams.get("interval") ?? "1m";
     const fullPayload = candlePayload(symbol, interval);
-    if (sparseCandlesWithoutBackfill) {
+    if (backfillWhenPastBoundaryVisible) {
+      const allCandles = fullPayload.candles as Array<Record<string, unknown>>;
+      const isOlderRequest = url.searchParams.has("before");
+      const candles = isOlderRequest ? allCandles.slice(0, -20) : allCandles.slice(-20);
+      if (isOlderRequest) {
+        olderCandleRequestCount += 1;
+      }
+      payload = {
+        ...fullPayload,
+        request: { limit: candles.length },
+        candles,
+        requestedLimit: candles.length,
+        returnedCount: candles.length,
+        hasMoreBefore: !isOlderRequest
+      };
+    } else if (sparseCandlesWithoutBackfill) {
       const candles = (fullPayload.candles as Array<Record<string, unknown>>).slice(-3);
       payload = {
         ...fullPayload,

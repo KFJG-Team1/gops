@@ -151,6 +151,7 @@ import {
   latestCandleRightOffset,
   normalizeViewport,
   resolveHorizontalWheelDelta,
+  viewportNeedsOlderCandles,
   zoomViewport,
   zoomViewportAt,
   type ChartViewport,
@@ -1074,6 +1075,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
+    const oldest = chart.candles[0]?.timestamp;
+    if (!oldest || chart.hasMoreBefore === false) {
+      return;
+    }
+    const currentScene = sceneRef.current;
+    const matchingScene = currentScene?.chart.symbol === chart.symbol && currentScene.chart.interval === chart.interval
+      ? currentScene
+      : null;
+    const plotWidth = matchingScene ? matchingScene.plot.right - matchingScene.plot.left : undefined;
+    const visibleViewport = normalizeViewport(
+      { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
+      chart.candles.length,
+      plotWidth,
+      viewportClampOptionsForChart(chart, matchingScene)
+    );
+    if (!viewportNeedsOlderCandles(visibleViewport, chart.candles.length)) {
+      return;
+    }
+    loadOlderCandles(
+      chart.symbol,
+      chart.interval,
+      oldest,
+      Math.max(defaultVisibleBarsForInterval(chart.interval), visibleViewport.visibleCount),
+      visibleViewport
+    );
+  }, [
+    chart.candles,
+    chart.hasMoreBefore,
+    chart.interval,
+    chart.rightOffset,
+    chart.symbol,
+    chart.visibleCount,
+    loadOlderCandles
+  ]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let retryTimer: number | undefined;
     const requestedSymbol = chart.symbol;
@@ -1743,23 +1780,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
     const clampOptions = viewportClampOptionsForChart(currentChart, currentScene);
     const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth, clampOptions);
-    const maxRightOffset = Math.max(0, currentChart.candles.length - Math.min(requestedViewport.visibleCount, currentChart.candles.length));
-    const oldest = currentChart.candles[0]?.timestamp;
-    if (oldest && currentChart.hasMoreBefore !== false && requestedViewport.rightOffset >= maxRightOffset - 1) {
-      loadOlderCandles(
-        currentChart.symbol,
-        currentChart.interval,
-        oldest,
-        Math.max(defaultVisibleBarsForInterval(currentChart.interval), requestedViewport.visibleCount),
-        requestedViewport
-      );
-    }
     const nextViewport = requestedViewport;
     if (nextViewport.visibleCount === currentChart.visibleCount && nextViewport.rightOffset === currentChart.rightOffset) {
       return;
     }
     dispatchDocumentCommand("chart.viewport.set", nextViewport, "user", historyScope);
-  }, [dispatchDocumentCommand, loadOlderCandles]);
+  }, [dispatchDocumentCommand]);
 
   useEffect(() => {
     const proposalDrawing = chartTradeSetupSnapshot

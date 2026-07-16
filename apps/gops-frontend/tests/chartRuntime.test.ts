@@ -218,6 +218,7 @@ import {
   latestCandleRightOffset as frontendLatestCandleRightOffset,
   normalizeViewport as frontendNormalizeViewport,
   resolveHorizontalWheelDelta as frontendResolveHorizontalWheelDelta,
+  viewportNeedsOlderCandles,
   zoomViewport as frontendZoomViewport
 } from "../src/chart/viewport";
 import {
@@ -3117,6 +3118,9 @@ assert.deepEqual(frontendZoomViewport({ visibleCount: 6, rightOffset: -1 }, 18, 
   visibleCount: 24,
   rightOffset: -1
 });
+assert.equal(viewportNeedsOlderCandles({ visibleCount: 120, rightOffset: -30 }, 120), false);
+assert.equal(viewportNeedsOlderCandles({ visibleCount: 160, rightOffset: -30 }, 120), true);
+assert.equal(viewportNeedsOlderCandles({ visibleCount: 60, rightOffset: 60 }, 120), true);
 assert.equal(frontendDragDeltaToRightOffset(-40, -180, 9, 72, 160, { extraFutureSlots: 14 }), -60);
 assert.equal(frontendHorizontalWheelDeltaToRightOffset(0, 27, 9, 72, 160), -3);
 assert.equal(resolveHorizontalWheelDelta(2, 20), 2);
