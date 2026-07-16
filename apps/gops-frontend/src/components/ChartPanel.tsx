@@ -152,6 +152,7 @@ import {
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
+import { simulationAwareNowMs } from "../simulator/simulatorApi";
 import {
   defaultBidAskInterval,
   defaultVisibleBarsForBidAskInterval,
@@ -429,7 +430,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
-  const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
+  const [currentPriceClock, setCurrentPriceClock] = useState(() => simulationAwareNowMs(Date.now()));
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
@@ -740,7 +741,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!currentPriceMarker || currentPriceMarker.isClosed || currentPriceMarker.streamState !== "live") {
       return undefined;
     }
-    const timer = window.setInterval(() => setCurrentPriceClock(Date.now()), 1000);
+    const timer = window.setInterval(() => setCurrentPriceClock(simulationAwareNowMs(Date.now())), 1000);
     return () => window.clearInterval(timer);
   }, [currentPriceMarker]);
 

@@ -55,6 +55,14 @@ assert.equal(
   simulationAwareNowMs(observedAtMs + 2_000, { ...replayStatus, mode: "live" }, observedAtMs),
   observedAtMs + 2_000
 );
+assert.equal(
+  simulationAwareNowMs(observedAtMs + 10_000, {
+    ...replayStatus,
+    virtualTime: "2026-07-15T14:59:58.000Z",
+    effectiveSpeed: 300
+  }, observedAtMs),
+  Date.parse(replayStatus.endTime)
+);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
@@ -74,6 +82,10 @@ const bottomCommandBarSource = readFileSync(
   fileURLToPath(new URL("../src/components/BottomCommandBar.tsx", import.meta.url)),
   "utf-8"
 );
+const chartPanelSource = readFileSync(
+  fileURLToPath(new URL("../src/components/ChartPanel.tsx", import.meta.url)),
+  "utf-8"
+);
 const newsPanelSource = readFileSync(
   fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)),
   "utf-8"
@@ -88,6 +100,7 @@ assert.doesNotMatch(controlSource, /다음 시연 단계|setSimulatorPhase|break
 assert.match(controlSource, /formatSimulatorVirtualTime\(status\.virtualTime\)/);
 assert.match(controlSource, /setSimulatorSpeed/);
 assert.match(controlSource, /시뮬레이션 재생/);
+assert.match(chartPanelSource, /simulationAwareNowMs\(Date\.now\(\)\)/);
 assert.match(apiSource, /\/api\/simulator\/speed/);
 assert.doesNotMatch(apiSource, /\/api\/simulator\/phase|\/api\/simulator\/orders\/basket/);
 assert.match(bottomCommandBarSource, /<SimulatorControl \/>/);
