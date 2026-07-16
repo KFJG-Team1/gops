@@ -52,15 +52,19 @@ export type ChartAssetBuildStatus = {
 export type ChartAssetCoverageItem = {
   symbol: string;
   interval: AnalysisAssetInterval;
+  asOf?: string | null;
   generatedAt: string;
   status: AnalysisAssetStatus;
   assetVersion?: "geometry";
+  algorithmVersion?: string;
   coverageState?: "full" | "partial";
   payloadBytes?: number;
   drawingCount?: number;
   storedDrawingCount?: number;
   freshness?: "current" | "stale" | "unknown";
   staleByBars?: number | null;
+  traceMode?: "geometry-analysis-trace-v1" | "geometry-analysis-trace-v2" | "none" | string;
+  traceCandidateCounts?: { levels: number; trends: number; patterns: number };
   primaryPattern?: Pick<GeometryPattern, "kind" | "state" | "score"> | null;
 };
 

@@ -144,6 +144,7 @@ test("wheel zoom out remains available without historical backfill", async ({ pa
     .toBeGreaterThan(initialVisibleCount);
   expect(candleRequestCount).toBe(1);
   await expectNonBlankCanvas(canvas);
+  await expect(chartPanel).toHaveScreenshot("chart-standard-zoomed.png", { maxDiffPixelRatio: 0.015 });
 });
 
 test("visible past boundary requests older candles without horizontal pan", async ({ page }) => {

@@ -59,6 +59,16 @@ export type PortfolioHoldingsResponse = {
   limitations?: string[];
 };
 
+export class PortfolioHoldingsApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "PortfolioHoldingsApiError";
+    this.status = status;
+  }
+}
+
 export function validPortfolioCash(
   cashValue: number | null,
   stockValue: number | null,
@@ -96,7 +106,7 @@ export async function parsePortfolioHoldingsApiResponse(response: ResponseLike):
   const payload = parseJsonBody(bodyText, contentType);
 
   if (!response.ok) {
-    throw new Error(apiErrorMessage(response, payload, bodyText));
+    throw new PortfolioHoldingsApiError(response.status, apiErrorMessage(response, payload, bodyText));
   }
 
   if (!isPortfolioHoldingsResponse(payload)) {

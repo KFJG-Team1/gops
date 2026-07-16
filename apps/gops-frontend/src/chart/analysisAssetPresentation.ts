@@ -3,7 +3,14 @@ import type { CandleDto, DrawingAnchor, DrawingEntity } from "./types";
 import { buildTradeTimingDrawings, isTradeTimingDrawing } from "./tradeTimingOverlay";
 import { chartSemanticCatalog } from "./chartSemanticCatalog";
 
-export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "stale_asset";
+export type AnalysisAssetFreshnessState = "current" | "outdated_snapshot" | "source_invalid";
+export type AnalysisAssetFreshness = {
+  state: AnalysisAssetFreshnessState;
+  lagBars: number;
+  latestClosedAt: string | null;
+  reason?: "invalid_as_of" | "future_as_of" | "coverage_watermark_mismatch" | "stale_input";
+};
+export type AnalysisAssetPresentationState = "ready" | "quality_empty" | "data_degraded" | "presentation_rejected" | "outdated_snapshot" | "source_invalid";
 export type AnalysisAssetPresentationDiagnostics = {
   state: AnalysisAssetPresentationState;
   storedDrawingCount: number;
@@ -11,6 +18,8 @@ export type AnalysisAssetPresentationDiagnostics = {
   rejectedDrawingCount: number;
   appliedDrawingIds: string[];
   rejectionReasons: Record<string, number>;
+  freshness: AnalysisAssetFreshness;
+  outdated: boolean;
   stale: boolean;
   resolvedAsset: ChartAnalysisAsset;
 };
@@ -60,12 +69,25 @@ export function formatDetectedPattern(pattern: { kind: string; state: string } |
 }
 
 export function isAnalysisAssetStale(asOf: string, candles: CandleDto[], _assetVersion?: string, interval?: AnalysisAssetInterval): boolean {
-  if (interval) {
-    const asOfKey = candleKeyForTimestamp(asOf, interval);
-    if (asOfKey) return candles.some((candle) => candle.isClosed !== false && (candleKeyForTimestamp(candle.timestamp, interval) ?? "") > asOfKey);
+  if (!interval) return Number.isFinite(Date.parse(asOf)) && candles.some((candle) => candle.isClosed === true && Date.parse(candle.timestamp) > Date.parse(asOf));
+  return freshnessFromAsOf(asOf, candles, interval).state !== "current";
+}
+
+export function analysisAssetFreshness(asset: ChartAnalysisAsset, candles: CandleDto[]): AnalysisAssetFreshness {
+  const base = freshnessFromAsOf(asset.asOf, candles, asset.interval);
+  if (base.state === "source_invalid") return base;
+  if (asset.coverage.qualityFlags?.includes("stale_input")) {
+    return { ...base, state: "source_invalid", reason: "stale_input" };
   }
-  const asOfTime = Date.parse(asOf);
-  return Number.isFinite(asOfTime) && candles.some((candle) => candle.isClosed !== false && Date.parse(candle.timestamp) > asOfTime);
+  const lastActual = asset.coverage.lastActualClosedAt;
+  if (lastActual) {
+    const asOfKey = candleKeyForTimestamp(asset.asOf, asset.interval);
+    const lastActualKey = candleKeyForTimestamp(lastActual, asset.interval);
+    if (!asOfKey || !lastActualKey || asOfKey !== lastActualKey) {
+      return { ...base, state: "source_invalid", reason: "coverage_watermark_mismatch" };
+    }
+  }
+  return base;
 }
 
 export function resolveAnalysisAssetForCandles(
@@ -100,8 +122,8 @@ export function resolveAnalysisAssetForCandles(
   };
 }
 
-export function staleAnalysisAsset(asset: ChartAnalysisAsset, stale: boolean): ChartAnalysisAsset {
-  if (!stale) return asset;
+export function staleAnalysisAsset(asset: ChartAnalysisAsset, sourceInvalid: boolean): ChartAnalysisAsset {
+  if (!sourceInvalid) return asset;
   return {
     ...asset,
     geometry: {
@@ -124,7 +146,9 @@ export function analysisAssetPresentationDiagnostics(
     !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
   )).length;
   const resolved = resolveAnalysisAssetForCandles(asset, candles, availableAssets) ?? asset;
-  const stale = isAnalysisAssetStale(asset.asOf, candles, asset.assetVersion, asset.interval);
+  const freshness = analysisAssetFreshness(asset, candles);
+  const stale = freshness.state === "source_invalid";
+  const outdated = freshness.state === "outdated_snapshot";
   const resolvedAsset = staleAnalysisAsset(resolved, stale);
   const resolvedDrawingIds = resolvedAsset.geometry.drawings.map((drawing) => drawing.id);
   const currentIds = currentDrawingIds === undefined ? null : new Set(currentDrawingIds);
@@ -133,11 +157,12 @@ export function analysisAssetPresentationDiagnostics(
   const rejectionReasons: Record<string, number> = {};
   resolvedAsset.geometry.anchorResolutionErrors?.forEach(({ reason }) => { rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1; });
   if (currentIds !== null && resolvedDrawingIds.length > appliedDrawingIds.length) rejectionReasons.not_in_chart_document = resolvedDrawingIds.length - appliedDrawingIds.length;
-  const state: AnalysisAssetPresentationState = stale ? "stale_asset"
+  const state: AnalysisAssetPresentationState = stale ? "source_invalid"
+    : outdated ? "outdated_snapshot"
     : rejectedDrawingCount ? "presentation_rejected"
       : asset.coverage.state === "partial" ? "data_degraded"
         : storedDrawingCount ? "ready" : "quality_empty";
-  return { state, storedDrawingCount, appliedDrawingCount: appliedDrawingIds.length, rejectedDrawingCount, appliedDrawingIds, rejectionReasons, stale, resolvedAsset };
+  return { state, storedDrawingCount, appliedDrawingCount: appliedDrawingIds.length, rejectedDrawingCount, appliedDrawingIds, rejectionReasons, freshness, outdated, stale, resolvedAsset };
 }
 
 export function formatAnalysisAssetAsOf(value: string): string {
@@ -149,6 +174,30 @@ function marketDateParts(value: Date): { year: number; month: number; day: numbe
   const parts = Object.fromEntries(marketDateFormatter.formatToParts(value).map((part) => [part.type, part.value]));
   const year = Number(parts.year), month = Number(parts.month), day = Number(parts.day);
   return [year, month, day].every(Number.isFinite) ? { year, month, day } : null;
+}
+
+function freshnessFromAsOf(
+  asOf: string,
+  candles: CandleDto[],
+  interval: AnalysisAssetInterval
+): AnalysisAssetFreshness {
+  const asOfKey = candleKeyForTimestamp(asOf, interval);
+  if (!asOfKey) return { state: "source_invalid", lagBars: 0, latestClosedAt: null, reason: "invalid_as_of" };
+  const completed = [...new Map(candles.filter((candle) => candle.isClosed === true).flatMap((candle) => {
+    const key = candleKeyForTimestamp(candle.timestamp, interval);
+    return key ? [[key, candle.timestamp] as const] : [];
+  })).entries()].sort(([left], [right]) => left.localeCompare(right));
+  const latest = completed.at(-1);
+  if (!latest) return { state: "current", lagBars: 0, latestClosedAt: null };
+  if (asOfKey > latest[0]) {
+    return { state: "source_invalid", lagBars: 0, latestClosedAt: latest[1], reason: "future_as_of" };
+  }
+  const lagBars = completed.filter(([key]) => key > asOfKey).length;
+  return {
+    state: lagBars > 0 ? "outdated_snapshot" : "current",
+    lagBars,
+    latestClosedAt: latest[1]
+  };
 }
 
 function canonicalTimestampByKey(candles: CandleDto[], interval: AnalysisAssetInterval): Map<string, string> {

@@ -16,7 +16,7 @@ export type ChartCommentaryMetricCard = {
 };
 
 export type ChartCommentaryStep = {
-  id: "levels" | "trend" | "pattern" | "entry" | "target" | "stop" | "summary" | "exit" | "observe";
+  id: "levels" | "trend" | "pattern";
   title: string;
   body: string;
   drawingIds: string[];
@@ -26,9 +26,39 @@ export type ChartCommentaryStep = {
   focusPrice?: number;
 };
 
+export type ChartCommentaryHolding = {
+  averagePrice?: number | null;
+  quantity?: number | null;
+};
+
+export type ChartCommentaryKeyPrice = {
+  id: "support" | "resistance" | "entry" | "target" | "invalidation";
+  label: string;
+  price: number;
+  distancePercent: number | null;
+  drawingIds: string[];
+};
+
+export type ChartCommentaryScenario = {
+  status: string;
+  confirmation: string;
+  targetPrice: number;
+  invalidationPrice: number;
+  rewardRiskRatio: number;
+  projectionBars: number;
+  drawingIds: string[];
+};
+
+export type ChartCommentaryViewModel = {
+  summary: string[];
+  keyPrices: ChartCommentaryKeyPrice[];
+  scenario: ChartCommentaryScenario | null;
+  evidence: ChartCommentaryStep[];
+};
+
 export function buildChartCommentaryModel(
   asset: ChartAnalysisAsset,
-  setup: ChartTradeSetup | null
+  _setup: ChartTradeSetup | null
 ): ChartCommentaryStep[] {
   const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
   const primaryTrend = asset.geometry.primaryTrend ?? asset.geometry.trends?.[0] ?? null;
@@ -43,7 +73,6 @@ export function buildChartCommentaryModel(
     trace?.patternCandidates ?? [], trace?.selections.patternCandidateIds ?? []
   );
   const levelCount = asset.geometry.supports.length + asset.geometry.resistances.length;
-  const evidenceIds = allEvidenceDrawingIds(asset);
   const steps: ChartCommentaryStep[] = [
     {
       id: "levels",
@@ -80,64 +109,114 @@ export function buildChartCommentaryModel(
     }
   ];
 
+  return steps;
+}
+
+export function buildChartCommentaryViewModel(
+  asset: ChartAnalysisAsset,
+  setup: ChartTradeSetup | null,
+  currentPrice: number | null,
+  holding: ChartCommentaryHolding | null
+): ChartCommentaryViewModel {
+  const evidence = buildChartCommentaryModel(asset, setup);
+  const support = nearestLevel(asset.geometry.supports, currentPrice);
+  const resistance = nearestLevel(asset.geometry.resistances, currentPrice);
+  const levelDrawingIds = drawingIdsForGroup(asset, "levels");
+  const planDrawingIds = setup ? [setup.drawingIds.signal, setup.drawingIds.plan] : [];
+  const keyPrices: ChartCommentaryKeyPrice[] = [];
+  if (support) keyPrices.push(keyPrice("support", "지지", support.price, currentPrice, levelDrawingIds));
+  if (resistance) keyPrices.push(keyPrice("resistance", "저항", resistance.price, currentPrice, levelDrawingIds));
   if (setup) {
-    const planIds = [setup.drawingIds.signal, setup.drawingIds.plan];
-    const isBuy = setup.action === "buy_candidate";
-    const intervalNote = setup.sourceInterval !== asset.interval ? ` 근거 주기는 ${setup.sourceInterval}입니다.` : "";
-    const conditional = setup.sourceKind === "conditional" ? "조건 충족 시 " : "";
-    steps.push(
-      {
-        id: "entry",
-        title: isBuy ? "매수 기준" : "매도 기준",
-        body: isBuy
-          ? `${conditional}진입가 ${formatPrice(setup.entryPrice)}를 검토합니다.${intervalNote}`
-          : `${conditional}매도 기준가 ${formatPrice(setup.entryPrice)}를 검토합니다.${intervalNote}`,
-        drawingIds: planIds,
-        focusPrice: setup.entryPrice
-      },
-      {
-        id: "target",
-        title: isBuy ? "목표" : "하락 목표",
-        body: `${isBuy ? "목표가" : "하락 목표가"} ${formatPrice(setup.targetPrice)}는 기준가 대비 ${formatSignedPercent(setup.targetPrice, setup.entryPrice)} 구간입니다.`,
-        drawingIds: [setup.drawingIds.plan],
-        focusPrice: setup.targetPrice
-      },
-      {
-        id: "stop",
-        title: isBuy ? "손절" : "매도 무효화",
-        body: `${isBuy ? "손절가" : "매도 무효화가"} ${formatPrice(setup.stopPrice)}는 기준가 대비 ${formatSignedPercent(setup.stopPrice, setup.entryPrice)}입니다. 이 기준을 벗어나면 ${isBuy ? "매수" : "매도"} 관점을 다시 검토합니다.`,
-        drawingIds: [setup.drawingIds.plan],
-        focusPrice: setup.stopPrice
-      },
-      {
-        id: "summary",
-        title: "요약",
-        body: `${setup.sourceKind === "conditional" ? "조건부 " : ""}${isBuy ? "매수 후보" : "매도 후보"}이며 손익비는 1 : ${setup.rewardRiskRatio.toFixed(2)}입니다.`,
-        drawingIds: planIds,
-        focusPrice: setup.entryPrice
-      }
+    keyPrices.push(
+      keyPrice("entry", setup.action === "buy_candidate" ? "진입 기준" : "매도 기준", setup.entryPrice, currentPrice, planDrawingIds),
+      keyPrice("target", "목표", setup.targetPrice, currentPrice, [setup.drawingIds.plan]),
+      keyPrice("invalidation", "무효화", setup.stopPrice, currentPrice, [setup.drawingIds.plan])
     );
-    return steps;
   }
 
-  const scenario = asset.geometry.tradePlan;
-  steps.push({
-    id: "observe",
-    title: "관찰",
-    body: `매수·매도 조건을 계산할 저장 근거가 부족합니다. ${scenario?.reasons.map((reason) => chartSemanticLabel("reasons", reason)).join(" · ") || "확인 조건이 생길 때까지 관찰합니다."}`,
-    drawingIds: evidenceIds
-  });
-  return steps;
+  return {
+    summary: commentarySummary(asset, setup, currentPrice, support, resistance, holding),
+    keyPrices,
+    scenario: setup ? {
+      status: `${setup.sourceKind === "conditional" ? "조건 확인 전 · " : ""}${setup.action === "buy_candidate" ? "매수 검토" : "매도 검토"}`,
+      confirmation: `${setup.action === "buy_candidate" ? "진입" : "매도"} 기준 ${formatPrice(setup.entryPrice)} 확인`,
+      targetPrice: setup.targetPrice,
+      invalidationPrice: setup.stopPrice,
+      rewardRiskRatio: setup.rewardRiskRatio,
+      projectionBars: setup.projectionBars,
+      drawingIds: planDrawingIds
+    } : null,
+    evidence
+  };
+}
+
+function commentarySummary(
+  asset: ChartAnalysisAsset,
+  setup: ChartTradeSetup | null,
+  currentPrice: number | null,
+  support: GeometryLevel | null,
+  resistance: GeometryLevel | null,
+  holding: ChartCommentaryHolding | null
+): string[] {
+  const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
+  const primaryTrend = asset.geometry.primaryTrend ?? asset.geometry.trends?.[0] ?? null;
+  const sentences: string[] = [];
+  if (primaryPattern) {
+    sentences.push(`${asset.symbol} ${asset.interval} 차트의 주요 패턴은 ${chartSemanticLabel("patterns", primaryPattern.kind)}이며, 현재 ${chartSemanticLabel("states", primaryPattern.state)} 상태입니다.`);
+  } else if (primaryTrend) {
+    sentences.push(`${asset.symbol} ${asset.interval} 차트는 ${trendLabel(primaryTrend)}을 중심으로 가격 구조를 관찰하고 있습니다.`);
+  } else {
+    sentences.push(`${asset.symbol} ${asset.interval} 차트는 확인된 패턴이나 대각 추세 없이 지지·저항을 중심으로 관찰하고 있습니다.`);
+  }
+  if (currentPrice != null && (support || resistance)) {
+    const levelParts = [
+      support ? `지지 ${formatPrice(support.price)}` : "",
+      resistance ? `저항 ${formatPrice(resistance.price)}` : ""
+    ].filter(Boolean).join(", ");
+    sentences.push(`현재가 ${formatPrice(currentPrice)}의 가까운 기준은 ${levelParts}입니다.`);
+  }
+  if (setup) {
+    const conditional = setup.sourceKind === "conditional" ? "조건이 확인되면 " : "";
+    sentences.push(`${conditional}${formatPrice(setup.entryPrice)}을 ${setup.action === "buy_candidate" ? "진입" : "매도"} 기준으로 보고, ${formatPrice(setup.stopPrice)} 이탈 시 시나리오를 재검토합니다.`);
+  }
+  if (holding?.averagePrice != null && currentPrice != null) {
+    sentences.push(`실계좌 평균 매입가 ${formatPrice(holding.averagePrice)} 대비 현재가는 ${formatSignedPercent(currentPrice, holding.averagePrice)} 구간입니다.`);
+  }
+  if (sentences.length < 2) {
+    sentences.push(currentPrice != null
+      ? `현재가는 ${formatPrice(currentPrice)}이며, 비교할 지지·저항이나 트레이드 시나리오는 저장되어 있지 않습니다.`
+      : "저장된 주요 가격이나 트레이드 시나리오가 없어 추가 조건을 제시하지 않습니다.");
+  }
+  return sentences.slice(0, 4);
+}
+
+function nearestLevel(levels: GeometryLevel[], currentPrice: number | null): GeometryLevel | null {
+  const valid = levels.filter((level) => Number.isFinite(level.price) && level.price > 0);
+  if (valid.length === 0) return null;
+  if (currentPrice == null) return valid[0] ?? null;
+  return [...valid].sort((left, right) => Math.abs(left.price - currentPrice) - Math.abs(right.price - currentPrice))[0] ?? null;
+}
+
+function keyPrice(
+  id: ChartCommentaryKeyPrice["id"],
+  label: string,
+  price: number,
+  currentPrice: number | null,
+  drawingIds: string[]
+): ChartCommentaryKeyPrice {
+  return {
+    id,
+    label,
+    price,
+    distancePercent: currentPrice == null ? null : ((price - currentPrice) / Math.max(0.0000001, Math.abs(currentPrice))) * 100,
+    drawingIds
+  };
 }
 
 function drawingIdsForGroup(asset: ChartAnalysisAsset, group: "levels" | "trend" | "pattern"): string[] {
   return asset.geometry.drawings
     .filter((drawing) => analysisLayerOfDrawing(drawing, asset) === group)
     .map((drawing) => drawing.id);
-}
-
-function allEvidenceDrawingIds(asset: ChartAnalysisAsset): string[] {
-  return ["levels", "trend", "pattern"].flatMap((group) => drawingIdsForGroup(asset, group as "levels" | "trend" | "pattern"));
 }
 
 function candidateEvidenceRefs(candidates: GeometryTraceCandidate[]): string[] {
