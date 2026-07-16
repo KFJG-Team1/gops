@@ -378,6 +378,43 @@ assert.equal(marketOpenToast.message, "미국 본장이 시작되었습니다.")
 assert.equal(marketOpenToast.chartSymbol, "");
 assert.equal(notificationSummary(marketOpenNotification), " 미국 본장 시작");
 
+const marketClosedNotification = {
+  id: 3,
+  eventId: "system.market_closed:2026-07-14:user-a",
+  type: "system.market_closed",
+  payload: {
+    kind: "market_closed",
+    title: "미국 정규장 마감",
+    summary: "미국 정규장이 마감했습니다.",
+    effectiveAt: "2026-07-14T20:00:00Z",
+    expiresAt: "2026-07-14T20:02:00Z"
+  }
+};
+const marketClosedToast = formatNotificationToastMessage(marketClosedNotification);
+assert.equal(marketClosedToast.title, "미국 정규장 마감");
+assert.equal(marketClosedToast.message, "미국 정규장이 마감했습니다.");
+assert.equal(marketClosedToast.chartSymbol, "");
+
+const marketMoveNotification = {
+  id: 4,
+  eventId: "market-move:2026-07-14:user-a:NVDA:down:5",
+  type: "system.market_move",
+  payload: {
+    kind: "market_move",
+    symbol: "NVDA",
+    title: "NVDA 정규장 급락",
+    summary: "전일 정규장 종가 대비 -5.75% 하락했습니다.",
+    previousClose: 100,
+    lastPrice: 94.25,
+    changePercent: -5.75,
+    quoteAsOf: "2026-07-14T14:00:00Z"
+  }
+};
+const marketMoveToast = formatNotificationToastMessage(marketMoveNotification);
+assert.equal(marketMoveToast.message, "전일 정규장 종가 대비 -5.75% 하락했습니다.");
+assert.equal(marketMoveToast.detail, "현재가 94.25 · 전일 정규장 종가 100");
+assert.equal(notificationSettingForItem(marketMoveNotification), "rapidMove");
+
 const volumeAgentNotification = {
   id: -1,
   eventId: "agent-volume-spike",
@@ -4069,11 +4106,12 @@ assert.doesNotMatch(bottomCommandBarSource, /onChartCommandModeChange/);
 assert.doesNotMatch(bottomCommandBarSource, /차트 조작 에이전트 테스트/);
 assert.doesNotMatch(bottomCommandBarSource, /PortfolioHoldingsOnlyPanel|PortfolioInvestmentStatusPanel|SettingsMenu/);
 assert.doesNotMatch(bottomCommandBarSource, /fetchNextMarketOpen/);
-assert.match(bottomCommandBarSource, /isMarketOpenNotification/);
-assert.match(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
+assert.doesNotMatch(bottomCommandBarSource, /isMarketOpenNotification/);
+assert.doesNotMatch(bottomCommandBarSource, /alertToastState\.queue\.length === 0/);
 assert.doesNotMatch(bottomCommandBarSource, /createMarketOpenNotification\(nextOpenAt\), \{ autoDismissMs: alertToastAdvanceMs \}/);
 assert.match(bottomCommandBarSource, /payload\.type === "snapshot"/);
-assert.match(bottomCommandBarSource, /\.reverse\(\)[\s\S]*enqueueAlertToast/);
+assert.doesNotMatch(bottomCommandBarSource, /\.reverse\(\)[\s\S]*enqueueAlertToast/);
+assert.match(bottomCommandBarSource, /setTimeout\(\(\) => \{[\s\S]*advanceAlertToast\(\);[\s\S]*alertToastAdvanceMs/);
 assert.match(bottomCommandBarSource, /onOpenChart=\{openAlertToastChart\}/);
 assert.match(bottomCommandBarSource, /onSelectSymbol\(symbol\)/);
 const alertMenuSource = readFileSync(fileURLToPath(new URL("../src/alerts/AlertMenu.tsx", import.meta.url)), "utf-8");

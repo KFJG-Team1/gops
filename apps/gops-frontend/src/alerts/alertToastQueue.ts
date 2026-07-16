@@ -28,9 +28,10 @@ export function enqueueAlertToastState(
   notification: NotificationItem,
   preferences: NotificationPreferences,
   seenKeys: Set<string>,
-  options: AlertToastQueueOptions = {}
+  options: AlertToastQueueOptions = {},
+  nowMs = Date.now()
 ): AlertToastQueueState {
-  if (notification.readAt || !shouldShowNotificationToast(notification, preferences)) {
+  if (notification.readAt || isNotificationToastExpired(notification, nowMs) || !shouldShowNotificationToast(notification, preferences)) {
     return current;
   }
   const key = alertToastKey(notification);
@@ -49,16 +50,19 @@ export function enqueueAlertToastState(
 
 export function reconcileAlertToastState(
   current: AlertToastQueueState,
-  preferences: NotificationPreferences
+  preferences: NotificationPreferences,
+  nowMs = Date.now()
 ): AlertToastQueueState {
   const visible = [current.current, ...current.queue]
     .filter((item): item is AlertToastQueueItem => Boolean(item))
+    .filter((item) => !isNotificationToastExpired(item.notification, nowMs))
     .filter((item) => shouldShowNotificationToast(item.notification, preferences));
   return { current: visible[0] ?? null, queue: visible.slice(1) };
 }
 
-export function advanceAlertToastState(current: AlertToastQueueState): AlertToastQueueState {
-  const [next, ...queue] = current.queue;
+export function advanceAlertToastState(current: AlertToastQueueState, nowMs = Date.now()): AlertToastQueueState {
+  const visibleQueue = current.queue.filter((item) => !isNotificationToastExpired(item.notification, nowMs));
+  const [next, ...queue] = visibleQueue;
   return { current: next ?? null, queue };
 }
 
@@ -75,6 +79,37 @@ export function removePersistedAlertToastState(current: AlertToastQueueState): A
 
 export function alertToastKey(notification: NotificationItem): string {
   return `${notification.id}:${notification.eventId}`;
+}
+
+export function isNotificationToastExpired(notification: NotificationItem, nowMs = Date.now()): boolean {
+  const explicit = asTimestamp(notification.payload.expiresAt);
+  if (explicit !== undefined) {
+    return explicit <= nowMs;
+  }
+  const isMarketSession = [
+    "system.market_open",
+    "system.market_close",
+    "system.market_opened",
+    "system.market_closed"
+  ].includes(notification.type) || [
+    "market_open",
+    "market_close",
+    "market_opened",
+    "market_closed"
+  ].includes(String(notification.payload.kind || ""));
+  if (!isMarketSession) {
+    return false;
+  }
+  const effectiveAt = asTimestamp(notification.payload.effectiveAt ?? notification.createdAt);
+  return effectiveAt !== undefined && effectiveAt + 2 * 60 * 1000 <= nowMs;
+}
+
+function asTimestamp(value: unknown): number | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function filterAlertToastState(

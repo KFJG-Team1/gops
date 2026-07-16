@@ -1,6 +1,6 @@
 import { normalizeUiProposals, type UiProposalLike } from "../layout/uiProposalLayout";
 import type { AlertDirection, NotificationItem, PriceAlert } from "./alertApi";
-import { isMarketOpenNotification } from "./marketOpenReminder";
+import { isMarketOpenNotification, isMarketSessionNotification } from "./marketOpenReminder";
 
 export type AlertToastPresentation = {
   symbol: string;
@@ -58,7 +58,7 @@ export function alertSummary(alert: PriceAlert): string {
 }
 
 export function notificationSymbol(notification: NotificationItem): string {
-  if (isMarketOpenNotification(notification)) {
+  if (isMarketSessionNotification(notification)) {
     return "MARKET";
   }
   return notificationChartSymbol(notification) || "ALERT";
@@ -73,6 +73,10 @@ export function notificationChartSymbol(notification: NotificationItem): string 
 }
 
 export function notificationSummary(notification: NotificationItem): string {
+  const payloadSummary = asString(notification.payload.summary);
+  if (payloadSummary) {
+    return ` ${payloadSummary}`;
+  }
   if (isMarketOpenNotification(notification)) {
     return " 미국 본장 시작";
   }
@@ -91,22 +95,13 @@ export function notificationSummary(notification: NotificationItem): string {
 }
 
 export function formatNotificationToastMessage(notification: NotificationItem): AlertToastPresentation {
-  if (isMarketOpenNotification(notification)) {
-    return {
-      symbol: "MARKET",
-      chartSymbol: "",
-      title: "본장 시작",
-      message: "미국 본장이 시작되었습니다.",
-      detail: ""
-    };
-  }
   const symbol = notificationSymbol(notification);
   const chartSymbol = notificationChartSymbol(notification);
   const payload = notification.payload;
 
   const systemTitle = asString(payload.title);
   const systemSummary = asString(payload.summary);
-  const systemDetail = asString(payload.detail);
+  const systemDetail = asString(payload.detail) ?? marketMoveDetail(notification);
   if (notification.type.startsWith("system.") && (systemTitle || systemSummary)) {
     return {
       symbol,
@@ -114,6 +109,15 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
       title: systemTitle || "리마인더",
       message: systemSummary || systemTitle || "알림이 도착했습니다.",
       detail: systemDetail ?? ""
+    };
+  }
+  if (isMarketOpenNotification(notification)) {
+    return {
+      symbol: "MARKET",
+      chartSymbol: "",
+      title: "본장 시작",
+      message: "미국 본장이 시작되었습니다.",
+      detail: ""
     };
   }
 
@@ -193,6 +197,18 @@ export function formatNotificationToastMessage(notification: NotificationItem): 
     message: `${symbol} 알림 조건을 달성했습니다.`,
     detail: ""
   };
+}
+
+function marketMoveDetail(notification: NotificationItem): string | undefined {
+  if (notification.type !== "system.market_move" && notification.payload.kind !== "market_move") {
+    return undefined;
+  }
+  const lastPrice = asNumber(notification.payload.lastPrice);
+  const previousClose = asNumber(notification.payload.previousClose);
+  if (lastPrice === undefined || previousClose === undefined) {
+    return undefined;
+  }
+  return `현재가 ${formatNumber(lastPrice)} · 전일 정규장 종가 ${formatNumber(previousClose)}`;
 }
 
 function notificationSpikeThresholdPct(notification: NotificationItem): number | undefined {
