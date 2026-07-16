@@ -28,6 +28,7 @@ import { panelKindForAgentType, panelRegistry, panelRegistryEntry } from "./pane
 const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   chart: "chart",
   compare: "compareChart",
+  companyCompare: "companyCompare",
   company: "companyProfile",
   companyJournal: "companyJournal",
   companyMulti: "companyMulti",

@@ -72,6 +72,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 80
   },
   {
+    kind: "companyCompare",
+    title: "기업 성향 비교",
+    agentPanelType: "companyCompare",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 4, rowSpan: 3 },
+    minSizePx: { width: 620, height: 360 },
+    defaultSpan: { colSpan: 6, rowSpan: 4 },
+    defaultLayoutWeight: 76,
+    insertable: true
+  },
+  {
     kind: "news",
     title: "뉴스 카드",
     agentPanelType: "newsFeed",
