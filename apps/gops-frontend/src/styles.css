@@ -1340,6 +1340,16 @@ button {
   box-shadow: 0 0 0 2px color-mix(in srgb, #ffb14a 9%, transparent);
 }
 
+.simulator-scenario-select {
+  max-width: 190px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: #202020;
+  color: #d7d7d7;
+  font: var(--type-caption);
+}
+
 .simulator-mode-toggle,
 .simulator-run-controls button {
   border: 0;
