@@ -55,7 +55,7 @@ const asset = {
 const drawings = buildTradeTimingDrawings(asset, candles);
 assert.equal(drawings.length, 2);
 assert.equal(drawings[0].type, "flagMarker");
-assert.equal(drawings[0].label, "매수 후보 · 상승 깃발형");
+assert.equal(drawings[0].label, "조건부 매수 검토 · 상승 깃발형");
 assert.equal(drawings[0].anchors[0].timestamp, candles[1].timestamp);
 assert.match(drawings[0].id, /^chart-plan:/);
 assert.equal(drawings[0].style.colorToken, "bullish");
@@ -65,7 +65,7 @@ assert.deepEqual(drawings[1].anchors.map((anchor) => anchor.logicalIndex), [1, 1
 assert.equal(drawings[1].anchors[1].timestamp, undefined);
 assert.equal(drawings[1].anchors[2].timestamp, undefined);
 assert.equal(drawings[1].style.zoneSplit, true);
-assert.equal(drawings[1].style.labelPlacement, "axis");
+assert.equal(drawings[1].style.labelPlacement, "none");
 assert.equal(drawings[1].style.fillOpacity, .08);
 assert.doesNotMatch(drawings[1].label ?? "", /진입|손절|목표/);
 
@@ -82,7 +82,7 @@ const exitAsset: ChartAnalysisAsset = {
   }
 };
 assert.equal(buildTradeTimingDrawings(exitAsset, candles).length, 2);
-assert.equal(buildTradeTimingDrawings(exitAsset, candles)[0].label, "매도 후보 · 상승 깃발형");
+assert.equal(buildTradeTimingDrawings(exitAsset, candles)[0].label, "조건부 매도 검토 · 상승 깃발형");
 assert.equal(buildTradeTimingDrawings(exitAsset, candles)[1].style.proposalAction, "sell_candidate");
 
 const watchAsset: ChartAnalysisAsset = {
@@ -93,21 +93,6 @@ const watchAsset: ChartAnalysisAsset = {
   }
 };
 assert.deepEqual(buildTradeTimingDrawings(watchAsset, candles), []);
-
-const shortAsset: ChartAnalysisAsset = {
-  ...asset,
-  geometry: {
-    ...asset.geometry,
-    tradePlan: {
-      ...asset.geometry.tradePlan!,
-      action: "short_candidate",
-      direction: "short",
-      stopPrice: 101,
-      targetPrice: 90
-    }
-  }
-};
-assert.equal(buildTradeTimingDrawings(shortAsset, candles).length, 0);
 
 const levelAsset: ChartAnalysisAsset = {
   ...watchAsset,

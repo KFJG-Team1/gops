@@ -6,8 +6,8 @@ export type ActiveTradePlan = {
   chartDocumentId: string;
   symbol: string;
   interval: AnalysisAssetInterval;
-  direction: "long" | "short";
-  action: "buy_candidate" | "short_candidate";
+  direction: "long";
+  action: "buy_candidate";
   entryPrice: number;
   targetPrice: number;
   stopPrice: number;

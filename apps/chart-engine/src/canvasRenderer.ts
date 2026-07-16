@@ -2,6 +2,7 @@ import { createCoordinateTransform } from "./scales";
 import {
   buildHorizontalParallelLines,
   buildFibonacciLevelGeometry,
+  buildProposalRiskRewardGeometry,
   buildRiskRewardGeometry,
   buildTrendParallelLines,
   buildVerticalParallelLines,
@@ -304,7 +305,9 @@ function drawDrawingFills(ctx: CanvasRenderingContext2D, scene: RenderScene, dra
         drawing.anchors[2].price ?? drawing.anchors[2].value ?? Number.NaN
       );
       if (direction) {
-        const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+        const geometry = style.zoneSplit
+          ? buildProposalRiskRewardGeometry(points[0], points[1], points[2], direction, scene.plot)
+          : buildRiskRewardGeometry(points[0], points[1], points[2], direction);
         ctx.save();
         clipToPricePlot(ctx, scene);
         ctx.globalAlpha = clampOpacity(style.opacity, 1) * (preview ? 0.72 : 1) * clampOpacity(style.fillOpacity, 0.075);
@@ -656,7 +659,9 @@ function drawRiskRewardForeground(
     });
     return;
   }
-  const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+  const geometry = drawing.style.zoneSplit
+    ? buildProposalRiskRewardGeometry(points[0], points[1], points[2], direction, scene.plot)
+    : buildRiskRewardGeometry(points[0], points[1], points[2], direction);
   if (drawing.style.zoneSplit) {
     const zoneLeft = planZoneLeft(scene, geometry.left, geometry.right);
     withPricePlotClip(ctx, scene, () => {
@@ -810,13 +815,6 @@ function drawDrawingAxisLabels(ctx: CanvasRenderingContext2D, scene: RenderScene
     } else if (drawing.type === "trendLine") {
       const price = drawing.anchors.at(-1)?.price;
       if (typeof price === "number") drawEngineAxisPill(ctx, scene, price, resolveDrawingColor(scene, drawing.style, "colorToken", "color", "drawing"));
-    } else if (drawing.type === "riskRewardBox" && drawing.anchors.length >= 3) {
-      const [entry, stop, target] = drawing.anchors.map((anchor) => anchor.price);
-      if (typeof entry !== "number" || typeof stop !== "number" || typeof target !== "number") return;
-      const sell = drawing.style.proposalAction === "sell_candidate";
-      drawEngineAxisPill(ctx, scene, entry, sell ? scene.document.style.bearish : scene.document.style.bullish, `${sell ? "매도" : "진입"} ${entry.toFixed(2)}`);
-      drawEngineAxisPill(ctx, scene, target, sell ? scene.document.style.bearish : scene.document.style.bullish, `${sell ? "하락 목표" : "목표"} ${target.toFixed(2)}`);
-      drawEngineAxisPill(ctx, scene, stop, sell ? scene.document.style.bullish : scene.document.style.bearish, `${sell ? "매도 무효화" : "손절"} ${stop.toFixed(2)}`);
     }
   });
 }

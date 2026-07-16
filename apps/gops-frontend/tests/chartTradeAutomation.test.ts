@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chartPriceSelectionMatchesTradeSetup,
+  createChartPriceSelection,
   createTradeAutomationConfirmationDraft,
   isTradeAutomationConfirmationIntent,
   priceConditionInputFromTradeAutomationDraft,
@@ -107,6 +108,23 @@ const matchingSelection: ChartPriceSelection = {
   formattedPrice: "462.35",
   selectedAt: "2026-07-15T10:00:00Z"
 };
+assert.deepEqual(createChartPriceSelection({
+  chartDocumentId: "chart-document-1",
+  sourcePanelId: "slot-chart-1",
+  symbol: " amd ",
+  interval: "1D",
+  price: 462.35,
+  formattedPrice: "462.35",
+  selectedAt: "2026-07-15T10:00:00Z"
+}), matchingSelection);
+assert.equal(createChartPriceSelection({
+  chartDocumentId: "chart-document-1",
+  sourcePanelId: "slot-chart-1",
+  symbol: "AMD",
+  interval: "1D",
+  price: 0,
+  formattedPrice: "0.00"
+}), null);
 assert.equal(chartPriceSelectionMatchesTradeSetup(snapshot, matchingSelection), true);
 assert.equal(chartPriceSelectionMatchesTradeSetup(snapshot, {
   ...matchingSelection,

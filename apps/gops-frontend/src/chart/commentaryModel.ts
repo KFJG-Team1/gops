@@ -8,6 +8,7 @@ import type {
 import { analysisLayerOfDrawing } from "./analysisLayerController";
 import { chartSemanticLabel } from "./chartSemanticCatalog";
 import type { ChartTradeSetup } from "./chartTradeSetup";
+import { tradePlanPresentation, type TradePlanPresentation } from "./tradePlanPresentation";
 
 export type ChartCommentaryMetricCard = {
   id: string;
@@ -40,6 +41,8 @@ export type ChartCommentaryKeyPrice = {
 };
 
 export type ChartCommentaryScenario = {
+  action: ChartTradeSetup["action"];
+  labels: TradePlanPresentation;
   status: string;
   confirmation: string;
   targetPrice: number;
@@ -127,10 +130,11 @@ export function buildChartCommentaryViewModel(
   if (support) keyPrices.push(keyPrice("support", "지지", support.price, currentPrice, levelDrawingIds));
   if (resistance) keyPrices.push(keyPrice("resistance", "저항", resistance.price, currentPrice, levelDrawingIds));
   if (setup) {
+    const labels = tradePlanPresentation(setup.action);
     keyPrices.push(
-      keyPrice("entry", setup.action === "buy_candidate" ? "진입 기준" : "매도 기준", setup.entryPrice, currentPrice, planDrawingIds),
-      keyPrice("target", "목표", setup.targetPrice, currentPrice, [setup.drawingIds.plan]),
-      keyPrice("invalidation", "무효화", setup.stopPrice, currentPrice, [setup.drawingIds.plan])
+      keyPrice("entry", labels.basis, setup.entryPrice, currentPrice, planDrawingIds),
+      keyPrice("target", labels.target, setup.targetPrice, currentPrice, [setup.drawingIds.plan]),
+      keyPrice("invalidation", labels.risk, setup.stopPrice, currentPrice, [setup.drawingIds.plan])
     );
   }
 
@@ -138,8 +142,10 @@ export function buildChartCommentaryViewModel(
     summary: commentarySummary(asset, setup, currentPrice, support, resistance, holding),
     keyPrices,
     scenario: setup ? {
-      status: `${setup.sourceKind === "conditional" ? "조건 확인 전 · " : ""}${setup.action === "buy_candidate" ? "매수 검토" : "매도 검토"}`,
-      confirmation: `${setup.action === "buy_candidate" ? "진입" : "매도"} 기준 ${formatPrice(setup.entryPrice)} 확인`,
+      action: setup.action,
+      labels: tradePlanPresentation(setup.action),
+      status: tradePlanPresentation(setup.action).scenario,
+      confirmation: `${tradePlanPresentation(setup.action).basis} ${formatPrice(setup.entryPrice)} 확인`,
       targetPrice: setup.targetPrice,
       invalidationPrice: setup.stopPrice,
       rewardRiskRatio: setup.rewardRiskRatio,
@@ -176,8 +182,10 @@ function commentarySummary(
     sentences.push(`현재가 ${formatPrice(currentPrice)}의 가까운 기준은 ${levelParts}입니다.`);
   }
   if (setup) {
-    const conditional = setup.sourceKind === "conditional" ? "조건이 확인되면 " : "";
-    sentences.push(`${conditional}${formatPrice(setup.entryPrice)}을 ${setup.action === "buy_candidate" ? "진입" : "매도"} 기준으로 보고, ${formatPrice(setup.stopPrice)} 이탈 시 시나리오를 재검토합니다.`);
+    const labels = tradePlanPresentation(setup.action);
+    sentences.push(labels.risk === "재검토"
+      ? `${formatPrice(setup.entryPrice)}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)}에서 시나리오를 재검토합니다.`
+      : `${formatPrice(setup.entryPrice)}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)}을 손절 기준으로 봅니다.`);
   }
   if (holding?.averagePrice != null && currentPrice != null) {
     sentences.push(`실계좌 평균 매입가 ${formatPrice(holding.averagePrice)} 대비 현재가는 ${formatSignedPercent(currentPrice, holding.averagePrice)} 구간입니다.`);

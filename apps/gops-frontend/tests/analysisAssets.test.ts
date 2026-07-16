@@ -95,6 +95,13 @@ assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": m
 const resolved = resolveAnalysisAssetForCandles(asset, candles);
 assert.equal(resolved?.geometry.drawings.length, 3);
 assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .72);
+assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.labelPlacement, "inline");
+assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === lower.id)?.style.labelPlacement, "none");
+const resolvedFlag = resolveAnalysisAssetForCandles(genericPatternAsset, candles);
+assert.deepEqual(
+  resolvedFlag?.geometry.drawings.filter((drawing) => drawing.id.includes(":flag-")).map((drawing) => [drawing.id.split("-").at(-1), drawing.style.labelPlacement]),
+  [["pole", "none"], ["upper", "inline"], ["lower", "none"]]
+);
 assert.equal(resolveAnalysisAssetForCandles({
   ...asset,
   geometry: {

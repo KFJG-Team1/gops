@@ -17,6 +17,27 @@ export type ChartPriceSelection = {
   selectedAt: string;
 };
 
+export type CreateChartPriceSelectionInput = Omit<ChartPriceSelection, "version" | "symbol" | "selectedAt"> & {
+  symbol: string;
+  selectedAt?: string;
+};
+
+export function createChartPriceSelection(input: CreateChartPriceSelectionInput): ChartPriceSelection | null {
+  const symbol = input.symbol.trim().toUpperCase();
+  const formattedPrice = input.formattedPrice.trim();
+  if (!symbol || !formattedPrice || !isPositiveFinite(input.price)) return null;
+  return {
+    version: "chart-price-selection-v1",
+    chartDocumentId: input.chartDocumentId,
+    sourcePanelId: input.sourcePanelId,
+    symbol,
+    interval: input.interval,
+    price: input.price,
+    formattedPrice,
+    selectedAt: input.selectedAt ?? new Date().toISOString()
+  };
+}
+
 export type ChartTradeSetupAssetIdentity = {
   algorithmVersion: string;
   inputDigest: string;

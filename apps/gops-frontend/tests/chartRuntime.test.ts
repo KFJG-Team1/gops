@@ -7,6 +7,7 @@ import "./uiScale.test";
 import "./glossary.test";
 import "./analysisAssets.test";
 import "./tradeTimingOverlay.test";
+import "./tradePlanOverlayLayout.test";
 import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";

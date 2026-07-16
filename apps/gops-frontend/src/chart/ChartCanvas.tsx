@@ -14,6 +14,7 @@ import {
 } from "./drawings";
 import {
   buildFibonacciLevelGeometry,
+  buildProposalRiskRewardGeometry,
   buildRiskRewardGeometry,
   fibonacciBandPolygons,
   riskRewardDirection,
@@ -193,7 +194,8 @@ export function ChartCanvas({
       }
       const input = renderInputRef.current;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const scene = buildChartScene(input.chart, rect.width, rect.height, {
+      const sceneChart = chartWithSpotlightProposalVisible(input.chart, input.spotlightDrawingIds);
+      const scene = buildChartScene(sceneChart, rect.width, rect.height, {
         expansions: input.expansions,
         hoveredNodeId: input.hoveredNodeId,
         selectedNodeId: input.selectedNodeId,
@@ -288,6 +290,23 @@ export function ChartCanvas({
       />
     </div>
   );
+}
+
+function chartWithSpotlightProposalVisible(chart: ChartState, spotlightDrawingIds: string[]): ChartState {
+  if (!spotlightDrawingIds.length) return chart;
+  const spotlightIds = new Set(spotlightDrawingIds);
+  let changed = false;
+  const drawings = chart.drawings.map((drawing) => {
+    if (drawing.visible !== false
+      || !spotlightIds.has(drawing.id)
+      || drawing.type !== "riskRewardBox"
+      || drawing.style.zoneSplit !== true) {
+      return drawing;
+    }
+    changed = true;
+    return { ...drawing, visible: true };
+  });
+  return changed ? { ...chart, drawings } : chart;
 }
 
 function resizeCanvas(canvas: HTMLCanvasElement, width: number, height: number, ratio: number): void {
@@ -1652,7 +1671,7 @@ function drawMacdHistogram(
 function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, batch: DrawingRenderBatch, previewLayer: boolean, spotlight: ReadonlySet<string> | null = null) {
   const transform = createCoordinateTransform(scene);
   batch.drawings
-    .filter((drawing) => drawing.visible !== false && batch.fullDrawingIds.has(drawing.id))
+    .filter((drawing) => drawingVisibleForRender(drawing, spotlight) && batch.fullDrawingIds.has(drawing.id))
     .forEach((drawing) => {
       const points = drawing.anchors
         .map((anchor) => transform.anchorToPoint(anchor))
@@ -1695,7 +1714,9 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
           drawing.anchors[2].price ?? Number.NaN
         );
         if (direction) {
-          const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+          const geometry = style.zoneSplit
+            ? buildProposalRiskRewardGeometry(points[0], points[1], points[2], direction, scene.plot)
+            : buildRiskRewardGeometry(points[0], points[1], points[2], direction);
           context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (previewLayer ? 0.72 : 1) * (style.fillOpacity ?? 0.075);
           if (style.zoneSplit) {
             const left = planZoneFillLeft(scene, geometry.left);
@@ -2113,7 +2134,9 @@ function drawRiskRewardForeground(
     });
     return;
   }
-  const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
+  const geometry = drawing.style.zoneSplit
+    ? buildProposalRiskRewardGeometry(points[0], points[1], points[2], direction, scene.plot)
+    : buildRiskRewardGeometry(points[0], points[1], points[2], direction);
   if (drawing.style.zoneSplit) {
     const zoneLeft = planZoneFillLeft(scene, geometry.left);
     drawPricePlotClipped(context, scene, () => {
@@ -2129,14 +2152,6 @@ function drawRiskRewardForeground(
       line(context, zoneLeft, geometry.stopY, geometry.right, geometry.stopY);
       context.restore();
     });
-    const ratio = Math.abs(targetPrice - entryPrice) / Math.max(0.0000001, Math.abs(entryPrice - stopPrice));
-    const proposalColor = drawing.style.proposalAction === "sell_candidate" ? colors.down : colors.up;
-    const conditionLabel = drawing.style.proposalKind === "conditional"
-      ? "조건 충족 시"
-      : drawing.style.proposalAction === "sell_candidate" ? "이탈 시 매도" : "돌파 시 진입";
-    drawPlanChip(context, drawing.label ?? "제안", zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 12, proposalColor);
-    drawPlanChip(context, `손익비 1 : ${ratio.toFixed(2)}`, zoneLeft + 6, Math.min(geometry.targetY, geometry.entryY) + 32, proposalColor);
-    drawPlanChip(context, conditionLabel, Math.max(zoneLeft + 6, geometry.left + 6), geometry.entryY - 12, proposalColor);
     return;
   }
   drawPricePlotClipped(context, scene, () => {
@@ -2387,8 +2402,6 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
       if (point && typeof end.price === "number" && point.y >= scene.plot.top && point.y <= scene.plot.priceBottom) {
         drawDarkAxisPill(context, end.price.toFixed(2), rightAxisPillX(scene), point.y, "right", axisLabelColor);
       }
-    } else if (drawing.type === "riskRewardBox" && placement === "axis" && drawing.anchors.length >= 3) {
-      drawTradePlanAxisPills(context, scene, drawing, transform);
     } else if (drawing.type === "verticalMarker" || drawing.type === "verticalParallelLines") {
       const anchors = drawing.type === "verticalMarker" ? [anchor] : drawing.anchors.slice(0, 2);
       anchors.forEach((lineAnchor) => {
@@ -2439,55 +2452,9 @@ function averagePrices(anchors: DrawingEntity["anchors"]): number | undefined {
   return prices.length ? prices.reduce((sum, price) => sum + price, 0) / prices.length : undefined;
 }
 
-function drawTradePlanAxisPills(
-  context: CanvasRenderingContext2D,
-  scene: ChartScene,
-  drawing: DrawingEntity,
-  transform: ReturnType<typeof createCoordinateTransform>
-) {
-  const [entry, stop, target] = drawing.anchors;
-  if (typeof entry.price !== "number" || typeof stop.price !== "number" || typeof target.price !== "number") return;
-  const denominator = Math.max(0.0000001, Math.abs(entry.price));
-  const sell = drawing.style.proposalAction === "sell_candidate";
-  const items = [
-    { anchor: entry, text: `${sell ? "매도" : "진입"} ${entry.price.toFixed(2)}`, color: sell ? colors.down : colors.up },
-    { anchor: target, text: `${sell ? "하락 목표" : "목표"} ${target.price.toFixed(2)} ${signedPercent((target.price - entry.price) / denominator)}`, color: sell ? colors.downSoft : colors.upSoft },
-    { anchor: stop, text: `${sell ? "매도 무효화" : "손절"} ${stop.price.toFixed(2)} ${signedPercent((stop.price - entry.price) / denominator)}`, color: sell ? colors.upSoft : colors.downSoft }
-  ];
-  items.forEach(({ anchor, text, color }) => {
-    const point = transform.anchorToPoint(anchor);
-    if (point && point.y >= scene.plot.top && point.y <= scene.plot.priceBottom) {
-      drawDarkAxisPill(context, text, rightAxisPillX(scene), point.y, "right", color);
-    }
-  });
-}
-
-function signedPercent(ratio: number): string {
-  const percent = ratio * 100;
-  return `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
-}
-
 function planZoneFillLeft(scene: ChartScene, fallback: number): number {
   const latest = candleUnits(scene).at(-1);
   return latest ? Math.max(fallback, unitBoundsX(scene, latest).right) : fallback;
-}
-
-function drawPlanChip(context: CanvasRenderingContext2D, text: string, x: number, y: number, color: string) {
-  context.save();
-  applyCanvasTypography(context, "caption", canvasFontFamily);
-  const width = context.measureText(text).width + 12;
-  const height = 18;
-  context.fillStyle = colors.surfaceStrong;
-  context.strokeStyle = color;
-  context.lineWidth = 1;
-  roundedRect(context, x, y - height / 2, width, height, 5);
-  context.fill();
-  context.stroke();
-  context.fillStyle = colors.text;
-  context.textAlign = "left";
-  context.textBaseline = "middle";
-  context.fillText(text, x + 6, y + 0.5);
-  context.restore();
 }
 
 function drawCurrentPriceMarker(context: CanvasRenderingContext2D, scene: ChartScene) {

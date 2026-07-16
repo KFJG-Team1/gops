@@ -184,8 +184,8 @@ export type GeometryTradePlan = {
   patternId: string;
   patternKind: GeometryPatternKind;
   patternState: GeometryPattern["state"];
-  action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
-  direction: "long" | "exit_long" | "short" | null;
+  action: "watch" | "buy_candidate" | "sell_candidate" | "no_trade";
+  direction: "long" | "exit_long" | null;
   signalAt: string | null;
   entryTrigger: number | null;
   entryPrice: number | null;

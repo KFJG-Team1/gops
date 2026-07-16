@@ -2,6 +2,7 @@ import type { ChartAnalysisAsset, GeometryPatternKind } from "./analysisAssetsAp
 import type { CandleDto, DrawingEntity } from "./types";
 import { chartSemanticCatalog } from "./chartSemanticCatalog";
 import { projectChartTradeSetup } from "./chartTradeSetup";
+import { tradePlanPresentation } from "./tradePlanPresentation";
 
 type AnalysisAssetDrawing = ChartAnalysisAsset["geometry"]["drawings"][number];
 
@@ -20,8 +21,7 @@ export function buildTradeTimingDrawings(
   if (!setup) return [];
   const ids = setup.drawingIds;
   const sourceProposalId = `chart-plan:${asset.symbol}:${asset.interval}:trade-timing`;
-  const action = setup.action === "buy_candidate" ? "매수 후보" : "매도 후보";
-  const prefix = setup.sourceKind === "conditional" ? `조건부 ${action}` : action;
+  const prefix = tradePlanPresentation(setup.action).scenario;
   const pattern = setup.patternKind ? patternNames[setup.patternKind] : "가격 구조";
   const label = `${prefix} · ${pattern}`;
   const common = {
@@ -71,7 +71,7 @@ export function buildTradeTimingDrawings(
       lineWidth: 1.5,
       lineDash: [6, 4],
       opacity: 0.92,
-      labelPlacement: "axis",
+      labelPlacement: "none",
       zoneSplit: true,
       proposalAction: setup.action,
       proposalKind: setup.sourceKind

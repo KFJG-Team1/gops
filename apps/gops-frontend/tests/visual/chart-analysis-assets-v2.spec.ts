@@ -159,6 +159,8 @@ test("nearby interval setup stays stable during crosshair and user pan", async (
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
+  await expect(canvas).toBeVisible();
+  await page.waitForTimeout(250);
 
   const initialSnapshot = await page.evaluate(async () => {
     const store = await import("/src/chart/chartTradeSetupStore.ts");
@@ -307,9 +309,9 @@ test("reservation sell uses the prompt side even when the chart setup is a buy c
 
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("매도 후보 확인");
-  await expect(dialog).toContainText("분석 하락 목표가 (참고)");
-  await expect(dialog).toContainText("분석 매도 무효화가 (참고)");
+  await expect(dialog).toContainText("조건부 매도 검토 확인");
+  await expect(dialog).toContainText("분석 예상 하단 가격 (참고)");
+  await expect(dialog).toContainText("분석 재검토 가격 (참고)");
   await expect(dialog).toContainText("$190.00");
   await dialog.getByRole("button", { name: "확인" }).click();
   await expect(page.locator(".workspace-agent-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
@@ -361,7 +363,7 @@ test("price axis selection accepts a natural reservation buy command and creates
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("NVDA · 1D");
-  await expect(dialog).toContainText("매수 후보");
+  await expect(dialog).toContainText("조건부 매수 검토");
   await expect(dialog).toContainText(`$${selectedPrice}`);
   await expect(dialog).toContainText("$194.00");
   await expect(dialog).toContainText("$170.00");
@@ -381,6 +383,42 @@ test("price axis selection accepts a natural reservation buy command and creates
   await page.getByRole("alertdialog").getByRole("button", { name: "확인" }).click();
   await expect(page.locator(".workspace-agent-notice")).toContainText("NVDA 20주 예약매매와 가격 알림을 등록했습니다");
   expect(executionRequests).toEqual(["/api/trade-conditions"]);
+});
+
+test("price axis and proposal labels share order selection while scenario controls only its chart", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  const quickOrder = page.locator(".quick-order-panel");
+  const scenario = page.getByRole("button", { name: "조건부 매수 검토 제안 레이어 전환" });
+  const labels = chart.locator(".chart-trade-plan-price-label");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(labels).toHaveCount(0);
+
+  await scenario.hover();
+  await expect(labels).toHaveCount(3);
+  await expect(chart.getByRole("button", { name: "진입 가격 178.00 주문창에 적용" })).toContainText("진입 $178.00 · 0.00%");
+  await expect(chart.getByRole("button", { name: "목표 가격 194.00 주문창에 적용" })).toContainText("목표 $194.00 · +8.99%");
+  await expect(chart.getByRole("button", { name: "손절 가격 170.00 주문창에 적용" })).toContainText("손절 $170.00 · -4.49%");
+  await expect(chart).toHaveScreenshot("chart-proposal-hover-labels.png", { maxDiffPixelRatio: 0.015 });
+
+  await chart.locator(".chart-analysis-layer-controls").hover();
+  await expect(labels).toHaveCount(0);
+  await scenario.focus();
+  await expect(labels).toHaveCount(3);
+  await scenario.press("Enter");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  const targetLabel = chart.getByRole("button", { name: "목표 가격 194.00 주문창에 적용" });
+  await targetLabel.focus();
+  await targetLabel.press("Enter");
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("194.00");
+  await expect(quickOrder.locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $194.00");
+
+  await scenario.focus();
+  await scenario.press("Space");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(labels).toHaveCount(3);
+  await scenario.blur();
+  await expect(labels).toHaveCount(0);
 });
 
 test("price axis targets the last interacted panel when multiple order panels exist", async ({ page }) => {
@@ -570,7 +608,7 @@ function chartAnalysisReport(requestBody: Record<string, unknown>): Record<strin
       summary: "기존 Geometry 자산의 지지·패턴을 기준으로 해설했습니다.",
       sections: [
         { title: "주요 관찰", bullets: ["가까운 지지 가격은 164.00입니다.", "상승 삼각형 · 돌파 확인 상태입니다."] },
-        { title: "확인·무효화 조건", bullets: ["진입가 178.00 / 손절 170.00 / 목표가 194.00, 손익비 2.00"] }
+        { title: "확인·재검토 조건", bullets: ["진입 178.00 / 손절 170.00 / 목표 194.00, 손익비 2.00"] }
       ],
       citations: [], limitations: []
     },

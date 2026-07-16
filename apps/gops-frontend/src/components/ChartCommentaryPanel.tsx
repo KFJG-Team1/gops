@@ -9,7 +9,8 @@ import {
 } from "../agent/chartCommentaryHistory";
 import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval, type ChartAnalysisAsset } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
-import { buildChartCommentaryViewModel } from "../chart/commentaryModel";
+import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
+import { dispatchChartAnalysisLayerToggle } from "../chart/analysisLayerController";
 import { chartCommentaryHoldingDisplay } from "../chart/commentaryHoldings";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
@@ -253,16 +254,13 @@ function CurrentCommentary({
           </button>)}
         </div>
       </section>}
-      {viewModel.scenario && <section
-        className="chart-commentary-scenario"
-        aria-label="조건부 시나리오"
-        onMouseEnter={() => chartDocumentId && dispatchFocus(chartDocumentId, symbol, interval, viewModel.scenario!.drawingIds, "spotlight")}
-        onMouseLeave={restorePinned}
-      >
-        <span className="chart-commentary-scenario-status">{viewModel.scenario.status}</span>
-        <p>{viewModel.scenario.confirmation} · 목표 {formatPrice(viewModel.scenario.targetPrice)} · 무효화 {formatPrice(viewModel.scenario.invalidationPrice)}</p>
-        <p>손익비 1 : {viewModel.scenario.rewardRiskRatio.toFixed(2)} · 유효기간 {viewModel.scenario.projectionBars}개 봉</p>
-      </section>}
+      {viewModel.scenario && <CommentaryScenarioButton
+        scenario={viewModel.scenario}
+        chartDocumentId={chartDocumentId}
+        symbol={symbol}
+        interval={interval}
+        onRestore={restorePinned}
+      />}
       <section className="chart-commentary-focus" aria-label="판단 근거">
         <ol>{viewModel.evidence.map((step) => {
           const pinned = pinnedStepId === step.id;
@@ -301,6 +299,54 @@ function CurrentCommentary({
         </>}
     </article>
   );
+}
+
+function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval, onRestore }: {
+  scenario: ChartCommentaryScenario;
+  chartDocumentId?: string;
+  symbol: string;
+  interval: ChartInterval;
+  onRestore: () => void;
+}) {
+  const pointerActiveRef = useRef(false);
+  const keyboardFocusRef = useRef(false);
+  const pointerFocusRef = useRef(false);
+  const spotlight = () => {
+    if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, scenario.drawingIds, "spotlight");
+  };
+  return <button
+    type="button"
+    className="chart-commentary-scenario"
+    aria-label={`${scenario.status} 제안 레이어 전환`}
+    disabled={!chartDocumentId}
+    onPointerEnter={() => {
+      pointerActiveRef.current = true;
+      spotlight();
+    }}
+    onPointerLeave={() => {
+      pointerActiveRef.current = false;
+      if (!keyboardFocusRef.current) onRestore();
+    }}
+    onPointerDown={() => { pointerFocusRef.current = true; }}
+    onPointerUp={() => { pointerFocusRef.current = false; }}
+    onFocus={() => {
+      if (pointerFocusRef.current) return;
+      keyboardFocusRef.current = true;
+      spotlight();
+    }}
+    onBlur={() => {
+      keyboardFocusRef.current = false;
+      pointerFocusRef.current = false;
+      if (!pointerActiveRef.current) onRestore();
+    }}
+    onClick={() => {
+      if (chartDocumentId) dispatchChartAnalysisLayerToggle({ chartDocumentId, layer: "proposal" });
+    }}
+  >
+    <span className="chart-commentary-scenario-status">{scenario.status}</span>
+    <span className="chart-commentary-scenario-line">{scenario.confirmation} · {scenario.labels.target} {formatPrice(scenario.targetPrice)} · {scenario.labels.risk} {formatPrice(scenario.invalidationPrice)}</span>
+    <span className="chart-commentary-scenario-line">손익비 1 : {scenario.rewardRiskRatio.toFixed(2)} · 유효기간 {scenario.projectionBars}개 봉</span>
+  </button>;
 }
 
 function HoldingSummary({ holding, loading, error, errorStatus }: {

@@ -52,7 +52,9 @@ import {
   type ChartRuntimeAction,
   type StreamStatus,
   type TradeTickData,
-  normalizeRealtimeLayerEvent
+  normalizeRealtimeLayerEvent,
+  proposalPriceLabelReserveWidth,
+  proposalRiskRewardMinimumWidth
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
@@ -66,18 +68,20 @@ import {
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
-import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
+import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
 import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
+  chartAnalysisLayerToggleEventName,
   defaultAnalysisLayerVisibility,
   isChartAssetDrawing,
   hasAnalysisLayerDrawings,
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
+import { buildTradePlanOverlayLayout, tradePlanOverlayLayoutKey, type TradePlanOverlayLayout } from "../chart/tradePlanOverlayLayout";
 import { clearActiveTradePlan, projectActiveTradePlan, setActiveTradePlan } from "../chart/tradePlanStore";
 import { fetchCandles, fetchChartEvents, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
@@ -457,6 +461,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
   const [spotlightCandidateIds, setSpotlightCandidateIds] = useState<string[]>([]);
   const [spotlightEvidenceRefs, setSpotlightEvidenceRefs] = useState<string[]>([]);
+  const [tradePlanOverlay, setTradePlanOverlay] = useState<TradePlanOverlayLayout | null>(null);
   const [chartEvents, setChartEvents] = useState<ChartEventsResponse | null>(null);
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
   const [chartEventUpcomingStyle, setChartEventUpcomingStyle] = useState<CSSProperties>();
@@ -626,6 +631,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
   const appliedAnalysisAssetKeyRef = useRef("");
   const proposalAutoFrameKeyRef = useRef("");
+  const tradePlanOverlayKeyRef = useRef("none");
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -929,6 +935,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       `${visible ? "Show" : "Hide"} chart analysis ${layer}`
     );
   }, [activeAnalysisAsset, commandTarget, dispatchExternalCommandGroup]);
+
+  useEffect(() => {
+    const handleLayerToggle = (event: Event) => {
+      const detail = (event as CustomEvent<{ chartDocumentId?: string; layer?: string }>).detail;
+      if (detail?.chartDocumentId !== document.id || detail.layer !== "proposal") return;
+      toggleAnalysisLayer("proposal");
+    };
+    window.addEventListener(chartAnalysisLayerToggleEventName, handleLayerToggle);
+    return () => window.removeEventListener(chartAnalysisLayerToggleEventName, handleLayerToggle);
+  }, [document.id, toggleAnalysisLayer]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -1905,14 +1921,28 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand]);
 
   useEffect(() => {
+    proposalAutoFrameKeyRef.current = "";
+  }, [
+    chart.interval,
+    chart.symbol,
+    chartTradeSetupSnapshot?.assetIdentity.algorithmVersion,
+    chartTradeSetupSnapshot?.assetIdentity.asOf,
+    chartTradeSetupSnapshot?.assetIdentity.inputDigest,
+    chartTradeSetupSnapshot?.setup.drawingIds.plan,
+    document.id
+  ]);
+
+  useEffect(() => {
     const proposalDrawing = chartTradeSetupSnapshot
       ? chart.drawings.find((drawing) => (
         drawing.id === chartTradeSetupSnapshot.setup.drawingIds.plan
-        && drawing.visible !== false
         && drawing.style.zoneSplit === true
       ))
       : undefined;
     if (!proposalDrawing || !chartTradeSetupSnapshot) return;
+    const proposalDisplayed = analysisLayerVisibility.proposal
+      || spotlightDrawingIds.includes(proposalDrawing.id);
+    if (!proposalDisplayed || chart.rightOffset > 0) return;
     const autoFrameKey = [
       document.id,
       chartTradeSetupSnapshot.assetIdentity.algorithmVersion,
@@ -1921,21 +1951,50 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       proposalDrawing.id
     ].join("|");
     if (proposalAutoFrameKeyRef.current === autoFrameKey) return;
-    proposalAutoFrameKeyRef.current = autoFrameKey;
-    if (chart.rightOffset > 0) return;
     const lastCandleIndex = chart.candles.length - 1;
-    const projectionBars = proposalDrawing.anchors
+    const anchorProjectionBars = proposalDrawing.anchors
       .map((anchor) => anchor.logicalIndex)
       .filter((logicalIndex): logicalIndex is number => typeof logicalIndex === "number" && Number.isFinite(logicalIndex))
       .reduce((maximum, logicalIndex) => Math.max(maximum, logicalIndex - lastCandleIndex), 0);
+    const projectionBars = Math.max(chartTradeSetupSnapshot.setup.projectionBars, anchorProjectionBars);
     if (projectionBars <= 0) return;
-    const sceneVisibleCount = sceneRef.current?.visibleSlotCount ?? chart.visibleCount;
-    const futureSlots = Math.max(projectionBars + 2, Math.floor(sceneVisibleCount / 4));
+    const scene = sceneRef.current;
+    const slotWidth = scene?.scales.slotWidth
+      ?? Math.max(1, ((scene?.plot.right ?? chart.visibleCount) - (scene?.plot.left ?? 0)) / Math.max(1, chart.visibleCount));
+    const minimumBoxSlots = Math.ceil(proposalRiskRewardMinimumWidth / Math.max(1, slotWidth));
+    const labelSlots = Math.ceil(proposalPriceLabelReserveWidth / Math.max(1, slotWidth));
+    const futureSlots = Math.max(projectionBars, minimumBoxSlots) + labelSlots + 2;
+    proposalAutoFrameKeyRef.current = autoFrameKey;
     applyViewport({ visibleCount: chart.visibleCount, rightOffset: -futureSlots }, "external");
-  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount, chartTradeSetupSnapshot, document.id]);
+  }, [
+    analysisLayerVisibility.proposal,
+    applyViewport,
+    chart.candles.length,
+    chart.drawings,
+    chart.rightOffset,
+    chart.visibleCount,
+    chartTradeSetupSnapshot,
+    document.id,
+    spotlightDrawingIds
+  ]);
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const planDrawingId = chartTradeSetupSnapshot?.setup.drawingIds.plan;
+    const planDrawing = planDrawingId
+      ? scene.chart.drawings.find((drawing) => drawing.id === planDrawingId)
+      : undefined;
+    const proposalDisplayed = Boolean(planDrawingId && (
+      analysisLayerVisibilityRef.current.proposal || spotlightDrawingIds.includes(planDrawingId)
+    ));
+    const nextTradePlanOverlay = proposalDisplayed && planDrawing
+      ? buildTradePlanOverlayLayout(scene, planDrawing)
+      : null;
+    const nextTradePlanOverlayKey = tradePlanOverlayLayoutKey(nextTradePlanOverlay);
+    if (nextTradePlanOverlayKey !== tradePlanOverlayKeyRef.current) {
+      tradePlanOverlayKeyRef.current = nextTradePlanOverlayKey;
+      setTradePlanOverlay(nextTradePlanOverlay);
+    }
     const nextCandidateCounts = analysisTraceCandidateCounts(analysisTraceDiagnosticOverlay, scene);
     setAnalysisCandidateCounts((current) => (
       analysisCandidateCountsEqual(current, nextCandidateCounts) ? current : nextCandidateCounts
@@ -1983,7 +2042,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;
       setChartEventUpcomingStyle({ right: upcomingRight, bottom: upcomingBottom });
     }
-  }, [analysisTraceDiagnosticOverlay, chartEvents, earningsEventsVisible, newsEventsVisible]);
+  }, [analysisTraceDiagnosticOverlay, chartEvents, chartTradeSetupSnapshot, earningsEventsVisible, newsEventsVisible, spotlightDrawingIds]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
     if (unit.kind !== "candle") {
@@ -2553,16 +2612,15 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       const axisPoint = scene ? chartPriceAxisPoint(scene, point.x, point.y) : null;
       const clickDistance = Math.hypot(point.x - priceAxisPointer.x, point.y - priceAxisPointer.y);
       if (axisPoint && priceAxisPointer.pointerId === event.pointerId && clickDistance <= 5) {
-        onPriceSelection?.({
-          version: "chart-price-selection-v1",
+        const selection = createChartPriceSelection({
           chartDocumentId: document.id,
           sourcePanelId: panelId,
-          symbol: chart.symbol.trim().toUpperCase(),
+          symbol: chart.symbol,
           interval: chart.interval,
           price: axisPoint.price,
-          formattedPrice: axisPoint.formattedPrice,
-          selectedAt: new Date().toISOString()
+          formattedPrice: axisPoint.formattedPrice
         });
+        if (selection) onPriceSelection?.(selection);
       }
       return;
     }
@@ -2670,6 +2728,17 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     textAlign: labelEditorLayout.textAlign,
     transform: `scale(${labelEditorScaleX}, ${labelEditorScaleY})`
   } : undefined;
+  const applyTradePlanLabelPrice = useCallback((label: TradePlanOverlayLayout["labels"][number]) => {
+    const selection = createChartPriceSelection({
+      chartDocumentId: document.id,
+      sourcePanelId: panelId,
+      symbol: chart.symbol,
+      interval: chart.interval,
+      price: label.price,
+      formattedPrice: label.formattedPrice
+    });
+    if (selection) onPriceSelection?.(selection);
+  }, [chart.interval, chart.symbol, document.id, onPriceSelection, panelId]);
 
   return (
     <section
@@ -2790,6 +2859,33 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           earningsVisible={earningsEventsVisible}
           upcomingStyle={chartEventUpcomingStyle}
         />
+        {tradePlanOverlay && (
+          <div className="chart-trade-plan-price-overlay" data-drawing-id={tradePlanOverlay.drawingId}>
+            <svg aria-hidden="true">
+              {tradePlanOverlay.labels.map((label) => <line
+                key={`connector-${label.role}`}
+                className={`is-${label.tone}`}
+                x1={label.connector.startX}
+                y1={label.connector.startY}
+                x2={label.connector.endX}
+                y2={label.connector.endY}
+              />)}
+            </svg>
+            {tradePlanOverlay.labels.map((label) => <button
+              key={label.role}
+              type="button"
+              className={`chart-trade-plan-price-label is-${label.tone}`}
+              style={{ left: label.left, top: label.top, width: label.width }}
+              aria-label={label.ariaLabel}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                applyTradePlanLabelPrice(label);
+              }}
+            >{label.text}</button>)}
+          </div>
+        )}
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
