@@ -146,24 +146,13 @@ test("wheel zoom out remains available without historical backfill", async ({ pa
   await expectNonBlankCanvas(canvas);
 });
 
-test("wheel zoom out requests older candles when the past boundary is visible", async ({ page }) => {
+test("visible past boundary requests older candles without horizontal pan", async ({ page }) => {
   backfillWhenPastBoundaryVisible = true;
   await openFixtureLayout(page, chartOnlyLayout());
   const chartPanel = page.locator(".chart-panel");
   const canvas = chartPanel.locator(".chart-canvas");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "20");
   await expect(chartPanel).toHaveAttribute("data-chart-right-offset", /^-/);
-
-  await canvas.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    element.dispatchEvent(new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + rect.width * 0.5,
-      clientY: rect.top + rect.height * 0.45,
-      deltaY: 70
-    }));
-  });
 
   await expect.poll(() => olderCandleRequestCount).toBe(1);
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "140");
