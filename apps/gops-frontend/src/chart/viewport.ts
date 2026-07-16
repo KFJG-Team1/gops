@@ -105,6 +105,21 @@ export function zoomViewportAt(
   );
 }
 
+export function viewportNeedsOlderCandles(
+  viewport: ChartViewport,
+  candleCount: number,
+  boundaryTolerance = 1
+): boolean {
+  const safeCandleCount = Math.max(0, Math.floor(candleCount));
+  if (safeCandleCount === 0) {
+    return false;
+  }
+  const safeVisibleCount = Math.max(1, Math.round(viewport.visibleCount));
+  const safeRightOffset = Number.isFinite(viewport.rightOffset) ? viewport.rightOffset : 0;
+  const visibleStartIndex = safeCandleCount - safeRightOffset - safeVisibleCount;
+  return visibleStartIndex <= Math.max(0, boundaryTolerance);
+}
+
 export function dragDeltaToRightOffset(
   startRightOffset: number,
   dragPixels: number,
