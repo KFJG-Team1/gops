@@ -1,246 +1,172 @@
-import { LoaderCircle, Pause, Play, Radio, RotateCcw, SkipForward } from "lucide-react";
+import { LoaderCircle, Pause, Play, Radio, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { NotificationItem } from "../alerts/alertApi";
 import { invalidateAnalysisAssets } from "../chart/analysisAssetsApi";
+import { invalidateChartDerivedCaches } from "../chart/cdcClient";
 import {
-  fetchSimulatorNews,
   fetchSimulatorStatus,
-  formatSimulatorClock,
+  formatSimulatorVirtualTime,
   publishSimulatorStatus,
   requestPortfolioRefresh,
   runSimulatorAction,
   setSimulatorMode,
-  setSimulatorPhase,
+  setSimulatorSpeed,
+  simulatorSpeeds,
   simulatorStatusPollIntervalMs,
+  type SimulatorSpeed,
   type SimulatorStatus
 } from "./simulatorApi";
-import { simulatorBreakingNotification, simulatorPhaseNotification } from "./simulatorNotifications";
 
 
 const initialStatus: SimulatorStatus = {
   available: false,
   mode: "live",
   state: "idle",
-  elapsedSeconds: 0,
-  durationSeconds: 300,
-  breakingNewsAtSeconds: 210,
-  breakingNewsReleased: false,
+  datasetId: "sp500-top20-20260715-kst-v1",
+  runId: null,
+  virtualTime: "2026-07-15T00:00:00+09:00",
+  startTime: "2026-07-15T00:00:00+09:00",
+  endTime: "2026-07-16T00:00:00+09:00",
+  requestedSpeed: 1,
+  effectiveSpeed: 0,
+  processedEventCount: 0,
+  totalEventCount: 0,
+  progress: 0,
+  lagMs: 0,
   symbols: []
 };
 
-export function SimulatorControl({ onNotification }: { onNotification?: (notification: NotificationItem) => void }) {
+export function SimulatorControl() {
   const [status, setStatus] = useState<SimulatorStatus>(initialStatus);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const announcedRunRef = useRef<string | null>(null);
-  const announcedPhaseRef = useRef<string | null>(null);
   const previousModeRef = useRef<SimulatorStatus["mode"]>("live");
   const latestStatusRef = useRef<SimulatorStatus>(initialStatus);
   const reschedulePollRef = useRef<() => void>(() => undefined);
-  const notificationHandlerRef = useRef(onNotification);
-  notificationHandlerRef.current = onNotification;
 
   const applyStatus = (next: SimulatorStatus) => {
+    const modeChanged = previousModeRef.current !== next.mode;
+    const runChanged = latestStatusRef.current.runId !== next.runId;
     latestStatusRef.current = next;
     setStatus(next);
     publishSimulatorStatus(next);
-    const phaseKey = next.mode === "simulation" && next.runId ? `${next.runId}:${next.phase}` : null;
-    if (phaseKey && phaseKey !== announcedPhaseRef.current) {
-      announcedPhaseRef.current = phaseKey;
-      if (["breaking-event", "market-close"].includes(next.phase ?? "")) {
-        invalidateAnalysisAssets();
-      }
-      const phaseNotification = simulatorPhaseNotification(next);
-      if (phaseNotification) notificationHandlerRef.current?.(phaseNotification);
-    }
-    if (next.mode !== "simulation") {
-      announcedPhaseRef.current = null;
-      announcedRunRef.current = null;
-      if (previousModeRef.current === "simulation") invalidateAnalysisAssets();
+    if (modeChanged || runChanged) {
+      invalidateAnalysisAssets();
+      invalidateChartDerivedCaches();
+      requestPortfolioRefresh();
     }
     previousModeRef.current = next.mode;
-  };
-
-  const announceBreakingNews = async (next: SimulatorStatus) => {
-    if (!next.breakingNewsReleased || !next.runId || announcedRunRef.current === next.runId) return;
-    announcedRunRef.current = next.runId;
-    const article = await fetchSimulatorNews();
-    if (article) notificationHandlerRef.current?.(simulatorBreakingNotification(article, next));
   };
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
-    let activeController: AbortController | null = null;
-    let inFlight = false;
-    let refreshWhenIdle = false;
+    let controller: AbortController | null = null;
 
     const clearTimer = () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
     };
-
     const schedule = () => {
       clearTimer();
       if (cancelled || document.visibilityState === "hidden") return;
-      timer = window.setTimeout(() => {
-        timer = undefined;
-        void refresh();
-      }, simulatorStatusPollIntervalMs(latestStatusRef.current));
+      timer = window.setTimeout(refresh, simulatorStatusPollIntervalMs(latestStatusRef.current));
     };
-
     const refresh = async () => {
       if (cancelled || document.visibilityState === "hidden") return;
-      if (inFlight) {
-        refreshWhenIdle = true;
-        return;
-      }
-      inFlight = true;
-      const controller = new AbortController();
-      activeController = controller;
+      controller?.abort();
+      controller = new AbortController();
       try {
-        const next = await fetchSimulatorStatus(controller.signal);
-        if (cancelled) return;
-        applyStatus(next);
+        applyStatus(await fetchSimulatorStatus(controller.signal));
         setError(undefined);
-        await announceBreakingNews(next);
       } catch (caught) {
-        if (!cancelled && !controller.signal.aborted) {
-          setError(caught instanceof Error ? caught.message : "시뮬레이터 연결 실패");
-        }
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "시뮬레이터 연결 실패");
       } finally {
-        if (activeController === controller) activeController = null;
-        inFlight = false;
-        if (refreshWhenIdle) {
-          refreshWhenIdle = false;
-          void refresh();
-        } else {
-          schedule();
-        }
+        schedule();
       }
     };
-
-    const refreshNow = () => {
-      clearTimer();
-      if (inFlight) {
-        refreshWhenIdle = true;
-        return;
-      }
-      void refresh();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        clearTimer();
-        activeController?.abort();
-        return;
-      }
-      refreshNow();
-    };
-
+    const visibility = () => document.visibilityState === "hidden" ? (clearTimer(), controller?.abort()) : void refresh();
     reschedulePollRef.current = schedule;
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    refreshNow();
+    document.addEventListener("visibilitychange", visibility);
+    void refresh();
     return () => {
       cancelled = true;
-      reschedulePollRef.current = () => undefined;
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearTimer();
-      activeController?.abort();
+      controller?.abort();
+      document.removeEventListener("visibilitychange", visibility);
     };
   }, []);
 
-  const changeMode = async () => {
-    if (!status.available || busy) return;
+  const execute = async (request: () => Promise<SimulatorStatus>, fallback: string) => {
+    if (busy) return;
     setBusy(true);
     setError(undefined);
     try {
-      const next = await setSimulatorMode(status.mode === "simulation" ? "live" : "simulation");
-      applyStatus(next);
+      applyStatus(await request());
       reschedulePollRef.current();
       requestPortfolioRefresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "모드 전환 실패");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const controlRun = async (action: "pause" | "resume" | "restart") => {
-    setBusy(true);
-    try {
-      if (action === "restart") {
-        announcedRunRef.current = null;
-        announcedPhaseRef.current = null;
-      }
-      const next = await runSimulatorAction(action);
-      applyStatus(next);
-      reschedulePollRef.current();
-      requestPortfolioRefresh();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "시뮬레이터 제어 실패");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const moveToNextPhase = async () => {
-    if (!status.nextPhase || busy) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      const next = await setSimulatorPhase(status.nextPhase);
-      applyStatus(next);
-      await announceBreakingNews(next);
-      reschedulePollRef.current();
-      requestPortfolioRefresh();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "시연 단계 전환 실패");
+      setError(caught instanceof Error ? caught.message : fallback);
     } finally {
       setBusy(false);
     }
   };
 
   const simulation = status.mode === "simulation";
+  const canPlay = status.state === "ready" || status.state === "paused";
+  const progress = Math.max(0, Math.min(100, status.progress * 100));
   return (
     <div className={`simulator-mode-control ${simulation ? "is-simulation" : ""}`} title={error || status.detail}>
-        <button
-          type="button"
-          className="simulator-mode-toggle"
-          aria-label={simulation ? "LIVE 모드로 전환" : "SIMULATION 시작"}
-          disabled={!status.available || busy}
-          onClick={changeMode}
-        >
-          {busy ? <LoaderCircle size={12} className="spin" /> : <Radio size={12} />}
-          <span>{simulation ? "SIM" : status.available ? "LIVE" : "SIM OFFLINE"}</span>
-          <i aria-hidden="true" />
-        </button>
-        {simulation && (
-          <div className="simulator-run-controls">
-            <strong title={status.phaseLabel}>{status.phaseIndex != null && status.phaseIndex >= 0 ? `${status.phaseIndex + 1}/${status.phases?.length ?? 3}` : ""} T+{formatSimulatorClock(status.elapsedSeconds)}</strong>
-            <button
-              type="button"
-              aria-label={status.state === "paused" ? "시뮬레이션 계속" : "시뮬레이션 일시정지"}
-              onClick={() => void controlRun(status.state === "paused" ? "resume" : "pause")}
-            >
-              {status.state === "paused" ? <Play size={11} /> : <Pause size={11} />}
-            </button>
-            <button type="button" aria-label="시뮬레이션 재시작" onClick={() => void controlRun("restart")}>
-              <RotateCcw size={11} />
-            </button>
-            <button
-              type="button"
-              aria-label="다음 시연 단계"
-              title={status.nextPhase ? `다음: ${status.phases?.find((phase) => phase.id === status.nextPhase)?.label ?? status.nextPhase}` : "마지막 단계"}
-              disabled={!status.nextPhase || busy}
-              onClick={() => void moveToNextPhase()}
-            >
-              <SkipForward size={11} />
-            </button>
-          </div>
-        )}
+      <button
+        type="button"
+        className="simulator-mode-toggle"
+        aria-label={simulation ? "LIVE 모드로 전환" : "SIMULATION 시작"}
+        disabled={!status.available || busy}
+        onClick={() => void execute(() => setSimulatorMode(simulation ? "live" : "simulation"), "모드 전환 실패")}
+      >
+        {busy ? <LoaderCircle size={12} className="spin" /> : <Radio size={12} />}
+        <span>{simulation ? "SIM" : status.available ? "LIVE" : "SIM OFFLINE"}</span>
+        <i aria-hidden="true" />
+      </button>
+      {simulation && (
+        <div className="simulator-run-controls">
+          <strong title={`${status.datasetId} · ${progress.toFixed(2)}%`}>
+            {formatSimulatorVirtualTime(status.virtualTime)} · {progress.toFixed(1)}%
+          </strong>
+          <select
+            aria-label="시뮬레이션 배속"
+            value={status.requestedSpeed}
+            disabled={busy || status.state === "completed"}
+            onChange={(event) => void execute(
+              () => setSimulatorSpeed(Number(event.target.value) as SimulatorSpeed),
+              "배속 변경 실패"
+            )}
+          >
+            {simulatorSpeeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
+          </select>
+          <button
+            type="button"
+            aria-label={canPlay ? "시뮬레이션 재생" : "시뮬레이션 일시정지"}
+            disabled={busy || status.state === "completed"}
+            onClick={() => void execute(
+              () => runSimulatorAction(canPlay ? "resume" : "pause"),
+              "시뮬레이터 제어 실패"
+            )}
+          >
+            {canPlay ? <Play size={11} /> : <Pause size={11} />}
+          </button>
+          <button
+            type="button"
+            aria-label="시뮬레이션 재시작"
+            disabled={busy}
+            onClick={() => void execute(() => runSimulatorAction("restart"), "시뮬레이터 재시작 실패")}
+          >
+            <RotateCcw size={11} />
+          </button>
+          <span className="simulator-effective-speed" title={`처리 지연 ${status.lagMs}ms`}>
+            실효 {status.effectiveSpeed.toFixed(1)}×
+          </span>
+        </div>
+      )}
     </div>
   );
 }

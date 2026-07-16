@@ -1,46 +1,32 @@
 export type SimulatorMode = "live" | "simulation";
+export type SimulatorState = "idle" | "ready" | "running" | "paused" | "completed";
+export type SimulatorSpeed = 1 | 5 | 20 | 60 | 300;
+
+export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 5, 20, 60, 300];
 
 export type SimulatorSymbolStatus = {
   symbol: string;
   price?: number | null;
-  seedPrice?: number | null;
   changePercent?: number | null;
-};
-
-export type SimulatorPhase = {
-  id: string;
-  label: string;
-  atSeconds: number;
-  summary?: string;
 };
 
 export type SimulatorStatus = {
   available: boolean;
   mode: SimulatorMode;
-  state: "idle" | "running" | "paused" | "completed";
-  scenarioId?: string | null;
-  scenarioTitle?: string | null;
+  state: SimulatorState;
+  datasetId: string;
   runId?: string | null;
-  phase?: string;
-  phaseLabel?: string;
-  phaseIndex?: number;
-  nextPhase?: string | null;
-  phases?: SimulatorPhase[];
-  elapsedSeconds: number;
-  durationSeconds: number;
-  breakingNewsAtSeconds: number;
-  breakingNewsReleased: boolean;
+  virtualTime: string;
+  startTime: string;
+  endTime: string;
+  requestedSpeed: SimulatorSpeed;
+  effectiveSpeed: number;
+  processedEventCount: number;
+  totalEventCount: number;
+  progress: number;
+  lagMs: number;
   symbols: SimulatorSymbolStatus[];
   detail?: string;
-};
-
-export type SimulatorNewsArticle = {
-  id: string;
-  headline: string;
-  summary?: string;
-  source?: string;
-  url?: string;
-  symbols?: string[];
 };
 
 export const simulatorStatusEvent = "gops:simulator-status";
@@ -57,9 +43,12 @@ export function simulatorStatusPollIntervalMs(status: Pick<SimulatorStatus, "ava
 
 export function shouldResetMarketDataForSimulatorTransition(
   previousMode: SimulatorMode,
-  nextMode: SimulatorMode
+  nextMode: SimulatorMode,
+  previousRunId?: string | null,
+  nextRunId?: string | null
 ): boolean {
-  return previousMode === "simulation" && nextMode === "live";
+  return previousMode !== nextMode
+    || (nextMode === "simulation" && previousRunId != null && previousRunId !== nextRunId);
 }
 
 export function subscribePortfolioRefresh(listener: () => void): () => void {
@@ -71,13 +60,20 @@ export function requestPortfolioRefresh(): void {
   portfolioRefreshListeners.forEach((listener) => listener());
 }
 
-export function basketForOrderSide(side: "buy" | "sell"): "energy" | "semiconductor" {
-  return side === "sell" ? "semiconductor" : "energy";
-}
-
-export function formatSimulatorClock(seconds: number): string {
-  const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
-  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+export function formatSimulatorVirtualTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "--/-- --:--:--";
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date(timestamp));
+  const valueFor = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "--";
+  return `${valueFor("month")}/${valueFor("day")} ${valueFor("hour")}:${valueFor("minute")}:${valueFor("second")}`;
 }
 
 export async function fetchSimulatorStatus(signal?: AbortSignal): Promise<SimulatorStatus> {
@@ -100,28 +96,12 @@ export async function runSimulatorAction(action: "pause" | "resume" | "restart")
   });
 }
 
-export async function setSimulatorPhase(phase: string): Promise<SimulatorStatus> {
-  return requestJson<SimulatorStatus>("/api/simulator/phase", {
+export async function setSimulatorSpeed(speed: SimulatorSpeed): Promise<SimulatorStatus> {
+  return requestJson<SimulatorStatus>("/api/simulator/speed", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phase })
+    body: JSON.stringify({ speed })
   });
-}
-
-export async function fetchSimulatorNews(): Promise<SimulatorNewsArticle | null> {
-  const payload = await requestJson<{ news?: SimulatorNewsArticle[] }>("/api/simulator/news");
-  return payload.news?.[0] ?? null;
-}
-
-export async function submitSimulatorBasket(side: "buy" | "sell", idempotencyKey: string) {
-  return requestJson<{ orders: Array<Record<string, unknown>>; account: Record<string, unknown> }>(
-    "/api/simulator/orders/basket",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify({ basket: basketForOrderSide(side), side })
-    }
-  );
 }
 
 export function publishSimulatorStatus(status: SimulatorStatus): void {

@@ -17,10 +17,6 @@ import {
   type StockRecommendationPayload
 } from "./recommendationApi";
 import { RecommendationSettingsDialog } from "./RecommendationSettingsDialog";
-import {
-  recommendationSimulationFallbackItems,
-  shouldUseRecommendationSimulationFallback
-} from "./recommendationSimulationFallback";
 
 const companyNameBySymbol = new Map(sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.companyName]));
 const RECOMMENDATION_STACK_INTERVAL_MS = 8_000;
@@ -70,6 +66,12 @@ export function StockRecommendationsPanel({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    if (simulatorMode === "simulation") {
+      setPayload(null);
+      setLoading(false);
+      setError("시뮬레이션 시각 기준 추천 데이터가 없어 표시하지 않습니다.");
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
@@ -124,13 +126,7 @@ export function StockRecommendationsPanel({
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
 
-  const showingSimulationFallback = !loading
-    && !error
-    && shouldUseRecommendationSimulationFallback(payload, simulatorMode);
-  const items = useMemo(
-    () => showingSimulationFallback ? recommendationSimulationFallbackItems : payload?.items ?? [],
-    [payload?.items, showingSimulationFallback]
-  );
+  const items = useMemo(() => payload?.items ?? [], [payload?.items]);
 
   useEffect(() => {
     if (loading || !payload || !selectedSymbol || selectedRecommendation?.reference.sourcePanelId !== sourcePanelId) {
@@ -175,9 +171,6 @@ export function StockRecommendationsPanel({
             >
               <Settings size={14} aria-hidden="true" />
             </button>
-            {showingSimulationFallback && (
-              <span className="stock-rec-simulation-badge" title="시뮬레이션 추천 데이터">simulation</span>
-            )}
           </div>
           <div className="stock-rec-session-toggle" role="group" aria-label="추천 세션">
             <button

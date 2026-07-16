@@ -19,7 +19,6 @@ import {
   fetchSimulatorStatus,
   requestPortfolioRefresh,
   simulatorStatusEvent,
-  submitSimulatorBasket,
   type SimulatorStatus
 } from "../simulator/simulatorApi";
 
@@ -274,7 +273,6 @@ export function OrderTicket({
   const [error, setError] = useState<string | undefined>();
   const [order, setOrder] = useState<OrderSnapshot | undefined>();
   const [simulationMode, setSimulationMode] = useState(false);
-  const [useDemoBasket, setUseDemoBasket] = useState(true);
   const [risk, setRisk] = useState<RiskVerdict | undefined>();
   const [riskLoading, setRiskLoading] = useState(false);
   const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
@@ -372,8 +370,8 @@ export function OrderTicket({
   }, [executionMode, symbolSearchOpen, symbolSearchQuery]);
 
   const allSymbolOptions = useMemo(
-    () => dedupeSymbols([...chartSymbols, ...symbolOptions, ...paperSymbolOptions]),
-    [chartSymbols, paperSymbolOptions, symbolOptions]
+    () => dedupeSymbols(simulationMode ? chartSymbols : [...chartSymbols, ...symbolOptions, ...paperSymbolOptions]),
+    [chartSymbols, paperSymbolOptions, simulationMode, symbolOptions]
   );
 
   const visibleSearchOptions = useMemo(() => {
@@ -394,10 +392,6 @@ export function OrderTicket({
     : form.price;
 
   useEffect(() => {
-    if (simulationMode && useDemoBasket) {
-      setRisk(undefined);
-      return;
-    }
     if (priceType === "market") {
       setRisk(undefined);
       return;
@@ -446,7 +440,7 @@ export function OrderTicket({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [effectivePriceText, executionMode, form.exchange, form.market, form.qty, form.side, form.symbol, priceType, simulationMode, useDemoBasket]);
+  }, [effectivePriceText, executionMode, form.exchange, form.market, form.qty, form.side, form.symbol, priceType]);
 
   const applyRuleSuggestion = (rule: RiskRule) => {
     const quantity = rule.suggestedQty ? Number(rule.suggestedQty) : NaN;
@@ -513,30 +507,8 @@ export function OrderTicket({
     setSubmitting(true);
     setError(undefined);
     const idempotencyKey = makeIdempotencyKey();
-    if (simulationMode && useDemoBasket) {
-      try {
-        const payload = await submitSimulatorBasket(form.side, idempotencyKey);
-        const orders = payload.orders;
-        const orderIds = orders.map((item) => String(item.order_id ?? "")).filter(Boolean);
-        setOrder({
-          order_id: orderIds.join(", ") || `sim-basket-${Date.now()}`,
-          request_id: idempotencyKey,
-          client_order_id: idempotencyKey,
-          status: "filled",
-          side: form.side,
-          qty: String(orders.length),
-          simulation: true
-        });
-        requestPortfolioRefresh();
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "SIM 바스켓 주문에 실패했습니다.");
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-    if (priceType === "market") {
-      setError("시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다.");
+    if (priceType === "market" && !simulationMode) {
+      setError("시장가 주문은 틱 리플레이 SIM 모드에서만 사용할 수 있습니다.");
       setSubmitting(false);
       return;
     }
@@ -548,7 +520,7 @@ export function OrderTicket({
       setSubmitting(false);
       return;
     }
-    if (!Number.isFinite(price) || price <= 0) {
+    if (priceType === "limit" && (!Number.isFinite(price) || price <= 0)) {
       setError("주문 가격 입력이 필요합니다.");
       setSubmitting(false);
       return;
@@ -565,9 +537,10 @@ export function OrderTicket({
           symbol: form.symbol,
           side: form.side,
           qty: form.qty,
-          price: submitPrice,
+          price: priceType === "limit" ? submitPrice : undefined,
           exchange: form.exchange,
           order_division: "00",
+          order_type: priceType,
           actor_id: "gops-frontend",
           role: "trader",
           risk_acknowledged: Boolean(risk && risk.verdict !== "allow")
@@ -610,7 +583,9 @@ export function OrderTicket({
   const quantity = Number(form.qty);
   const price = Number(effectivePriceText);
   const individualOrderReady = Number.isInteger(quantity) && quantity > 0 && Number.isFinite(price) && price > 0;
-  const orderReady = simulationMode && useDemoBasket ? true : priceType === "limit" && individualOrderReady;
+  const orderReady = Number.isInteger(quantity) && quantity > 0 && (
+    priceType === "limit" ? individualOrderReady : simulationMode
+  );
   const riskNeedsAcknowledgement = executionMode === "kis" && Boolean(risk && risk.verdict !== "allow");
   const paperRiskBlocked = executionMode === "paper" && risk?.verdict === "block";
   const estimatedAmount = formatOrderAmount(form.qty, effectivePriceText);
@@ -742,17 +717,8 @@ export function OrderTicket({
         <div className="simulation-order-banner">
           <div>
             <span>SIMULATION · 실제 주문 전송 없음</span>
-            <strong>{form.side === "sell" ? "반도체 5종 전량 매도" : "가용 현금으로 에너지 3종 매수"}</strong>
+            <strong>2026-07-15 KST 틱 호가로 가상 체결</strong>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={useDemoBasket}
-            className={useDemoBasket ? "active" : ""}
-            onClick={() => setUseDemoBasket((current) => !current)}
-          >
-            {useDemoBasket ? "바스켓 ON" : "개별 주문"}
-          </button>
         </div>
       )}
 
@@ -846,7 +812,7 @@ export function OrderTicket({
         </div>
       </section>
 
-      {risk && !(simulationMode && useDemoBasket) && (
+      {risk && (
         <div className={`order-risk-box order-risk-${riskBoxTone(risk)}`} aria-live="polite">
           <div className="order-risk-header">
             <strong>{riskLoading ? "리스크 점검 중" : riskVerdictLabel(risk)}</strong>
@@ -892,10 +858,8 @@ export function OrderTicket({
               ? "로그인"
               : paperRiskBlocked
                 ? "주문 가능 범위를 확인해 주세요"
-              : priceType === "market" && !(simulationMode && useDemoBasket)
-                ? "시장가 주문 준비 중"
-              : simulationMode && useDemoBasket
-                ? form.side === "sell" ? "반도체 5종 매도 주문" : "에너지 3종 매수 주문"
+              : priceType === "market" && !simulationMode
+                ? "SIM 모드에서 시장가 사용 가능"
                 : riskNeedsAcknowledgement
                   ? `경고 확인 후 ${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`
                   : `${form.symbol} ${form.qty || "-"}주 ${sideLabels[form.side]} 주문`}

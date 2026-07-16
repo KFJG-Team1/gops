@@ -89,6 +89,11 @@ type DerivedClientCacheEntry<T> = {
 const indicatorClientCache = new Map<string, DerivedClientCacheEntry<IndicatorSeriesResponseDto>>();
 const volumeProfileClientCache = new Map<string, DerivedClientCacheEntry<VolumeProfileResponseDto>>();
 
+export function invalidateChartDerivedCaches(): void {
+  indicatorClientCache.clear();
+  volumeProfileClientCache.clear();
+}
+
 export async function fetchCandles(query: CandleQuery, signal?: AbortSignal): Promise<CandleQueryResponseDto> {
   const params = new URLSearchParams({
     symbol: query.symbol,

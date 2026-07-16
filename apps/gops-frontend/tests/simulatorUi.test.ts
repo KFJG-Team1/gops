@@ -21,6 +21,7 @@ assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation"
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), true);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
+assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
@@ -57,8 +58,6 @@ assert.match(controlSource, /시뮬레이션 재생/);
 assert.match(apiSource, /\/api\/simulator\/speed/);
 assert.doesNotMatch(apiSource, /\/api\/simulator\/phase|\/api\/simulator\/orders\/basket/);
 assert.match(bottomCommandBarSource, /<SimulatorControl \/>/);
-assert.match(bottomCommandBarSource, /receiveSimulatorNotification[\s\S]*mergeNotificationInboxState/);
-assert.match(bottomCommandBarSource, /system\.simulator_breaking_event[\s\S]*priority: "immediate"/);
 assert.match(bottomCommandBarSource, /notification\.id < 0/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
 

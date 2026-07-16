@@ -1,5 +1,4 @@
 import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
-import { latestSimulatorStatus } from "../simulator/simulatorApi";
 
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
 export type RecommendationStyle = "momentum" | "balanced" | "stable";
@@ -96,11 +95,6 @@ export async function saveInvestmentProfile(profile: InvestmentProfile): Promise
 }
 
 export async function fetchStockRecommendations(sessionMode: RecommendationSessionMode = "regular", signal?: AbortSignal): Promise<StockRecommendationPayload> {
-  const simulatorStatus = latestSimulatorStatus();
-  if (simulatorStatus?.mode === "simulation" && simulatorStatus.scenarioId === "saturday-demo-amd-iff-oke") {
-    const { saturdayDemoRecommendationPayload } = await import("../simulator/saturdayDemoFixtures");
-    return saturdayDemoRecommendationPayload(simulatorStatus);
-  }
   const params = new URLSearchParams({ sessionMode });
   return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest?${params.toString()}`, { signal }));
 }
@@ -110,11 +104,6 @@ export async function refreshStockRecommendations(
   sessionMode: RecommendationSessionMode = "regular",
   signal?: AbortSignal
 ): Promise<StockRecommendationPayload> {
-  const simulatorStatus = latestSimulatorStatus();
-  if (simulatorStatus?.mode === "simulation" && simulatorStatus.scenarioId === "saturday-demo-amd-iff-oke") {
-    const { saturdayDemoRecommendationPayload } = await import("../simulator/saturdayDemoFixtures");
-    return saturdayDemoRecommendationPayload(simulatorStatus);
-  }
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

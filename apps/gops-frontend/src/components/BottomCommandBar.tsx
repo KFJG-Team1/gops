@@ -122,14 +122,6 @@ export function BottomCommandBar({
     ));
   };
 
-  const receiveSimulatorNotification = (notification: NotificationItem) => {
-    setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
-    const options = notification.type === "system.simulator_breaking_event"
-      ? { priority: "immediate" as const }
-      : {};
-    enqueueAlertToast(notification, options);
-  };
-
   useEffect(() => {
     notificationPreferencesRef.current = notificationPreferences;
     setAlertToastState((current) => reconcileAlertToastState(current, notificationPreferences));
@@ -434,7 +426,7 @@ export function BottomCommandBar({
         </div>
         <div className="workspace-top-actions">
           <Suspense fallback={<div className="simulator-mode-control" aria-hidden="true" />}>
-            <SimulatorControl onNotification={receiveSimulatorNotification} />
+            <SimulatorControl />
           </Suspense>
           <HeaderNotificationMenu
             canUseAlerts={canUseAlerts}

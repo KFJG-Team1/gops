@@ -510,6 +510,7 @@ export function App() {
   const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
   const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
+  const previousSimulatorRunIdRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
 
@@ -563,8 +564,10 @@ export function App() {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
       if (!status) return;
       const previousMode = previousSimulatorModeRef.current;
+      const previousRunId = previousSimulatorRunIdRef.current;
       previousSimulatorModeRef.current = status.mode;
-      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode)) {
+      previousSimulatorRunIdRef.current = status.runId ?? null;
+      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
         chartPanelHandlesRef.current.clear();
         setSemanticSelection(null);
         setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
@@ -580,7 +583,7 @@ export function App() {
           lastPrice: update.price,
           changePercent: update.changePercent ?? item.changePercent,
           priceSource: "gops-simulator",
-          priceUpdatedAt: new Date().toISOString()
+          priceUpdatedAt: status.virtualTime
         };
       }));
     };

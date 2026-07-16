@@ -203,10 +203,6 @@ import {
   resolveRecommendationCompanyNavigation
 } from "../src/recommendations/recommendationNavigation";
 import {
-  recommendationSimulationFallbackItems,
-  shouldUseRecommendationSimulationFallback
-} from "../src/recommendations/recommendationSimulationFallback";
-import {
   clampRightOffset,
   clampVisibleCount,
   dragDeltaToRightOffset,
@@ -4448,28 +4444,6 @@ assert.equal(recommendationReference.data.symbol, "MSFT");
 assert.equal(agentReferenceTicker(recommendationReference), "MSFT");
 assert.equal(agentReferenceChipKind(recommendationReference), "recommendation");
 assert.deepEqual(recommendationReference.data.riskWarnings, ["변동성 확대에 유의하세요."]);
-assert.deepEqual(
-  recommendationSimulationFallbackItems.map((item) => item.symbol),
-  ["NVDA", "AMD", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "JPM"]
-);
-assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.score), [90, 86, 82, 78, 74, 70, 66, 62, 58, 54]);
-assert.deepEqual(recommendationSimulationFallbackItems.map((item) => item.confidence), [0.84, 0.81, 0.78, 0.75, 0.72, 0.69, 0.66, 0.63, 0.60, 0.57]);
-assert.equal(recommendationSimulationFallbackItems[1]?.rank, 2);
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.source, "frontend-recommendation-fallback");
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.synthetic, true);
-assert.equal(recommendationSimulationFallbackItems[1]?.metricsSnapshot.simulation, true);
-assert.equal(new Set(recommendationSimulationFallbackItems.map((item) => item.reasons[0]?.text)).size, 10);
-assert.equal(recommendationSimulationFallbackItems.some((item) => item.reasons[0]?.text.includes("추천 데이터 준비 중")), false);
-assert.equal(recommendationSimulationFallbackItems.every((item) => item.riskWarnings.length === 1), true);
-const emptyRecommendationPayload = { status: "ready" as const, items: [] };
-assert.equal(shouldUseRecommendationSimulationFallback(emptyRecommendationPayload, "live"), false);
-assert.equal(shouldUseRecommendationSimulationFallback(emptyRecommendationPayload, "simulation"), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "empty", items: [] }, "simulation"), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "stale", items: [] }, "simulation"), true);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "profile_required", items: [] }, "simulation"), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "market_closed", items: [] }, "simulation"), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ status: "error", items: [] }, "simulation"), false);
-assert.equal(shouldUseRecommendationSimulationFallback({ ...emptyRecommendationPayload, items: [recommendationSimulationFallbackItems[0]!] }, "simulation"), false);
 const chartAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "compare");
 assert.ok(chartAnalysisPreset);
 const chartAnalysisLayout = buildPresetLayout(chartAnalysisPreset, { width: 1280, height: 720 });
