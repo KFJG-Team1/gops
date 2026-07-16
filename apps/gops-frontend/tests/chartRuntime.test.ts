@@ -14,6 +14,7 @@ import "./chartTradeAutomation.test";
 import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
+import "./paperHoldingPrice.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
