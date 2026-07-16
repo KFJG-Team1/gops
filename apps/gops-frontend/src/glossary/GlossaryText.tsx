@@ -14,9 +14,15 @@ export function GlossaryText({ text }: { text: string }) {
           <span
             key={`${index}-${entry.id}-${segment.text}`}
             className="glossary-term"
+            tabIndex={0}
             aria-describedby="gops-glossary-tooltip"
             onMouseEnter={(event) => scheduleGlossaryTooltip(entry, event.clientX, event.clientY)}
             onMouseLeave={hideGlossaryTooltip}
+            onFocus={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              scheduleGlossaryTooltip(entry, rect.left + rect.width / 2, rect.bottom);
+            }}
+            onBlur={hideGlossaryTooltip}
           >
             {segment.text}
           </span>

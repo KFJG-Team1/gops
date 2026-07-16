@@ -45,6 +45,18 @@ export async function replaceWatchlistSymbols(symbols: string[]): Promise<Watchl
   return normalizeWatchlistPayload(payload);
 }
 
+export async function addWatchlistSymbol(symbol: string): Promise<WatchlistPayload> {
+  const normalized = symbol.trim().toUpperCase();
+  if (!normalized) {
+    throw new WatchlistApiError(422, "관심종목에 추가할 기업을 확인할 수 없습니다.");
+  }
+  const current = await fetchWatchlist();
+  const symbols = current.symbols.map((item) => item.symbol.toUpperCase());
+  return symbols.includes(normalized)
+    ? current
+    : replaceWatchlistSymbols([...symbols, normalized]);
+}
+
 function normalizeWatchlistPayload(payload: unknown): WatchlistPayload {
   const source = asRecord(payload);
   return {

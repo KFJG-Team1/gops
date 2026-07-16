@@ -1,3 +1,4 @@
+import { latestSimulatorStatus } from "../simulator/simulatorApi";
 import type { DrawingEntity } from "./types";
 
 export type AnalysisAssetInterval = "1m" | "5m" | "10m" | "1h" | "4h" | "1D" | "1W";
@@ -7,18 +8,73 @@ export type GeometryLevel = {
   id: string;
   role: "support" | "resistance";
   price: number;
+  zoneLow?: number;
+  zoneHigh?: number;
+  halfWidthAtr?: number;
+  selectionTier?: "confirmed" | "contextual";
   score: number;
   touches: number;
   anchors: Array<{ timestamp: string; price: number }>;
 };
 
-export type GeometryTriangle = {
-  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+export type GeometryPatternKind =
+  | "ascending_triangle" | "descending_triangle" | "symmetrical_triangle"
+  | "bullish_flag" | "bearish_flag"
+  | "bullish_pennant" | "bearish_pennant"
+  | "bullish_rectangle" | "bearish_rectangle"
+  | "rising_wedge" | "falling_wedge"
+  | "descending_channel_breakout" | "ascending_channel_breakdown";
+
+export type GeometryPattern = {
+  kind: GeometryPatternKind;
   state: "forming" | "confirmed" | "inactive" | "invalidated";
+  bias?: "bullish" | "bearish" | "neutral";
+  breakoutDirection?: "up" | "down" | null;
   score: number;
   touches: number;
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
+  upper?: GeometryPatternBoundary;
+  lower?: GeometryPatternBoundary;
+  confirmation?: {
+    breakoutAt: string;
+    confirmedAt: string;
+    mode: "both" | "next_close_hold" | "relative_volume";
+    boundaryPrice: number;
+    penetrationAtr: number;
+    relativeVolume: number | null;
+  } | null;
+};
+
+export type GeometryPatternBoundary = {
+  start?: { timestamp?: string; price?: number };
+  end?: { timestamp?: string; price?: number };
+};
+
+export type GeometryTriangle = GeometryPattern & {
+  kind: "ascending_triangle" | "descending_triangle" | "symmetrical_triangle";
+};
+
+export type GeometryTradePlan = {
+  version: "pattern-trade-timing-v1";
+  symbol: string | null;
+  interval: AnalysisAssetInterval | null;
+  patternId: string;
+  patternKind: GeometryPatternKind;
+  patternState: GeometryPattern["state"];
+  action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
+  direction: "long" | "exit_long" | "short" | null;
+  signalAt: string | null;
+  entryTrigger: number | null;
+  entryPrice: number | null;
+  stopPrice: number | null;
+  targetPrice: number | null;
+  riskPerShare: number | null;
+  rewardPerShare: number | null;
+  rewardRiskRatio: number | null;
+  minimumRewardRisk: number;
+  projectionBars: number;
+  reasons: string[];
 };
 
 export type ChartAnalysisAsset = {
@@ -49,6 +105,9 @@ export type ChartAnalysisAsset = {
     }>;
     supports: GeometryLevel[];
     resistances: GeometryLevel[];
+    patterns?: GeometryPattern[];
+    primaryPattern?: GeometryPattern | null;
+    tradePlan?: GeometryTradePlan | null;
     primaryTriangle: GeometryTriangle | null;
     historicalTriangle: GeometryTriangle | null;
     evidence?: Array<Record<string, unknown>>;
@@ -61,7 +120,10 @@ export type ChartAnalysisAsset = {
       status: "crossed" | "none" | "insufficient_previous_bar" | "data_insufficient";
       direction?: "golden" | "dead" | null;
       timestamp?: string | null;
+      previousTimestamp?: string | null;
       barsAgo?: number | null;
+      fraction?: number | null;
+      price?: number | null;
     };
   };
 };
@@ -80,6 +142,11 @@ let globalGeneration = 0;
 
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
+  const simulatorStatus = latestSimulatorStatus();
+  if (simulatorStatus?.scenarioId === "saturday-demo-amd-iff-oke" && normalized === "IFF") {
+    return import("../simulator/saturdayDemoFixtures")
+      .then(({ saturdayDemoAnalysisAssets }) => saturdayDemoAnalysisAssets(normalized));
+  }
   const cached = responseCache.get(normalized);
   if (cached) return Promise.resolve(cached);
   const pending = inFlight.get(normalized);

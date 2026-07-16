@@ -213,7 +213,8 @@ export type ChartCommandJournalEntry = {
     | "chart.data.snapshot"
     | "chart.data.live"
     | "chart.layer.trade"
-    | "chart.layer.quote";
+    | "chart.layer.quote"
+    | "chart.market-data.reset";
   actor: ChartCommandActor;
   status: "applied" | "failed" | "proposed" | "ignored" | "undone" | "redone";
   message: string;
@@ -280,6 +281,10 @@ export type ChartDocument = {
     drawing: string;
     preview: string;
     signal: string;
+    evidenceSupport: string;
+    evidenceResistance: string;
+    evidencePattern: string;
+    proposal: string;
     caution: string;
     purple: string;
     pointYellow: string;
@@ -434,6 +439,10 @@ export type DrawingStyle = {
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;
+  labelPlacement?: "inline" | "axis" | "none";
+  zoneSplit?: boolean;
+  proposalAction?: "buy_candidate" | "sell_candidate";
+  proposalKind?: "confirmed" | "conditional";
 };
 
 export type DrawingEntity = {

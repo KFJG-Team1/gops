@@ -108,6 +108,8 @@ export type SemanticTimeline = {
 
 export type SemanticSelectionSnapshot = {
   nodeId: string;
+  chartDocumentId?: string;
+  sourcePanelId?: string;
   kind: SemanticRenderUnit["kind"];
   symbol: string;
   interval: DigTargetInterval;
@@ -640,6 +642,18 @@ function addInterval(date: Date, interval: ChartInterval): Date {
     case "1M":
       return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 1));
   }
+}
+
+export function advanceTimestampByInterval(value: string, interval: ChartInterval, steps = 1): string | null {
+  let date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const safeSteps = Math.max(0, Math.floor(steps));
+  for (let step = 0; step < safeSteps; step += 1) {
+    date = addInterval(date, interval);
+  }
+  return date.toISOString();
 }
 
 function floorInterval(date: Date, interval: ChartInterval): Date {

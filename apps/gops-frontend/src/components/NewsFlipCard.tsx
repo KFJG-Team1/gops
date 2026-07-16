@@ -1,11 +1,10 @@
 import type { KeyboardEvent } from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
-import { fetchCandles } from "../chart/cdcClient";
 
 const CARD_INTERVAL_MS = 8_000;
 const FLIP_DURATION_MS = 680;
-const chartCache = new Map<string, number[]>();
+const NEWS_THUMBNAIL_SRC = "/assets/news/USAIRAN.png";
 
 export type NewsFlipCardItem = {
   key: string;
@@ -144,7 +143,7 @@ function NewsCardFace({ item, className, onSelect }: { item: NewsFlipCardItem; c
       onClick={() => onSelect(item.reference)}
       onKeyDown={handleKeyDown}
     >
-      <NewsCardLineChart symbol={item.symbol} />
+      <img className="news-card-thumbnail" src={NEWS_THUMBNAIL_SRC} alt="" aria-hidden="true" />
       <div className="news-card-shade" aria-hidden="true" />
       {item.url ? (
         <a
@@ -161,69 +160,4 @@ function NewsCardFace({ item, className, onSelect }: { item: NewsFlipCardItem; c
       )}
     </article>
   );
-}
-
-function NewsCardLineChart({ symbol }: { symbol: string }) {
-  const normalizedSymbol = symbol.trim().toUpperCase();
-  const gradientId = `news-card-fill-${useId().replace(/:/g, "")}`;
-  const [values, setValues] = useState<number[]>(() => chartCache.get(normalizedSymbol) ?? []);
-
-  useEffect(() => {
-    const cachedValues = chartCache.get(normalizedSymbol);
-    if (cachedValues) {
-      setValues(cachedValues);
-      return undefined;
-    }
-    setValues([]);
-    const controller = new AbortController();
-    void fetchCandles({ symbol: normalizedSymbol, interval: "1D", limit: 40 }, controller.signal)
-      .then((response) => {
-        const nextValues = response.candles
-          .map((candle) => candle.close)
-          .filter((value) => Number.isFinite(value));
-        if (nextValues.length >= 2) {
-          chartCache.set(normalizedSymbol, nextValues);
-        }
-        setValues(nextValues);
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-      });
-    return () => controller.abort();
-  }, [normalizedSymbol]);
-
-  if (values.length < 2) {
-    return <div className="news-card-chart is-empty" aria-hidden="true" />;
-  }
-
-  const { line, area } = chartPaths(values);
-  const trendClass = values[values.length - 1] >= values[0] ? "is-up" : "is-down";
-  return (
-    <svg className={`news-card-chart ${trendClass}`} viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.34" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path className="news-card-chart-area" d={area} fill={`url(#${gradientId})`} />
-      <path className="news-card-chart-line" d={line} />
-    </svg>
-  );
-}
-
-function chartPaths(values: number[]) {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const range = maximum - minimum || 1;
-  const points = values.map((value, index) => {
-    const x = (index / (values.length - 1)) * 1000;
-    const y = 350 - ((value - minimum) / range) * 300;
-    return [x, y] as const;
-  });
-  const line = points.map(([x, y], index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-  const area = `${line} L1000,400 L0,400 Z`;
-  return { line, area };
 }

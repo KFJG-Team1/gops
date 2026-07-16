@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
-import { parsePortfolioHoldingsApiResponse, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
+import { parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
@@ -42,7 +42,7 @@ type PortfolioAssetMetric = {
   key: "stock" | "cash" | "dividend";
   label: string;
   value: number | null;
-  weight: number;
+  weight: number | null;
   progress: number;
   color: string;
 };
@@ -280,7 +280,7 @@ export function PortfolioHoldingsPanel({
             <article className="portfolio-terminal-card portfolio-performance-card">
               <div className="portfolio-terminal-heading portfolio-performance-heading">
                 <div>
-                  <span>Performance</span>
+                  <span>성과</span>
                   <em>{performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}</em>
                 </div>
                 <div className="portfolio-performance-tabs" role="tablist" aria-label="포트폴리오 성과 보기">
@@ -444,7 +444,7 @@ export function PortfolioInvestmentStatusPanel({
               <div className="portfolio-investment-budget-meta">
                 <span>
                   <em>{activeAllocation?.label} / 비중</em>
-                  <strong>{formatCompactMoney(activeAllocation?.value ?? 0, "USD")} / {formatPercentPlain(activeAllocation?.weight ?? 0)}</strong>
+                  <strong>{formatCompactMoney(activeAllocation?.value, "USD")} / {formatPercentPlain(activeAllocation?.weight)}</strong>
                 </span>
               </div>
               <div className="portfolio-investment-wallet-chips">
@@ -514,7 +514,7 @@ export function PortfolioPerformancePanel() {
       aria-label="포트폴리오 성과 패널"
     >
       <PortfolioSplitHeader
-        title="Performance"
+        title="성과"
         subtitle={performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}
         asOf={payload?.asOf}
         refreshing={loading || refreshing}
@@ -801,7 +801,7 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
           >
             <i style={{ background: item.color }} aria-hidden="true" />
             <span>{item.label}</span>
-            <strong>{formatCompactMoney(item.value ?? 0, "USD")}/{formatPercentPlain(item.weight)}</strong>
+            <strong>{formatCompactMoney(item.value, "USD")}/{formatPercentPlain(item.weight)}</strong>
           </div>
         ))}
         </div>
@@ -1839,8 +1839,10 @@ function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
 
 function buildPortfolioDashboard(account: PortfolioHoldingsResponse["account"] | undefined, positions: PortfolioPosition[]): PortfolioDashboard {
   const stockValue = firstNumber(account?.stockValueForeign, sumNumbers(positions.map(positionValue)));
-  const cashValue = firstNumber(account?.cashForeign, null);
-  const totalValue = firstNumber(account?.totalValueForeign, sumNumbers([stockValue, cashValue]));
+  const reportedTotalValue = firstNumber(account?.totalValueForeign, null);
+  const reportedCashValue = firstNumber(account?.cashForeign, null);
+  const cashValue = validPortfolioCash(reportedCashValue, stockValue, reportedTotalValue);
+  const totalValue = firstNumber(reportedTotalValue, sumNumbers([stockValue, cashValue]));
   const totalPnl = firstNumber(account?.unrealizedPnlForeign, sumNumbers(positions.map((position) => position.unrealizedPnlForeign)));
   const investedValue = stockValue != null && totalPnl != null ? stockValue - totalPnl : null;
   const calculatedPnlRate = safeDivide(totalPnl, totalValue != null && totalPnl != null ? totalValue - totalPnl : null);
@@ -2025,7 +2027,7 @@ function buildPortfolioInsights(
   const symbolWeights = allocation.symbol.map((slice) => slice.weight);
   const topThreeWeight = symbolWeights.slice(0, 3).reduce((sum, value) => sum + value, 0);
   const topSector = allocation.sector.find((slice) => slice.key !== "Cash");
-  const cashWeight = percentageOf(cashValue, totalValue);
+  const cashWeight = cashValue == null ? null : percentageOf(cashValue, totalValue);
   const best = [...positions].sort((left, right) => (right.unrealizedPnlForeign ?? -Infinity) - (left.unrealizedPnlForeign ?? -Infinity))[0];
   return [
     {
@@ -2036,9 +2038,9 @@ function buildPortfolioInsights(
     },
     {
       label: "현금",
-      value: `${cashWeight.toFixed(1)}%`,
-      detail: cashWeight < 5 ? "매수 여력 낮음" : cashWeight > 25 ? "방어 여력 충분" : "균형",
-      tone: cashWeight < 5 ? "risk" : cashWeight > 25 ? "good" : "neutral"
+      value: cashWeight == null ? "-" : `${cashWeight.toFixed(1)}%`,
+      detail: cashWeight == null ? "현금 정보 없음" : cashWeight < 5 ? "매수 여력 낮음" : cashWeight > 25 ? "방어 여력 충분" : "균형",
+      tone: cashWeight == null ? "neutral" : cashWeight < 5 ? "risk" : cashWeight > 25 ? "good" : "neutral"
     },
     {
       label: "섹터",
@@ -2166,7 +2168,7 @@ function percentageOf(value: number | null | undefined, total: number | null | u
 
 function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAssetMetric[] {
   const stockWeight = percentageOf(dashboard.stockValue, dashboard.totalValue);
-  const cashWeight = percentageOf(dashboard.cashValue, dashboard.totalValue);
+  const cashWeight = dashboard.cashValue == null ? null : percentageOf(dashboard.cashValue, dashboard.totalValue);
   const dividendValue = dashboard.annualDividend ?? 0;
   const dividendWeight = percentageOf(dividendValue, dashboard.totalValue);
   return [
@@ -2183,7 +2185,7 @@ function buildPortfolioAssetMetrics(dashboard: PortfolioDashboard): PortfolioAss
       label: "현금",
       value: dashboard.cashValue,
       weight: cashWeight,
-      progress: cashWeight,
+      progress: cashWeight ?? 0,
       color: "var(--color-up)"
     },
     {

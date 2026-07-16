@@ -51,6 +51,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     insertable: true
   },
   {
+    kind: "chartPatternList",
+    title: "패턴 종목",
+    agentPanelType: "chartPatternList",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 44,
+    insertable: true
+  },
+  {
     kind: "compare",
     title: "비교",
     agentPanelType: "compareChart",
@@ -317,12 +328,11 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     kind: "aiCoach",
     title: "AI 투자 코치",
     agentPanelType: "aiCoach",
-    minSpan: { colSpan: 2, rowSpan: 3 },
-    readableMinSpan: { colSpan: 2, rowSpan: 5 },
-    minSizePx: { width: 340, height: 520 },
-    defaultSpan: { colSpan: 2, rowSpan: 6 },
-    maxSpan: { colSpan: 4, rowSpan: 6 },
-    defaultLayoutWeight: 62
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 3 },
+    minSizePx: { width: 320, height: 500 },
+    defaultSpan: { colSpan: 5, rowSpan: 4 },
+    defaultLayoutWeight: 72
   },
   {
     kind: "orderFlow",
@@ -335,14 +345,67 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 45
   },
   {
+    kind: "priceCondition",
+    title: "알림 · 관심 기업",
+    agentPanelType: "priceCondition",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 1, rowSpan: 1 },
+    minSizePx: { width: 0, height: 0 },
+    defaultSpan: { colSpan: 1, rowSpan: 3 },
+    defaultLayoutWeight: 52
+  },
+  {
+    kind: "quickOrder",
+    title: "빠른 주문",
+    agentPanelType: "quickOrder",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 240 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 48
+  },
+  {
     kind: "trade",
     title: "주문",
     agentPanelType: "orderTicket",
     minSpan: { colSpan: 1, rowSpan: 1 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 280, height: 220 },
-    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultSpan: { colSpan: 2, rowSpan: 3 },
     defaultLayoutWeight: 35
+  },
+  {
+    kind: "paperQuickOrder",
+    title: "가상 빠른 주문",
+    agentPanelType: "paperQuickOrder",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 240 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 48,
+    insertable: true
+  },
+  {
+    kind: "paperTrade",
+    title: "가상 주문",
+    agentPanelType: "paperOrderTicket",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 280, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 35,
+    insertable: true
+  },
+  {
+    kind: "paperAccount",
+    title: "가상계좌",
+    agentPanelType: "paperAccount",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 320, height: 220 },
+    defaultSpan: { colSpan: 4, rowSpan: 3 },
+    defaultLayoutWeight: 55,
+    insertable: true
   }
 ];
 

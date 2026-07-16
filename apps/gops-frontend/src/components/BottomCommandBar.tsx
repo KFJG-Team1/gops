@@ -1,52 +1,52 @@
-import { CandlestickChart, LogIn, MessagesSquare, Newspaper, SendHorizontal, Square, UserCircle, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { CandlestickChart, LogIn, Newspaper, SendHorizontal, Square, TrendingUp, UserCircle, X } from "lucide-react";
+import { lazy, Suspense, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentReferenceChip } from "../agent/agentReferences";
+import { HeaderNotificationMenu } from "../alerts/HeaderNotificationMenu";
 import { AlertToast } from "../alerts/AlertToast";
 import {
   agentAlertsSocketUrl,
+  fetchNotifications,
+  markAllNotificationsRead,
   markNotificationRead,
   normalizeNotificationPayload,
   notificationSocketUrl,
+  publishAlertRulesChanged,
   type NotificationItem
 } from "../alerts/alertApi";
+import { isMarketOpenNotification } from "../alerts/marketOpenReminder";
 import {
-  createMarketOpenNotification,
-  isMarketOpenNotification,
-  readMarketOpenReminderEnabled,
-  shouldShowMarketOpenReminder
-} from "../alerts/marketOpenReminder";
+  useNotificationPreferences
+} from "../alerts/notificationPreferences";
+import {
+  advanceAlertToastState,
+  createAlertToastQueueState,
+  enqueueAlertToastState,
+  reconcileAlertToastState,
+  removeNotificationAlertToastState,
+  removePersistedAlertToastState,
+  type AlertToastQueueOptions
+} from "../alerts/alertToastQueue";
 import { notificationChartSymbol, notificationUiProposals } from "../alerts/alertPresentation";
-import { formatAgentTimingSummary, type AgentAnalysisReport, type FinalAnswerSection } from "../agents/agentAnalysis";
+import {
+  createNotificationInboxState,
+  markNotificationInboxItemRead,
+  markNotificationInboxReadAll,
+  mergeNotificationInboxState,
+  replaceNotificationInboxState
+} from "../alerts/notificationInboxState";
+import type { AgentHeaderNotice } from "../agent/agentHeaderNotice";
 import type { AgentLayoutProposal } from "../layout/agentLayoutTypes";
 import { buildUiProposalLayoutProposal } from "../layout/uiProposalLayout";
 import type { AuthUser } from "../auth/AuthProvider";
-import { fetchNextMarketOpen } from "../market/marketOpenApi";
-import { SimulatorControl } from "../simulator/SimulatorControl";
 
-export type ChatLogEntry = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  pending?: boolean;
-  confidence?: number;
-  analysisReport?: AgentAnalysisReport | null;
-};
-export type AgentSubmitResult = "chat-log" | "chart-shortcut" | "ui-action" | "ignored";
-
-type AlertToastQueueState = {
-  current: AlertToastQueueItem | null;
-  queue: AlertToastQueueItem[];
-};
-type AlertToastQueueItem = {
-  notification: NotificationItem;
-  autoDismissMs?: number;
-};
+const SimulatorControl = lazy(() => import("../simulator/SimulatorControl")
+  .then((module) => ({ default: module.SimulatorControl })));
 
 type BottomCommandBarProps = {
   agentBusy: boolean;
   agentInput: string;
   agentComposerRequest: number;
-  chatLog: ChatLogEntry[];
+  agentNotice: AgentHeaderNotice | null;
   authEnabled: boolean;
   authLoading: boolean;
   authUser: AuthUser | null;
@@ -59,22 +59,27 @@ type BottomCommandBarProps = {
   onAgentReferenceRemove: (key: string) => void;
   onAgentReferenceEmphasize: (keys: string[]) => void;
   onAgentInputChange: (value: string) => void;
-  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => AgentSubmitResult | Promise<AgentSubmitResult>;
+  onAgentSubmit: (event: FormEvent<HTMLFormElement>) => unknown | Promise<unknown>;
+  onAgentNoticeDismiss: (noticeId: string) => void;
   onLogin: () => void;
   onLogout: () => void;
   onSelectSymbol: (symbol: string) => void;
   onApplyLayoutProposal?: (proposal: AgentLayoutProposal) => void;
+  frontendPreviewToast?: FrontendPreviewToast | null;
+};
+
+export type FrontendPreviewToast = {
+  id: string;
+  message: string;
 };
 
 const alertToastAdvanceMs = 6000;
-const marketOpenRetryMs = 60_000;
-const marketOpenScheduleRefreshMs = 60 * 60_000;
 
 export function BottomCommandBar({
   agentBusy,
   agentInput,
   agentComposerRequest,
-  chatLog,
+  agentNotice,
   authEnabled,
   authLoading,
   authUser,
@@ -88,38 +93,79 @@ export function BottomCommandBar({
   onAgentReferenceEmphasize,
   onAgentInputChange,
   onAgentSubmit,
+  onAgentNoticeDismiss,
   onLogin,
   onLogout,
   onSelectSymbol,
-  onApplyLayoutProposal
+  onApplyLayoutProposal,
+  frontendPreviewToast = null
 }: BottomCommandBarProps) {
-  const [chatPanelOpen, setChatPanelOpen] = useState(false);
-  const [alertToastState, setAlertToastState] = useState<AlertToastQueueState>({ current: null, queue: [] });
-  const [marketOpenReminderEnabled] = useState(() => readMarketOpenReminderEnabled());
+  const { preferences: notificationPreferences, ready: notificationPreferencesReady } = useNotificationPreferences();
+  const [alertToastState, setAlertToastState] = useState(createAlertToastQueueState);
+  const [notificationInbox, setNotificationInbox] = useState(createNotificationInboxState);
+  const [notificationInboxLoading, setNotificationInboxLoading] = useState(false);
+  const [notificationInboxSaving, setNotificationInboxSaving] = useState(false);
+  const [notificationInboxError, setNotificationInboxError] = useState<string | null>(null);
+  const notificationPreferencesRef = useRef(notificationPreferences);
   const seenAlertToastKeysRef = useRef<Set<string>>(new Set());
   const agentInputRef = useRef<HTMLInputElement>(null);
-  const hasFloatingPanel = chatPanelOpen;
   const canUseAlerts = !authLoading && (!authEnabled || Boolean(authUser));
+  const canReceiveAlerts = canUseAlerts && notificationPreferencesReady;
 
-  const enqueueAlertToast = (notification: NotificationItem, options: { autoDismissMs?: number } = {}) => {
-    const key = alertToastKey(notification);
-    if (seenAlertToastKeysRef.current.has(key)) {
-      return;
-    }
-    seenAlertToastKeysRef.current.add(key);
-    const item = { notification, autoDismissMs: options.autoDismissMs };
-    setAlertToastState((current) => (
-      current.current
-        ? { current: current.current, queue: [...current.queue, item] }
-        : { current: item, queue: [] }
+  const enqueueAlertToast = (notification: NotificationItem, options: AlertToastQueueOptions = {}) => {
+    setAlertToastState((current) => enqueueAlertToastState(
+      current,
+      notification,
+      notificationPreferencesRef.current,
+      seenAlertToastKeysRef.current,
+      options
     ));
   };
 
-  const advanceAlertToast = () => {
+  const receiveSimulatorNotification = (notification: NotificationItem) => {
+    setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
+    const options = notification.type === "system.simulator_breaking_event"
+      ? { priority: "immediate" as const }
+      : {};
+    enqueueAlertToast(notification, options);
+  };
+
+  useEffect(() => {
+    notificationPreferencesRef.current = notificationPreferences;
+    setAlertToastState((current) => reconcileAlertToastState(current, notificationPreferences));
+  }, [notificationPreferences]);
+
+  useEffect(() => {
+    if (!frontendPreviewToast) {
+      return;
+    }
+    const seenKey = `frontend-preview:${frontendPreviewToast.id}`;
+    if (seenAlertToastKeysRef.current.has(seenKey)) {
+      return;
+    }
+    seenAlertToastKeysRef.current.add(seenKey);
+    const notification: NotificationItem = {
+      id: -Math.max(1, stablePreviewToastId(frontendPreviewToast.id)),
+      eventId: frontendPreviewToast.id,
+      type: "system.frontend_preview_only",
+      payload: {
+        title: "매매 요청 미리보기",
+        summary: frontendPreviewToast.message,
+        detail: "frontend_preview_only · 실제 주문·알림 미생성"
+      },
+      createdAt: new Date().toISOString(),
+      readAt: null
+    };
     setAlertToastState((current) => {
-      const [next, ...queue] = current.queue;
-      return { current: next ?? null, queue };
+      const item = { notification, autoDismissMs: alertToastAdvanceMs };
+      return current.current
+        ? { current: current.current, queue: [...current.queue, item] }
+        : { current: item, queue: [] };
     });
+  }, [frontendPreviewToast]);
+
+  const advanceAlertToast = () => {
+    setAlertToastState(advanceAlertToastState);
   };
 
   const openAlertToastChart = (notification: NotificationItem) => {
@@ -156,54 +202,136 @@ export function BottomCommandBar({
       if (!updated?.readAt) {
         return;
       }
+      setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
     } catch {
       // Opening the chart should not be blocked by a transient read-state failure.
     }
   };
 
-  useEffect(() => {
-    if (!hasFloatingPanel) {
-      return undefined;
-    }
-
-    const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Element)) {
-        return;
-      }
-      if (event.target.closest(".bottom-chat-panel, .agent-dock, .symbol-search-menu, .workspace-top-nav")) {
-        return;
-      }
-      if (chatPanelOpen) {
-        setChatPanelOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handleOutsidePointerDown, true);
-    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
-  }, [chatPanelOpen, hasFloatingPanel]);
-
-  useEffect(() => {
-    if (!canUseAlerts) {
-      return undefined;
-    }
-    const socket = new WebSocket(notificationSocketUrl());
-    socket.onmessage = (event) => {
-      const payload = readSocketPayload(event.data);
-      if (payload.type === "snapshot") {
-        return;
-      }
-      if (payload.type === "notification") {
-        const notification = normalizeNotificationPayload(payload.notification);
-        if (notification && !notification.readAt) {
-          enqueueAlertToast(notification);
+  const openHeaderNotification = async (notification: NotificationItem) => {
+    const symbol = notificationChartSymbol(notification);
+    if (!notification.readAt && notification.id < 0) {
+      const updated = { ...notification, readAt: new Date().toISOString() };
+      setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
+      setAlertToastState((current) => removeNotificationAlertToastState(current, updated.id));
+    } else if (!notification.readAt) {
+      setNotificationInboxSaving(true);
+      setNotificationInboxError(null);
+      try {
+        const updated = await markNotificationRead(notification.id);
+        if (updated?.readAt) {
+          setNotificationInbox((current) => markNotificationInboxItemRead(current, updated));
+          setAlertToastState((current) => removeNotificationAlertToastState(current, updated.id));
         }
+      } catch (caught: unknown) {
+        setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 읽음 처리하지 못했습니다.");
+      } finally {
+        setNotificationInboxSaving(false);
       }
-    };
-    return () => socket.close();
-  }, [canUseAlerts]);
+    }
+    if (symbol) {
+      onSelectSymbol(symbol);
+    }
+  };
+
+  const readAllHeaderNotifications = async () => {
+    setNotificationInboxSaving(true);
+    setNotificationInboxError(null);
+    try {
+      await markAllNotificationsRead();
+      setNotificationInbox((current) => markNotificationInboxReadAll(current));
+      setAlertToastState(removePersistedAlertToastState);
+    } catch (caught: unknown) {
+      setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 모두 읽음 처리하지 못했습니다.");
+    } finally {
+      setNotificationInboxSaving(false);
+    }
+  };
 
   useEffect(() => {
-    if (!canUseAlerts) {
+    if (!canReceiveAlerts) {
+      setNotificationInbox(createNotificationInboxState());
+      setNotificationInboxLoading(false);
+      setNotificationInboxError(null);
+      setAlertToastState(createAlertToastQueueState());
+      seenAlertToastKeysRef.current.clear();
+      return undefined;
+    }
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    const controller = new AbortController();
+    setNotificationInboxLoading(true);
+    setNotificationInboxError(null);
+
+    const connectSocket = () => {
+      if (cancelled) {
+        return;
+      }
+      socket = new WebSocket(notificationSocketUrl());
+      socket.onopen = () => setNotificationInboxError(null);
+      socket.onmessage = (event) => {
+        const payload = readSocketPayload(event.data);
+        if (payload.type === "error") {
+          setNotificationInboxError(typeof payload.detail === "string" ? payload.detail : "실시간 알림 연결을 확인하지 못했습니다.");
+          return;
+        }
+        if (payload.type === "snapshot") {
+          const notifications = Array.isArray(payload.notifications)
+            ? payload.notifications.map(normalizeNotificationPayload).filter((item): item is NotificationItem => Boolean(item))
+            : [];
+          setNotificationInbox(replaceNotificationInboxState(
+            notifications,
+            asNumber(payload.unreadCount) ?? notifications.filter((item) => !item.readAt).length
+          ));
+          notifications
+            .filter((item) => !item.readAt)
+            .reverse()
+            .forEach((notification) => enqueueAlertToast(notification));
+          setNotificationInboxError(null);
+          return;
+        }
+        if (payload.type === "notification") {
+          const notification = normalizeNotificationPayload(payload.notification);
+          if (!notification) {
+            return;
+          }
+          setNotificationInbox((current) => mergeNotificationInboxState(current, notification));
+          if (!notification.readAt) {
+            enqueueAlertToast(notification);
+            if (notification.alertId != null) publishAlertRulesChanged();
+          }
+        }
+      };
+      socket.onerror = () => setNotificationInboxError("실시간 알림 연결을 확인하지 못했습니다.");
+    };
+
+    void fetchNotifications(controller.signal)
+      .then((payload) => {
+        if (!cancelled) {
+          setNotificationInbox(replaceNotificationInboxState(payload.notifications, payload.unreadCount));
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled && !controller.signal.aborted) {
+          setNotificationInboxError(caught instanceof Error ? caught.message : "알림을 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setNotificationInboxLoading(false);
+          connectSocket();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      socket?.close();
+    };
+  }, [canReceiveAlerts]);
+
+  useEffect(() => {
+    if (!canReceiveAlerts) {
       return undefined;
     }
     // Risk monitor / agent alerts arrive on a separate broadcast socket and are
@@ -221,7 +349,7 @@ export function BottomCommandBar({
       }
     };
     return () => socket.close();
-  }, [canUseAlerts]);
+  }, [canReceiveAlerts]);
 
   useEffect(() => {
     if (!alertToastState.current) {
@@ -248,110 +376,25 @@ export function BottomCommandBar({
   ]);
 
   useEffect(() => {
-    if (!marketOpenReminderEnabled) {
-      return undefined;
-    }
-    let cancelled = false;
-    let timer: number | undefined;
-    let controller: AbortController | null = null;
-
-    const clearTimer = () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-    };
-
-    const schedule = (delayMs: number, callback: () => void) => {
-      clearTimer();
-      timer = window.setTimeout(callback, clampReminderDelay(delayMs));
-    };
-
-    const scheduleNextOpenCheck = (nextOpenAt: string) => {
-      const openMs = new Date(nextOpenAt).getTime();
-      if (!Number.isFinite(openMs)) {
-        schedule(marketOpenRetryMs, refreshSchedule);
-        return;
-      }
-
-      const delayMs = openMs - Date.now();
-      if (delayMs > marketOpenScheduleRefreshMs) {
-        schedule(marketOpenScheduleRefreshMs, refreshSchedule);
-        return;
-      }
-
-      schedule(delayMs, () => {
-        if (cancelled) {
-          return;
-        }
-        if (shouldShowMarketOpenReminder(nextOpenAt)) {
-          enqueueAlertToast(createMarketOpenNotification(nextOpenAt));
-        }
-        schedule(marketOpenRetryMs, refreshSchedule);
-      });
-    };
-
-    const refreshSchedule = () => {
-      controller?.abort();
-      controller = new AbortController();
-      void fetchNextMarketOpen(controller.signal)
-        .then((nextOpen) => {
-          if (cancelled) {
-            return;
-          }
-          scheduleNextOpenCheck(nextOpen.nextOpenAt);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            schedule(marketOpenRetryMs, refreshSchedule);
-          }
-        });
-    };
-
-    refreshSchedule();
-    return () => {
-      cancelled = true;
-      controller?.abort();
-      clearTimer();
-    };
-  }, [marketOpenReminderEnabled]);
-
-  const closeFloatingPanels = () => {
-    setChatPanelOpen(false);
-  };
-
-  const toggleChatPanel = () => {
-    setChatPanelOpen((current) => !current);
-  };
-
-  useEffect(() => {
     if (agentComposerRequest > 0 && !agentBusy) {
       agentInputRef.current?.focus();
     }
   }, [agentBusy, agentComposerRequest]);
 
+  useEffect(() => {
+    if (!agentNotice) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => onAgentNoticeDismiss(agentNotice.id), 3000);
+    return () => window.clearTimeout(timer);
+  }, [agentNotice, onAgentNoticeDismiss]);
+
   const submitAgentPrompt = async (event: FormEvent<HTMLFormElement>) => {
-    const hasPrompt = Boolean(agentInput.trim());
-    const result = await onAgentSubmit(event);
-    if (hasPrompt && result === "chart-shortcut") {
-      setChatPanelOpen(false);
-      return;
-    }
-    if (hasPrompt && result === "chat-log") {
-      setChatPanelOpen(true);
-    }
+    await onAgentSubmit(event);
   };
 
   return (
     <>
-      {hasFloatingPanel && (
-        <button
-          type="button"
-          className="bottom-menu-dismiss-layer"
-          aria-label="Close bottom floating panel"
-          onClick={closeFloatingPanels}
-        />
-      )}
       {alertToastState.current && (
         <AlertToast
           notification={alertToastState.current.notification}
@@ -369,10 +412,42 @@ export function BottomCommandBar({
           <span>GOPS</span>
         </div>
         <div className="workspace-top-center">
-          {topDock}
+          <div className={`workspace-top-center-flip ${agentNotice ? "is-notice" : ""}`}>
+            <div
+              className="workspace-top-center-face workspace-top-center-default"
+              aria-hidden={Boolean(agentNotice)}
+              inert={agentNotice ? true : undefined}
+            >
+              {topDock}
+            </div>
+            {agentNotice && (
+              <div
+                className={`workspace-top-center-face workspace-agent-notice is-${agentNotice.tone}`}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {agentNotice.message}
+              </div>
+            )}
+          </div>
         </div>
         <div className="workspace-top-actions">
-          <SimulatorControl />
+          <Suspense fallback={<div className="simulator-mode-control" aria-hidden="true" />}>
+            <SimulatorControl onNotification={receiveSimulatorNotification} />
+          </Suspense>
+          <HeaderNotificationMenu
+            canUseAlerts={canUseAlerts}
+            authLoading={authLoading}
+            notifications={notificationInbox.notifications}
+            unreadCount={notificationInbox.unreadCount}
+            loading={notificationInboxLoading}
+            saving={notificationInboxSaving}
+            error={notificationInboxError}
+            onLogin={onLogin}
+            onOpenNotification={openHeaderNotification}
+            onReadAll={readAllHeaderNotifications}
+          />
           <button
             type="button"
             className="workspace-top-login"
@@ -390,38 +465,7 @@ export function BottomCommandBar({
           the bottom band and provides its own 완료 (exit) button. */}
       {!layoutEditMode && <nav className="workspace-bottom-nav" aria-label="Workspace command bar">
         <div className="bottom-command-slot is-agent">
-          <div className={`agent-dock ${chatPanelOpen ? "is-chat-open" : ""}`}>
-            <section className={`bottom-chat-panel surface-floating ${chatPanelOpen ? "is-open" : ""}`} aria-label="Agent log" aria-hidden={!chatPanelOpen}>
-              <header className="bottom-chat-header">
-                <div>
-                  <MessagesSquare size={15} aria-hidden="true" />
-                  <strong>AGENT LOG</strong>
-                  <span>{chatLog.length}</span>
-                </div>
-                <button type="button" aria-label="Agent log 닫기" title="Agent log 닫기" onClick={() => setChatPanelOpen(false)}>
-                  <X size={15} aria-hidden="true" />
-                </button>
-              </header>
-              <div className="bottom-chat-log" role="log" aria-live="polite">
-                {chatLog.length ? chatLog.map((entry) => (
-                  <article key={entry.id} className={`bottom-chat-message ${entry.role} ${entry.pending ? "is-pending" : ""}`}>
-                    <span className="bottom-chat-message-role">
-                      {entry.role === "user" ? "You" : entry.role === "assistant" ? "Agent" : "System"}
-                      {entry.role === "assistant" && typeof entry.confidence === "number" && !entry.pending && (
-                        <span
-                          className={`bottom-chat-confidence-dot ${confidenceTone(entry.confidence)}`}
-                          title={confidenceTitle(entry.confidence)}
-                          aria-label={confidenceTitle(entry.confidence)}
-                        />
-                      )}
-                    </span>
-                    <ChatMessageBody entry={entry} />
-                  </article>
-                )) : (
-                  <p className="bottom-chat-empty">선택한 뉴스나 캔들에 질문하면 이곳에 기록됩니다.</p>
-                )}
-              </div>
-            </section>
+          <div className="agent-dock">
             <form className="agent-box surface-raised" onSubmit={submitAgentPrompt}>
               <AgentReferenceStrip
                 chips={agentReferenceChips}
@@ -447,16 +491,6 @@ export function BottomCommandBar({
                 {agentBusy ? <Square size={13} aria-hidden="true" /> : <SendHorizontal size={15} aria-hidden="true" />}
               </button>
             </form>
-            <button
-              type="button"
-              className={`agent-log-button ${chatPanelOpen ? "is-active" : ""}`}
-              aria-label={chatPanelOpen ? "Agent log 닫기" : "Agent log 열기"}
-              title={chatPanelOpen ? "Agent log 닫기" : "Agent log 열기"}
-              aria-expanded={chatPanelOpen}
-              onClick={toggleChatPanel}
-            >
-              <MessagesSquare size={15} aria-hidden="true" />
-            </button>
           </div>
         </div>
       </nav>}
@@ -492,8 +526,8 @@ function AgentReferenceStrip({
     <div className="agent-reference-strip" aria-label="선택한 자료">
       {chips.map((chip) => {
         const active = hoveredKey === chip.key;
-        const Icon = chip.kind === "candle" ? CandlestickChart : Newspaper;
-        const kindLabel = chip.kind === "candle" ? "캔들" : "뉴스";
+        const Icon = chip.kind === "candle" ? CandlestickChart : chip.kind === "news" ? Newspaper : TrendingUp;
+        const kindLabel = chip.kind === "candle" ? "캔들" : chip.kind === "news" ? "뉴스" : "추천";
         const label = chip.ticker ? `${chip.ticker} ${kindLabel}` : kindLabel;
         return (
           <button
@@ -520,78 +554,6 @@ function AgentReferenceStrip({
       })}
     </div>
   );
-}
-
-function ChatMessageBody({ entry }: { entry: ChatLogEntry }) {
-  if (entry.role === "assistant" && !entry.pending && entry.analysisReport?.finalAnswer) {
-    return <AgentAnalysisChatMessage report={entry.analysisReport} fallbackText={entry.text} />;
-  }
-  return (
-    <p>
-      <span className="bottom-chat-message-text">{entry.text}</span>
-      {entry.pending && <span className="bottom-chat-loading-mark" aria-hidden="true">/</span>}
-    </p>
-  );
-}
-
-function AgentAnalysisChatMessage({ report, fallbackText }: { report: AgentAnalysisReport; fallbackText: string }) {
-  const finalAnswer = report.finalAnswer;
-  if (!finalAnswer) {
-    return <p><span className="bottom-chat-message-text">{fallbackText}</span></p>;
-  }
-  const sections = finalAnswer.sections.filter((section) => section.title && section.bullets.length);
-  const visibleSections = sections.filter((section) => !isCollapsibleAnalysisSection(section.title)).slice(0, 2);
-  const collapsedSections = sections.filter((section) => isCollapsibleAnalysisSection(section.title));
-  const linkedCitations = finalAnswer.citations.filter((citation) => Boolean(citation.url)).slice(0, 5);
-  const timingSummary = formatAgentTimingSummary(report.timing);
-
-  return (
-    <div className="agent-analysis-message">
-      <p className="agent-analysis-title">{finalAnswer.title}</p>
-      <p className="agent-analysis-summary">{finalAnswer.summary}</p>
-      {visibleSections.map((section) => <AgentAnalysisSection key={section.title} section={section} />)}
-      {collapsedSections.map((section) => <AgentAnalysisDetails key={section.title} section={section} />)}
-      {linkedCitations.length > 0 && (
-        <details className="agent-analysis-details">
-          <summary>근거 링크</summary>
-          <ul>
-            {linkedCitations.map((citation) => (
-              <li key={`${citation.title}-${citation.url}`}>
-                {citation.url ? <a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a> : citation.title}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {timingSummary && <p className="agent-analysis-timing">{timingSummary}</p>}
-    </div>
-  );
-}
-
-function AgentAnalysisSection({ section }: { section: FinalAnswerSection }) {
-  return (
-    <section className="agent-analysis-section">
-      <h4>{section.title}</h4>
-      <ul>
-        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-      </ul>
-    </section>
-  );
-}
-
-function AgentAnalysisDetails({ section }: { section: FinalAnswerSection }) {
-  return (
-    <details className="agent-analysis-details">
-      <summary>{section.title}</summary>
-      <ul>
-        {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-      </ul>
-    </details>
-  );
-}
-
-function isCollapsibleAnalysisSection(title: string): boolean {
-  return ["판단 근거", "분석한 지표", "반대로 볼 점"].includes(title.trim());
 }
 
 function agentPlaceholder(isChartMode: boolean, canUseAgent: boolean): string {
@@ -623,6 +585,18 @@ function readSocketPayload(value: unknown): Record<string, unknown> {
   }
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stablePreviewToastId(value: string): number {
+  let hash = 0;
+  for (const character of value) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash);
+}
+
 function agentAlertNotification(payload: Record<string, unknown>): NotificationItem | null {
   const decision = payload.decision && typeof payload.decision === "object"
     ? payload.decision as Record<string, unknown>
@@ -641,30 +615,4 @@ function agentAlertNotification(payload: Record<string, unknown>): NotificationI
     createdAt: new Date().toISOString(),
     readAt: null
   };
-}
-
-function alertToastKey(notification: NotificationItem): string {
-  return `${notification.id}:${notification.eventId}`;
-}
-
-function clampReminderDelay(delayMs: number): number {
-  if (!Number.isFinite(delayMs)) {
-    return 60_000;
-  }
-  return Math.max(0, Math.min(delayMs, 60 * 60_000));
-}
-
-function confidenceTone(confidence: number): "high" | "medium" | "low" {
-  if (confidence >= 0.75) {
-    return "high";
-  }
-  if (confidence >= 0.5) {
-    return "medium";
-  }
-  return "low";
-}
-
-function confidenceTitle(confidence: number): string {
-  const percent = Math.round(Math.max(0, Math.min(1, confidence)) * 100);
-  return `신뢰도 ${percent}%`;
 }

@@ -5,7 +5,6 @@ import {
   ChartNoAxesCombined,
   ChartSpline,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eraser,
@@ -32,6 +31,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -54,21 +54,26 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
+import { candleKeyForTimestamp, isAnalysisAssetStale, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
+import { projectChartTradeSetup } from "../chart/chartTradeSetup";
+import type { ChartPriceSelection, ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
+import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
 import {
   analysisAssetApplyCommands,
   analysisAssetRemovalCommands,
   analysisLayerToggleCommands,
   isChartAssetDrawing,
+  hasAnalysisLayerDrawings,
   type AnalysisLayerKey,
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
+import { clearActiveTradePlan, projectActiveTradePlan, setActiveTradePlan } from "../chart/tradePlanStore";
 import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
 import {
   buildDraftPreviewDrawing,
@@ -83,6 +88,7 @@ import {
   hitTestDrawing,
   isValidRiskRewardAnchors,
   makeDrawing,
+  nearestDrawingLineWidthStage,
   normalizeParallelLineCount,
   sourceIntervalForDrawingAnchors,
   type DrawingDraft,
@@ -90,6 +96,11 @@ import {
 } from "../chart/drawings";
 import { expansionCloseButtonSize, expansionMetadataCenterY, expansionParentThumbnailRight } from "../chart/expansionLayout";
 import { stableVolumeProfileRangeKey } from "../chart/derivedRequestPolicy";
+import {
+  volumeProfilePartialRetryDelaysMs,
+  volumeProfileResponseMatchesRequest,
+  type ExactVolumeProfileRequest
+} from "../chart/volumeProfilePolicy";
 import { candleMovingAverageWindows, indicatorRequestRangeFromCandles, serverIndicatorLayersForLayers } from "../chart/indicatorLayerPolicy";
 import { indicatorRequestLimitForInterval } from "../chart/indicatorRequestPolicy";
 import { mergeIndicatorSeries, scopeIndicatorSeries } from "../chart/indicatorSeries";
@@ -106,7 +117,7 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
@@ -144,6 +155,8 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
+import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import type { ThemeColorToken } from "../theme/colors";
 
 function iconButtonClass(active = false): string {
@@ -178,6 +191,12 @@ type PaneResizeAnchor = {
 type PendingSemanticClick = {
   unit: SemanticRenderUnit;
   action: "dig" | "agent-select";
+  x: number;
+  y: number;
+};
+
+type PriceAxisPointer = {
+  pointerId: number;
   x: number;
   y: number;
 };
@@ -242,12 +261,16 @@ type ChartPanelProps = {
   emphasizeSelection?: boolean;
   onChartHoverChange?: (hovered: boolean) => void;
   onHeaderChange?: (header: ChartHeaderSnapshot) => void;
+  onPriceSelection?: (selection: ChartPriceSelection) => void;
   toolbarLeading?: ReactNode;
-  toolbarTrailing?: ReactNode;
+  toolbarAfterViewControls?: ReactNode;
 };
 
 export type ChartPanelHandle = {
   getSnapshot: () => ChartState;
+  getChartDocumentId: () => string;
+  getAnalysisAssetIdentity: () => Record<string, unknown> | null;
+  getTradeSetupSnapshot: () => ChartTradeSetupSnapshot | null;
   setInterval: (interval: ChartInterval) => void;
   setChartType: (chartType: ChartType) => void;
   clearSemanticSelection: () => void;
@@ -276,7 +299,10 @@ const unavailableQuote: LiveQuote = {
 const baseChartMinHeightForBelowPanes = 170;
 const belowPaneMinHeight = 70;
 const maxComparisonCount = 4;
+const chartVolumeProfileBinCount = 10;
 const defaultOrderFlowPriceBinSize = 0.01;
+
+type VolumeProfileSceneRange = ExactVolumeProfileRequest;
 const trendExtensionButtons: Array<[ChartLineExtension, string]> = [
   ["segment", "선분"],
   ["ray", "반직선"],
@@ -368,11 +394,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   onChartRuntimeAction,
   onChartAddToggle,
   onSemanticSelectionChange,
+  onAgentAsk,
   emphasizeSelection = false,
   onChartHoverChange,
   onHeaderChange,
+  onPriceSelection,
   toolbarLeading,
-  toolbarTrailing
+  toolbarAfterViewControls
 }: ChartPanelProps, ref) {
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
@@ -383,7 +411,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
   const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
   const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
-  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | undefined>();
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
   const [postCreateFocusDrawingId, setPostCreateFocusDrawingId] = useState<string | null>(null);
@@ -394,6 +421,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
+  const [volumeProfileSceneRange, setVolumeProfileSceneRange] = useState<VolumeProfileSceneRange | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
   const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("empty");
@@ -403,8 +431,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>({
-    geometry: true
+    evidence: true,
+    proposal: true
   });
+  const [spotlightDrawingIds, setSpotlightDrawingIds] = useState<string[]>([]);
+  const [spotlightCandleTimestamp, setSpotlightCandleTimestamp] = useState<string | undefined>();
+  const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -471,23 +503,29 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.visibleCount,
     transientViewport
   ]);
-  const visibleProfileRangeKey = useMemo(() => (
-    visibleProfileRange
-      ? stableVolumeProfileRangeKey({
-          symbol: chart.symbol,
-          interval: chart.interval,
-          from: visibleProfileRange.from,
-          to: visibleProfileRange.to,
-          targetBins: 10,
-          priceBinSize: "auto"
-        })
-      : ""
-  ), [
+  const volumeProfileRequest = useMemo<ExactVolumeProfileRequest | null>(() => {
+    if (!visibleProfileRange || !volumeProfileSceneRange ||
+      volumeProfileSceneRange.symbol !== chart.symbol ||
+      volumeProfileSceneRange.interval !== chart.interval ||
+      volumeProfileSceneRange.from !== visibleProfileRange.from ||
+      volumeProfileSceneRange.to !== visibleProfileRange.to ||
+      volumeProfileSceneRange.candleCount !== visibleProfileRange.candleCount) {
+      return null;
+    }
+    return volumeProfileSceneRange;
+  }, [
     chart.interval,
     chart.symbol,
+    volumeProfileSceneRange,
     visibleProfileRange?.from,
-    visibleProfileRange?.to
+    visibleProfileRange?.to,
+    visibleProfileRange?.candleCount
   ]);
+  const volumeProfileRequestKey = useMemo(() => (
+    volumeProfileRequest
+      ? stableVolumeProfileRangeKey({ ...volumeProfileRequest, priceBinSize: "auto" })
+      : ""
+  ), [volumeProfileRequest]);
   const orderFlowDemoContext = useMemo(() => {
     if (!isOrderFlowDemoRuntimeEnabled()) {
       return undefined;
@@ -529,6 +567,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const chartAddMenuRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
+  const hoveredSemanticNodeIdRef = useRef<string | undefined>(undefined);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
   const olderRangeRetryAfterRef = useRef<Map<string, number>>(new Map());
@@ -540,7 +579,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const labelEditorInputRef = useRef<HTMLInputElement | null>(null);
   const cancelLabelEditRef = useRef(false);
   const pendingSemanticClickRef = useRef<PendingSemanticClick | null>(null);
+  const priceAxisPointerRef = useRef<PriceAxisPointer | null>(null);
   const transientViewportRef = useRef<ChartViewport | null>(null);
+  const pendingTransientDrawingsRef = useRef<DrawingEntity[] | null>(null);
+  const interactionRenderFrameRef = useRef<number | null>(null);
+  const pendingViewportRenderRef = useRef(false);
+  const pendingDrawingsRenderRef = useRef(false);
   const wheelViewportRef = useRef<ChartViewport | null>(null);
   const wheelRenderFrameRef = useRef<number | null>(null);
   const wheelCommitTimerRef = useRef<number | null>(null);
@@ -548,6 +592,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
   const appliedAnalysisAssetKeyRef = useRef("");
+  const proposalAutoFrameKeyRef = useRef("");
   const indicatorSeries = useMemo(() => (
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
@@ -580,6 +625,14 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     activeExpansionsRef.current = activeExpansions;
   }, [activeExpansions]);
+
+  const setHoveredSemanticUnit = useCallback((unit: SemanticRenderUnit | null | undefined) => {
+    const nextId = unit?.id;
+    if (hoveredSemanticNodeIdRef.current === nextId) return;
+    hoveredSemanticNodeIdRef.current = nextId;
+    setHoveredSemanticNodeId(nextId);
+    setHoverSnapshot(unit ? snapshotFromSemanticUnit(unit) : null);
+  }, []);
 
   const commandTarget = useMemo(() => ({
     panelId,
@@ -645,28 +698,62 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
     ? analysisAssets.assets[chart.interval]
     : null;
-  const activeAnalysisAsset = resolveAnalysisAssetForCandles(rawActiveAnalysisAsset, chart.candles);
-  const activeAnalysisAssetStale = activeAnalysisAsset ? isAnalysisAssetStale(
+  const activeAnalysisAsset = useMemo(() => resolveAnalysisAssetForCandles(
+    rawActiveAnalysisAsset,
+    chart.candles,
+    analysisAssets?.assets
+  ), [analysisAssets?.assets, chart.candles, rawActiveAnalysisAsset]);
+  const activeAnalysisAssetStale = useMemo(() => activeAnalysisAsset ? isAnalysisAssetStale(
     activeAnalysisAsset.asOf,
     chart.candles,
     activeAnalysisAsset.assetVersion,
     activeAnalysisAsset.interval
-  ) : false;
-  const latestClosedAssetCandleTimestamp = latestClosedTimestamp(chart.candles);
+  ) : false, [activeAnalysisAsset, chart.candles]);
+  const latestClosedAssetCandleTimestamp = useMemo(() => latestClosedTimestamp(chart.candles), [chart.candles]);
+  const chartTradeSetup = useMemo(() => projectChartTradeSetup(
+    activeAnalysisAsset,
+    chart.candles,
+    analysisAssets?.assets
+  ), [activeAnalysisAsset, analysisAssets?.assets, chart.candles]);
+  const chartTradeSetupSnapshot = useMemo<ChartTradeSetupSnapshot | null>(() => chartTradeSetup ? {
+    version: "chart-trade-setup-snapshot-v1",
+    chartDocumentId: document.id,
+    sourcePanelId: panelId,
+    symbol: chart.symbol.trim().toUpperCase(),
+    interval: chart.interval,
+    setup: chartTradeSetup,
+    assetIdentity: { ...chartTradeSetup.assetIdentity },
+    spotlightPrice: spotlightProposalPrice
+  } : null, [chart.interval, chart.symbol, chartTradeSetup, document.id, panelId, spotlightProposalPrice]);
+
+  useEffect(() => {
+    setChartTradeSetupSnapshot(document.id, chartTradeSetupSnapshot);
+  }, [chartTradeSetupSnapshot, document.id]);
+
+  useEffect(() => () => {
+    clearChartTradeSetupSnapshot(document.id);
+  }, [document.id]);
+
+  useEffect(() => {
+    setActiveTradePlan(document.id, projectActiveTradePlan(
+      activeAnalysisAsset,
+      chart.candles,
+      document.id,
+      activeAnalysisAssetStale ? "stale" : "active"
+    ));
+  }, [activeAnalysisAsset, activeAnalysisAssetStale, chart.candles, document.id]);
+
+  useEffect(() => () => clearActiveTradePlan(document.id), [document.id]);
+
+  useEffect(() => {
+    setSpotlightDrawingIds([]);
+  }, [activeAnalysisAsset?.generatedAt, chart.interval, chart.symbol, document.id]);
 
   useEffect(() => {
     const interval = chart.interval;
     const supportedInterval = isAnalysisAssetInterval(interval);
-    const rawAsset = supportedInterval
-      && latestClosedAssetCandleTimestamp
-      && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
-      ? analysisAssets.assets[interval]
-      : null;
-    const resolvedAsset = resolveAnalysisAssetForCandles(rawAsset, chart.candles);
-    const asset = resolvedAsset
-      ? staleAnalysisAsset(resolvedAsset, isAnalysisAssetStale(
-          resolvedAsset.asOf, chart.candles, resolvedAsset.assetVersion, resolvedAsset.interval
-        ))
+    const asset = supportedInterval && latestClosedAssetCandleTimestamp && activeAnalysisAsset
+      ? staleAnalysisAsset(activeAnalysisAsset, activeAnalysisAssetStale)
       : null;
     const applyKey = [
       chart.symbol,
@@ -689,7 +776,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     );
     dispatchExternalCommandGroup(commands, asset ? "Apply chart analysis asset" : "Clear chart analysis asset");
   }, [
-    analysisAssets,
+    activeAnalysisAsset,
+    activeAnalysisAssetStale,
     chart.candles,
     chart.interval,
     chart.selectedDrawingId,
@@ -716,10 +804,43 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
-      const detail = (event as CustomEvent<{ symbol?: string; interval?: string; drawingIds?: string[] }>).detail;
-      if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
-      const drawingId = detail.drawingIds?.find((id) => chartRef.current.drawings.some((drawing) => drawing.id === id));
+      const detail = (event as CustomEvent<{
+        chartDocumentId?: string;
+        symbol?: string;
+        interval?: string;
+        drawingIds?: string[];
+        mode?: "select" | "spotlight" | "clear";
+        anchor?: { timestamp?: string | null } | null;
+        price?: number | null;
+      }>).detail;
+      if (detail?.chartDocumentId) {
+        if (detail.chartDocumentId !== document.id) return;
+      } else if (detail?.symbol !== chart.symbol.trim().toUpperCase() || detail.interval !== chart.interval) return;
+      if (detail.mode === "clear") {
+        setSpotlightDrawingIds([]);
+        setSpotlightCandleTimestamp(undefined);
+        setSpotlightProposalPrice(null);
+        return;
+      }
+      const analysisInterval = isAnalysisAssetInterval(chart.interval) ? chart.interval : null;
+      const anchorKey = detail.anchor?.timestamp && analysisInterval
+        ? candleKeyForTimestamp(detail.anchor.timestamp, analysisInterval)
+        : null;
+      const anchorCandle = anchorKey
+        ? chartRef.current.candles.find((candle) => candleKeyForTimestamp(candle.timestamp, analysisInterval!) === anchorKey)
+        : undefined;
+      setSpotlightCandleTimestamp(anchorCandle?.timestamp);
+      setSpotlightProposalPrice(typeof detail.price === "number" && Number.isFinite(detail.price) && detail.price > 0
+        ? detail.price
+        : null);
+      const validIds = detail.drawingIds?.filter((id) => chartRef.current.drawings.some((drawing) => drawing.id === id)) ?? [];
+      if (detail.mode === "spotlight") {
+        setSpotlightDrawingIds(validIds);
+        return;
+      }
+      const drawingId = validIds[0];
       if (!drawingId) return;
+      setSpotlightDrawingIds(validIds);
       dispatchExternalCommandGroup([
         makeChartCommand("chart.drawing.clearSelection", "system", commandTarget, { mode: "select" }, undefined, "external"),
         makeChartCommand("chart.drawing.select", "system", commandTarget, { drawingId }, undefined, "external")
@@ -727,7 +848,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
     window.addEventListener("gops:chart-asset-focus", handleFocus);
     return () => window.removeEventListener("gops:chart-asset-focus", handleFocus);
-  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup]);
+  }, [chart.interval, chart.symbol, commandTarget, dispatchExternalCommandGroup, document.id]);
+
+  useEffect(() => {
+    setSpotlightDrawingIds([]);
+    setSpotlightCandleTimestamp(undefined);
+    setSpotlightProposalPrice(null);
+  }, [chart.interval, chart.symbol, document.id]);
 
   const beginLabelEdit = useCallback((drawing: DrawingEntity) => {
     if (!drawingSupportsTextEditing(drawing)) {
@@ -1267,35 +1394,44 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (orderFlowActive || !chart.layers["volume-profile"] || !visibleProfileRange) {
+    if (orderFlowActive || !chart.layers["volume-profile"] || !volumeProfileRequest) {
       setVolumeProfile(null);
       return;
     }
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
+    let retryTimer: number | undefined;
+    const requestProfile = (retryIndex: number) => {
       fetchVolumeProfile({
-        symbol: chart.symbol,
-        interval: chart.interval,
-        from: visibleProfileRange.from,
-        to: visibleProfileRange.to,
-        targetBins: 10,
-        priceMin: visibleProfileRange.priceMin,
-        priceMax: visibleProfileRange.priceMax
+        ...volumeProfileRequest,
+        priceBinSize: "auto"
       }, controller.signal)
         .then((response) => {
-          if (chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
+          if (controller.signal.aborted || chartRef.current.symbol !== chart.symbol || chartRef.current.interval !== chart.interval) {
             return;
           }
-          setVolumeProfile(response.derived?.state === "failed" ? null : response);
+          if (response.dataStatus === "partial") {
+            setVolumeProfile(null);
+            const delay = volumeProfilePartialRetryDelaysMs[retryIndex];
+            if (delay !== undefined) {
+              retryTimer = window.setTimeout(() => requestProfile(retryIndex + 1), delay);
+            }
+            return;
+          }
+          setVolumeProfile(volumeProfileResponseMatchesRequest(response, volumeProfileRequest) ? response : null);
         })
         .catch(() => {
           if (!controller.signal.aborted) {
             setVolumeProfile(null);
           }
         });
-    }, 120);
+    };
+    setVolumeProfile(null);
+    const timer = window.setTimeout(() => requestProfile(0), 120);
     return () => {
       window.clearTimeout(timer);
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
       controller.abort();
     };
   }, [
@@ -1303,7 +1439,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["volume-profile"],
     chart.symbol,
     orderFlowActive,
-    visibleProfileRangeKey,
+    volumeProfileRequestKey,
   ]);
 
   useEffect(() => {
@@ -1366,8 +1502,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    onSemanticSelectionChange?.(selectedSemanticNode);
-  }, [onSemanticSelectionChange, selectedSemanticNode]);
+    onSemanticSelectionChange?.(selectedSemanticNode ? {
+      ...selectedSemanticNode,
+      chartDocumentId: document.id,
+      sourcePanelId: panelId
+    } : null);
+  }, [document.id, onSemanticSelectionChange, panelId, selectedSemanticNode]);
 
   useEffect(() => {
     if (typeof laneHeight !== "number") {
@@ -1429,7 +1569,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     drawings: transientDrawings ?? chart.drawings
   }), [chart, indicatorSeries, orderFlowActive, orderFlowDataStatus, orderFlowPriceBinSize, orderFlowSupportedSymbols, orderFlowToday, orderFlowTodaySessionDate, renderComparisons, transientDrawings, transientViewport, transientPaneRatios, volumeProfile]);
   const renderExpansions = activeExpansions;
-  const previewDrawings: DrawingEntity[] = [];
+  const previewDrawings = useMemo<DrawingEntity[]>(() => [], []);
   const currentPriceTimeText = useMemo(() => (
     currentPriceMarker ? currentPriceMarkerTimeText(currentPriceMarker, currentPriceClock) : null
   ), [currentPriceClock, currentPriceMarker]);
@@ -1460,11 +1600,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   const clearSemanticState = useCallback(() => {
-    setHoveredSemanticNodeId(undefined);
-    setHoverSnapshot(null);
+    setHoveredSemanticUnit(null);
     setSelectedSemanticNode(null);
     setExpansionOverlays([]);
-  }, []);
+  }, [setHoveredSemanticUnit]);
 
   useEffect(() => {
     activeExpansionsRef.current = [];
@@ -1611,8 +1750,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     dispatchDocumentCommand("chart.viewport.set", nextViewport, "user", historyScope);
   }, [dispatchDocumentCommand, loadOlderCandles]);
 
+  useEffect(() => {
+    const proposalDrawing = chartTradeSetupSnapshot
+      ? chart.drawings.find((drawing) => (
+        drawing.id === chartTradeSetupSnapshot.setup.drawingIds.plan
+        && drawing.visible !== false
+        && drawing.style.zoneSplit === true
+      ))
+      : undefined;
+    if (!proposalDrawing || !chartTradeSetupSnapshot) return;
+    const autoFrameKey = [
+      document.id,
+      chartTradeSetupSnapshot.assetIdentity.algorithmVersion,
+      chartTradeSetupSnapshot.assetIdentity.inputDigest,
+      chartTradeSetupSnapshot.assetIdentity.asOf,
+      proposalDrawing.id
+    ].join("|");
+    if (proposalAutoFrameKeyRef.current === autoFrameKey) return;
+    proposalAutoFrameKeyRef.current = autoFrameKey;
+    if (chart.rightOffset > 0) return;
+    const lastCandleIndex = chart.candles.length - 1;
+    const projectionBars = proposalDrawing.anchors
+      .map((anchor) => anchor.logicalIndex)
+      .filter((logicalIndex): logicalIndex is number => typeof logicalIndex === "number" && Number.isFinite(logicalIndex))
+      .reduce((maximum, logicalIndex) => Math.max(maximum, logicalIndex - lastCandleIndex), 0);
+    if (projectionBars <= 0) return;
+    const sceneVisibleCount = sceneRef.current?.visibleSlotCount ?? chart.visibleCount;
+    const futureSlots = Math.max(projectionBars + 2, Math.floor(sceneVisibleCount / 4));
+    applyViewport({ visibleCount: chart.visibleCount, rightOffset: -futureSlots }, "external");
+  }, [applyViewport, chart.candles.length, chart.drawings, chart.rightOffset, chart.visibleCount, chartTradeSetupSnapshot, document.id]);
+
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const nextProfileSceneRange = volumeProfileSceneRangeFromScene(scene);
+    setVolumeProfileSceneRange((current) => (
+      volumeProfileSceneRangeEquals(current, nextProfileSceneRange) ? current : nextProfileSceneRange
+    ));
     const nextPriceMarker = currentPriceMarkerFromScene(scene);
     setCurrentPriceMarker((current) => (
       currentPriceMarkerEquals(current, nextPriceMarker) ? current : nextPriceMarker
@@ -1714,12 +1887,22 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useImperativeHandle(ref, () => ({
     getSnapshot: () => chartRef.current,
+    getChartDocumentId: () => document.id,
+    getAnalysisAssetIdentity: () => activeAnalysisAsset ? {
+      assetVersion: activeAnalysisAsset.assetVersion,
+      algorithmVersion: activeAnalysisAsset.algorithmVersion,
+      inputDigest: activeAnalysisAsset.inputDigest,
+      asOf: activeAnalysisAsset.asOf,
+      symbol: activeAnalysisAsset.symbol,
+      interval: activeAnalysisAsset.interval
+    } : null,
+    getTradeSetupSnapshot: () => chartTradeSetupSnapshot,
     setInterval,
     setChartType,
     // Lets the agent reference chip clear this chart's candle highlight when the
     // reference is removed from the input strip.
     clearSemanticSelection: () => setSelectedSemanticNode(null)
-  }), [setChartType, setInterval]);
+  }), [activeAnalysisAsset, chartTradeSetupSnapshot, document.id, setChartType, setInterval]);
 
   const queueWheelViewport = useCallback((viewport: ChartViewport) => {
     wheelViewportRef.current = viewport;
@@ -1747,6 +1930,39 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       setTransientViewport(null);
     }, 100);
   }, [applyViewport]);
+
+  const scheduleInteractionRender = useCallback(() => {
+    if (interactionRenderFrameRef.current !== null) return;
+    interactionRenderFrameRef.current = window.requestAnimationFrame(() => {
+      interactionRenderFrameRef.current = null;
+      if (pendingViewportRenderRef.current) {
+        pendingViewportRenderRef.current = false;
+        setTransientViewport(transientViewportRef.current);
+      }
+      if (pendingDrawingsRenderRef.current) {
+        pendingDrawingsRenderRef.current = false;
+        setTransientDrawings(pendingTransientDrawingsRef.current);
+      }
+    });
+  }, []);
+
+  const cancelInteractionRender = useCallback(() => {
+    if (interactionRenderFrameRef.current !== null) {
+      window.cancelAnimationFrame(interactionRenderFrameRef.current);
+      interactionRenderFrameRef.current = null;
+    }
+    pendingViewportRenderRef.current = false;
+    pendingDrawingsRenderRef.current = false;
+    pendingTransientDrawingsRef.current = null;
+  }, []);
+
+  const queueTransientDrawings = useCallback((drawings: DrawingEntity[] | null) => {
+    pendingTransientDrawingsRef.current = drawings;
+    pendingDrawingsRenderRef.current = true;
+    scheduleInteractionRender();
+  }, [scheduleInteractionRender]);
+
+  useEffect(() => cancelInteractionRender, [cancelInteractionRender]);
 
   useEffect(() => () => {
     if (wheelRenderFrameRef.current !== null) {
@@ -1838,6 +2054,16 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const priceAxisPoint = chartPriceAxisPoint(scene, point.x, point.y);
+    if (priceAxisPoint) {
+      priceAxisPointerRef.current = { pointerId: event.pointerId, x: point.x, y: point.y };
+      setHoveredSemanticUnit(null);
+      event.currentTarget.style.cursor = "crosshair";
+      return;
+    }
+    if (isChartRightAxisPoint(scene, point.x, point.y)) {
+      return;
+    }
     const drawingHit = chart.toolMode === "select" ? hitTestDrawing(scene, point.x, point.y) : null;
 
     // A canvas pointer-down can unmount the absolute editor before the browser
@@ -2003,12 +2229,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     onChartHoverChange?.(true);
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    setCrosshair(point);
     const scene = sceneRef.current;
     if (!scene) {
       return;
     }
     const paneResize = paneResizeRef.current;
+    const rightAxisPoint = isChartRightAxisPoint(scene, point.x, point.y);
     const boundaryHit = findBoundaryHit(scene, point);
     const axisDigUnit = !paneResize && !boundaryHit && semanticDigEnabled
       ? hitTestTimeAxisUnit(scene, point.x, point.y)
@@ -2020,6 +2246,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       event.currentTarget.style.cursor = "none";
     } else {
       event.currentTarget.style.cursor = "crosshair";
+    }
+
+    if (rightAxisPoint && !paneResize && !drawingDragRef.current && !dragAnchorRef.current) {
+      setHoveredSemanticUnit(null);
+      setTransientDrawings(null);
+      return;
     }
 
     if (paneResize) {
@@ -2054,8 +2286,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     }
     const semanticHit = hitTestSemanticNode(scene, point.x, point.y);
     const hoveredUnit = semanticHit ?? axisDigUnit;
-    setHoveredSemanticNodeId(hoveredUnit?.id);
-    setHoverSnapshot(hoveredUnit ? snapshotFromSemanticUnit(hoveredUnit) : null);
+    setHoveredSemanticUnit(hoveredUnit);
 
     const drawingDrag = drawingDragRef.current;
     if (drawingDrag) {
@@ -2068,7 +2299,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
       const anchors = buildDraggedAnchors(drawingDrag, anchor, scene);
-      setTransientDrawings(chart.drawings.map((drawing) => (
+      queueTransientDrawings(chart.drawings.map((drawing) => (
         drawing.id === drawingDrag.drawing.id ? { ...drawing, anchors, updatedAt: new Date().toISOString() } : drawing
       )));
       return;
@@ -2078,10 +2309,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (activeDrawingType && drawingRequiredAnchorCount(activeDrawingType) === 1) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
-        setTransientDrawings(null);
+        queueTransientDrawings(null);
         return;
       }
-      setTransientDrawings([
+      queueTransientDrawings([
         ...chart.drawings,
         buildSingleAnchorPreviewDrawing(activeDrawingType, anchor, chart.trendLineExtension, chart.interval)
       ]);
@@ -2091,10 +2322,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (drawingDraft && drawingTypeFromToolMode(chart.toolMode) === drawingDraft.type) {
       const anchor = createCoordinateTransform(scene).pointToAnchor(point.x, point.y, chart.symbol);
       if (!anchor) {
-        setTransientDrawings(null);
+        queueTransientDrawings(null);
         return;
       }
-      setTransientDrawings([
+      queueTransientDrawings([
         ...chart.drawings,
         buildDraftPreviewDrawing(drawingDraft, anchor, chart.trendLineExtension, chart.parallelLineCount)
       ]);
@@ -2117,20 +2348,24 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       )
     };
     transientViewportRef.current = nextViewport;
-    setTransientViewport(nextViewport);
+    pendingViewportRenderRef.current = true;
+    scheduleInteractionRender();
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const priceAxisPointer = priceAxisPointerRef.current;
     const drawingDrag = drawingDragRef.current;
     const dragAnchor = dragAnchorRef.current;
     const paneResize = paneResizeRef.current;
     const pendingSemanticClick = pendingSemanticClickRef.current;
     const nextViewport = transientViewportRef.current;
     const nextRatios = transientPaneRatiosRef.current;
+    cancelInteractionRender();
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
+    priceAxisPointerRef.current = null;
     transientViewportRef.current = null;
     transientPaneRatiosRef.current = null;
     setTransientViewport(null);
@@ -2140,6 +2375,26 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
       // Pointer capture can be released by the browser before this handler runs.
+    }
+    if (priceAxisPointer) {
+      const scene = sceneRef.current;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const axisPoint = scene ? chartPriceAxisPoint(scene, point.x, point.y) : null;
+      const clickDistance = Math.hypot(point.x - priceAxisPointer.x, point.y - priceAxisPointer.y);
+      if (axisPoint && priceAxisPointer.pointerId === event.pointerId && clickDistance <= 5) {
+        onPriceSelection?.({
+          version: "chart-price-selection-v1",
+          chartDocumentId: document.id,
+          sourcePanelId: panelId,
+          symbol: chart.symbol.trim().toUpperCase(),
+          interval: chart.interval,
+          price: axisPoint.price,
+          formattedPrice: axisPoint.formattedPrice,
+          selectedAt: new Date().toISOString()
+        });
+      }
+      return;
     }
     if (drawingDrag) {
       if (!drawingDrag.moved) {
@@ -2188,18 +2443,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   };
 
   const cancelDrag = () => {
+    cancelInteractionRender();
     drawingDragRef.current = null;
     dragAnchorRef.current = null;
     paneResizeRef.current = null;
     pendingSemanticClickRef.current = null;
+    priceAxisPointerRef.current = null;
     transientViewportRef.current = null;
     transientPaneRatiosRef.current = null;
     setTransientViewport(null);
     setTransientDrawings(null);
     setTransientPaneRatios(null);
-    setHoveredSemanticNodeId(undefined);
-    setHoverSnapshot(null);
-    setCrosshair(undefined);
+    setHoveredSemanticUnit(null);
     onChartHoverChange?.(false);
   };
 
@@ -2275,42 +2530,44 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       <div className={chartAddActive ? "chart-panel-navigation has-open-chart-menu" : "chart-panel-navigation"} aria-label="Chart controls">
         <div className="chart-panel-navigation-leading">
           {toolbarLeading}
-        </div>
-        <ChartDrawingDock
-          document={document}
-          panelId={panelId}
-          onChartRuntimeAction={onChartRuntimeAction}
-        />
-        <div className="chart-panel-navigation-actions">
-          {toolbarTrailing}
-          <div className="chart-add-control">
-          <button
-            ref={chartAddButtonRef}
-            type="button"
-            className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
-            aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
-            aria-pressed={chartAddActive}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={onChartAddToggle}
-            {...chartControlTooltip.tooltipProps(chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기")}
-          >
-            <ChartNoAxesCombined size={16} />
-          </button>
-            {chartAddActive && (
-              <div ref={chartAddMenuRef} className="chart-add-dropdown-anchor">
-                <ChartAddDock
-                  document={document}
-                  panelId={panelId}
-                  laneHeight={laneHeight ?? 120}
-                  onChartRuntimeAction={onChartRuntimeAction}
-                  onClose={() => onChartAddToggle?.()}
-                />
-              </div>
-            )}
+          <div className="chart-panel-navigation-adjacent chart-panel-hover-controls">
+            {toolbarAfterViewControls}
+            <div className="chart-add-control">
+              <button
+                ref={chartAddButtonRef}
+                type="button"
+                className={`${iconButtonClass(chartAddActive)} chart-add-target-button ${chartAddActive ? "is-active" : ""}`}
+                aria-label={chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기"}
+                aria-pressed={chartAddActive}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={onChartAddToggle}
+                {...chartControlTooltip.tooltipProps(chartAddActive ? "차트 추가 도구 닫기" : "차트 추가 도구 열기")}
+              >
+                <ChartNoAxesCombined size={16} />
+              </button>
+              {chartAddActive && (
+                <div ref={chartAddMenuRef} className="chart-add-dropdown-anchor">
+                  <ChartAddDock
+                    document={document}
+                    panelId={panelId}
+                    laneHeight={laneHeight ?? 120}
+                    onChartRuntimeAction={onChartRuntimeAction}
+                    onClose={() => onChartAddToggle?.()}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+        </div>
+        <div className="chart-panel-navigation-right chart-panel-hover-controls">
+          <ChartDrawingDock
+            document={document}
+            panelId={panelId}
+            onChartRuntimeAction={onChartRuntimeAction}
+          />
           <span className="toolbar-separator chart-navigation-action-separator" aria-hidden="true" />
           <button
-            className={iconButtonClass()}
+            className={`${iconButtonClass()} chart-panel-navigation-reset`}
             onClick={resetChart}
             type="button"
             aria-label="차트 초기화"
@@ -2335,20 +2592,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           hoveredNodeId={hoveredSemanticNodeId}
           selectedNodeId={selectedSemanticNode?.nodeId}
           emphasizeSelectedNode={emphasizeSelection}
-          crosshair={crosshair}
           editingDrawingId={labelEditor?.drawingId}
+          spotlightDrawingIds={spotlightDrawingIds}
+          spotlightCandleTimestamp={spotlightCandleTimestamp}
           onScene={handleScene}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerLeave={() => {
-            setHoveredSemanticNodeId(undefined);
-            setHoverSnapshot(null);
+            priceAxisPointerRef.current = null;
+            setHoveredSemanticUnit(null);
             if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               onChartHoverChange?.(false);
-            }
-            if (!dragAnchorRef.current && !paneResizeRef.current) {
-              setCrosshair(undefined);
             }
             if (!dragAnchorRef.current && !drawingDragRef.current && !paneResizeRef.current) {
               setTransientDrawings(null);
@@ -2361,12 +2616,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
-            geometry: !activeAnalysisAsset?.geometry.drawings.length
+            evidence: !hasAnalysisLayerDrawings(activeAnalysisAsset, "evidence"),
+            proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
           }}
           asOf={activeAnalysisAsset?.asOf}
           stale={activeAnalysisAssetStale}
           onToggle={toggleAnalysisLayer}
         />
+        {selectedSemanticNode && onAgentAsk && (
+          <ContextualAgentAskButton
+            onAsk={onAgentAsk}
+            style={{ position: "absolute", right: 12, bottom: 12, zIndex: 12 }}
+          />
+        )}
         {labelEditor && labelEditorLayout && (
           <input
             key={labelEditor.drawingId}
@@ -2462,22 +2724,20 @@ export function ChartDrawingDock({
   onChartRuntimeAction
 }: ChartDrawingDockProps) {
   type ToolGroup = "horizontal" | "vertical" | "trend";
-  type GroupToolMode = "draw-horizontalLine" | "draw-horizontalParallelLines" | "draw-verticalMarker" | "draw-verticalParallelLines";
-  const [openToolGroup, setOpenToolGroup] = useState<ToolGroup | null>(null);
-  const [toolMenuLeft, setToolMenuLeft] = useState(0);
-  const [colorMenuOpen, setColorMenuOpen] = useState(false);
-  const [colorMenuLeft, setColorMenuLeft] = useState(0);
-  const [horizontalToolMode, setHorizontalToolMode] = useState<GroupToolMode>(() => (
+  type HorizontalToolMode = "draw-horizontalLine" | "draw-horizontalParallelLines";
+  type VerticalToolMode = "draw-verticalMarker" | "draw-verticalParallelLines";
+  type ParallelLineCountValue = "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10";
+  type DrawingMenu = ToolGroup | "parallel-count" | "color";
+  const [openDrawingMenu, setOpenDrawingMenu] = useState<DrawingMenu | null>(null);
+  const [colorMenuStyle, setColorMenuStyle] = useState<CSSProperties | null>(null);
+  const [horizontalToolMode, setHorizontalToolMode] = useState<HorizontalToolMode>(() => (
     document.interactionState.mode === "draw-horizontalParallelLines" ? "draw-horizontalParallelLines" : "draw-horizontalLine"
   ));
-  const [verticalToolMode, setVerticalToolMode] = useState<GroupToolMode>(() => (
+  const [verticalToolMode, setVerticalToolMode] = useState<VerticalToolMode>(() => (
     document.interactionState.mode === "draw-verticalParallelLines" ? "draw-verticalParallelLines" : "draw-verticalMarker"
   ));
   const [scrollState, setScrollState] = useState({ hasOverflow: false, canScrollLeft: false, canScrollRight: false });
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const toolGroupButtonRef = useRef<HTMLButtonElement | null>(null);
-  const toolGroupMenuRef = useRef<HTMLDivElement | null>(null);
   const colorButtonRef = useRef<HTMLButtonElement | null>(null);
   const colorMenuRef = useRef<HTMLDivElement | null>(null);
   const drawingTooltip = useImmediateChartTooltip();
@@ -2523,6 +2783,7 @@ export function ChartDrawingDock({
       setVerticalToolMode(document.interactionState.mode);
     }
   }, [document.interactionState.mode]);
+  const colorMenuOpen = openDrawingMenu === "color";
 
   const updateScrollState = useCallback(() => {
     const scroller = scrollerRef.current;
@@ -2557,68 +2818,76 @@ export function ChartDrawingDock({
     };
   }, [updateScrollState]);
 
-  useEffect(() => {
-    if (!openToolGroup && !colorMenuOpen) {
+  useLayoutEffect(() => {
+    if (!colorMenuOpen) {
+      setColorMenuStyle(null);
       return undefined;
     }
-    const closeToolMenu = (event: PointerEvent) => {
+    const updateColorMenuPosition = () => {
+      const button = colorButtonRef.current;
+      if (!button) {
+        return;
+      }
+      const rect = button.getBoundingClientRect();
+      const panelRect = button.closest(".chart-panel")?.getBoundingClientRect();
+      const menuWidth = 132;
+      const viewportWidth = window.innerWidth || rect.right + menuWidth;
+      const viewportHeight = window.innerHeight || rect.bottom + 320;
+      const minLeft = Math.max(8, (panelRect?.left ?? 4) + 4);
+      const maxLeft = Math.max(
+        minLeft,
+        Math.min(viewportWidth - menuWidth - 8, (panelRect?.right ?? viewportWidth) - menuWidth - 4)
+      );
+      const top = rect.bottom + 6;
+      setColorMenuStyle({
+        left: Math.max(minLeft, Math.min(rect.left, maxLeft)),
+        top,
+        width: menuWidth,
+        maxHeight: Math.max(0, viewportHeight - top - 8)
+      });
+    };
+    updateColorMenuPosition();
+    window.addEventListener("resize", updateColorMenuPosition);
+    window.addEventListener("scroll", updateColorMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateColorMenuPosition);
+      window.removeEventListener("scroll", updateColorMenuPosition, true);
+    };
+  }, [colorMenuOpen]);
+
+  useEffect(() => {
+    if (!colorMenuOpen) {
+      return undefined;
+    }
+    const closeColorMenu = (event: PointerEvent) => {
       const targetNode = event.target as Node | null;
       if (!targetNode
-        || toolGroupButtonRef.current?.contains(targetNode)
-        || toolGroupMenuRef.current?.contains(targetNode)
         || colorButtonRef.current?.contains(targetNode)
         || colorMenuRef.current?.contains(targetNode)) {
         return;
       }
-      setOpenToolGroup(null);
-      setColorMenuOpen(false);
+      setOpenDrawingMenu(null);
     };
-    const closeToolMenuOnEscape = (event: KeyboardEvent) => {
+    const closeColorMenuOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        const focusTarget = colorMenuOpen ? colorButtonRef.current : toolGroupButtonRef.current;
-        setOpenToolGroup(null);
-        setColorMenuOpen(false);
-        focusTarget?.focus();
+        setOpenDrawingMenu(null);
+        colorButtonRef.current?.focus();
       }
     };
-    window.document.addEventListener("pointerdown", closeToolMenu, true);
-    window.document.addEventListener("keydown", closeToolMenuOnEscape);
+    window.document.addEventListener("pointerdown", closeColorMenu, true);
+    window.document.addEventListener("keydown", closeColorMenuOnEscape);
     return () => {
-      window.document.removeEventListener("pointerdown", closeToolMenu, true);
-      window.document.removeEventListener("keydown", closeToolMenuOnEscape);
+      window.document.removeEventListener("pointerdown", closeColorMenu, true);
+      window.document.removeEventListener("keydown", closeColorMenuOnEscape);
     };
-  }, [colorMenuOpen, openToolGroup]);
+  }, [colorMenuOpen]);
 
-  const menuLeftForButton = (button: HTMLButtonElement, menuWidth: number): number => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar) {
-      return 0;
-    }
-    const toolbarRect = toolbar.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-    const panelRect = toolbar.closest(".chart-panel")?.getBoundingClientRect() ?? toolbarRect;
-    const minLeft = panelRect.left - toolbarRect.left + 4;
-    const maxLeft = panelRect.right - toolbarRect.left - menuWidth - 4;
-    return Math.max(minLeft, Math.min(buttonRect.left - toolbarRect.left, maxLeft));
-  };
-
-  const toggleToolGroupMenu = (group: ToolGroup, button: HTMLButtonElement) => {
-    setToolMenuLeft(menuLeftForButton(button, 142));
-    toolGroupButtonRef.current = button;
-    drawingTooltip.hideTooltip();
-    setColorMenuOpen(false);
-    setOpenToolGroup((open) => open === group ? null : group);
-  };
-
-  const toggleColorMenu = (button: HTMLButtonElement) => {
+  const toggleColorMenu = () => {
     if (!selectedDrawing) {
       return;
     }
-    setColorMenuLeft(menuLeftForButton(button, 132));
-    colorButtonRef.current = button;
     drawingTooltip.hideTooltip();
-    setOpenToolGroup(null);
-    setColorMenuOpen((open) => !open);
+    setOpenDrawingMenu((open) => open === "color" ? null : "color");
   };
 
   const updateSelectedDrawingStyle = (colorToken: DrawingPaletteToken) => {
@@ -2642,7 +2911,16 @@ export function ChartDrawingDock({
       drawingId: selectedDrawing.id,
       drawingPatch: { style: nextStyle }
     });
-    setColorMenuOpen(false);
+    setOpenDrawingMenu(null);
+  };
+  const updateSelectedDrawingLineWidth = (lineWidth: number) => {
+    if (!selectedDrawing) {
+      return;
+    }
+    dispatchCommand("chart.drawing.update", {
+      drawingId: selectedDrawing.id,
+      drawingPatch: { style: { lineWidth } }
+    });
   };
   const removeSelectedDrawing = () => {
     if (selectedDrawing) {
@@ -2677,75 +2955,93 @@ export function ChartDrawingDock({
     event.preventDefault();
     event.stopPropagation();
     scroller.scrollLeft += delta;
-    setOpenToolGroup(null);
-    setColorMenuOpen(false);
+    setOpenDrawingMenu(null);
     drawingTooltip.hideTooltip();
   };
 
   const selectedColorToken = normalizeDrawingPaletteToken(selectedDrawing?.style.colorToken);
+  const selectedLineWidthStage = nearestDrawingLineWidthStage(selectedDrawing?.style.lineWidth);
 
   const horizontalLabel = horizontalToolMode === "draw-horizontalParallelLines" ? "가격 평행선" : "수평선";
   const verticalLabel = verticalToolMode === "draw-verticalParallelLines" ? "세로 평행선" : "세로선";
-  const groupMenu = openToolGroup === "horizontal"
-    ? {
-        ariaLabel: "가로선 종류",
-        options: [
-          { key: "draw-horizontalLine", label: "수평선", icon: <ToolIcon toolMode="draw-horizontalLine" /> },
-          { key: "draw-horizontalParallelLines", label: "가격 평행선", icon: <ToolIcon toolMode="draw-horizontalParallelLines" /> }
-        ]
-      }
-    : openToolGroup === "vertical"
-      ? {
-          ariaLabel: "세로선 종류",
-          options: [
-            { key: "draw-verticalMarker", label: "세로선", icon: <ToolIcon toolMode="draw-verticalMarker" /> },
-            { key: "draw-verticalParallelLines", label: "세로 평행선", icon: <ToolIcon toolMode="draw-verticalParallelLines" /> }
-          ]
-        }
-      : openToolGroup === "trend"
-        ? {
-            ariaLabel: "추세선 종류",
-            options: trendExtensionButtons.map(([extension, label]) => ({
-              key: extension,
-              label,
-              icon: <TrendExtensionIcon extension={extension} />
-            }))
-          }
-        : null;
-
-  const selectGroupOption = (key: string) => {
-    if (openToolGroup === "horizontal") {
-      const mode = key as GroupToolMode;
-      setHorizontalToolMode(mode);
-      setToolMode(mode);
-    } else if (openToolGroup === "vertical") {
-      const mode = key as GroupToolMode;
-      setVerticalToolMode(mode);
-      setToolMode(mode);
-    } else if (openToolGroup === "trend") {
-      setTrendLineExtension(key as ChartLineExtension);
+  const horizontalToolOptions: readonly ChartToolbarSelectOption<HorizontalToolMode>[] = [
+    { value: "draw-horizontalLine", label: "수평선", icon: <ToolIcon toolMode="draw-horizontalLine" /> },
+    { value: "draw-horizontalParallelLines", label: "가격 평행선", icon: <ToolIcon toolMode="draw-horizontalParallelLines" /> }
+  ];
+  const verticalToolOptions: readonly ChartToolbarSelectOption<VerticalToolMode>[] = [
+    { value: "draw-verticalMarker", label: "세로선", icon: <ToolIcon toolMode="draw-verticalMarker" /> },
+    { value: "draw-verticalParallelLines", label: "세로 평행선", icon: <ToolIcon toolMode="draw-verticalParallelLines" /> }
+  ];
+  const trendToolOptions: readonly ChartToolbarSelectOption<ChartLineExtension>[] = trendExtensionButtons.map(([extension, label]) => ({
+    value: extension,
+    label,
+    icon: <TrendExtensionIcon extension={extension} />
+  }));
+  const parallelLineCountValue = String(
+    selectedDrawing?.type === "trendParallelLines"
+      ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
+      : normalizeParallelLineCount(document.interactionState.parallelLineCount)
+  ) as ParallelLineCountValue;
+  const parallelLineCountOptions: readonly ChartToolbarSelectOption<ParallelLineCountValue>[] = Array.from(
+    { length: 9 },
+    (_, index) => {
+      const value = String(index + 2) as ParallelLineCountValue;
+      return { value, label: value };
     }
-    setOpenToolGroup(null);
-  };
-
-  const groupedButton = (group: ToolGroup, label: string, icon: ReactNode, active: boolean) => (
-    <button
-      key={group}
-      type="button"
-      className={`${iconButtonClass(active)} chart-grouped-tool-button`}
-      aria-label={`${group === "horizontal" ? "가로선" : group === "vertical" ? "세로선" : "추세선"} 도구 (${label})`}
-      aria-haspopup="menu"
-      aria-expanded={openToolGroup === group}
-      onClick={(event) => toggleToolGroupMenu(group, event.currentTarget)}
-      {...drawingTooltip.tooltipProps(label)}
-    >
-      {icon}
-      <ChevronDown className="chart-trend-tool-chevron" size={10} aria-hidden="true" />
-    </button>
   );
+  const colorMenu = colorMenuOpen
+    && selectedDrawing
+    && colorMenuStyle
+    && typeof window !== "undefined"
+    ? createPortal(
+        <div
+          ref={colorMenuRef}
+          className="chart-drawing-color-menu surface-raised"
+          role="menu"
+          aria-label="그리기 색상"
+          style={colorMenuStyle}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {drawingPaletteOptions.map((option) => {
+            const active = selectedColorToken === option.token;
+            return (
+              <button
+                key={option.token}
+                type="button"
+                role="menuitemradio"
+                className={active ? "active" : ""}
+                aria-label={option.label}
+                aria-checked={active}
+                style={{ "--drawing-swatch-color": option.cssColor } as CSSProperties}
+                onClick={() => updateSelectedDrawingStyle(option.token)}
+                {...drawingTooltip.tooltipProps(option.label)}
+              >
+                <span className="chart-drawing-color-swatch" aria-hidden="true" />
+                {active && <Check size={12} aria-hidden="true" />}
+              </button>
+            );
+          })}
+          <div className="chart-drawing-width-divider" aria-hidden="true" />
+          <div className="chart-drawing-width-options" role="group" aria-label="선 두께">
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="0.5"
+              value={selectedLineWidthStage}
+              aria-label="선 두께 1에서 5"
+              aria-valuetext={`${selectedLineWidthStage}`}
+              onChange={(event) => updateSelectedDrawingLineWidth(Number(event.target.value))}
+            />
+            <output aria-live="polite">{selectedLineWidthStage.toFixed(1)}</output>
+          </div>
+        </div>,
+        window.document.body
+      )
+    : null;
 
   return (
-    <div ref={toolbarRef} className="chart-drawing-dock" role="toolbar" aria-label="차트 그리기 도구" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="chart-drawing-dock" role="toolbar" aria-label="차트 그리기 도구" onPointerDown={(event) => event.stopPropagation()}>
       {scrollState.hasOverflow && (
         <button
           type="button"
@@ -2762,8 +3058,7 @@ export function ChartDrawingDock({
         ref={scrollerRef}
         className={`chart-drawing-dock-scroller ${scrollState.canScrollLeft ? "has-overflow-left" : ""} ${scrollState.canScrollRight ? "has-overflow-right" : ""}`}
         onScroll={() => {
-          setOpenToolGroup(null);
-          setColorMenuOpen(false);
+          setOpenDrawingMenu(null);
           drawingTooltip.hideTooltip();
         }}
         onWheel={handleDrawingToolsWheel}
@@ -2774,26 +3069,71 @@ export function ChartDrawingDock({
             return [];
           }
           const controls = tool.mode === "draw-horizontalLine"
-            ? [groupedButton(
-                "horizontal",
-                horizontalLabel,
-                <ToolIcon toolMode={horizontalToolMode} />,
-                document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines"
-              )]
+            ? [(
+              <ChartToolbarSelect
+                key="horizontal"
+                value={horizontalToolMode}
+                options={horizontalToolOptions}
+                ariaLabel={`가로선 도구 (${horizontalLabel})`}
+                optionsAriaLabel="가로선 종류"
+                variant="drawing-tool"
+                open={openDrawingMenu === "horizontal"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "horizontal" : null);
+                }}
+                onChange={(mode) => {
+                  setHorizontalToolMode(mode);
+                  setToolMode(mode);
+                }}
+                onReselect={() => setToolMode(horizontalToolMode)}
+                showSelectedLabel={false}
+                active={document.interactionState.mode === "draw-horizontalLine" || document.interactionState.mode === "draw-horizontalParallelLines"}
+              />
+            )]
             : tool.mode === "draw-verticalMarker"
-              ? [groupedButton(
-                  "vertical",
-                  verticalLabel,
-                  <ToolIcon toolMode={verticalToolMode} />,
-                  document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines"
-                )]
-            : tool.mode === "draw-trendLine"
-            ? [groupedButton(
-                "trend",
-                trendExtensionLabel(document.interactionState.trendLineExtension),
-                <TrendExtensionIcon extension={document.interactionState.trendLineExtension} />,
-                document.interactionState.mode === "draw-trendLine"
+              ? [(
+                <ChartToolbarSelect
+                  key="vertical"
+                  value={verticalToolMode}
+                  options={verticalToolOptions}
+                  ariaLabel={`세로선 도구 (${verticalLabel})`}
+                  optionsAriaLabel="세로선 종류"
+                  variant="drawing-tool"
+                  open={openDrawingMenu === "vertical"}
+                  onOpenChange={(open) => {
+                    drawingTooltip.hideTooltip();
+                    setOpenDrawingMenu(open ? "vertical" : null);
+                  }}
+                  onChange={(mode) => {
+                    setVerticalToolMode(mode);
+                    setToolMode(mode);
+                  }}
+                  onReselect={() => setToolMode(verticalToolMode)}
+                  showSelectedLabel={false}
+                  active={document.interactionState.mode === "draw-verticalMarker" || document.interactionState.mode === "draw-verticalParallelLines"}
+                />
               )]
+            : tool.mode === "draw-trendLine"
+            ? [(
+              <ChartToolbarSelect
+                key="trend"
+                value={document.interactionState.trendLineExtension}
+                options={trendToolOptions}
+                ariaLabel={`추세선 도구 (${trendExtensionLabel(document.interactionState.trendLineExtension)})`}
+                optionsAriaLabel="추세선 종류"
+                variant="drawing-tool"
+                open={openDrawingMenu === "trend"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "trend" : null);
+                }}
+                onChange={setTrendLineExtension}
+                onReselect={() => setTrendLineExtension(document.interactionState.trendLineExtension)}
+                showSelectedLabel={false}
+                active={document.interactionState.mode === "draw-trendLine"}
+              />
+            )]
             : tool.mode === "draw-trendParallelLines"
             ? [
               <button
@@ -2806,20 +3146,23 @@ export function ChartDrawingDock({
               >
                 <ToolIcon toolMode={tool.mode} />
               </button>,
-              <select
+              <ChartToolbarSelect
                 key={`${tool.mode}-line-count`}
-                className="chart-parallel-line-count"
-                aria-label="Parallel line count"
-                value={selectedDrawing?.type === "trendParallelLines"
-                  ? normalizeParallelLineCount(selectedDrawing.parallelLineCount)
-                  : normalizeParallelLineCount(document.interactionState.parallelLineCount)}
-                  onChange={(event) => setParallelLineCount(Number(event.target.value))}
-                {...drawingTooltip.tooltipProps("평행선 개수")}
-              >
-                {Array.from({ length: 9 }, (_, index) => index + 2).map((count) => (
-                  <option key={count} value={count}>{count}</option>
-                ))}
-              </select>
+                value={parallelLineCountValue}
+                options={parallelLineCountOptions}
+                ariaLabel="평행선 개수"
+                optionsAriaLabel="평행선 개수 선택"
+                variant="drawing-count"
+                open={openDrawingMenu === "parallel-count"}
+                onOpenChange={(open) => {
+                  drawingTooltip.hideTooltip();
+                  setOpenDrawingMenu(open ? "parallel-count" : null);
+                }}
+                onChange={(value) => setParallelLineCount(Number(value))}
+                onReselect={() => setParallelLineCount(Number(parallelLineCountValue))}
+                menuMinWidth={72}
+                active={document.interactionState.mode === "draw-trendParallelLines" || selectedDrawing?.type === "trendParallelLines"}
+              />
             ]
             : [(
               <button
@@ -2849,7 +3192,7 @@ export function ChartDrawingDock({
           data-fill-token={selectedDrawing?.style.fillToken}
           disabled={!selectedDrawing}
           style={{ "--drawing-color": drawingPaletteOptions.find((option) => option.token === selectedColorToken)?.cssColor } as CSSProperties}
-          onClick={(event) => toggleColorMenu(event.currentTarget)}
+          onClick={toggleColorMenu}
           {...drawingTooltip.tooltipProps("선택한 그리기 색상 변경")}
         >
           <Palette size={16} />
@@ -2875,61 +3218,7 @@ export function ChartDrawingDock({
           <ChevronRight size={15} aria-hidden="true" />
         </button>
       )}
-      {groupMenu && (
-        <div
-          ref={toolGroupMenuRef}
-          className="chart-tool-group-menu surface-raised"
-          role="menu"
-          aria-label={groupMenu.ariaLabel}
-          style={{ left: toolMenuLeft }}
-        >
-          {groupMenu.options.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              role="menuitem"
-              className={(
-                openToolGroup === "trend"
-                  ? document.interactionState.mode === "draw-trendLine" && document.interactionState.trendLineExtension === option.key
-                  : document.interactionState.mode === option.key
-              ) ? "active" : ""}
-              onClick={() => selectGroupOption(option.key)}
-            >
-              {option.icon}
-              <span>{option.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {colorMenuOpen && selectedDrawing && (
-        <div
-          ref={colorMenuRef}
-          className="chart-drawing-color-menu surface-raised"
-          role="menu"
-          aria-label="그리기 색상"
-          style={{ left: colorMenuLeft }}
-        >
-          {drawingPaletteOptions.map((option) => {
-            const active = selectedColorToken === option.token;
-            return (
-              <button
-                key={option.token}
-                type="button"
-                role="menuitemradio"
-                className={active ? "active" : ""}
-                aria-label={option.label}
-                aria-checked={active}
-                style={{ "--drawing-swatch-color": option.cssColor } as CSSProperties}
-                onClick={() => updateSelectedDrawingStyle(option.token)}
-                {...drawingTooltip.tooltipProps(option.label)}
-              >
-                <span className="chart-drawing-color-swatch" aria-hidden="true" />
-                {active && <Check size={12} aria-hidden="true" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {colorMenu}
       {drawingTooltip.tooltipOverlay}
     </div>
   );
@@ -3197,8 +3486,7 @@ function activeServerIndicatorLayers(chart: ChartState): ChartLayerKey[] {
 function visibleCandleRangeForProfile(chart: ChartState, transientViewport: ChartViewport | null): {
   from: string;
   to: string;
-  priceMin: number;
-  priceMax: number;
+  candleCount: number;
 } | null {
   if (!chart.candles.length) {
     return null;
@@ -3213,21 +3501,48 @@ function visibleCandleRangeForProfile(chart: ChartState, transientViewport: Char
     return null;
   }
   const closedVisibleCandles = visibleCandles.filter((candle) => candle.isClosed !== false);
-  const profileCandles = closedVisibleCandles.length > 0 ? closedVisibleCandles : visibleCandles;
-  const priceValues = profileCandles
-    .flatMap((candle) => [candle.low, candle.high])
-    .filter((value): value is number => Number.isFinite(value));
-  if (!priceValues.length) {
+  if (!closedVisibleCandles.length) {
     return null;
   }
+  const profileCandles = closedVisibleCandles;
   const first = profileCandles[0];
   const last = profileCandles[profileCandles.length - 1];
   return {
     from: first.timestamp,
     to: last.timestamp,
-    priceMin: Math.min(...priceValues),
-    priceMax: Math.max(...priceValues)
+    candleCount: profileCandles.length
   };
+}
+
+function volumeProfileSceneRangeFromScene(scene: ChartScene): VolumeProfileSceneRange | null {
+  const visibleRange = visibleCandleRangeForProfile(scene.chart, null);
+  const priceMin = scene.scales.minPrice;
+  const priceMax = scene.scales.maxPrice;
+  if (!visibleRange || !Number.isFinite(priceMin) || !Number.isFinite(priceMax) || priceMax <= priceMin) {
+    return null;
+  }
+  return {
+    symbol: scene.chart.symbol,
+    interval: scene.chart.interval,
+    ...visibleRange,
+    targetBins: chartVolumeProfileBinCount,
+    priceMin,
+    priceMax
+  };
+}
+
+function volumeProfileSceneRangeEquals(
+  current: VolumeProfileSceneRange | null,
+  next: VolumeProfileSceneRange | null
+): boolean {
+  if (current === next) {
+    return true;
+  }
+  if (!current || !next) {
+    return false;
+  }
+  return stableVolumeProfileRangeKey({ ...current, priceBinSize: "auto" }) ===
+    stableVolumeProfileRangeKey({ ...next, priceBinSize: "auto" });
 }
 
 function visibleCandleRangeForComparison(chart: ChartState, transientViewport: ChartViewport | null): {
@@ -3571,14 +3886,13 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
   if (!latest || !Number.isFinite(latest.close)) {
     return null;
   }
-  const tradePrice = scene.chart.streamState === "live" ? liveTradePrice(scene.chart.liveTrade) : null;
-  const price = tradePrice ?? latest.close;
+  const price = latest.close;
   const y = priceToY(scene, price);
   if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
     return null;
   }
   const priceText = formatPriceAxisValue(price);
-  const isClosed = tradePrice === null ? latest.isClosed : false;
+  const isClosed = latest.isClosed;
   const showClock = currentPriceMarkerCanShowClock(scene.chart.interval, isClosed, scene.chart.streamState);
   const labelWidth = currentPriceMarkerLabelWidth(priceText, showClock);
   const labelHeight = showClock ? 45 : 31;

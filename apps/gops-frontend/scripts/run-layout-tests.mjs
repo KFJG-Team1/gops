@@ -4,6 +4,10 @@ import { build } from "esbuild";
 
 const testCases = [
   {
+    entry: new URL("../tests/layoutEditControl.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/layout-edit-control-test.mjs", import.meta.url)
+  },
+  {
     entry: new URL("../tests/responsivePanelLayout.test.ts", import.meta.url),
     outfile: new URL("../.tmp/responsive-panel-layout-test.mjs", import.meta.url)
   },
@@ -14,6 +18,18 @@ const testCases = [
   {
     entry: new URL("../tests/tiledAgentLayout.test.ts", import.meta.url),
     outfile: new URL("../.tmp/tiled-agent-layout-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/wildPanel.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/wild-panel-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/agentHeaderNotice.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/agent-header-notice-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/aiCoachLayoutPrivacy.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/ai-coach-layout-privacy-test.mjs", import.meta.url)
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });

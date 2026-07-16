@@ -16,7 +16,7 @@ type Group<T> = {
   label: string;
   displayLabel: string;
   value: number;
-  changePercent: number;
+  changePercent: number | null;
   items: T[];
 };
 
@@ -131,7 +131,7 @@ export function hitTestTreeMapTile(tiles: TreeMapTile[], x: number, y: number): 
   return undefined;
 }
 
-function groupItems<T extends { changePercent: number }>(
+function groupItems<T extends { changePercent: number | null }>(
   items: T[],
   getKey: (item: T) => string,
   getDisplayLabel: (items: T[], label: string) => string = (_items, label) => label
@@ -317,12 +317,13 @@ function headerHeight(rect: TreeMapRect, desired: number): number {
   return Math.min(desired, rect.height * 0.24);
 }
 
-function weightedAverageChange(items: Array<{ changePercent: number }>): number {
-  const total = items.reduce((sum, item) => sum + readValue(item), 0);
+function weightedAverageChange(items: Array<{ changePercent: number | null }>): number | null {
+  const quotedItems = items.filter((item) => Number.isFinite(item.changePercent));
+  const total = quotedItems.reduce((sum, item) => sum + readValue(item), 0);
   if (!total) {
-    return 0;
+    return null;
   }
-  return items.reduce((sum, item) => sum + item.changePercent * readValue(item), 0) / total;
+  return quotedItems.reduce((sum, item) => sum + Number(item.changePercent) * readValue(item), 0) / total;
 }
 
 function readValue(item: unknown): number {

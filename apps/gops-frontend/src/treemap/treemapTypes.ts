@@ -17,7 +17,7 @@ export type TreeMapInputItem = {
   lastPrice?: number | null;
   volume?: number | null;
   sessionDollarVolume?: number | null;
-  changePercent: number;
+  changePercent: number | null;
 };
 
 export type TreeMapTileKind = "sector" | "industry" | "symbol";
@@ -39,6 +39,6 @@ export type TreeMapTile = TreeMapRect & {
   lastPrice?: number | null;
   volume?: number | null;
   sessionDollarVolume?: number | null;
-  changePercent?: number;
+  changePercent?: number | null;
   band?: TreeMapRect;
 };

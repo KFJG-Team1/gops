@@ -3,6 +3,7 @@ import { gridGutter } from "./grid";
 import { almostEqual, clamp, rangesOverlap, rectBottom, rectRight, rectsOverlap, uniqueStrings } from "./panelGeometry";
 import { panelPaletteLabel, panelRegistry, panelRegistryEntry, type PanelRegistryEntry } from "./panelRegistry";
 import { workspaceBottomInset, workspaceTopInset } from "./workspaceMetrics";
+import { normalizeWildPanelState, type WildPanelState } from "./wildPanel";
 
 export type ViewportSize = {
   width: number;
@@ -39,8 +40,15 @@ export type PanelContentKind =
   | "portfolioHoldingsFlatCards"
   | "aiCoach"
   | "orderFlow"
+  | "aiCoach"
+  | "priceCondition"
+  | "quickOrder"
+  | "paperQuickOrder"
+  | "paperTrade"
+  | "paperAccount"
   | "chartCommentary"
   | "chartAssetOps"
+  | "chartPatternList"
   | "trade";
 
 export type PanelSlotId = string;
@@ -94,6 +102,7 @@ export type PanelSlot = {
   id: PanelSlotId;
   contentId: PanelContentId;
   layoutPinned?: boolean;
+  wildPanel?: WildPanelState;
   gridRect: PanelGridRect;
   rect: PanelRect;
   minWidth: number;
@@ -1212,13 +1221,71 @@ export function setPrimaryChartSymbol(
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
+  return setPrimaryChartSelection(state, symbol, "1D", viewport, layoutMetrics);
+}
+
+const companyInformationPanelKinds = new Set<PanelContentKind>([
+  "company",
+  "companyMulti",
+  "companyValuation",
+  "companyProfitability",
+  "companyStability"
+]);
+
+export function setCompanyInformationSymbol(
+  state: TiledPanelState,
+  symbol: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const companyContents = state.slots
+    .map((slot) => state.contents[slot.contentId])
+    .filter((content): content is PanelContentInstance => Boolean(
+      content && companyInformationPanelKinds.has(content.kind)
+    ));
+
+  if (companyContents.length > 0) {
+    return companyContents.reduce(
+      (current, content) => setPanelContentProps(current, content.id, { symbol: normalizedSymbol }),
+      state
+    );
+  }
+
+  const withChart = setPrimaryChartSymbol(state, normalizedSymbol, viewport, layoutMetrics);
+  const chartContent = withChart.slots
+    .map((slot) => withChart.contents[slot.contentId])
+    .find((content) => content?.kind === "chart");
+  return chartContent
+    ? setPanelContentProps(withChart, chartContent.id, { symbol: normalizedSymbol, view: "company" })
+    : state;
+}
+
+export function setPrimaryChartView(
+  state: TiledPanelState,
+  view: "chart" | "company"
+): TiledPanelState {
+  const chartContent = state.slots
+    .map((slot) => state.contents[slot.contentId])
+    .find((content) => content?.kind === "chart");
+  return chartContent ? setPanelContentProps(state, chartContent.id, { view }) : state;
+}
+
+export function setPrimaryChartSelection(
+  state: TiledPanelState,
+  symbol: string,
+  timeframe: string,
+  viewport: ViewportSize,
+  layoutMetrics: WorkspaceLayoutMetrics = {}
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const normalizedTimeframe = timeframe.trim() || "1D";
   const chartSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart");
   if (chartSlot) {
     return setPanelContentProps(state, chartSlot.contentId, {
       ...(state.contents[chartSlot.contentId]?.props ?? {}),
       symbol: normalizedSymbol,
-      timeframe: "1D"
+      timeframe: normalizedTimeframe
     });
   }
   const preferredChartRects = [
@@ -1228,8 +1295,17 @@ export function setPrimaryChartSymbol(
   const gridRect = preferredChartRects.find((candidate) => (
     canPlaceGridRect(state, candidate, { kind: "chart" })
   )) ?? firstAvailableGridRect(state, "chart");
-  return gridRect
-    ? addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics)
+  if (!gridRect) {
+    return state;
+  }
+  const withChart = addPanelSlotAtGridRect(state, "chart", gridRect, { symbol: normalizedSymbol }, viewport, layoutMetrics);
+  const createdSlot = withChart.slots.find((slot) => !state.slots.some((existing) => existing.id === slot.id));
+  return createdSlot
+    ? setPanelContentProps(withChart, createdSlot.contentId, {
+      ...(withChart.contents[createdSlot.contentId]?.props ?? {}),
+      symbol: normalizedSymbol,
+      timeframe: normalizedTimeframe
+    })
     : state;
 }
 
@@ -1241,19 +1317,24 @@ export type StoredTiledPanelState = {
     id: PanelSlotId;
     contentId: PanelContentId;
     layoutPinned?: boolean;
+    wildPanel?: WildPanelState;
     gridRect: PanelGridRect;
   }>;
 };
 
 export function serializeTiledPanelState(state: TiledPanelState): StoredTiledPanelState {
+  const contents = Object.fromEntries(Object.entries(state.contents).map(([contentId, content]) => (
+    [contentId, panelContentForStorage(content)]
+  ))) as Record<PanelContentId, PanelContentInstance>;
   return {
     version: 1,
     nextInstance: state.nextInstance,
-    contents: state.contents,
+    contents,
     slots: state.slots.map((slot) => ({
       id: slot.id,
       contentId: slot.contentId,
       ...(slot.layoutPinned ? { layoutPinned: true } : {}),
+      ...(slot.wildPanel ? { wildPanel: slot.wildPanel } : {}),
       gridRect: slot.gridRect
     }))
   };
@@ -1280,6 +1361,9 @@ export function restoreTiledPanelStateSnapshot(
     if (!kind) {
       return null;
     }
+    const restoredProps = isRecord(rawContent.props)
+      ? panelPropsForStorage(kind, rawContent.props)
+      : undefined;
     contents[contentId] = {
       id: contentId,
       kind,
@@ -1289,11 +1373,12 @@ export function restoreTiledPanelStateSnapshot(
       instanceIndex,
       ...(kind === "chart" ? { chartDocumentId: readString(rawContent.chartDocumentId) ?? `${contentId}-document` } : {}),
       ...(typeof rawContent.layoutWeight === "number" ? { layoutWeight: rawContent.layoutWeight } : {}),
-      ...(isRecord(rawContent.props) ? { props: rawContent.props } : {})
+      ...(restoredProps && Object.keys(restoredProps).length ? { props: restoredProps } : {})
     };
   }
 
   const slots: PanelSlot[] = [];
+  let restoredWildPanel = false;
   for (const rawSlot of value.slots) {
     if (!isRecord(rawSlot)) {
       return null;
@@ -1308,15 +1393,40 @@ export function restoreTiledPanelStateSnapshot(
     if (!canPlaceGridRect({ slots, contents, nextInstance: 1 }, gridRect, { kind: content.kind })) {
       return null;
     }
+    const wildPanel = restoredWildPanel ? null : normalizeWildPanelState(rawSlot.wildPanel);
+    if (wildPanel) {
+      restoredWildPanel = true;
+    }
     slots.push({
       ...createPanelSlot(id, content, gridRect, viewport, layoutMetrics),
-      ...(rawSlot.layoutPinned === true ? { layoutPinned: true } : {})
+      ...(rawSlot.layoutPinned === true ? { layoutPinned: true } : {}),
+      ...(wildPanel ? { wildPanel } : {})
     });
   }
   const nextInstance = typeof value.nextInstance === "number" && Number.isFinite(value.nextInstance)
     ? Math.max(value.nextInstance, slots.length + 1)
     : slots.length + 1;
   return { contents, slots, nextInstance };
+}
+
+function panelContentForStorage(content: PanelContentInstance): PanelContentInstance {
+  if (!content.props) {
+    return content;
+  }
+  const { props: _props, ...withoutProps } = content;
+  const safeProps = panelPropsForStorage(content.kind, content.props);
+  return Object.keys(safeProps).length ? { ...withoutProps, props: safeProps } : withoutProps;
+}
+
+function panelPropsForStorage(
+  kind: PanelContentKind,
+  props: Record<string, unknown>
+): Record<string, unknown> {
+  if (kind !== "aiCoach") {
+    return props;
+  }
+  const { coachReport: _coachReport, ...safeProps } = props;
+  return safeProps;
 }
 
 function createPanelContent(

@@ -30,8 +30,15 @@ export type AgentLayoutPanelType =
   | "portfolioHeatmap"
   | "aiCoach"
   | "orderFlowProfile"
+  | "aiCoach"
+  | "priceCondition"
+  | "quickOrder"
+  | "paperQuickOrder"
+  | "paperOrderTicket"
+  | "paperAccount"
   | "chartCommentary"
   | "chartAssetOps"
+  | "chartPatternList"
   | "orderTicket";
 
 export type AgentLayoutCommandType =

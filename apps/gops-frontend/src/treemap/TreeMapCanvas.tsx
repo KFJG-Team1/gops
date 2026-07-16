@@ -5,6 +5,7 @@ import { hitTestTreeMapTile, layoutSp500TreeMap } from "./treemapLayout";
 import type { TreeMapInputItem, TreeMapRect, TreeMapTile } from "./treemapTypes";
 import {
   createTreeMapOpacityScale,
+  formatTreeMapChange,
   tileFillForChange,
   tileOpacityForChange,
   tileTextForOpacity,
@@ -196,9 +197,16 @@ export function TreeMapCanvas({
     });
   };
 
-  const selectHoveredTile = () => {
-    if (interactive && hoverState?.tile.symbol && onSelectSymbol) {
-      onSelectSymbol(hoverState.tile.symbol);
+  const selectPointerTile = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!interactive || !onSelectSymbol) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const tile = hitTestTreeMapTile(tilesRef.current, x, y);
+    if (tile?.symbol) {
+      onSelectSymbol(tile.symbol);
     }
   };
 
@@ -211,7 +219,7 @@ export function TreeMapCanvas({
         aria-label={`${ariaLabel} canvas`}
         onPointerMove={interactive ? updateHover : undefined}
         onPointerLeave={interactive ? clearHover : undefined}
-        onClick={interactive ? selectHoveredTile : undefined}
+        onClick={interactive ? selectPointerTile : undefined}
       />
       {hoverPanel && hoverState ? (
         <TreeMapHoverPanel model={hoverPanel} hoveredTile={hoverState.tile} />
@@ -254,7 +262,7 @@ function TreeMapHoverPanel({ model, hoveredTile }: { model: TreeMapHoverPanelMod
             <span className="treemap-hover-row-company">{tile.companyName || ""}</span>
             <span className="treemap-hover-row-price">{formatPrice(tile.lastPrice)}</span>
             <span className={`treemap-hover-row-change is-${toneForChange(tile.changePercent)}`}>
-              {formatChange(tile.changePercent)}
+              {formatTreeMapChange(tile.changePercent)}
             </span>
           </div>
         ))}
@@ -307,7 +315,7 @@ function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme:
   }
   context.save();
   clipRect(context, band);
-  const changeText = formatChange(tile.changePercent);
+  const changeText = formatTreeMapChange(tile.changePercent);
   context.textBaseline = "middle";
   applyCanvasTypography(context, "caption", theme.serif);
   const changeWidth = context.measureText(changeText).width;
@@ -319,7 +327,12 @@ function drawSector(context: CanvasRenderingContext2D, tile: TreeMapTile, theme:
   if (canShowChange) {
     applyCanvasTypography(context, "caption", theme.serif);
     context.textAlign = "right";
-    context.fillStyle = toneForChange(tile.changePercent) === "down" ? theme.colors.changeDown : theme.colors.changeUp;
+    const tone = toneForChange(tile.changePercent);
+    context.fillStyle = tone === "down"
+      ? theme.colors.changeDown
+      : tone === "up"
+        ? theme.colors.changeUp
+        : theme.colors.text;
     context.fillText(changeText, band.x + band.width - labelPadding, band.y + band.height / 2);
     context.textAlign = "start";
   }
@@ -556,7 +569,7 @@ function hoverDetailText(tile: TreeMapTile): string {
 
 function formatHoverQuote(tile: TreeMapTile): string {
   const price = formatPrice(tile.lastPrice);
-  return `${price} ${formatChange(tile.changePercent)}`;
+  return `${price} ${formatTreeMapChange(tile.changePercent)}`;
 }
 
 function formatPrice(value: number | null | undefined): string {
@@ -685,7 +698,7 @@ function drawSymbol(
   }
   applyCanvasTypography(context, nearestTypeRole(symbolSize * 0.72, "bodyMd"), theme.serif);
   context.fillStyle = hovered ? changeTextColor(tile.changePercent, theme) : textColor;
-  fillFittedText(context, formatChange(tile.changePercent), rect.x + 6, rect.y + 8 + symbolSize, labelSpace);
+  fillFittedText(context, formatTreeMapChange(tile.changePercent), rect.x + 6, rect.y + 8 + symbolSize, labelSpace);
   context.restore();
 }
 
@@ -737,8 +750,11 @@ function drawRaisedTile(
   context.restore();
 }
 
-function changeTextColor(changePercent: number | undefined, theme: TreeMapTheme): string {
-  return toneForChange(changePercent) === "down" ? theme.colors.down : theme.colors.up;
+function changeTextColor(changePercent: number | null | undefined, theme: TreeMapTheme): string {
+  const tone = toneForChange(changePercent);
+  if (tone === "down") return theme.colors.down;
+  if (tone === "up") return theme.colors.up;
+  return theme.colors.text;
 }
 
 function fillFittedText(
@@ -784,15 +800,6 @@ function clipRect(context: CanvasRenderingContext2D, rect: TreeMapRect): void {
   context.beginPath();
   context.rect(rect.x, rect.y, rect.width, rect.height);
   context.clip();
-}
-
-function formatChange(value: number | undefined): string {
-  if (!Number.isFinite(value)) {
-    return "0.00%";
-  }
-  const numeric = Number(value);
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}${numeric.toFixed(2)}%`;
 }
 
 type TreeMapTheme = {

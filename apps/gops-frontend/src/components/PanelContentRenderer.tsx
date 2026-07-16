@@ -1,8 +1,11 @@
 import type { ChartDataStatus, ChartDocument, ChartRuntimeAction, StreamStatus, TradeTickData } from "@gops/chart-engine";
-import { useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
+import { rememberChartCommentaryState } from "../agent/chartCommentaryHistory";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
+import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
+import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
 import type { SemanticSelectionSnapshot } from "../chart/semanticTimeline";
 import {
   bidAskChartIntervals,
@@ -21,10 +24,9 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
+import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
-import { ChartCommentaryPanel } from "./ChartCommentaryPanel";
-import { ChartAssetOpsPanel } from "./ChartAssetOpsPanel";
-import { AiInvestmentCoachPanel } from "./AiInvestmentCoachPanel";
+import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -33,9 +35,7 @@ import {
   CompanyValuationPanel
 } from "./CompanySummaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
-import { NewsPanel } from "./NewsPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
-import { OrderTicket } from "./OrderTicket";
 import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
@@ -50,7 +50,37 @@ import {
 import { PortfolioPersonalHeatmapPanel } from "./PortfolioPersonalHeatmapPanel";
 import { SymbolSearch } from "./SymbolSearch";
 import { ThemeRadarPanel } from "./ThemeRadarPanel";
-import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
+
+const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
+  default: module.AiInvestmentCoachPanel
+})));
+const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
+  default: module.PaperAccountPanel
+})));
+const PriceConditionPanel = lazy(() => import("./PriceConditionPanel").then((module) => ({
+  default: module.PriceConditionPanel
+})));
+const ChartCommentaryPanel = lazy(() => import("./ChartCommentaryPanel").then((module) => ({
+  default: module.ChartCommentaryPanel
+})));
+const ChartAssetOpsPanel = lazy(() => import("./ChartAssetOpsPanel").then((module) => ({
+  default: module.ChartAssetOpsPanel
+})));
+const ChartPatternListPanel = lazy(() => import("./ChartPatternListPanel").then((module) => ({
+  default: module.ChartPatternListPanel
+})));
+const NewsPanel = lazy(() => import("./NewsPanel").then((module) => ({
+  default: module.NewsPanel
+})));
+const WatchlistNewsPanel = lazy(() => import("./WatchlistNewsPanel").then((module) => ({
+  default: module.WatchlistNewsPanel
+})));
+const OrderTicket = lazy(() => import("./OrderTicket").then((module) => ({
+  default: module.OrderTicket
+})));
+const QuickOrderPanel = lazy(() => import("./QuickOrderPanel").then((module) => ({
+  default: module.QuickOrderPanel
+})));
 
 type PanelContentRendererProps = {
   slot: PanelSlot;
@@ -73,6 +103,7 @@ type PanelContentRendererProps = {
   chartStreamStatus?: StreamStatus;
   chartStreamMessage?: string;
   chartLiveTrade?: TradeTickData;
+  chartDataResetRevision: number;
   chartAddActive: boolean;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
@@ -88,6 +119,16 @@ type PanelContentRendererProps = {
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  selectedRecommendationSymbol: string | null;
+  onSelectRecommendationReference: (reference: AgentReference | null) => void;
+  onOpenCompany: (symbol: string) => void;
+  onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
+  chartLinkOptions: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
+  chartSelectionActive: boolean;
+  orderPriceSelection: ChartPriceSelection | null;
+  onChartPriceSelection: (selection: ChartPriceSelection) => void;
+  onChartSelectionToggle: (contentId: string) => void;
+  onCommentaryChartChange: (contentId: string, chartDocumentId: string) => void;
 };
 
 export function PanelContentRenderer({
@@ -111,6 +152,7 @@ export function PanelContentRenderer({
   chartStreamStatus,
   chartStreamMessage,
   chartLiveTrade,
+  chartDataResetRevision,
   chartAddActive,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
@@ -125,14 +167,38 @@ export function PanelContentRenderer({
   onChartAddToggle,
   onUpdatePanelProps,
   onChangePanelChartSymbol,
-  onSelectSymbol
+  onSelectSymbol,
+  selectedRecommendationSymbol,
+  onSelectRecommendationReference,
+  onOpenCompany,
+  onSelectPatternAsset,
+  chartLinkOptions,
+  chartSelectionActive,
+  orderPriceSelection,
+  onChartPriceSelection,
+  onChartSelectionToggle,
+  onCommentaryChartChange
 }: PanelContentRendererProps) {
   const chartPanelHandleRef = useRef<ChartPanelHandle | null>(null);
-  const [activeTab, setActiveTab] = useState<"chart" | "company">("chart");
+  const [activeTab, setActiveTab] = useState<"chart" | "company">(
+    content.kind === "chart" && content.props?.view === "company" ? "company" : "chart"
+  );
+  const [openChartDropdown, setOpenChartDropdown] = useState<"chart-type" | "interval" | null>(null);
   const setChartPanelHandle = useCallback((handle: ChartPanelHandle | null) => {
     chartPanelHandleRef.current = handle;
     onChartHandleChange(content.id, handle);
   }, [content.id, onChartHandleChange]);
+
+  useEffect(() => {
+    if (content.kind === "chart") {
+      setActiveTab(content.props?.view === "company" ? "company" : "chart");
+    }
+  }, [content.kind, content.props?.view]);
+
+  const activeChartDrawingIds = useMemo(
+    () => (activeChartDocument?.drawings ?? []).map((drawing) => drawing.id),
+    [activeChartDocument?.drawings]
+  );
 
   if (content.kind === "company") {
     return <CompanyInfoPanel symbol={symbol.toUpperCase()} item={companyItem} items={companyItems} />;
@@ -177,57 +243,65 @@ export function PanelContentRenderer({
 
   if (content.kind === "news") {
     return (
-      <NewsPanel
-        symbol={symbol.toUpperCase()}
-        initialPayload={content.props}
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="flip"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스를 불러오는 중입니다</div>}>
+        <NewsPanel
+          symbol={symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="flip"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "newsList") {
     return (
-      <NewsPanel
-        symbol={symbol.toUpperCase()}
-        initialPayload={content.props}
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="list"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스 목록을 불러오는 중입니다</div>}>
+        <NewsPanel
+          symbol={symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="list"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "watchlistNews") {
     return (
-      <WatchlistNewsPanel
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="flip"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">관심 종목 뉴스를 불러오는 중입니다</div>}>
+        <WatchlistNewsPanel
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="flip"
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "watchlistNewsList") {
     return (
-      <WatchlistNewsPanel
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-        variant="list"
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">관심 종목 뉴스 목록을 불러오는 중입니다</div>}>
+        <WatchlistNewsPanel
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+          variant="list"
+        />
+      </Suspense>
     );
   }
 
@@ -246,11 +320,32 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "recommendations") {
-    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} />;
+    return (
+      <StockRecommendationsPanel
+        activeSymbol={symbol.toUpperCase()}
+        sourcePanelId={content.id}
+        selectedSymbol={selectedRecommendationSymbol}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onSelectReference={onSelectRecommendationReference}
+        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
+      />
+    );
   }
 
   if (content.kind === "recommendationsList") {
-    return <StockRecommendationsPanel activeSymbol={symbol.toUpperCase()} onSelectSymbol={onSelectSymbol} variant="list" />;
+    return (
+      <StockRecommendationsPanel
+        activeSymbol={symbol.toUpperCase()}
+        sourcePanelId={content.id}
+        selectedSymbol={selectedRecommendationSymbol}
+        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+        onSelectReference={onSelectRecommendationReference}
+        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
+        variant="list"
+      />
+    );
   }
 
   if (content.kind === "themeRadar") {
@@ -328,10 +423,6 @@ export function PanelContentRenderer({
     );
   }
 
-  if (content.kind === "aiCoach") {
-    return <AiInvestmentCoachPanel />;
-  }
-
   if (content.kind === "orderFlow") {
     return (
       <OrderFlowPanel
@@ -346,37 +437,154 @@ export function PanelContentRenderer({
     );
   }
 
-  if (content.kind === "trade") {
-    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+  if (content.kind === "aiCoach") {
+    const coachReport = content.props?.coachReport;
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
+      <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
+    </Suspense>;
+  }
+
+  if (content.kind === "priceCondition") {
     return (
-      <OrderTicket
-        activeSymbol={symbol.toUpperCase()}
-        chartSymbols={watchlistSymbols}
-        symbolOptions={watchlistSymbols}
-        onSymbolOptionsRequest={() => undefined}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">알림과 관심 기업을 불러오는 중입니다</div>}>
+        <PriceConditionPanel
+          view="settings"
+          defaultSymbol={symbol.toUpperCase()}
+          symbols={symbols}
+          marketItems={marketItems}
+          onOpenCompany={onOpenCompany}
+        />
+      </Suspense>
     );
   }
 
-  if (content.kind === "chartCommentary") {
+  if (content.kind === "quickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
     return (
-      <ChartCommentaryPanel
-        symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
-        interval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        candles={activeChartCandles}
-        drawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">빠른 주문을 불러오는 중입니다</div>}>
+        <QuickOrderPanel
+          symbol={readQuickOrderSymbol(content, symbol)}
+          savedQty={readQuickOrderQty(content)}
+          symbolOptions={watchlistSymbols}
+          onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+          onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "paperQuickOrder") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상 빠른 주문을 불러오는 중입니다</div>}>
+        <QuickOrderPanel
+          executionMode="paper"
+          symbol={readQuickOrderSymbol(content, symbol)}
+          savedQty={readQuickOrderQty(content)}
+          symbolOptions={watchlistSymbols}
+          onSymbolChange={(nextSymbol) => onUpdatePanelProps(content.id, { symbol: nextSymbol })}
+          onQtyChange={(qty) => onUpdatePanelProps(content.id, { qty })}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "trade") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">주문 패널을 불러오는 중입니다</div>}>
+        <OrderTicket
+          activeSymbol={symbol.toUpperCase()}
+          chartSymbols={watchlistSymbols}
+          symbolOptions={watchlistSymbols}
+          onSymbolOptionsRequest={() => undefined}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "paperTrade") {
+    const watchlistSymbols = symbolsToWatchlistSymbols(symbols);
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상 주문 패널을 불러오는 중입니다</div>}>
+        <OrderTicket
+          executionMode="paper"
+          activeSymbol={symbol.toUpperCase()}
+          chartSymbols={watchlistSymbols}
+          symbolOptions={watchlistSymbols}
+          onSymbolOptionsRequest={() => undefined}
+          chartPriceSelection={orderPriceSelection}
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "paperAccount") {
+    return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">가상계좌를 불러오는 중입니다</div>}>
+      <PaperAccountPanel
+        defaultSymbol={symbol.toUpperCase()}
+        symbols={symbols}
+        onOpenCompany={onOpenCompany}
       />
+    </Suspense>;
+  }
+
+  if (content.kind === "chartCommentary") {
+    const boundChartDocumentId = readString(content.props?.chartDocumentId) ?? activeChartDocument?.id;
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 해설을 불러오는 중입니다</div>}>
+        <ChartCommentaryPanel
+          chartDocumentId={boundChartDocumentId}
+          sourceAvailable={Boolean(activeChartDocument && (!boundChartDocumentId || activeChartDocument.id === boundChartDocumentId))}
+          symbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          interval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          candles={activeChartCandles}
+          drawingIds={activeChartDrawingIds}
+          commentaryState={content.props?.commentaryState}
+          onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, {
+            commentaryState: state,
+            commentaryHistoryByDocument: boundChartDocumentId
+              ? rememberChartCommentaryState(
+                content.props?.commentaryHistoryByDocument,
+                boundChartDocumentId,
+                state
+              )
+              : content.props?.commentaryHistoryByDocument
+          })}
+          chartOptions={chartLinkOptions}
+          chartSelectionActive={chartSelectionActive}
+          onChartSelectionToggle={() => onChartSelectionToggle(content.id)}
+          onChartDocumentChange={(chartDocumentId) => onCommentaryChartChange(content.id, chartDocumentId)}
+        />
+      </Suspense>
     );
   }
 
   if (content.kind === "chartAssetOps") {
     return (
-      <ChartAssetOpsPanel
-        currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
-        currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
-        currentCandles={activeChartCandles}
-        currentDrawingIds={(activeChartDocument?.drawings ?? []).map((drawing) => drawing.id)}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 자산 도구를 불러오는 중입니다</div>}>
+        <ChartAssetOpsPanel
+          currentSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          currentInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          currentCandles={activeChartCandles}
+          currentDrawingIds={activeChartDrawingIds}
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "chartPatternList") {
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">차트 패턴을 불러오는 중입니다</div>}>
+        <ChartPatternListPanel
+          activeSymbol={(activeChartDocument?.symbol ?? symbol).toUpperCase()}
+          activeInterval={normalizeChartInterval(activeChartDocument?.timeframe)}
+          onSelectPatternAsset={onSelectPatternAsset}
+        />
+      </Suspense>
     );
   }
 
@@ -394,6 +602,14 @@ export function PanelContentRenderer({
   const chartIntervalValue = chartType === "bidask"
     ? (isBidAskChartInterval(interval) ? interval : defaultBidAskInterval)
     : interval;
+  const chartTypeOptions: ChartToolbarSelectOption<ChartType>[] = chartTypes.map((nextChartType) => ({
+    value: nextChartType,
+    label: chartTypeLabel(nextChartType)
+  }));
+  const chartIntervalSelectOptions: ChartToolbarSelectOption<ChartInterval>[] = chartIntervalOptions.map((nextInterval) => ({
+    value: nextInterval,
+    label: nextInterval
+  }));
   const handleChartTypeChange = (nextChartType: ChartType) => {
     chartPanelHandleRef.current?.setChartType(nextChartType);
   };
@@ -404,7 +620,11 @@ export function PanelContentRenderer({
       aria-label={activeTab === "chart" ? `${selectedSymbol} 기업정보 보기` : `${selectedSymbol} 차트 보기`}
       title={activeTab === "chart" ? "기업정보 보기" : "차트 보기"}
       onPointerDown={(event) => event.stopPropagation()}
-      onClick={() => setActiveTab((current) => current === "chart" ? "company" : "chart")}
+      onClick={() => {
+        const nextTab = activeTab === "chart" ? "company" : "chart";
+        setActiveTab(nextTab);
+        onUpdatePanelProps(content.id, { view: nextTab });
+      }}
     >
       {activeTab === "chart" ? "기업정보" : "차트"}
     </button>
@@ -433,28 +653,24 @@ export function PanelContentRenderer({
         </div>
       </div>
       <div className="chart-instance-view-controls">
-        <select
-          className="chart-instance-select chart-instance-chart-type"
+        <ChartToolbarSelect
           value={chartType}
-          aria-label="Chart type"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => handleChartTypeChange(event.target.value as ChartType)}
-        >
-          {chartTypes.map((nextChartType) => (
-            <option key={nextChartType} value={nextChartType}>{chartTypeLabel(nextChartType)}</option>
-          ))}
-        </select>
-        <select
-          className="chart-instance-select chart-instance-interval"
+          options={chartTypeOptions}
+          ariaLabel="Chart type"
+          variant="chart-type"
+          open={openChartDropdown === "chart-type"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "chart-type" : null)}
+          onChange={handleChartTypeChange}
+        />
+        <ChartToolbarSelect
           value={chartIntervalValue}
-          aria-label="Interval"
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => chartPanelHandleRef.current?.setInterval(event.target.value as ChartInterval)}
-        >
-          {chartIntervalOptions.map((nextInterval) => (
-            <option key={nextInterval} value={nextInterval}>{nextInterval}</option>
-          ))}
-        </select>
+          options={chartIntervalSelectOptions}
+          ariaLabel="Interval"
+          variant="interval"
+          open={openChartDropdown === "interval"}
+          onOpenChange={(open) => setOpenChartDropdown(open ? "interval" : null)}
+          onChange={(nextInterval) => chartPanelHandleRef.current?.setInterval(nextInterval)}
+        />
       </div>
     </>
   );
@@ -463,6 +679,7 @@ export function PanelContentRenderer({
     <div className="chart-instance is-editable-chart">
       {activeTab === "chart" ? (
         <ChartPanel
+          key={`chart-panel-${content.id}-${chartDataResetRevision}`}
           ref={setChartPanelHandle}
           panelId={slot.id}
           document={chartDocument}
@@ -481,8 +698,9 @@ export function PanelContentRenderer({
           emphasizeSelection={emphasizeChartSelection}
           onChartHoverChange={onChartHoverChange}
           onHeaderChange={onHeaderChange}
+          onPriceSelection={onChartPriceSelection}
           toolbarLeading={chartNavigationLeading}
-          toolbarTrailing={companyToggleButton}
+          toolbarAfterViewControls={companyToggleButton}
         />
       ) : (
         <div className="chart-tab-content is-company" aria-label={`${selectedSymbol} 기업정보`}>
@@ -494,6 +712,10 @@ export function PanelContentRenderer({
       )}
     </div>
   );
+}
+
+function recommendationSessionMode(value: unknown): "pre" | "regular" | undefined {
+  return value === "pre" || value === "regular" ? value : undefined;
 }
 
 function normalizeChartType(value: string | undefined): ChartType {
@@ -537,6 +759,16 @@ function readOrderFlowSymbol(content: PanelContentInstance): string {
   return typeof raw === "string" ? raw.trim().toUpperCase() : "";
 }
 
+function readQuickOrderSymbol(content: PanelContentInstance, fallbackSymbol: string): string {
+  const raw = content.props?.symbol;
+  return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : fallbackSymbol.toUpperCase();
+}
+
+function readQuickOrderQty(content: PanelContentInstance): number {
+  const raw = content.props?.qty;
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : 1;
+}
+
 function readOrderFlowWindow(content: PanelContentInstance): OrderFlowWindow {
   const raw = content.props?.window;
   return raw === "1m" || raw === "10m" || raw === "1h" || raw === "session" ? raw : "10m";
@@ -570,4 +802,8 @@ function normalizeCompareSymbols(values: string[]): string[] {
     }
   });
   return normalized.slice(0, 6);
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

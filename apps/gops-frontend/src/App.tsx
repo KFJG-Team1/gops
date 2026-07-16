@@ -1,8 +1,8 @@
 import {
   type CSSProperties,
-  type Dispatch,
   type FormEvent,
-  type SetStateAction,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -10,6 +10,7 @@ import {
   useState
 } from "react";
 import { useAuth } from "./auth/AuthProvider";
+import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
 import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
@@ -28,7 +29,6 @@ import {
 import {
   cancelAgentAnalysis,
   createAgentAnalysisRequestId,
-  formatAgentAnalysisForChat,
   isAgentRequestAbortError,
   requestAgentAnalysisPayload,
   resolveAgentChartShortcut,
@@ -37,12 +37,37 @@ import {
   type AgentLayoutResolveResponse
 } from "./agent/agentAnalysisClient";
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
+import { agentReportCompletionMessage, type AgentHeaderNotice, type AgentHeaderNoticeTone } from "./agent/agentHeaderNotice";
+import { resolveWatchlistAgentCommand } from "./agent/watchlistAgentCommand";
+import {
+  attachChartCommentaryReport,
+  beginChartCommentaryRequest,
+  clearChartCommentaryPending,
+  updateChartCommentaryRequestId,
+  type ChartCommentaryRequestSnapshot
+} from "./agent/chartCommentaryHistory";
 import { publishOntologyReport } from "./ontology/ontologyEvents";
-import { BottomCommandBar, type AgentSubmitResult, type ChatLogEntry } from "./components/BottomCommandBar";
+import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
+import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
+import {
+  chartPriceSelectionMatchesTradeSetup,
+  createTradeAutomationConfirmationDraft,
+  priceConditionInputFromTradeAutomationDraft,
+  resolveTradeAutomationCommandIntent,
+  tradeAutomationDraftMatchesSnapshot,
+  type ChartPriceSelection,
+  type ChartTradeSetupSnapshot,
+  type TradeAutomationConfirmationDraft
+} from "./chart/chartTradeAutomation";
+import { addWatchlistSymbol } from "./chart/watchlistApi";
+import {
+  getChartTradeSetupSnapshot,
+  subscribeChartTradeSetup
+} from "./chart/chartTradeSetupStore";
 import type { ChartState, ChartSymbolDto } from "./chart/types";
 import { gridGutter } from "./layout/grid";
 import {
@@ -53,13 +78,24 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
+  setCompanyInformationSymbol,
+  setPrimaryChartSelection,
+  setPanelContentProps,
   setPrimaryChartSymbol,
+  setPrimaryChartView,
   workspaceBounds,
   type TiledPanelState,
   type ViewportSize,
   type WorkspaceLayoutMetrics
 } from "./layout/panelLayout";
 import { panelKindForAgentType, panelRegistryEntry } from "./layout/panelRegistry";
+import {
+  incidentResponseAnalysisIntent,
+  incidentResponseLayoutPreset,
+  incidentResponseTransitionDelayMs,
+  isIncidentResponsePrompt,
+  prepareIncidentResponseLayout
+} from "./layout/incidentResponsePreset";
 import { resolveResponsivePanelLayout } from "./layout/responsivePanelLayout";
 import { workspaceTopInset } from "./layout/workspaceMetrics";
 import {
@@ -82,18 +118,34 @@ import {
 } from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
+import {
+  shouldResetMarketDataForSimulatorTransition,
+  simulatorStatusEvent,
+  type SimulatorStatus
+} from "./simulator/simulatorApi";
 import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
+import type { AgentAnalysisReport } from "./agents/agentAnalysis";
+import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
+import { resolveRecommendationCompanyNavigation } from "./recommendations/recommendationNavigation";
 
+const TradeAutomationConfirmationDialog = lazy(() => import("./components/TradeAutomationConfirmationDialog")
+  .then((module) => ({ default: module.TradeAutomationConfirmationDialog })));
 
 type ActiveAgentRun = {
   requestId: string;
   controller: AbortController;
-  pendingEntryId: string;
+  cancelRequested: boolean;
+  chartDocumentId?: string;
+};
+
+type PendingIncidentResponseTransition = {
   cancelRequested: boolean;
 };
+
+type AgentSubmitResult = "notice" | "chart-shortcut" | "ui-action" | "ignored";
 
 type InteractiveAgentContext = {
   chartContext: Record<string, unknown>;
@@ -102,6 +154,16 @@ type InteractiveAgentContext = {
 };
 
 const lastChartSymbolStorageKey = "gops:last-chart-symbol";
+
+function isLikelyAlertCommand(value: string): boolean {
+  const text = value.toLowerCase();
+  return ["알림", "알람", "alert"].some((keyword) => text.includes(keyword));
+}
+
+function hasExplicitLayoutSyntax(value: string): boolean {
+  const text = value.toLowerCase();
+  return ["패널", "레이아웃", "화면", "배치", "크게", "작게", "열어", "닫아", "layout", "panel"].some((keyword) => text.includes(keyword));
+}
 const agentDebugStorageKey = "gops:agent-debug";
 const appUiScale = 0.8;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
@@ -109,8 +171,6 @@ const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   uiScale: appUiScale
 };
 const orderFlowDemoDefaultSymbol = "NVDA";
-
-let chatLogEntrySequence = 0;
 
 function initialPanelState(): TiledPanelState {
   if (typeof window === "undefined") {
@@ -193,9 +253,10 @@ function buildInteractiveAgentContext(
   selection: SemanticSelectionSnapshot | null,
   explicitReferences: AgentReference[]
 ): InteractiveAgentContext {
-  const activeEntry = preferredContentId && handles.has(preferredContentId)
+  const selectionEntry = selection ? chartPanelHandleForSelection(handles, selection) : null;
+  const activeEntry = selectionEntry ?? (preferredContentId && handles.has(preferredContentId)
     ? [preferredContentId, handles.get(preferredContentId)!] as const
-    : firstChartPanelHandle(handles);
+    : firstChartPanelHandle(handles));
   const chart = activeEntry?.[1].getSnapshot();
   const reference = chart && selection ? chartReferenceForSelection(chart, selection, activeEntry?.[0]) : null;
   const references = [
@@ -203,7 +264,13 @@ function buildInteractiveAgentContext(
     ...explicitReferences
   ];
   return {
-    chartContext: chart ? buildChartAnalysisContext(chart, selection) : {},
+    chartContext: chart ? buildChartAnalysisContext(
+      chart,
+      selection,
+      activeEntry?.[1].getAnalysisAssetIdentity(),
+      activeEntry?.[0],
+      activeEntry?.[1].getChartDocumentId()
+    ) : {},
     references,
     uiContext: {
       activePanelId: activeEntry?.[0] ?? preferredContentId ?? null,
@@ -214,11 +281,112 @@ function buildInteractiveAgentContext(
   };
 }
 
+function chartPanelHandleForSelection(
+  handles: Map<string, ChartPanelHandle>,
+  selection: SemanticSelectionSnapshot
+): readonly [string, ChartPanelHandle] | null {
+  if (selection.chartDocumentId) {
+    for (const entry of handles.entries()) {
+      if (entry[1].getChartDocumentId() === selection.chartDocumentId) return entry;
+    }
+  }
+  for (const entry of handles.entries()) {
+    const chart = entry[1].getSnapshot();
+    if (chart.symbol.toUpperCase() === selection.symbol.toUpperCase() && chart.interval === selection.interval) {
+      return entry;
+    }
+  }
+  return null;
+}
+
 function firstChartPanelHandle(handles: Map<string, ChartPanelHandle>): readonly [string, ChartPanelHandle] | null {
   for (const entry of handles.entries()) {
     return entry;
   }
   return null;
+}
+
+type TradeAutomationChartResolution =
+  | { status: "resolved"; snapshot: ChartTradeSetupSnapshot | null }
+  | { status: "ambiguous" }
+  | { status: "missing" };
+
+function resolveTradeAutomationChart(
+  handles: Map<string, ChartPanelHandle>,
+  preferredContentId: string | null,
+  selection: SemanticSelectionSnapshot | null,
+  panelState: TiledPanelState
+): TradeAutomationChartResolution {
+  const selectionEntry = selection ? chartPanelHandleForSelection(handles, selection) : null;
+  const preferredEntry = preferredContentId && handles.has(preferredContentId)
+    ? [preferredContentId, handles.get(preferredContentId)!] as const
+    : null;
+  let activeEntry = selectionEntry ?? preferredEntry;
+  if (!activeEntry) {
+    const linkedDocumentIds = [...new Set(Object.values(panelState.contents)
+      .filter((content) => content.kind === "chartCommentary")
+      .map((content) => readString(content.props?.chartDocumentId))
+      .filter((value): value is string => Boolean(value)))];
+    if (linkedDocumentIds.length === 1) {
+      activeEntry = [...handles.entries()].find((entry) => entry[1].getChartDocumentId() === linkedDocumentIds[0]) ?? null;
+    }
+  }
+  if (!activeEntry) {
+    if (handles.size === 0) return { status: "missing" };
+    if (handles.size > 1) return { status: "ambiguous" };
+    activeEntry = firstChartPanelHandle(handles);
+  }
+  if (!activeEntry) {
+    return { status: "missing" };
+  }
+  const chartDocumentId = activeEntry[1].getChartDocumentId();
+  return {
+    status: "resolved",
+    snapshot: getChartTradeSetupSnapshot(chartDocumentId)
+  };
+}
+
+function chartContextSymbol(context: Record<string, unknown>): string | null {
+  const document = context.chartDocument;
+  if (!document || typeof document !== "object") return null;
+  const symbol = (document as { symbol?: unknown }).symbol;
+  return typeof symbol === "string" && symbol.trim() ? symbol.trim().toUpperCase() : null;
+}
+
+function chartCommentaryRequestSnapshot(context: Record<string, unknown>): ChartCommentaryRequestSnapshot | null {
+  const document = context.chartDocument;
+  if (!document || typeof document !== "object") return null;
+  const chartDocument = document as Record<string, unknown>;
+  const chartDocumentId = readString(chartDocument.chartDocumentId);
+  const symbol = readString(chartDocument.symbol)?.toUpperCase();
+  const interval = readString(chartDocument.timeframe);
+  if (!chartDocumentId || !symbol || !interval) return null;
+  const identity = context.assetIdentity && typeof context.assetIdentity === "object"
+    ? context.assetIdentity as Record<string, unknown>
+    : {};
+  const analysisWindow = context.analysisWindow && typeof context.analysisWindow === "object"
+    ? context.analysisWindow as Record<string, unknown>
+    : {};
+  const asOf = readString(identity.asOf) ?? readString(analysisWindow.viewportTo);
+  return {
+    chartDocumentId,
+    ...(readString(chartDocument.sourcePanelId) ? { sourcePanelId: readString(chartDocument.sourcePanelId)! } : {}),
+    symbol,
+    interval,
+    ...(asOf ? { asOf } : {}),
+    assetVersion: readString(identity.assetVersion) ?? undefined,
+    algorithmVersion: readString(identity.algorithmVersion) ?? undefined,
+    inputDigest: readString(identity.inputDigest) ?? undefined
+  };
+}
+
+function isExplicitChartContextPrompt(prompt: string, references: AgentReference[]): boolean {
+  const compact = prompt.toLowerCase().replace(/\s+/g, "");
+  if (references.some((reference) => reference.type.startsWith("chart."))) return true;
+  return [
+    "차트분석", "이봉분석", "선택봉", "패턴", "지지", "저항", "진입가", "목표가", "손절", "손익비",
+    "골든크로스", "데드크로스", "sma"
+  ].some((keyword) => compact.includes(keyword));
 }
 
 function chartVisibleRange(chart: ChartState): { from: string; to: string } | null {
@@ -248,9 +416,9 @@ function isLocalAgentDebugEnabled(): boolean {
     return enabled;
   }
   try {
-    return window.localStorage.getItem(agentDebugStorageKey) === "1";
+    return window.localStorage.getItem(agentDebugStorageKey) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -279,48 +447,6 @@ function publishLocalAgentDebugSnapshot(
   console.debug("[GOPS Agent Debug] snapshot", snapshot);
 }
 
-function formatAgentDebugSnapshot(
-  payload: Record<string, unknown>,
-  context: InteractiveAgentContext
-): string {
-  const chartContext = readObject(payload.chartContext);
-  const candles = readArray(chartContext?.candles);
-  const visibleRange = readObject(context.uiContext.visibleRange);
-  const selectedReference = context.references[0] ?? null;
-  const selectedLine = selectedReference ? formatAgentDebugReference(selectedReference) : "없음";
-  const referenceTypes = context.references.map((reference) => reference.type).join(", ") || "없음";
-  return [
-    "Agent Debug (local only)",
-    `selectedReference: ${selectedLine}`,
-    `references: ${context.references.length} (${referenceTypes})`,
-    `chartContext.candles: ${candles.length}${formatAgentDebugCandleRange(candles)}`,
-    `visibleRange: ${readString(visibleRange?.from) ?? "-"} -> ${readString(visibleRange?.to) ?? "-"}`,
-    `symbol: ${readString(payload.symbol) ?? "-"} / intent: ${readString(payload.intent) ?? "-"}`,
-    "raw payload: browser console에서 window.__GOPS_AGENT_LAST_REQUEST__ 확인"
-  ].join("\n");
-}
-
-function formatAgentDebugReference(reference: AgentReference): string {
-  const data = readObject(reference.data);
-  const timestamp = readString(data?.timestamp) ?? readString(data?.from) ?? "-";
-  const ohlc = ["open", "high", "low", "close"]
-    .map((key) => `${key[0]?.toUpperCase() ?? key}: ${formatAgentDebugNumber(readNumber(data?.[key]))}`)
-    .join(", ");
-  return `${reference.type} ${reference.displayLabel ?? ""} ${timestamp}${ohlc ? ` (${ohlc})` : ""}`.trim();
-}
-
-function formatAgentDebugCandleRange(candles: unknown[]): string {
-  const first = readObject(candles[0]);
-  const last = readObject(candles[candles.length - 1]);
-  const from = readString(first?.timestamp);
-  const to = readString(last?.timestamp);
-  return from && to ? ` (${from} -> ${to})` : "";
-}
-
-function formatAgentDebugNumber(value: number | null): string {
-  return value === null ? "-" : Number.isInteger(value) ? String(value) : value.toFixed(4);
-}
-
 export function App() {
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
@@ -335,19 +461,64 @@ export function App() {
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
   const [agentInput, setAgentInput] = useState("");
   const [agentComposerRequest, setAgentComposerRequest] = useState(0);
-  const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
+  const [agentNotice, setAgentNotice] = useState<AgentHeaderNotice | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
-  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
+  const [chartDataResetRevision, setChartDataResetRevision] = useState(0);
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => (
+    normalizeMarketItems(sp500UniverseSeed).map((item) => ({ ...item, changePercent: null }))
+  ));
   const [layoutEditMode, setLayoutEditMode] = useState(false);
+  const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
+  const [chartPriceSelection, setChartPriceSelection] = useState<ChartPriceSelection | null>(null);
+  const [tradeAutomationDraft, setTradeAutomationDraft] = useState<TradeAutomationConfirmationDraft | null>(null);
   const { authEnabled, user, loading: authLoading, login, logout } = useAuth();
   const chartPanelHandlesRef = useRef<Map<string, ChartPanelHandle>>(new Map());
+  const lastInteractedChartContentIdRef = useRef<string | null>(null);
   const activeAgentRunRef = useRef<ActiveAgentRun | null>(null);
+  const pendingIncidentResponseTransitionRef = useRef<PendingIncidentResponseTransition | null>(null);
+  const agentNoticeSequenceRef = useRef(0);
   const agentLayoutHistoryRef = useRef<TiledPanelState[]>([]);
   const lastSavedAgentProposalRef = useRef<string | null>(null);
+  const activeTradeConditionProposalRef = useRef<{ analysisId: string; proposalId: string } | null>(null);
+  const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
+  const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
+  const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
   const panelLayoutMetricsRef = useRef<WorkspaceLayoutMetrics>(panelLayoutMetrics);
+
+  const showAgentNotice = useCallback((message: string, tone: AgentHeaderNoticeTone = "success") => {
+    agentNoticeSequenceRef.current += 1;
+    setAgentNotice({
+      id: `agent-notice-${Date.now()}-${agentNoticeSequenceRef.current}`,
+      message,
+      tone
+    });
+  }, []);
+
+  const dismissAgentNotice = useCallback((noticeId: string) => {
+    setAgentNotice((current) => current?.id === noticeId ? null : current);
+  }, []);
+
+  useEffect(() => {
+    const activeWildPanelSlotId = resolveWildPanelSlotId(panelState, selectedWildPanelSlotId);
+    if (selectedWildPanelSlotId !== activeWildPanelSlotId) {
+      setSelectedWildPanelSlotId(activeWildPanelSlotId);
+    }
+  }, [panelState, selectedWildPanelSlotId]);
+
+  const addReportToSelectedWildPanel = useCallback((report: AgentAnalysisReport, preferredSlotId?: string) => {
+    if (report.status !== "completed" && report.status !== "deep_completed") {
+      return;
+    }
+    setPanelState((current) => {
+      const wildPanelSlotId = resolveWildPanelSlotId(current, preferredSlotId ?? selectedWildPanelSlotId);
+      return wildPanelSlotId
+        ? addAgentReportToWildPanel(current, wildPanelSlotId, report)
+        : current;
+    });
+  }, [selectedWildPanelSlotId]);
 
   const serializeCurrentLayout = useCallback(() => (
     serializeTiledPanelState(
@@ -360,6 +531,36 @@ export function App() {
     } catch {
       return "MSFT";
     }
+  }, []);
+
+  useEffect(() => {
+    const applySimulationQuotes = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      if (!status) return;
+      const previousMode = previousSimulatorModeRef.current;
+      previousSimulatorModeRef.current = status.mode;
+      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode)) {
+        chartPanelHandlesRef.current.clear();
+        setSemanticSelection(null);
+        setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
+        setChartDataResetRevision((current) => current + 1);
+      }
+      if (status.mode !== "simulation" || status.symbols.length === 0) return;
+      const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
+      setTreeMapItems((current) => current.map((item) => {
+        const update = updates.get(item.symbol.toUpperCase());
+        if (!update || update.price == null) return item;
+        return {
+          ...item,
+          lastPrice: update.price,
+          changePercent: update.changePercent ?? item.changePercent,
+          priceSource: "gops-simulator",
+          priceUpdatedAt: new Date().toISOString()
+        };
+      }));
+    };
+    window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
+    return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
   }, []);
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);
@@ -430,13 +631,21 @@ export function App() {
   ) => ({
     ...buildTiledAgentLayoutContext(state, viewport, activeSymbol, selectedPanelId, chartDocumentSymbols, layoutMetrics),
     presets: agentPresetSummaries,
-    activePresetId: presetControls.activePresetId,
+    activePresetId: agentPresetSummaries.some((preset) => preset.id === presetControls.activePresetId)
+      ? presetControls.activePresetId
+      : null,
     canUndo: agentLayoutHistoryRef.current.length > 0
   }), [agentPresetSummaries, presetControls.activePresetId]);
   const [emphasizedReferenceKeys, setEmphasizedReferenceKeys] = useState<string[]>([]);
   const selectedAgentReferenceKeys = useMemo(() => (
     agentReferences.map((reference) => agentReferenceKey(reference))
   ), [agentReferences]);
+  const selectedRecommendationReference = useMemo(() => (
+    agentReferences.find((reference) => reference.type === "recommendation.stock") ?? null
+  ), [agentReferences]);
+  const selectedRecommendationSymbol = selectedRecommendationReference
+    ? agentReferenceTicker(selectedRecommendationReference) || null
+    : null;
   const agentReferenceChips = useMemo<AgentReferenceChip[]>(() => {
     const chips: AgentReferenceChip[] = agentReferences.map((reference) => ({
       key: agentReferenceKey(reference),
@@ -647,14 +856,61 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => setPrimaryChartSymbol(
+    setPanelState((current) => setPrimaryChartView(setPrimaryChartSymbol(
       current,
       normalizedSymbol,
       viewportSizeRef.current,
       panelLayoutMetricsRef.current
-    ));
+    ), "chart"));
     navigateMainView(nextView, { replace: options.replace });
   }, [navigateMainView]);
+
+  const openPatternAsset = useCallback((symbol: string, interval: AnalysisAssetInterval) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
+    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
+    chartPanelHandlesRef.current.clear();
+    setChartRuntime(createInitialChartRuntimeState());
+    setPanelState((current) => setPrimaryChartView(setPrimaryChartSelection(
+      current,
+      normalizedSymbol,
+      interval,
+      viewportSizeRef.current,
+      panelLayoutMetricsRef.current
+    ), "chart"));
+    navigateMainView(nextView);
+  }, [navigateMainView]);
+
+  const openCompanyPage = useCallback((symbol: string) => {
+    const normalizedSymbol = normalizeStoredSymbol(symbol) || "NVDA";
+    const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
+    chartPanelHandlesRef.current.clear();
+    setChartRuntime(createInitialChartRuntimeState());
+    setPanelState((current) => {
+      const companyState = setCompanyInformationSymbol(
+        current,
+        normalizedSymbol,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      );
+      const next = setPrimaryChartSymbol(
+        companyState,
+        normalizedSymbol,
+        viewportSizeRef.current,
+        panelLayoutMetricsRef.current
+      );
+      if (next !== current) {
+        return next;
+      }
+      const stockPreset = presetControls.presets.find((preset) => preset.id === "stock");
+      return stockPreset
+        ? buildPresetLayout(stockPreset, viewportSizeRef.current, {
+          symbol: normalizedSymbol,
+          layoutMetrics: panelLayoutMetricsRef.current
+        }) ?? current
+        : current;
+    });
+    navigateMainView(nextView);
+  }, [navigateMainView, presetControls.presets]);
 
   const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
     if (handle) {
@@ -664,27 +920,76 @@ export function App() {
     }
   }, []);
 
+  const handleActiveChartChange = useCallback((contentId: string) => {
+    if (chartPanelHandlesRef.current.has(contentId)) {
+      lastInteractedChartContentIdRef.current = contentId;
+    }
+  }, []);
+
+  const handleChartPriceSelection = useCallback((selection: ChartPriceSelection) => {
+    setChartPriceSelection(selection);
+    for (const [contentId, handle] of chartPanelHandlesRef.current.entries()) {
+      if (handle.getChartDocumentId() === selection.chartDocumentId) {
+        lastInteractedChartContentIdRef.current = contentId;
+        break;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const sourcePanelExists = chartPriceSelection
+      ? panelState.slots.some((slot) => slot.id === chartPriceSelection.sourcePanelId
+        && panelState.contents[slot.contentId]?.kind === "chart"
+        && chartDocumentIdForContent(panelState.contents[slot.contentId]!) === chartPriceSelection.chartDocumentId)
+      : false;
+    if (chartPriceSelection && (!chartRuntime.documents[chartPriceSelection.chartDocumentId] || !sourcePanelExists)) {
+      setChartPriceSelection(null);
+    }
+  }, [chartPriceSelection, chartRuntime.documents, panelState]);
+
+  useEffect(() => {
+    if (!tradeAutomationDraft || tradeAutomationDraft.status !== "pending") {
+      return undefined;
+    }
+    const chartDocumentId = tradeAutomationDraft.chartDocumentId;
+    const markStaleIfNeeded = () => {
+      const snapshot = getChartTradeSetupSnapshot(chartDocumentId);
+      if (!chartRuntime.documents[chartDocumentId]
+        || !tradeAutomationDraftMatchesSnapshot(
+          tradeAutomationDraft,
+          snapshot,
+          tradeAutomationRequestedSnapshotRef.current
+        )) {
+        setTradeAutomationDraft((current) => current?.status === "pending"
+          ? { ...current, status: "stale" }
+          : current);
+      }
+    };
+    markStaleIfNeeded();
+    return subscribeChartTradeSetup(chartDocumentId, markStaleIfNeeded);
+  }, [chartRuntime.documents, tradeAutomationDraft]);
+
+  const handleSemanticSelectionChange = useCallback((selection: SemanticSelectionSnapshot | null) => {
+    setSemanticSelection(selection);
+    if (!selection) return;
+    const entry = chartPanelHandleForSelection(chartPanelHandlesRef.current, selection);
+    if (entry) lastInteractedChartContentIdRef.current = entry[0];
+  }, []);
+
   const applyPresetLoadProposal = useCallback((proposal: AgentLayoutProposal): LayoutLoadPresetResult => {
     return applyLayoutLoadProposalToPresets(proposal, presetControls.presets, presetControls.applyPreset);
   }, [presetControls]);
 
-  const handlePresetLoadResult = useCallback((
-    result: LayoutLoadPresetResult,
-    options: { userEntry?: ChatLogEntry } = {}
-  ): LayoutLoadPresetResult["status"] => {
+  const handlePresetLoadResult = useCallback((result: LayoutLoadPresetResult): LayoutLoadPresetResult["status"] => {
     if (result.status === "applied") {
       return "applied";
     }
     if (result.status === "missing") {
-      setChatLog((entries) => [
-        ...entries,
-        ...(options.userEntry ? [options.userEntry] : []),
-        createChatLogEntry("system", "프리셋을 찾지 못했습니다.")
-      ]);
+      showAgentNotice("프리셋을 찾지 못했습니다.", "error");
       return "missing";
     }
     return "none";
-  }, []);
+  }, [showAgentNotice]);
 
   const applyAgentLayoutProposal = useCallback((proposal: AgentLayoutProposal) => {
     const presetLoadResult = applyPresetLoadProposal(proposal);
@@ -694,10 +999,7 @@ export function App() {
     const preview = applyAgentLayoutWithHistory(panelState, proposal);
     if (preview.pendingPlacementPick) {
       setPendingPlacementPick(preview.pendingPlacementPick);
-      setChatLog((entries) => [
-        ...entries,
-        createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-      ]);
+      showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
       return;
     }
     setPanelState((current) => {
@@ -714,7 +1016,7 @@ export function App() {
       }
       return next;
     });
-  }, [applyAgentLayoutWithHistory, applyPresetLoadProposal, handlePresetLoadResult, panelState]);
+  }, [applyAgentLayoutWithHistory, applyPresetLoadProposal, handlePresetLoadResult, panelState, showAgentNotice]);
 
   const handlePlacementPickSelect = useCallback((candidate: PlacementPickCandidate) => {
     const pick = pendingPlacementPick;
@@ -735,15 +1037,13 @@ export function App() {
       return next;
     });
     setPendingPlacementPick(null);
-  }, [pendingPlacementPick]);
+    showAgentNotice(`${mainView.mode === "chart" ? `${mainView.symbol} ` : ""}패널 배치를 완료했습니다.`);
+  }, [mainView, pendingPlacementPick, showAgentNotice]);
 
   const handlePlacementPickCancel = useCallback(() => {
     setPendingPlacementPick(null);
-    setChatLog((current) => [
-      ...current,
-      createChatLogEntry("assistant", "배치를 취소했습니다.")
-    ]);
-  }, []);
+    showAgentNotice("배치를 취소했습니다.", "info");
+  }, [showAgentNotice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -779,27 +1079,46 @@ export function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, []);
+  }, [chartDataResetRevision]);
 
   const showTreeMap = () => {
     navigateMainView({ mode: "treemap" }, { closeBottomMenu: true });
   };
 
-  const toggleLayoutEditMode = () => {
+  const enterLayoutEditMode = () => {
     if (mainView.mode !== "chart") {
       return;
     }
-    if (!layoutEditMode) {
-      setPanelState((current) => normalizeFreeformRectsToGridLayout(
-        current,
-        viewportSizeRef.current,
-        panelLayoutMetricsRef.current
-      ));
+    setPanelState((current) => normalizeFreeformRectsToGridLayout(
+      current,
+      viewportSizeRef.current,
+      panelLayoutMetricsRef.current
+    ));
+    setLayoutEditMode(true);
+  };
+
+  const exitLayoutEditMode = () => {
+    const responsePreset = incidentResponseLayoutPreset(presetControls.presets);
+    if (responsePreset && presetControls.activePresetId === responsePreset.id) {
+      const result = presetControls.savePresetLayout(responsePreset.id);
+      if (result.status === "missing") {
+        showAgentNotice("대응 프리셋을 찾지 못해 저장하지 못했습니다.", "error");
+      } else if (result.status === "invalid") {
+        showAgentNotice(result.message, "error");
+      }
     }
-    setLayoutEditMode((current) => !current);
+    setLayoutEditMode(false);
   };
 
   const cancelActiveAgentRun = useCallback(() => {
+    const pendingTransition = pendingIncidentResponseTransitionRef.current;
+    if (pendingTransition) {
+      pendingTransition.cancelRequested = true;
+      pendingIncidentResponseTransitionRef.current = null;
+      showAgentNotice("Agent 분석을 중단했습니다.", "info");
+      setAgentBusy(false);
+      return;
+    }
     const run = activeAgentRunRef.current;
     if (!run) {
       setAgentBusy(false);
@@ -807,12 +1126,15 @@ export function App() {
     }
     run.cancelRequested = true;
     run.controller.abort();
-    replaceChatLogEntry(setChatLog, run.pendingEntryId, "Agent 분석을 중단했습니다.");
+    if (run.chartDocumentId) {
+      setPanelState((current) => clearChartCommentaryPending(current, run.chartDocumentId!));
+    }
+    showAgentNotice("Agent 분석을 중단했습니다.", "info");
     setAgentBusy(false);
     void cancelAgentAnalysis(run.requestId).catch(() => {
       // Local abort already restored the UI; polling will also observe a stored cancel if the API accepted it.
     });
-  }, []);
+  }, [showAgentNotice]);
 
   const handleAgentReferenceSelect = useCallback((reference: AgentReference) => {
     const key = agentReferenceKey(reference);
@@ -824,9 +1146,31 @@ export function App() {
     });
   }, []);
 
-  const handleAgentAsk = useCallback(() => {
-    setAgentComposerRequest((current) => current + 1);
+  const handleRecommendationReferenceSelect = useCallback((reference: AgentReference | null) => {
+    setAgentReferences((current) => {
+      const selectedKey = reference ? agentReferenceKey(reference) : null;
+      const wasSelected = selectedKey
+        ? current.some((item) => item.type === "recommendation.stock" && agentReferenceKey(item) === selectedKey)
+        : false;
+      const withoutRecommendation = current.filter((item) => item.type !== "recommendation.stock");
+      return !reference || wasSelected
+        ? withoutRecommendation
+        : [reference, ...withoutRecommendation].slice(0, 5);
+    });
+    setEmphasizedReferenceKeys([]);
   }, []);
+
+  const handleAgentAsk = useCallback(() => {
+    setLayoutEditMode(false);
+    if (semanticSelection) {
+      setAgentInput((current) => current.trim() ? current : "이 봉 분석해줘");
+    } else if (agentReferences.some((reference) => reference.type.startsWith("news."))) {
+      setAgentInput((current) => current.trim() ? current : "이 뉴스 설명해줘");
+    } else if (agentReferences.some((reference) => reference.type === "chart.pattern" || reference.type === "chart.drawing")) {
+      setAgentInput((current) => current.trim() ? current : "이 패턴 설명해줘");
+    }
+    setAgentComposerRequest((current) => current + 1);
+  }, [agentReferences, semanticSelection]);
 
   // The chart owns its candle-highlight state internally, so clearing the App-level
   // selection is not enough — tell every chart panel to drop its selected candle too.
@@ -854,20 +1198,172 @@ export function App() {
     if (!prompt || agentBusy) {
       return "ignored";
     }
-    const userEntry = createChatLogEntry("user", prompt);
     setAgentInput("");
     if (!canUseAgent) {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.")
-      ]);
-      return "chat-log";
+      showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
+      return "notice";
+    }
+    const tradeAutomationIntent = resolveTradeAutomationCommandIntent(prompt);
+    if (tradeAutomationIntent.status === "missing_price" && !chartPriceSelection) {
+      showAgentNotice("어느 가격에 예약할까요? 차트 가격축을 선택한 뒤 다시 요청해 주세요.", "info");
+      return "notice";
+    }
+    if (tradeAutomationIntent.status !== "not_matched") {
+      const resolution = resolveTradeAutomationChart(
+        chartPanelHandlesRef.current,
+        lastInteractedChartContentIdRef.current,
+        semanticSelection,
+        panelState
+      );
+      if (resolution.status === "ambiguous") {
+        showAgentNotice("대상 차트가 여러 개입니다. 사용할 차트를 먼저 클릭하거나 해설 패널에서 연결해 주세요.", "info");
+        return "notice";
+      }
+      if (resolution.status === "missing") {
+        showAgentNotice("연결할 원본 차트가 없습니다. 차트 패널을 먼저 열어 주세요.", "info");
+        return "notice";
+      }
+      if (!resolution.snapshot) {
+        showAgentNotice("현재 차트에 유효한 진입가·목표가·손절가 트레이드 플랜이 없습니다.", "info");
+        return "notice";
+      }
+      if (tradeAutomationIntent.status === "missing_price"
+        && !chartPriceSelectionMatchesTradeSetup(resolution.snapshot, chartPriceSelection)) {
+        showAgentNotice("어느 가격에 예약할까요? 대상 차트의 가격축을 선택한 뒤 다시 요청해 주세요.", "info");
+        return "notice";
+      }
+      const draft = createTradeAutomationConfirmationDraft(
+        resolution.snapshot,
+        chartPriceSelection,
+        {
+          action: tradeAutomationIntent.action,
+          reservationPrice: tradeAutomationIntent.status === "ready"
+            ? tradeAutomationIntent.reservationPrice
+            : null
+        }
+      );
+      if (!draft) {
+        showAgentNotice("현재 트레이드 플랜의 진입가·목표가·손절가를 모두 확인할 수 없습니다.", "info");
+        return "notice";
+      }
+      tradeAutomationRequestedSnapshotRef.current = resolution.snapshot;
+      setTradeAutomationDraft(draft);
+      return "ui-action";
+    }
+    const recommendationNavigation = resolveRecommendationCompanyNavigation(
+      prompt,
+      presetControls.activePresetId,
+      selectedRecommendationSymbol
+    );
+    if (recommendationNavigation.status === "missing_selection") {
+      showAgentNotice("추천 목록에서 종목을 먼저 선택해 주세요.", "info");
+      return "notice";
+    }
+    if (recommendationNavigation.status === "ready") {
+      presetControls.applyPreset(recommendationNavigation.presetId);
+      openCompanyPage(recommendationNavigation.symbol);
+      return "ui-action";
+    }
+    const agentContextSymbol = selectedRecommendationSymbol
+      || (mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol());
+    const incidentResponsePrompt = isIncidentResponsePrompt(prompt);
+    const analysisIntent = incidentResponsePrompt
+      ? incidentResponseAnalysisIntent(prompt, agentContextSymbol)
+      : prompt;
+    const watchlistContextSymbol = mainView.mode === "chart" ? mainView.symbol : agentContextSymbol;
+    const watchlistCommand = resolveWatchlistAgentCommand(prompt, watchlistContextSymbol);
+    if (watchlistCommand.status === "clarify") {
+      showAgentNotice("관심종목에 추가할 기업을 먼저 선택해 주세요.", "info");
+      return "notice";
+    }
+    if (watchlistCommand.status === "add") {
+      setAgentBusy(true);
+      try {
+        await addWatchlistSymbol(watchlistCommand.symbol);
+        showAgentNotice(`관심종목에 ${watchlistCommand.symbol}를 추가했습니다.`);
+        return "ui-action";
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "관심종목을 추가하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
+    }
+    const activeTradeProposal = activeTradeConditionProposalRef.current;
+    if (activeTradeProposal) {
+      setAgentBusy(true);
+      try {
+        const { publishTradeConditionsChanged, resolveTradeConditionCommand } = await import("./priceCondition/priceConditionApi");
+        const command = await resolveTradeConditionCommand({
+          text: prompt,
+          analysisId: activeTradeProposal.analysisId,
+          proposalId: activeTradeProposal.proposalId
+        });
+        if (command.status === "created") {
+          activeTradeConditionProposalRef.current = null;
+          publishTradeConditionsChanged();
+          const condition = command.condition;
+          showAgentNotice(condition
+            ? `${condition.symbol} ${condition.quantity}주 가격 조건과 알림을 등록했습니다.`
+            : "가격 조건과 알림을 등록했습니다.");
+          return "ui-action";
+        }
+        if (command.status === "clarify" || command.status === "rejected") {
+          showAgentNotice(command.clarification ?? "가격 조건을 등록하려면 조건을 더 알려주세요.", command.status === "rejected" ? "error" : "info");
+          return "notice";
+        }
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "가격 조건 명령을 처리하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
+    }
+    const alertDraft = alertCommandDraftRef.current;
+    if (alertDraft || isLikelyAlertCommand(prompt)) {
+      setAgentBusy(true);
+      try {
+        const chartDocument = mainView.mode === "chart"
+          ? Object.values(chartRuntime.documents).find((document) => document.symbol === agentContextSymbol)
+          : undefined;
+        const requestId = alertDraft?.requestId ?? createAgentAnalysisRequestId();
+        const command = await submitAlertCommand({
+          text: prompt,
+          contextSymbol: agentContextSymbol,
+          contextInterval: chartDocument?.timeframe,
+          clarificationId: alertDraft?.clarificationId,
+          requestId
+        });
+        if (command.status === "created") {
+          alertCommandDraftRef.current = null;
+          showAgentNotice(`${command.alert.symbol} 알림을 설정했습니다.`);
+          return "ui-action";
+        }
+        if (command.status === "clarify") {
+          alertCommandDraftRef.current = {
+            clarificationId: command.clarificationId,
+            requestId
+          };
+          showAgentNotice(command.clarification, "info");
+          return "notice";
+        }
+        if (command.status === "rejected") {
+          alertCommandDraftRef.current = null;
+          showAgentNotice(command.clarification, "error");
+          return "notice";
+        }
+        alertCommandDraftRef.current = null;
+      } catch (error) {
+        showAgentNotice(error instanceof Error ? error.message : "알림 명령을 처리하지 못했습니다.", "error");
+        return "notice";
+      } finally {
+        setAgentBusy(false);
+      }
     }
     if (isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)) {
       setAgentBusy(true);
       try {
-        const layoutSymbol = mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol();
+        const layoutSymbol = agentContextSymbol;
         const layoutResolution = await resolveAgentLayoutCommand({
           symbol: layoutSymbol,
           intent: prompt,
@@ -884,18 +1380,14 @@ export function App() {
         });
         if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
           const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-          const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+          const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
           if (presetLoadStatus !== "none") {
-            return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+            return presetLoadStatus === "applied" ? "ui-action" : "notice";
           }
         }
         if (layoutResolution?.status === "ui_clarify") {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "프리셋을 적용할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "프리셋을 적용할 수 없습니다.", "error");
+          return "notice";
         }
       } catch {
         // Fall back to the existing chart/entity flow when the fast preset resolve fails.
@@ -942,20 +1434,16 @@ export function App() {
               throw new Error(`${addSymbol} 차트 패널을 추가할 수 없습니다.`);
             }
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
             if (presetLoadStatus !== "none") {
-              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+              return presetLoadStatus === "applied" ? "ui-action" : "notice";
             }
             const applyResult = applyAgentLayoutWithHistory(nextPanelState, layoutResolution.layoutProposal, true);
             if (applyResult.pendingPlacementPick) {
               const pick = applyResult.pendingPlacementPick;
               setPendingPlacementPick(pick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(pick))
-              ]);
-              return "chat-log";
+              showAgentNotice(placementPickMessage(pick), "info");
+              return "notice";
             }
             const problemMessage = layoutResolutionProblemMessage(layoutResolution, applyResult);
             if (problemMessage) {
@@ -971,21 +1459,15 @@ export function App() {
             setPanelState(nextPanelState);
           }
           navigateMainView({ mode: "chart", symbol: primarySymbol });
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            ...(layoutProblems.length
-              ? [createChatLogEntry("assistant", [...new Set(layoutProblems)].join(" "))]
-              : [])
-          ]);
-          return layoutProblems.length ? "chat-log" : "ui-action";
+          if (layoutProblems.length) {
+            showAgentNotice([...new Set(layoutProblems)].join(" "), "error");
+            return "notice";
+          }
+          showAgentNotice(`${shortcutSymbols.join(" / ")} 비교 차트를 표시했습니다.`);
+          return "ui-action";
         } catch (error: unknown) {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } finally {
           setAgentBusy(false);
         }
@@ -1013,19 +1495,15 @@ export function App() {
           });
           if (layoutResolution?.status === "ui_layout" && layoutResolution.layoutProposal) {
             const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            const presetLoadStatus = handlePresetLoadResult(presetLoadResult, { userEntry });
+            const presetLoadStatus = handlePresetLoadResult(presetLoadResult);
             if (presetLoadStatus !== "none") {
-              return presetLoadStatus === "applied" ? "ui-action" : "chat-log";
+              return presetLoadStatus === "applied" ? "ui-action" : "notice";
             }
             const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
             if (preview.pendingPlacementPick) {
               setPendingPlacementPick(preview.pendingPlacementPick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-              ]);
-              return "chat-log";
+              showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
+              return "notice";
             }
             setPanelState((current) => {
               const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
@@ -1041,227 +1519,351 @@ export function App() {
               return result.state;
             });
             const problemMessage = layoutResolutionProblemMessage(layoutResolution, preview);
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
-            ]);
-            return problemMessage ? "chat-log" : "ui-action";
+            if (problemMessage) {
+              showAgentNotice(problemMessage, "error");
+              return "notice";
+            }
+            showAgentNotice(`${shortcut.symbol} 차트를 추가했습니다.`);
+            return "ui-action";
           }
           if (layoutResolution?.status === "ui_clarify") {
-            setChatLog((current) => [
-              ...current,
-              userEntry,
-              createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "차트 패널을 추가할 수 없습니다.")
-            ]);
-            return "chat-log";
+            showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "차트 패널을 추가할 수 없습니다.", "error");
+            return "notice";
           }
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", layoutResolution?.rationale || "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(layoutResolution?.rationale || "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } catch (error: unknown) {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("system", error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.")
-          ]);
-          return "chat-log";
+          showAgentNotice(error instanceof Error ? error.message : "차트 패널을 추가할 수 없습니다.", "error");
+          return "notice";
         } finally {
           setAgentBusy(false);
         }
       }
       if (mainView.mode === "chart") {
         openSymbolPage(shortcut.symbol);
-        setChatLog((current) => [
-          ...current,
-          userEntry,
-          createChatLogEntry("assistant", `${shortcut.symbol} 차트를 표시했습니다.`)
-        ]);
-        return "chat-log";
+        showAgentNotice(`${shortcut.symbol} 차트를 표시했습니다.`);
+        return "notice";
       }
       openSymbolPage(shortcut.symbol);
+      showAgentNotice(`${shortcut.symbol} 차트를 표시했습니다.`);
       return "chart-shortcut";
     }
     if (isLikelyChartOpenCommand(prompt)) {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", "종목명을 찾지 못했습니다. 예: 애플, 엔비디아, AAPL, NVDA")
-      ]);
-      return "chat-log";
+      showAgentNotice("종목명을 찾지 못했습니다. 예: 애플, 엔비디아, AAPL, NVDA", "error");
+      return "notice";
     }
     if (mainView.mode !== "chart") {
-      setChatLog((current) => [
-        ...current,
-        userEntry,
-        createChatLogEntry("system", "기업명/티커만 입력하면 차트를 열 수 있고, 분석은 차트 화면에서 가능합니다.")
-      ]);
-      return "chat-log";
+      if (!incidentResponsePrompt) {
+        showAgentNotice("기업명/티커만 입력하면 차트를 열 수 있고, 분석은 차트 화면에서 가능합니다.", "error");
+        return "notice";
+      }
+    }
+
+    let analysisPanelState = panelState;
+    let incidentWildPanelSlotId: string | undefined;
+    let responsePreset: LayoutPreset | null = null;
+    let responseLayout: TiledPanelState | null = null;
+    if (incidentResponsePrompt) {
+      responsePreset = incidentResponseLayoutPreset(presetControls.presets);
+      if (!responsePreset) {
+        showAgentNotice("대응 프리셋 지정하기에서 프리셋을 먼저 만들어 주세요.", "error");
+        return "notice";
+      }
+      responseLayout = buildPresetLayoutForCurrent(responsePreset);
+      if (!responseLayout) {
+        showAgentNotice("저장된 대응 프리셋을 불러오지 못했습니다.", "error");
+        return "notice";
+      }
     }
 
     const runChartPrompt = async () => {
-      setAgentBusy(true);
-      try {
-        const interactiveContext = buildInteractiveAgentContext(
-          chartPanelHandlesRef.current,
-          null,
-          semanticSelection,
-          agentReferences
-        );
-        const interactivePanelId = typeof interactiveContext.uiContext.activePanelId === "string"
-          ? interactiveContext.uiContext.activePanelId
-          : undefined;
-        const selectedLayoutPanelId = panelState.slots.find((slot) => (
-          slot.id === interactivePanelId || slot.contentId === interactivePanelId
-        ))?.id;
-        const analysisPayload = {
-          symbol: mainView.symbol,
-          intent: prompt,
-          routerMode: "hybrid",
-          messages: [{ role: "user", content: prompt }],
-          chartContext: interactiveContext.chartContext,
-          references: interactiveContext.references,
-          uiContext: interactiveContext.uiContext,
-          layoutContext: buildAgentLayoutContext(
-            panelState,
-            viewportSize,
-            mainView.symbol,
-            selectedLayoutPanelId,
-            chartDocumentSymbolsByPanelId,
-            panelLayoutMetricsRef.current
-          )
-        };
-        const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
-        if (layoutResolution?.status === "ui_layout") {
-          let layoutApplyResult: ApplyTiledAgentLayoutResult | undefined;
-          if (layoutResolution.layoutProposal) {
-            const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
-            if (handlePresetLoadResult(presetLoadResult, { userEntry }) !== "none") {
-              return;
+      if (incidentResponsePrompt && responsePreset && responseLayout) {
+        setAgentBusy(true);
+        const pendingTransition: PendingIncidentResponseTransition = { cancelRequested: false };
+        pendingIncidentResponseTransitionRef.current = pendingTransition;
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, incidentResponseTransitionDelayMs);
+        });
+        if (pendingTransition.cancelRequested || pendingIncidentResponseTransitionRef.current !== pendingTransition) {
+          return;
+        }
+        pendingIncidentResponseTransitionRef.current = null;
+        const prepared = prepareIncidentResponseLayout(responseLayout, agentContextSymbol);
+        if (prepared.status === "invalid") {
+          showAgentNotice(prepared.message, "error");
+          setAgentBusy(false);
+          return;
+        }
+        analysisPanelState = prepared.state;
+        incidentWildPanelSlotId = prepared.wildPanelSlotId;
+        presetControls.applyPreparedPreset(responsePreset.id, prepared.state);
+        setSelectedWildPanelSlotId(prepared.wildPanelSlotId ?? null);
+        setLayoutEditMode(false);
+        setPendingPlacementPick(null);
+        setSemanticSelection(null);
+        clearChartSemanticSelections();
+      }
+      if (!incidentResponsePrompt && hasExplicitLayoutSyntax(prompt)) {
+        setAgentBusy(true);
+        try {
+          const interactiveContext = buildInteractiveAgentContext(
+            chartPanelHandlesRef.current,
+            lastInteractedChartContentIdRef.current,
+            semanticSelection,
+            agentReferences
+          );
+          const interactivePanelId = typeof interactiveContext.uiContext.activePanelId === "string"
+            ? interactiveContext.uiContext.activePanelId
+            : undefined;
+          const selectedLayoutPanelId = panelState.slots.find((slot) => (
+            slot.id === interactivePanelId || slot.contentId === interactivePanelId
+          ))?.id;
+          const analysisPayload = {
+            symbol: agentContextSymbol,
+            intent: prompt,
+            routerMode: "hybrid",
+            messages: [{ role: "user", content: prompt }],
+            chartContext: interactiveContext.chartContext,
+            references: interactiveContext.references,
+            uiContext: interactiveContext.uiContext,
+            layoutContext: buildAgentLayoutContext(
+              panelState,
+              viewportSize,
+              agentContextSymbol,
+              selectedLayoutPanelId,
+              chartDocumentSymbolsByPanelId,
+              panelLayoutMetricsRef.current
+            )
+          };
+          const layoutResolution = await resolveAgentLayoutCommand(analysisPayload);
+          if (layoutResolution?.status === "ui_layout") {
+            let layoutApplyResult: ApplyTiledAgentLayoutResult | undefined;
+            if (layoutResolution.layoutProposal) {
+              const presetLoadResult = applyPresetLoadProposal(layoutResolution.layoutProposal);
+              if (handlePresetLoadResult(presetLoadResult) !== "none") {
+                return;
+              }
+              const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
+              layoutApplyResult = preview;
+              if (preview.pendingPlacementPick) {
+                setPendingPlacementPick(preview.pendingPlacementPick);
+                showAgentNotice(placementPickMessage(preview.pendingPlacementPick), "info");
+                return;
+              }
+              setPanelState((current) => {
+                const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
+                return result.state;
+              });
             }
-            const preview = applyAgentLayoutWithHistory(panelState, layoutResolution.layoutProposal);
-            layoutApplyResult = preview;
-            if (preview.pendingPlacementPick) {
-              setPendingPlacementPick(preview.pendingPlacementPick);
-              setChatLog((current) => [
-                ...current,
-                userEntry,
-                createChatLogEntry("assistant", placementPickMessage(preview.pendingPlacementPick!))
-              ]);
-              return;
+            const problemMessage = layoutResolutionProblemMessage(layoutResolution, layoutApplyResult);
+            if (problemMessage) {
+              showAgentNotice(problemMessage, "error");
+            } else {
+              showAgentNotice(`${agentContextSymbol} 레이아웃을 변경했습니다.`);
             }
-            setPanelState((current) => {
-              const result = applyAgentLayoutWithHistory(current, layoutResolution.layoutProposal!, true);
-              return result.state;
-            });
+            return;
           }
-          const problemMessage = layoutResolutionProblemMessage(layoutResolution, layoutApplyResult);
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            ...(problemMessage ? [createChatLogEntry("assistant", problemMessage)] : [])
-          ]);
-          return;
+          if (layoutResolution?.status === "ui_clarify") {
+            showAgentNotice(layoutResolutionProblemMessage(layoutResolution) ?? "화면 변경 요청을 확인하지 못했습니다.", "error");
+            return;
+          }
+        } catch {
+          // Layout resolve is an optimization; analysis remains the fallback.
+        } finally {
+          setAgentBusy(false);
         }
-        if (layoutResolution?.status === "ui_clarify") {
-          setChatLog((current) => [
-            ...current,
-            userEntry,
-            createChatLogEntry("assistant", layoutResolutionProblemMessage(layoutResolution) ?? "화면 변경 요청을 확인하지 못했습니다.")
-          ]);
-          return;
-        }
-      } catch {
-        // Layout resolve is an optimization; analysis remains the fallback.
-      } finally {
-        setAgentBusy(false);
       }
 
-      const pendingEntry = createChatLogEntry("assistant", "Agent가 분석을 시작했습니다.", true);
       setAgentBusy(true);
+      let commentarySource: ChartCommentaryRequestSnapshot | null = null;
       try {
         const interactiveContext = buildInteractiveAgentContext(
           chartPanelHandlesRef.current,
-          null,
+          lastInteractedChartContentIdRef.current,
           semanticSelection,
           agentReferences
         );
         const controller = new AbortController();
         const requestId = createAgentAnalysisRequestId();
+        commentarySource = chartCommentaryRequestSnapshot(interactiveContext.chartContext);
+        const opensChartCommentary = Boolean(commentarySource && isExplicitChartContextPrompt(prompt, interactiveContext.references));
+        if (commentarySource && opensChartCommentary) {
+          setPanelState((current) => beginChartCommentaryRequest(
+            current,
+            commentarySource!,
+            requestId,
+            prompt,
+            viewportSizeRef.current,
+            panelLayoutMetricsRef.current
+          ).state);
+        }
         const activeRun: ActiveAgentRun = {
           requestId,
           controller,
-          pendingEntryId: pendingEntry.id,
-          cancelRequested: false
+          cancelRequested: false,
+          ...(commentarySource && opensChartCommentary ? { chartDocumentId: commentarySource.chartDocumentId } : {})
         };
         activeAgentRunRef.current = activeRun;
         const analysisRequestPayload = {
-          symbol: mainView.symbol,
-          intent: prompt,
+          symbol: opensChartCommentary
+            ? chartContextSymbol(interactiveContext.chartContext) ?? agentContextSymbol
+            : agentContextSymbol,
+          intent: analysisIntent,
           routerMode: "hybrid",
-          messages: [{ role: "user", content: prompt }],
+          messages: [{ role: "user", content: analysisIntent }],
           chartContext: interactiveContext.chartContext,
           references: interactiveContext.references,
           uiContext: interactiveContext.uiContext,
           layoutContext: buildAgentLayoutContext(
-            panelState,
+            analysisPanelState,
             viewportSize,
-            mainView.symbol,
+            agentContextSymbol,
             undefined,
-            chartDocumentSymbolsByPanelId,
+            incidentResponsePrompt
+              ? chartDocumentSymbolsForLayout(analysisPanelState, chartRuntime)
+              : chartDocumentSymbolsByPanelId,
             panelLayoutMetricsRef.current
-          )
+          ),
+          ...(Object.values(analysisPanelState.contents).some((content) => content.kind === "aiCoach")
+            ? { coachRequest: { enabled: true as const } }
+            : {})
         };
         publishLocalAgentDebugSnapshot(analysisRequestPayload, interactiveContext);
-        const debugEntry = isLocalAgentDebugEnabled()
-          ? createChatLogEntry("system", formatAgentDebugSnapshot(analysisRequestPayload, interactiveContext))
-          : null;
-        setChatLog((current) => [
-          ...current,
-          userEntry,
-          ...(debugEntry ? [debugEntry] : []),
-          pendingEntry
-        ]);
         const report = await requestAgentAnalysisPayload(analysisRequestPayload, {
           requestId,
           signal: controller.signal,
           onAccepted: (accepted) => {
             activeRun.requestId = accepted.analysisId;
+            if (commentarySource && opensChartCommentary) {
+              setPanelState((current) => updateChartCommentaryRequestId(
+                current,
+                commentarySource!.chartDocumentId,
+                requestId,
+                accepted.analysisId
+              ));
+            }
           }
         });
-        if (report.layoutProposal) {
+        if (!incidentResponsePrompt && report.layoutProposal) {
           applyAgentLayoutProposal(report.layoutProposal);
         }
-        replaceChatLogEntry(setChatLog, pendingEntry.id, formatAgentAnalysisForChat(report), report.finalResponse?.confidence, report);
+        const tradeProposal = report.tradeConditionProposals[0];
+        activeTradeConditionProposalRef.current = tradeProposal
+          ? {
+            analysisId: report.analysisId,
+            proposalId: tradeProposal.proposalId
+          }
+          : null;
+        setPanelState((current) => Object.values(current.contents).reduce(
+          (next, content) => content.kind === "aiCoach"
+            ? setPanelContentProps(next, content.id, { ...content.props, coachReport: report.coachReport ?? null })
+            : next,
+          current
+        ));
+        const reportStatus = report.status?.trim().toLowerCase();
+        const isCompletedReport = reportStatus === "completed" || reportStatus === "deep_completed";
+        const isChartReport = Boolean(isCompletedReport && opensChartCommentary && commentarySource && report.chartExplanation && report.finalAnswer);
+        if (isChartReport && commentarySource) {
+          const preview = attachChartCommentaryReport(
+            panelState,
+            commentarySource,
+            report,
+            prompt,
+            viewportSizeRef.current,
+            panelLayoutMetricsRef.current
+          );
+          if (preview.contentId) {
+            setPanelState((current) => attachChartCommentaryReport(
+              current,
+              commentarySource!,
+              report,
+              prompt,
+              viewportSizeRef.current,
+              panelLayoutMetricsRef.current
+            ).state);
+          } else {
+            addReportToSelectedWildPanel(report, incidentWildPanelSlotId);
+            showAgentNotice("차트 해설 패널을 배치할 공간이 없어 선택한 Wild 패널에 답변을 보냈습니다.", "info");
+          }
+        } else {
+          if (commentarySource) {
+            setPanelState((current) => clearChartCommentaryPending(current, commentarySource!.chartDocumentId));
+          }
+          addReportToSelectedWildPanel(report, incidentWildPanelSlotId);
+        }
+        if (reportStatus === "failed") {
+          showAgentNotice(report.summary || "Agent 요청에 실패했습니다.", "error");
+        } else if (reportStatus === "canceled") {
+          showAgentNotice("Agent 분석을 중단했습니다.", "info");
+        } else if (!incidentResponsePrompt) {
+          showAgentNotice(agentReportCompletionMessage(report, agentContextSymbol));
+        }
         publishOntologyReport({ symbol: report.symbol, providerEvidence: report.providerEvidence ?? [] });
       } catch (error: unknown) {
         const activeRun = activeAgentRunRef.current;
+        if (commentarySource) {
+          setPanelState((current) => clearChartCommentaryPending(current, commentarySource!.chartDocumentId));
+        }
         if (isAgentRequestAbortError(error) || activeRun?.cancelRequested) {
-          replaceChatLogEntry(setChatLog, pendingEntry.id, "Agent 분석을 중단했습니다.");
+          if (!activeRun?.cancelRequested) {
+            showAgentNotice("Agent 분석을 중단했습니다.", "info");
+          }
           return;
         }
-        replaceChatLogEntry(
-          setChatLog,
-          pendingEntry.id,
-          error instanceof Error ? error.message : "Agent 요청에 실패했습니다."
-        );
+        showAgentNotice(error instanceof Error ? error.message : "Agent 요청에 실패했습니다.", "error");
       } finally {
-        const activeRun = activeAgentRunRef.current;
-        if (!activeRun || activeRun.pendingEntryId === pendingEntry.id) {
-          activeAgentRunRef.current = null;
-          setAgentBusy(false);
-        }
+        activeAgentRunRef.current = null;
+        setAgentBusy(false);
       }
     };
 
     void runChartPrompt();
-    return "chat-log";
-  }, [agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, canUseAgent, chartDocumentSymbolsByPanelId, handlePresetLoadResult, mainView, navigateMainView, openSymbolPage, panelState, resolvePresetSymbol, semanticSelection, viewportSize]);
+    return "notice";
+  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, buildPresetLayoutForCurrent, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime, clearChartSemanticSelections, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
 
+  const closeTradeAutomationDialog = useCallback(() => {
+    tradeAutomationRequestedSnapshotRef.current = null;
+    setTradeAutomationDraft(null);
+    setAgentComposerRequest((current) => current + 1);
+  }, []);
 
+  const confirmTradeAutomation = useCallback(async (quantity: number): Promise<boolean> => {
+    if (!tradeAutomationDraft || tradeAutomationDraft.status !== "pending") {
+      return false;
+    }
+    const snapshot = getChartTradeSetupSnapshot(tradeAutomationDraft.chartDocumentId);
+    if (!chartRuntime.documents[tradeAutomationDraft.chartDocumentId]
+      || !tradeAutomationDraftMatchesSnapshot(
+        tradeAutomationDraft,
+        snapshot,
+        tradeAutomationRequestedSnapshotRef.current
+      )) {
+      setTradeAutomationDraft({ ...tradeAutomationDraft, status: "stale" });
+      return false;
+    }
+    setAgentBusy(true);
+    try {
+      const { createPriceCondition } = await import("./priceCondition/priceConditionApi");
+      const confirmedDraft: TradeAutomationConfirmationDraft = {
+        ...tradeAutomationDraft,
+        quantity,
+        status: "confirmed"
+      };
+      const condition = await createPriceCondition(
+        priceConditionInputFromTradeAutomationDraft(confirmedDraft)
+      );
+      tradeAutomationRequestedSnapshotRef.current = null;
+      setTradeAutomationDraft(null);
+      setAgentComposerRequest((current) => current + 1);
+      showAgentNotice(`${condition.symbol} ${condition.quantity}주 예약매매와 가격 알림을 등록했습니다.`);
+      return true;
+    } catch (error) {
+      showAgentNotice(error instanceof Error ? error.message : "예약매매와 가격 알림을 등록하지 못했습니다.", "error");
+      return false;
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [chartRuntime.documents, showAgentNotice, tradeAutomationDraft]);
   return (
     <main className="app-shell" style={workspaceStyle}>
       <div className="heatmap-background-layer" aria-hidden="true">
@@ -1293,21 +1895,31 @@ export function App() {
             layoutMetrics={panelLayoutMetrics}
             layoutMode={responsivePanelLayout.mode}
             layoutEditMode={layoutEditMode}
-            onExitLayoutEdit={toggleLayoutEditMode}
+            onExitLayoutEdit={exitLayoutEditMode}
             activeSymbol={mainView.symbol}
             symbols={universeSymbols}
             companyItems={treeMapItems}
             marketItems={treeMapItems}
             chartRuntime={chartRuntime}
+            chartDataResetRevision={chartDataResetRevision}
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
-            setSemanticSelection={setSemanticSelection}
+            setSemanticSelection={handleSemanticSelectionChange}
             onAgentReferenceSelect={handleAgentReferenceSelect}
             onAgentAsk={handleAgentAsk}
             onChartRuntimeAction={dispatchChartRuntimeAction}
             onChartHandleChange={handleChartHandleChange}
             onSelectSymbol={openSymbolPage}
+            selectedRecommendationSymbol={selectedRecommendationSymbol}
+            onSelectRecommendationReference={handleRecommendationReferenceSelect}
+            onOpenCompany={openCompanyPage}
+            onSelectPatternAsset={openPatternAsset}
+            selectedWildPanelSlotId={selectedWildPanelSlotId}
+            onSelectWildPanel={setSelectedWildPanelSlotId}
+            chartPriceSelection={chartPriceSelection}
+            onChartPriceSelection={handleChartPriceSelection}
+            onActiveChartChange={handleActiveChartChange}
             placementPickerOverlay={pendingPlacementPick ? (
               <PlacementPickerOverlay
                 pick={pendingPlacementPick}
@@ -1324,7 +1936,7 @@ export function App() {
         agentBusy={agentBusy}
         agentInput={agentInput}
         agentComposerRequest={agentComposerRequest}
-        chatLog={chatLog}
+        agentNotice={agentNotice}
         authEnabled={authEnabled}
         authLoading={authLoading}
         authUser={user}
@@ -1336,7 +1948,9 @@ export function App() {
           <PresetDock
             controls={presetControls}
             onShowHome={showTreeMap}
-            onEnterLayoutEdit={toggleLayoutEditMode}
+            layoutEditMode={layoutEditMode}
+            onEnterLayoutEdit={enterLayoutEditMode}
+            onExitLayoutEdit={exitLayoutEditMode}
           />
         ) : null}
         onAgentInputChange={setAgentInput}
@@ -1344,24 +1958,24 @@ export function App() {
         onAgentReferenceRemove={removeAgentReference}
         onAgentReferenceEmphasize={emphasizeAgentReferences}
         onAgentSubmit={runAgentPrompt}
+        onAgentNoticeDismiss={dismissAgentNotice}
         onLogin={login}
         onLogout={() => void logout()}
         onSelectSymbol={openSymbolPage}
         onApplyLayoutProposal={applyAgentLayoutProposal}
       />
+      {tradeAutomationDraft && (
+        <Suspense fallback={null}>
+          <TradeAutomationConfirmationDialog
+            draft={tradeAutomationDraft}
+            onCancel={closeTradeAutomationDialog}
+            onConfirm={confirmTradeAutomation}
+          />
+        </Suspense>
+      )}
       <GlossaryTooltip />
     </main>
   );
-}
-
-function createChatLogEntry(role: ChatLogEntry["role"], text: string, pending = false): ChatLogEntry {
-  chatLogEntrySequence += 1;
-  return {
-    id: `chat-${Date.now()}-${chatLogEntrySequence}`,
-    role,
-    text,
-    pending
-  };
 }
 
 function mergeTreeMapItems(
@@ -1488,18 +2102,6 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function readObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
 function initialMainView(): MainView {
   if (typeof window === "undefined") {
     return { mode: "treemap" };
@@ -1593,20 +2195,6 @@ function isLikelyChartOpenCommand(prompt: string): boolean {
   const hasAnalysisTerm = ["분석", "뉴스", "원인", "왜", "관계", "비교", "analysis", "analyze", "news", "why", "compare"].some((term) => compacted.includes(term));
   const possibleEntityText = compacted.replace(/차트|그래프|보여줘|보여|열어줘|열어|띄워줘|띄워|켜줘|켜|주세요|좀|chart|graph|show|open|please/g, "");
   return hasChartTerm && hasOpenTerm && !hasAnalysisTerm && possibleEntityText.length > 0;
-}
-
-function replaceChatLogEntry(
-  setChatLog: Dispatch<SetStateAction<ChatLogEntry[]>>,
-  entryId: string,
-  text: string,
-  confidence?: number,
-  analysisReport?: ChatLogEntry["analysisReport"]
-) {
-  setChatLog((current) => current.map((entry) => (
-    entry.id === entryId
-      ? { ...entry, text, pending: false, confidence, analysisReport }
-      : entry
-  )));
 }
 
 function currentViewportSize(container?: HTMLElement | null): ViewportSize {

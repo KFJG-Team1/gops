@@ -55,8 +55,15 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   portfolioHoldingsFlatCards: "portfolioHoldingsFlatCards",
   aiCoach: "aiCoach",
   orderFlow: "orderFlowProfile",
+  aiCoach: "aiCoach",
+  priceCondition: "priceCondition",
+  quickOrder: "quickOrder",
+  paperQuickOrder: "paperQuickOrder",
+  paperTrade: "paperOrderTicket",
+  paperAccount: "paperAccount",
   chartCommentary: "chartCommentary",
   chartAssetOps: "chartAssetOps",
+  chartPatternList: "chartPatternList",
   trade: "orderTicket"
 };
 

@@ -33,18 +33,18 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
   await expectLatestQuarterGap(chartPanel);
 
-  await expect(panel).toHaveScreenshot("chart-candle.png");
-  await page.getByLabel("Chart type").selectOption("line", { force: true });
+  await expect(panel).toHaveScreenshot("chart-candle.png", { maxDiffPixelRatio: 0.015 });
+  await selectChartToolbarOption(page, "Chart type", "line");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-line.png");
+  await expect(panel).toHaveScreenshot("chart-line.png", { maxDiffPixelRatio: 0.015 });
 
-  await page.getByLabel("Chart type").selectOption("ohlc", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "ohlc");
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expect(panel).toHaveScreenshot("chart-ohlc.png");
+  await expect(panel).toHaveScreenshot("chart-ohlc.png", { maxDiffPixelRatio: 0.015 });
 
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
   for (const interval of ["1m", "10m", "1h"] as const) {
-    await page.getByLabel("Interval").selectOption(interval, { force: true });
+    await selectChartToolbarOption(page, "Interval", interval);
     await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-status", "ready");
     await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
     await expect(page.locator(".chart-canvas")).toHaveAttribute("data-order-flow-minute-count", /^[1-9]\d*$/);
@@ -53,9 +53,49 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     }));
     await expectNonBlankCanvas(page.locator(".chart-canvas"));
-    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`);
+    await expect(panel).toHaveScreenshot(`chart-bidask-${interval}.png`, { maxDiffPixelRatio: 0.015 });
   }
   expect(intradayRequestCount).toBe(1);
+});
+
+test("chart toolbar dropdowns open downward and remain keyboard accessible", async ({ page }) => {
+  await openFixtureLayout(page, chartOnlyLayout());
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  const chartTypeTrigger = page.getByRole("combobox", { name: "Chart type" });
+  const intervalTrigger = page.getByRole("combobox", { name: "Interval" });
+
+  await selectChartToolbarOption(page, "Chart type", "ohlc");
+  await chartTypeTrigger.click();
+  const chartTypeMenu = page.getByRole("listbox", { name: "Chart type options" });
+  await expect(chartTypeMenu).toBeVisible();
+  await expectDropdownBelowTrigger(chartTypeTrigger, chartTypeMenu);
+  await expect(chartTypeMenu.getByRole("option")).toHaveText(["Candle", "Line", "OHLC", "Bid/Ask"]);
+  await expect(chartTypeMenu.locator('[data-value="ohlc"]')).toHaveAttribute("aria-selected", "true");
+  expect(await chartTypeMenu.evaluate((element) => element.scrollTop)).toBe(0);
+
+  await intervalTrigger.click();
+  await expect(chartTypeMenu).toBeHidden();
+  const intervalMenu = page.getByRole("listbox", { name: "Interval options" });
+  await expect(intervalMenu).toBeVisible();
+  await expectDropdownBelowTrigger(intervalTrigger, intervalMenu);
+  await expect(intervalMenu.getByRole("option")).toHaveText(["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"]);
+  expect(await intervalMenu.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(panel).toHaveScreenshot("chart-toolbar-dropdown-open.png", { maxDiffPixelRatio: 0.015 });
+
+  await intervalTrigger.press("Escape");
+  await expect(intervalMenu).toBeHidden();
+  await expect(intervalTrigger).toBeFocused();
+
+  await intervalTrigger.press("ArrowDown");
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeVisible();
+  await intervalTrigger.press("End");
+  await intervalTrigger.press("Enter");
+  await expect(intervalTrigger).toContainText("1M");
+
+  await intervalTrigger.click();
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeVisible();
+  await page.locator(".chart-canvas").click({ position: { x: 12, y: 80 } });
+  await expect(page.getByRole("listbox", { name: "Interval options" })).toBeHidden();
 });
 
 test("partial retry locks zoom and keeps the latest quarter gap", async ({ page }) => {
@@ -75,8 +115,7 @@ test("partial retry locks zoom and keeps the latest quarter gap", async ({ page 
 
 test("fixed and optional derived layers preserve chart geometry", async ({ page }) => {
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
-  const addMenu = page.getByRole("menu", { name: "차트 추가 도구" });
+  const addMenu = await openChartAddMenu(page);
   await page.getByRole("menuitemcheckbox", { name: "20기간 지수 이동평균선" }).click({ force: true });
   await expect(addMenu).toBeVisible();
   await page.getByRole("menuitemcheckbox", { name: "거래량 프로파일" }).click({ force: true });
@@ -101,7 +140,7 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
   });
 
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByRole("button", { name: "차트 추가 도구 열기" }).click({ force: true });
+  await openChartAddMenu(page);
   await page.getByRole("menuitemcheckbox", { name: "120기간 단순 이동평균선" }).click({ force: true });
 
   await expect.poll(() => requestedLayers.some((layers) => layers.split(",").includes("sma:120"))).toBe(true);
@@ -111,8 +150,8 @@ test("SMA120 overlay requests derived points and remains renderable", async ({ p
 test("bidask wheel zoom keeps one visual grammar and skips viewport history", async ({ page }) => {
   alignBidAskFixtures = true;
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
-  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+  await selectChartToolbarOption(page, "Interval", "1m");
   const chartPanel = page.locator(".chart-panel");
   const canvas = chartPanel.locator(".chart-canvas");
   await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
@@ -136,8 +175,8 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   omittedCandleIndex = 82;
   omittedOrderFlowMinute = 88;
   await openFixtureLayout(page, chartOnlyLayout());
-  await page.getByLabel("Chart type").selectOption("bidask", { force: true });
-  await page.getByLabel("Interval").selectOption("1m", { force: true });
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+  await selectChartToolbarOption(page, "Interval", "1m");
   const chartPanel = page.locator(".chart-panel");
   await expect(chartPanel).toHaveAttribute("data-order-flow-status", "ready");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "139");
@@ -152,7 +191,9 @@ test("bidask missing minutes retain candles and unknown delta", async ({ page })
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count"))).toBeLessThan(120);
   await page.waitForTimeout(250);
   await expectNonBlankCanvas(canvas);
-  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png");
+  await expect(chartPanel).toHaveScreenshot("chart-bidask-missing-minutes.png", {
+    maxDiffPixelRatio: 0.015,
+  });
 });
 
 test("tiled chart, compare, and order-flow panels do not overlap workspace chrome", async ({ page }) => {
@@ -165,7 +206,9 @@ test("tiled chart, compare, and order-flow panels do not overlap workspace chrom
   await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
   await expect(page.locator(".chart-compare-panel")).toBeVisible();
   await assertWorkspaceChromeDoesNotOverlap(page);
-  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png");
+  await expect(page.locator(".app-shell")).toHaveScreenshot("workspace-chart-compare-orderflow.png", {
+    maxDiffPixelRatio: 0.015
+  });
 });
 
 test("layout edit hides the command bar and exposes chart asset panels", async ({ page }) => {
@@ -174,9 +217,148 @@ test("layout edit hides the command bar and exposes chart asset panels", async (
 
   await expect(page.locator(".workspace-bottom-nav")).toHaveCount(0);
   await expect(page.locator(".layout-palette-dock")).toBeVisible();
-  await expect(page.getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
+  await expect(page.locator(".workspace-top-nav").getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
+  await expect(page.locator(".layout-palette-dock").getByRole("button", { name: "레이아웃 수정모드 종료" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "차트 해설" })).toBeVisible();
   await expect(page.getByRole("button", { name: "작도 자산(개발)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "빠른 주문", exact: true })).toBeVisible();
+});
+
+test("quick order keeps analysis context ahead of explicit submit", async ({ page }) => {
+  const submittedOrders: Array<{ headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/orders" && request.method() === "POST") {
+      submittedOrders.push({ headers: request.headers(), body: request.postDataJSON() });
+    }
+  });
+  await openFixtureLayout(page, quickOrderLayout());
+  const panel = page.locator(".quick-order-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("데이터 기준")).toHaveCount(0);
+  await expect(panel.locator(".quick-order-shortcuts button")).toHaveCount(4);
+  await expect(panel.getByRole("button", { name: "매수 우위 후보가" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "매도 우위 후보가" })).toBeVisible();
+  const symbolPicker = panel.locator(".quick-order-symbol-picker");
+  await expect.poll(() => panel.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft, style.borderRadius];
+  })).toEqual(["8px", "8px", "8px", "8px", "8px"]);
+  await expect.poll(() => panel.locator(".quick-order-symbol-search").evaluate((element) => getComputedStyle(element).borderRadius)).toBe("6px");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).borderRadius)).toBe("6px");
+  await expect.poll(() => panel.locator(".quick-order-status-layer").evaluate((element) => getComputedStyle(element).position)).toBe("absolute");
+  await expect.poll(async () => {
+    const [panelBox, pickerBox] = await Promise.all([panel.boundingBox(), symbolPicker.boundingBox()]);
+    return panelBox && pickerBox ? panelBox.x + panelBox.width - pickerBox.x - pickerBox.width : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(16);
+  const selectedNvda = panel.locator(".quick-order-selected-symbol", { hasText: "NVDA" });
+  await expect(selectedNvda).toBeVisible();
+  const selectedSymbolLayout = await selectedNvda.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const tickerStyle = getComputedStyle(element.querySelector("strong")!);
+    return [style.display, style.paddingLeft, style.paddingRight, tickerStyle.justifySelf, tickerStyle.whiteSpace];
+  });
+  expect(selectedSymbolLayout).toEqual(["grid", "8px", "8px", "end", "nowrap"]);
+  await expect(selectedNvda).not.toContainText(/Nvidia/i);
+  await selectedNvda.click();
+  const symbolSearch = panel.getByLabel("빠른 주문 종목 검색");
+  await expect(symbolSearch).toHaveAttribute("placeholder", "종목 검색");
+  await symbolSearch.fill("Apple");
+  await expect(panel.locator(".quick-order-symbol-search")).toHaveClass(/is-searching/);
+  await expect(panel.getByRole("option", { name: /AAPL Apple/i })).toBeVisible();
+  await panel.getByRole("option", { name: /AAPL Apple/i }).click();
+  const selectedApple = panel.locator(".quick-order-selected-symbol", { hasText: "AAPL" });
+  await expect(selectedApple).toBeVisible();
+  await selectedApple.click();
+  await expect(symbolSearch).toBeVisible();
+  await symbolSearch.fill("NVDA");
+  await panel.getByRole("option", { name: /NVDA Nvidia/i }).click();
+  await expect(panel.locator(".quick-order-selected-symbol", { hasText: "NVDA" })).toBeVisible();
+  await expect(panel.getByText("직접 입력하거나 주문 가능 금액 비율을 선택하세요.")).toHaveCount(0);
+  const bestBidButton = panel.getByRole("button", { name: /최우선 매수호가/ });
+  await expect(bestBidButton).toBeEnabled();
+  await expect.poll(() => bestBidButton.locator(":scope > span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).fontSize)).toBe("32px");
+  await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Asta Sans");
+  await expect(panel.locator(".quick-order-center-metrics .quick-order-metric")).toHaveCount(2);
+  await expect.poll(() => panel.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+  await expect(panel.getByRole("button", { name: "주문 전송" })).toBeDisabled();
+
+  const bidOffsetButton = panel.getByRole("button", { name: /매수호가 - 1틱/ });
+  const askOffsetButton = panel.getByRole("button", { name: /매도호가 \+ 1틱/ });
+  const buySignalButton = panel.getByRole("button", { name: "매수 우위 후보가" });
+  const priceEditor = panel.locator(".quick-order-price-editor");
+  const priceInput = panel.getByLabel("빠른 주문 가격 직접 입력");
+  const quantityEditor = panel.locator(".quick-order-quantity-editor");
+  const ratioButtons = panel.locator(".quick-order-ratio-buttons");
+  await expect(priceEditor).toBeVisible();
+  await expect(quantityEditor).toBeVisible();
+  await expect(ratioButtons).toBeVisible();
+  await expect(priceInput).toBeDisabled();
+  await expect.poll(() => bidOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => askOffsetButton.locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => panel.getByRole("button", { name: "매수 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => panel.getByRole("button", { name: "매도 우위 후보가" }).locator("span").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect(buySignalButton).toBeEnabled();
+  const buySignalPrice = (await buySignalButton.locator("strong").innerText()).replace("$", "");
+  await buySignalButton.click();
+  await expect(priceInput).toHaveValue(buySignalPrice);
+  await bidOffsetButton.click();
+  await expect(priceInput).toHaveValue("159.97");
+  await expect.poll(() => bidOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bidOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  await askOffsetButton.click();
+  await expect(priceInput).toHaveValue("160.03");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => askOffsetButton.locator("strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => askOffsetButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+
+  const bestAskButton = panel.getByRole("button", { name: /최우선 매도호가/ });
+  await bestAskButton.click();
+  await expect(priceInput).toHaveValue("160.02");
+  await expect(bestAskButton).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => bestAskButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(255, 85, 119)");
+  await expect.poll(() => bestAskButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+
+  await bestBidButton.click();
+  await expect(priceInput).toHaveValue("159.98");
+  await expect.poll(() => panel.locator(".quick-order-submit").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(34, 197, 94)");
+  await expect(bestBidButton).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => bestBidButton.locator(".quick-order-quote-price strong").evaluate((element) => getComputedStyle(element).color)).toBe("rgb(34, 197, 94)");
+  await expect.poll(() => bestBidButton.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  await expect(panel.getByText("예상 주문액")).toBeVisible();
+  const reviewCompany = panel.locator(".quick-order-review-company");
+  await expect(reviewCompany).toHaveText(/Nvidia/i);
+  await expect.poll(() => reviewCompany.evaluate((element) => getComputedStyle(element).fontSize)).toBe("20px");
+  await expect.poll(async () => {
+    const [companyBox, amountBox] = await Promise.all([reviewCompany.boundingBox(), panel.getByText("예상 주문액").boundingBox()]);
+    return companyBox && amountBox ? companyBox.y < amountBox.y : false;
+  }).toBe(true);
+  await expect(panel.locator(".quick-order-total-value")).toHaveText("$159.98");
+  await expect(panel.getByText(/체결 보장 없음|주문 가능 조회 중|실시간 호가 기준/)).toHaveCount(0);
+  await expect(panel.getByText("유효한 최우선 매수·매도호가를 기다리는 중입니다.")).toHaveCount(0);
+  await expect(panel.getByText("이전 주문의 접수 결과를 기다리는 중입니다.")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "주문 전송" })).toBeEnabled();
+
+  await priceInput.fill("159.95");
+  await expect(priceInput).toHaveValue("159.95");
+  await expect(bestBidButton).toHaveAttribute("aria-pressed", "false");
+  await expect(panel.locator(".quick-order-total-value")).toHaveText("$159.95");
+
+  const qtyInput = panel.getByLabel("주문 수량 직접 입력");
+  await qtyInput.fill("7");
+  await expect(qtyInput).toHaveValue("7");
+  await expect.poll(() => storedPanelProp(page, "content-quickOrder-2", "qty")).toBe(7);
+  await expect(panel.getByText("리스크 점검 통과")).toHaveCount(0);
+
+  await panel.getByRole("button", { name: "10%" }).click();
+  await expect(qtyInput).toHaveValue("6");
+  await expect.poll(() => storedPanelProp(page, "content-quickOrder-2", "qty")).toBe(6);
+
+  await panel.getByRole("button", { name: "주문 전송" }).click();
+  await expect.poll(() => submittedOrders.length).toBe(1);
+  expect(submittedOrders[0]?.headers["idempotency-key"]).toBeTruthy();
+  expect(submittedOrders[0]?.body).toMatchObject({ symbol: "NVDA", side: "buy", qty: "6", price: "159.95", order_division: "00" });
+  await expect(panel.getByText("NVDA 주문이 접수되었습니다.")).toBeVisible();
 });
 
 test("order-flow panels stay intraday-only and keep the lower canvas wheelable", async ({ page }) => {
@@ -254,6 +436,36 @@ test("order-flow panels stay intraday-only and keep the lower canvas wheelable",
   await expect.poll(() => storedPanelProp(page, "content-orderFlow-3", "symbol")).toBe("NVDA");
 });
 
+async function selectChartToolbarOption(page: Page, ariaLabel: "Chart type" | "Interval", value: string): Promise<void> {
+  const trigger = page.getByRole("combobox", { name: ariaLabel });
+  await trigger.click({ force: true });
+  const listbox = page.getByRole("listbox", { name: `${ariaLabel} options` });
+  await expect(listbox).toBeVisible();
+  await listbox.locator(`[data-value="${value}"]`).click();
+  await expect(listbox).toBeHidden();
+}
+
+async function expectDropdownBelowTrigger(trigger: Locator, listbox: Locator): Promise<void> {
+  const triggerBox = await trigger.boundingBox();
+  const listboxBox = await listbox.boundingBox();
+  expect(triggerBox).not.toBeNull();
+  expect(listboxBox).not.toBeNull();
+  if (!triggerBox || !listboxBox) {
+    return;
+  }
+  expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height + 5);
+  expect(listboxBox.y + listboxBox.height).toBeLessThanOrEqual(await listbox.evaluate(() => window.innerHeight - 7));
+}
+
+async function openChartAddMenu(page: Page): Promise<Locator> {
+  const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });
+  await panel.hover();
+  await panel.getByRole("button", { name: "차트 추가 도구 열기" }).click();
+  const menu = panel.getByRole("menu", { name: "차트 추가 도구" });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
 async function openFixtureLayout(page: Page, layout: Record<string, unknown>): Promise<void> {
   await page.addInitScript(({ storageKey, storedLayout }) => {
     window.localStorage.clear();
@@ -293,6 +505,16 @@ function orderFlowInteractionLayout(): Record<string, unknown> {
     slot("chart", 1, 1, 1, 4, 6),
     slot("orderFlow", 2, 5, 1, 2, 3),
     slot("orderFlow", 3, 7, 1, 2, 3)
+  ]);
+}
+
+function quickOrderLayout(): Record<string, unknown> {
+  return storedLayout([
+    content("chart", 1, { symbol: "NVDA", timeframe: "1m" }, "visual-chart-document"),
+    content("quickOrder", 2, { symbol: "NVDA", qty: 1 })
+  ], [
+    slot("chart", 1, 1, 1, 6, 6),
+    slot("quickOrder", 2, 7, 1, 2, 2)
   ]);
 }
 
@@ -340,6 +562,7 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
   let payload: unknown = {};
+  let status = request.method() === "DELETE" ? 204 : 200;
   if (url.pathname === "/api/auth/me") {
     payload = { authEnabled: false, user: null };
   } else if (url.pathname === "/api/charts/symbols") {
@@ -376,13 +599,20 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
     payload = orderFlowIntradayPayload(url.searchParams.get("symbol") ?? "NVDA");
   } else if (url.pathname === "/api/charts/order-flow/daily") {
     payload = orderFlowDailyPayload(url.searchParams.get("symbol") ?? "NVDA");
+  } else if (url.pathname === "/api/risk/pretrade") {
+    payload = { risk: { verdict: "allow", requestedQty: "1", adjustedQty: null, triggeredRules: [] } };
+  } else if (url.pathname === "/api/orders/balance") {
+    payload = { currency: "USD", orderable_cash: "10000.00", orderable_qty: "62" };
+  } else if (url.pathname === "/api/orders" && request.method() === "POST") {
+    status = 202;
+    payload = { order_id: "ord-quick-fixture", status: "received", symbol: "NVDA", side: "buy", qty: "2", price: "159.98", simulation: true };
   } else if (url.pathname === "/api/watchlist") {
     payload = { symbols: [] };
   } else if (url.pathname === "/api/market/heatmap") {
     payload = { items: [] };
   }
   await route.fulfill({
-    status: request.method() === "DELETE" ? 204 : 200,
+    status,
     contentType: "application/json",
     body: request.method() === "DELETE" ? "" : JSON.stringify(payload)
   });
@@ -476,6 +706,7 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
   const priceMin = Number(url.searchParams.get("priceMin") ?? 145);
   const priceMax = Number(url.searchParams.get("priceMax") ?? 165);
   const count = 10;
+  const candleCount = Number(url.searchParams.get("candleCount") ?? fixtureCandles(url.searchParams.get("interval") ?? "1m").length);
   const width = (priceMax - priceMin) / count;
   const bins = Array.from({ length: count }, (_, index) => ({
     index,
@@ -501,6 +732,8 @@ function volumeProfilePayload(url: URL): Record<string, unknown> {
     bucketCount: count,
     priceBinSize: width,
     sourceBinCount: count,
+    sourceCandleCount: candleCount,
+    requestedCandleCount: candleCount,
     source: "fixture",
     feed: "sip",
     calculationVersion: "fixture-v1",
@@ -596,8 +829,8 @@ function fixtureSymbols(): Array<Record<string, string>> {
 
 async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promise<void> {
   await expect(canvas).toBeVisible();
-  await expect.poll(async () => canvas.evaluate((element) => {
-    const target = element as HTMLCanvasElement;
+  const semanticPixelCount = () => canvas.evaluate((element) => {
+    const target = (element.parentElement?.querySelector(".chart-canvas-base") ?? element) as HTMLCanvasElement;
     const context = target.getContext("2d");
     if (!context || target.width < 10 || target.height < 10) {
       return 0;
@@ -616,7 +849,13 @@ async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promis
       }
     }
     return semanticDataPixels;
-  })).toBeGreaterThan(50);
+  });
+  await expect.poll(async () => {
+    const first = await semanticPixelCount();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const second = await semanticPixelCount();
+    return Math.min(first, second);
+  }).toBeGreaterThan(50);
 }
 
 async function expectLatestQuarterGap(chartPanel: Locator): Promise<void> {

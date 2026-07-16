@@ -12,8 +12,11 @@ export type AgentReferenceType =
   | "chart.candle"
   | "chart.orderFlow"
   | "chart.range"
+  | "chart.pattern"
+  | "chart.drawing"
   | "news.article"
   | "news.dailySummary"
+  | "recommendation.stock"
   | "ontology.entity"
   | "financial.metric";
 
@@ -32,7 +35,7 @@ export function agentReferenceKey(reference: AgentReference): string {
 // which lives outside the explicit agentReferences array but is shown as a reference chip.
 export const SEMANTIC_SELECTION_REFERENCE_KEY = "semantic-selection";
 
-export type AgentReferenceChipKind = "candle" | "news";
+export type AgentReferenceChipKind = "candle" | "news" | "recommendation";
 
 export type AgentReferenceChip = {
   key: string;
@@ -41,7 +44,10 @@ export type AgentReferenceChip = {
 };
 
 export function agentReferenceChipKind(reference: AgentReference): AgentReferenceChipKind {
-  return reference.type.startsWith("news") ? "news" : "candle";
+  if (reference.type.startsWith("news")) {
+    return "news";
+  }
+  return reference.type === "recommendation.stock" ? "recommendation" : "candle";
 }
 
 export function agentReferenceTicker(reference: AgentReference): string {
@@ -149,30 +155,80 @@ export function newsDailySummaryReference(
   };
 }
 
+export function stockRecommendationReference(
+  item: {
+    symbol: string;
+    rank: number;
+    score: number;
+    confidence: number;
+    changePercent?: number;
+    sector?: string;
+    sectorLabelKo?: string;
+    reasons: Array<{ type: string; text: string; weight?: number }>;
+    riskWarnings: string[];
+    metricsSnapshot: Record<string, unknown>;
+  },
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  const symbol = item.symbol.trim().toUpperCase();
+  return {
+    type: "recommendation.stock",
+    sourcePanelId,
+    displayLabel: `${symbol} 추천 ${item.rank}위`,
+    data: {
+      symbol,
+      rank: item.rank,
+      score: item.score,
+      confidence: item.confidence,
+      changePercent: item.changePercent,
+      sector: item.sector,
+      sectorLabelKo: item.sectorLabelKo,
+      reasons: item.reasons.map((reason) => ({ ...reason })),
+      riskWarnings: [...item.riskWarnings],
+      metricsSnapshot: { ...item.metricsSnapshot }
+    }
+  };
+}
+
 export function buildChartAnalysisContext(
   chart: ChartState,
-  selection?: SemanticSelectionSnapshot | null
+  selection?: SemanticSelectionSnapshot | null,
+  assetIdentity?: Record<string, unknown> | null,
+  sourcePanelId?: string,
+  chartDocumentId?: string
 ): Record<string, unknown> {
-  const lookback = Math.max(80, chart.visibleCount + Math.max(0, chart.rightOffset) + 80);
-  const visibleCandles = chart.candles.slice(-Math.min(chart.candles.length, lookback));
-  const lastCandle = visibleCandles[visibleCandles.length - 1];
-  const high = visibleCandles.reduce<number | undefined>(
+  const viewportEndIndex = Math.max(0, chart.candles.length - 1 - Math.max(0, chart.rightOffset));
+  const viewportStartIndex = Math.max(0, viewportEndIndex - Math.max(1, chart.visibleCount) + 1);
+  const analysisStartIndex = Math.max(0, viewportStartIndex - 120);
+  const analysisCandles = chart.candles.slice(analysisStartIndex, viewportEndIndex + 1);
+  const viewportCandles = chart.candles.slice(viewportStartIndex, viewportEndIndex + 1);
+  const lastCandle = viewportCandles[viewportCandles.length - 1];
+  const high = viewportCandles.reduce<number | undefined>(
     (current, candle) => current === undefined ? candle.high : Math.max(current, candle.high),
     undefined
   );
-  const low = visibleCandles.reduce<number | undefined>(
+  const low = viewportCandles.reduce<number | undefined>(
     (current, candle) => current === undefined ? candle.low : Math.min(current, candle.low),
     undefined
   );
-  const firstCandle = visibleCandles[0];
+  const firstCandle = viewportCandles[0];
   const change = firstCandle && lastCandle
     ? lastCandle.close - firstCandle.close
     : undefined;
   return {
     chartDocument: {
       symbol: chart.symbol,
-      timeframe: chart.interval
+      timeframe: chart.interval,
+      sourcePanelId,
+      chartDocumentId
     },
+    analysisWindow: {
+      viewportFrom: firstCandle?.timestamp,
+      viewportTo: lastCandle?.timestamp,
+      preRollBars: viewportStartIndex - analysisStartIndex,
+      candleCount: analysisCandles.length
+    },
+    assetIdentity: assetIdentity ?? undefined,
     panel: {
       symbol: chart.symbol,
       interval: chart.interval,
@@ -193,8 +249,8 @@ export function buildChartAnalysisContext(
       low,
       change: change === undefined ? undefined : `${change >= 0 ? "+" : ""}${change.toFixed(4)}`
     },
-    selectedReference: selection ? chartReferenceForSelection(chart, selection) : null,
-    candles: visibleCandles
+    selectedReference: selection ? chartReferenceForSelection(chart, selection, sourcePanelId) : null,
+    candles: analysisCandles
   };
 }
 

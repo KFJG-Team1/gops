@@ -5,6 +5,24 @@ import {
   type AgentLayoutProposal,
   type CommandActor
 } from "../layout/agentLayoutTypes";
+import type {
+  CoachActionCenter,
+  CoachAlertCandidate,
+  CoachAlertProposalSource,
+  CoachReport,
+  DailyTradeReview,
+  HistoricalHabitsPage,
+  HabitPattern,
+  PortfolioDiversificationCandidate,
+  PortfolioHoldingSensitivity,
+  PortfolioSectorExposure,
+  HabitProcessOutcome,
+  HabitReport,
+  HabitRepresentativeTrade,
+  ImprovementPlan,
+  TradeCase
+} from "../components/ai-coach/types";
+import { normalizeChartExplanation, type ChartExplanation } from "../agent/chartExplanation";
 
 export type AgentEvidenceItem = {
   provider: string;
@@ -28,6 +46,7 @@ export type AgentFinding = {
 
 export type NotificationDecision = {
   level: string;
+  eventType?: string;
   title?: string;
   message?: string;
   reason?: string;
@@ -148,6 +167,25 @@ export type AgentAnalysisTiming = {
   finalAnswerMs?: number;
 };
 
+export type TradeConditionProposal = {
+  proposalId: string;
+  analysisId: string;
+  symbol: string;
+  exchange: string;
+  side: "buy" | "sell";
+  direction: "atOrBelow" | "atOrAbove";
+  triggerPrice: number;
+  limitPrice?: number;
+  quantity?: number;
+  executionEnabled: boolean;
+  alertsEnabled: boolean;
+  validity: string;
+  missingFields: string[];
+  rationale?: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
+
 export type AgentAnalysisReport = {
   analysisId: string;
   summary: string;
@@ -162,10 +200,13 @@ export type AgentAnalysisReport = {
   dailySummaries: AgentDailyNewsSummary[];
   notificationDecision?: NotificationDecision | null;
   layoutProposal?: AgentLayoutProposal | null;
+  tradeConditionProposals: TradeConditionProposal[];
   timing?: AgentAnalysisTiming | null;
+  chartExplanation?: ChartExplanation | null;
+  coachReport?: CoachReport | null;
 };
 
-export type AgentAnalysisMode = "auto" | "multi_agent";
+export type AgentAnalysisMode = "auto" | "deep" | "multi_agent";
 
 export type AgentAnalysisRequestInput = {
   messages: AgentAnalysisMessage[];
@@ -178,6 +219,11 @@ export type AgentAnalysisRequestInput = {
   routerMode?: "hybrid" | "rules" | "strict-llm";
   analysisMode?: AgentAnalysisMode;
   agentIds?: string[];
+  coachRequest?: {
+    enabled: true;
+    selectedFillId?: string;
+    tradingDate?: string;
+  };
 };
 
 export type AgentAnalysisMessage = {
@@ -196,7 +242,8 @@ export function buildAgentAnalysisRequest({
   uiContext,
   routerMode = "hybrid",
   analysisMode = "auto",
-  agentIds = []
+  agentIds = [],
+  coachRequest
 }: AgentAnalysisRequestInput) {
   const request = {
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
@@ -207,7 +254,8 @@ export function buildAgentAnalysisRequest({
     uiContext: uiContext ?? {},
     routerMode,
     analysisMode,
-    agentIds
+    agentIds,
+    ...(coachRequest ? { coachRequest } : {})
   };
   return layoutContext === undefined ? request : { ...request, layoutContext };
 }
@@ -243,8 +291,315 @@ export function normalizeAgentAnalysisReport(payload: unknown): AgentAnalysisRep
     dailySummaries: readArray(source.dailySummaries).map(normalizeDailySummary).filter((item): item is AgentDailyNewsSummary => Boolean(item)),
     notificationDecision: normalizeNotification(source.notificationDecision),
     layoutProposal: normalizeLayoutProposal(source.layoutProposal),
-    timing: normalizeTiming(source.timing)
+    tradeConditionProposals: readArray(source.tradeConditionProposals)
+      .map(normalizeTradeConditionProposal)
+      .filter((item): item is TradeConditionProposal => Boolean(item)),
+    timing: normalizeTiming(source.timing),
+    chartExplanation: normalizeChartExplanation(source.chartExplanation),
+    coachReport: normalizeCoachReport(source.coachReport)
   };
+}
+
+export async function fetchLatestCoachReport(signal?: AbortSignal): Promise<CoachReport | null> {
+  const response = await fetch("/api/ai-coach/reports/latest", { signal, credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error(`AI coach report request failed (${response.status})`);
+  }
+  const payload = readObject(await response.json());
+  return normalizeCoachReport(payload?.report);
+}
+
+export function normalizeCoachReport(value: unknown): CoachReport | null {
+  const source = readObject(value);
+  const contractVersion = readString(source?.contractVersion);
+  const analysisId = readString(source?.analysisId);
+  if (!source || !contractVersion || !analysisId) return null;
+  const sourceAsOf = readObject(source.sourceAsOf) ?? {};
+  return {
+    contractVersion,
+    analysisId,
+    generatedAt: readString(source.generatedAt) ?? "",
+    sourceAsOf: Object.fromEntries(
+      Object.entries(sourceAsOf).map(([key, item]) => [key, readString(item)])
+    ),
+    page1: normalizeDailyTradeReview(source.page1),
+    page2: normalizeHistoricalHabitsPage(source.page2),
+    page3: normalizeImprovementPlan(source.page3),
+    page4: normalizeCoachActionCenter(source.page4),
+    snapshotRef: readString(source.snapshotRef),
+    snapshotDigest: readString(source.snapshotDigest),
+    missingData: readArray(source.missingData)
+      .map(readObject)
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => ({
+        source: readString(item.source) ?? undefined,
+        code: readString(item.code) ?? undefined,
+        message: readString(item.message) ?? undefined
+      })),
+    warnings: readArray(source.warnings)
+      .map(readString)
+      .filter((item): item is string => Boolean(item))
+  };
+}
+
+function normalizeDailyTradeReview(value: unknown): DailyTradeReview | null {
+  const source = readObject(value);
+  if (!source) return null;
+  const currentCase = normalizeTradeCase(source.currentCase);
+  if (!currentCase) return null;
+  const trades = readArray(source.trades)
+    .map(readObject)
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((item) => {
+      const fillId = readString(item.fillId);
+      const symbol = readString(item.symbol);
+      return fillId && symbol ? [{ ...item, fillId, symbol }] : [];
+    }) as DailyTradeReview["trades"];
+  const assessment = readObject(source.decisionAssessment) ?? {};
+  const checklist = readObject(source.checklist) ?? {};
+  const reviewsSource = readObject(source.reviewsByFillId) ?? {};
+  const reviewsByFillId: NonNullable<DailyTradeReview["reviewsByFillId"]> = {};
+  for (const [fillId, reviewValue] of Object.entries(reviewsSource)) {
+    const review = normalizeTradeReviewBody(reviewValue);
+    if (fillId && review) reviewsByFillId[fillId] = review;
+  }
+  return {
+    selectedFillId: readString(source.selectedFillId),
+    trades,
+    decisionAssessment: {
+      ...(assessment as DailyTradeReview["decisionAssessment"]),
+      evidence: readArray(assessment.evidence).map(readString).filter((item): item is string => Boolean(item)),
+      sourceAsOf: normalizeSourceAsOf(assessment.sourceAsOf)
+    },
+    currentCase,
+    similarCases: readArray(source.similarCases).map(normalizeTradeCase).filter((item): item is TradeCase => Boolean(item)).slice(0, 6),
+    checklist: {
+      chart: normalizeObjectArray(checklist.chart) as DailyTradeReview["checklist"]["chart"],
+      news: normalizeObjectArray(checklist.news) as DailyTradeReview["checklist"]["news"],
+      fundamentals: normalizeObjectArray(checklist.fundamentals) as DailyTradeReview["checklist"]["fundamentals"],
+      market: normalizeObjectArray(checklist.market) as DailyTradeReview["checklist"]["market"]
+    },
+    portfolioImpact: readObject(source.portfolioImpact) ?? {},
+    watchConditions: normalizeObjectArray(source.watchConditions) as DailyTradeReview["watchConditions"],
+    proposedAlerts: normalizeObjectArray(source.proposedAlerts) as DailyTradeReview["proposedAlerts"],
+    confidence: (readObject(source.confidence) ?? {}) as DailyTradeReview["confidence"],
+    reviewsByFillId
+  };
+}
+
+function normalizeTradeReviewBody(value: unknown): NonNullable<DailyTradeReview["reviewsByFillId"]>[string] | null {
+  const source = readObject(value);
+  const currentCase = normalizeTradeCase(source?.currentCase);
+  if (!source || !currentCase) return null;
+  const assessment = readObject(source.decisionAssessment) ?? {};
+  const checklist = readObject(source.checklist) ?? {};
+  return {
+    decisionAssessment: assessment as DailyTradeReview["decisionAssessment"],
+    currentCase,
+    similarCases: readArray(source.similarCases).map(normalizeTradeCase).filter((item): item is TradeCase => Boolean(item)).slice(0, 6),
+    checklist: {
+      chart: normalizeObjectArray(checklist.chart) as DailyTradeReview["checklist"]["chart"],
+      news: normalizeObjectArray(checklist.news) as DailyTradeReview["checklist"]["news"],
+      fundamentals: normalizeObjectArray(checklist.fundamentals) as DailyTradeReview["checklist"]["fundamentals"],
+      market: normalizeObjectArray(checklist.market) as DailyTradeReview["checklist"]["market"]
+    },
+    portfolioImpact: readObject(source.portfolioImpact) ?? {},
+    watchConditions: normalizeObjectArray(source.watchConditions) as DailyTradeReview["watchConditions"],
+    proposedAlerts: normalizeObjectArray(source.proposedAlerts) as DailyTradeReview["proposedAlerts"],
+    confidence: (readObject(source.confidence) ?? {}) as DailyTradeReview["confidence"]
+  };
+}
+
+function normalizeTradeCase(value: unknown): TradeCase | null {
+  const source = readObject(value);
+  const caseId = readString(source?.caseId);
+  if (!source || !caseId) return null;
+  return {
+    ...(source as TradeCase),
+    caseId,
+    similarityComponents: readObject(source.similarityComponents) as Record<string, number> | null ?? undefined,
+    series: normalizeObjectArray(source.series) as TradeCase["series"],
+    missedChecks: normalizeObjectArray(source.missedChecks) as TradeCase["missedChecks"]
+  };
+}
+
+function normalizeHistoricalHabitsPage(value: unknown): HistoricalHabitsPage | null {
+  const source = readObject(value);
+  if (!source) return null;
+  const reportsByPeriod = readObject(source.reportsByPeriod) ?? {};
+  return {
+    ...(source as HistoricalHabitsPage),
+    availability: normalizeAvailability(source.availability),
+    defaultPeriod: "6m",
+    reportsByPeriod: {
+      "6m": normalizeStageReports(reportsByPeriod["6m"] ?? reportsByPeriod["90d"] ?? reportsByPeriod["1y"] ?? reportsByPeriod["30d"])
+    }
+  };
+}
+
+function normalizeImprovementPlan(value: unknown): ImprovementPlan | null {
+  const source = readObject(value);
+  if (!source) return null;
+  return {
+    ...(source as ImprovementPlan),
+    availability: normalizeAvailability(source.availability),
+    summary: readString(source.summary) ?? undefined,
+    priorities: normalizeObjectArray(source.priorities) as ImprovementPlan["priorities"],
+    experiments: normalizeObjectArray(source.experiments) as ImprovementPlan["experiments"],
+    guardrails: normalizeObjectArray(source.guardrails) as ImprovementPlan["guardrails"]
+  };
+}
+
+function normalizeCoachActionCenter(value: unknown): CoachActionCenter | null {
+  const source = readObject(value);
+  if (!source) return null;
+  return {
+    availability: normalizeAvailability(source.availability),
+    activeExperiments: normalizeObjectArray(source.activeExperiments) as CoachActionCenter["activeExperiments"],
+    enabledGuardrails: normalizeObjectArray(source.enabledGuardrails) as CoachActionCenter["enabledGuardrails"],
+    recommendedAlerts: readArray(source.recommendedAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, true))
+      .filter((item): item is CoachAlertCandidate => Boolean(item)),
+    watchingAlerts: readArray(source.watchingAlerts)
+      .map((item) => normalizeCoachAlertCandidate(item, false))
+      .filter((item): item is CoachAlertCandidate => Boolean(item))
+  };
+}
+
+function normalizeCoachAlertCandidate(value: unknown, legacyDailyTradeFallback: boolean): CoachAlertCandidate | null {
+  const source = readObject(value);
+  const id = readString(source?.id);
+  const title = readString(source?.title);
+  if (!source || !id || !title) return null;
+  const hasProposalSource = Object.prototype.hasOwnProperty.call(source, "proposalSource")
+    || Object.prototype.hasOwnProperty.call(source, "proposal_source");
+  const proposalSource = normalizeCoachAlertProposalSource(source.proposalSource ?? source.proposal_source);
+  if (hasProposalSource && !proposalSource && legacyDailyTradeFallback) return null;
+  return {
+    id,
+    symbol: readString(source.symbol),
+    title,
+    detail: readString(source.detail) ?? undefined,
+    currentValue: readString(source.currentValue) ?? readNumber(source.currentValue),
+    threshold: readString(source.threshold) ?? readNumber(source.threshold),
+    operator: readString(source.operator),
+    recommendedAction: readString(source.recommendedAction),
+    alertSupported: readBoolean(source.alertSupported) ?? undefined,
+    enabled: readBoolean(source.enabled) ?? false,
+    proposalSource: proposalSource ?? (legacyDailyTradeFallback && !hasProposalSource ? "daily_trade" : null),
+    alertRequest: (readObject(source.alertRequest) ?? undefined) as CoachAlertCandidate["alertRequest"],
+    serverAlertId: readNumber(source.serverAlertId) ?? undefined
+  };
+}
+
+function normalizeCoachAlertProposalSource(value: unknown): CoachAlertProposalSource | null {
+  const source = readString(value);
+  return source === "daily_trade" || source === "entry_habit" || source === "exit_habit" || source === "portfolio_risk"
+    ? source
+    : null;
+}
+
+function normalizeStageReports(value: unknown): Record<string, never> | NonNullable<HistoricalHabitsPage["reportsByPeriod"]["6m"]> {
+  const source = readObject(value);
+  if (!source) return {};
+  return Object.fromEntries(
+    ["entry", "exit", "portfolio"].flatMap((stage) => {
+      const report = readObject(source[stage]);
+      if (!report) return [];
+      return [[stage, {
+        ...report,
+        stage,
+        availability: normalizeAvailability(report.availability),
+        sampleSize: readNumber(report.sampleSize) ?? 0,
+        totalTradeCount: readNumber(report.totalTradeCount) ?? readNumber(report.sampleSize) ?? 0,
+        analyzedTradeCount: readNumber(report.analyzedTradeCount) ?? readNumber(report.sampleSize) ?? 0,
+        excludedTradeCount: readNumber(report.excludedTradeCount) ?? 0,
+        evidenceQuality: ["low", "medium", "high"].includes(String(report.evidenceQuality)) ? report.evidenceQuality : report.confidence,
+        excludedReasons: readArray(report.excludedReasons).map(readString).filter((item): item is string => Boolean(item)),
+        confidence: ["low", "medium", "high"].includes(String(report.confidence)) ? report.confidence : "insufficient",
+        missingData: readArray(report.missingData).map(readString).filter((item): item is string => Boolean(item)),
+        behavior: normalizeObjectArray(report.behavior),
+        longTermProfile: normalizeLongTermProfile(report.longTermProfile),
+        insights: normalizeObjectArray(report.insights)
+      }]];
+    })
+  ) as NonNullable<HistoricalHabitsPage["reportsByPeriod"]["6m"]>;
+}
+
+function normalizeLongTermProfile(value: unknown): HabitReport["longTermProfile"] {
+  const source = readObject(value);
+  if (!source) return undefined;
+  const decisionRecords = readObject(source.decisionRecords);
+  const processOutcome = readArray(source.processOutcome).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const process = readString(item.process);
+    const outcome = readString(item.outcome);
+    const count = readNumber(item.count);
+    if ((process !== "confirmed" && process !== "unconfirmed") || (outcome !== "positive" && outcome !== "negative") || count === null) return [];
+    return [{ process: process as HabitProcessOutcome["process"], outcome: outcome as HabitProcessOutcome["outcome"], count, averageReturnPercent: readNumber(item.averageReturnPercent) ?? undefined, averageMaePercent: readNumber(item.averageMaePercent) ?? undefined }];
+  });
+  const patterns = readArray(source.patterns).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const id = readString(item.id), title = readString(item.title), description = readString(item.description);
+    const occurrenceCount = readNumber(item.occurrenceCount);
+    const confidence = readString(item.confidence);
+    if (!id || !title || !description || occurrenceCount === null || !["low", "medium", "high"].includes(String(confidence))) return [];
+    return [{ id, title, description, occurrenceCount, occurrenceRatePercent: readNumber(item.occurrenceRatePercent) ?? undefined, averageReturnPercent: readNumber(item.averageReturnPercent) ?? undefined, averageMaePercent: readNumber(item.averageMaePercent) ?? undefined, confidence: confidence as HabitPattern["confidence"] }];
+  });
+  const representativeTrades = readArray(source.representativeTrades).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+    const caseId = readString(item.caseId), process = readString(item.process), outcome = readString(item.outcome), reason = readString(item.reason);
+    if (!caseId || !reason || (process !== "confirmed" && process !== "unconfirmed") || (outcome !== "positive" && outcome !== "negative")) return [];
+    return [{ caseId, process: process as HabitRepresentativeTrade["process"], outcome: outcome as HabitRepresentativeTrade["outcome"], reason, symbol: readString(item.symbol) ?? undefined, side: readString(item.side) ?? undefined, tradeDate: readString(item.tradeDate) ?? undefined, returnPercent: readNumber(item.returnPercent) ?? undefined, maePercent: readNumber(item.maePercent) ?? undefined }];
+  });
+  const marketDiversificationSource = readObject(source.marketDiversification);
+  const marketDiversification = marketDiversificationSource ? {
+    availability: normalizeAvailability(marketDiversificationSource.availability),
+    sourceAsOf: readString(marketDiversificationSource.sourceAsOf) ?? undefined,
+    concentratedSector: readString(marketDiversificationSource.concentratedSector) ?? undefined,
+    concentratedWeightPercent: readNumber(marketDiversificationSource.concentratedWeightPercent) ?? undefined,
+    sectorExposures: readArray(marketDiversificationSource.sectorExposures).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const sector = readString(item.sector), riskLevel = readString(item.riskLevel);
+      if (!sector || !["high", "attention", "normal", "unknown"].includes(String(riskLevel))) return [];
+      return [{ sector, riskLevel: riskLevel as PortfolioSectorExposure["riskLevel"], weightPercent: readNumber(item.weightPercent) ?? undefined, symbols: readArray(item.symbols).map(readString).filter((symbol): symbol is string => Boolean(symbol)) }];
+    }),
+    holdingSensitivities: readArray(marketDiversificationSource.holdingSensitivities).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const symbol = readString(item.symbol), independence = readString(item.independence);
+      if (!symbol || !["high", "low", "unknown"].includes(String(independence))) return [];
+      return [{ symbol, independence: independence as PortfolioHoldingSensitivity["independence"], sector: readString(item.sector) ?? undefined, weightPercent: readNumber(item.weightPercent) ?? undefined, marketCorrelation: readNumber(item.marketCorrelation) ?? undefined, sectorCorrelation: readNumber(item.sectorCorrelation) ?? undefined }];
+    }),
+    candidates: readArray(marketDiversificationSource.candidates).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item)).flatMap((item) => {
+      const id = readString(item.id), market = readString(item.market), role = readString(item.role), reason = readString(item.reason);
+      if (!id || !market || !reason || !["defensive", "relative_strength", "diversification"].includes(String(role))) return [];
+      return [{ id, market, reason, role: role as PortfolioDiversificationCandidate["role"], sector: readString(item.sector) ?? undefined, etfSymbol: readString(item.etfSymbol) ?? undefined, suggestedMinWeightPercent: readNumber(item.suggestedMinWeightPercent) ?? undefined, suggestedMaxWeightPercent: readNumber(item.suggestedMaxWeightPercent) ?? undefined, correlationToConcentratedSector: readNumber(item.correlationToConcentratedSector) ?? undefined, relativeStrengthPercent: readNumber(item.relativeStrengthPercent) ?? undefined, sourceAsOf: readString(item.sourceAsOf) ?? undefined }];
+    }),
+    missingData: readArray(marketDiversificationSource.missingData).map(readString).filter((item): item is string => Boolean(item))
+  } : undefined;
+  return {
+    headline: readString(source.headline) ?? undefined,
+    decisionRecords: decisionRecords ? {
+      recordedTradeCount: readNumber(decisionRecords.recordedTradeCount) ?? 0,
+      confirmedTradeCount: readNumber(decisionRecords.confirmedTradeCount) ?? 0,
+      unconfirmedTradeCount: readNumber(decisionRecords.unconfirmedTradeCount) ?? 0,
+      missedCheckTradeCount: readNumber(decisionRecords.missedCheckTradeCount) ?? 0
+    } : undefined,
+    processOutcome,
+    patterns,
+    representativeTrades,
+    marketDiversification
+  };
+}
+
+function normalizeAvailability(value: unknown): HistoricalHabitsPage["availability"] {
+  return ["ready", "insufficient_data", "insufficient_sample", "no_confirmation_record", "not_calculated", "pending", "observing", "low_confidence"].includes(String(value))
+    ? value as HistoricalHabitsPage["availability"]
+    : "insufficient_data";
+}
+
+function normalizeObjectArray(value: unknown): Record<string, unknown>[] {
+  return readArray(value).map(readObject).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function normalizeSourceAsOf(value: unknown): Record<string, string | null> {
+  const source = readObject(value) ?? {};
+  return Object.fromEntries(Object.entries(source).map(([key, item]) => [key, readString(item)]));
 }
 
 export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
@@ -254,6 +609,20 @@ export function formatAgentAnalysisReport(report: AgentAnalysisReport): string {
     : report.agentAnswers.length ? formatAgentAnswers(report.agentAnswers) : [report.summary];
   if (report.finalAnswer && report.agentAnswers.length && !newsOnly) {
     lines.push("", ...formatAgentAnswers(report.agentAnswers, "세부 근거"));
+  }
+
+  if (report.tradeConditionProposals.length) {
+    lines.push("", "가격 조건 제안");
+    for (const proposal of report.tradeConditionProposals.slice(0, 3)) {
+      const sideLabel = proposal.side === "buy" ? "매수" : "매도";
+      const directionLabel = proposal.direction === "atOrBelow" ? "이하" : "이상";
+      const quantityLabel = proposal.quantity ? `${proposal.quantity}주` : "수량 입력 필요";
+      lines.push(`  - ${proposal.symbol} $${proposal.triggerPrice.toLocaleString()} ${directionLabel} 도달 시 ${sideLabel} · 지정가 $${proposal.limitPrice?.toLocaleString() ?? "미정"} · ${quantityLabel}`);
+      if (proposal.rationale) {
+        lines.push(`    ${proposal.rationale}`);
+      }
+    }
+    lines.push("  마음에 들면 ‘이 가격에 예약매매랑 알림 걸어줘’라고 요청하세요.");
   }
 
   const decision = report.notificationDecision;
@@ -338,6 +707,40 @@ function normalizeAgentAnswer(value: unknown): AgentAnswer | null {
     content,
     confidence: readNumber(source.confidence) ?? undefined,
     citations: readArray(source.citations).map(normalizeFinalAnswerCitation).filter((item): item is FinalAnswerCitation => Boolean(item))
+  };
+}
+
+function normalizeTradeConditionProposal(value: unknown): TradeConditionProposal | null {
+  const source = readObject(value);
+  const proposalId = readString(source?.proposalId);
+  const analysisId = readString(source?.analysisId);
+  const symbol = readString(source?.symbol)?.toUpperCase();
+  const side = readString(source?.side);
+  const direction = readString(source?.direction);
+  const triggerPrice = readNumber(source?.triggerPrice);
+  if (!source || !proposalId || !analysisId || !symbol || triggerPrice === null) {
+    return null;
+  }
+  if ((side !== "buy" && side !== "sell") || (direction !== "atOrBelow" && direction !== "atOrAbove")) {
+    return null;
+  }
+  return {
+    proposalId,
+    analysisId,
+    symbol,
+    exchange: readString(source.exchange)?.toUpperCase() ?? "NASD",
+    side,
+    direction,
+    triggerPrice,
+    limitPrice: readNumber(source.limitPrice) ?? undefined,
+    quantity: readNumber(source.quantity) ?? undefined,
+    executionEnabled: source.executionEnabled !== false,
+    alertsEnabled: source.alertsEnabled !== false,
+    validity: readString(source.validity) ?? "DAY",
+    missingFields: readArray(source.missingFields).map(readString).filter((item): item is string => Boolean(item)),
+    rationale: readString(source.rationale) ?? undefined,
+    createdAt: readString(source.createdAt) ?? undefined,
+    expiresAt: readString(source.expiresAt) ?? undefined
   };
 }
 
@@ -464,7 +867,7 @@ function normalizeRoute(value: unknown): IntentRoute | null {
   };
 }
 
-function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
+export function normalizeFinalAnswer(value: unknown): FinalAnswer | null {
   const source = readObject(value);
   const title = readString(source?.title);
   const summary = readString(source?.summary);
@@ -527,6 +930,7 @@ function normalizeNotification(value: unknown): NotificationDecision | null {
   }
   return {
     level,
+    eventType: readString(source.eventType) ?? undefined,
     title: readString(source.title) ?? undefined,
     message: readString(source.message) ?? undefined,
     reason: readString(source.reason) ?? undefined

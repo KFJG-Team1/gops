@@ -13,6 +13,28 @@ const popularStocksCatalogEntry = buildTiledAgentLayoutContext({ slots: [], cont
   .find((entry) => entry.panelType === "popularStocks");
 assert.deepEqual(popularStocksCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 2 });
 assert.deepEqual(popularStocksCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 2 });
+const quickOrderCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "quickOrder");
+assert.deepEqual(quickOrderCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(quickOrderCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
+const paperCatalog = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport).panelCatalog;
+assert.equal(paperCatalog.find((entry) => entry.panelType === "paperQuickOrder")?.title, "가상 빠른 주문");
+assert.equal(paperCatalog.find((entry) => entry.panelType === "paperOrderTicket")?.title, "가상 주문");
+assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.defaultSpan, { colSpan: 4, rowSpan: 3 });
+const patternListCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "chartPatternList");
+assert.equal(patternListCatalogEntry?.title, "패턴 종목");
+assert.deepEqual(patternListCatalogEntry?.minSpan, { colSpan: 2, rowSpan: 2 });
+assert.deepEqual(patternListCatalogEntry?.defaultSpan, { colSpan: 2, rowSpan: 2 });
+const priceConditionCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
+  .panelCatalog
+  .find((entry) => entry.panelType === "priceCondition");
+assert.equal(priceConditionCatalogEntry?.title, "알림 · 관심 기업");
+assert.deepEqual(priceConditionCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 1 });
+assert.deepEqual(priceConditionCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 3 });
 
 const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },

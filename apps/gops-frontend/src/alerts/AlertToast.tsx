@@ -1,6 +1,6 @@
 import { Bell, ExternalLink, LayoutPanelLeft, X } from "lucide-react";
 import type { NotificationItem } from "./alertApi";
-import { formatNotificationToastMessage, notificationUiProposals } from "./alertPresentation";
+import { formatNotificationToastMessage, notificationUiProposals, notificationVisualTone } from "./alertPresentation";
 
 type AlertToastProps = {
   notification: NotificationItem;
@@ -14,9 +14,10 @@ export function AlertToast({ notification, queuedCount, onClose, onOpenChart, on
   const presentation = formatNotificationToastMessage(notification);
   const canOpenEvidence = Boolean(onOpenEvidence) && notificationUiProposals(notification).length > 0;
   const canOpenChart = !canOpenEvidence && Boolean(presentation.chartSymbol);
+  const visualToneClass = notificationVisualTone(notification) === "geopolitical-risk" ? "is-geopolitical-risk" : "";
 
   return (
-    <aside className={`alert-toast surface-floating ${canOpenChart || canOpenEvidence ? "" : "no-actions"}`} role="status" aria-live="polite" aria-label="새 알림">
+    <aside className={`alert-toast surface-floating ${visualToneClass} ${canOpenChart || canOpenEvidence ? "" : "no-actions"}`} role="status" aria-live="polite" aria-label="새 알림">
       <div className="alert-toast-icon" aria-hidden="true">
         <Bell size={15} />
       </div>

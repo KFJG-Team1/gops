@@ -217,6 +217,11 @@ export function normalizeParallelLineCount(value: unknown): number {
   return normalizeEngineParallelLineCount(value, 3);
 }
 
+export function nearestDrawingLineWidthStage(value: number | undefined): number {
+  const width = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return Math.max(1, Math.min(5, Math.round(width * 2) / 2));
+}
+
 export function drawingSupportsTextEditing(drawing: Pick<DrawingEntity, "type" | "label">): boolean {
   return drawing.type === "horizontalLine" ||
     drawing.type === "horizontalParallelLines" ||
@@ -493,6 +498,9 @@ export type DrawingLabelLayout = {
 };
 
 export function drawingLabelLayout(scene: ChartScene, drawing: DrawingEntity, labelOverride?: string): DrawingLabelLayout | null {
+  if (drawing.style.labelPlacement === "axis" || drawing.style.labelPlacement === "none") {
+    return null;
+  }
   const transform = createCoordinateTransform(scene);
   const points = drawing.anchors
     .map((anchor) => transform.anchorToPoint(anchor))
@@ -662,7 +670,14 @@ export function hitTestDrawing(scene: ChartScene, x: number, y: number): Drawing
       );
       if (direction) {
         const geometry = buildRiskRewardGeometry(points[0], points[1], points[2], direction);
-        const lines: DrawingLine[] = [
+        const zoneLeft = drawing.style.zoneSplit
+          ? Math.max(geometry.left, transform.logicalToX(Math.max(0, scene.chart.candles.length - 1)) + scene.scales.slotWidth / 2)
+          : geometry.left;
+        const lines: DrawingLine[] = drawing.style.zoneSplit ? [
+          [{ x: geometry.left, y: geometry.entryY }, { x: geometry.right, y: geometry.entryY }],
+          [{ x: zoneLeft, y: geometry.stopY }, { x: geometry.right, y: geometry.stopY }],
+          [{ x: zoneLeft, y: geometry.targetY }, { x: geometry.right, y: geometry.targetY }]
+        ] : [
           [{ x: geometry.left, y: geometry.entryY }, { x: geometry.right, y: geometry.entryY }],
           [{ x: geometry.left, y: geometry.stopY }, { x: geometry.right, y: geometry.stopY }],
           [{ x: geometry.left, y: geometry.targetY }, { x: geometry.right, y: geometry.targetY }],

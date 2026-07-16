@@ -9,7 +9,7 @@ import {
   type ChartAssetBuildStatus,
   type ChartAssetCoverageItem
 } from "../chart/assetBuildApi";
-import { analysisAssetPresentationDiagnostics, detectedPatternSummary } from "../chart/analysisAssetPresentation";
+import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatDetectedPattern } from "../chart/analysisAssetPresentation";
 import {
   fetchAnalysisAssets,
   invalidateAnalysisAssets,
@@ -17,10 +17,12 @@ import {
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
+import { defaultChartAssetBuildIntervals } from "../chart/chartAssetBuildPolicy";
 import type { CandleDto, ChartInterval } from "../chart/types";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
-const allIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const assetIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const buildIntervals: AnalysisAssetInterval[] = ["1m", "1D"];
 
 export function ChartAssetOpsPanel({
   currentSymbol,
@@ -35,7 +37,7 @@ export function ChartAssetOpsPanel({
 }) {
   const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
-  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(allIntervals);
+  const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(() => defaultChartAssetBuildIntervals(currentInterval));
   const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
   const [job, setJob] = useState<ChartAssetBuildStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +139,7 @@ export function ChartAssetOpsPanel({
     : null;
   const currentPattern = detectedPatternSummary(currentAsset);
 
-  const runBuild = async (retrySymbols?: string[]) => {
+  const runBuild = async (retrySymbols?: string[], force = false) => {
     const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
     if (!useSp500 && !symbols.length) {
       setError("빌드할 심볼을 입력하세요.");
@@ -150,10 +152,13 @@ export function ChartAssetOpsPanel({
     setError(null);
     setJob(null);
     try {
-      setAccepted(await submitChartAssetBuild({
+      const result = await submitChartAssetBuild({
         symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
-        intervals
-      }));
+        intervals,
+        force
+      });
+      setAccepted(result);
+      setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "빌드를 시작하지 못했습니다.");
     }
@@ -191,12 +196,23 @@ export function ChartAssetOpsPanel({
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
         </div>
         <div className="chart-asset-ops-options">
-          {allIntervals.map((interval) => (
+          {buildIntervals.map((interval) => (
             <label key={interval}><input type="checkbox" checked={intervals.includes(interval)} onChange={() => setIntervals((current) => current.includes(interval) ? current.filter((item) => item !== interval) : [...current, interval])} />{interval}</label>
           ))}
+          <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>1m·1D 선택</button>
         </div>
         <div className="chart-asset-ops-actions">
           <button type="button" disabled={running} onClick={() => void runBuild()}>빌드 시작</button>
+          <button
+            type="button"
+            disabled={running || useSp500}
+            onClick={() => {
+              const selected = parseSymbols(symbolsText);
+              if (selected.length && window.confirm(`${selected.join(", ")} · ${intervals.join(", ")} 기존 자산을 수동 갱신할까요?`)) {
+                void runBuild(undefined, true);
+              }
+            }}
+          >선택 자산 수동 갱신</button>
           {running && <button type="button" onClick={() => accepted && void cancelChartAssetBuild(accepted.jobId).then(setJob).catch((reason) => setError(String(reason)))}>중단</button>}
           {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols)}>실패분 재실행</button>}
         </div>
@@ -206,7 +222,7 @@ export function ChartAssetOpsPanel({
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
@@ -231,7 +247,7 @@ export function ChartAssetOpsPanel({
             {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
             {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}
             {currentPattern && (
-              <p>감지 패턴 {patternKindLabel(currentPattern.kind)} · {currentPattern.state === "confirmed" ? "돌파 확인" : "형성 중"} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
+              <p>감지 패턴 {formatDetectedPattern(currentPattern)} · 점수 {currentPattern.score.toFixed(2)} · 선 {currentPattern.drawingCount}</p>
             )}
             {Object.keys(currentDiagnostics.rejectionReasons).length > 0 && (
               <p>제외 사유 {Object.entries(currentDiagnostics.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>
@@ -246,12 +262,13 @@ export function ChartAssetOpsPanel({
         <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
         <div className="chart-asset-ops-table-wrap">
           <table>
-            <thead><tr><th>심볼</th><th>주기</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
+            <thead><tr><th>심볼</th><th>주기</th><th>감지 패턴</th><th>상태</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
             <tbody>{coverage.map((item) => {
               const key = `${item.symbol}-${item.interval}`;
               return <tr key={key}>
                 <td>{item.symbol}</td>
                 <td>{item.interval}</td>
+                <td>{formatDetectedPattern(item.primaryPattern)}{item.primaryPattern ? ` · 점수 ${item.primaryPattern.score.toFixed(2)}` : ""}</td>
                 <td>{coverageStatus(item)}</td>
                 <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
                 <td>{formatGeneratedAt(item.generatedAt)}</td>
@@ -285,15 +302,7 @@ function coverageStatus(item: ChartAssetCoverageItem): string {
 }
 
 function isAnalysisAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
-  return allIntervals.includes(interval as AnalysisAssetInterval);
-}
-
-function patternKindLabel(kind: string): string {
-  return {
-    ascending_triangle: "상승 삼각형",
-    descending_triangle: "하락 삼각형",
-    symmetrical_triangle: "대칭 삼각형"
-  }[kind] ?? kind;
+  return assetIntervals.includes(interval as AnalysisAssetInterval);
 }
 
 function formatNumber(value: number | null): string {

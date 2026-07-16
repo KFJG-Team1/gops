@@ -121,7 +121,7 @@ export type VolumeProfileResponseDto = {
   classificationVersion?: string;
   sideClassification?: "estimated";
   estimationMethod?: string;
-  dataStatus: "ready" | "empty" | "failed";
+  dataStatus: "ready" | "empty" | "partial" | "failed";
   priceRange: {
     min?: number | null;
     max?: number | null;
@@ -131,6 +131,7 @@ export type VolumeProfileResponseDto = {
   totalVolume: number;
   totalTradeCount: number;
   sourceCandleCount?: number;
+  requestedCandleCount?: number | null;
   bins: VolumeProfileBucketDto[];
   poc?: VolumeProfileSummaryDto | null;
   valueArea?: VolumeProfileValueAreaDto | null;
@@ -404,6 +405,10 @@ export type DrawingStyle = {
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;
+  labelPlacement?: "inline" | "axis" | "none";
+  zoneSplit?: boolean;
+  proposalAction?: "buy_candidate" | "sell_candidate";
+  proposalKind?: "confirmed" | "conditional";
 };
 
 export type DrawingEntity = {

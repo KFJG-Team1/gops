@@ -1,5 +1,5 @@
 import { Building2, ChevronLeft, ChevronRight, CircleDollarSign, ShieldCheck, TrendingUp } from "lucide-react";
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { buildStockLogoUrl, stockLogoInitials } from "../market/stockLogo";
@@ -67,6 +67,51 @@ const financialChartAxisTypography = {
   lineHeight: TYPE_ROLE.caption.lineHeight,
   textTransform: TYPE_ROLE.caption.textTransform
 } satisfies CSSProperties;
+
+const defaultFinancialChartSize = { width: 620, height: 360 };
+const financialChartPlot = { left: 92, right: 12, top: 10, bottom: 34 } as const;
+const financialChartPlotAspectRatio = (620 - 112 - 20) / (360 - 10 - 34);
+
+function useFinancialChartSize() {
+  const [chart, setChart] = useState<SVGSVGElement | null>(null);
+  const [size, setSize] = useState(defaultFinancialChartSize);
+  const chartRef = useCallback((node: SVGSVGElement | null) => setChart(node), []);
+
+  useEffect(() => {
+    if (!chart) {
+      return undefined;
+    }
+    const measure = () => {
+      const bounds = chart.getBoundingClientRect();
+      const measuredSize = { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+      if (measuredSize.width < 180 || measuredSize.height < 100) {
+        return;
+      }
+      const plotWidth = measuredSize.width - financialChartPlot.left - financialChartPlot.right;
+      const proportionalHeight = financialChartPlot.top
+        + financialChartPlot.bottom
+        + plotWidth / financialChartPlotAspectRatio;
+      const nextSize = {
+        width: measuredSize.width,
+        height: Math.min(measuredSize.height, Math.round(proportionalHeight))
+      };
+      setSize((current) => (
+        current.width === nextSize.width && current.height === nextSize.height
+          ? current
+          : nextSize
+      ));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, [chart]);
+
+  return { chartRef, chartWidth: size.width, chartHeight: size.height };
+}
 
 export function CompanySummaryPanel({ symbol, item, items = [], view = "all" }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
@@ -435,6 +480,7 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
 }
 
 function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
+  const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   const points = series
     .filter(isRenderableProfitabilityPoint)
     .slice(-12);
@@ -461,9 +507,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
   const marginValues = points.map((point) => safeDivide(point.netIncome, point.revenue)).filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1 });
   const marginDomain = paddedDomain(marginValues, { includeZero: true, fallbackMax: 0.3 });
-  const chartWidth = 620;
-  const chartHeight = 360;
-  const plot = { left: 112, right: 20, top: 10, bottom: 34 };
+  const plot = financialChartPlot;
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -495,7 +539,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildProfitabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 수익성 시계열">
+      <svg ref={chartRef} className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="SEC 재무 수익성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (
@@ -551,6 +595,7 @@ function ProfitabilityFinanceChart({ series }: { series: FinancialChartPoint[] }
 }
 
 function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
+  const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   const points = series
     .filter(isRenderableStabilityPoint)
     .slice(-12);
@@ -577,9 +622,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const ratioValues = points.map((point) => safeDivide(point.totalLiabilities, point.totalEquity)).filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1, minFloor: 0 });
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
-  const chartWidth = 620;
-  const chartHeight = 360;
-  const plot = { left: 112, right: 20, top: 10, bottom: 34 };
+  const plot = financialChartPlot;
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -612,7 +655,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
     >
-      <svg className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-label="SEC 재무 안정성 시계열">
+      <svg ref={chartRef} className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="SEC 재무 안정성 시계열">
         {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
           const y = moneyY(tick);
           return (

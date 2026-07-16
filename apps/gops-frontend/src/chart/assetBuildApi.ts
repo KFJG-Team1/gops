@@ -1,4 +1,4 @@
-import type { AnalysisAssetInterval, AnalysisAssetStatus } from "./analysisAssetsApi";
+import type { AnalysisAssetInterval, AnalysisAssetStatus, GeometryPattern } from "./analysisAssetsApi";
 
 export type ChartAssetBuildRequest = {
   symbols: string[] | "sp500";
@@ -10,6 +10,7 @@ export type ChartAssetBuildAccepted = {
   jobId: string;
   status: "queued";
   status_url: string;
+  coalesced: boolean;
 };
 
 export type ChartAssetBuildItem = {
@@ -26,6 +27,8 @@ export type ChartAssetBuildItem = {
 export type ChartAssetBuildStatus = {
   jobId: string;
   status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
+  source: "manual" | "scheduled";
+  priority: number;
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
   repair?: {
     checkedSymbols: number;
@@ -58,6 +61,7 @@ export type ChartAssetCoverageItem = {
   storedDrawingCount?: number;
   freshness?: "current" | "stale" | "unknown";
   staleByBars?: number | null;
+  primaryPattern?: Pick<GeometryPattern, "kind" | "state" | "score"> | null;
 };
 
 export type ChartAssetDeleteResult = {

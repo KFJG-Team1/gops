@@ -15,7 +15,7 @@ const panelWorkspaceSource = readFileSync(
 assert.match(appSource, /const appUiScale = 0\.8;/);
 assert.match(appSource, /width \/ appUiScale/);
 assert.match(appSource, /height \/ appUiScale/);
-assert.match(appSource, /onExitLayoutEdit=\{toggleLayoutEditMode\}/);
+assert.match(appSource, /onExitLayoutEdit=\{exitLayoutEditMode\}/);
 assert.doesNotMatch(appSource, /onToggleLayoutEditMode=/);
 assert.match(bottomCommandBarSource, /\{!layoutEditMode && <nav className="workspace-bottom-nav"/);
 assert.match(panelWorkspaceSource, /\{layoutEditMode && \([\s\S]*\{onExitLayoutEdit && \(/);

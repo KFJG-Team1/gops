@@ -1,7 +1,19 @@
-export type AlertKind = "price_cross" | "spike";
+export type AlertKind = "price_cross" | "spike" | "volume_absolute" | "volume_relative" | "rsi_threshold";
+export type AlertConditionKind = "price_cross" | "price_change" | "volume_absolute" | "volume_relative" | "rsi_threshold";
 export type AlertDirection = "above" | "below";
+export type AlertCondition = {
+  kind: AlertConditionKind;
+  operator: AlertDirection | "either";
+  threshold: number;
+  interval?: string | null;
+  windowMin?: number | null;
+  lookback?: number | null;
+  period?: number | null;
+};
 export type AlertStatus = "active" | "disabled" | "fired" | "expired";
 export type AlertRepeatLimit = 1 | 3 | 5 | 10 | null;
+export type AlertProposalSource = "daily_trade" | "entry_habit" | "exit_habit" | "portfolio_risk";
+export type AlertCreatedVia = "manual" | "chart" | "ai_coach" | "agent_chat" | "trade_condition";
 
 export type PriceAlert = {
   id: number;
@@ -15,6 +27,11 @@ export type PriceAlert = {
   repeatLimit: number | null;
   triggeredCount: number;
   status: AlertStatus;
+  proposalSource?: AlertProposalSource | null;
+  condition?: AlertCondition | null;
+  createdVia?: AlertCreatedVia;
+  requestId?: string | null;
+  lastTriggeredAt?: string | null;
   createdAt?: string;
   expiresAt?: string | null;
 };
@@ -29,9 +46,19 @@ export type NotificationItem = {
   readAt?: string | null;
 };
 
-export type AlertCreatePayload =
+export type AlertCreatePayload = (
   | { symbol: string; type: "price_cross"; targetPrice: string; repeatLimit: AlertRepeatLimit }
-  | { symbol: string; type: "spike"; direction: AlertDirection; changePct: string; windowMin: number; repeatLimit: AlertRepeatLimit };
+  | { symbol: string; type: "spike"; direction: AlertDirection; changePct: string; windowMin: number; repeatLimit: AlertRepeatLimit }
+  | { symbol: string; condition: Omit<AlertCondition, "threshold"> & { threshold: number | string }; repeatLimit: AlertRepeatLimit }
+) & { proposalSource?: AlertProposalSource; createdVia?: AlertCreatedVia; requestId?: string };
+
+export type AlertCommandResponse =
+  | { status: "created"; alert: PriceAlert; idempotentReplay: boolean }
+  | { status: "clarify"; clarification: string; clarificationId: string }
+  | { status: "rejected"; clarification: string }
+  | { status: "not_matched" };
+
+export const alertRulesChangedEvent = "gops:alert-rules-changed";
 
 export class AlertApiError extends Error {
   status: number;
@@ -44,7 +71,7 @@ export class AlertApiError extends Error {
 }
 
 export async function fetchAlerts(signal?: AbortSignal): Promise<PriceAlert[]> {
-  const payload = await apiJson("/api/alerts", { signal });
+  const payload = await apiJson("/api/alerts?includeTerminal=false", { signal });
   const source = asRecord(payload);
   return Array.isArray(source.alerts)
     ? source.alerts.map(normalizeAlert).filter((item): item is PriceAlert => Boolean(item))
@@ -55,14 +82,55 @@ export async function createAlert(alert: AlertCreatePayload): Promise<PriceAlert
   const repeat = alert.repeatLimit === null ? true : alert.repeatLimit > 1;
   const payload = await apiJson("/api/alerts", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(alert.requestId ? { "Idempotency-Key": alert.requestId } : {})
+    },
     body: JSON.stringify({ ...alert, repeat })
   });
   const normalized = normalizeAlert(asRecord(payload).alert);
   if (!normalized) {
     throw new AlertApiError(500, "알림 등록 응답을 읽지 못했습니다.");
   }
+  publishAlertRulesChanged();
   return normalized;
+}
+
+export async function submitAlertCommand(input: {
+  text: string;
+  contextSymbol?: string;
+  contextInterval?: string;
+  clarificationId?: string;
+  requestId: string;
+}): Promise<AlertCommandResponse> {
+  const payload = asRecord(await apiJson("/api/alerts/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": input.requestId },
+    body: JSON.stringify({
+      text: input.text,
+      contextSymbol: input.contextSymbol,
+      contextInterval: input.contextInterval,
+      clarificationId: input.clarificationId
+    })
+  }));
+  const status = asString(payload.status);
+  if (status === "created") {
+    const alert = normalizeAlert(payload.alert);
+    if (!alert) throw new AlertApiError(500, "생성된 알림을 읽지 못했습니다.");
+    publishAlertRulesChanged();
+    return { status, alert, idempotentReplay: payload.idempotentReplay === true };
+  }
+  if (status === "clarify") {
+    return {
+      status,
+      clarification: asString(payload.clarification) || "알림 조건을 조금 더 알려주세요.",
+      clarificationId: asString(payload.clarificationId) || ""
+    };
+  }
+  if (status === "rejected") {
+    return { status, clarification: asString(payload.clarification) || "이 알림 조건은 지원하지 않습니다." };
+  }
+  return { status: "not_matched" };
 }
 
 export async function setAlertStatus(alertId: number, status: "active" | "disabled"): Promise<PriceAlert> {
@@ -75,16 +143,23 @@ export async function setAlertStatus(alertId: number, status: "active" | "disabl
   if (!normalized) {
     throw new AlertApiError(500, "알림 상태 응답을 읽지 못했습니다.");
   }
+  publishAlertRulesChanged();
   return normalized;
 }
 
 export async function deleteAlert(alertId: number): Promise<void> {
   await apiJson(`/api/alerts/${alertId}`, { method: "DELETE" });
+  publishAlertRulesChanged();
 }
 
 export async function deleteAllAlerts(): Promise<number> {
   const payload = await apiJson("/api/alerts", { method: "DELETE" });
+  publishAlertRulesChanged();
   return asNumber(asRecord(payload).deleted) ?? 0;
+}
+
+export function publishAlertRulesChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(alertRulesChangedEvent));
 }
 
 export async function fetchNotifications(signal?: AbortSignal): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
@@ -127,7 +202,7 @@ function normalizeAlert(value: unknown): PriceAlert | null {
   const id = asNumber(source.id);
   const symbol = asString(source.symbol)?.toUpperCase();
   const type = asString(source.type) as AlertKind | undefined;
-  if (!id || !symbol || (type !== "price_cross" && type !== "spike")) {
+  if (!id || !symbol || !["price_cross", "spike", "volume_absolute", "volume_relative", "rsi_threshold"].includes(type || "")) {
     return null;
   }
   const rawRepeatLimit = Object.prototype.hasOwnProperty.call(source, "repeat_limit")
@@ -139,7 +214,7 @@ function normalizeAlert(value: unknown): PriceAlert | null {
   return {
     id,
     symbol,
-    type,
+    type: type as AlertKind,
     direction: normalizeDirection(source.direction),
     targetPrice: asNumber(source.target_price ?? source.targetPrice),
     changePct: asNumber(source.change_pct ?? source.changePct),
@@ -148,9 +223,45 @@ function normalizeAlert(value: unknown): PriceAlert | null {
     repeatLimit,
     triggeredCount: asNumber(source.triggered_count ?? source.triggeredCount) ?? 0,
     status: normalizeStatus(source.status),
+    proposalSource: normalizeProposalSource(source.proposal_source ?? source.proposalSource),
+    condition: normalizeCondition(source.condition),
+    createdVia: normalizeCreatedVia(source.created_via ?? source.createdVia),
+    requestId: asString(source.request_id ?? source.requestId) ?? null,
+    lastTriggeredAt: asString(source.last_triggered_at ?? source.lastTriggeredAt) ?? null,
     createdAt: asString(source.created_at ?? source.createdAt),
     expiresAt: asString(source.expires_at ?? source.expiresAt) ?? null
   };
+}
+
+function normalizeCondition(value: unknown): AlertCondition | null {
+  const source = asRecord(value);
+  const kind = asString(source.kind) as AlertConditionKind | undefined;
+  const operator = asString(source.operator) as AlertCondition["operator"] | undefined;
+  const threshold = asNumber(source.threshold);
+  if (!kind || !["price_cross", "price_change", "volume_absolute", "volume_relative", "rsi_threshold"].includes(kind) || !operator || threshold === undefined) {
+    return null;
+  }
+  return {
+    kind,
+    operator,
+    threshold,
+    interval: asString(source.interval) ?? null,
+    windowMin: asNumber(source.windowMin) ?? null,
+    lookback: asNumber(source.lookback) ?? null,
+    period: asNumber(source.period) ?? null
+  };
+}
+
+function normalizeCreatedVia(value: unknown): AlertCreatedVia {
+  const source = asString(value);
+  return source === "chart" || source === "ai_coach" || source === "agent_chat" || source === "trade_condition" ? source : "manual";
+}
+
+function normalizeProposalSource(value: unknown): AlertProposalSource | null {
+  const source = asString(value);
+  return source === "daily_trade" || source === "entry_habit" || source === "exit_habit" || source === "portfolio_risk"
+    ? source
+    : null;
 }
 
 export function normalizeNotificationPayload(value: unknown): NotificationItem | null {
