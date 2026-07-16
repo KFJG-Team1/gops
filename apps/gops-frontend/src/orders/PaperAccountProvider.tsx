@@ -111,4 +111,3 @@ export function usePaperAccount(): PaperAccountContextValue {
   }
   return context;
 }
-
