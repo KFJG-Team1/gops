@@ -75,6 +75,63 @@
   overflow: clip;
 }
 
+.chart-trade-plan-price-overlay {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-trade-plan-price-overlay svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.chart-trade-plan-price-overlay line {
+  stroke: var(--color-signal);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.82;
+}
+
+.chart-trade-plan-price-overlay line.is-up { stroke: var(--color-up); }
+.chart-trade-plan-price-overlay line.is-down { stroke: var(--color-down); }
+
+.chart-trade-plan-price-label {
+  position: absolute;
+  box-sizing: border-box;
+  height: 22px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-signal) 68%, var(--color-border));
+  border-radius: 5px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--color-surface-strong) 94%, transparent);
+  color: var(--color-text);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-background) 55%, transparent);
+  font: 600 12px/1.2 var(--font-data-sans);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.chart-trade-plan-price-label.is-up { border-color: color-mix(in srgb, var(--color-up) 72%, var(--color-border)); }
+.chart-trade-plan-price-label.is-down { border-color: color-mix(in srgb, var(--color-down) 72%, var(--color-border)); }
+
+.chart-trade-plan-price-label:hover,
+.chart-trade-plan-price-label:focus-visible {
+  background: var(--color-surface-strong);
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 42%, transparent);
+  outline-offset: 1px;
+}
+
 .chart-holding-price-description {
   position: absolute;
   width: 1px;
@@ -190,6 +247,10 @@
 }
 
 .chart-analysis-asof.is-stale {
+  color: var(--gops-caution);
+}
+
+.chart-analysis-asof.is-error {
   color: var(--gops-caution);
 }
 
@@ -390,7 +451,7 @@
 
 .chart-commentary-holding td {
   color: var(--color-text);
-  font: var(--type-body-sm);
+  font: var(--type-body-md);
 }
 
 .chart-commentary-summary {
@@ -401,6 +462,7 @@
 .chart-commentary-summary p {
   margin-bottom: 5px;
   color: var(--color-text);
+  font: var(--type-body-md);
   line-height: 1.55;
 }
 
@@ -420,7 +482,7 @@
   grid-template-columns: minmax(72px, 0.9fr) minmax(80px, 1fr) minmax(88px, 1fr);
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 9px;
 }
 
 .chart-commentary-price-head {
@@ -435,7 +497,7 @@
   border-top: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text);
-  font: var(--type-body-sm);
+  font: var(--type-body-md);
   text-align: left;
   cursor: pointer;
 }
@@ -452,10 +514,33 @@
 }
 
 .chart-commentary-scenario {
+  appearance: none;
+  display: block;
+  width: 100%;
   border: 1px solid color-mix(in srgb, var(--color-signal) 28%, var(--color-border));
   border-radius: 7px;
-  padding: 9px 10px;
+  padding: 10px 11px;
   background: color-mix(in srgb, var(--color-signal) 5%, transparent);
+  color: var(--color-text);
+  font: var(--type-body-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-commentary-scenario:hover:not(:disabled) {
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 9%, transparent);
+}
+
+.chart-commentary-scenario:focus-visible {
+  border-color: var(--color-signal);
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.chart-commentary-scenario:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .chart-commentary-scenario-status {
@@ -466,13 +551,16 @@
   text-align: right;
 }
 
-.chart-commentary-scenario p {
+.chart-commentary-scenario-line {
+  display: block;
   margin-bottom: 4px;
   color: var(--color-muted);
+  font: var(--type-body-md);
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
 
-.chart-commentary-scenario p:last-child {
+.chart-commentary-scenario-line:last-child {
   margin-bottom: 0;
 }
 
@@ -744,10 +832,10 @@
 .chart-commentary-focus button {
   display: grid;
   width: 100%;
-  gap: 3px;
+  gap: 5px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
-  padding: 7px;
+  padding: 9px;
   background: var(--coinbase-panel-muted);
   color: var(--color-text);
   text-align: left;
@@ -772,11 +860,14 @@
 
 .chart-commentary-focus button strong {
   color: var(--color-text);
-  font-size: 12px;
+  font: var(--type-label-md);
+  line-height: 1.4;
 }
 
 .chart-commentary-focus button span {
   color: var(--color-muted);
+  font: var(--type-body-md);
+  line-height: 1.45;
 }
 
 .chart-commentary-metric-panel {
@@ -815,12 +906,14 @@
 
 .chart-commentary-metric-card dt {
   color: var(--color-muted);
+  font: var(--type-caption);
 }
 
 .chart-commentary-metric-card dd {
   overflow: hidden;
   margin: 1px 0 0;
   color: var(--color-text);
+  font: var(--type-body-md);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2082,7 +2175,6 @@
   text-transform: var(--type-title-sm-text-transform);
 }
 
-.chart-commentary-focus h3,
 .chart-commentary-levels h3,
 .chart-asset-ops-panel section > h3,
 .glossary-tooltip strong {

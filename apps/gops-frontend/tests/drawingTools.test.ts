@@ -8,6 +8,7 @@ import {
 import { executeChartCommand, makeChartCommand } from "../../chart-engine/src/commands";
 import {
   buildFibonacciLevelGeometry,
+  buildProposalRiskRewardGeometry,
   fibonacciBandPolygons,
   parallelBandPolygons,
   riskRewardDirection,
@@ -516,11 +517,23 @@ assert.ok(emptyFlagLabel);
 const emptyFlagHit = hitTestDrawing(emptyFlagScene, emptyFlagLabel.x + 8, emptyFlagLabel.y);
 assert.equal(emptyFlagHit?.drawing.id, emptyFlagDrawing.id, "fallback flag tag must remain clickable after clearing its label");
 
-assert.equal(riskRewardDirection(100, 95, 112), "long");
-assert.equal(riskRewardDirection(100, 108, 90), "short");
+assert.equal(riskRewardDirection(100, 95, 112), "upside");
+assert.equal(riskRewardDirection(100, 108, 90), "downside");
 assert.equal(riskRewardDirection(100, 95, 90), null);
+const minimumProposalGeometry = buildProposalRiskRewardGeometry(
+  { x: 100, y: 100 }, { x: 120, y: 130 }, { x: 120, y: 70 }, "upside", { right: 500 }
+);
+assert.equal(minimumProposalGeometry.right - minimumProposalGeometry.left, 144);
+const projectedProposalGeometry = buildProposalRiskRewardGeometry(
+  { x: 100, y: 100 }, { x: 300, y: 130 }, { x: 300, y: 70 }, "upside", { right: 600 }
+);
+assert.equal(projectedProposalGeometry.right, 300);
+const narrowProposalGeometry = buildProposalRiskRewardGeometry(
+  { x: 100, y: 100 }, { x: 120, y: 130 }, { x: 120, y: 70 }, "upside", { right: 250 }
+);
+assert.equal(narrowProposalGeometry.right, 120, "small plots preserve label space and shrink only the minimum box extension");
 
-for (const [id, prices] of [["long", [100, 95, 112]], ["short", [100, 108, 90]]] as const) {
+for (const [id, prices] of [["upside", [100, 95, 112]], ["downside", [100, 108, 90]]] as const) {
   const document = createChartDocument(`risk-${id}`, "AAPL", "1m");
   const result = executeChartCommand(document, makeChartCommand("chart.drawing.add", "user", chartTarget(document.id), {
     drawing: {

@@ -16,16 +16,17 @@ export function resolveViewportVisibleCount(plotWidth: number, requestedVisibleC
 
 export function clampVisibleCount(
   visibleCount: number,
-  candleCount: number,
+  _candleCount: number,
   plotWidth?: number
 ): number {
   const widthBound = typeof plotWidth === "number"
     ? Math.max(MIN_VISIBLE_CANDLES, Math.floor(Math.max(1, plotWidth) / MIN_READABLE_SLOT_WIDTH))
     : MAX_VISIBLE_CANDLES;
-  const dataBound = candleCount > 0 ? Math.max(MIN_VISIBLE_CANDLES, candleCount) : MAX_VISIBLE_CANDLES;
+  // Sparse live data fills only part of the viewport; it must not change the
+  // user's scale while the historical snapshot is still loading.
   const maxVisibleCount = Math.max(
     MIN_VISIBLE_CANDLES,
-    Math.min(MAX_VISIBLE_CANDLES, widthBound, dataBound)
+    Math.min(MAX_VISIBLE_CANDLES, widthBound)
   );
   return Math.max(MIN_VISIBLE_CANDLES, Math.min(maxVisibleCount, Math.round(visibleCount)));
 }

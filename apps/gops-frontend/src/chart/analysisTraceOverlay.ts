@@ -33,6 +33,24 @@ export function analysisTraceDataMode(asset: ChartAnalysisAsset | null): Analysi
     : "bounded";
 }
 
+export function analysisTraceLevelPrice(
+  candidate: AnalysisTraceOverlayCandidate,
+  pivots: readonly GeometryTracePivot[]
+): number | null {
+  const metricPrice = candidate.metrics?.price;
+  if (typeof metricPrice === "number" && Number.isFinite(metricPrice) && metricPrice > 0) {
+    return metricPrice;
+  }
+  const anchorPrice = candidate.anchors.find((anchor) => Number.isFinite(anchor.price) && anchor.price > 0)?.price;
+  if (typeof anchorPrice === "number") return anchorPrice;
+  const pivotById = new Map(pivots.map((pivot) => [pivot.id, pivot]));
+  for (const id of candidate.anchorPivotIds) {
+    const price = pivotById.get(id)?.price;
+    if (typeof price === "number" && Number.isFinite(price) && price > 0) return price;
+  }
+  return null;
+}
+
 export function buildAnalysisTraceOverlay(
   asset: ChartAnalysisAsset | null,
   options: {

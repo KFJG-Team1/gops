@@ -7,6 +7,19 @@ export const chartPlanSourcePrefix = "chart-plan:";
 export type AnalysisLayerKey = "interpretation" | "levels" | "trend" | "pattern" | "proposal";
 export type AnalysisLayerVisibility = Record<AnalysisLayerKey, boolean>;
 export type ChartCommandTarget = ChartCommand["target"];
+export const chartAnalysisLayerToggleEventName = "gops:chart-analysis-layer-toggle";
+
+export type ChartAnalysisLayerToggleRequest = {
+  chartDocumentId: string;
+  layer: "proposal";
+};
+
+export function dispatchChartAnalysisLayerToggle(request: ChartAnalysisLayerToggleRequest): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<ChartAnalysisLayerToggleRequest>(chartAnalysisLayerToggleEventName, {
+    detail: request
+  }));
+}
 
 export const defaultAnalysisLayerVisibility: AnalysisLayerVisibility = {
   interpretation: false,

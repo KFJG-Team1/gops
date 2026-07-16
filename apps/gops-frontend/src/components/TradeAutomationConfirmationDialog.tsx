@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TradeAutomationConfirmationDraft } from "../chart/chartTradeAutomation";
+import { tradePlanPresentation } from "../chart/tradePlanPresentation";
 
 type TradeAutomationConfirmationDialogProps = {
   draft: TradeAutomationConfirmationDraft;
@@ -19,7 +20,7 @@ export function TradeAutomationConfirmationDialog({
   const [quantity, setQuantity] = useState(String(draft.quantity));
   const [validationError, setValidationError] = useState<string | null>(null);
   const isStale = draft.status === "stale";
-  const isBuy = draft.action === "buy_candidate";
+  const presentation = tradePlanPresentation(draft.action);
 
   useEffect(() => {
     cancelButtonRef.current?.focus();
@@ -90,7 +91,7 @@ export function TradeAutomationConfirmationDialog({
       >
         <header>
           <span>{draft.symbol} · {draft.interval}</span>
-          <strong id="trade-automation-dialog-title">{isBuy ? "매수 후보" : "매도 후보"} 확인</strong>
+          <strong id="trade-automation-dialog-title">{presentation.scenario} 확인</strong>
         </header>
         <p id="trade-automation-dialog-description">선택한 가격에 가상계좌 예약매매와 가격 알림을 등록합니다.</p>
         <dl>
@@ -111,8 +112,8 @@ export function TradeAutomationConfirmationDialog({
               />
             </dd>
           </div>
-          <div><dt>{isBuy ? "분석 목표가 (참고)" : "분석 하락 목표가 (참고)"}</dt><dd>{formatPrice(draft.targetPrice)}</dd></div>
-          <div><dt>{isBuy ? "분석 손절가 (참고)" : "분석 매도 무효화가 (참고)"}</dt><dd>{formatPrice(draft.stopPrice)}</dd></div>
+          <div><dt>{`분석 ${presentation.target} 가격 (참고)`}</dt><dd>{formatPrice(draft.targetPrice)}</dd></div>
+          <div><dt>{`분석 ${presentation.risk} 가격 (참고)`}</dt><dd>{formatPrice(draft.stopPrice)}</dd></div>
         </dl>
         {isStale && <p className="trade-automation-dialog-stale" role="alert">분석 기준이 변경되어 확인할 수 없습니다. 현재 차트의 트레이드 플랜을 다시 확인해 주세요.</p>}
         {validationError && <p className="trade-automation-dialog-stale" role="alert">{validationError}</p>}

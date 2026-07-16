@@ -3,7 +3,7 @@ import { createChartDocument, normalizeChartDocument } from "./chartDocuments";
 import { normalizeChartInterval, type ChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
 import { canonicalTimestamp } from "./time";
-import { clampVisibleCount, latestCandleRightOffset } from "./viewport";
+import { latestCandleRightOffset } from "./viewport";
 import {
   executeChartCommand,
   executeChartCommandGroup,
@@ -528,7 +528,6 @@ function reconcileViewportsAfterLiveAppend(
   nextCandleCount: number
 ): ChartRuntimeState["documents"] {
   const appendedCount = Math.max(0, nextCandleCount - previousCandleCount);
-  const initializesViewport = previousCandleCount === 0 && nextCandleCount > 0;
   let changed = false;
   const next: ChartRuntimeState["documents"] = {};
   Object.entries(documents).forEach(([id, document]) => {
@@ -540,9 +539,7 @@ function reconcileViewportsAfterLiveAppend(
       return;
     }
     const followsLatest = document.viewport.rightOffset <= 0;
-    const visibleCount = followsLatest && initializesViewport
-      ? clampVisibleCount(document.viewport.visibleCount, nextCandleCount)
-      : document.viewport.visibleCount;
+    const visibleCount = document.viewport.visibleCount;
     const rightOffset = followsLatest
       ? latestCandleRightOffset(visibleCount)
       : document.viewport.rightOffset + appendedCount;

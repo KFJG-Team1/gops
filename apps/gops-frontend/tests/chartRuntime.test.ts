@@ -7,6 +7,7 @@ import "./uiScale.test";
 import "./glossary.test";
 import "./analysisAssets.test";
 import "./tradeTimingOverlay.test";
+import "./tradePlanOverlayLayout.test";
 import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";
@@ -3819,6 +3820,8 @@ assert.equal(intradayRenderItems.some((item) => item.kind === "full" && item.dra
 assert.equal(intradayRenderItems.some((item) => item.kind === "collapsed" && item.drawing.id === "drawing-intraday-line"), true);
 assert.equal(resolveViewportVisibleCount(400, 180), 50);
 assert.equal(clampVisibleCount(180, 160, 400), 50);
+assert.equal(clampVisibleCount(120, 1), 120);
+assert.equal(clampVisibleCount(120, 1, 400), 50);
 assert.equal(clampVisibleCount(1, 160, 400), 6);
 assert.deepEqual(normalizeViewport({ visibleCount: 180, rightOffset: 120 }, 160, 400), {
   visibleCount: 50,
@@ -3852,8 +3855,8 @@ const firstLiveCandleState = chartRuntimeReducer(initializingLiveState, {
   }
 });
 assert.deepEqual(firstLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
-  visibleCount: 6,
-  rightOffset: latestCandleRightOffset(6)
+  visibleCount: defaultVisibleBarsForInterval("1m"),
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
 });
 const secondLiveCandleState = chartRuntimeReducer(firstLiveCandleState, {
   kind: "chart.live",
@@ -3865,9 +3868,45 @@ const secondLiveCandleState = chartRuntimeReducer(firstLiveCandleState, {
   }
 });
 assert.deepEqual(secondLiveCandleState.documents[initializingLiveDocument.id]?.viewport, {
-  visibleCount: 6,
-  rightOffset: latestCandleRightOffset(6)
+  visibleCount: defaultVisibleBarsForInterval("1m"),
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
 });
+const liveThenSnapshotState = chartRuntimeReducer(secondLiveCandleState, {
+  kind: "chart.snapshot.loaded",
+  snapshot: {
+    symbol: "AAPL",
+    interval: "1m",
+    source: "alpaca",
+    feed: "sip",
+    indicators: { ma: [5, 20, 60], volume: true },
+    candles: [candleA, candleB, candleC]
+  }
+});
+assert.deepEqual(liveThenSnapshotState.documents[initializingLiveDocument.id]?.viewport, {
+  visibleCount: defaultVisibleBarsForInterval("1m"),
+  rightOffset: latestCandleRightOffset(defaultVisibleBarsForInterval("1m"))
+});
+
+for (const interval of ["1D", "1W", "1M"] as const) {
+  const document = createChartDocument(`chart-doc-live-initial-${interval}`, "AAPL", interval);
+  const runtime = chartRuntimeReducer({
+    ...createInitialChartRuntimeState(),
+    documents: { [document.id]: document }
+  }, {
+    kind: "chart.live",
+    event: {
+      type: "LIVE_CANDLE_UPDATE",
+      symbol: "AAPL",
+      interval,
+      data: candleA
+    }
+  });
+  const expectedVisibleCount = defaultVisibleBarsForInterval(interval);
+  assert.deepEqual(runtime.documents[document.id]?.viewport, {
+    visibleCount: expectedVisibleCount,
+    rightOffset: latestCandleRightOffset(expectedVisibleCount)
+  });
+}
 
 const detachedDocument = createChartDocument("chart-doc-detached", "AAPL", "1m");
 detachedDocument.viewport = { visibleCount: 1, rightOffset: 1 };
@@ -4480,7 +4519,7 @@ assert.match(
 );
 assert.match(
   chartCanvasSource,
-  /candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, points\[0\]\.y, scene\.plot\.right, points\[0\]\.y\)/,
+  /analysisTraceLevelPrice\(candidate, overlay\.pivots\)[\s\S]*candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, levelY, scene\.plot\.right, levelY\)/,
   "level analysis candidates render as full-width H-lines"
 );
 assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);

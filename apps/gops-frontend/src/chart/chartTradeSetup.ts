@@ -82,7 +82,11 @@ function confirmedSetup(asset: ChartAnalysisAsset, candles: CandleDto[]): ChartT
     projectionBars: plan.projectionBars,
     reasons: [...plan.reasons],
     drawingIds,
-    priceSources: { entry: "서버 확인 신호", target: "서버 패턴 목표", stop: "서버 무효화 기준" },
+    priceSources: {
+      entry: "서버 확인 신호",
+      target: plan.action === "sell_candidate" ? "서버 예상 하단" : "서버 패턴 목표",
+      stop: plan.action === "sell_candidate" ? "서버 재검토 기준" : "서버 손절 기준"
+    },
     assetIdentity: identityFromAsset(asset)
   };
 }

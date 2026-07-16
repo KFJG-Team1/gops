@@ -32,14 +32,15 @@ assert.equal(steps[2].body, "적격 패턴 없음");
 const view = buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90, quantity: 18 });
 assert.deepEqual(view.keyPrices.map((item) => item.id), ["support", "entry", "target", "invalidation"]);
 assert.equal(view.keyPrices[0]?.distancePercent?.toFixed(2), "-2.97");
-assert.equal(view.scenario?.status, "매수 검토");
-assert.equal(view.scenario?.confirmation, "진입 기준 100.00 확인");
+assert.equal(view.scenario?.status, "조건부 매수 검토");
+assert.equal(view.scenario?.confirmation, "진입 100.00 확인");
+assert.deepEqual(view.keyPrices.slice(1).map((item) => item.label), ["진입", "목표", "손절"]);
 assert.equal(view.scenario?.rewardRiskRatio, 2);
 assert.equal(view.scenario?.projectionBars, 10);
 assert.deepEqual(view.scenario?.drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
 assert.match(view.summary.join(" "), /현재가 101\.00/);
 assert.match(view.summary.join(" "), /98\.00/);
-assert.match(view.summary.join(" "), /95\.00 이탈 시/);
+assert.match(view.summary.join(" "), /95\.00을 손절 기준/);
 assert.match(view.summary.join(" "), /평균 매입가 90\.00 대비 현재가는 \+12\.22%/);
 assert.equal(view.summary.length, 4);
 assert.deepEqual(buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90 }), view, "same facts always produce the same commentary");
@@ -69,9 +70,10 @@ const sellView = buildChartCommentaryViewModel(asset, {
   stopPrice: 122,
   rewardRiskRatio: 2
 }, 118, null);
-assert.equal(sellView.scenario?.status, "조건 확인 전 · 매도 검토");
-assert.equal(sellView.scenario?.confirmation, "매도 기준 118.00 확인");
-assert.match(sellView.summary.join(" "), /조건이 확인되면 118\.00을 매도 기준/);
+assert.equal(sellView.scenario?.status, "조건부 매도 검토");
+assert.equal(sellView.scenario?.confirmation, "매도 118.00 확인");
+assert.deepEqual(sellView.keyPrices.slice(1).map((item) => item.label), ["매도", "예상 하단", "재검토"]);
+assert.match(sellView.summary.join(" "), /118\.00을 매도 기준으로 보고, 122\.00에서 시나리오를 재검토/);
 assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["levels", "trend", "pattern"]);
 
 const trendWithInvalidation = {

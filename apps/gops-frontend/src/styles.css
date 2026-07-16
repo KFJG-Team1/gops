@@ -1696,8 +1696,8 @@ h1 span {
 
 .hover-ohlc-overlay {
   position: absolute;
-  top: var(--hover-ohlc-top, 86px);
-  left: 24px;
+  top: 43px;
+  left: 10px;
   z-index: 4;
   pointer-events: none;
 }

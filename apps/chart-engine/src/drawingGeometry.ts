@@ -5,7 +5,7 @@ export type DrawingLine = [DrawingPoint, DrawingPoint];
 
 export const fibonacciRetracementLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
 
-export type RiskRewardDirection = "long" | "short";
+export type RiskRewardDirection = "upside" | "downside";
 
 export type RiskRewardGeometry = {
   direction: RiskRewardDirection;
@@ -17,6 +17,9 @@ export type RiskRewardGeometry = {
   riskPolygon: DrawingPoint[];
   rewardPolygon: DrawingPoint[];
 };
+
+export const proposalRiskRewardMinimumWidth = 144;
+export const proposalPriceLabelReserveWidth = 176;
 
 export type FibonacciLevelGeometry = {
   level: number;
@@ -123,10 +126,10 @@ export function riskRewardDirection(
     return null;
   }
   if (stopPrice < entryPrice && targetPrice > entryPrice) {
-    return "long";
+    return "upside";
   }
   if (stopPrice > entryPrice && targetPrice < entryPrice) {
-    return "short";
+    return "downside";
   }
   return null;
 }
@@ -154,6 +157,33 @@ export function buildRiskRewardGeometry(
     targetY: target.y,
     riskPolygon: rectangle(entry.y, stop.y),
     rewardPolygon: rectangle(entry.y, target.y)
+  };
+}
+
+export function buildProposalRiskRewardGeometry(
+  entry: DrawingPoint,
+  stop: DrawingPoint,
+  target: DrawingPoint,
+  direction: RiskRewardDirection,
+  plot: Pick<PlotBounds, "right">,
+  minimumWidth = proposalRiskRewardMinimumWidth,
+  labelReserveWidth = proposalPriceLabelReserveWidth
+): RiskRewardGeometry {
+  const base = buildRiskRewardGeometry(entry, stop, target, direction);
+  const availableWidth = Math.max(0, plot.right - labelReserveWidth - base.left);
+  const effectiveMinimumWidth = Math.min(Math.max(0, minimumWidth), availableWidth);
+  const right = Math.max(base.right, base.left + effectiveMinimumWidth);
+  const rectangle = (firstY: number, secondY: number): DrawingPoint[] => [
+    { x: base.left, y: Math.min(firstY, secondY) },
+    { x: right, y: Math.min(firstY, secondY) },
+    { x: right, y: Math.max(firstY, secondY) },
+    { x: base.left, y: Math.max(firstY, secondY) }
+  ];
+  return {
+    ...base,
+    right,
+    riskPolygon: rectangle(base.entryY, base.stopY),
+    rewardPolygon: rectangle(base.entryY, base.targetY)
   };
 }
 

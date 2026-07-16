@@ -184,8 +184,8 @@ export type GeometryTradePlan = {
   patternId: string;
   patternKind: GeometryPatternKind;
   patternState: GeometryPattern["state"];
-  action: "watch" | "buy_candidate" | "sell_candidate" | "short_candidate" | "no_trade";
-  direction: "long" | "exit_long" | "short" | null;
+  action: "watch" | "buy_candidate" | "sell_candidate" | "no_trade";
+  direction: "long" | "exit_long" | null;
   signalAt: string | null;
   entryTrigger: number | null;
   entryPrice: number | null;
@@ -266,6 +266,31 @@ const symbolGenerations = new Map<string, number>();
 const invalidationListeners = new Set<(symbol?: string) => void>();
 let globalGeneration = 0;
 
+export class AnalysisAssetsRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "AnalysisAssetsRequestError";
+    this.status = status;
+  }
+}
+
+export function analysisAssetsLoadErrorMessage(reason: unknown): string {
+  if (reason instanceof AnalysisAssetsRequestError) {
+    if (reason.status === 409 && reason.message === "simulation_data_unavailable") {
+      return "시뮬레이션 중에는 작도 자산을 불러올 수 없습니다.";
+    }
+    if (reason.status === 503) {
+      return "작도 자산 저장소에 접근할 수 없습니다.";
+    }
+    return reason.message || `작도 자산 요청이 실패했습니다. (HTTP ${reason.status})`;
+  }
+  return reason instanceof Error && reason.message
+    ? reason.message
+    : "작도 자산을 불러오지 못했습니다.";
+}
+
 export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
   const cached = responseCache.get(normalized);
@@ -279,7 +304,12 @@ export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsRespo
     headers: { Accept: "application/json" }
   }).then(async (response) => {
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(typeof payload?.detail === "string" ? payload.detail : `HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new AnalysisAssetsRequestError(
+        response.status,
+        typeof payload?.detail === "string" ? payload.detail : `HTTP ${response.status}`
+      );
+    }
     return normalizeAnalysisAssetsResponse(payload, normalized);
   }).then((payload) => {
     if (globalGeneration === requestGlobalGeneration && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration) {

@@ -10,6 +10,7 @@ let sparseCandlesWithoutBackfill = false;
 let backfillWhenPastBoundaryVisible = false;
 let candleRequestCount = 0;
 let olderCandleRequestCount = 0;
+let candleRequestUrls: string[] = [];
 
 test.beforeEach(async ({ page }) => {
   omittedCandleIndex = null;
@@ -20,6 +21,7 @@ test.beforeEach(async ({ page }) => {
   backfillWhenPastBoundaryVisible = false;
   candleRequestCount = 0;
   olderCandleRequestCount = 0;
+  candleRequestUrls = [];
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillFixtureApi(route));
 });
@@ -37,7 +39,7 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   const chartPanel = page.locator(".chart-panel");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", /^[1-9]\d*$/);
   await expectNonBlankCanvas(page.locator(".chart-canvas"));
-  await expectLatestQuarterGap(chartPanel);
+  await expectLatestQuarterGap(chartPanel, 120);
 
   await expect(panel).toHaveScreenshot("chart-candle.png", { maxDiffPixelRatio: 0.015 });
   await selectChartToolbarOption(page, "Chart type", "line");
@@ -97,6 +99,12 @@ test("chart toolbar dropdowns open downward and remain keyboard accessible", asy
   await intervalTrigger.press("End");
   await intervalTrigger.press("Enter");
   await expect(intervalTrigger).toContainText("1M");
+  await expectLatestQuarterGap(page.locator(".chart-panel"), 36);
+
+  await selectChartToolbarOption(page, "Interval", "1W");
+  await expectLatestQuarterGap(page.locator(".chart-panel"), 104);
+  await selectChartToolbarOption(page, "Interval", "1D");
+  await expectLatestQuarterGap(page.locator(".chart-panel"), 120);
 
   await intervalTrigger.click();
   await expect(page.getByRole("listbox", { name: "Interval options" })).toBeVisible();
@@ -104,18 +112,44 @@ test("chart toolbar dropdowns open downward and remain keyboard accessible", asy
   await expect(page.getByRole("listbox", { name: "Interval options" })).toBeHidden();
 });
 
+test("hovered candle metadata stays directly below the symbol search", async ({ page }) => {
+  await openFixtureLayout(page, chartOnlyLayout());
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+  await expect(chartPanel).toHaveAttribute("data-chart-candle-count", /^[1-9]\d*$/);
+  await expectNonBlankCanvas(canvas);
+  const canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error("Chart canvas is not measurable");
+  await page.mouse.move(
+    canvasBox.x + canvasBox.width * 0.4,
+    canvasBox.y + canvasBox.height * 0.35
+  );
+
+  const metadata = chartPanel.locator('[aria-label="Hovered candle data"]');
+  await expect(metadata).toBeVisible();
+  const [metadataBox, navigationBox, searchBox] = await Promise.all([
+    metadata.boundingBox(),
+    chartPanel.locator(".chart-panel-navigation").boundingBox(),
+    chartPanel.locator(".chart-instance-symbol-search").boundingBox()
+  ]);
+  if (!metadataBox || !navigationBox || !searchBox) throw new Error("Chart hover layout is not measurable");
+  expect(metadataBox.y).toBeGreaterThanOrEqual(navigationBox.y + navigationBox.height + 4);
+  expect(metadataBox.y).toBeLessThanOrEqual(navigationBox.y + navigationBox.height + 10);
+  expect(Math.abs(metadataBox.x - searchBox.x)).toBeLessThanOrEqual(4);
+});
+
 test("partial retry locks zoom and keeps the latest quarter gap", async ({ page }) => {
   partialThenReadyCandles = true;
   await openFixtureLayout(page, chartOnlyLayout());
   const chartPanel = page.locator(".chart-panel");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "3");
-  await expectLatestQuarterGap(chartPanel);
+  await expectLatestQuarterGap(chartPanel, 120);
   const firstVisibleCount = await chartPanel.getAttribute("data-chart-visible-count");
   const firstRightOffset = await chartPanel.getAttribute("data-chart-right-offset");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "140", { timeout: 10_000 });
-  await expect(chartPanel).toHaveAttribute("data-chart-visible-count", firstVisibleCount ?? "6");
-  await expect(chartPanel).toHaveAttribute("data-chart-right-offset", firstRightOffset ?? "-1");
-  await expectLatestQuarterGap(chartPanel);
+  await expect(chartPanel).toHaveAttribute("data-chart-visible-count", firstVisibleCount ?? "120");
+  await expect(chartPanel).toHaveAttribute("data-chart-right-offset", firstRightOffset ?? "-30");
+  await expectLatestQuarterGap(chartPanel, 120);
   await expectNonBlankCanvas(chartPanel.locator(".chart-canvas"));
 });
 
@@ -125,6 +159,7 @@ test("wheel zoom out remains available without historical backfill", async ({ pa
   const chartPanel = page.locator(".chart-panel");
   const canvas = chartPanel.locator(".chart-canvas");
   await expect(chartPanel).toHaveAttribute("data-chart-candle-count", "3");
+  await expectNonBlankCanvas(canvas);
   const initialVisibleCount = Number(await chartPanel.getAttribute("data-chart-visible-count"));
 
   await canvas.evaluate((element) => {
@@ -142,7 +177,7 @@ test("wheel zoom out remains available without historical backfill", async ({ pa
 
   await expect.poll(async () => Number(await chartPanel.getAttribute("data-chart-visible-count")))
     .toBeGreaterThan(initialVisibleCount);
-  expect(candleRequestCount).toBe(1);
+  expect(candleRequestUrls.filter((requestUrl) => new URL(requestUrl).searchParams.has("before"))).toEqual([]);
   await expectNonBlankCanvas(canvas);
   await expect(chartPanel).toHaveScreenshot("chart-standard-zoomed.png", { maxDiffPixelRatio: 0.015 });
 });
@@ -617,6 +652,7 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
   } else if (url.pathname === "/api/charts/symbols") {
     payload = { symbols: fixtureSymbols() };
   } else if (url.pathname === "/api/charts/candles") {
+    candleRequestUrls.push(url.toString());
     const symbol = url.searchParams.get("symbol") ?? "NVDA";
     const interval = url.searchParams.get("interval") ?? "1m";
     const fullPayload = candlePayload(symbol, interval);
@@ -658,6 +694,9 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
         fill: { status: "partial", renderable: true, backgroundFill: { state: "queued" } }
       };
     } else {
+      if (partialThenReadyCandles && candleRequestCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
       payload = fullPayload;
     }
     candleRequestCount += 1;
@@ -932,11 +971,13 @@ async function expectNonBlankCanvas(canvas: ReturnType<Page["locator"]>): Promis
   }).toBeGreaterThan(50);
 }
 
-async function expectLatestQuarterGap(chartPanel: Locator): Promise<void> {
+async function expectLatestQuarterGap(chartPanel: Locator, expectedVisibleCount?: number): Promise<void> {
   await expect.poll(async () => {
     const visibleCount = Number(await chartPanel.getAttribute("data-chart-visible-count"));
     const rightOffset = Number(await chartPanel.getAttribute("data-chart-right-offset"));
-    return Number.isFinite(visibleCount) && rightOffset === -Math.floor(visibleCount / 4);
+    return Number.isFinite(visibleCount)
+      && (expectedVisibleCount === undefined || visibleCount === expectedVisibleCount)
+      && rightOffset === -Math.floor(visibleCount / 4);
   }).toBe(true);
 }
 

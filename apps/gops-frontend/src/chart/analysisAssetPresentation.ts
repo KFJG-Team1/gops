@@ -254,7 +254,7 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
       style: evidenceStyle(drawing.style, "evidencePattern", {
         lineWidth: 3.5,
         opacity: patternOpacity,
-        labelPlacement: drawing.id.endsWith("-upper") ? "inline" : drawing.id.endsWith("-lower") ? "axis" : "none"
+        labelPlacement: drawing.id.endsWith("-upper") ? "inline" : "none"
       })
     };
   }
