@@ -5,7 +5,7 @@ import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysi
 import type { AnalysisTraceDataMode } from "../chart/analysisTraceOverlay";
 
 export function ChartAnalysisLayerToggles({
-  visibility, disabled, asOf, freshness = null, interpretationMode = "none", candidateCounts, onToggle
+  visibility, disabled, asOf, freshness = null, interpretationMode = "none", candidateCounts, loadError = null, onToggle
 }: {
   visibility: AnalysisLayerVisibility;
   disabled: Record<AnalysisLayerKey, boolean>;
@@ -13,6 +13,7 @@ export function ChartAnalysisLayerToggles({
   freshness?: AnalysisAssetFreshness | null;
   interpretationMode?: AnalysisTraceDataMode;
   candidateCounts?: { total: number; visible: number } | null;
+  loadError?: string | null;
   onToggle: (layer: AnalysisLayerKey) => void;
 }) {
   return (
@@ -24,7 +25,7 @@ export function ChartAnalysisLayerToggles({
         <LayerButton layer="pattern" label="패턴" icon={<ChartNoAxesCombined size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="proposal" label="제안" icon={<Goal size={16} aria-hidden="true" />} visibility={visibility} disabled={disabled} onToggle={onToggle} />
       </div>
-      {asOf && <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
+      {loadError ? <span className="chart-analysis-asof is-error" role="status">{loadError}</span> : asOf && <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
         분석 기준 {formatAnalysisAssetAsOf(asOf)}
         {freshness?.state === "source_invalid" ? " · 데이터 불일치" : freshness?.state === "outdated_snapshot" ? ` · ${freshness.lagBars}봉 전` : ""}
         {interpretationMode === "complete" ? " · 해석 전체 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}

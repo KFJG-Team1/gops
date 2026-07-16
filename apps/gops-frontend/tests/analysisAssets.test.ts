@@ -5,7 +5,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
-import { analysisTraceDataMode, buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
+import { analysisTraceDataMode, analysisTraceLevelPrice, buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
@@ -338,6 +338,70 @@ assert.deepEqual(focusedTrace?.candidates[0]?.touchPivotIds, ["touch-1", "touch-
 assert.deepEqual(focusedTrace?.candidates[0]?.reactionPivotIds, ["touch-2"]);
 assert.deepEqual(focusedTrace?.pivots.map((pivot) => pivot.id).sort(), ["pivot-1", "touch-1", "touch-2"]);
 assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 1);
+const baseTrace = traceAsset.geometry.analysisTrace!;
+const baseLevelCandidate = baseTrace.levelCandidates[0]!;
+const candidatesOnlyAsset: ChartAnalysisAsset = {
+  ...traceAsset,
+  geometry: {
+    ...traceAsset.geometry,
+    drawings: [],
+    drawingGroups: { levels: [], trend: [], pattern: [] },
+    analysisTrace: {
+      ...baseTrace,
+      version: "geometry-analysis-trace-v2",
+      levelCandidates: [
+        {
+          ...baseLevelCandidate,
+          categoryRank: 1,
+          disposition: "selected",
+          selectionReasons: ["confirmed"],
+          render: { drawingType: "horizontalLine", extension: "plot" },
+          metrics: { ...baseLevelCandidate.metrics, price: 171 }
+        },
+        {
+          ...baseLevelCandidate,
+          id: "level-candidate-rejected",
+          selected: false,
+          hardPass: false,
+          activePass: false,
+          anchors: [],
+          categoryRank: 2,
+          disposition: "rejected",
+          selectionReasons: [],
+          rejectReasons: ["stale"],
+          render: { drawingType: "horizontalLine", extension: "plot" },
+          metrics: { ...baseLevelCandidate.metrics, price: 168 }
+        }
+      ],
+      selections: { ...baseTrace.selections, levelCandidateIds: ["level-candidate-1"] },
+      completeness: {
+        complete: true,
+        detected: { levels: 2, trends: 0, patterns: 0 },
+        stored: { levels: 2, trends: 0, patterns: 0 }
+      }
+    }
+  }
+};
+const candidatesOnlyOverlay = buildAnalysisTraceOverlay(candidatesOnlyAsset, { visible: true });
+assert.equal(hasAnalysisLayerDrawings(candidatesOnlyAsset, "interpretation"), true);
+assert.equal(candidatesOnlyOverlay?.candidates.length, 2);
+assert.equal(candidatesOnlyOverlay?.showCandidateLines, true);
+assert.equal(
+  analysisTraceLevelPrice(candidatesOnlyOverlay!.candidates[0]!, candidatesOnlyOverlay!.pivots),
+  171,
+  "stored metrics price wins over timed anchors for a horizontal candidate"
+);
+assert.equal(
+  analysisTraceLevelPrice(candidatesOnlyOverlay!.candidates[1]!, candidatesOnlyOverlay!.pivots),
+  168,
+  "a rejected level remains drawable without final drawings or timed anchors"
+);
+const candidatesOnlyHover = buildAnalysisTraceOverlay(candidatesOnlyAsset, {
+  visible: false,
+  candidateIds: ["level-candidate-rejected"]
+});
+assert.equal(candidatesOnlyHover?.candidates.length, 1);
+assert.equal(candidatesOnlyHover?.showCandidateLines, false, "commentary hover keeps marker-only evidence");
 const v2TraceAsset: ChartAnalysisAsset = {
   ...traceAsset,
   geometry: {

@@ -12,6 +12,7 @@ import {
 import { analysisAssetPresentationDiagnostics, detectedPatternSummary, formatAnalysisAssetAsOf, formatDetectedPattern } from "../chart/analysisAssetPresentation";
 import { analysisTraceDataMode } from "../chart/analysisTraceOverlay";
 import {
+  analysisAssetsLoadErrorMessage,
   fetchAnalysisAssets,
   invalidateAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
@@ -47,6 +48,7 @@ export function ChartAssetOpsPanel({
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [currentAssets, setCurrentAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [currentAssetsLoadError, setCurrentAssetsLoadError] = useState<string | null>(null);
   const [assetRevision, setAssetRevision] = useState(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
@@ -69,6 +71,7 @@ export function ChartAssetOpsPanel({
   useEffect(() => subscribeAnalysisAssetsInvalidation((symbol) => {
     if (!symbol || symbol === normalizedCurrentSymbol) {
       setCurrentAssets(null);
+      setCurrentAssetsLoadError(null);
       setAssetRevision((current) => current + 1);
     }
   }), [normalizedCurrentSymbol]);
@@ -76,12 +79,19 @@ export function ChartAssetOpsPanel({
   useEffect(() => {
     let active = true;
     setCurrentAssets((current) => current?.symbol === normalizedCurrentSymbol ? current : null);
+    setCurrentAssetsLoadError(null);
     fetchAnalysisAssets(normalizedCurrentSymbol)
       .then((response) => {
-        if (active) setCurrentAssets(response);
+        if (active) {
+          setCurrentAssets(response);
+          setCurrentAssetsLoadError(null);
+        }
       })
-      .catch(() => {
-        if (active) setCurrentAssets(null);
+      .catch((reason) => {
+        if (active) {
+          setCurrentAssets(null);
+          setCurrentAssetsLoadError(analysisAssetsLoadErrorMessage(reason));
+        }
       });
     return () => {
       active = false;
@@ -262,7 +272,9 @@ export function ChartAssetOpsPanel({
 
       <section className="chart-asset-ops-current">
         <header><strong>현재 차트</strong><span>{normalizedCurrentSymbol} {currentInterval}</span></header>
-        {currentDiagnostics ? (
+        {currentAssetsLoadError ? (
+          <p className="chart-asset-ops-error" role="alert">{currentAssetsLoadError}</p>
+        ) : currentDiagnostics ? (
           <>
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
             <p>판정 {currentDiagnostics.state} · {currentDiagnostics.freshness.state}{currentDiagnostics.outdated ? ` (${currentDiagnostics.freshness.lagBars}봉 전)` : ""}</p>

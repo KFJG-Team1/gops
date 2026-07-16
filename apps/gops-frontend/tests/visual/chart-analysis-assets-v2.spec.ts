@@ -10,6 +10,7 @@ let delayAgentAnswer = false;
 let watchlistSymbols: string[] = [];
 let watchlistWrites: string[][] = [];
 let nearbyIntervalFallback = false;
+let analysisAssetStorageUnavailable = false;
 
 test.beforeEach(async ({ page }, testInfo) => {
   postedSymbols = null;
@@ -20,6 +21,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   watchlistSymbols = [];
   watchlistWrites = [];
   nearbyIntervalFallback = false;
+  analysisAssetStorageUnavailable = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
@@ -433,6 +435,17 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
   await expect(universeRow).toHaveScreenshot("chart-assets-ops.png", { timeout: 15_000 });
 });
 
+test("analysis asset storage failure is distinct from an absent asset", async ({ page }) => {
+  analysisAssetStorageUnavailable = true;
+  await page.goto("/?symbol=NVDA");
+  await expect(page.locator(".chart-analysis-layer-controls").getByRole("status"))
+    .toHaveText("작도 자산 저장소에 접근할 수 없습니다.");
+  await expect(page.locator(".chart-asset-ops-current").getByRole("alert"))
+    .toHaveText("작도 자산 저장소에 접근할 수 없습니다.");
+  await expect(page.locator(".chart-asset-ops-current"))
+    .not.toContainText("현재 주기의 저장 자산이 없습니다.");
+});
+
 test("pattern symbol panel filters active patterns and opens the matching chart interval", async ({ page }) => {
   densePatternCoverage = true;
   await page.goto("/?symbol=NVDA");
@@ -475,7 +488,14 @@ async function fulfillApi(route: Route): Promise<void> {
   };
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
-  else if (url.pathname === "/api/charts/analysis-assets") payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
+  else if (url.pathname === "/api/charts/analysis-assets") {
+    if (analysisAssetStorageUnavailable) {
+      status = 503;
+      payload = { detail: "Chart analysis asset storage is unavailable." };
+    } else {
+      payload = url.searchParams.get("symbol") === "NVDA" ? assetResponse() : { symbol: url.searchParams.get("symbol"), assets: {}, meta: {} };
+    }
+  }
   else if (url.pathname === "/api/charts/analysis-assets/coverage") payload = patternCoverageResponse(densePatternCoverage ? 48 : 0);
   else if (url.pathname === "/api/charts/order-flow/symbols") payload = { symbols: ["NVDA"], priceBinSize: .01 };
   else if (url.pathname === "/api/charts/order-flow/intraday") payload = { symbol: "NVDA", sessionDate: "2026-07-14", dataStatus: "ready", supportedSymbols: ["NVDA"], priceBinSize: .01, minutes: [] };

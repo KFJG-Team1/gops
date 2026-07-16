@@ -59,6 +59,7 @@ import { ChartCanvas } from "../chart/ChartCanvas";
 import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
+  analysisAssetsLoadErrorMessage,
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
@@ -132,7 +133,7 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, topPriceGridY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
@@ -427,7 +428,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
   const [currentPriceClock, setCurrentPriceClock] = useState(() => Date.now());
-  const [hoverOhlcTop, setHoverOhlcTop] = useState(86);
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
   const [postCreateFocusDrawingId, setPostCreateFocusDrawingId] = useState<string | null>(null);
@@ -446,6 +446,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
+  const [analysisAssetsLoadError, setAnalysisAssetsLoadError] = useState<string | null>(null);
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>(() => ({
     ...defaultAnalysisLayerVisibility
@@ -633,6 +634,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const activeSymbol = chart.symbol.trim().toUpperCase();
     if (!invalidatedSymbol || invalidatedSymbol === activeSymbol) {
       setAnalysisAssets(null);
+      setAnalysisAssetsLoadError(null);
       appliedAnalysisAssetKeyRef.current = "";
       setAnalysisAssetsRevision((current) => current + 1);
     }
@@ -793,16 +795,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const requestedSymbol = chart.symbol.trim().toUpperCase();
     let active = true;
     setAnalysisAssets((current) => current?.symbol === requestedSymbol ? current : null);
+    setAnalysisAssetsLoadError(null);
     appliedAnalysisAssetKeyRef.current = "";
     fetchAnalysisAssets(requestedSymbol)
       .then((response) => {
         if (active && response.symbol === requestedSymbol) {
           setAnalysisAssets(response);
+          setAnalysisAssetsLoadError(null);
         }
       })
-      .catch(() => {
+      .catch((reason) => {
         if (active) {
           setAnalysisAssets(null);
+          setAnalysisAssetsLoadError(analysisAssetsLoadErrorMessage(reason));
         }
       });
     return () => {
@@ -1978,10 +1983,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;
       setChartEventUpcomingStyle({ right: upcomingRight, bottom: upcomingBottom });
     }
-    const nextHoverOhlcTop = topPriceGridY(scene) + 2;
-    setHoverOhlcTop((current) => (
-      Math.abs(current - nextHoverOhlcTop) < 0.5 ? current : nextHoverOhlcTop
-    ));
   }, [analysisTraceDiagnosticOverlay, chartEvents, earningsEventsVisible, newsEventsVisible]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
@@ -2685,7 +2686,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       {hoverSnapshot?.kind === "candle" && (
         <dl
           className="hover-ohlc hover-ohlc-overlay"
-          style={{ "--hover-ohlc-top": `${hoverOhlcTop}px` } as CSSProperties}
           aria-label="Hovered candle data"
         >
           <div className="hover-ohlc-time"><dt>Time</dt><dd>{formatHoverTimestamp(hoverSnapshot.timestamp ?? hoverSnapshot.from)}</dd></div>
@@ -2803,6 +2803,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           freshness={activeAnalysisAssetFreshness}
           interpretationMode={analysisTraceDataMode(activeAnalysisAsset)}
           candidateCounts={analysisCandidateCounts}
+          loadError={analysisAssetsLoadError}
           onToggle={toggleAnalysisLayer}
         />
         {selectedSemanticNode && onAgentAsk && (

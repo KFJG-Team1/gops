@@ -1,7 +1,7 @@
 import type { PointerEventHandler, WheelEventHandler } from "react";
 import { useEffect, useRef } from "react";
 import type { AgentVisualOverlay } from "../agent/agentVisualOverlay";
-import type { AnalysisTraceOverlay, AnalysisTraceOverlayCandidate } from "./analysisTraceOverlay";
+import { analysisTraceLevelPrice, type AnalysisTraceOverlay, type AnalysisTraceOverlayCandidate } from "./analysisTraceOverlay";
 import type { ChartComparisonSeries, ChartState, DrawingEntity, IndicatorPointDto } from "./types";
 import { buildChartScene, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, hitTestSemanticNode, hitTestTimeAxisUnit, paneSeparatorYs, priceToY, resolveCrosshairTimeTarget, unitBoundsX, unitCenterX, type ChartScene } from "./scene";
 import {
@@ -773,6 +773,10 @@ function drawAnalysisTraceOverlay(
       ? candidate.anchors
       : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
     const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
+    const levelPrice = candidate.category === "levels"
+      ? analysisTraceLevelPrice(candidate, overlay.pivots)
+      : null;
+    const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
     if (overlay.showCandidateLines) {
       const baseAlpha = disposition === "selected" ? 0.58 : disposition === "qualified_not_selected" ? 0.44 : 0.34;
       const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.45 : 1;
@@ -781,8 +785,8 @@ function drawAnalysisTraceOverlay(
       context.globalAlpha = baseAlpha * focusMultiplier;
       context.lineWidth = disposition === "selected" ? 1.75 : disposition === "qualified_not_selected" ? 1.25 : 1;
       context.setLineDash(disposition === "selected" ? [] : disposition === "qualified_not_selected" ? [6, 4] : [3, 4]);
-      if (points.length >= 1 && candidate.category === "levels") {
-        line(context, scene.plot.left, points[0].y, scene.plot.right, points[0].y);
+      if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
+        line(context, scene.plot.left, levelY, scene.plot.right, levelY);
       } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
         const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
         line(context, base[0].x, base[0].y, base[1].x, base[1].y);

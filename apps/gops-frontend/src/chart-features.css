@@ -184,6 +184,10 @@
   color: var(--gops-caution);
 }
 
+.chart-analysis-asof.is-error {
+  color: var(--gops-caution);
+}
+
 .chart-analysis-asof.is-outdated,
 .chart-commentary-meta .is-outdated {
   color: var(--color-muted);
