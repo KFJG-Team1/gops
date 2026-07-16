@@ -16,6 +16,7 @@ import {
   stableVolumeProfileRangeKey
 } from "./derivedRequestPolicy";
 import { indicatorRequestLimitForInterval } from "./indicatorRequestPolicy";
+import { normalizeChartEventsResponse, type ChartEventsResponse } from "./chartEvents";
 
 export type CandleQuery = {
   symbol: string;
@@ -58,6 +59,14 @@ export type ActiveChartHeartbeat = {
 export type ChartCompareQuery = {
   symbols: string[];
   range: ChartCompareRange;
+};
+
+export type ChartEventsQuery = {
+  symbol: string;
+  from: string;
+  to: string;
+  locale?: string;
+  upcomingDays?: number;
 };
 
 export class ChartApiError extends Error {
@@ -187,6 +196,21 @@ export async function fetchVolumeProfile(query: VolumeProfileQuery, signal?: Abo
     }
     return normalizeVolumeProfileResponse(await response.json());
   }, (result) => result.dataStatus !== "partial");
+}
+
+export async function fetchChartEvents(query: ChartEventsQuery, signal?: AbortSignal): Promise<ChartEventsResponse> {
+  const params = new URLSearchParams({
+    symbol: query.symbol.trim().toUpperCase(),
+    from: query.from,
+    to: query.to,
+    locale: query.locale ?? "ko-KR",
+    upcomingDays: String(Math.max(1, Math.min(365, Math.round(query.upcomingDays ?? 90))))
+  });
+  const response = await fetch(`/api/charts/events?${params.toString()}`, { signal });
+  if (!response.ok) {
+    throw new ChartApiError(`Chart events API failed: ${response.status}`, response.status);
+  }
+  return normalizeChartEventsResponse(await response.json());
 }
 
 export async function fetchSymbols(signal?: AbortSignal): Promise<ChartSymbolsResponseDto> {

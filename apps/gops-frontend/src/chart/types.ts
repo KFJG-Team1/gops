@@ -345,7 +345,9 @@ export type ChartLayerKey =
   | "rsi:14"
   | "stochastic:14:3:3"
   | "macd:12:26:9"
-  | "volume-profile";
+  | "volume-profile"
+  | "events:earnings"
+  | "events:news";
 
 export type ChartPaneState = {
   id: string;

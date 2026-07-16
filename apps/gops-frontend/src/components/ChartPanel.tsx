@@ -1,6 +1,7 @@
 import {
   Activity,
   AudioWaveform,
+  CalendarClock,
   ChartColumn,
   ChartNoAxesCombined,
   ChartSpline,
@@ -12,6 +13,7 @@ import {
   Gauge,
   Hand,
   MousePointer2,
+  Newspaper,
   Palette,
   RotateCcw,
   Square,
@@ -76,7 +78,18 @@ import {
   type AnalysisLayerVisibility
 } from "../chart/analysisLayerController";
 import { clearActiveTradePlan, projectActiveTradePlan, setActiveTradePlan } from "../chart/tradePlanStore";
-import { fetchCandles, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
+import { fetchCandles, fetchChartEvents, fetchIndicators, fetchVolumeProfile, openChartSocket, refreshActiveChartSymbol } from "../chart/cdcClient";
+import {
+  chartEventMarkerLayoutKey,
+  chartEventMarkersForScene,
+  chartEventRequestRange,
+  latestChartEventRefreshRange,
+  mergeChartEventsResponses,
+  missingChartEventRanges,
+  type ChartEventCoverage,
+  type ChartEventMarker,
+  type ChartEventsResponse
+} from "../chart/chartEvents";
 import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
@@ -158,6 +171,7 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import { ChartEventOverlay } from "./ChartEventOverlay";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import type { ThemeColorToken } from "../theme/colors";
@@ -441,6 +455,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [spotlightProposalPrice, setSpotlightProposalPrice] = useState<number | null>(null);
   const [spotlightCandidateIds, setSpotlightCandidateIds] = useState<string[]>([]);
   const [spotlightEvidenceRefs, setSpotlightEvidenceRefs] = useState<string[]>([]);
+  const [chartEvents, setChartEvents] = useState<ChartEventsResponse | null>(null);
+  const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
+  const [chartEventUpcomingStyle, setChartEventUpcomingStyle] = useState<CSSProperties>();
   const sourceChart = useMemo(() => ({
     ...chartStateFromDocument(document, candles, dataStatus, streamStatus, streamMessage),
     liveTrade
@@ -462,6 +479,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       : sourceChart
   ), [bidAskSessionDate, sourceChart]);
   const orderFlowActive = chart.chartType === "bidask" && isBidAskChartInterval(chart.interval);
+  const earningsEventsVisible = chart.layers["events:earnings"] !== false;
+  const newsEventsVisible = chart.layers["events:news"] !== false;
+  const chartEventsRange = useMemo(
+    () => chartEventRequestRange(chart.candles, chart.interval),
+    [chart.candles, chart.interval]
+  );
   const activeIndicatorLayers = useMemo(() => orderFlowActive ? [] : activeServerIndicatorLayers(chart), [
     orderFlowActive,
     chart.layers.ma5,
@@ -577,6 +600,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const olderRangeRetryAfterRef = useRef<Map<string, number>>(new Map());
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
+  const chartEventMarkerKeyRef = useRef("");
+  const chartEventUpcomingStyleKeyRef = useRef("");
+  const chartEventsRef = useRef<ChartEventsResponse | null>(null);
+  const chartEventCoverageRef = useRef<ChartEventCoverage | null>(null);
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
   const drawingDragRef = useRef<DrawingDrag | null>(null);
@@ -613,6 +640,90 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     chartRef.current = chart;
   }, [chart]);
+
+  useEffect(() => {
+    if (orderFlowActive || (!earningsEventsVisible && !newsEventsVisible) || !chartEventsRange) {
+      setChartEvents(null);
+      chartEventsRef.current = null;
+      chartEventCoverageRef.current = null;
+      setChartEventMarkers([]);
+      chartEventMarkerKeyRef.current = "";
+      return undefined;
+    }
+    const requested: ChartEventCoverage = {
+      symbol: chart.symbol.trim().toUpperCase(),
+      from: chartEventsRange.from,
+      to: chartEventsRange.to
+    };
+    const previousCoverage = chartEventCoverageRef.current;
+    const reset = previousCoverage?.symbol !== requested.symbol;
+    const missingRanges = missingChartEventRanges(reset ? null : previousCoverage, requested);
+    let active = true;
+    const loadController = new AbortController();
+    let refreshController: AbortController | null = null;
+    if (reset) {
+      setChartEvents(null);
+      chartEventsRef.current = null;
+      chartEventCoverageRef.current = null;
+    }
+    const requestRange = (range: { from: string; to: string }, signal: AbortSignal) => fetchChartEvents({
+      symbol: requested.symbol,
+      from: range.from,
+      to: range.to,
+      locale: "ko-KR",
+      upcomingDays: 90
+    }, signal);
+    const loadMissingRanges = async () => {
+      if (!missingRanges.length) return;
+      try {
+        const responses = await Promise.all(missingRanges.map((range) => requestRange(range, loadController.signal)));
+        if (active) {
+          const merged = mergeChartEventsResponses(chartEventsRef.current, responses, requested);
+          chartEventsRef.current = merged;
+          chartEventCoverageRef.current = requested;
+          setChartEvents(merged);
+        }
+      } catch (error) {
+        if (active && reset && !(error instanceof DOMException && error.name === "AbortError")) {
+          chartEventsRef.current = null;
+          setChartEvents(null);
+        }
+      }
+    };
+    const refreshLatestNewsDay = async () => {
+      refreshController?.abort();
+      refreshController = new AbortController();
+      try {
+        const response = await requestRange(latestChartEventRefreshRange(requested), refreshController.signal);
+        if (active) {
+          const merged = mergeChartEventsResponses(chartEventsRef.current, [response], requested);
+          chartEventsRef.current = merged;
+          setChartEvents(merged);
+        }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          // Keep the last stored event snapshot when a periodic refresh fails.
+        }
+      }
+    };
+    void loadMissingRanges();
+    const refreshTimer = newsEventsVisible
+      ? window.setInterval(() => void refreshLatestNewsDay(), 60_000)
+      : undefined;
+    return () => {
+      active = false;
+      loadController.abort();
+      refreshController?.abort();
+      if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+    };
+  }, [
+    chart.symbol,
+    chartEventsRange?.from,
+    chartEventsRange?.to,
+    earningsEventsVisible,
+    newsEventsVisible,
+    orderFlowActive
+  ]);
 
   useEffect(() => {
     analysisLayerVisibilityRef.current = analysisLayerVisibility;
@@ -1846,11 +1957,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       overlayKeyRef.current = key;
       setExpansionOverlays(overlays);
     }
+    const nextEventMarkers = chartEventMarkersForScene(scene, chartEvents, {
+      earnings: earningsEventsVisible,
+      news: newsEventsVisible
+    });
+    const nextEventMarkerKey = chartEventMarkerLayoutKey(nextEventMarkers);
+    if (nextEventMarkerKey !== chartEventMarkerKeyRef.current) {
+      chartEventMarkerKeyRef.current = nextEventMarkerKey;
+      setChartEventMarkers(nextEventMarkers);
+    }
+    const upcomingRight = Math.max(8, scene.width - scene.plot.right + 8);
+    const upcomingBottom = Math.max(30, scene.height - scene.plot.bottom + 3);
+    const upcomingStyleKey = `${Math.round(upcomingRight)}:${Math.round(upcomingBottom)}`;
+    if (upcomingStyleKey !== chartEventUpcomingStyleKeyRef.current) {
+      chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;
+      setChartEventUpcomingStyle({ right: upcomingRight, bottom: upcomingBottom });
+    }
     const nextHoverOhlcTop = topPriceGridY(scene) + 2;
     setHoverOhlcTop((current) => (
       Math.abs(current - nextHoverOhlcTop) < 0.5 ? current : nextHoverOhlcTop
     ));
-  }, []);
+  }, [chartEvents, earningsEventsVisible, newsEventsVisible]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
     if (unit.kind !== "candle") {
@@ -2651,6 +2778,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        <ChartEventOverlay
+          containerRef={chartWrapRef}
+          markers={chartEventMarkers}
+          response={chartEvents}
+          earningsVisible={earningsEventsVisible}
+          upcomingStyle={chartEventUpcomingStyle}
+        />
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
           disabled={{
@@ -3282,7 +3416,7 @@ function normalizeDrawingPaletteToken(value: string | undefined): DrawingPalette
     : "drawing";
 }
 
-type ChartAddPlacement = "overlay" | "below";
+type ChartAddPlacement = "overlay" | "events" | "below";
 
 type ChartAddDockProps = {
   document: ChartDocument;
@@ -3313,6 +3447,8 @@ const chartAddLayers: ChartAddLayerConfig[] = [
   { layer: "wma:20", label: "20기간 가중 이동평균선", placement: "overlay", title: "20기간 가중 이동평균선" },
   { layer: "bollinger:20:2", label: "볼린저 밴드 (20, 2)", placement: "overlay", title: "볼린저 밴드 (20, 2)" },
   { layer: "volume-profile", label: "거래량 프로파일", placement: "overlay", title: "거래량 프로파일" },
+  { layer: "events:earnings", label: "실적 이벤트", placement: "events", title: "실적 이벤트" },
+  { layer: "events:news", label: "뉴스 이벤트", placement: "events", title: "뉴스 이벤트" },
   { layer: "volume", label: "거래량 막대 차트", placement: "below", title: "거래량 막대 차트" },
   { layer: "rsi:14", label: "상대강도지수 (14)", placement: "below", title: "상대강도지수 (14)" },
   { layer: "stochastic:14:3:3", label: "스토캐스틱 오실레이터 (14, 3, 3)", placement: "below", title: "스토캐스틱 오실레이터 (14, 3, 3)" },
@@ -3331,6 +3467,8 @@ const chartLayerAccentByLayer: Partial<Record<ChartLayerKey, string>> = {
   "wma:20": "var(--color-caution)",
   "bollinger:20:2": "var(--color-purple)",
   "volume-profile": "var(--color-purple)",
+  "events:earnings": "var(--color-signal)",
+  "events:news": "var(--color-info)",
   volume: "var(--color-muted)",
   "rsi:14": "var(--color-signal)",
   "stochastic:14:3:3": "var(--color-caution)",
@@ -3362,6 +3500,7 @@ export function ChartAddDock({
   }, [onChartRuntimeAction, target]);
 
   const overlayLayers = chartAddLayers.filter(item => item.placement === "overlay");
+  const eventLayers = chartAddLayers.filter(item => item.placement === "events");
   const belowLayers = chartAddLayers.filter(item => item.placement === "below");
 
   return (
@@ -3396,6 +3535,27 @@ export function ChartAddDock({
             >
               <ChartAddLayerIcon layer={item.layer} />
             </button>
+            </span>
+          );
+        })}
+      </div>
+      <span className="chart-add-dock-divider" aria-hidden="true" />
+      <div className="chart-add-dock-group" role="group" aria-label="차트 이벤트">
+        {eventLayers.map((item) => {
+          const active = document.layers[item.layer] !== false;
+          return (
+            <span key={item.layer} className="chart-add-layer-tooltip-anchor" {...indicatorTooltip.tooltipProps(item.label)}>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                className={`${iconButtonClass(active)} chart-add-layer-button`}
+                aria-label={item.label}
+                aria-checked={active}
+                style={chartAddLayerButtonStyle(item.layer)}
+                onClick={() => dispatchLayer(item.layer, !active)}
+              >
+                <ChartAddLayerIcon layer={item.layer} />
+              </button>
             </span>
           );
         })}
@@ -3447,6 +3607,10 @@ function ChartAddLayerIcon({ layer }: { layer: ChartLayerKey }) {
       return <AudioWaveform size={17} />;
     case "volume-profile":
       return <Activity size={17} />;
+    case "events:earnings":
+      return <span className="chart-layer-icon"><CalendarClock size={16} /><small>E</small></span>;
+    case "events:news":
+      return <span className="chart-layer-icon"><Newspaper size={16} /><small>N</small></span>;
     case "volume":
       return <ChartColumn size={17} />;
     case "rsi:14":

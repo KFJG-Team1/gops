@@ -36,7 +36,9 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
       "rsi:14": false,
       "stochastic:14:3:3": false,
       "macd:12:26:9": false,
-      "volume-profile": false
+      "volume-profile": false,
+      "events:earnings": true,
+      "events:news": true
     },
     style: getDefaultChartStyle(),
     interactionState: {
@@ -55,17 +57,19 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
 export function normalizeChartDocument(document: ChartDocument): ChartDocument {
   const interactionState = normalizeChartInteractionState(document.interactionState);
   const drawings = sanitizeRemovedDrawings(document.drawings);
+  const layers = withEventLayerDefaults(document.layers);
   const history = document.history.map(normalizeHistoryEntry);
   const future = document.future.map(normalizeHistoryEntry);
   const selectedDrawingId = document.selectedDrawingId && drawings.some((drawing) => drawing.id === document.selectedDrawingId)
     ? document.selectedDrawingId
     : undefined;
   const changed = interactionState !== document.interactionState ||
+    layers !== document.layers ||
     drawings !== document.drawings ||
     history.some((entry, index) => entry !== document.history[index]) ||
     future.some((entry, index) => entry !== document.future[index]) ||
     selectedDrawingId !== document.selectedDrawingId;
-  return changed ? { ...document, interactionState, drawings, history, future, selectedDrawingId } : document;
+  return changed ? { ...document, layers, interactionState, drawings, history, future, selectedDrawingId } : document;
 }
 
 export function cloneChartDocument(document: ChartDocument): ChartDocument {
@@ -140,12 +144,25 @@ function normalizeHistoryEntry(entry: ChartDocument["history"][number]): ChartDo
 
 function normalizeSnapshotDrawings(snapshot: ChartDocumentSnapshot): ChartDocumentSnapshot {
   const drawings = sanitizeRemovedDrawings(snapshot.drawings);
+  const layers = withEventLayerDefaults(snapshot.layers);
   const selectedDrawingId = snapshot.selectedDrawingId && drawings.some((drawing) => drawing.id === snapshot.selectedDrawingId)
     ? snapshot.selectedDrawingId
     : undefined;
-  return drawings === snapshot.drawings && selectedDrawingId === snapshot.selectedDrawingId
+  return drawings === snapshot.drawings && layers === snapshot.layers && selectedDrawingId === snapshot.selectedDrawingId
     ? snapshot
-    : { ...snapshot, drawings, selectedDrawingId };
+    : { ...snapshot, layers, drawings, selectedDrawingId };
+}
+
+function withEventLayerDefaults(layers: ChartDocument["layers"]): ChartDocument["layers"] {
+  const hasEarnings = Object.prototype.hasOwnProperty.call(layers, "events:earnings");
+  const hasNews = Object.prototype.hasOwnProperty.call(layers, "events:news");
+  return hasEarnings && hasNews
+    ? layers
+    : {
+        ...layers,
+        ...(hasEarnings ? {} : { "events:earnings": true }),
+        ...(hasNews ? {} : { "events:news": true })
+      };
 }
 
 function normalizeParallelLineCount(value: unknown): number {

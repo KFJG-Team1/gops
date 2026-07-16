@@ -142,16 +142,18 @@ export type ChartLayerKey =
   | "rsi:14"
   | "stochastic:14:3:3"
   | "macd:12:26:9"
-  | "volume-profile";
+  | "volume-profile"
+  | "events:earnings"
+  | "events:news";
 
 export type ChartLayerPlacement = "overlay" | "below";
 
 export type ChartLayerMetadata = {
   id: ChartLayerKey;
-  kind: "base-price" | "price-overlay" | "indicator-pane" | "volume-pane" | "volume-profile";
+  kind: "base-price" | "price-overlay" | "indicator-pane" | "volume-pane" | "volume-profile" | "event-overlay";
   label: string;
   paneId: string;
-  source: "candle" | "derived" | "legacy";
+  source: "candle" | "derived" | "legacy" | "event";
   params?: Record<string, string | number | boolean>;
   placement: ChartLayerPlacement;
   supportedPlacements: ChartLayerPlacement[];
