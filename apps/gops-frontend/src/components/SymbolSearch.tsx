@@ -9,12 +9,16 @@ type SymbolSearchProps = {
   selectedSymbol?: string;
   selectedLabel?: string;
   placeholder?: string;
+  ariaLabel?: string;
+  listboxLabel?: string;
   compact?: boolean;
   menuPlacement?: "bottom" | "top";
   className?: string;
+  menuClassName?: string;
   style?: CSSProperties;
   allowCustomSymbol?: boolean;
   portalMenu?: boolean;
+  resultLimit?: number;
   onSelectSymbol: (symbol: string) => void;
   onPointerActivity?: () => void;
   formatSelectedLabel?: (symbol: ChartSymbolDto) => string;
@@ -25,12 +29,16 @@ export function SymbolSearch({
   selectedSymbol,
   selectedLabel,
   placeholder = "종목 검색",
+  ariaLabel = "Symbol search",
+  listboxLabel = "Symbols",
   compact = false,
   menuPlacement = "bottom",
   className,
+  menuClassName,
   style,
   allowCustomSymbol = false,
   portalMenu = true,
+  resultLimit = 10,
   onSelectSymbol,
   onPointerActivity,
   formatSelectedLabel
@@ -48,8 +56,8 @@ export function SymbolSearch({
 
   const filteredSymbols = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return rankSymbolMatches(symbols, normalizedQuery).slice(0, 10);
-  }, [query, symbols]);
+    return rankSymbolMatches(symbols, normalizedQuery).slice(0, Math.max(1, resultLimit));
+  }, [query, resultLimit, symbols]);
   const customSymbol = useMemo(() => normalizeCustomSymbol(query), [query]);
 
   useEffect(() => {
@@ -161,10 +169,10 @@ export function SymbolSearch({
   const menu = open && menuStyle ? (
     <div
       id={listboxId}
-      className="symbol-search-menu surface-flat surface-recessed"
+      className={["symbol-search-menu", "surface-flat", "surface-recessed", menuClassName].filter(Boolean).join(" ")}
       style={menuStyle}
       role="listbox"
-      aria-label="Symbols"
+      aria-label={listboxLabel}
       onPointerEnter={onPointerActivity}
       onPointerMove={onPointerActivity}
     >
@@ -274,7 +282,7 @@ export function SymbolSearch({
           }
         }}
         placeholder={placeholder}
-        aria-label="Symbol search"
+        aria-label={ariaLabel}
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={activeOptionId}
         aria-expanded={open}

@@ -1,56 +1,83 @@
 import {
-  Activity,
   AlertCircle,
   ArrowRight,
+  BarChart3,
   Building2,
-  CircleCheck,
-  Database,
-  FileText,
-  GitBranch,
   LoaderCircle,
-  Plus,
-  Sparkles,
-  X
+  Sparkles
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent
+} from "react";
+import type { ChartSymbolDto } from "../chart/types";
+import { SymbolSearch } from "../components/SymbolSearch";
+import { GlossaryText } from "../glossary/GlossaryText";
 import {
   requestCompanyCompare,
   requestCompanyCompareCandidates,
   requestCompanyCompareQuantitative,
   type CompanyCompareCandidate,
-  type CompanyCompareGrowthChart,
+  type CompanyCompareMetric,
   type CompanyCompareQualitativeItem,
   type CompanyCompareQualitativeSection,
   type CompanyCompareResponse,
-  type CompanyCompareSection,
   type CompanyCompareSectionId
 } from "./companyCompareApi";
 
 type CompanyComparePanelProps = {
   baseSymbol: string;
   compareSymbols: string[];
-  symbolOptions: string[];
+  symbols: ChartSymbolDto[];
   onCompareSymbolsChange: (symbols: string[]) => void;
 };
 
+type AxisMeta = {
+  id: CompanyCompareSectionId;
+  index: string;
+  tab: string;
+  eyebrow: string;
+  title: string;
+};
+
+type QualitativeRow = {
+  label: string;
+  baseValue: string;
+  compareValue: string;
+};
+
 const REQUEST_DEBOUNCE_MS = 400;
-const MAX_COMPARE_SYMBOLS = 3;
-const SERIES_COLORS = ["#9a8cff", "#38d1bb", "#f0ae54", "#ee7e9b"];
-const SECTION_META: Record<CompanyCompareSectionId, { index: string; label: string }> = {
-  growth_style: { index: "01", label: "GROWTH" },
-  profit_structure: { index: "02", label: "PROFIT" },
-  financial_health: { index: "03", label: "HEALTH" },
-  earnings_stability: { index: "04", label: "EARNINGS" },
-  business_model: { index: "05", label: "BUSINESS" },
-  risk_profile: { index: "06", label: "RISK" },
-  relationship: { index: "07", label: "RELATION" },
-  recent_flow: { index: "08", label: "FLOW" }
+const MAX_COMPARE_SYMBOLS = 1;
+const AXES: AxisMeta[] = [
+  { id: "growth_style", index: "01", tab: "성장성", eyebrow: "GROWTH", title: "성장성" },
+  { id: "profit_structure", index: "02", tab: "수익성", eyebrow: "PROFITABILITY", title: "수익성" },
+  { id: "financial_health", index: "03", tab: "재무 안정성", eyebrow: "FINANCIAL STABILITY", title: "재무 안정성" },
+  { id: "earnings_stability", index: "04", tab: "실적", eyebrow: "EARNINGS STABILITY", title: "실적 안정성" },
+  { id: "business_model", index: "05", tab: "주요 사업", eyebrow: "KEY BUSINESSES", title: "주요 사업" },
+  { id: "risk_profile", index: "06", tab: "위험 요인", eyebrow: "RISK FACTORS", title: "위험 요인" },
+  { id: "relationship", index: "07", tab: "연관성", eyebrow: "RELATIONSHIPS", title: "연관성" },
+  { id: "recent_flow", index: "08", tab: "최근 이슈", eyebrow: "RECENT ISSUES", title: "최근 이슈" }
+];
+const QUANTITATIVE_AXIS_IDS = new Set<CompanyCompareSectionId>([
+  "growth_style",
+  "profit_structure",
+  "financial_health",
+  "earnings_stability"
+]);
+const METRIC_PRIORITY: Partial<Record<CompanyCompareSectionId, string[]>> = {
+  growth_style: ["revenue_growth_yoy", "operating_income_growth_yoy", "net_income_growth_yoy"],
+  profit_structure: ["net_margin", "operating_margin", "roe"],
+  financial_health: ["total_debt_to_assets", "current_ratio", "free_cash_flow"],
+  earnings_stability: ["eps_surprise_mean", "eps_surprise_volatility", "eps_beat_rate"]
 };
 
 export function CompanyComparePanel({
   baseSymbol,
   compareSymbols,
-  symbolOptions,
+  symbols,
   onCompareSymbolsChange
 }: CompanyComparePanelProps) {
   const normalizedBase = normalizeSymbol(baseSymbol);
@@ -58,6 +85,8 @@ export function CompanyComparePanel({
     () => normalizeCompareSymbols(compareSymbols, normalizedBase),
     [compareSymbols, normalizedBase]
   );
+  const selectedCompare = normalizedCompare[0] ?? "";
+  const [activeAxisId, setActiveAxisId] = useState<CompanyCompareSectionId>("profit_structure");
   const [response, setResponse] = useState<CompanyCompareResponse | null>(null);
   const [candidates, setCandidates] = useState<CompanyCompareCandidate[]>([]);
   const [quantitativeLoading, setQuantitativeLoading] = useState(false);
@@ -87,7 +116,7 @@ export function CompanyComparePanel({
   }, [normalizedBase]);
 
   useEffect(() => {
-    if (!normalizedBase || normalizedCompare.length === 0) {
+    if (!normalizedBase || !selectedCompare) {
       setResponse(null);
       setQuantitativeLoading(false);
       setNarrativeLoading(false);
@@ -95,9 +124,10 @@ export function CompanyComparePanel({
       setNarrativeFailed(false);
       return undefined;
     }
+
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      const input = { baseSymbol: normalizedBase, compareSymbols: normalizedCompare };
+      const input = { baseSymbol: normalizedBase, compareSymbols: [selectedCompare] };
       setQuantitativeLoading(true);
       setNarrativeLoading(true);
       setError(null);
@@ -133,96 +163,280 @@ export function CompanyComparePanel({
           if (!controller.signal.aborted) setNarrativeLoading(false);
         });
     }, REQUEST_DEBOUNCE_MS);
+
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [normalizedBase, normalizedCompare.join("|")]);
+  }, [normalizedBase, selectedCompare]);
 
-  const availableOptions = useMemo(() => {
-    const blocked = new Set([normalizedBase, ...normalizedCompare]);
-    return Array.from(new Set(symbolOptions.map(normalizeSymbol)))
-      .filter((symbol) => symbol && !blocked.has(symbol))
-      .sort();
-  }, [normalizedBase, normalizedCompare, symbolOptions]);
+  const compareSearchSymbols = useMemo(() => {
+    const bySymbol = new Map<string, ChartSymbolDto>();
+    symbols.forEach((item) => {
+      const symbol = normalizeSymbol(item.symbol);
+      if (!symbol || symbol === normalizedBase) return;
+      bySymbol.set(symbol, { ...item, symbol });
+    });
+    candidates.forEach((candidate) => {
+      const symbol = normalizeSymbol(candidate.symbol);
+      if (!symbol || symbol === normalizedBase) return;
+      const current = bySymbol.get(symbol);
+      bySymbol.set(symbol, {
+        symbol,
+        name: candidate.companyName || current?.name || symbol,
+        sector: current?.sector
+      });
+    });
+    if (selectedCompare && !bySymbol.has(selectedCompare)) {
+      bySymbol.set(selectedCompare, { symbol: selectedCompare, name: selectedCompare });
+    }
+    return Array.from(bySymbol.values()).sort((left, right) => left.symbol.localeCompare(right.symbol));
+  }, [candidates, normalizedBase, selectedCompare, symbols]);
 
-  const addSymbol = (symbol: string) => {
+  const handleCompareChange = (symbol: string) => {
     const normalized = normalizeSymbol(symbol);
-    if (!normalized || normalized === normalizedBase || normalizedCompare.includes(normalized)) return;
-    onCompareSymbolsChange([...normalizedCompare, normalized].slice(0, MAX_COMPARE_SYMBOLS));
+    onCompareSymbolsChange(normalized && normalized !== normalizedBase ? [normalized] : []);
   };
-  const removeSymbol = (symbol: string) => {
-    onCompareSymbolsChange(normalizedCompare.filter((item) => item !== symbol));
+
+  const handleAxisKeyDown = (event: KeyboardEvent<HTMLButtonElement>, axisIndex: number) => {
+    let nextIndex = axisIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (axisIndex + 1) % AXES.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (axisIndex - 1 + AXES.length) % AXES.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = AXES.length - 1;
+    else return;
+
+    event.preventDefault();
+    setActiveAxisId(AXES[nextIndex].id);
+    const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role='tab']");
+    tabs?.[nextIndex]?.focus();
   };
+
+  const activeAxis = AXES.find((axis) => axis.id === activeAxisId) ?? AXES[1];
 
   return (
-    <section className="company-compare-panel" aria-label="기업 성향 비교">
-      <header className="company-compare-hero">
-        <div className="company-compare-hero-copy">
-          <span className="company-compare-eyebrow"><Sparkles size={12} /> Evidence comparison</span>
-          <div className="company-compare-title-row">
-            <h2>기업 성향 비교</h2>
-            <span>8개 분석축</span>
-          </div>
-          <p>재무·10-K·온톨로지·뉴스 근거를 나란히 읽습니다. 점수나 판정은 만들지 않습니다.</p>
+    <section className="compare-cockpit" aria-label="기업 성향 비교">
+      <header className="compare-cockpit-topbar">
+        <div className="compare-cockpit-brand">
+          <BarChart3 size={18} aria-hidden="true" />
+          <span>GOPS</span>
         </div>
-        <div className="company-compare-controls">
-          <div className="company-compare-pair" aria-label="비교 기업">
-            <span className="company-compare-base-chip">{normalizedBase || "기업"}<small>BASE</small></span>
-            <span className="company-compare-versus">×</span>
-            {normalizedCompare.map((symbol) => (
-              <span className="company-compare-selected-chip" key={symbol}>
-                {symbol}
-                <button type="button" aria-label={`${symbol} 비교에서 제거`} onClick={() => removeSymbol(symbol)}>
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
+        <div className="compare-cockpit-pair" aria-label="비교 기업">
+          <span><i className="is-base" />{normalizedBase || "기업"}</span>
+          <em>vs</em>
+          <div className="compare-cockpit-symbol-picker">
+            <i className="is-compare" aria-hidden="true" />
+            <SymbolSearch
+              symbols={compareSearchSymbols}
+              selectedSymbol={selectedCompare}
+              selectedLabel={selectedCompare}
+              placeholder="기업 검색"
+              ariaLabel="비교 기업 검색"
+              listboxLabel="비교 기업 검색 결과"
+              compact
+              allowCustomSymbol
+              resultLimit={6}
+              className="compare-cockpit-symbol-search"
+              menuClassName="compare-cockpit-symbol-menu"
+              onSelectSymbol={handleCompareChange}
+            />
           </div>
-          {normalizedCompare.length < MAX_COMPARE_SYMBOLS && (
-            <label className="company-compare-direct-select">
-              <Plus size={13} aria-hidden="true" />
-              <select value="" onChange={(event) => addSymbol(event.target.value)} aria-label="비교 기업 직접 선택">
-                <option value="">기업 추가</option>
-                {availableOptions.map((symbol) => <option value={symbol} key={symbol}>{symbol}</option>)}
-              </select>
-            </label>
-          )}
         </div>
       </header>
 
-      {normalizedCompare.length === 0 && (
+      <nav className="compare-cockpit-tabs" role="tablist" aria-label="기업 비교 분석축">
+        {AXES.map((axis, index) => {
+          const selected = activeAxis.id === axis.id;
+          return (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              disabled={!selectedCompare}
+              key={axis.id}
+              onClick={() => setActiveAxisId(axis.id)}
+              onKeyDown={(event) => handleAxisKeyDown(event, index)}
+            >
+              {axis.index} {axis.tab}
+            </button>
+          );
+        })}
+      </nav>
+
+      {!selectedCompare && (
         <CompanyCompareEmptyState
           baseSymbol={normalizedBase}
           candidates={candidates}
           loading={candidateLoading}
-          onSelect={addSymbol}
+          onSelect={handleCompareChange}
         />
       )}
 
-      {normalizedCompare.length > 0 && (
-        <div className="company-compare-layers">
-          <section className="company-compare-quantitative-layer" aria-label="비교 근거">
-            {quantitativeLoading && !response && <CompanyCompareSkeleton symbols={[normalizedBase, ...normalizedCompare]} />}
-            {!quantitativeLoading && error && !response && (
-              <div className="company-compare-error" role="alert">
-                <AlertCircle size={18} />
-                <span>{error}</span>
-              </div>
-            )}
-            {response && <EvidenceComparison response={response} />}
-          </section>
+      {selectedCompare && quantitativeLoading && !response && (
+        <CompanyCompareSkeleton baseSymbol={normalizedBase} compareSymbol={selectedCompare} />
+      )}
 
-          <section className="company-compare-narrative-layer" aria-label="AI 근거 해석">
-            <NarrativeComparison
-              response={response}
-              loading={narrativeLoading}
-              failed={narrativeFailed || Boolean(error)}
-            />
-          </section>
+      {selectedCompare && !quantitativeLoading && error && !response && (
+        <div className="compare-cockpit-error" role="alert">
+          <AlertCircle size={18} />
+          <span>{error}</span>
         </div>
       )}
+
+      {selectedCompare && response && (
+        <CockpitAxisContent
+          axis={activeAxis}
+          response={response}
+          baseSymbol={normalizedBase}
+          compareSymbol={selectedCompare}
+          narrativeLoading={narrativeLoading}
+          narrativeFailed={narrativeFailed}
+        />
+      )}
     </section>
+  );
+}
+
+function CockpitAxisContent({
+  axis,
+  response,
+  baseSymbol,
+  compareSymbol,
+  narrativeLoading,
+  narrativeFailed
+}: {
+  axis: AxisMeta;
+  response: CompanyCompareResponse;
+  baseSymbol: string;
+  compareSymbol: string;
+  narrativeLoading: boolean;
+  narrativeFailed: boolean;
+}) {
+  const quantitative = QUANTITATIVE_AXIS_IDS.has(axis.id);
+  const metrics = quantitative ? selectMetrics(response, axis.id) : [];
+  const qualitativeSection = quantitative
+    ? undefined
+    : response.qualitative.sections.find((section) => section.id === axis.id);
+  const qualitativeRows = qualitativeSection
+    ? buildQualitativeRows(qualitativeSection, baseSymbol, compareSymbol)
+    : [];
+  const sourceCount = quantitative
+    ? countMetricSources(metrics)
+    : qualitativeSection?.evidenceRefs.length ?? 0;
+  const narrative = response.narrative.sections.find((section) => section.id === axis.id)?.analysis;
+  const brief = narrative
+    ? compactCompleteBrief(narrative)
+    : (narrativeLoading
+      ? "정량·공시 근거를 연결해 짧은 해석을 준비하고 있습니다."
+      : narrativeFailed || response.narrative.status === "failed"
+        ? "비교 근거는 확인할 수 있지만 AI 해석은 현재 사용할 수 없습니다."
+        : "현재 확보된 근거를 같은 기준으로 나란히 비교합니다.");
+  const briefParts = splitBriefForDisplay(brief);
+
+  return (
+    <div className="compare-cockpit-content" role="tabpanel" aria-live="polite">
+      <header className="compare-cockpit-heading">
+        <div>
+          <span>{axis.index} / {axis.eyebrow}</span>
+          <h2>{axis.title}</h2>
+        </div>
+        <span className="compare-cockpit-source-count">{formatSourceCount(axis.id, sourceCount)}</span>
+      </header>
+
+      <div className={`compare-cockpit-metrics${quantitative ? " is-quantitative" : " is-qualitative"}`}>
+        {quantitative && metrics.map((metric) => (
+          <QuantitativeMetricRow
+            key={metric.id}
+            metric={metric}
+            baseSymbol={baseSymbol}
+            compareSymbol={compareSymbol}
+          />
+        ))}
+        {!quantitative && qualitativeRows.map((row) => (
+          <QualitativeMetricRow
+            key={row.label}
+            row={row}
+            baseSymbol={baseSymbol}
+            compareSymbol={compareSymbol}
+          />
+        ))}
+        {((quantitative && metrics.length === 0) || (!quantitative && qualitativeRows.length === 0)) && (
+          <div className="compare-cockpit-no-data">이 분석축에 표시할 비교 근거가 아직 없습니다.</div>
+        )}
+      </div>
+
+      <footer className="compare-cockpit-brief">
+        {narrativeLoading && !narrative ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}
+        <div>
+          <span>AI EVIDENCE BRIEF</span>
+          <p aria-label={brief}>
+            <span className="compare-cockpit-brief-primary" aria-hidden="true"><GlossaryText text={briefParts.primary} /></span>
+            {briefParts.secondary && (
+              <span className="compare-cockpit-brief-secondary" aria-hidden="true"> <GlossaryText text={briefParts.secondary} /></span>
+            )}
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function QuantitativeMetricRow({
+  metric,
+  baseSymbol,
+  compareSymbol
+}: {
+  metric: CompanyCompareMetric;
+  baseSymbol: string;
+  compareSymbol: string;
+}) {
+  const baseValue = metric.values.find((value) => value.symbol === baseSymbol);
+  const compareValue = metric.values.find((value) => value.symbol === compareSymbol);
+  const extent = Math.max(Math.abs(baseValue?.value ?? 0), Math.abs(compareValue?.value ?? 0));
+  const baseWidth = barWidth(baseValue?.value ?? null, extent);
+  const compareWidth = barWidth(compareValue?.value ?? null, extent);
+  const baseStyle = { "--compare-bar-width": `${baseWidth}%` } as CSSProperties;
+  const compareStyle = { "--compare-bar-width": `${compareWidth}%` } as CSSProperties;
+
+  return (
+    <div
+      className="compare-cockpit-metric-row"
+      aria-label={`${metric.label}: ${baseSymbol} ${baseValue?.display ?? "데이터 없음"}, ${compareSymbol} ${compareValue?.display ?? "데이터 없음"}`}
+    >
+      <div className="compare-cockpit-primary-value">
+        <span>{metric.label}</span>
+        <strong title={baseValue?.asOf ? `기준 ${baseValue.asOf}` : undefined}>{baseValue?.display ?? "데이터 없음"}</strong>
+      </div>
+      <div className="compare-cockpit-bars" aria-hidden="true">
+        <i className="is-base" style={baseStyle} />
+        <i className="is-compare" style={compareStyle} />
+      </div>
+      <div className="compare-cockpit-secondary-value">
+        <strong title={compareValue?.asOf ? `기준 ${compareValue.asOf}` : undefined}>{compareValue?.display ?? "데이터 없음"}</strong>
+        <span>{formatMetricDelta(metric, baseValue?.value ?? null, compareValue?.value ?? null)}</span>
+      </div>
+    </div>
+  );
+}
+
+function QualitativeMetricRow({
+  row,
+  baseSymbol,
+  compareSymbol
+}: {
+  row: QualitativeRow;
+  baseSymbol: string;
+  compareSymbol: string;
+}) {
+  return (
+    <div className="compare-cockpit-metric-row is-qualitative">
+      <span className="compare-cockpit-row-label">{row.label}</span>
+      <div className="compare-cockpit-paired-copy">
+        <span><b>{baseSymbol}</b><strong><GlossaryText text={row.baseValue} /></strong></span>
+        <span><b>{compareSymbol}</b><strong><GlossaryText text={row.compareValue} /></strong></span>
+      </div>
+    </div>
   );
 }
 
@@ -238,426 +452,184 @@ function CompanyCompareEmptyState({
   onSelect: (symbol: string) => void;
 }) {
   return (
-    <div className="company-compare-empty">
-      <div className="company-compare-empty-mark"><Building2 size={28} /></div>
-      <span className="company-compare-eyebrow">Start a comparison</span>
-      <h3>{baseSymbol}와 비교할 기업을 선택하세요</h3>
-      <p>같은 산업 안에서도 성장 방식과 수익 구조, 사업 위험은 다르게 나타납니다.</p>
-      <div className="company-compare-empty-preview" aria-label="비교 분석 범위">
-        <span><Activity size={14} /> 성장·수익</span>
-        <span><Database size={14} /> 재무 건전성</span>
-        <span><FileText size={14} /> 10-K 사업·위험</span>
-        <span><GitBranch size={14} /> 관계·최근 흐름</span>
-      </div>
-      {loading && <span className="company-compare-inline-loading"><LoaderCircle size={14} className="spin" /> 비교 후보를 찾고 있습니다</span>}
+    <div className="compare-cockpit-empty">
+      <Building2 size={24} />
+      <h2>{baseSymbol}와 비교할 기업을 선택하세요</h2>
+      <p>상단의 기업 선택 또는 아래의 같은 테마 후보를 사용할 수 있습니다.</p>
+      {loading && <span><LoaderCircle size={16} className="spin" /> 비교 후보를 찾고 있습니다</span>}
       {!loading && candidates.length > 0 && (
-        <div className="company-compare-candidates" aria-label="온톨로지 비교 후보">
-          {candidates.slice(0, 8).map((candidate) => (
+        <div className="compare-cockpit-candidates" aria-label="온톨로지 비교 후보">
+          {candidates.slice(0, 6).map((candidate) => (
             <button type="button" key={candidate.symbol} onClick={() => onSelect(candidate.symbol)}>
-              <span><strong>{candidate.symbol}</strong><ArrowRight size={14} /></span>
+              <strong>{candidate.symbol}</strong>
               <small>{candidate.themes.slice(0, 2).join(" · ") || "같은 테마"}</small>
+              <ArrowRight size={15} />
             </button>
           ))}
-          {candidates.length > 8 && <small className="company-compare-candidate-more">외 {candidates.length - 8}개 · 기업 추가에서 선택</small>}
         </div>
-      )}
-      {!loading && candidates.length === 0 && (
-        <span className="company-compare-empty-hint">같은 테마 후보가 없습니다. 우측 상단의 ‘기업 추가’에서 직접 선택할 수 있습니다.</span>
       )}
     </div>
   );
 }
 
-function EvidenceComparison({ response }: { response: CompanyCompareResponse }) {
-  const sourceById = new Map(response.sources.map((source) => [source.id, formatSourceLabel(source)]));
-  const sourceDates = response.sources.map((source) => source.asOf?.slice(0, 10) ?? "").filter(Boolean).sort();
-  const latestAsOf = sourceDates[sourceDates.length - 1];
-  return (
-    <>
-      <div className="company-compare-status-strip">
-        <span className={`company-compare-data-status is-${response.status}`}>
-          <CircleCheck size={13} /> {response.status === "ready" ? "8개 분석축 준비됨" : "일부 데이터 공백"}
-        </span>
-        <span>{response.sources.length}개 근거 출처</span>
-        {latestAsOf && <span>최근 기준 {latestAsOf}</span>}
-        <span>생성 주체 · {response.createdByAgentId}</span>
-      </div>
-
-      <AnalysisGroupHeader
-        kicker="QUANTITATIVE · 01—04"
-        title="숫자로 확인하는 기업의 작동 방식"
-        description="동일한 지표를 같은 단위로 배치합니다. 크거나 작은 값에 의미를 임의로 부여하지 않습니다."
-        icon={<Activity size={17} />}
-      />
-      <div className={`company-compare-overview-grid${response.quantitative.alignedFacts.length === 0 ? " is-single" : ""}`}>
-        <GrowthComparisonChart chart={response.quantitative.growthChart} />
-        {response.quantitative.alignedFacts.length > 0 && <AlignedFactsTable response={response} />}
-      </div>
-      <div className="company-compare-section-grid">
-        {response.quantitative.sections.map((section) => (
-          <MetricSection key={section.id} section={section} symbols={response.comparedSymbols} sourceById={sourceById} />
-        ))}
-      </div>
-
-      {response.qualitative?.sections?.length > 0 && (
-        <QualitativeEvidence response={response} sections={response.qualitative.sections} />
-      )}
-
-      <EvidenceFooter response={response} />
-    </>
-  );
-}
-
-function AnalysisGroupHeader({
-  kicker,
-  title,
-  description,
-  icon
+function CompanyCompareSkeleton({
+  baseSymbol,
+  compareSymbol
 }: {
-  kicker: string;
-  title: string;
-  description: string;
-  icon: ReactNode;
+  baseSymbol: string;
+  compareSymbol: string;
 }) {
   return (
-    <div className="company-compare-group-header">
-      <div className="company-compare-group-icon">{icon}</div>
-      <div>
-        <span>{kicker}</span>
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
+    <div className="compare-cockpit-skeleton" role="status" aria-label="기업 비교 근거를 불러오는 중">
+      <span><LoaderCircle size={17} className="spin" /> {baseSymbol}와 {compareSymbol} 근거를 불러오고 있습니다</span>
+      {[0, 1, 2].map((index) => <i key={index} />)}
     </div>
   );
 }
 
-function QualitativeEvidence({
-  response,
-  sections
-}: {
-  response: CompanyCompareResponse;
-  sections: CompanyCompareQualitativeSection[];
-}) {
-  const sourceById = new Map(response.sources.map((source) => [source.id, `${source.symbol} · ${source.label}`]));
-  return (
-    <section className="company-compare-qualitative" aria-label="공시와 맥락 비교">
-      <AnalysisGroupHeader
-        kicker="CONTEXT · 05—08"
-        title="공시와 관계에서 읽는 사업의 맥락"
-        description="10-K 원문, 기업 관계 그래프, 저장된 최근 뉴스를 사실 단위로 보여줍니다."
-        icon={<FileText size={17} />}
-      />
-      <div className="company-compare-qualitative-grid">
-        {sections.map((section) => {
-          const meta = SECTION_META[section.id];
-          return (
-            <article className="company-compare-qualitative-card" key={section.id}>
-              <CardHeading meta={meta} title={section.heading} sourceCount={section.evidenceRefs.length} />
-              <EvidenceItems items={section.items} sourceById={sourceById} />
-            </article>
-          );
-        })}
-      </div>
-    </section>
-  );
+function selectMetrics(response: CompanyCompareResponse, axisId: CompanyCompareSectionId): CompanyCompareMetric[] {
+  const section = response.quantitative.sections.find((item) => item.id === axisId);
+  if (!section) return [];
+  const priority = METRIC_PRIORITY[axisId] ?? [];
+  const selected = priority
+    .map((metricId) => section.metrics.find((metric) => metric.id === metricId))
+    .filter((metric): metric is CompanyCompareMetric => Boolean(metric));
+  return (selected.length > 0 ? selected : section.metrics).slice(0, 3);
 }
 
-function EvidenceItems({
-  items,
-  sourceById
-}: {
-  items: CompanyCompareQualitativeItem[];
-  sourceById: Map<string, string>;
-}) {
-  const visibleItems = items.slice(0, 3);
-  const remainingItems = items.slice(3);
-  return (
-    <div className="company-compare-qualitative-items">
-      {visibleItems.map((item, index) => <EvidenceItem key={`${item.sourceRef}-${index}`} item={item} sourceById={sourceById} />)}
-      {remainingItems.length > 0 && (
-        <details className="company-compare-more-evidence">
-          <summary>{remainingItems.length}개 근거 더 보기</summary>
-          {remainingItems.map((item, index) => <EvidenceItem key={`${item.sourceRef}-more-${index}`} item={item} sourceById={sourceById} />)}
-        </details>
-      )}
-    </div>
-  );
+function buildQualitativeRows(
+  section: CompanyCompareQualitativeSection,
+  baseSymbol: string,
+  compareSymbol: string
+): QualitativeRow[] {
+  if (section.id === "business_model") {
+    const baseItem = findBusinessItem(section.items, baseSymbol);
+    const compareItem = findBusinessItem(section.items, compareSymbol);
+    const sharedItem = section.items.find((item) => item.kind === "ontology-theme" || item.kind === "ontology-relationship");
+    return [
+      {
+        label: "사업 모델",
+        baseValue: compactText(baseItem?.summary),
+        compareValue: compactText(compareItem?.summary)
+      },
+      {
+        label: "핵심 동력",
+        baseValue: compactText(baseItem?.details[0]),
+        compareValue: compactText(compareItem?.details[0])
+      },
+      {
+        label: "시장 맥락",
+        baseValue: compactText(baseItem?.details[1] ?? sharedItem?.summary),
+        compareValue: compactText(compareItem?.details[1] ?? sharedItem?.summary)
+      }
+    ];
+  }
+
+  if (section.id === "relationship") {
+    const items = section.items.slice(0, 3);
+    return [0, 1, 2].map((index) => ({
+      label: index === 0 ? "공통 테마" : index === 1 ? "관계 유형" : "연결 근거",
+      baseValue: compactText(items[index]?.summary ?? items[index]?.title),
+      compareValue: compactText(items[index]?.summary ?? items[index]?.title)
+    }));
+  }
+
+  const baseItems = findSymbolItems(section.items, baseSymbol);
+  const compareItems = findSymbolItems(section.items, compareSymbol);
+  return [0, 1, 2].map((index) => {
+    const baseItem = baseItems[index];
+    const compareItem = compareItems[index];
+    const label = section.id === "recent_flow"
+      ? `최근 이슈 ${index + 1}`
+      : cleanItemLabel(baseItem?.title ?? compareItem?.title, index);
+    return {
+      label,
+      baseValue: compactText(section.id === "recent_flow" ? baseItem?.title : baseItem?.summary),
+      compareValue: compactText(section.id === "recent_flow" ? compareItem?.title : compareItem?.summary)
+    };
+  });
 }
 
-function EvidenceItem({
-  item,
-  sourceById
-}: {
-  item: CompanyCompareQualitativeItem;
-  sourceById: Map<string, string>;
-}) {
-  return (
-    <div className={`company-compare-qualitative-item is-${item.kind}`}>
-      <div className="company-compare-evidence-title">
-        {item.symbol && <span>{item.symbol}</span>}
-        <strong>{item.title}</strong>
-      </div>
-      <p>{item.summary}</p>
-      {item.details.length > 0 && (
-        <ul>{item.details.slice(0, 3).map((detail) => <li key={detail}>{detail}</li>)}</ul>
-      )}
-      <small>{sourceById.get(item.sourceRef) ?? fallbackEvidenceLabel(item.sourceRef)}</small>
-    </div>
-  );
+function findBusinessItem(items: CompanyCompareQualitativeItem[], symbol: string) {
+  return items.find((item) => item.kind === "10k-business" && item.symbol === symbol);
 }
 
-function NarrativeComparison({
-  response,
-  loading,
-  failed
-}: {
-  response: CompanyCompareResponse | null;
-  loading: boolean;
-  failed: boolean;
-}) {
-  const narrative = response?.narrative;
-  const ready = narrative?.status === "ready";
-  const cacheHit = ready && narrative?.cache?.status === "hit";
-  const layerState = ready ? "ready" : loading ? "loading" : failed || narrative?.status === "failed" ? "failed" : "idle";
-  const sourceById = new Map((response?.sources ?? []).map((source) => [source.id, `${source.symbol} · ${source.label}`]));
-  const narrativeSections = [...(narrative?.sections ?? [])].sort((left, right) => (
-    Number(SECTION_META[left.id].index) - Number(SECTION_META[right.id].index)
-  ));
-  return (
-    <>
-      <AnalysisGroupHeader
-        kicker="AI EVIDENCE BRIEF"
-        title="근거를 연결한 성향 해석"
-        description="계산은 서버가 끝냈고, AI는 위의 사실을 읽기 쉬운 문장으로만 연결합니다."
-        icon={<Sparkles size={17} />}
-      />
-      <span className={`company-compare-layer-badge is-${layerState}`}>
-        {cacheHit ? "검증된 캐시 응답" : ready ? "근거 검증 완료" : loading ? "해석 구성 중" : failed || narrative?.status === "failed" ? "근거 데이터만 표시" : "해석 대기"}
-      </span>
-      {loading && (
-        <div className="company-compare-narrative-loading">
-          <LoaderCircle size={18} className="spin" />
-          <div><strong>8개 분석축을 연결하고 있습니다</strong><span>정량 데이터는 먼저 확인할 수 있습니다.</span></div>
-        </div>
-      )}
-      {!loading && ready && narrative && (
-        <div className="company-compare-narrative-content">
-          <div className="company-compare-narrative-lead">
-            <span>SUMMARY</span>
-            <p>{narrative.summary}</p>
-          </div>
-          {narrative.insights.length > 0 && (
-            <div className="company-compare-insights">
-              {narrative.insights.map((insight, index) => (
-                <span key={insight}><small>{String(index + 1).padStart(2, "0")}</small>{insight}</span>
-              ))}
-            </div>
-          )}
-          <div className="company-compare-narrative-grid">
-            {narrativeSections.map((section, index) => {
-              const meta = SECTION_META[section.id];
-              return (
-                <details key={section.id} open={index < 2}>
-                  <summary>
-                    <span className="company-compare-axis-number">{meta.index}</span>
-                    <span><small>{meta.label}</small><strong>{section.heading}</strong></span>
-                    <Plus size={14} />
-                  </summary>
-                  <p>{section.analysis}</p>
-                  {section.evidenceRefs.length > 0 && (
-                    <div className="company-compare-evidence-refs">
-                      {section.evidenceRefs.map((reference) => (
-                        <span key={reference}>{sourceById.get(reference) ?? fallbackEvidenceLabel(reference)}</span>
-                      ))}
-                    </div>
-                  )}
-                </details>
-              );
-            })}
-          </div>
-          <small className="company-compare-information-notice">정보성 분석이며 투자 판단을 대신하지 않습니다.</small>
-        </div>
-      )}
-      {!loading && !ready && (
-        <p className="company-compare-narrative-state">
-          {narrative?.dataGaps?.[0] ?? "근거 데이터는 정상 표시되며 AI 해석은 현재 사용할 수 없습니다."}
-        </p>
-      )}
-    </>
-  );
+function findSymbolItems(items: CompanyCompareQualitativeItem[], symbol: string) {
+  return items.filter((item) => {
+    const symbols = (item.symbol ?? "").split("·").map(normalizeSymbol);
+    return symbols.includes(symbol);
+  });
 }
 
-function GrowthComparisonChart({ chart }: { chart: CompanyCompareGrowthChart }) {
-  const width = 720;
-  const labelWidth = 150;
-  const chartWidth = 520;
-  const zeroX = labelWidth + chartWidth / 2;
-  const groupHeight = Math.max(60, chart.series.length * 15 + 24);
-  const height = Math.max(116, chart.categories.length * groupHeight + 26);
-  if (chart.categories.length === 0) return null;
-  return (
-    <article className="company-compare-growth-chart">
-      <div className="company-compare-chart-heading">
-        <div><span>OVERVIEW</span><strong>최근 성장률</strong></div>
-        <div className="company-compare-chart-legend">
-          {chart.series.map((series, index) => (
-            <span key={series.symbol}><i style={{ background: SERIES_COLORS[index % SERIES_COLORS.length] }} />{series.symbol}</span>
-          ))}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="기업별 전년 대비 성장률 막대 차트">
-        <line x1={zeroX} x2={zeroX} y1={8} y2={height - 8} className="company-compare-zero-axis" />
-        {chart.categories.map((category, categoryIndex) => {
-          const baseY = categoryIndex * groupHeight + 26;
-          return (
-            <g key={category.id}>
-              <text x={0} y={baseY + 7} className="company-compare-chart-label">{category.label}</text>
-              {chart.series.map((series, seriesIndex) => {
-                const point = series.values[categoryIndex];
-                const percent = (point?.value ?? 0) * 100;
-                const categoryExtent = Math.max(10, ...chart.series.map((item) => (
-                  Math.abs((item.values[categoryIndex]?.value ?? 0) * 100)
-                )));
-                const barWidth = Math.abs(percent) / categoryExtent * (chartWidth / 2 - 42);
-                const x = percent >= 0 ? zeroX : zeroX - barWidth;
-                const y = baseY + seriesIndex * 15 - 6;
-                return (
-                  <g key={series.symbol}>
-                    <rect x={x} y={y} width={barWidth} height={10} rx={5} fill={SERIES_COLORS[seriesIndex % SERIES_COLORS.length]}>
-                      <title>{`${series.symbol} ${category.label}: ${point?.display ?? "데이터 없음"}`}</title>
-                    </rect>
-                    <text
-                      x={percent >= 0 ? x + barWidth + 6 : x - 6}
-                      y={y + 9}
-                      textAnchor={percent >= 0 ? "start" : "end"}
-                      className="company-compare-chart-value"
-                    >
-                      {point?.display ?? "-"}
-                    </text>
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
-      </svg>
-      <small className="company-compare-scale-note">각 지표는 해당 행의 최대 절대값을 기준으로 표시합니다.</small>
-    </article>
-  );
+function cleanItemLabel(value: string | undefined, index: number): string {
+  if (!value) return `주요 위험 ${index + 1}`;
+  const [, category] = value.split("·").map((part) => part.trim());
+  return compactText(category || value, 14);
 }
 
-function AlignedFactsTable({ response }: { response: CompanyCompareResponse }) {
-  return (
-    <article className="company-compare-table-card company-compare-aligned-card">
-      <div className="company-compare-table-heading">
-        <div><span>ALIGNED FACTS</span><strong>동일 회계기간 규모</strong></div>
-        <small>{response.quantitative.periodAlignment.framePeriods.join(", ")}</small>
-      </div>
-      <table>
-        <thead><tr><th>지표</th>{response.comparedSymbols.map((symbol) => <th key={symbol}>{symbol}</th>)}</tr></thead>
-        <tbody>
-          {response.quantitative.alignedFacts.map((fact) => (
-            <tr key={fact.id}>
-              <th>{fact.label}<small>{fact.framePeriod}</small></th>
-              {response.comparedSymbols.map((symbol) => (
-                <td key={symbol}>{fact.values.find((value) => value.symbol === symbol)?.display ?? "데이터 없음"}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <span className="company-compare-provider-note">SEC frames</span>
-    </article>
-  );
+function compactText(value: string | null | undefined, maxLength = 42): string {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) return "근거 없음";
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
 }
 
-function MetricSection({
-  section,
-  symbols,
-  sourceById
-}: {
-  section: CompanyCompareSection;
-  symbols: string[];
-  sourceById: Map<string, string>;
-}) {
-  const sourceRefs = Array.from(new Set(
-    section.metrics.flatMap((metric) => metric.values.map((value) => value.sourceRef).filter((value): value is string => Boolean(value)))
-  ));
-  const meta = SECTION_META[section.id];
-  return (
-    <article className="company-compare-table-card">
-      <CardHeading meta={meta} title={section.heading} sourceCount={sourceRefs.length} />
-      <table>
-        <thead><tr><th>지표</th>{symbols.map((symbol) => <th key={symbol}>{symbol}</th>)}</tr></thead>
-        <tbody>
-          {section.metrics.map((metric) => (
-            <tr key={metric.id}>
-              <th>{metric.label}</th>
-              {symbols.map((symbol) => {
-                const value = metric.values.find((item) => item.symbol === symbol);
-                return <td key={symbol} title={value?.asOf ? `기준 ${value.asOf}` : undefined}>{value?.display ?? "데이터 없음"}</td>;
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {sourceRefs.length > 0 && (
-        <div className="company-compare-source-line">
-          {sourceRefs.map((reference) => <span key={reference}>{sourceById.get(reference) ?? fallbackEvidenceLabel(reference)}</span>)}
-        </div>
-      )}
-    </article>
-  );
+function compactCompleteBrief(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const sentences = normalized.match(/.*?[.!?](?=\s|$)/g);
+  if (!sentences || sentences.length === 0) return normalized;
+
+  let result = "";
+  for (const sentence of sentences) {
+    const candidate = result ? `${result} ${sentence.trim()}` : sentence.trim();
+    if (result && result.length >= 80) break;
+    if (result && candidate.length > 220) break;
+    result = candidate;
+  }
+  return result || sentences[0].trim();
 }
 
-function CardHeading({
-  meta,
-  title,
-  sourceCount
-}: {
-  meta: { index: string; label: string };
-  title: string;
-  sourceCount: number;
-}) {
-  return (
-    <div className="company-compare-table-heading">
-      <span className="company-compare-axis-number">{meta.index}</span>
-      <div><span>{meta.label}</span><strong>{title}</strong></div>
-      <small>{sourceCount} sources</small>
-    </div>
-  );
+function splitBriefForDisplay(value: string): { primary: string; secondary: string } {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const sentences = normalized.match(/.*?[.!?](?=\s|$)/g)?.map((sentence) => sentence.trim());
+  if (!sentences || sentences.length === 0) {
+    return { primary: normalized, secondary: "" };
+  }
+  return {
+    primary: sentences[0],
+    secondary: sentences.slice(1).join(" ")
+  };
 }
 
-function EvidenceFooter({ response }: { response: CompanyCompareResponse }) {
-  return (
-    <footer className="company-compare-sources">
-      <details>
-        <summary><Database size={14} /> 전체 출처 {response.sources.length}개</summary>
-        <div className="company-compare-source-list" aria-label="기업 비교 전체 출처">
-          {response.sources.map((source) => <span key={source.id}>{formatSourceLabel(source)}</span>)}
-        </div>
-      </details>
-      {response.dataGaps.length > 0 && (
-        <details>
-          <summary><AlertCircle size={14} /> 데이터 공백 {response.dataGaps.length}건</summary>
-          <ul>{response.dataGaps.map((gap) => <li key={gap}>{gap}</li>)}</ul>
-        </details>
-      )}
-    </footer>
-  );
+function countMetricSources(metrics: CompanyCompareMetric[]): number {
+  return new Set(metrics.flatMap((metric) => (
+    metric.values
+      .filter((value) => value.value !== null)
+      .map((value) => value.sourceRef)
+      .filter((value): value is string => Boolean(value))
+  ))).size;
 }
 
-function CompanyCompareSkeleton({ symbols }: { symbols: string[] }) {
-  const style = { "--compare-columns": symbols.length } as CSSProperties;
-  return (
-    <div className="company-compare-skeleton" role="status" aria-label="기업 비교 근거를 불러오는 중" style={style}>
-      <span><LoaderCircle size={16} className="spin" /> 재무·공시 근거를 불러오고 있습니다</span>
-      <div className="company-compare-skeleton-chart" />
-      <div className="company-compare-skeleton-grid">
-        {[0, 1, 2, 3].map((index) => <div key={index} />)}
-      </div>
-    </div>
-  );
+function formatSourceCount(axisId: CompanyCompareSectionId, count: number): string {
+  if (count === 0) return "근거 준비 중";
+  if (QUANTITATIVE_AXIS_IDS.has(axisId)) return `${count} SEC sources`;
+  if (axisId === "recent_flow") return `${count} News sources`;
+  if (axisId === "relationship") return `${count} Graph sources`;
+  return `${count} filing sources`;
+}
+
+function barWidth(value: number | null, extent: number): number {
+  if (value === null || extent === 0) return 0;
+  if (value === 0) return 2;
+  return Math.max(4, Math.abs(value) / extent * 90);
+}
+
+function formatMetricDelta(metric: CompanyCompareMetric, baseValue: number | null, compareValue: number | null): string {
+  if (baseValue === null || compareValue === null) return "비교 불가";
+  const difference = Math.abs(baseValue - compareValue);
+  if (metric.unit === "percent") return `${(difference * 100).toFixed(1)}%p 차이`;
+  if (metric.unit === "ratio") return `${difference.toFixed(2)} 차이`;
+  if (metric.unit === "count") return `${difference.toFixed(0)}개 차이`;
+  return "규모 차이";
 }
 
 function normalizeCompareSymbols(symbols: string[], baseSymbol: string): string[] {
@@ -671,21 +643,6 @@ function normalizeCompareSymbols(symbols: string[], baseSymbol: string): string[
 
 function normalizeSymbol(value: string): string {
   return value.trim().toUpperCase();
-}
-
-function fallbackEvidenceLabel(reference: string): string {
-  const [provider, symbol] = reference.split(":", 2);
-  if (provider === "financial" && symbol) return `${symbol} · SEC companyfacts`;
-  if (provider === "earnings" && symbol) return `${symbol} · 실적 컨센서스`;
-  if (provider === "tenk" && symbol) return `${symbol} · 10-K 프로파일`;
-  if (provider === "ontology") return "GraphDB · 기업 관계";
-  if (provider === "news" && symbol) return `${symbol} · 저장 뉴스`;
-  return reference;
-}
-
-function formatSourceLabel(source: CompanyCompareResponse["sources"][number]): string {
-  const asOf = source.asOf ? ` · ${source.asOf.slice(0, 10)}` : "";
-  return `${source.symbol} · ${source.label}${asOf}`;
 }
 
 export default CompanyComparePanel;

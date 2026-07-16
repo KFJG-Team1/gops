@@ -278,7 +278,7 @@ export function PanelContentRenderer({
         <CompanyComparePanel
           baseSymbol={baseSymbol}
           compareSymbols={compareSymbols}
-          symbolOptions={symbols.map((item) => item.symbol)}
+          symbols={symbols}
           onCompareSymbolsChange={(nextSymbols) => onUpdatePanelProps(content.id, { compareSymbols: nextSymbols })}
         />
       </Suspense>
