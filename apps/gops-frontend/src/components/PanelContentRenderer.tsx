@@ -22,7 +22,10 @@ import {
 import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
-import { StockRecommendationsPanel } from "../recommendations/StockRecommendationsPanel";
+import {
+  StockRecommendationsPanel,
+  type StockRecommendationSelection
+} from "../recommendations/StockRecommendationsPanel";
 import { StockRecommendationExplainPanel } from "../recommendations/StockRecommendationExplainPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
@@ -122,7 +125,12 @@ type PanelContentRendererProps = {
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
   selectedRecommendationSymbol: string | null;
-  onSelectRecommendationReference: (reference: AgentReference | null) => void;
+  selectedRecommendation: StockRecommendationSelection | null;
+  onSelectRecommendationReference: (
+    reference: AgentReference | null,
+    selection?: StockRecommendationSelection | null,
+    replaceExisting?: boolean
+  ) => void;
   onOpenCompany: (symbol: string) => void;
   onSelectPatternAsset: (symbol: string, interval: AnalysisAssetInterval) => void;
   chartLinkOptions: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
@@ -171,6 +179,7 @@ export function PanelContentRenderer({
   onChangePanelChartSymbol,
   onSelectSymbol,
   selectedRecommendationSymbol,
+  selectedRecommendation,
   onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset,
@@ -342,6 +351,7 @@ export function PanelContentRenderer({
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
         selectedSymbol={selectedRecommendationSymbol}
+        selectedRecommendation={selectedRecommendation}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
@@ -356,6 +366,7 @@ export function PanelContentRenderer({
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
         selectedSymbol={selectedRecommendationSymbol}
+        selectedRecommendation={selectedRecommendation}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
@@ -369,6 +380,7 @@ export function PanelContentRenderer({
     return (
       <StockRecommendationExplainPanel
         preferredSymbol={selectedRecommendationSymbol ?? symbol.toUpperCase()}
+        selection={selectedRecommendation}
       />
     );
   }

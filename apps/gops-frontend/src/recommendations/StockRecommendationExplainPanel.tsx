@@ -15,6 +15,7 @@ import {
   type StockRecommendationItem,
   type StockRecommendationPayload
 } from "./recommendationApi";
+import type { StockRecommendationSelection } from "./StockRecommendationsPanel";
 import styles from "./StockRecommendationExplainPanel.module.css";
 
 const companyNameBySymbol = new Map(
@@ -29,7 +30,13 @@ type MetricView = {
   tone: "positive" | "neutral" | "caution";
 };
 
-export function StockRecommendationExplainPanel({ preferredSymbol }: { preferredSymbol?: string | null }) {
+export function StockRecommendationExplainPanel({
+  preferredSymbol,
+  selection
+}: {
+  preferredSymbol?: string | null;
+  selection?: StockRecommendationSelection | null;
+}) {
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,17 +66,21 @@ export function StockRecommendationExplainPanel({ preferredSymbol }: { preferred
 
   const preferred = preferredSymbol?.trim().toUpperCase();
   const item = useMemo(() => {
+    if (selection) {
+      return selection.item;
+    }
     const items = payload?.items ?? [];
     return items.find((candidate) => candidate.symbol === preferred)
       ?? items[0]
       ?? null;
-  }, [payload?.items, preferred]);
+  }, [payload?.items, preferred, selection]);
+  const displayPayload = selection?.payload ?? payload;
 
-  if (loading) {
+  if (loading && !selection) {
     return <PanelState icon={<Activity size={16} />} message="추천 근거를 정리하고 있습니다" />;
   }
 
-  if (error) {
+  if (error && !selection) {
     return <PanelState icon={<AlertTriangle size={16} />} message={error} tone="error" onRetry={() => void load()} />;
   }
 
@@ -77,7 +88,7 @@ export function StockRecommendationExplainPanel({ preferredSymbol }: { preferred
     return (
       <PanelState
         icon={<AlertTriangle size={16} />}
-        message={emptyMessage(payload)}
+        message={emptyMessage(displayPayload)}
         onRetry={() => void load()}
       />
     );
@@ -87,7 +98,7 @@ export function StockRecommendationExplainPanel({ preferredSymbol }: { preferred
   const score = clamp(item.score, 0, 100);
   const confidence = normalizeConfidence(item.confidence);
   const metrics = buildMetricViews(item);
-  const generatedAt = formatTimestamp(payload?.generatedAt ?? payload?.slotStart);
+  const generatedAt = formatTimestamp(displayPayload?.generatedAt ?? displayPayload?.slotStart);
 
   return (
     <section className={styles.panel} aria-label={`${item.symbol} 추천 해설`}>
@@ -173,7 +184,7 @@ export function StockRecommendationExplainPanel({ preferredSymbol }: { preferred
           <section className={styles.section}>
             <SectionTitle icon={<Activity size={16} />} title="판단 맥락" />
             <dl className={styles.contextList}>
-              <div><dt>추천 세션</dt><dd>{sessionLabel(payload)}</dd></div>
+              <div><dt>추천 세션</dt><dd>{sessionLabel(displayPayload, selection?.sessionMode)}</dd></div>
               <div><dt>생성 시각</dt><dd>{generatedAt}</dd></div>
               <div><dt>데이터 시각</dt><dd>{formatTimestamp(readStringMetric(item, "dataFreshness", "data_freshness"))}</dd></div>
               <div><dt>추천 방식</dt><dd>{algorithmLabel(item)}</dd></div>
@@ -420,8 +431,8 @@ function emptyMessage(payload: StockRecommendationPayload | null) {
   return "설명할 추천 종목이 없습니다.";
 }
 
-function sessionLabel(payload: StockRecommendationPayload | null) {
-  return payload?.summary?.sessionMode === "pre" ? "장전 / 데이장" : "미국 본장";
+function sessionLabel(payload: StockRecommendationPayload | null, sessionMode?: "pre" | "regular") {
+  return (sessionMode ?? payload?.summary?.sessionMode) === "pre" ? "장전 / 데이장" : "미국 본장";
 }
 
 function algorithmLabel(item: StockRecommendationItem) {
