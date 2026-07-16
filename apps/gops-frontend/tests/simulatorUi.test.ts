@@ -5,10 +5,12 @@ import { fileURLToPath } from "node:url";
 import {
   formatSimulatorVirtualTime,
   requestPortfolioRefresh,
+  simulationAwareNowMs,
   simulatorSpeeds,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
-  subscribePortfolioRefresh
+  subscribePortfolioRefresh,
+  type SimulatorStatus
 } from "../src/simulator/simulatorApi";
 
 
@@ -22,6 +24,37 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
+
+const replayStatus: SimulatorStatus = {
+  available: true,
+  mode: "simulation",
+  state: "running",
+  datasetId: "sp500-top20-20260715-kst-v1",
+  runId: "run-clock",
+  virtualTime: "2026-07-14T15:06:40.000Z",
+  startTime: "2026-07-14T15:00:00.000Z",
+  endTime: "2026-07-15T15:00:00.000Z",
+  requestedSpeed: 5,
+  effectiveSpeed: 5,
+  processedEventCount: 1,
+  totalEventCount: 2,
+  progress: 0.5,
+  lagMs: 0,
+  symbols: []
+};
+const observedAtMs = Date.parse("2026-07-16T14:00:00.000Z");
+assert.equal(
+  simulationAwareNowMs(observedAtMs + 2_000, replayStatus, observedAtMs),
+  Date.parse("2026-07-14T15:06:50.000Z")
+);
+assert.equal(
+  simulationAwareNowMs(observedAtMs + 2_000, { ...replayStatus, state: "paused" }, observedAtMs),
+  Date.parse(replayStatus.virtualTime)
+);
+assert.equal(
+  simulationAwareNowMs(observedAtMs + 2_000, { ...replayStatus, mode: "live" }, observedAtMs),
+  observedAtMs + 2_000
+);
 let refreshCalls = 0;
 const unsubscribeRefresh = subscribePortfolioRefresh(() => { refreshCalls += 1; });
 requestPortfolioRefresh();
