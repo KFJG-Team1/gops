@@ -41,7 +41,8 @@ export type Sp500UniverseItem = {
   sessionDollarVolume?: number | null;
   currency?: string | null;
   indexWeight?: number;
-  changePercent: number;
+  previousClose?: number | null;
+  changePercent: number | null;
 };
 
 export type CompanyEarningsSeriesPoint = {

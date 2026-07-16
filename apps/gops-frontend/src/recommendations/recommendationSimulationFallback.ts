@@ -40,7 +40,7 @@ export const recommendationSimulationFallbackItems: StockRecommendationItem[] = 
     rank: index + 1,
     score: FALLBACK_SCORES[index],
     confidence: FALLBACK_CONFIDENCES[index],
-    changePercent: seed?.changePercent,
+    changePercent: seed?.changePercent ?? undefined,
     sector: seed?.sector,
     sectorLabelKo: seed?.sectorLabelKo || sectorLabelKo(seed?.sector),
     reasons: [FALLBACK_REASONS[index]],

@@ -465,7 +465,9 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [chartDataResetRevision, setChartDataResetRevision] = useState(0);
-  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => normalizeMarketItems(sp500UniverseSeed));
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => (
+    normalizeMarketItems(sp500UniverseSeed).map((item) => ({ ...item, changePercent: null }))
+  ));
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
   const [chartPriceSelection, setChartPriceSelection] = useState<ChartPriceSelection | null>(null);

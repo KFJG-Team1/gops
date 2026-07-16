@@ -228,7 +228,7 @@ function buildThemeCandidates(items: Sp500UniverseItem[]): ThemeCandidate[] {
     const totalDollarVolume = dollarVolumeForItems(themeItems);
     const avgChange = weightedAverageChange(themeItems);
     const breadth = themeItems.length
-      ? themeItems.filter((item) => Number.isFinite(item.changePercent) && item.changePercent > 0).length / themeItems.length
+      ? themeItems.filter((item) => Number.isFinite(item.changePercent) && Number(item.changePercent) > 0).length / themeItems.length
       : 0;
     const flowScore = clamp((totalDollarVolume > 0 ? totalDollarVolume / maxDollarVolume : totalMarketCap / maxMarketCap) * 100, 8, 100);
     const momentumScore = clamp(50 + avgChange * 9, 0, 100);
@@ -257,14 +257,15 @@ function filterThemeItems(items: Sp500UniverseItem[], definition: ThemeDefinitio
 }
 
 function weightedAverageChange(items: Sp500UniverseItem[]) {
-  const totalWeight = items.reduce((sum, item) => sum + marketCapForItem(item), 0);
-  if (items.length === 0) {
+  const quotedItems = items.filter((item) => Number.isFinite(item.changePercent));
+  const totalWeight = quotedItems.reduce((sum, item) => sum + marketCapForItem(item), 0);
+  if (quotedItems.length === 0) {
     return 0;
   }
   if (totalWeight <= 0) {
-    return average(items.map((item) => item.changePercent));
+    return average(quotedItems.map((item) => Number(item.changePercent)));
   }
-  return items.reduce((sum, item) => sum + item.changePercent * marketCapForItem(item), 0) / totalWeight;
+  return quotedItems.reduce((sum, item) => sum + Number(item.changePercent) * marketCapForItem(item), 0) / totalWeight;
 }
 
 function dollarVolumeForItems(items: Sp500UniverseItem[]) {
@@ -288,8 +289,8 @@ function average(values: number[]) {
   return finite.length ? finite.reduce((sum, value) => sum + value, 0) / finite.length : 0;
 }
 
-function formatSignedPercent(value: number) {
-  if (!Number.isFinite(value)) {
+function formatSignedPercent(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return "--";
   }
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;

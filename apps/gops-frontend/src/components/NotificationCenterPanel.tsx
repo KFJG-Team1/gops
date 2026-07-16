@@ -498,7 +498,7 @@ function mergeCompany(item: ChartSymbolDto, symbols: ChartSymbolDto[]): ChartSym
   };
 }
 
-function formatSignedPercent(value: number | undefined): string {
+function formatSignedPercent(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }

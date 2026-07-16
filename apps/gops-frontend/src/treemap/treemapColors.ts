@@ -13,7 +13,7 @@ export type TreeMapOpacityScale = {
   referenceChange: number;
 };
 
-export function createTreeMapOpacityScale(changePercents: Array<number | undefined>): TreeMapOpacityScale {
+export function createTreeMapOpacityScale(changePercents: Array<number | null | undefined>): TreeMapOpacityScale {
   const changes = changePercents
     .map((value) => Number.isFinite(value) ? Math.abs(Number(value)) : null)
     .filter((value): value is number => value !== null && value >= flatThreshold)
@@ -26,7 +26,7 @@ export function createTreeMapOpacityScale(changePercents: Array<number | undefin
   };
 }
 
-export function tileFillForChange(changePercent: number | undefined, theme: ThemeColors): string {
+export function tileFillForChange(changePercent: number | null | undefined, theme: ThemeColors): string {
   const change = Number.isFinite(changePercent) ? Number(changePercent) : 0;
   if (Math.abs(change) < flatThreshold) {
     return theme.muted;
@@ -34,7 +34,7 @@ export function tileFillForChange(changePercent: number | undefined, theme: Them
   return change > 0 ? theme.upSoft : theme.downSoft;
 }
 
-export function tileOpacityForChange(changePercent: number | undefined, scale: TreeMapOpacityScale): number {
+export function tileOpacityForChange(changePercent: number | null | undefined, scale: TreeMapOpacityScale): number {
   const change = Number.isFinite(changePercent) ? Math.abs(Number(changePercent)) : 0;
   if (change < scale.flatThreshold || scale.referenceChange <= scale.flatThreshold) {
     return scale.minOpacity;
@@ -47,7 +47,7 @@ export function tileTextForOpacity(opacity: number, theme: ThemeColors): string 
   return opacity >= inverseTextOpacityThreshold ? theme.tileTextInverse : theme.tileText;
 }
 
-export function toneForChange(changePercent: number | undefined): "up" | "down" | "flat" {
+export function toneForChange(changePercent: number | null | undefined): "up" | "down" | "flat" {
   const change = Number.isFinite(changePercent) ? Number(changePercent) : 0;
   if (change > flatThreshold) {
     return "up";
@@ -56,6 +56,14 @@ export function toneForChange(changePercent: number | undefined): "up" | "down" 
     return "down";
   }
   return "flat";
+}
+
+export function formatTreeMapChange(changePercent: number | null | undefined): string {
+  if (!Number.isFinite(changePercent)) {
+    return "—";
+  }
+  const change = Number(changePercent);
+  return `${change > 0 ? "+" : ""}${change.toFixed(2)}%`;
 }
 
 function percentile(values: number[], percentileValue: number): number {

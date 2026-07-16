@@ -125,12 +125,13 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     earningsSeries: normalizeEarningsSeries(item.earningsSeries),
     financialSeries: normalizeFinancialSeries(item.financialSeries),
     lastPrice: asNumber(item.lastPrice),
+    previousClose: asNumber(item.previousClose),
     priceSource: asString(item.priceSource),
     priceUpdatedAt: asString(item.priceUpdatedAt),
     volume: asNumber(item.volume),
     sessionDollarVolume: asNumber(item.sessionDollarVolume),
     currency: asString(item.currency),
-    changePercent: asNumber(item.changePercent) ?? 0
+    changePercent: asNumber(item.changePercent) ?? null
   };
 }
 
