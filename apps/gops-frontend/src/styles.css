@@ -4508,7 +4508,8 @@ h2 {
   gap: 10px;
 }
 
-.company-stability-dashboard-grid > .company-financial-chart-card {
+.company-stability-dashboard-grid > .company-financial-chart-card,
+.company-stability-dashboard-grid > .company-financial-metric-block > .company-financial-chart-card {
   min-height: 340px;
   border: 1px solid var(--coinbase-hairline);
   border-radius: 8px;
@@ -5033,7 +5034,7 @@ h2 {
   gap: 8px;
   border: 1px solid var(--coinbase-hairline);
   border-radius: 8px;
-  padding: 12px;
+  padding: clamp(8px, 1.4cqw, 12px);
   background: color-mix(in srgb, var(--color-surface) 82%, transparent);
   overflow: hidden;
 }
@@ -5238,7 +5239,16 @@ h2 {
   min-width: 500px;
   border-collapse: separate;
   border-spacing: 0;
+  table-layout: fixed;
   color: var(--color-text);
+}
+
+.company-financial-table-label-column {
+  width: clamp(100px, 14%, 132px);
+}
+
+.company-financial-table-change-column {
+  width: clamp(84px, 12%, 112px);
 }
 
 .company-financial-table th,
@@ -25377,1017 +25387,6 @@ textarea:focus,
   }
 }
 
-/* Restored AI company journal analytics from d6baaf1d. */
-.company-valuation-dashboard {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px;
-  scrollbar-gutter: stable;
-}
-
-.company-valuation-dashboard-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.company-valuation-dashboard-header > div:first-child {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.company-valuation-dashboard-header strong {
-  color: var(--color-text);
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-}
-
-.company-valuation-dashboard-header span {
-  color: var(--color-muted);
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-}
-
-.company-valuation-dashboard-grid {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.company-valuation-dashboard-grid.is-valuation-only {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.company-valuation-dashboard-grid.is-valuation-only > .company-valuation-panel {
-  align-content: start;
-  min-height: 340px;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 8px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
-}
-
-.company-valuation-dashboard.is-earnings {
-  grid-template-rows: minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.company-earnings-only-view {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-}
-
-.company-earnings-only-view > .company-earnings-panel {
-  grid-template-rows: auto minmax(260px, 1fr) auto;
-  min-height: 0;
-  align-content: stretch;
-}
-
-.company-earnings-only-view .company-earnings-history-card,
-.company-earnings-only-view .company-earnings-plot {
-  height: 100%;
-  min-height: 0;
-}
-
-.company-valuation-dashboard-grid > .company-earnings-panel,
-.company-valuation-dashboard-grid > .company-financial-static-card {
-  min-height: 340px;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 8px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
-}
-
-.company-valuation-dashboard-detail {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.28fr);
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--coinbase-hairline);
-}
-
-.company-valuation-dashboard-detail.is-valuation-only {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.company-stability-dashboard {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  align-content: start;
-  gap: 12px;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px;
-  scrollbar-gutter: stable;
-}
-
-.company-stability-dashboard-grid {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.company-stability-dashboard-grid > .company-financial-chart-card {
-  min-height: 340px;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 8px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
-}
-
-.company-stability-dashboard-grid .company-financial-overview-page,
-.company-stability-dashboard-grid .company-profitability-plot {
-  height: 100%;
-  min-height: 0;
-}
-
-.company-stability-dashboard-grid .company-analysis-page-nav {
-  display: none;
-}
-
-.company-stability-dashboard-table {
-  display: grid;
-  min-width: 0;
-  gap: 8px;
-  border-top: 1px solid var(--coinbase-hairline);
-  padding-top: 10px;
-}
-
-.company-per-share-table-section {
-  display: grid;
-  min-width: 0;
-  align-content: start;
-  gap: 8px;
-}
-
-.company-earnings-panel {
-  align-self: stretch;
-  align-content: start;
-}
-
-.company-valuation-metric-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.company-per-share-bar.eps,
-.company-per-share-legend i.eps,
-.company-financial-table tbody th i.eps {
-  background: var(--coinbase-primary);
-}
-
-.company-per-share-bar.eps {
-  fill: var(--coinbase-primary);
-}
-
-.company-per-share-bar.bps,
-.company-per-share-legend i.bps,
-.company-financial-table tbody th i.bps {
-  background: var(--company-negative-strong);
-}
-
-.company-per-share-bar.bps {
-  fill: var(--company-negative-strong);
-}
-
-.company-per-share-bar.sps,
-.company-per-share-legend i.sps,
-.company-financial-table tbody th i.sps {
-  background: var(--company-positive-strong);
-}
-
-.company-per-share-bar.sps {
-  fill: var(--company-positive-strong);
-}
-
-.company-per-share-bar.cps,
-.company-per-share-legend i.cps,
-.company-financial-table tbody th i.cps {
-  background: var(--company-brass);
-}
-
-.company-per-share-bar.cps {
-  fill: var(--company-brass);
-}
-
-.company-historical-valuation-line {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.company-historical-valuation-line.per {
-  stroke: var(--coinbase-primary);
-}
-
-.company-historical-valuation-line.pbr {
-  stroke: var(--company-negative-strong);
-}
-
-.company-historical-valuation-line.psr {
-  stroke: var(--company-positive-strong);
-}
-
-.company-historical-valuation-dot {
-  stroke: var(--color-surface);
-  stroke-width: 2;
-  cursor: pointer;
-}
-
-.company-historical-valuation-dot.per,
-.company-historical-valuation-legend i.per {
-  fill: var(--coinbase-primary);
-  background: var(--coinbase-primary);
-}
-
-.company-historical-valuation-dot.pbr,
-.company-historical-valuation-legend i.pbr {
-  fill: var(--company-negative-strong);
-  background: var(--company-negative-strong);
-}
-
-.company-historical-valuation-dot.psr,
-.company-historical-valuation-legend i.psr {
-  fill: var(--company-positive-strong);
-  background: var(--company-positive-strong);
-}
-
-.company-historical-valuation-dot.is-selected {
-  stroke: var(--color-text);
-  stroke-width: 3;
-}
-
-.company-valuation-metric-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  min-height: 42px;
-  min-width: 0;
-  gap: 14px;
-  border-top: 1px solid var(--coinbase-hairline-soft);
-  padding: 9px 12px;
-}
-
-.company-valuation-metric-row:first-child {
-  border-top: 0;
-}
-
-.company-valuation-metric-row:nth-child(2) {
-  border-top: 0;
-}
-
-.company-valuation-metric-row:nth-child(even) {
-  border-left: 1px solid var(--coinbase-hairline-soft);
-}
-
-.company-valuation-metric-row dt,
-.company-valuation-metric-row dd {
-  min-width: 0;
-  margin: 0;
-}
-
-.company-valuation-metric-row dt {
-  color: var(--color-text);
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-}
-
-.company-valuation-metric-row dd {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.company-valuation-metric-row dd > strong {
-  color: var(--color-text);
-  text-transform: var(--type-label-md-text-transform);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  font: var(--type-label-md);
-  text-align: right;
-}
-
-.company-financial-chart-card {
-  position: relative;
-  display: block;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.company-analysis-page {
-  box-sizing: border-box;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  padding-bottom: 0;
-  animation: company-analysis-page-in 240ms cubic-bezier(0.2, 0.78, 0.25, 1);
-}
-
-.company-financial-overview-page {
-  display: grid;
-  grid-template-rows: minmax(42px, auto) minmax(170px, 1fr) auto;
-  align-content: start;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.company-financial-overview-page .company-financial-chart-copy {
-  min-height: 0;
-}
-
-.company-financial-detail-page {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
-  overflow: hidden;
-}
-
-.company-financial-detail-page .company-financial-table-wrap {
-  height: 100%;
-  overflow: auto;
-}
-
-.company-valuation-page,
-.company-valuation-page > .company-earnings-panel,
-.company-valuation-page > .company-valuation-panel {
-  min-height: 0;
-  height: 100%;
-}
-
-.company-analysis-page-nav {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 3;
-  display: flex;
-  height: 52px;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px 0;
-  background: transparent;
-  pointer-events: none;
-}
-
-.company-analysis-page-nav > button {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border: 1px solid var(--coinbase-hairline-strong);
-  border-radius: 999px;
-  padding: 0;
-  background: var(--coinbase-surface-dark-elevated);
-  color: #fff;
-  opacity: 0;
-  pointer-events: auto;
-  transform: translateY(4px);
-  transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, color 140ms ease;
-}
-
-.company-financial-chart-card:hover .company-analysis-page-nav > button,
-.company-financial-chart-card:focus-within .company-analysis-page-nav > button,
-.company-valuation-column:hover .company-analysis-page-nav > button,
-.company-valuation-column:focus-within .company-analysis-page-nav > button {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.company-analysis-page-nav > button:hover,
-.company-analysis-page-nav > button:focus-visible {
-  background: var(--coinbase-primary);
-  color: var(--coinbase-on-primary);
-  outline: none;
-}
-
-.company-analysis-page-nav > button svg {
-  width: 15px;
-  height: 15px;
-}
-
-@keyframes company-analysis-page-in {
-  from { opacity: 0; transform: translateX(10px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-.company-financial-chart-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  min-height: 42px;
-  align-content: start;
-}
-
-.company-financial-chart-copy strong {
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-  color: var(--color-text);
-}
-
-.company-financial-chart-copy span {
-  overflow: hidden;
-  color: var(--color-muted);
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.company-profitability-plot {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  align-self: stretch;
-  justify-self: stretch;
-  overflow: visible;
-}
-
-.company-profitability-empty-card {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  align-self: stretch;
-  place-items: center;
-  border: 1px dashed var(--coinbase-hairline);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
-  color: var(--color-muted);
-}
-
-.company-profitability-plot line {
-  stroke: rgb(var(--gops-ink-rgb) / 0.08);
-  stroke-width: 1;
-}
-
-.company-profitability-zero {
-  stroke: rgb(var(--gops-ink-rgb) / 0.22);
-}
-
-.company-profitability-plot text {
-  text-transform: inherit;
-  letter-spacing: inherit;
-  font: inherit;
-  fill: var(--color-muted);
-}
-
-.company-financial-axis-value {
-  text-anchor: end;
-}
-
-.company-profitability-period,
-.company-profitability-empty {
-  text-anchor: middle;
-}
-
-.company-profitability-bar.revenue {
-  fill: var(--company-positive-strong);
-  opacity: 0.92;
-}
-
-.company-profitability-bar.net-income {
-  fill: var(--company-positive-soft);
-  opacity: 0.42;
-}
-
-.company-profitability-margin-line {
-  fill: none;
-  stroke: var(--company-brass);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-profitability-margin-dot {
-  fill: var(--color-surface);
-  stroke: var(--company-brass);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-profitability-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 13px;
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-  color: var(--color-muted);
-}
-
-.company-profitability-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.company-profitability-legend i {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
-.company-profitability-legend i.revenue {
-  background: var(--company-positive-strong);
-}
-
-.company-profitability-legend i.net-income {
-  background: var(--company-positive-soft);
-}
-
-.company-profitability-legend i.margin {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-profitability-dashboard {
-  display: grid;
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  grid-template-rows: auto minmax(310px, 1fr) minmax(180px, auto);
-  gap: 12px;
-  overflow: auto;
-  padding: 2px;
-  scrollbar-gutter: stable;
-}
-
-.company-profitability-dashboard-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.company-profitability-dashboard-header > div:first-child {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.company-profitability-dashboard-header strong,
-.company-profitability-table-heading strong,
-.company-financial-static-card > strong {
-  color: var(--color-text);
-  text-transform: var(--type-title-sm-text-transform);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  font: var(--type-title-sm);
-}
-
-.company-profitability-dashboard-header span,
-.company-profitability-table-heading span {
-  color: var(--color-muted);
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-}
-
-.company-financial-period-controls {
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: 2px;
-  border: 1px solid var(--coinbase-hairline-strong);
-  border-radius: 999px;
-  padding: 3px;
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
-}
-
-.company-financial-period-controls button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 12px;
-  background: transparent;
-  color: var(--color-muted);
-  text-transform: var(--type-label-md-text-transform);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  font: var(--type-label-md);
-  cursor: pointer;
-}
-
-.company-financial-period-controls button[aria-pressed="true"] {
-  background: var(--coinbase-primary);
-  color: var(--coinbase-on-primary);
-}
-
-.company-financial-period-controls button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--coinbase-primary) 66%, transparent);
-  outline-offset: 2px;
-}
-
-.company-profitability-chart-grid {
-  display: grid;
-  min-width: 0;
-  min-height: 310px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.company-financial-static-card {
-  display: grid;
-  min-width: 0;
-  min-height: 0;
-  grid-template-rows: auto minmax(240px, 1fr) auto;
-  gap: 8px;
-  border: 1px solid var(--coinbase-hairline);
-  border-radius: 8px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
-  overflow: hidden;
-}
-
-.company-profitability-table-section {
-  display: grid;
-  min-width: 0;
-  gap: 8px;
-  border-top: 1px solid var(--coinbase-hairline);
-  padding-top: 10px;
-}
-
-.company-profitability-table-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.company-financial-axis-ratio {
-  text-anchor: start;
-}
-
-.company-financial-period-point {
-  cursor: pointer;
-  outline: none;
-}
-
-.company-financial-period-point.is-selected rect {
-  stroke: var(--coinbase-primary);
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-financial-period-point:focus-visible rect,
-.company-financial-period-point:hover rect {
-  filter: brightness(1.12);
-}
-
-.company-profitability-operating-line,
-.company-profitability-net-line,
-.company-return-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.5;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-profitability-operating-line,
-.company-profitability-operating-dot,
-.company-return-line.roe,
-.company-return-dot.roe {
-  stroke: var(--company-brass);
-}
-
-.company-profitability-net-line,
-.company-profitability-net-dot,
-.company-return-line.roa,
-.company-return-dot.roa {
-  stroke: var(--coinbase-primary);
-}
-
-.company-return-line.fcf-margin,
-.company-return-dot.fcf-margin {
-  stroke: var(--company-positive-strong);
-}
-
-.company-profitability-operating-dot,
-.company-profitability-net-dot,
-.company-return-dot {
-  fill: var(--color-surface);
-  stroke-width: 2;
-  cursor: pointer;
-  outline: none;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-profitability-operating-dot.is-selected,
-.company-profitability-net-dot.is-selected,
-.company-return-dot.is-selected {
-  fill: var(--coinbase-primary);
-  stroke: var(--coinbase-on-primary);
-}
-
-.company-return-bar.net-income {
-  fill: var(--company-positive-soft);
-  opacity: 0.66;
-}
-
-.company-profitability-legend i.operating-margin,
-.company-profitability-legend i.roe {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-profitability-legend i.net-margin,
-.company-profitability-legend i.roa {
-  border: 2px solid var(--coinbase-primary);
-  background: transparent;
-}
-
-.company-profitability-legend i.fcf-margin {
-  border: 2px solid var(--company-positive-strong);
-  background: transparent;
-}
-
-.company-stability-bar.equity {
-  fill: var(--company-positive);
-  opacity: 0.92;
-}
-
-.company-stability-bar.liabilities {
-  fill: var(--company-negative-soft);
-  opacity: 0.42;
-}
-
-.company-stability-ratio-line {
-  fill: none;
-  stroke: var(--company-negative-strong);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-stability-ratio-dot {
-  fill: var(--color-surface);
-  stroke: var(--company-negative-strong);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-stability-legend i.equity {
-  background: var(--company-positive);
-}
-
-.company-stability-legend i.liabilities {
-  background: var(--company-negative-soft);
-}
-
-.company-stability-legend i.debt-ratio {
-  border: 2px solid var(--company-negative-strong);
-  background: transparent;
-}
-
-.company-stability-metric-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-stability-metric-dot {
-  fill: var(--color-surface);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.company-stability-metric-line.debt-ratio,
-.company-stability-metric-dot.debt-ratio {
-  stroke: var(--coinbase-primary);
-}
-
-.company-stability-metric-line.current-liability-ratio,
-.company-stability-metric-dot.current-liability-ratio {
-  stroke: var(--company-brass);
-}
-
-.company-stability-metric-line.noncurrent-liability-ratio,
-.company-stability-metric-dot.noncurrent-liability-ratio {
-  stroke: var(--company-positive-strong);
-}
-
-.company-stability-ratios-legend i.debt-ratio {
-  border: 2px solid var(--coinbase-primary);
-  background: transparent;
-}
-
-.company-stability-ratios-legend i.current-liability-ratio {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-stability-ratios-legend i.noncurrent-liability-ratio {
-  border: 2px solid var(--company-positive-strong);
-  background: transparent;
-}
-
-.company-financial-table-wrap {
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-top: 8px;
-  scrollbar-gutter: stable;
-}
-
-.company-financial-table {
-  width: 100%;
-  min-width: 500px;
-  border-collapse: separate;
-  border-spacing: 0;
-  color: var(--color-text);
-}
-
-.company-financial-table th,
-.company-financial-table td {
-  min-width: 64px;
-  padding: 8px 8px;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.company-financial-table th {
-  text-transform: var(--type-caption-text-transform);
-  letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
-}
-
-.company-financial-table td {
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
-}
-
-.company-financial-table thead th {
-  color: var(--color-muted);
-}
-
-.company-financial-table th:first-child,
-.company-financial-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  min-width: 100px;
-  background: linear-gradient(90deg, var(--color-surface) 82%, transparent);
-  text-align: left;
-}
-
-.company-financial-table tbody tr:nth-child(odd) th,
-.company-financial-table tbody tr:nth-child(odd) td {
-  background-color: rgb(var(--gops-ink-rgb) / 0.025);
-}
-
-.company-financial-table tbody tr:nth-child(odd) th:first-child {
-  background: linear-gradient(90deg, rgb(var(--gops-ink-rgb) / 0.025) 82%, transparent);
-}
-
-.company-financial-table tbody th {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-text);
-}
-
-.company-financial-table tbody th i {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
-.company-financial-table tbody th i.revenue,
-.company-financial-table tbody th i.net-income {
-  background: var(--company-positive-strong);
-}
-
-.company-financial-table tbody th i.margin,
-.company-financial-table tbody th i.growth {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.operating-margin,
-.company-financial-table tbody th i.roe {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.net-margin,
-.company-financial-table tbody th i.roa {
-  border: 2px solid var(--coinbase-primary);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.fcf-margin {
-  border: 2px solid var(--company-positive-strong);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.equity {
-  background: var(--company-positive);
-}
-
-.company-financial-table tbody th i.liabilities {
-  background: var(--company-negative-soft);
-}
-
-.company-financial-table tbody th i.assets {
-  background: var(--coinbase-primary);
-}
-
-.company-financial-table tbody th i.operating-cash-flow {
-  background: var(--company-positive-strong);
-}
-
-.company-financial-table tbody th i.free-cash-flow {
-  border: 2px solid var(--company-positive-strong);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.debt-ratio {
-  border: 2px solid var(--company-negative-strong);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.current-liability-ratio,
-.company-financial-table tbody th i.current-ratio,
-.company-financial-table tbody th i.interest-coverage {
-  border: 2px solid var(--company-brass);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.noncurrent-liability-ratio,
-.company-financial-table tbody th i.financial-cost-burden {
-  border: 2px solid var(--company-positive-strong);
-  background: transparent;
-}
-
-.company-financial-table tbody th i.total-debt,
-.company-financial-table tbody th i.net-debt {
-  background: var(--company-negative-soft);
-}
-
-.company-financial-table td.up {
-  color: var(--color-change-down);
-}
-
-.company-financial-table td.down {
-  color: #0052ff;
-}
-
-.company-financial-table th.is-selected,
-.company-financial-table td.is-selected {
-  background: color-mix(in srgb, var(--coinbase-primary) 9%, transparent) !important;
-}
-
-.company-financial-table-empty {
-  display: grid;
-  min-height: 74px;
-  place-items: center;
-  border-top: 1px solid rgb(var(--gops-ink-rgb) / 0.1);
-  text-transform: var(--type-body-md-text-transform);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  font: var(--type-body-md);
-  color: var(--color-muted);
-}
 /* Public company journal draft: existing company charts remain the evidence surface. */
 .company-journal-panel {
   display: grid;
@@ -26530,15 +25529,23 @@ textarea:focus,
   content: " ”";
 }
 
-.company-journal-tabs {
+.company-journal-tabbar {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 4px;
-  overflow-x: auto;
-  padding: 7px 14px;
   border-top: 1px solid var(--coinbase-hairline-soft);
   border-bottom: 1px solid var(--coinbase-hairline-soft);
+  padding: 7px 14px;
+}
+
+.company-journal-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
   scrollbar-width: none;
 }
 
@@ -26580,6 +25587,41 @@ textarea:focus,
   color: var(--coinbase-on-primary);
 }
 
+.company-journal-period-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--color-surface);
+}
+
+.company-journal-period-toggle button {
+  min-width: 52px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  cursor: pointer;
+}
+
+.company-journal-period-toggle button[aria-pressed="true"] {
+  background: var(--coinbase-primary);
+  color: var(--coinbase-on-primary);
+}
+
+.company-journal-period-toggle button:focus-visible {
+  outline: 2px solid var(--coinbase-primary);
+  outline-offset: 2px;
+}
+
 .company-journal-body {
   display: grid;
   min-width: 0;
@@ -26592,7 +25634,9 @@ textarea:focus,
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 12px 18px 18px;
+  padding: clamp(10px, 1.4cqw, 18px);
+  container-name: company-journal-evidence;
+  container-type: inline-size;
 }
 
 .company-journal-evidence > .company-summary-panel,
@@ -26657,7 +25701,7 @@ textarea:focus,
 .company-journal-evidence .company-earnings-history-card {
   height: auto;
   min-height: 0;
-  grid-template-rows: auto 260px;
+  grid-template-rows: auto clamp(210px, 34cqw, 260px);
   overflow: visible;
 }
 
@@ -26749,7 +25793,8 @@ textarea:focus,
 .company-journal-performance svg {
   display: block;
   width: 100%;
-  height: 290px;
+  height: clamp(220px, 34cqw, 290px);
+  min-height: 0;
   overflow: visible;
 }
 
@@ -26835,6 +25880,29 @@ textarea:focus,
   gap: 8px;
 }
 
+.company-financial-metric-block {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+}
+
+.company-financial-metric-block > .company-financial-table-wrap,
+.company-financial-metric-block > .company-per-share-table-section,
+.company-financial-metric-block > .company-valuation-panel {
+  min-width: 0;
+  border-top: 1px solid var(--coinbase-hairline-soft);
+  padding-top: 10px;
+}
+
+.company-journal-evidence .company-financial-metric-block {
+  gap: 10px;
+}
+
+.company-journal-evidence .company-financial-metric-block > .company-financial-table-wrap {
+  margin-top: -2px;
+}
+
 .company-journal-evidence .company-financial-static-card {
   height: auto;
   min-height: 0;
@@ -26856,23 +25924,27 @@ textarea:focus,
 
 .company-journal-evidence .company-profitability-plot {
   width: 100%;
-  height: 320px;
+  height: clamp(220px, 38cqw, 320px);
   aspect-ratio: auto;
 }
 
 .company-journal-evidence :is(.company-stability-plot, .company-stability-ratios-plot) {
-  height: 260px;
+  height: clamp(210px, 34cqw, 260px);
   aspect-ratio: auto;
 }
 
 .company-journal-evidence .company-valuation-dashboard-grid .company-profitability-plot {
-  height: 260px;
+  height: clamp(210px, 34cqw, 260px);
+}
+
+.company-journal-evidence .company-valuation-dashboard-grid.is-valuation-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .company-journal-evidence .company-earnings-plot {
   width: 100%;
-  height: 260px;
-  min-height: 260px;
+  height: clamp(210px, 34cqw, 260px);
+  min-height: 0;
   aspect-ratio: auto;
 }
 
@@ -26902,20 +25974,35 @@ textarea:focus,
 }
 
 .company-journal-evidence .company-single-panel.is-valuation .company-earnings-history-card {
-  grid-template-rows: auto 260px;
+  grid-template-rows: auto clamp(210px, 34cqw, 260px);
   height: auto;
   min-height: 0;
   overflow: visible;
 }
 
 .company-journal-evidence .company-single-panel.is-valuation .company-earnings-plot {
-  height: 260px;
-  min-height: 260px;
+  height: clamp(210px, 34cqw, 260px);
+  min-height: 0;
 }
 
 .company-journal-evidence .company-stability-dashboard-grid > .company-financial-chart-card {
-  height: 340px;
-  min-height: 340px;
+  height: clamp(280px, 44cqw, 340px);
+  min-height: 280px;
+}
+
+.company-journal-evidence .company-stability-dashboard-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.company-journal-evidence .company-stability-dashboard-grid .company-financial-chart-card {
+  height: clamp(280px, 44cqw, 340px);
+  min-height: 280px;
+}
+
+.company-journal-evidence .company-stability-dashboard-table {
+  border-top: 1px solid var(--coinbase-hairline-soft);
+  padding-top: 10px;
 }
 
 .company-journal-evidence .panel-logo-attribution {
@@ -26964,47 +26051,89 @@ textarea:focus,
   overflow-wrap: anywhere;
 }
 
-/* AI explanations point to the exact latest marks, never the whole chart. */
+/* AI explanations point to deterministic chart evidence, never arbitrary coordinates. */
 .company-journal-evidence [data-journal-mark] {
   transition: filter 180ms ease, opacity 180ms ease;
 }
 
-.company-journal-evidence:is(
-  [data-chart-focus="market-latest"],
-  [data-chart-focus="earnings-latest"],
-  [data-chart-focus="profitability-latest"],
-  [data-chart-focus="returns-latest"],
-  [data-chart-focus="valuation-latest"],
-  [data-chart-focus="stability-latest"]
-) [data-journal-mark] {
+.company-journal-evidence[data-evidence-active="true"] [data-journal-mark] {
   opacity: 0.48;
 }
 
-.company-journal-evidence[data-chart-focus="market-latest"] [data-journal-mark="market-latest"],
-.company-journal-evidence[data-chart-focus="earnings-latest"] [data-journal-mark="earnings-latest"],
-.company-journal-evidence[data-chart-focus="profitability-latest"] [data-journal-mark="profitability-latest"],
-.company-journal-evidence[data-chart-focus="returns-latest"] [data-journal-mark="returns-latest"],
-.company-journal-evidence[data-chart-focus="valuation-latest"] [data-journal-mark="valuation-latest"],
-.company-journal-evidence[data-chart-focus="stability-latest"] [data-journal-mark="stability-latest"] {
+.company-journal-evidence[data-evidence-targets~="market-latest"] [data-journal-mark="market-latest"],
+.company-journal-evidence[data-evidence-targets~="earnings-latest"] [data-journal-mark="earnings-latest"],
+.company-journal-evidence[data-evidence-targets~="per-share-latest"] [data-journal-mark="per-share-latest"],
+.company-journal-evidence[data-evidence-targets~="valuation-latest"] [data-journal-mark="valuation-latest"],
+.company-journal-evidence[data-evidence-targets~="profitability-latest"] [data-journal-mark="profitability-latest"],
+.company-journal-evidence[data-evidence-targets~="returns-latest"] [data-journal-mark="returns-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-capital-latest"] [data-journal-mark="stability-capital-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-ratios-latest"] [data-journal-mark="stability-ratios-latest"] {
   opacity: 1;
   filter: drop-shadow(0 0 7px color-mix(in srgb, var(--coinbase-primary) 78%, transparent));
 }
 
-.company-journal-evidence[data-chart-focus="market-latest"] [data-journal-mark="market-latest"],
-.company-journal-evidence[data-chart-focus="stability-latest"] circle[data-journal-mark="stability-latest"],
-.company-journal-evidence[data-chart-focus="profitability-latest"] circle[data-journal-mark="profitability-latest"],
-.company-journal-evidence[data-chart-focus="returns-latest"] circle[data-journal-mark="returns-latest"],
-.company-journal-evidence[data-chart-focus="valuation-latest"] [data-journal-mark="valuation-latest"] circle {
+.company-journal-evidence[data-evidence-targets~="market-latest"] [data-journal-mark="market-latest"],
+.company-journal-evidence[data-evidence-targets~="earnings-latest"] [data-journal-mark="earnings-latest"] circle,
+.company-journal-evidence[data-evidence-targets~="valuation-latest"] [data-journal-mark="valuation-latest"] circle,
+.company-journal-evidence[data-evidence-targets~="profitability-latest"] circle[data-journal-mark="profitability-latest"],
+.company-journal-evidence[data-evidence-targets~="returns-latest"] circle[data-journal-mark="returns-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-capital-latest"] circle[data-journal-mark="stability-capital-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-ratios-latest"] circle[data-journal-mark="stability-ratios-latest"] {
   stroke-width: 4;
 }
 
-.company-journal-evidence[data-chart-focus="profitability-latest"] [data-journal-mark="profitability-latest"] rect,
-.company-journal-evidence[data-chart-focus="returns-latest"] [data-journal-mark="returns-latest"] rect,
-.company-journal-evidence[data-chart-focus="valuation-latest"] [data-journal-mark="valuation-latest"] rect,
-.company-journal-evidence[data-chart-focus="stability-latest"] [data-journal-mark="stability-latest"] rect {
+.company-journal-evidence[data-evidence-targets~="per-share-latest"] [data-journal-mark="per-share-latest"] rect,
+.company-journal-evidence[data-evidence-targets~="profitability-latest"] [data-journal-mark="profitability-latest"] rect,
+.company-journal-evidence[data-evidence-targets~="returns-latest"] [data-journal-mark="returns-latest"] rect,
+.company-journal-evidence[data-evidence-targets~="stability-capital-latest"] [data-journal-mark="stability-capital-latest"] rect {
   stroke: color-mix(in srgb, var(--coinbase-primary) 88%, white);
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
+}
+
+.company-journal-chart-annotation {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.company-journal-evidence[data-evidence-targets~="market-latest"] [data-journal-annotation="market-latest"],
+.company-journal-evidence[data-evidence-targets~="earnings-latest"] [data-journal-annotation="earnings-latest"],
+.company-journal-evidence[data-evidence-targets~="per-share-latest"] [data-journal-annotation="per-share-latest"],
+.company-journal-evidence[data-evidence-targets~="valuation-latest"] [data-journal-annotation="valuation-latest"],
+.company-journal-evidence[data-evidence-targets~="profitability-latest"] [data-journal-annotation="profitability-latest"],
+.company-journal-evidence[data-evidence-targets~="returns-latest"] [data-journal-annotation="returns-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-capital-latest"] [data-journal-annotation="stability-capital-latest"],
+.company-journal-evidence[data-evidence-targets~="stability-ratios-latest"] [data-journal-annotation="stability-ratios-latest"] {
+  opacity: 1;
+}
+
+.company-journal-evidence .company-journal-chart-annotation-guide {
+  stroke: color-mix(in srgb, var(--coinbase-primary) 86%, white);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-journal-evidence .company-journal-chart-annotation-anchor {
+  fill: color-mix(in srgb, var(--coinbase-primary) 26%, transparent);
+  stroke: color-mix(in srgb, var(--coinbase-primary) 88%, white);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-journal-evidence .company-journal-chart-annotation-label {
+  fill: color-mix(in srgb, var(--coinbase-primary) 18%, var(--color-surface));
+  stroke: color-mix(in srgb, var(--coinbase-primary) 72%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-journal-evidence .company-journal-chart-annotation-text {
+  fill: var(--color-text);
+  text-anchor: start;
+  font: var(--type-label-sm);
+  font-weight: 650;
 }
 
 .company-journal-insight h3 {
@@ -27021,6 +26150,16 @@ textarea:focus,
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-body-md);
   line-height: 1.35;
+}
+
+.company-journal-insight > .company-journal-insight-emphasis {
+  display: block;
+  border-left: 3px solid var(--coinbase-primary);
+  padding: 2px 0 2px 12px;
+  color: var(--color-text);
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
 }
 
 .company-journal-insight p {
@@ -27041,6 +26180,18 @@ textarea:focus,
 .company-journal-insight strong {
   font-size: 17px;
   line-height: 1.5;
+}
+
+.company-journal-insight-evidence-hint {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: color-mix(in srgb, var(--coinbase-primary) 14%, transparent);
+  color: var(--coinbase-primary);
+  font: var(--type-label-sm);
 }
 
 .company-journal-insight-actions {
@@ -27083,33 +26234,7 @@ textarea:focus,
   }
 }
 
-@container (max-width: 600px) {
-  .company-journal-panel {
-    display: block;
-    overflow: auto;
-  }
-
-  .company-journal-header {
-    padding: 22px 20px 18px;
-  }
-
-  .company-journal-body {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    overflow: visible;
-  }
-
-  .company-journal-evidence {
-    min-height: 390px;
-    border-right: 0;
-    border-bottom: 1px solid var(--coinbase-hairline);
-  }
-
-  .company-journal-reading {
-    overflow: visible;
-    padding: 22px 18px;
-  }
-
+@container (max-width: 1120px) {
   .company-profitability-dashboard-header {
     align-items: flex-start;
     flex-direction: column;
@@ -27141,6 +26266,34 @@ textarea:focus,
   }
 }
 
+@container (max-width: 820px) {
+  .company-journal-panel {
+    display: block;
+    overflow: auto;
+  }
+
+  .company-journal-header {
+    padding: 22px 20px 18px;
+  }
+
+  .company-journal-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .company-journal-evidence {
+    min-height: 390px;
+    border-right: 0;
+    border-bottom: 1px solid var(--coinbase-hairline);
+  }
+
+  .company-journal-reading {
+    overflow: visible;
+    padding: 22px 18px;
+  }
+}
+
 @container (max-width: 560px) {
   .company-journal-header {
     gap: 12px;
@@ -27159,7 +26312,17 @@ textarea:focus,
   }
 
   .company-journal-tabs {
+    flex-basis: 100%;
+  }
+
+  .company-journal-tabbar {
+    align-items: stretch;
+    flex-wrap: wrap;
     padding-inline: 8px;
+  }
+
+  .company-journal-period-toggle {
+    margin-left: auto;
   }
 
   .company-journal-evidence {
@@ -27390,6 +26553,15 @@ textarea:focus,
   flex-direction: column;
   padding: 28px 28px 22px;
   overflow: hidden;
+}
+
+.company-journal-evidence .company-financial-axis-value {
+  text-anchor: start;
+}
+
+.company-journal-evidence .company-financial-table th:first-child,
+.company-journal-evidence .company-financial-table td:first-child {
+  padding-left: 0;
 }
 
 .compare-cockpit-heading {
