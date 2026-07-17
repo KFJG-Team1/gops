@@ -5,7 +5,7 @@ let failNextSave = false;
 let profileSaved = false;
 let savedProfile: Record<string, unknown> | null = null;
 let latestSessionModes: string[] = [];
-let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" | "session_specific" = "profile_required";
+let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" | "session_specific" | "v3_direct" = "profile_required";
 
 test.beforeEach(async ({ page }) => {
   failNextSave = false;
@@ -66,6 +66,73 @@ test("recommendation explanation uses the exact selected list snapshot across se
   await expect(explanation.getByRole("heading", { name: "AMD" })).toBeVisible();
   await expect(explanation.getByText("장전 / 데이장", { exact: true })).toBeVisible();
   await expect(explanation.getByLabel("추천 점수 91점")).toBeVisible();
+});
+
+test("V3 explanation prioritizes the natural-language conclusion and shows every caution", async ({ page }, testInfo) => {
+  recommendationResponseMode = "v3_direct";
+  const narrow = testInfo.project.name === "mobile";
+  await openRecommendationsLayout(page, recommendationExplainLayout(narrow ? 3 : 8));
+
+  const explanation = page.getByRole("region", { name: "JPM 추천 해설" });
+  if (narrow) {
+    await page.addStyleTag({
+      content: "section[aria-label='JPM 추천 해설']{width:480px!important}"
+    });
+  }
+  const label = explanation.getByText("매수 추천", { exact: true });
+  const headline = explanation.getByRole("heading", {
+    name: "시장보다 강한 흐름과 활발한 거래가 이어져, 계획된 가격대에서 매수를 검토할 수 있습니다."
+  });
+  const score = explanation.getByLabel("종합 점수 83점");
+
+  await expect(explanation).toBeVisible();
+  await expect(label).toBeVisible();
+  await expect(headline).toBeVisible();
+  await expect(explanation.locator("[class*='verdictCopy'] p")).toHaveCount(0);
+  await expect(score).toBeVisible();
+  await expect(explanation.getByText("V3 종합 점수", { exact: true })).toHaveCount(0);
+  await expect(explanation.getByText("판단 근거와 비교 기준", { exact: true })).toBeVisible();
+  await expect(explanation.getByText("유의할 점", { exact: true })).toBeVisible();
+  await expect(explanation.locator("[class*='sentenceEvidenceRow']")).toHaveCount(5);
+  await expect(explanation.locator("[class*='evidenceMetric'][aria-label]")).toHaveCount(7);
+  await expect(explanation.getByLabel("당일 상대강도 +2.10%p, SPY 대비 · 중립 0%p")).toBeVisible();
+  const qualityMetric = explanation.getByLabel("60일 일간 변동성 1.84%, 균형형 기준 5.5%");
+  await expect(qualityMetric).toBeVisible();
+  const marketHelp = explanation.getByRole("button", { name: "시장 흐름 근거 설명" });
+  const marketExplanation = explanation.getByText("시장 전체 상승에 편승한 움직임인지 구분하기 위해 SPY를 기준으로 비교했습니다. 장중과 마감 구간이 같은 방향이라 일시적인 초반 급등보다 지속된 종목 수요로 해석했습니다.", { exact: true });
+  await expect(marketHelp).toBeVisible();
+  await expect(marketExplanation).toBeHidden();
+  await marketHelp.focus();
+  await expect(marketExplanation).toBeVisible();
+  await expect(explanation.locator("[class*='cautionRow']")).toHaveCount(3);
+
+  if (!narrow) {
+    const headlineLines = await headline.evaluate((element) => {
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+      return Math.round(element.getBoundingClientRect().height / lineHeight);
+    });
+    expect(headlineLines).toBeLessThanOrEqual(2);
+    expect(await headline.textContent()).toContain("계획된\u00a0가격대에서");
+    const dimensions = await explanation.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight
+    }));
+    expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
+  }
+
+  const labelBox = await label.boundingBox();
+  const headlineBox = await headline.boundingBox();
+  const scoreBox = await score.boundingBox();
+  expect(labelBox).not.toBeNull();
+  expect(headlineBox).not.toBeNull();
+  expect(scoreBox).not.toBeNull();
+  if (labelBox && headlineBox) {
+    expect(labelBox.y).toBeLessThan(headlineBox.y);
+  }
+  if (narrow && headlineBox && scoreBox) {
+    expect(headlineBox.y + headlineBox.height).toBeLessThan(scoreBox.y);
+  }
+  await explanation.screenshot({ path: testInfo.outputPath("recommendation-explanation.png") });
 });
 
 test("recommendation settings remain available and save from the panel dialog", async ({ page }) => {
@@ -239,6 +306,28 @@ function recommendationsLayout(): Record<string, unknown> {
   };
 }
 
+function recommendationExplainLayout(colSpan: number): Record<string, unknown> {
+  return {
+    version: 1,
+    nextInstance: 2,
+    contents: {
+      "content-recommendation-explain-1": {
+        id: "content-recommendation-explain-1",
+        kind: "recommendationExplain",
+        title: "추천 해설",
+        instanceIndex: 1,
+        layoutWeight: 100,
+        props: {}
+      }
+    },
+    slots: [{
+      id: "slot-recommendation-explain-1",
+      contentId: "content-recommendation-explain-1",
+      gridRect: { col: 1, row: 1, colSpan, rowSpan: 6 }
+    }]
+  };
+}
+
 async function fulfillApi(route: Route): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
@@ -253,6 +342,8 @@ async function fulfillApi(route: Route): Promise<void> {
     latestSessionModes.push(url.searchParams.get("sessionMode") ?? "regular");
     if (recommendationResponseMode === "session_specific") {
       payload = sessionRecommendationPayload(url.searchParams.get("sessionMode") ?? "regular");
+    } else if (recommendationResponseMode === "v3_direct") {
+      payload = v3RecommendationPayload();
     } else if (recommendationResponseMode === "empty") {
       payload = { status: "ready", items: [], profile: investmentProfile() };
     } else if (recommendationResponseMode === "market_closed") {
@@ -337,6 +428,115 @@ function sessionRecommendationPayload(sessionMode: string): Record<string, unkno
       reasons: [{ type: "momentum", text: pre ? "장전 상대강도 확인" : "본장 상대강도 확인" }],
       riskWarnings: [],
       metricsSnapshot: {}
+    }],
+    profile: investmentProfile()
+  };
+}
+
+function v3RecommendationPayload(): Record<string, unknown> {
+  return {
+    status: "ready",
+    items: [{
+      symbol: "JPM",
+      action: "buy",
+      rank: 1,
+      score: 83,
+      confidence: 0.78,
+      algorithmVersion: "deterministic-evidence-v3",
+      reasons: [],
+      riskWarnings: ["이 원문은 화면에 직접 노출하지 않습니다."],
+      metricsSnapshot: { algorithmVersion: "deterministic-evidence-v3" },
+      explanation: {
+        version: "recommendation-explanation.v1",
+        locale: "ko-KR",
+        decisionLabel: "매수 추천",
+        primary: {
+          source: "deterministic",
+          status: "ready",
+          headline: "시장보다 강한 흐름과 활발한 거래가 이어져, 계획된\u00a0가격대에서 매수를 검토할 수 있습니다.",
+          body: "",
+          promptVersion: "recommendation-decision-renderer.ko.v6"
+        },
+        deterministic: {
+          summary: "",
+          evidence: [],
+          risks: [],
+          dataQuality: {
+            sentence: "",
+            evidenceReliability: 78,
+            confidenceMeaning: "evidence_reliability_not_success_probability",
+            missingFactors: [],
+            stale: false
+          }
+        },
+        provenance: {
+          algorithmVersion: "deterministic-evidence-v3",
+          ruleSetVersion: "deterministic-evidence-v3.1",
+          evidenceSnapshotId: "visual-test",
+          inputDigest: "visual-test"
+        }
+      },
+      decision: {
+        version: "recommendation-decision.v1",
+        action: "buy",
+        label: "매수 추천",
+        riskLevel: "balanced",
+        holdingHorizon: "intraday",
+        entryRoutes: [
+          { type: "pullback", entryLow: 341.39, entryHigh: 343.81 },
+          { type: "breakout", trigger: 344.74, chaseLimit: 345.89 }
+        ],
+        invalidationPrice: 339.23,
+        targetPriceByRoute: { pullback: 350.68, breakout: 355.88 },
+        forceExitAt: "2026-07-15T15:50:00-04:00",
+        failedConditions: []
+      },
+      sizing: {
+        status: "ready",
+        riskBudgetPct: 0.5,
+        recommendedShares: 14,
+        estimatedNotional: 4842,
+        capReasons: []
+      },
+      keyEvidence: [
+        {
+          code: "market_strength", label: "시장 흐름", primaryValue: "SPY 대비 +2.10%p", secondaryValue: "마감 전 60분 +0.62%p", assessment: "strong",
+          interpretation: "시장 전체 상승에 편승한 움직임인지 구분하기 위해 SPY를 기준으로 비교했습니다. 장중과 마감 구간이 같은 방향이라 일시적인 초반 급등보다 지속된 종목 수요로 해석했습니다.",
+          metrics: [
+            { label: "당일 상대강도", value: "+2.10%p", comparison: "SPY 대비 · 중립 0%p", valuePositionPct: 85, referencePositionPct: 50, tone: "positive" },
+            { label: "마감 전 60분", value: "+0.62%p", comparison: "SPY 대비 · 중립 0%p", valuePositionPct: 60.33, referencePositionPct: 50, tone: "positive" }
+          ]
+        },
+        {
+          code: "participation", label: "거래 참여", primaryValue: "직전 정규장 동시간 대비 1.80배", secondaryValue: "확대 기준 1.00배", assessment: "strong",
+          interpretation: "장중 거래량은 개장과 마감에 몰리는 특성이 있어 직전 정규장의 같은 시각과 비교했습니다. 평소보다 넓은 시장 참여가 가격 움직임에 동반됐는지 확인하는 근거로 사용했습니다.",
+          metrics: [{ label: "동시간 거래량", value: "1.80배", comparison: "직전 정규장 동시간 · 기준 1.00배", valuePositionPct: 86.96, referencePositionPct: 48.31, tone: "positive" }]
+        },
+        {
+          code: "execution_structure", label: "가격 구조", primaryValue: "종가 $344.21 · VWAP $341.02", secondaryValue: "스프레드 8.20bp · ATR $4.10", assessment: "strong",
+          interpretation: "VWAP는 당일 거래량을 반영한 평균 체결가입니다. 종가가 그 위에 있으면 장중 평균 매수자의 손익이 상대적으로 안정적이어서 눌림 진입과 무효화 기준을 세우기 쉽습니다.",
+          metrics: [{ label: "종가-VWAP 이격", value: "+0.94%", comparison: "종가 $344.21 · VWAP $341.02", valuePositionPct: 65.67, referencePositionPct: 50, tone: "positive" }]
+        },
+        {
+          code: "execution_quality", label: "체결 여건", primaryValue: "82.0/100", secondaryValue: "", assessment: "strong",
+          interpretation: "가격 신호가 좋아도 호가가 넓거나 거래대금이 부족하면 실제 체결 비용이 예상 위험을 키울 수 있습니다. 그래서 호가 상한과 최근 중앙 거래대금을 함께 통과한 경우에만 실행 가능한 근거로 사용했습니다.",
+          metrics: [
+            { label: "호가 스프레드", value: "8.20bp", comparison: "균형형 허용 상한 10.0bp", valuePositionPct: 65.6, referencePositionPct: 80, tone: "positive" },
+            { label: "20일 중앙 거래대금", value: "$1.24B", comparison: "최소 기준 $500.0M", valuePositionPct: 90.91, referencePositionPct: 36.66, tone: "positive" }
+          ]
+        },
+        {
+          code: "quality_stability", label: "안정성·품질", primaryValue: "76.0/100", secondaryValue: "", assessment: "strong",
+          interpretation: "최근 변동성과 기업 품질은 짧은 가격 신호가 계좌의 위험성향과 맞는지 확인하는 보완 근거입니다.",
+          metrics: [{ label: "60일 일간 변동성", value: "1.84%", comparison: "균형형 기준 5.5%", valuePositionPct: 26.76, referencePositionPct: 80, tone: "positive" }]
+        }
+      ],
+      counterEvidence: null,
+      cautions: [
+        { code: "spread_proximity", label: "체결 여건", severity: "warning", sentence: "호가 스프레드가 현재 위험성향의 실행 한도에 근접합니다." },
+        { code: "decision_scope", label: "판단 유효 범위", severity: "notice", sentence: "가격이 $339.23 아래로 내려가거나 당일 15:50 ET가 지나면 이 장중 판단은 더 이상 유효하지 않습니다." },
+        { code: "confidence_scope", label: "신뢰도 해석", severity: "notice", sentence: "근거 신뢰도는 수익 성공확률이 아니라 사용된 데이터의 완전성과 신선도를 뜻합니다." }
+      ]
     }],
     profile: investmentProfile()
   };

@@ -59,6 +59,23 @@ export type RecommendationKeyEvidence = {
   secondaryValue: string;
   assessment: "strong" | "mixed" | "weak";
   interpretation: string;
+  metrics: RecommendationEvidenceMetric[];
+};
+
+export type RecommendationEvidenceMetric = {
+  label: string;
+  value: string;
+  comparison: string;
+  valuePositionPct: number;
+  referencePositionPct: number;
+  tone: "positive" | "neutral" | "negative";
+};
+
+export type RecommendationCaution = {
+  code: string;
+  label: string;
+  severity: "notice" | "warning";
+  sentence: string;
 };
 
 export type RecommendationExplanation = {
@@ -127,6 +144,7 @@ export type StockRecommendationItem = {
   sizing?: RecommendationSizing;
   keyEvidence: RecommendationKeyEvidence[];
   counterEvidence?: { code: string; label: string; actual: unknown; required: unknown; sentence: string } | null;
+  cautions: RecommendationCaution[];
   metricsSnapshot: Record<string, unknown>;
 };
 
@@ -279,6 +297,7 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
     sizing: decision ? normalizeSizing(source.sizing) : undefined,
     keyEvidence: decision ? normalizeKeyEvidence(source.keyEvidence) : [],
     counterEvidence: decision ? normalizeCounterEvidence(source.counterEvidence) : null,
+    cautions: decision ? normalizeCautions(source.cautions) : [],
     metricsSnapshot
   };
 }
@@ -366,7 +385,36 @@ function normalizeKeyEvidence(value: unknown): RecommendationKeyEvidence[] {
       primaryValue,
       secondaryValue: asString(row.secondaryValue) || "",
       assessment: assessment as RecommendationKeyEvidence["assessment"],
-      interpretation: asString(row.interpretation) || ""
+      interpretation: asString(row.interpretation) || "",
+      metrics: normalizeEvidenceMetrics(row.metrics)
+    }];
+  });
+}
+
+function normalizeEvidenceMetrics(value: unknown): RecommendationEvidenceMetric[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((value) => {
+    const row = asRecord(value);
+    const label = asString(row.label);
+    const displayValue = asString(row.value);
+    const comparison = asString(row.comparison);
+    const valuePositionPct = asNumber(row.valuePositionPct);
+    const referencePositionPct = asNumber(row.referencePositionPct);
+    const tone = asString(row.tone);
+    if (
+      !label || !displayValue || !comparison
+      || valuePositionPct === undefined || referencePositionPct === undefined
+      || valuePositionPct < 0 || valuePositionPct > 100
+      || referencePositionPct < 0 || referencePositionPct > 100
+      || !tone || !["positive", "neutral", "negative"].includes(tone)
+    ) return [];
+    return [{
+      label,
+      value: displayValue,
+      comparison,
+      valuePositionPct,
+      referencePositionPct,
+      tone: tone as RecommendationEvidenceMetric["tone"]
     }];
   });
 }
@@ -382,6 +430,28 @@ function normalizeCounterEvidence(value: unknown) {
     required: source.required,
     sentence: asString(source.sentence) || "직접 매수 전에 추가 확인이 필요한 조건이 남아 있습니다."
   } : null;
+}
+
+function normalizeCautions(value: unknown): RecommendationCaution[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((value) => {
+    const row = asRecord(value);
+    const code = asString(row.code);
+    const label = asString(row.label);
+    const severity = asString(row.severity);
+    const sentence = asString(row.sentence);
+    if (!code || !label || !sentence || !severity || !["notice", "warning"].includes(severity) || seen.has(code)) {
+      return [];
+    }
+    seen.add(code);
+    return [{
+      code,
+      label,
+      severity: severity as RecommendationCaution["severity"],
+      sentence
+    }];
+  });
 }
 
 export function actionLabel(action: RecommendationAction) {
@@ -479,7 +549,7 @@ function normalizeExplanation(value: unknown): RecommendationExplanation | undef
     return { code: String(row.code), sentence: String(row.sentence), penalty: asNumber(row.penalty) };
   }).filter((row): row is NonNullable<typeof row> => row !== null) : [];
   const reliability = asNumber(dataQuality.evidenceReliability);
-  if (!asString(primary.headline) || !asString(primary.body) || reliability === undefined) return undefined;
+  if (!asString(primary.headline) || reliability === undefined) return undefined;
   return {
     version: "recommendation-explanation.v1",
     locale: "ko-KR",
@@ -487,7 +557,7 @@ function normalizeExplanation(value: unknown): RecommendationExplanation | undef
     primary: {
       source: primary.source === "llm" ? "llm" : "deterministic",
       status: primary.status === "ready" ? "ready" : "fallback",
-      headline: String(primary.headline), body: String(primary.body),
+      headline: String(primary.headline), body: asString(primary.body) || "",
       model: asString(primary.model), promptVersion: asString(primary.promptVersion), generatedAt: asString(primary.generatedAt)
     },
     deterministic: {
