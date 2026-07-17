@@ -38,6 +38,10 @@ const testCases = [
   {
     entry: new URL("../tests/recommendationApi.test.ts", import.meta.url),
     outfile: new URL("../.tmp/recommendation-api-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/companyJournalFinancialAggregation.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/company-journal-financial-aggregation-test.mjs", import.meta.url)
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
