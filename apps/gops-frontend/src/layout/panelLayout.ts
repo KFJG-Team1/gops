@@ -22,6 +22,7 @@ export type PanelContentKind =
   | "companyStability"
   | "news"
   | "newsList"
+  | "newsKeyword"
   | "watchlistNews"
   | "watchlistNewsList"
   | "indices"

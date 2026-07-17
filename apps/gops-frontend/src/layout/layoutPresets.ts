@@ -53,7 +53,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
       { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 } },
       { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
       { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
+      { kind: "newsKeyword", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
     ]
   },
   stock: {
@@ -65,7 +65,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
         gridRect: { col: 3, row: 1, colSpan: 4, rowSpan: 6 },
         props: { companyLayoutVersion: STOCK_COMPANY_LAYOUT_VERSION }
       },
-      { kind: "newsList", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 6 } }
+      { kind: "newsKeyword", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 6 } }
     ]
   },
   chart: {
@@ -132,8 +132,11 @@ export function buildPresetLayout(
 ): TiledPanelState | null {
   // A saved override layout (valid snapshot) wins; otherwise defaults rebuild from spec.
   if (preset.layout) {
+    const presetLayout = preset.kind === "default" && preset.id === "market"
+      ? migrateRecommendationNewsKeywordSnapshot(preset.layout)
+      : preset.layout;
     const layout = migrateCompanyComparePanelSnapshot(
-      migratePortfolioInvestmentSnapshot(preset.layout)
+      migratePortfolioInvestmentSnapshot(presetLayout)
     );
     const shouldReplaceLegacyAssetLayout = preset.id === "asset"
       && isStoredTiledPanelStateShape(layout)
@@ -159,6 +162,32 @@ export function buildPresetLayout(
     return definition ? createTiledPanelStateFromSpec(definition.spec, viewport, options) : null;
   }
   return null;
+}
+
+export function migrateRecommendationNewsKeywordSnapshot(value: unknown): unknown {
+  if (!isStoredTiledPanelStateShape(value)) {
+    return value;
+  }
+  const contents = Object.values(value.contents);
+  const hasRecommendations = contents.some((content) => content.kind === "recommendationsList");
+  const hasNewsKeyword = contents.some((content) => content.kind === "newsKeyword");
+  const newsEntries = Object.entries(value.contents)
+    .filter(([, content]) => content.kind === "news");
+  if (!hasRecommendations || hasNewsKeyword || newsEntries.length !== 1) {
+    return value;
+  }
+  const [newsContentId, newsContent] = newsEntries[0];
+  return {
+    ...value,
+    contents: {
+      ...value.contents,
+      [newsContentId]: {
+        ...newsContent,
+        kind: "newsKeyword",
+        title: panelContentTitle("newsKeyword")
+      }
+    }
+  };
 }
 
 export function ensurePortfolioInvestedPanelState(

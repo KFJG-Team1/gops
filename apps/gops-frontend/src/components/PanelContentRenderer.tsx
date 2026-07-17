@@ -81,6 +81,9 @@ const ChartPatternListPanel = lazy(() => import("./ChartPatternListPanel").then(
 const NewsPanel = lazy(() => import("./NewsPanel").then((module) => ({
   default: module.NewsPanel
 })));
+const NewsKeywordPanel = lazy(() => import("./NewsKeywordPanel").then((module) => ({
+  default: module.NewsKeywordPanel
+})));
 const WatchlistNewsPanel = lazy(() => import("./WatchlistNewsPanel").then((module) => ({
   default: module.WatchlistNewsPanel
 })));
@@ -135,6 +138,7 @@ type PanelContentRendererProps = {
   onSelectSymbol: (symbol: string) => void;
   selectedRecommendationSymbol: string | null;
   selectedRecommendation: StockRecommendationSelection | null;
+  recommendationNewsKeywordLinked: boolean;
   onSelectRecommendationReference: (
     reference: AgentReference | null,
     selection?: StockRecommendationSelection | null,
@@ -191,6 +195,7 @@ export function PanelContentRenderer({
   onSelectSymbol,
   selectedRecommendationSymbol,
   selectedRecommendation,
+  recommendationNewsKeywordLinked,
   onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset,
@@ -323,6 +328,24 @@ export function PanelContentRenderer({
           onAgentReferenceSelect={onAgentReferenceSelect}
           onAgentAsk={onAgentAsk}
           variant="list"
+        />
+      </Suspense>
+    );
+  }
+
+  if (content.kind === "newsKeyword") {
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스 키워드를 불러오는 중입니다</div>}>
+        <NewsKeywordPanel
+          symbol={recommendationNewsKeywordLinked
+            ? selectedRecommendationSymbol ?? symbol.toUpperCase()
+            : symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
         />
       </Suspense>
     );

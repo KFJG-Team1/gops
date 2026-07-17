@@ -107,6 +107,62 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
 
 export const extraGlossary: GlossaryEntry[] = [
   {
+    id: "risk_off",
+    term: "리스크오프",
+    aliases: ["리스크오프", "risk-off", "risk off"],
+    description: "투자자들이 주식 같은 위험 자산을 줄이고 현금이나 채권처럼 비교적 안전한 자산을 찾는 분위기입니다.",
+    category: "general"
+  },
+  {
+    id: "sector_rotation",
+    term: "순환매",
+    aliases: ["순환매", "sector rotation"],
+    description: "투자 자금이 한 업종에서 다른 업종으로 옮겨 가며 차례로 주가가 오르는 흐름입니다.",
+    category: "general"
+  },
+  {
+    id: "valuation",
+    term: "밸류에이션",
+    aliases: ["밸류에이션", "valuation", "기업가치 평가"],
+    description: "기업의 실적과 성장 가능성에 비해 현재 주가가 비싼지 싼지 판단한 수준입니다.",
+    category: "general"
+  },
+  {
+    id: "resilient",
+    term: "견조",
+    aliases: ["견조", "견조한", "견조하게"],
+    description: "시장 상황이 흔들려도 실적이나 수요가 비교적 안정적으로 유지되는 상태입니다.",
+    category: "general"
+  },
+  {
+    id: "wait_and_see",
+    term: "관망",
+    aliases: ["관망", "관망세", "관망 분위기"],
+    description: "새 정보가 나올 때까지 적극적으로 사고팔지 않고 기다리는 시장 분위기입니다.",
+    category: "general"
+  },
+  {
+    id: "share_buyback",
+    term: "자사주 매입",
+    aliases: ["자사주 매입", "자사주매입", "share buyback", "stock buyback"],
+    description: "회사가 시장에서 자기 회사 주식을 사들이는 것으로, 유통 주식 수를 줄이거나 주주 환원에 활용합니다.",
+    category: "general"
+  },
+  {
+    id: "antitrust",
+    term: "반독점",
+    aliases: ["반독점", "반독점 규제", "antitrust"],
+    description: "한 기업이 시장 지배력을 남용해 경쟁을 막지 못하도록 정부가 조사하거나 제한하는 제도입니다.",
+    category: "general"
+  },
+  {
+    id: "rate_caution",
+    term: "금리 경계감",
+    aliases: ["금리 경계감", "금리 부담", "금리 우려"],
+    description: "금리가 오르거나 높은 수준이 오래갈 가능성을 투자자들이 조심스럽게 보는 분위기입니다.",
+    category: "general"
+  },
+  {
     id: "entry_price",
     term: "진입가",
     aliases: ["진입가", "진입 가격"],

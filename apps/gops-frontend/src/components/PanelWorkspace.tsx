@@ -238,6 +238,10 @@ export function PanelWorkspace({
   const [movingSlotId, setMovingSlotId] = useState<PanelSlotId | null>(null);
   const [isLayoutResizing, setIsLayoutResizing] = useState(false);
   const [layoutPreview, setLayoutPreview] = useState<LayoutPreview | null>(null);
+  const recommendationNewsKeywordLinked = useMemo(() => {
+    const contentKinds = new Set(Object.values(panelState.contents).map((content) => content.kind));
+    return contentKinds.has("recommendationsList") && contentKinds.has("newsKeyword");
+  }, [panelState.contents]);
   const [paletteStatus, setPaletteStatus] = useState<string | null>(null);
   const [paletteOverflow, setPaletteOverflow] = useState({ left: false, right: false });
   const [chartLinkCommentaryContentId, setChartLinkCommentaryContentId] = useState<string | null>(null);
@@ -993,6 +997,7 @@ export function PanelWorkspace({
         onSelectSymbol={onSelectSymbol}
         selectedRecommendationSymbol={selectedRecommendationSymbol}
         selectedRecommendation={selectedRecommendation}
+        recommendationNewsKeywordLinked={recommendationNewsKeywordLinked}
         onSelectRecommendationReference={onSelectRecommendationReference}
         onOpenCompany={onOpenCompany}
         onSelectPatternAsset={onSelectPatternAsset}

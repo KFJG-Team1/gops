@@ -103,6 +103,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "newsKeyword",
+    title: "뉴스 키워드",
+    agentPanelType: "newsFeed",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 54,
+    insertable: true
+  },
+  {
     kind: "watchlistNews",
     title: "관심종목 뉴스 카드",
     agentPanelType: "newsFeed",
