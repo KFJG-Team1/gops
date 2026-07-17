@@ -31,7 +31,6 @@ import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./C
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
 import type { CoachReport } from "./ai-coach/types";
-import { CompanyJournalPanel } from "./CompanyJournalPanel";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -58,6 +57,9 @@ import { ThemeRadarPanel } from "./ThemeRadarPanel";
 
 const AiInvestmentCoachPanel = lazy(() => import("./AiInvestmentCoachPanel").then((module) => ({
   default: module.AiInvestmentCoachPanel
+})));
+const CompanyJournalPanel = lazy(() => import("./CompanyJournalPanel").then((module) => ({
+  default: module.CompanyJournalPanel
 })));
 const PaperAccountPanel = lazy(() => import("./PaperAccountPanel").then((module) => ({
   default: module.PaperAccountPanel
@@ -220,16 +222,18 @@ export function PanelContentRenderer({
 
   if (content.kind === "companyJournal") {
     return (
-      <CompanyJournalPanel
-        symbol={symbol.toUpperCase()}
-        item={companyItem}
-        items={companyItems}
-        sourcePanelId={content.id}
-        selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-        emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-        onAgentReferenceSelect={onAgentReferenceSelect}
-        onAgentAsk={onAgentAsk}
-      />
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 기업저널을 불러오는 중입니다</div>}>
+        <CompanyJournalPanel
+          symbol={symbol.toUpperCase()}
+          item={companyItem}
+          items={companyItems}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+        />
+      </Suspense>
     );
   }
 

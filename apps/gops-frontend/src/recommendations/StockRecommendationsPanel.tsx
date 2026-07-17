@@ -10,6 +10,7 @@ import { sectorLabelKo } from "../market/sectors";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
+  actionLabel,
   fetchStockRecommendations,
   refreshStockRecommendations,
   type RecommendationSessionMode,
@@ -60,7 +61,7 @@ export function StockRecommendationsPanel({
   const [regularLive, setRegularLive] = useState(() => isRegularSessionNow());
   const [simulatorKey, setSimulatorKey] = useState(() => {
     const status = latestSimulatorStatus();
-    return `${status?.mode ?? "live"}:${status?.runId ?? ""}:${status?.phase ?? ""}`;
+    return `${status?.mode ?? "live"}:${status?.runId ?? ""}`;
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,12 +70,6 @@ export function StockRecommendationsPanel({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (latestSimulatorStatus()?.mode === "simulation") {
-      setPayload(null);
-      setLoading(false);
-      setError("시뮬레이션 시각 기준 추천 데이터가 없어 표시하지 않습니다.");
-      return;
-    }
     setError(null);
     setLoading(true);
     try {
@@ -124,7 +119,7 @@ export function StockRecommendationsPanel({
   useEffect(() => {
     const handleStatus = (event: Event) => {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
-      setSimulatorKey(`${status?.mode ?? "live"}:${status?.runId ?? ""}:${status?.phase ?? ""}`);
+      setSimulatorKey(`${status?.mode ?? "live"}:${status?.runId ?? ""}`);
     };
     window.addEventListener(simulatorStatusEvent, handleStatus);
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
@@ -188,7 +183,10 @@ export function StockRecommendationsPanel({
             </button>
             <button
               type="button"
-              className={sessionButtonClass(sessionMode === "regular", regularLive)}
+              className={sessionButtonClass(
+                sessionMode === "regular",
+                regularLive && payload?.sourceMode !== "historical_reconstruction"
+              )}
               aria-pressed={sessionMode === "regular"}
               onClick={() => setSessionMode("regular")}
               disabled={loading || refreshing}
@@ -460,10 +458,9 @@ function RecommendationRow({
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
   const visibleReasons = recommendationVisibleReasons(item);
-  const visibleRiskWarnings = recommendationVisibleRiskWarnings(item);
   return (
     <button
-      className={`stock-rec-row ${className} ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
+      className={`stock-rec-row action-${item.action} ${className} ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
       type="button"
       aria-label={active ? `${item.rank}위 ${item.symbol} 추천 선택` : `${item.rank}위 ${item.symbol} 추천 보기`}
       aria-pressed={selected}
@@ -478,6 +475,7 @@ function RecommendationRow({
       <span className="stock-rec-copy">
         <span className="stock-rec-symbol-line">
           <strong>{companyName ?? item.symbol}</strong>
+          <span className="stock-rec-action">{item.decision ? actionLabel(item.action) : "매수 관찰"}</span>
           <span className={`stock-rec-change ${changeTone(item.changePercent)}`} title="오늘의 등락률">
             {formatChangePercent(item.changePercent)}
           </span>
@@ -485,9 +483,6 @@ function RecommendationRow({
         <span className="stock-rec-reasons">
           {visibleReasons.map((reason) => (
             <em key={`${item.symbol}-${reason.type}-${reason.text}`}>{reason.text}</em>
-          ))}
-          {visibleRiskWarnings.map((warning) => (
-            <em className="risk" key={`${item.symbol}-${warning}`}>{warning}</em>
           ))}
         </span>
         <span className="stock-rec-sector" title={sector}>{sectorLabel}</span>
@@ -513,10 +508,9 @@ function RecommendationListRow({
   const sectorLabel = item.sectorLabelKo || sectorLabelKo(sector);
   const companyName = companyNameBySymbol.get(item.symbol);
   const visibleReasons = recommendationVisibleReasons(item);
-  const visibleRiskWarnings = recommendationVisibleRiskWarnings(item);
   return (
     <button
-      className={`stock-rec-row ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
+      className={`stock-rec-row action-${item.action} ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`.trim()}
       type="button"
       aria-label={`${item.rank}위 ${item.symbol} 추천 선택`}
       aria-pressed={selected}
@@ -526,6 +520,7 @@ function RecommendationListRow({
       <span className="stock-rec-main">
         <span className="stock-rec-symbol-line">
           <strong>{item.symbol}</strong>
+          <span className="stock-rec-action">{item.decision ? actionLabel(item.action) : "매수 관찰"}</span>
           <span className={`stock-rec-change ${changeTone(item.changePercent)}`} title="오늘의 등락률">
             {formatChangePercent(item.changePercent)}
           </span>
@@ -534,9 +529,6 @@ function RecommendationListRow({
       <span className="stock-rec-reasons">
         {visibleReasons.map((reason) => (
           <em key={`${item.symbol}-${reason.type}-${reason.text}`}>{reason.text}</em>
-        ))}
-        {visibleRiskWarnings.map((warning) => (
-          <em className="risk" key={`${item.symbol}-${warning}`}>{warning}</em>
         ))}
       </span>
       <span className="stock-rec-sector" title={sector}>{sectorLabel}</span>
@@ -559,36 +551,19 @@ function formatChangePercent(value?: number): string {
 }
 
 function recommendationVisibleReasons(item: StockRecommendationItem) {
+  if (!item.decision) {
+    return [{ type: "decision_unavailable", text: "직접 매수 판단 데이터가 준비되지 않았습니다." }];
+  }
   if (item.algorithmVersion === "deterministic-evidence-v3" && item.explanation) {
     return [{ type: "v3_narrative", text: item.explanation.primary.headline }];
   }
-  const riskTexts = item.riskWarnings.map(normalizeRecommendationText).filter(Boolean);
-  return item.reasons
-    .filter((reason) => !duplicatesRiskWarning(reason.text, riskTexts))
-    .slice(0, item.riskWarnings.length ? 1 : 2);
-}
-
-function recommendationVisibleRiskWarnings(item: StockRecommendationItem) {
-  if (item.algorithmVersion === "deterministic-evidence-v3" && item.explanation) {
-    return item.explanation.deterministic.risks.slice(0, 1).map((risk) => risk.sentence);
+  if (item.counterEvidence?.sentence) {
+    return [{ type: item.counterEvidence.code, text: item.counterEvidence.sentence }];
   }
-  return item.riskWarnings.slice(0, 1);
-}
-
-function duplicatesRiskWarning(text: string, riskTexts: string[]) {
-  const normalized = normalizeRecommendationText(text);
-  if (!normalized) {
-    return false;
+  if (item.keyEvidence.length > 0) {
+    return [{ type: item.keyEvidence[0].code, text: item.keyEvidence[0].interpretation }];
   }
-  return riskTexts.some((riskText) => (
-    normalized === riskText
-    || (normalized.length > 10 && riskText.includes(normalized))
-    || (riskText.length > 10 && normalized.includes(riskText))
-  ));
-}
-
-function normalizeRecommendationText(text: string) {
-  return text.replace(/\s+/g, "").replace(/[.!?。．]+$/g, "");
+  return item.reasons.slice(0, 2);
 }
 
 function isAbortError(value: unknown) {
