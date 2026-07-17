@@ -135,6 +135,7 @@ import { normalizeSector, sectorLabelKo } from "./market/sectors";
 import { sp500UniverseSeed, type Sp500UniverseItem } from "./market/sp500Universe.seed";
 import { TreeMapCanvas } from "./treemap/TreeMapCanvas";
 import { GlossaryTooltip } from "./glossary/GlossaryTooltip";
+import { RelatedIndexTooltip } from "./components/RelatedIndexTooltip";
 import type { AgentAnalysisReport } from "./agents/agentAnalysis";
 import { addAgentReportToWildPanel, resolveWildPanelSlotId } from "./layout/wildPanel";
 import { resolveRecommendationCompanyNavigation } from "./recommendations/recommendationNavigation";
@@ -2057,6 +2058,7 @@ export function App() {
         </Suspense>
       )}
       <GlossaryTooltip />
+      <RelatedIndexTooltip />
     </main>
   );
 }

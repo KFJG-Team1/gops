@@ -3616,8 +3616,8 @@ h2 {
 }
 
 /* Panel content is intentionally one typography step larger than the shared app chrome.
-   The compact index and editorial theme-radar panels keep their established scale. */
-.workspace-panel-frame:not([data-panel-kind="indices"]):not([data-panel-kind="themeRadar"]) {
+   Compact index and editorial theme-radar panels keep the shared role scale. */
+.workspace-panel-frame:not([data-panel-kind="indices"]):not([data-panel-kind="indexCommentary"]):not([data-panel-kind="themeRadar"]) {
   --type-display-lg: 500 48px/1.1 var(--font-data-sans);
   --type-display-lg-letter-spacing: 0;
   --type-display-lg-text-transform: none;
@@ -8291,6 +8291,7 @@ h2 {
 }
 
 .index-widget-card {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -8327,6 +8328,17 @@ h2 {
   align-items: start;
   gap: clamp(4px, 4cqmin, 8px);
   min-width: 0;
+}
+
+.index-widget-card-action {
+  position: absolute;
+  z-index: 3;
+  top: clamp(6px, 6cqmin, 12px);
+  right: clamp(6px, 6cqmin, 12px);
+}
+
+.index-widget-card.has-action .index-widget-percent {
+  margin-right: clamp(24px, 14cqmin, 30px);
 }
 
 .index-widget-title {
@@ -8415,10 +8427,12 @@ h2 {
   display: flex;
   align-items: end;
   justify-content: flex-end;
+  gap: 6px;
   min-width: 0;
 }
 
 .index-widget-price {
+  margin-left: auto;
   color: var(--color-text);
   text-transform: var(--type-title-sm-text-transform);
   letter-spacing: var(--type-title-sm-letter-spacing);
@@ -18656,6 +18670,253 @@ textarea:focus,
   letter-spacing: 0;
   font: var(--type-caption);
   overflow-wrap: anywhere;
+}
+
+/* Standalone index commentary panel: deterministic cards first, optional LLM copy swaps in silently. */
+.related-index-panel {
+  container-type: size;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+  background: transparent;
+}
+
+.related-index-panel-state {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  text-align: center;
+}
+
+.related-index-panel-grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-columns: repeat(var(--related-index-count, 4), minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.related-index-card-shell {
+  container-type: size;
+  min-width: 0;
+  min-height: 0;
+  cursor: help;
+}
+
+.related-index-card-shell .index-widget-card {
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: var(--app-glass-radius);
+  background: var(--color-surface);
+  outline: none;
+  transition: none;
+}
+
+.related-index-card-shell:focus-visible {
+  outline: none;
+}
+
+.related-index-card-shell:focus-visible .index-widget-card {
+  border-color: color-mix(in srgb, var(--color-text) 46%, var(--coinbase-hairline-strong));
+}
+
+.related-index-card .index-widget-symbol {
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+}
+
+.related-index-card .index-widget-card-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+}
+
+.related-index-card .index-widget-title {
+  padding-right: 0;
+}
+
+.related-index-card .index-widget-name {
+  display: block;
+  padding-right: 4px;
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.related-index-card .index-widget-percent {
+  position: static;
+  max-width: none;
+  margin-right: 0;
+  overflow: visible;
+  text-overflow: clip;
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.related-index-card .index-widget-sparkline {
+  min-height: 22px;
+}
+
+.related-index-card .index-widget-price {
+  order: -1;
+  margin-right: auto;
+  margin-left: 0;
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+}
+
+.related-index-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 58%;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: transparent;
+  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-label-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-index-chip.is-constituent {
+  color: var(--gops-signal);
+}
+
+.related-index-chip.is-sector {
+  color: var(--gops-point-purple);
+}
+
+.related-index-chip.is-macro {
+  color: var(--gops-caution);
+}
+
+@container (max-width: 150px) {
+  .related-index-card .index-widget-card-top {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .related-index-card .index-widget-percent {
+    justify-self: start;
+  }
+}
+
+.related-index-tooltip {
+  position: fixed;
+  z-index: 999;
+  display: grid;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(250px, calc(100vw - 16px));
+  gap: 7px;
+  border: 1px solid var(--color-signal);
+  border-radius: 6px;
+  padding: 11px 12px;
+  background: var(--color-surface);
+  box-shadow: none;
+  color: var(--color-text);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: related-index-tooltip-in 120ms ease-out;
+}
+
+.related-index-tooltip::after {
+  position: absolute;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--color-signal);
+  border-bottom: 1px solid var(--color-signal);
+  background: var(--color-surface);
+  content: "";
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.related-index-tooltip.is-above::after {
+  bottom: -5px;
+}
+
+.related-index-tooltip.is-below::after {
+  top: -5px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.related-index-tooltip > strong,
+.related-index-tooltip > p {
+  margin: 0;
+}
+
+.related-index-tooltip > strong {
+  color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+}
+
+.related-index-tooltip > p {
+  color: var(--color-muted);
+  font: var(--type-body-md);
+  letter-spacing: var(--type-body-md-letter-spacing);
+  text-transform: var(--type-body-md-text-transform);
+  overflow-wrap: anywhere;
+}
+
+.related-index-tooltip-evidence {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.related-index-tooltip-evidence span {
+  display: inline-flex;
+  min-width: 0;
+  gap: 4px;
+  align-items: center;
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 999px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--color-muted);
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+
+.related-index-tooltip-evidence b {
+  color: var(--color-signal);
+  font: inherit;
+}
+
+@keyframes related-index-tooltip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .related-index-card-shell .index-widget-card,
+  .related-index-tooltip {
+    transition: none;
+    animation: none;
+  }
 }
 
 .company-multi-panel .company-multi-tabs {

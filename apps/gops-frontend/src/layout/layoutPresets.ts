@@ -50,10 +50,10 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   market: {
     name: "추천종목",
     spec: [
-      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 } },
-      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
+      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 } },
+      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
+      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
+      { kind: "news", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
     ]
   },
   stock: {
@@ -89,12 +89,12 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     spec: [
       {
         kind: "recommendationsList",
-        gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 },
+        gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 },
         props: { initialSessionMode: "regular" }
       },
-      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
+      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
+      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
+      { kind: "news", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
     ]
   },
   asset: {

@@ -143,6 +143,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "indexCommentary",
+    title: "지수 해설",
+    agentPanelType: "indexCommentary",
+    minSpan: { colSpan: 1, rowSpan: 1 },
+    readableMinSpan: { colSpan: 3, rowSpan: 1 },
+    minSizePx: { width: 420, height: 96 },
+    defaultSpan: { colSpan: 3, rowSpan: 1 },
+    defaultLayoutWeight: 56,
+    insertable: true
+  },
+  {
     kind: "popular",
     title: "인기종목",
     agentPanelType: "popularStocks",

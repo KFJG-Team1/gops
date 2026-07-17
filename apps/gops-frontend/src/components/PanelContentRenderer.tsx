@@ -39,6 +39,7 @@ import {
   CompanyStabilityPanel,
   CompanyValuationPanel
 } from "./CompanySummaryPanel";
+import { IndexCommentaryPanel } from "./IndexCommentaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
 import { PopularStocksPanel } from "./PopularStocksPanel";
@@ -363,6 +364,15 @@ export function PanelContentRenderer({
         cols={effectiveColSpan ?? slot.gridRect.colSpan}
         rows={effectiveRowSpan ?? slot.gridRect.rowSpan}
         suspended={layoutResizeSuspended}
+      />
+    );
+  }
+
+  if (content.kind === "indexCommentary") {
+    return (
+      <IndexCommentaryPanel
+        symbol={symbol.toUpperCase()}
+        recommendationSymbol={selectedRecommendation?.item.symbol}
       />
     );
   }

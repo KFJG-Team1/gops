@@ -25,6 +25,7 @@ export type PanelContentKind =
   | "watchlistNews"
   | "watchlistNewsList"
   | "indices"
+  | "indexCommentary"
   | "popular"
   | "recommendations"
   | "recommendationsList"
@@ -1229,6 +1230,7 @@ export function setPrimaryChartSymbol(
 
 const companyInformationPanelKinds = new Set<PanelContentKind>([
   "company",
+  "indexCommentary",
   "companyMulti",
   "companyValuation",
   "companyProfitability",

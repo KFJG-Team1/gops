@@ -36,6 +36,7 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   companyProfitability: "companyProfitability",
   companyStability: "companyStability",
   indices: "marketIndices",
+  indexCommentary: "indexCommentary",
   popular: "popularStocks",
   recommendations: "stockRecommendations",
   recommendationsList: "stockRecommendations",
