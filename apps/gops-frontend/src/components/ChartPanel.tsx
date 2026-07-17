@@ -2035,18 +2035,28 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       overlayKeyRef.current = key;
       setExpansionOverlays(overlays);
     }
-    const nextEventMarkers = chartEventMarkersForScene(scene, chartEvents, {
-      earnings: earningsEventsVisible,
-      news: newsEventsVisible
-    });
+    const markerCoordinateSpace = chartWrapRef.current
+      ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
+      : scene;
+    const markerScaleX = scene.width > 0 ? markerCoordinateSpace.width / scene.width : 1;
+    const markerScaleY = scene.height > 0 ? markerCoordinateSpace.height / scene.height : 1;
+    const nextEventMarkers = chartEventMarkersForScene(
+      scene,
+      chartEvents,
+      {
+        earnings: earningsEventsVisible,
+        news: newsEventsVisible
+      },
+      markerCoordinateSpace
+    );
     syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers);
     const nextEventMarkerKey = chartEventMarkerLayoutKey(nextEventMarkers);
     if (nextEventMarkerKey !== chartEventMarkerKeyRef.current) {
       chartEventMarkerKeyRef.current = nextEventMarkerKey;
       setChartEventMarkers(nextEventMarkers);
     }
-    const upcomingRight = Math.max(8, scene.width - scene.plot.right + 8);
-    const upcomingBottom = Math.max(30, scene.height - scene.plot.bottom + 3);
+    const upcomingRight = Math.max(8, (scene.width - scene.plot.right + 8) * markerScaleX);
+    const upcomingBottom = Math.max(30, (scene.height - scene.plot.bottom + 3) * markerScaleY);
     const upcomingStyleKey = `${Math.round(upcomingRight)}:${Math.round(upcomingBottom)}`;
     if (upcomingStyleKey !== chartEventUpcomingStyleKeyRef.current) {
       chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;

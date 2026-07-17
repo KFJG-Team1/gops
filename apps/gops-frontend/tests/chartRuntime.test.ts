@@ -95,6 +95,7 @@ import {
   isChartRightAxisPoint,
   isPriceAxisPricePanePoint,
   resolveCrosshairTimeTarget,
+  slotCenterToX,
   viewportAnchorRatioAtX,
   viewportSlotWidth
 } from "../src/chart/scene";
@@ -615,7 +616,25 @@ const dailyEventMarkers = chartEventMarkersForScene(dailyEventScene, chartEvents
 assert.equal(dailyEventMarkers.length, 2);
 assert.equal(dailyEventMarkers[0].label, "E");
 assert.equal(dailyEventMarkers[1].label, "N 3");
-assert.notEqual(dailyEventMarkers[0].x, dailyEventMarkers[1].x);
+const dailyEventCandle = dailyEventScene.semantic.units.find((unit) => (
+  unit.kind === "candle"
+  && unit.depth === 0
+  && unit.timestamp === "2026-07-15T04:00:00.000Z"
+));
+assert.ok(dailyEventCandle);
+const dailyEventCandleX = slotCenterToX(dailyEventScene, dailyEventCandle.slotCenter);
+assert.equal(dailyEventMarkers[0].x, dailyEventCandleX);
+assert.equal(dailyEventMarkers[1].x, dailyEventCandleX);
+assert.notEqual(dailyEventMarkers[0].top, dailyEventMarkers[1].top);
+const scaledEventMarkers = chartEventMarkersForScene(
+  dailyEventScene,
+  chartEventsFixture,
+  { earnings: true, news: true },
+  { width: dailyEventScene.width / 0.8, height: dailyEventScene.height / 0.8 }
+);
+assert.equal(scaledEventMarkers[0].x, dailyEventCandleX / 0.8);
+assert.equal(scaledEventMarkers[1].x, dailyEventCandleX / 0.8);
+assert.equal(scaledEventMarkers[0].top, dailyEventMarkers[0].top / 0.8);
 const movingEventElement = {
   dataset: { chartEventId: dailyEventMarkers[0].id },
   style: { left: "0px", top: "0px", visibility: "" }

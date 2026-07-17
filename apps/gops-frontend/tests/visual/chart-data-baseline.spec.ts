@@ -8,6 +8,7 @@ let alignBidAskFixtures = false;
 let partialThenReadyCandles = false;
 let sparseCandlesWithoutBackfill = false;
 let backfillWhenPastBoundaryVisible = false;
+let includeChartEventFixtures = false;
 let candleRequestCount = 0;
 let olderCandleRequestCount = 0;
 let candleRequestUrls: string[] = [];
@@ -19,6 +20,7 @@ test.beforeEach(async ({ page }) => {
   partialThenReadyCandles = false;
   sparseCandlesWithoutBackfill = false;
   backfillWhenPastBoundaryVisible = false;
+  includeChartEventFixtures = false;
   candleRequestCount = 0;
   olderCandleRequestCount = 0;
   candleRequestUrls = [];
@@ -136,6 +138,52 @@ test("hovered candle metadata stays directly below the symbol search", async ({ 
   expect(metadataBox.y).toBeGreaterThanOrEqual(navigationBox.y + navigationBox.height + 4);
   expect(metadataBox.y).toBeLessThanOrEqual(navigationBox.y + navigationBox.height + 10);
   expect(Math.abs(metadataBox.x - searchBox.x)).toBeLessThanOrEqual(4);
+});
+
+test("news markers stay on the exact candle while the timeline moves", async ({ page }) => {
+  includeChartEventFixtures = true;
+  await openFixtureLayout(page, chartOnlyLayout());
+  await selectChartToolbarOption(page, "Interval", "1m");
+  const chartPanel = page.locator(".chart-panel");
+  const canvas = chartPanel.locator(".chart-canvas");
+  const earningsMarker = chartPanel.locator('[data-chart-event-id="fixture-earnings"]');
+  const newsMarker = chartPanel.locator('[data-chart-event-id="fixture-news"]');
+  await expect(earningsMarker).toBeVisible();
+  await expect(newsMarker).toBeVisible();
+
+  const assertExactCandle = async () => {
+    const [earningsBox, newsBox, canvasBox] = await Promise.all([
+      earningsMarker.boundingBox(),
+      newsMarker.boundingBox(),
+      canvas.boundingBox()
+    ]);
+    if (!earningsBox || !newsBox || !canvasBox) throw new Error("Chart event geometry is unavailable");
+    const earningsCenter = earningsBox.x + earningsBox.width / 2;
+    const newsCenter = newsBox.x + newsBox.width / 2;
+    expect(Math.abs(earningsCenter - newsCenter)).toBeLessThanOrEqual(0.5);
+    expect(earningsBox.y).toBeLessThan(newsBox.y);
+    await page.mouse.move(newsCenter, canvasBox.y + canvasBox.height * 0.35);
+    await expect(chartPanel.locator('[aria-label="Hovered candle data"] .hover-ohlc-time dd'))
+      .toHaveText(/Jul 08.*03:10 PM/);
+    return newsCenter;
+  };
+
+  const firstX = await assertExactCandle();
+  await canvas.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    element.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width * 0.5,
+      clientY: rect.top + rect.height * 0.45,
+      deltaX: 72
+    }));
+  });
+  await expect.poll(async () => {
+    const box = await newsMarker.boundingBox();
+    return box ? Math.round(box.x + box.width / 2) : Math.round(firstX);
+  }).not.toBe(Math.round(firstX));
+  await assertExactCandle();
 });
 
 test("partial retry locks zoom and keeps the latest quarter gap", async ({ page }) => {
@@ -700,6 +748,8 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
       payload = fullPayload;
     }
     candleRequestCount += 1;
+  } else if (url.pathname === "/api/charts/events") {
+    payload = chartEventsPayload(url);
   } else if (url.pathname === "/api/charts/indicators") {
     payload = indicatorPayload(url);
   } else if (url.pathname === "/api/charts/volume-profile-bins") {
@@ -729,6 +779,58 @@ async function fulfillFixtureApi(route: Route): Promise<void> {
     contentType: "application/json",
     body: request.method() === "DELETE" ? "" : JSON.stringify(payload)
   });
+}
+
+function chartEventsPayload(url: URL): Record<string, unknown> {
+  const symbol = (url.searchParams.get("symbol") ?? "NVDA").toUpperCase();
+  const from = url.searchParams.get("from") ?? "2026-07-08T13:30:00.000Z";
+  const to = url.searchParams.get("to") ?? "2026-07-08T15:49:59.999Z";
+  if (!includeChartEventFixtures) {
+    return {
+      symbol,
+      from,
+      to,
+      status: { earnings: "empty", news: "empty" },
+      earnings: [],
+      newsDays: [],
+      upcomingEarnings: null
+    };
+  }
+  const eventAt = "2026-07-08T15:10:00.000Z";
+  return {
+    symbol,
+    from,
+    to,
+    status: { earnings: "ready", news: "ready" },
+    earnings: [{
+      id: "fixture-earnings",
+      type: "earnings",
+      eventAt,
+      status: "reported",
+      session: "regular",
+      eps: { actual: 1.2, estimate: 1.1, surprise: 0.1, surprisePercent: 9.09 },
+      source: "fixture",
+      sourceAsOf: eventAt
+    }],
+    newsDays: [{
+      id: "fixture-news",
+      type: "news",
+      date: fixtureSessionDate,
+      articleCount: 2,
+      summary: "Fixture news marker alignment",
+      keyPoints: ["Exact candle alignment"],
+      impactDirection: "positive",
+      sentiment: "positive",
+      sources: [{
+        articleId: "fixture-article",
+        title: "Fixture article",
+        name: "Fixture",
+        url: "https://example.com/fixture",
+        publishedAt: eventAt
+      }]
+    }],
+    upcomingEarnings: null
+  };
 }
 
 function candlePayload(symbol: string, interval: string): Record<string, unknown> {
