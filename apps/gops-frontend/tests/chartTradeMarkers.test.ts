@@ -160,9 +160,9 @@ const targetDailyUnit = dailyScene.semantic.units.find((unit) => (
 assert.ok(targetDailyUnit && targetDailyUnit.kind === "candle");
 const targetDailyX = slotCenterToX(dailyScene, targetDailyUnit.slotCenter);
 assert.ok(dailyMarkers.every((marker) => marker.x === targetDailyX));
-assert.ok(dailyMarkers[0].top > priceToY(dailyScene, targetDailyUnit.candle.low));
-assert.ok(dailyMarkers[1].top > dailyMarkers[0].top);
-assert.ok(dailyMarkers[2].top < priceToY(dailyScene, targetDailyUnit.candle.high));
+assert.ok(dailyMarkers[0].top + 24 < priceToY(dailyScene, targetDailyUnit.candle.high));
+assert.ok(dailyMarkers[1].top < dailyMarkers[0].top);
+assert.ok(dailyMarkers[2].top > priceToY(dailyScene, targetDailyUnit.candle.low));
 
 const scaledMarkers = chartTradeMarkersForScene(
   dailyScene,
@@ -202,4 +202,3 @@ syncChartTradeMarkerPositions({
 } as unknown as ParentNode, [{ ...dailyMarkers[0], x: 222.5, top: 145.25 }]);
 assert.deepEqual(movingTradeElement.style, { left: "222.5px", top: "145.25px", visibility: "" });
 assert.equal(staleTradeElement.style.visibility, "hidden");
-
