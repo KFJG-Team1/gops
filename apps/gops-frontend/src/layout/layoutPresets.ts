@@ -41,6 +41,7 @@ type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecIte
 
 const ASSET_PORTFOLIO_LAYOUT_VERSION = 4;
 const PORTFOLIO_FLOW_PANEL_VERSION = 2;
+const STOCK_COMPANY_LAYOUT_VERSION = 2;
 
 // Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
@@ -57,10 +58,13 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   stock: {
     name: "기업분석",
     spec: [
-      { kind: "companyCompare", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 4 } },
-      { kind: "chart", gridRect: { col: 1, row: 5, colSpan: 4, rowSpan: 2 } },
-      { kind: "company", gridRect: { col: 5, row: 5, colSpan: 2, rowSpan: 2 } },
-      { kind: "watchlistNews", gridRect: { col: 7, row: 5, colSpan: 2, rowSpan: 2 } }
+      { kind: "company", gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 6 } },
+      {
+        kind: "companyJournal",
+        gridRect: { col: 3, row: 1, colSpan: 4, rowSpan: 6 },
+        props: { companyLayoutVersion: STOCK_COMPANY_LAYOUT_VERSION }
+      },
+      { kind: "newsList", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 6 } }
     ]
   },
   chart: {
@@ -134,7 +138,12 @@ export function buildPresetLayout(
     const shouldReplaceLegacyStockLayout = preset.kind === "default"
       && preset.id === "stock"
       && isStoredTiledPanelStateShape(layout)
-      && !storedLayoutHasPanelKind(layout, "companyCompare");
+      && (
+        isLegacyDefaultStockLayout(layout)
+        || isRetiredStockCompanyLayout(layout)
+        || storedLayoutHasPanelKind(layout, "companyCompare")
+      )
+      && !hasCurrentStockCompanyLayout(layout);
     if (!shouldReplaceLegacyAssetLayout && !shouldReplaceLegacyStockLayout) {
       const restored = restoreTiledPanelStateSnapshot(layout, viewport, options.layoutMetrics);
       if (restored) {
@@ -303,6 +312,51 @@ function hasCurrentAssetPortfolioLayout(value: StoredTiledPanelState): boolean {
     content.kind === "portfolioMulti"
     && content.props?.portfolioLayoutVersion === ASSET_PORTFOLIO_LAYOUT_VERSION
   ));
+}
+
+function hasCurrentStockCompanyLayout(value: StoredTiledPanelState): boolean {
+  return Object.values(value.contents).some((content) => (
+    content.kind === "companyJournal"
+    && content.props?.companyLayoutVersion === STOCK_COMPANY_LAYOUT_VERSION
+  ));
+}
+
+function isRetiredStockCompanyLayout(value: StoredTiledPanelState): boolean {
+  const slotsByKind = new Map<PanelContentKind, StoredTiledPanelState["slots"][number]>();
+  value.slots.forEach((slot) => {
+    const kind = value.contents[slot.contentId]?.kind;
+    if (kind) slotsByKind.set(kind, slot);
+  });
+  if (slotsByKind.size !== 3 || !slotsByKind.has("company") || !slotsByKind.has("companyMulti") || !slotsByKind.has("newsList")) {
+    return false;
+  }
+  const company = slotsByKind.get("company")?.gridRect;
+  const journal = slotsByKind.get("companyMulti")?.gridRect;
+  const news = slotsByKind.get("newsList")?.gridRect;
+  return Boolean(
+    company && company.col === 1 && company.row === 1 && company.colSpan === 2 && company.rowSpan === 6
+    && journal && journal.col === 3 && journal.row === 1 && journal.colSpan === 4 && journal.rowSpan === 6
+    && news && news.col === 7 && news.row === 1 && news.colSpan === 2 && news.rowSpan === 6
+  );
+}
+
+function isLegacyDefaultStockLayout(value: StoredTiledPanelState): boolean {
+  const slotsByKind = new Map<PanelContentKind, StoredTiledPanelState["slots"][number]>();
+  value.slots.forEach((slot) => {
+    const kind = value.contents[slot.contentId]?.kind;
+    if (kind) slotsByKind.set(kind, slot);
+  });
+  if (slotsByKind.size !== 3 || !slotsByKind.has("chart") || !slotsByKind.has("company") || !slotsByKind.has("watchlistNews")) {
+    return false;
+  }
+  const chart = slotsByKind.get("chart")?.gridRect;
+  const company = slotsByKind.get("company")?.gridRect;
+  const news = slotsByKind.get("watchlistNews")?.gridRect;
+  return Boolean(
+    chart && chart.col === 1 && chart.row === 1 && chart.colSpan === 6 && chart.rowSpan === 3
+    && company && company.col === 7 && company.row === 1 && company.colSpan === 2 && company.rowSpan === 3
+    && news && news.col === 1 && news.row === 4 && news.colSpan === 8 && news.rowSpan === 2
+  );
 }
 
 export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {

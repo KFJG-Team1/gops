@@ -1,23 +1,41 @@
 import {
   BookOpenText,
+  CalendarRange,
   ChartNoAxesCombined,
-  CircleAlert,
-  Newspaper,
   ShieldCheck,
   Sparkles
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import { GlossaryText } from "../glossary/GlossaryText";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import {
   CompanySummaryPanel,
   type CompanyJournalEvidence,
   type CompanyPanelView,
   type ValuationPricePoint
-} from "./CompanySummaryPanel";
-import { NewsPanel } from "./NewsPanel";
+} from "./CompanyJournalSummaryPanel";
+import {
+  CompanyJournalPerformanceChart,
+  companyJournalSectorBenchmarkSymbol,
+  type CompanyJournalPerformanceSeries
+} from "./CompanyJournalPerformanceChart";
+import {
+  fetchCompanyJournal,
+  fetchCompanyJournalEvidence,
+  type CompanyJournalEvidenceResponse,
+  type CompanyJournalReport
+} from "./companyJournalApi";
 
-type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "news";
+type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "earnings";
+type JournalChartFocus =
+  | "market-latest"
+  | "earnings-latest"
+  | "profitability-latest"
+  | "returns-latest"
+  | "valuation-latest"
+  | "stability-latest"
+  | "all";
 
 type CompanyJournalPanelProps = {
   symbol: string;
@@ -45,11 +63,20 @@ type JournalNarrative = {
   counterpoint: string;
 };
 
+type JournalInsight = {
+  id: string;
+  title: string;
+  lead?: string;
+  text: string;
+  chartFocus: JournalChartFocus;
+  actions?: Array<{ label: string; targetView: CompanyJournalView }>;
+};
+
 const journalViews = [
-  { id: "profitability", label: "매출·수익", icon: ChartNoAxesCombined },
-  { id: "stability", label: "안정성", icon: ShieldCheck },
+  { id: "earnings", label: "실적", icon: CalendarRange },
   { id: "valuation", label: "가치", icon: BookOpenText },
-  { id: "news", label: "뉴스", icon: Newspaper }
+  { id: "profitability", label: "매출·수익", icon: ChartNoAxesCombined },
+  { id: "stability", label: "안정성", icon: ShieldCheck }
 ] as const satisfies ReadonlyArray<{ id: CompanyJournalView; label: string; icon: typeof ChartNoAxesCombined }>;
 
 const emptyEvidence: CompanyJournalEvidence = {
@@ -87,12 +114,7 @@ const companyJournalPreviewValuationPrices: ValuationPricePoint[] = [
 export function CompanyJournalPanel({
   symbol,
   item,
-  items = [],
-  sourcePanelId,
-  selectedAgentReferenceKeys = [],
-  emphasizedAgentReferenceKeys = [],
-  onAgentReferenceSelect,
-  onAgentAsk
+  items = []
 }: CompanyJournalPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const previewEnabled = companyJournalPreviewEnabled();
@@ -100,46 +122,134 @@ export function CompanyJournalPanel({
     () => previewEnabled ? buildCompanyJournalPreviewItem(item, normalizedSymbol) : item,
     [item, normalizedSymbol, previewEnabled]
   );
-  const [activeView, setActiveView] = useState<CompanyJournalView>("profitability");
+  const [storedEvidence, setStoredEvidence] = useState<CompanyJournalEvidenceResponse | null>(null);
+  const effectiveItem = useMemo<Sp500UniverseItem | undefined>(() => storedEvidence && resolvedItem ? {
+    ...resolvedItem,
+    financialSeries: storedEvidence.financialSeries.length > 0
+      ? storedEvidence.financialSeries
+      : resolvedItem.financialSeries,
+    earningsSeries: storedEvidence.earningsSeries.length > 0
+      ? storedEvidence.earningsSeries
+      : resolvedItem.earningsSeries,
+    fundamentalsAsOf: storedEvidence.sourceAsOf ?? resolvedItem?.fundamentalsAsOf
+  } : resolvedItem, [resolvedItem, storedEvidence]);
+  const hasStoredCompanyEvidence = Boolean(
+    storedEvidence?.financialSeries.length && storedEvidence?.earningsSeries.length
+  );
+  const storedPerformanceSeries = useMemo<CompanyJournalPerformanceSeries[]>(() => {
+    const sectorSymbol = companyJournalSectorBenchmarkSymbol(effectiveItem?.sector, effectiveItem?.industry);
+    return (storedEvidence?.performanceSeries ?? []).map((series) => ({
+      ...series,
+      label: series.symbol === "SPY" ? "S&P 500" : series.symbol,
+      tone: (series.symbol === normalizedSymbol ? "company" : series.symbol === "SPY" ? "benchmark" : "sector") as CompanyJournalPerformanceSeries["tone"]
+    })).filter((series) => series.symbol === normalizedSymbol || series.symbol === "SPY" || series.symbol === sectorSymbol);
+  }, [effectiveItem?.industry, effectiveItem?.sector, normalizedSymbol, storedEvidence?.performanceSeries]);
+  const storedValuationPrices = useMemo<ValuationPricePoint[]>(() => (
+    storedPerformanceSeries.find((series) => series.symbol === normalizedSymbol)?.candles.map((candle) => ({
+      timestamp: candle.timestamp,
+      close: candle.close
+    })) ?? []
+  ), [normalizedSymbol, storedPerformanceSeries]);
+  const [activeView, setActiveView] = useState<CompanyJournalView>("earnings");
+  const [selectedInsightId, setSelectedInsightId] = useState("tab-focus");
+  const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
+  const [journalStatus, setJournalStatus] = useState<"loading" | "ready" | "pending" | "error">(
+    previewEnabled ? "ready" : "loading"
+  );
+  const [journalRefresh, setJournalRefresh] = useState(0);
   const [evidenceBySymbol, setEvidenceBySymbol] = useState<Record<string, CompanyJournalEvidence>>({});
   const evidence = evidenceBySymbol[normalizedSymbol] ?? emptyEvidence;
   const onEvidenceChange = useCallback((nextEvidence: CompanyJournalEvidence) => {
     setEvidenceBySymbol((current) => ({ ...current, [normalizedSymbol]: nextEvidence }));
   }, [normalizedSymbol]);
-  const overview = useMemo(() => buildJournalOverview(resolvedItem, evidence), [evidence, resolvedItem]);
-  const narrative = useMemo(
-    () => buildJournalNarrative(activeView, normalizedSymbol, resolvedItem, evidence),
-    [activeView, evidence, normalizedSymbol, resolvedItem]
+  useEffect(() => {
+    if (previewEnabled) {
+      setJournalReport(null);
+      setJournalStatus("ready");
+      return;
+    }
+    const controller = new AbortController();
+    let pollTimer: number | undefined;
+    setJournalStatus((current) => current === "ready" ? current : "loading");
+    void fetchCompanyJournal(normalizedSymbol, controller.signal)
+      .then((response) => {
+        if (response.status === "ready" && response.report) {
+          setJournalReport(response.report);
+          setJournalStatus("ready");
+          return;
+        }
+        setJournalReport(null);
+        setJournalStatus("pending");
+        pollTimer = window.setTimeout(() => setJournalRefresh((value) => value + 1), 30_000);
+      })
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setJournalReport(null);
+          setJournalStatus("error");
+        }
+      });
+    return () => {
+      controller.abort();
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+    };
+  }, [journalRefresh, normalizedSymbol, previewEnabled]);
+  useEffect(() => {
+    if (previewEnabled) {
+      setStoredEvidence(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setStoredEvidence(null);
+    const sectorSymbol = companyJournalSectorBenchmarkSymbol(resolvedItem?.sector, resolvedItem?.industry);
+    void fetchCompanyJournalEvidence(normalizedSymbol, ["SPY", sectorSymbol], controller.signal)
+      .then(setStoredEvidence)
+      .catch(() => {
+        if (!controller.signal.aborted) setStoredEvidence(null);
+      });
+    return () => controller.abort();
+  }, [normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector]);
+  const overview = useMemo(
+    () => previewEnabled ? buildJournalOverview(resolvedItem, evidence) : buildStoredJournalOverview(journalReport, journalStatus),
+    [evidence, journalReport, journalStatus, previewEnabled, resolvedItem]
   );
-  const sourceAsOf = resolvedItem?.fundamentalsAsOf ?? resolvedItem?.periodEndDate ?? resolvedItem?.filedAt ?? resolvedItem?.priceUpdatedAt ?? null;
+  const narrative = useMemo(
+    () => previewEnabled
+      ? buildJournalNarrative(activeView, normalizedSymbol, effectiveItem, evidence)
+      : buildStoredJournalNarrative(activeView, journalReport, journalStatus),
+    [activeView, effectiveItem, evidence, journalReport, journalStatus, normalizedSymbol, previewEnabled]
+  );
+  const insights = useMemo(
+    () => buildJournalInsights({
+      activeView,
+      report: journalReport,
+      status: journalStatus,
+      previewEnabled,
+      companyName: effectiveItem?.companyName || normalizedSymbol,
+      narrative
+    }),
+    [activeView, effectiveItem?.companyName, journalReport, journalStatus, narrative, normalizedSymbol, previewEnabled]
+  );
+  const activeChartFocus = insights.find((insight) => insight.id === selectedInsightId)?.chartFocus ?? focusForView(activeView);
+  const selectView = useCallback((view: CompanyJournalView) => {
+    setActiveView(view);
+    setSelectedInsightId("tab-focus");
+  }, []);
+  const highlightInsight = useCallback((insight: JournalInsight) => {
+    setSelectedInsightId(insight.id);
+  }, []);
 
   return (
-    <section className="company-journal-panel" aria-label={`${normalizedSymbol} AI 기업저널 초안`}>
+    <section className="company-journal-panel" aria-label={`${normalizedSymbol} AI 기업저널`}>
       <header className="company-journal-header">
-        <div className="company-journal-title">
-          <span className="company-journal-kicker">
-            <Sparkles aria-hidden="true" />기업 저널 · 초안
-            {previewEnabled && <em>DEV PREVIEW</em>}
-          </span>
-          <h2>{resolvedItem?.companyName || normalizedSymbol}</h2>
-          <p>{overview.headline}</p>
+        <div className="company-journal-brand" aria-label="GOPS AI">
+          <span aria-hidden="true"><Sparkles /></span>
+          <strong>gopsai</strong>
+          {previewEnabled && <em>DEV PREVIEW</em>}
         </div>
-        <dl className="company-journal-meta">
-          <div><dt>심볼</dt><dd>{normalizedSymbol}</dd></div>
-          <div><dt>업종</dt><dd>{resolvedItem?.industry || resolvedItem?.sectorLabelKo || resolvedItem?.sector || "확인 중"}</dd></div>
-          <div><dt>기준</dt><dd>{formatAsOf(sourceAsOf)}</dd></div>
-        </dl>
+        <blockquote className="company-journal-quote">
+          <GlossaryText text={overview.headline} />
+        </blockquote>
       </header>
-
-      <div className="company-journal-metrics" aria-label="기업 저널 핵심 지표">
-        {overview.metrics.map((metric) => (
-          <div key={metric.label} className={`company-journal-metric is-${metric.tone}`}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <small>{metric.detail}</small>
-          </div>
-        ))}
-      </div>
 
       <div className="company-journal-tabs" role="tablist" aria-label="기업 저널 근거 화면">
         {journalViews.map((view) => {
@@ -152,7 +262,7 @@ export function CompanyJournalPanel({
               role="tab"
               aria-selected={selected}
               className={selected ? "active" : ""}
-              onClick={() => setActiveView(view.id)}
+              onClick={() => selectView(view.id)}
             >
               <Icon aria-hidden="true" />
               <span>{view.label}</span>
@@ -162,61 +272,403 @@ export function CompanyJournalPanel({
       </div>
 
       <div className="company-journal-body">
-        <div className={`company-journal-evidence is-${activeView}`} role="tabpanel">
-          {activeView === "news" ? (
-            <NewsPanel
-              symbol={normalizedSymbol}
-              initialPayload={previewEnabled ? buildCompanyJournalPreviewNews(normalizedSymbol) : undefined}
-              sourcePanelId={sourcePanelId}
-              selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-              emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-              onAgentReferenceSelect={onAgentReferenceSelect}
-              onAgentAsk={onAgentAsk}
-              variant="list"
-            />
+        <div className={`company-journal-evidence is-${activeView}`} data-chart-focus={activeChartFocus} role="tabpanel">
+          {activeView === "earnings" ? (
+            <div className="company-journal-earnings-evidence">
+              <CompanySummaryPanel
+                symbol={normalizedSymbol}
+                item={effectiveItem}
+                items={items}
+                view="valuation"
+                valuationContent="earnings"
+                valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
+                onEvidenceChange={onEvidenceChange}
+                disableRemoteFetch={previewEnabled || hasStoredCompanyEvidence}
+                journalPresentation
+              />
+              <CompanyJournalPerformanceChart
+                symbol={normalizedSymbol}
+                sector={effectiveItem?.sector}
+                industry={effectiveItem?.industry}
+                previewEnabled={previewEnabled}
+                storedSeries={storedPerformanceSeries}
+              />
+            </div>
           ) : (
             <CompanySummaryPanel
               symbol={normalizedSymbol}
-              item={resolvedItem}
+              item={effectiveItem}
               items={items}
               view={activeView}
               valuationContent={activeView === "valuation" ? "valuation" : "combined"}
               stabilityContent={activeView === "stability" ? "stability-dashboard" : "stability"}
-              valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : undefined}
+              valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
               onEvidenceChange={onEvidenceChange}
-              disableRemoteFetch={previewEnabled}
+              disableRemoteFetch={previewEnabled || hasStoredCompanyEvidence}
+              journalPresentation
             />
           )}
         </div>
 
         <aside className="company-journal-reading" aria-label={`${activeView} 해석`}>
-          <div className="company-journal-reading-heading">
-            <span>{journalViews.find((view) => view.id === activeView)?.label}</span>
-            <h3>{narrative.headline}</h3>
-          </div>
-          <JournalReadingSection label="무엇이 보이나" text={narrative.observation} />
-          <JournalReadingSection label="이 기업에서는 왜 중요한가" text={narrative.companyMeaning} />
-          <JournalReadingSection label="다음 확인" text={narrative.nextCheck} emphasis />
-          <div className="company-journal-counterpoint">
-            <CircleAlert aria-hidden="true" />
-            <div>
-              <strong>이 해석이 틀릴 수 있는 이유</strong>
-              <p>{narrative.counterpoint}</p>
-            </div>
-          </div>
+          {insights.map((insight) => (
+            <JournalInsightSection
+              key={insight.id}
+              insight={insight}
+              selected={selectedInsightId === insight.id}
+              onHighlight={() => highlightInsight(insight)}
+              onAction={selectView}
+            />
+          ))}
         </aside>
       </div>
     </section>
   );
 }
 
-function JournalReadingSection({ label, text, emphasis = false }: { label: string; text: string; emphasis?: boolean }) {
+function JournalInsightSection({
+  insight,
+  selected,
+  onHighlight,
+  onAction
+}: {
+  insight: JournalInsight;
+  selected: boolean;
+  onHighlight: () => void;
+  onAction: (view: CompanyJournalView) => void;
+}) {
   return (
-    <section className={emphasis ? "company-journal-reading-section is-emphasis" : "company-journal-reading-section"}>
-      <strong>{label}</strong>
-      <p>{text}</p>
+    <section
+      className={`company-journal-insight ${selected ? "is-selected" : ""}`}
+      tabIndex={0}
+      aria-label={`${insight.title} 설명과 관련 차트 보기`}
+      onMouseEnter={onHighlight}
+      onFocus={onHighlight}
+      onClick={onHighlight}
+    >
+      <h3>{insight.title}</h3>
+      {insight.lead && <strong><GlossaryText text={insight.lead} /></strong>}
+      <p><GlossaryText text={insight.text} /></p>
+      {insight.actions && insight.actions.length > 0 && (
+        <div className="company-journal-insight-actions" aria-label="관련 기업분석 화면">
+          {insight.actions.map((action) => (
+            <button
+              key={action.targetView}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onAction(action.targetView);
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
+}
+
+function buildJournalInsights({
+  activeView,
+  report,
+  status,
+  previewEnabled,
+  companyName,
+  narrative
+}: {
+  activeView: CompanyJournalView;
+  report: CompanyJournalReport | null;
+  status: "loading" | "ready" | "pending" | "error";
+  previewEnabled: boolean;
+  companyName: string;
+  narrative: JournalNarrative;
+}): JournalInsight[] {
+  if (previewEnabled) {
+    const tab = previewTabInsight(activeView, narrative);
+    if (activeView === "earnings") {
+      return [
+        {
+          id: "movement",
+          title: "최근 움직임",
+          lead: "3거래일 +4.2% · S&P 500 대비 +1.6%p",
+          text: `${companyName}는 최근 시장보다 강했습니다. 아래 상대수익률의 마지막 점에서 같은 기간 S&P 500과의 차이를 확인할 수 있습니다. 다만 특정 뉴스 하나를 상승 원인으로 단정하지는 않습니다.`,
+          chartFocus: "market-latest"
+        },
+        {
+          id: "tab-focus",
+          title: "이번 실적에서 먼저 볼 것",
+          lead: tab.lead,
+          text: tab.text,
+          chartFocus: "earnings-latest"
+        },
+        {
+          id: "watch",
+          title: "앞으로 볼 것",
+          lead: "다음 가이던스 · 핵심 사업 성장률 · AI 투자 회수",
+          text: "다음 발표에서는 매출 성장률이 유지되는지, EPS 개선이 일회성 비용 감소가 아닌 영업 변화에서 나왔는지 확인해야 합니다. 추정치와 실제치 사이의 최신 점 간격이 첫 확인 지점입니다.",
+          chartFocus: "earnings-latest"
+        },
+        {
+          id: "summary",
+          title: "GOPS AI 종합 판단",
+          text: narrative.companyMeaning || narrative.observation,
+          chartFocus: "all"
+        },
+        {
+          id: "first-check",
+          title: "기업 분석에서 먼저 볼 곳",
+          text: "궁금한 기준을 선택하면 해당 차트로 이동합니다. 이동은 아래 버튼을 눌렀을 때만 실행됩니다.",
+          chartFocus: "all",
+          actions: journalAnalysisActions(activeView)
+        }
+      ];
+    }
+    return [
+      {
+        id: "tab-focus",
+        title: tab.title,
+        lead: tab.lead,
+        text: tab.text,
+        chartFocus: focusForView(activeView)
+      },
+      {
+        id: "watch",
+        title: "다음 확인",
+        lead: detailWatchLead(activeView),
+        text: detailWatchText(activeView),
+        chartFocus: activeView === "profitability" ? "returns-latest" : focusForView(activeView)
+      },
+      {
+        id: "summary",
+        title: `${journalViewLabel(activeView)} 종합 판단`,
+        text: previewDetailSummary(activeView),
+        chartFocus: "all"
+      },
+      {
+        id: "first-check",
+        title: "기업분석에서 다음으로 볼 곳",
+        text: "궁금한 기준을 선택하면 해당 차트로 이동합니다.",
+        chartFocus: "all",
+        actions: journalAnalysisActions(activeView)
+      }
+    ];
+  }
+
+  if (!report) {
+    const waiting = status === "error"
+      ? "저장된 기업저널을 불러오지 못했습니다. 연결을 확인하는 동안 기존 차트와 뉴스는 계속 볼 수 있습니다."
+      : "검증된 기업저널 문장을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
+    return [
+      ...(activeView === "earnings" ? [{ id: "movement", title: "최근 움직임", lead: "데이터 연결 대기", text: waiting, chartFocus: "market-latest" as const }] : []),
+      { id: "tab-focus", title: `${journalViewLabel(activeView)}에서 먼저 볼 것`, lead: "계산되지 않음", text: "확인되지 않은 숫자를 임의로 채우지 않습니다.", chartFocus: focusForView(activeView) },
+      { id: "watch", title: "앞으로 볼 것", text: "검증된 결과가 저장되면 관찰 항목이 이 위치에 표시됩니다.", chartFocus: focusForView(activeView) },
+      { id: "summary", title: `${journalViewLabel(activeView)} 종합 판단`, text: narrative.observation, chartFocus: "all" },
+      { id: "first-check", title: "기업분석에서 다음으로 볼 곳", text: "궁금한 기준을 선택하면 해당 차트로 이동합니다.", chartFocus: "all", actions: journalAnalysisActions(activeView) }
+    ];
+  }
+
+  const metrics = report.serverMetrics;
+  const debtRatio = metrics.financial?.liabilitiesToEquity;
+  const recentSessions = metrics.recentSessions ?? 3;
+  const movementLead = `${recentSessions}거래일 ${formatStoredPercent(metrics.stockReturnPercent)}`
+    + ` · ${metrics.benchmarkSymbol || "S&P 500"} 대비 ${formatStoredPoint(metrics.relativeReturnPercentagePoints)}`;
+  const stabilityLead = debtRatio == null
+    ? "안정성 · 데이터 부족"
+    : `${debtRatio <= 1 ? "양호" : debtRatio <= 2 ? "주의" : "점검 필요"} · 부채비율 ${(debtRatio * 100).toFixed(1)}%`;
+  const selectedAnalysis = report.tabs[activeView] || report.tabs.current || report.headline;
+  const firstAnalysisView: CompanyJournalView = debtRatio != null && debtRatio > 1 ? "stability" : "profitability";
+  const firstAnalysisLead = firstAnalysisView === "stability"
+    ? stabilityLead
+    : report.keywords.slice(0, 3).join(" · ") || "매출 성장과 이익률 비교";
+  return [
+    ...(activeView === "earnings" ? [{ id: "movement", title: "최근 움직임", lead: movementLead, text: report.recentMovement, chartFocus: "market-latest" as const }] : []),
+    {
+      id: "tab-focus",
+      title: `${journalViewLabel(activeView)}에서 먼저 볼 것`,
+      lead: activeView === "stability" ? stabilityLead : report.keywords.slice(0, 3).join(" · ") || undefined,
+      text: selectedAnalysis,
+      chartFocus: focusForView(activeView)
+    },
+    {
+      id: "watch",
+      title: "앞으로 볼 것",
+      lead: report.keywords.length > 0 ? report.keywords.join(" · ") : undefined,
+      text: report.watchItems,
+      chartFocus: activeView === "profitability" ? "returns-latest" : focusForView(activeView)
+    },
+    {
+      id: "summary",
+      title: activeView === "earnings" ? "GOPS AI 종합 판단" : `${journalViewLabel(activeView)} 종합 판단`,
+      text: activeView === "earnings" ? report.headline : selectedAnalysis,
+      chartFocus: "all"
+    },
+    {
+      id: "first-check",
+      title: activeView === "earnings" ? "기업 분석에서 먼저 볼 곳" : "기업분석에서 다음으로 볼 곳",
+      lead: activeView === "earnings" ? firstAnalysisLead : undefined,
+      text: activeView === "earnings"
+        ? report.tabs[firstAnalysisView] || report.financialStability || report.headline
+        : "궁금한 기준을 선택하면 해당 차트로 이동합니다.",
+      chartFocus: "all",
+      actions: journalAnalysisActions(activeView)
+    }
+  ];
+}
+
+function journalAnalysisActions(view: CompanyJournalView): Array<{ label: string; targetView: CompanyJournalView }> {
+  const actions: Array<{ label: string; targetView: CompanyJournalView }> = [
+    { label: "실적 근거 보기", targetView: "earnings" },
+    { label: "가치 부담 확인", targetView: "valuation" },
+    { label: "성장의 질 확인", targetView: "profitability" },
+    { label: "현금 방어력 확인", targetView: "stability" }
+  ];
+  return actions.filter((action) => action.targetView !== view);
+}
+
+function focusForView(view: CompanyJournalView): JournalChartFocus {
+  if (view === "earnings") return "earnings-latest";
+  if (view === "valuation") return "valuation-latest";
+  if (view === "stability") return "stability-latest";
+  return "profitability-latest";
+}
+
+function detailWatchLead(view: CompanyJournalView) {
+  if (view === "valuation") return "실적 성장률 · PER 변화 · FCF Yield";
+  if (view === "stability") return "유동비율 · 순부채 · 이자보상배율";
+  return "ROE · ROA · FCF Margin";
+}
+
+function detailWatchText(view: CompanyJournalView) {
+  if (view === "valuation") return "현재 배수만 보지 말고 최신 EPS·BPS·SPS·CPS의 증가 속도와 PER·PBR·PSR의 마지막 점을 함께 비교하세요. 실적이 늘었는데 배수도 더 빨리 높아졌다면 기대가 먼저 반영됐을 수 있습니다.";
+  if (view === "stability") return "최신 부채비율의 방향과 유동부채 비중을 먼저 비교하고, 표의 유동비율·순부채·이자보상배율로 단기 지급 능력과 이자 부담을 확인하세요.";
+  return "순이익이 늘어도 ROE·ROA가 둔화되거나 FCF Margin이 따라오지 않으면 성장에 더 많은 자본과 현금이 필요하다는 뜻일 수 있습니다. 최신 점 세 개의 방향을 함께 보세요.";
+}
+
+function previewDetailSummary(view: Exclude<CompanyJournalView, "earnings">) {
+  if (view === "valuation") {
+    return "주당 실적은 개선되고 있지만 PER·PBR·PSR도 높은 구간입니다. 지금 가격이 정당화되려면 다음 실적에서도 EPS와 현금흐름이 현재 기대 속도를 따라와야 합니다.";
+  }
+  if (view === "stability") {
+    return "현재 부채 구조는 비교적 안정적입니다. 다만 투자 확대가 이어지는 동안 유동비율과 이자보상배율이 함께 약해지지 않는지, 영업현금흐름이 지출을 감당하는지 확인해야 합니다.";
+  }
+  return "매출과 이익률이 함께 개선돼 성장의 질은 양호합니다. 다음 구간에서도 ROE·ROA와 FCF Margin이 같은 방향을 유지해야 현재 성장이 더 많은 자본 투입에만 의존하지 않는다고 판단할 수 있습니다.";
+}
+
+function journalViewLabel(view: CompanyJournalView) {
+  return journalViews.find((candidate) => candidate.id === view)?.label ?? "기업 분석";
+}
+
+function previewTabInsight(activeView: CompanyJournalView, narrative: JournalNarrative) {
+  if (activeView === "earnings") return {
+    title: "실적에서 먼저 볼 것",
+    lead: "EPS 예상 대비 · 매출 예상 대비 · 다음 가이던스",
+    text: `${narrative.observation} 최신 실적의 큰 점은 실제치, 작은 점은 시장 추정치입니다. 두 점 사이의 세로선이 길수록 예상과 실제의 차이가 큽니다. EPS와 매출이 모두 같은 방향으로 움직였는지 먼저 확인하세요.`
+  };
+  if (activeView === "stability") return {
+    title: "안정성에서 먼저 볼 것",
+    lead: "부채비율 42% · 유동비율 · 이자보상배율",
+    text: `${narrative.observation} 최신 부채비율 점이 유동부채비율보다 빠르게 높아졌는지 확인하세요. 이어서 안정성 수치 표의 유동비율·순부채·이자보상배율을 보면 단기 지급 능력과 이자 부담을 구분할 수 있습니다.`
+  };
+  if (activeView === "valuation") return {
+    title: "가치에서 먼저 볼 것",
+    lead: "PER · PBR · PSR · 주당 현금흐름",
+    text: `${narrative.observation} 최신 EPS·BPS·SPS·CPS 막대의 증가 속도와 PER·PBR·PSR의 마지막 점을 함께 보세요. 실적보다 가치 배수가 더 빠르게 높아졌다면 주가에 성장 기대가 먼저 반영됐을 수 있습니다.`
+  };
+  return {
+    title: "매출·수익에서 먼저 볼 것",
+    lead: "매출 성장 · 영업이익률 · 순이익률",
+    text: `${narrative.observation} 최신 매출 막대와 영업이익률·순이익률의 마지막 점이 같은 방향인지 확인하세요. 매출만 늘고 두 이익률이 낮아지면 성장보다 비용 부담이 더 빠르게 커진 구간입니다.`
+  };
+}
+
+function buildStoredJournalOverview(
+  report: CompanyJournalReport | null,
+  status: "loading" | "ready" | "pending" | "error"
+): { headline: string; metrics: JournalMetric[] } {
+  if (!report) {
+    const headline = status === "error"
+      ? "저장된 기업저널을 불러올 수 없습니다. 기존 재무 차트와 뉴스는 계속 확인할 수 있습니다."
+      : "최신 뉴스·주가·재무 근거로 기업저널을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
+    return {
+      headline,
+      metrics: [
+        metric("최근 움직임", "데이터 연결 대기", "ClickHouse 검증본 준비 중", "neutral"),
+        metric("시장 대비", "계산되지 않음", "S&P 500 기준", "neutral"),
+        metric("재무 안정성", "데이터 연결 대기", "SEC 기준", "neutral"),
+        metric("분석 상태", status === "error" ? "연결 확인 필요" : "생성 대기", "기존 차트는 사용 가능", status === "error" ? "caution" : "neutral")
+      ]
+    };
+  }
+  const metrics = report.serverMetrics;
+  const debtRatio = metrics.financial?.liabilitiesToEquity;
+  const sessions = metrics.recentSessions ?? 3;
+  return {
+    headline: report.headline,
+    metrics: [
+      metric(
+        "최근 움직임",
+        formatStoredPercent(metrics.stockReturnPercent),
+        `${sessions}거래일`,
+        toneForChange(metrics.stockReturnPercent ?? null)
+      ),
+      metric(
+        "S&P 500 대비",
+        formatStoredPoint(metrics.relativeReturnPercentagePoints),
+        "같은 기간 비교",
+        toneForChange(metrics.relativeReturnPercentagePoints ?? null)
+      ),
+      metric(
+        "부채비율",
+        debtRatio == null ? "데이터 부족" : `${(debtRatio * 100).toFixed(1)}%`,
+        "총부채 ÷ 자기자본",
+        toneForDebtRatio(debtRatio ?? null)
+      ),
+      metric("분석 상태", "검증 완료", formatAsOf(report.generatedAt), "positive")
+    ]
+  };
+}
+
+function buildStoredJournalNarrative(
+  view: CompanyJournalView,
+  report: CompanyJournalReport | null,
+  status: "loading" | "ready" | "pending" | "error"
+): JournalNarrative {
+  if (!report) {
+    const unavailable = status === "error"
+      ? "기업저널 저장소 연결을 확인해야 합니다."
+      : "검증된 기업저널 문장을 준비하고 있습니다.";
+    return {
+      headline: unavailable,
+      observation: "차트와 뉴스는 기존 데이터 원천에서 표시되며, AI 문장은 검증된 결과가 저장된 뒤 나타납니다.",
+      companyMeaning: "준비되지 않은 숫자나 원인을 임의로 채우지 않습니다.",
+      nextCheck: "잠시 뒤 다시 확인하면 최신 검증 결과가 자동으로 표시됩니다.",
+      counterpoint: "현재 상태는 기업에 대한 부정적 평가가 아니라 분석 결과가 아직 준비되지 않았다는 뜻입니다."
+    };
+  }
+  const label = journalViews.find((candidate) => candidate.id === view)?.label ?? "현재 핵심";
+  const observation = report.tabs[view] || report.tabs.current || report.headline;
+  const companyMeaning = view === "stability" ? report.financialStability : report.headline;
+  const missingNote = report.missingData.length > 0
+    ? `현재 ${report.missingData.length}개 근거 항목이 부족해 해석 범위가 제한될 수 있습니다.`
+    : "확인된 근거의 기준일 이후 사건은 아직 반영되지 않았을 수 있습니다.";
+  return {
+    headline: report.keywords.length > 0 ? `${label} · ${report.keywords.join(" · ")}` : label,
+    observation,
+    companyMeaning,
+    nextCheck: report.watchItems,
+    counterpoint: missingNote
+  };
+}
+
+function formatStoredPercent(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "데이터 부족";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function formatStoredPoint(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "계산되지 않음";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%p`;
 }
 
 function buildJournalOverview(item: Sp500UniverseItem | undefined, evidence: CompanyJournalEvidence) {
@@ -247,16 +699,6 @@ function buildJournalNarrative(
   item: Sp500UniverseItem | undefined,
   evidence: CompanyJournalEvidence
 ): JournalNarrative {
-  if (view === "news") {
-    return {
-      headline: "최근 사건을 사업 지표와 연결해 읽습니다.",
-      observation: "기존 뉴스 패널의 최신 기사와 일자별 요약을 그대로 사용합니다. 기사 수보다 실적과 사업 구조에 영향을 줄 수 있는 사건이 있는지를 먼저 확인합니다.",
-      companyMeaning: `${companyLens(item).newsLens} 초안에서는 확인된 기사만 표시하며, 뉴스가 실제 재무 수치에 미친 영향은 단정하지 않습니다.`,
-      nextCheck: "중요 사건이 발생한 뒤 매출·마진·가이던스 중 어떤 지표가 실제로 달라지는지 확인합니다.",
-      counterpoint: "기사의 방향과 실제 실적 영향은 다를 수 있습니다. 공시 또는 다음 실적에서 확인되기 전까지는 사건과 결과를 분리해야 합니다."
-    };
-  }
-
   const financial = selectedFinancialPair(evidence);
   const earnings = evidence.earningsSeries.at(-1);
   const lens = companyLens(item);
@@ -643,84 +1085,5 @@ function buildCompanyJournalPreviewItem(item: Sp500UniverseItem | undefined, sym
     freeCashFlow: 103_200_000_000,
     financialSeries,
     earningsSeries
-  };
-}
-
-function buildCompanyJournalPreviewNews(symbol: string) {
-  return {
-    symbol,
-    displayMode: "dailySummary",
-    items: [],
-    dailySummaries: [
-      {
-        date: "2026-07-15",
-        symbol,
-        summary: "DEV PREVIEW · 차세대 GPU 공급 확대 기대가 유지됐지만, 핵심 고객의 설비투자 속도가 실제 매출 성장으로 이어지는지 확인이 필요합니다.",
-        keyPoints: ["차세대 제품 수요", "주요 고객 CAPEX", "공급 확대"],
-        impactDirection: "positive",
-        sentiment: "positive",
-        articleIds: ["dev-journal-nvda-1"],
-        articleCount: 3,
-        mentionCount: 5,
-        status: "dev-preview",
-        generatedAt: "2026-07-15T21:00:00Z",
-        sources: [
-          {
-            articleId: "dev-journal-nvda-1",
-            title: "DEV PREVIEW · 차세대 GPU 수요와 공급 확대 점검",
-            name: "GOPS Fixture",
-            url: "https://example.com/gops-dev-preview/gpu-demand",
-            publishedAt: "2026-07-15T20:30:00Z"
-          }
-        ],
-        priceChange: { date: "2026-07-15", previousClose: 190.82, close: 194.72, change: 3.90, changePercent: 2.04 }
-      },
-      {
-        date: "2026-07-14",
-        symbol,
-        summary: "DEV PREVIEW · 수출 규제 가능성이 특정 지역 매출과 제품 믹스에 미칠 영향이 재부각됐습니다. 매출 규모보다 대체 제품의 마진 차이를 봐야 합니다.",
-        keyPoints: ["수출 규제", "지역별 매출", "제품 믹스"],
-        impactDirection: "negative",
-        sentiment: "mixed",
-        articleIds: ["dev-journal-nvda-2"],
-        articleCount: 2,
-        mentionCount: 4,
-        status: "dev-preview",
-        generatedAt: "2026-07-14T20:00:00Z",
-        sources: [
-          {
-            articleId: "dev-journal-nvda-2",
-            title: "DEV PREVIEW · 수출 규제와 제품 믹스 영향",
-            name: "GOPS Fixture",
-            url: "https://example.com/gops-dev-preview/export-controls",
-            publishedAt: "2026-07-14T19:30:00Z"
-          }
-        ],
-        priceChange: { date: "2026-07-14", previousClose: 192.10, close: 190.82, change: -1.28, changePercent: -0.67 }
-      },
-      {
-        date: "2026-07-11",
-        symbol,
-        summary: "DEV PREVIEW · 데이터센터 매출 성장과 높은 순이익률이 함께 유지됐다는 가정입니다. 다음 실적에서는 성장률 둔화 여부와 현금흐름 전환을 함께 확인합니다.",
-        keyPoints: ["데이터센터 성장", "순이익률", "현금흐름"],
-        impactDirection: "mixed",
-        sentiment: "neutral",
-        articleIds: ["dev-journal-nvda-3"],
-        articleCount: 4,
-        mentionCount: 6,
-        status: "dev-preview",
-        generatedAt: "2026-07-11T20:00:00Z",
-        sources: [
-          {
-            articleId: "dev-journal-nvda-3",
-            title: "DEV PREVIEW · 데이터센터 성장과 현금흐름",
-            name: "GOPS Fixture",
-            url: "https://example.com/gops-dev-preview/data-center",
-            publishedAt: "2026-07-11T19:30:00Z"
-          }
-        ],
-        priceChange: { date: "2026-07-11", previousClose: 188.64, close: 192.10, change: 3.46, changePercent: 1.83 }
-      }
-    ]
   };
 }

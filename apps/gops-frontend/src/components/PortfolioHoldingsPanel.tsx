@@ -2,6 +2,12 @@ import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-reac
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { PortfolioHoldingsApiError, parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
+import {
+  buildDevPortfolioPerformanceFixture,
+  fetchPortfolioPerformance,
+  type PortfolioPerformanceRange,
+  type PortfolioPerformanceResponse
+} from "./portfolioPerformanceApi";
 import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
@@ -47,12 +53,6 @@ type PortfolioAssetMetric = {
   color: string;
 };
 
-type PortfolioHistoryPoint = {
-  label: string;
-  invested: number;
-  value: number;
-  gain: number;
-};
 type AnnualPortfolioPoint = {
   label: string;
   invested: number;
@@ -66,6 +66,10 @@ type PurchaseComparePoint = {
   returnPercent: number;
   marketValue: number;
   color: string;
+};
+type PerformanceChartPoint = {
+  time: string;
+  value: number;
 };
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -83,6 +87,14 @@ const DEMO_PORTFOLIO_ENABLED =
   import.meta.env.DEV ||
   (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
 const activePortfolioRefreshIntervalMs = DEMO_PORTFOLIO_ENABLED ? 1_000 : REFRESH_INTERVAL_MS;
+const DEV_PERFORMANCE_FIXTURE_ENABLED = import.meta.env.DEV;
+const portfolioPerformanceRanges: readonly { value: PortfolioPerformanceRange; label: string }[] = [
+  { value: "1W", label: "1주" },
+  { value: "1M", label: "1개월" },
+  { value: "3M", label: "3개월" },
+  { value: "1Y", label: "1년" },
+  { value: "ALL", label: "전체" }
+];
 
 const portfolioMultiViews = [
   { id: "summary", title: "포트폴리오" },
@@ -261,7 +273,7 @@ export function PortfolioHoldingsPanel({
 }) {
   const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData(onPortfolioSymbolsChange);
   const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
-  const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
+  const [performanceView, setPerformanceView] = useState<PerformanceView>("performance");
   const portfolioSelection = usePortfolioSelectedSymbol();
   const selectedPortfolioSymbol = portfolioSelection.symbol;
 
@@ -329,7 +341,7 @@ export function PortfolioHoldingsPanel({
                 </div>
               </div>
               {performanceView === "performance" ? (
-                <PortfolioPerformanceChart dashboard={dashboard} />
+                <PortfolioPerformanceChart refreshToken={payload?.asOf} />
               ) : (
                 <PortfolioPurchaseComparisonChart positions={positions} highlightedSymbol={selectedPortfolioSymbol} />
               )}
@@ -522,15 +534,21 @@ function handlePortfolioSplitPanelWheel(event: WheelEvent<HTMLElement>) {
 }
 
 export function PortfolioPerformancePanel() {
-  const { payload, loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
-  const [performanceView, setPerformanceView] = useState<PerformanceView>("purchase");
+  const { payload, loading, refreshing, error, positions, loadHoldings } = usePortfolioHoldingsData();
+  const [performanceView, setPerformanceView] = useState<PerformanceView>("performance");
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const portfolioSelection = usePortfolioSelectedSymbol();
   const selectedPortfolioSymbol = portfolioSelection.symbol;
-  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "성과 데이터가 없습니다");
+  const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "비교할 보유종목이 없습니다");
 
   useEffect(() => {
     if (selectedPortfolioSymbol) setPerformanceView("purchase");
   }, [portfolioSelection.revision, selectedPortfolioSymbol]);
+
+  const refreshPanel = () => {
+    setRefreshRevision((current) => current + 1);
+    void loadHoldings();
+  };
 
   return (
     <section
@@ -539,10 +557,10 @@ export function PortfolioPerformancePanel() {
     >
       <PortfolioSplitHeader
         title="성과"
-        subtitle={performanceView === "performance" ? "Invested · Value · Gain" : "Average buy · Current return"}
+        subtitle={performanceView === "performance" ? "평가금 · 수익률 · S&P 500" : "평균 매수가 · 현재 수익률"}
         asOf={payload?.asOf}
         refreshing={loading || refreshing}
-        onRefresh={loadHoldings}
+        onRefresh={refreshPanel}
       />
       <div className="portfolio-performance-tabs portfolio-split-tabs" role="tablist" aria-label="포트폴리오 성과 보기">
         <button
@@ -561,13 +579,13 @@ export function PortfolioPerformancePanel() {
           className={performanceView === "purchase" ? "active" : ""}
           onClick={() => setPerformanceView("purchase")}
         >
-          매수 비교
+          종목 비교
         </button>
       </div>
-      {statusMessage ? (
+      {performanceView === "performance" ? (
+        <PortfolioPerformanceChart refreshToken={refreshRevision} />
+      ) : statusMessage ? (
         <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
-      ) : performanceView === "performance" ? (
-        <PortfolioPerformanceChart dashboard={dashboard} />
       ) : (
         <PortfolioPurchaseComparisonChart positions={positions} highlightedSymbol={selectedPortfolioSymbol} />
       )}
@@ -1190,50 +1208,175 @@ function PortfolioAllocationDonut({ slices }: { slices: AllocationSlice[] }) {
   );
 }
 
-function PortfolioPerformanceChart({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const points = buildPortfolioHistoryPoints(dashboard);
-  if (!points.length) {
-    return <div className="portfolio-chart-empty"><span>성과 데이터 대기</span></div>;
-  }
+function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | number }) {
+  const [range, setRange] = useState<PortfolioPerformanceRange>("1M");
+  const [response, setResponse] = useState<PortfolioPerformanceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    void fetchPortfolioPerformance(range, controller.signal)
+      .then((payload) => {
+        setResponse(
+          DEV_PERFORMANCE_FIXTURE_ENABLED && payload.status !== "ready"
+            ? buildDevPortfolioPerformanceFixture(range)
+            : payload
+        );
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        if (DEV_PERFORMANCE_FIXTURE_ENABLED) {
+          setResponse(buildDevPortfolioPerformanceFixture(range));
+          setError("");
+        } else {
+          setResponse(null);
+          setError(caught instanceof Error ? caught.message : "성과 데이터를 불러오지 못했습니다.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [range, refreshToken]);
+
+  const portfolioPoints = response?.portfolio.points ?? [];
+  const benchmarkPoints = response?.benchmark.points ?? [];
+  const normalizedMoneySeries = (key: "portfolioValue" | "holdingsCostBasis"): PerformanceChartPoint[] => {
+    const observed = portfolioPoints.flatMap((point) => {
+      const amount = point[key];
+      return typeof amount === "number" && Number.isFinite(amount) ? [{ time: point.time, amount }] : [];
+    });
+    const base = observed[0]?.amount;
+    if (base == null || base === 0) return [];
+    return observed.map((point) => ({ time: point.time, value: (point.amount / base - 1) * 100 }));
+  };
+  const portfolioValuePoints = normalizedMoneySeries("portfolioValue");
+  const reportedReturnPoints: PerformanceChartPoint[] = portfolioPoints.map((point) => ({
+    time: point.time,
+    value: point.returnPercent
+  }));
+  const primaryPoints = portfolioValuePoints.length >= 2 ? portfolioValuePoints : reportedReturnPoints;
+  const principalPoints = normalizedMoneySeries("holdingsCostBasis");
+  const benchmarkReturnPoints: PerformanceChartPoint[] = benchmarkPoints.map((point) => ({
+    time: point.time,
+    value: point.returnPercent
+  }));
+  const allPoints = [...primaryPoints, ...principalPoints, ...benchmarkReturnPoints];
+  const portfolioPeriodReturn = primaryPoints.at(-1)?.value ?? null;
+  const benchmarkPeriodReturn = benchmarkReturnPoints.at(-1)?.value ?? null;
+  const latestPortfolioValue = [...portfolioPoints].reverse().find((point) => point.portfolioValue != null)?.portfolioValue ?? null;
+  const latestHoldingsCostBasis = [...portfolioPoints].reverse().find((point) => point.holdingsCostBasis != null)?.holdingsCostBasis ?? null;
   const width = 720;
   const height = 300;
-  const padding = { top: 18, right: 28, bottom: 36, left: 42 };
+  const padding = { top: 18, right: 18, bottom: 34, left: 48 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const values = points.flatMap((point) => [point.invested, point.value, point.gain, 0]);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const xFor = (index: number) => padding.left + (chartWidth * index) / Math.max(points.length - 1, 1);
-  const yFor = (value: number) => padding.top + chartHeight - ((value - min) / span) * chartHeight;
-  const pathFor = (key: "invested" | "value" | "gain") =>
-    points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index).toFixed(1)} ${yFor(point[key]).toFixed(1)}`).join(" ");
+  const timestamps = allPoints.map((point) => Date.parse(point.time)).filter(Number.isFinite);
+  const values = allPoints.map((point) => point.value).filter(Number.isFinite);
+  const minTime = timestamps.length ? Math.min(...timestamps) : 0;
+  const maxTime = timestamps.length ? Math.max(...timestamps) : 1;
+  const rawMin = values.length ? Math.min(...values, 0) : 0;
+  const rawMax = values.length ? Math.max(...values, 0) : 1;
+  const valuePadding = Math.max((rawMax - rawMin) * 0.12, 0.5);
+  const minValue = rawMin - valuePadding;
+  const maxValue = rawMax + valuePadding;
+  const valueSpan = maxValue - minValue || 1;
+  const xFor = (time: string) => padding.left + ((Date.parse(time) - minTime) / Math.max(maxTime - minTime, 1)) * chartWidth;
+  const yFor = (value: number) => padding.top + chartHeight - ((value - minValue) / valueSpan) * chartHeight;
+  const pathFor = (points: PerformanceChartPoint[]) =>
+    points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(point.time).toFixed(1)} ${yFor(point.value).toFixed(1)}`).join(" ");
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => maxValue - valueSpan * ratio);
+  const xTicks = timestamps.length
+    ? [0, 0.25, 0.5, 0.75, 1].map((ratio) => minTime + (maxTime - minTime) * ratio)
+    : [];
+  const hasChart = response?.status === "ready" && primaryPoints.length >= 2;
 
   return (
     <div className="portfolio-terminal-chart portfolio-performance-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="포트폴리오 성과 추이">
-        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-          const y = padding.top + chartHeight * ratio;
-          return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="portfolio-terminal-grid-line" />;
-        })}
-        <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
-        <path d={pathFor("invested")} className="portfolio-terminal-line invested" />
-        <path d={pathFor("value")} className="portfolio-terminal-line value" />
-        <path d={pathFor("gain")} className="portfolio-terminal-line gain" />
-        {points.flatMap((point, index) => ([
-          <circle key={`${point.label}-invested`} cx={xFor(index)} cy={yFor(point.invested)} r="3.4" className="portfolio-terminal-point invested" />,
-          <circle key={`${point.label}-value`} cx={xFor(index)} cy={yFor(point.value)} r="3.4" className="portfolio-terminal-point value" />,
-          <circle key={`${point.label}-gain`} cx={xFor(index)} cy={yFor(point.gain)} r="3.4" className="portfolio-terminal-point gain" />
-        ]))}
-        {points.map((point, index) => index % 2 === 0 || index === points.length - 1 ? (
-          <text key={point.label} x={xFor(index)} y={height - 10} textAnchor="middle" className="portfolio-terminal-axis-label">{point.label}</text>
-        ) : null)}
-      </svg>
-      <div className="portfolio-terminal-chart-legend">
-        <span><i className="invested" />Invested</span>
-        <span><i className="value" />Portfolio Value</span>
-        <span><i className="gain" />Gain</span>
+      <div className="portfolio-performance-range-tabs" role="tablist" aria-label="성과 기간">
+        {portfolioPerformanceRanges.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={range === item.value}
+            className={range === item.value ? "active" : ""}
+            onClick={() => setRange(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
+      {loading ? (
+        <div className="portfolio-chart-empty"><LoaderCircle size={18} className="spin" /><span>성과 추이를 불러오는 중입니다</span></div>
+      ) : error ? (
+        <div className="portfolio-chart-empty portfolio-error-inline"><span>{error}</span></div>
+      ) : !hasChart ? (
+        <div className="portfolio-chart-empty"><span>성과 이력이 두 시점 이상 쌓이면 표시합니다</span></div>
+      ) : (
+        <>
+          <div className="portfolio-performance-return-summary" aria-label="선택 기간 평가금과 수익률">
+            <span>
+              <i className="portfolio" />평가금
+              <strong className={directionClass(portfolioPeriodReturn)}>
+                {latestPortfolioValue != null ? `${formatPanelMoney(latestPortfolioValue, "USD")} · ` : ""}{formatSignedPercentPlain(portfolioPeriodReturn)}
+              </strong>
+            </span>
+            <span title="입출금 원장이 아닌 현재 보유 종목의 매입원가입니다.">
+              <i className="principal" />보유 원금
+              <strong className="neutral">{formatPanelMoney(latestHoldingsCostBasis, "USD")}</strong>
+            </span>
+            <span>
+              <i className="benchmark" />S&amp;P 500
+              <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
+            </span>
+            {response?.isDevFixture && <em className="portfolio-performance-dev-badge">DEV DEMO</em>}
+          </div>
+          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${range} 평가금, 보유 원금, S&P 500 변화율 비교`}>
+            {yTicks.map((tick) => {
+              const y = yFor(tick);
+              return (
+                <g key={tick}>
+                  <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="portfolio-terminal-grid-line" />
+                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="portfolio-terminal-axis-label">{formatAxisPercent(tick)}</text>
+                </g>
+              );
+            })}
+            <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
+            <path d={pathFor(primaryPoints)} className="portfolio-performance-return-line portfolio" />
+            {principalPoints.length >= 2 && <path d={pathFor(principalPoints)} className="portfolio-performance-return-line principal" />}
+            {benchmarkReturnPoints.length >= 2 && <path d={pathFor(benchmarkReturnPoints)} className="portfolio-performance-return-line benchmark" />}
+            {primaryPoints.at(-1) && (
+              <circle cx={xFor(primaryPoints.at(-1)!.time)} cy={yFor(primaryPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point portfolio">
+                <title>{`평가금 ${formatPanelMoney(latestPortfolioValue, "USD")} · ${formatSignedPercentPlain(portfolioPeriodReturn)}`}</title>
+              </circle>
+            )}
+            {principalPoints.at(-1) && (
+              <circle cx={xFor(principalPoints.at(-1)!.time)} cy={yFor(principalPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point principal">
+                <title>{`보유 원금 ${formatPanelMoney(latestHoldingsCostBasis, "USD")} · ${formatSignedPercentPlain(principalPoints.at(-1)!.value)}`}</title>
+              </circle>
+            )}
+            {benchmarkReturnPoints.at(-1) && (
+              <circle cx={xFor(benchmarkReturnPoints.at(-1)!.time)} cy={yFor(benchmarkReturnPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point benchmark">
+                <title>{`S&P 500 ${formatSignedPercentPlain(benchmarkPeriodReturn)}`}</title>
+              </circle>
+            )}
+            {xTicks.map((tick, index) => (
+              <text key={`${tick}-${index}`} x={padding.left + chartWidth * (index / Math.max(xTicks.length - 1, 1))} y={height - 9} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"} className="portfolio-terminal-axis-label">
+                {formatPerformanceDate(tick, range)}
+              </text>
+            ))}
+          </svg>
+          <div className="portfolio-terminal-chart-legend">
+            <span><i className="portfolio" />평가금 변화</span>
+            <span title="현재 보유 종목의 매입원가 변화"><i className="principal" />보유 원금</span>
+            <span><i className="benchmark" />S&amp;P 500</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1896,25 +2039,6 @@ function buildPortfolioDashboard(account: PortfolioHoldingsResponse["account"] |
   };
 }
 
-function buildPortfolioHistoryPoints(dashboard: PortfolioDashboard): PortfolioHistoryPoint[] {
-  const investedNow = dashboard.investedValue ?? (dashboard.totalValue != null && dashboard.totalPnl != null ? dashboard.totalValue - dashboard.totalPnl : null);
-  const valueNow = dashboard.totalValue;
-  if (investedNow == null || valueNow == null || investedNow <= 0 || valueNow <= 0) {
-    return [];
-  }
-  const gainNow = dashboard.totalPnl ?? valueNow - investedNow;
-  const labels = ["2021", "2022", "2023", "2024", "2025", "2026"];
-  const investedRatios = [0.18, 0.34, 0.52, 0.72, 0.88, 1];
-  const valueRatios = [0.16, 0.31, 0.56, 0.66, 0.86, 1];
-  const gainRatios = [-0.08, -0.03, 0.14, 0.04, 0.46, 1];
-  return labels.map((label, index) => {
-    const invested = investedNow * investedRatios[index];
-    const value = valueNow * valueRatios[index];
-    const gain = gainNow * gainRatios[index];
-    return { label, invested, value, gain };
-  });
-}
-
 function buildPurchaseComparePoints(positions: PortfolioPosition[]): PurchaseComparePoint[] {
   return positions
     .map((position) => {
@@ -2325,6 +2449,18 @@ function formatSignedPercentPlain(value: number | null | undefined) {
   }
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(2)}%`;
+}
+
+function formatAxisPercent(value: number) {
+  const rounded = Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return `${value > 0 ? "+" : ""}${rounded}%`;
+}
+
+function formatPerformanceDate(timestamp: number, range: PortfolioPerformanceRange) {
+  return new Intl.DateTimeFormat("ko-KR", range === "ALL"
+    ? { year: "2-digit", month: "numeric" }
+    : { month: "numeric", day: "numeric" }
+  ).format(new Date(timestamp));
 }
 
 function directionClass(value: number | null | undefined) {
