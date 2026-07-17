@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import {
   findPaperHoldingOverlay,
   formatPaperHoldingQuantity,
-  paperHoldingOverlayLabel
+  paperHoldingOverlayLabel,
+  paperHoldingOverlayPriceLabel
 } from "../src/chart/paperHoldingPrice";
 import { buildChartScene } from "../src/chart/scene";
 import type { ChartState } from "../src/chart/types";
@@ -51,6 +52,7 @@ assert.equal(findPaperHoldingOverlay([{ ...positions[0], average_price: Number.N
 assert.equal(formatPaperHoldingQuantity(20), "20주");
 assert.equal(formatPaperHoldingQuantity(0.125), "0.125주");
 assert.equal(paperHoldingOverlayLabel({ symbol: "AMD", quantity: 20, averagePrice: 552.75 }), "평균 매입가 $552.75 · 20주");
+assert.equal(paperHoldingOverlayPriceLabel({ symbol: "AMD", quantity: 20, averagePrice: 552.75 }), "$552.75");
 
 const chartWithHolding = {
   symbol: "AMD",
@@ -102,5 +104,22 @@ const holdingMarkerSource = chartCanvasSource.slice(
   chartCanvasSource.indexOf("function drawHoldingAveragePriceMarker"),
   chartCanvasSource.indexOf("function currentPriceForScene")
 );
-assert.match(holdingMarkerSource, /drawDarkAxisPill\(context, paperHoldingOverlayLabel\(holding\), rightAxisPillX\(scene\), y, "right", colors\.pointYellow\)/);
+assert.doesNotMatch(holdingMarkerSource, /paperHoldingOverlayLabel/);
+assert.doesNotMatch(holdingMarkerSource, /drawDarkAxisPill/);
 assert.doesNotMatch(holdingMarkerSource, /scene\.plot\.left \+ 8/);
+
+const chartPanelSource = readFileSync(
+  resolve(process.cwd(), "src/components/ChartPanel.tsx"),
+  "utf-8"
+);
+assert.match(chartPanelSource, /chart-holding-price-marker/);
+assert.match(chartPanelSource, /paperHoldingOverlayPriceLabel/);
+assert.match(chartPanelSource, /className="chart-holding-price-tooltip"/);
+assert.match(chartPanelSource, /role="tooltip"/);
+
+const chartFeatureStyles = readFileSync(
+  resolve(process.cwd(), "src/chart-features.css"),
+  "utf-8"
+);
+assert.match(chartFeatureStyles, /\.chart-holding-price-marker:hover \.chart-holding-price-tooltip/);
+assert.match(chartFeatureStyles, /\.chart-holding-price-marker:focus-visible \.chart-holding-price-tooltip/);
