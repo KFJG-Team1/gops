@@ -10,6 +10,12 @@ import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKey
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
 import { defaultChartAssetBuildIntervals } from "../src/chart/chartAssetBuildPolicy";
+import {
+  clearChartCommentaryInteraction,
+  getChartCommentaryInteractionSnapshot,
+  subscribeChartCommentaryInteraction,
+  updateChartCommentaryInteraction
+} from "../src/chart/chartCommentaryInteractionStore";
 import type { DrawingEntity } from "../src/chart/types";
 
 const now = "2026-07-10T20:00:00.000Z";
@@ -147,6 +153,33 @@ const commentaryV2Asset = {
 const normalizedCommentaryV2 = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV2Asset } }, "AAPL").assets["1D"];
 assert.equal(normalizedCommentaryV2?.commentary?.promptVersion, "chart-commentary.ko.v2");
 assert.equal(normalizedCommentaryV2?.commentary?.version, "chart-commentary.v2");
+const commentaryV3Asset = structuredClone(commentaryV2Asset);
+commentaryV3Asset.commentary.promptVersion = "chart-commentary.ko.v3";
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV3Asset } }, "AAPL").assets["1D"]?.commentary?.promptVersion,
+  "chart-commentary.ko.v3"
+);
+
+let interactionNotifications = 0;
+const stopInteractionSubscription = subscribeChartCommentaryInteraction("doc-commentary", () => {
+  interactionNotifications += 1;
+});
+updateChartCommentaryInteraction("doc-commentary", {
+  activeCandleKey: "2026-07-10",
+  activeEventId: "news:AAPL:2026-07-10",
+  candleSelectionAvailable: true,
+  indicatorStatuses: { "volume-profile": "loading", "rsi:14": "ready" }
+});
+assert.deepEqual(getChartCommentaryInteractionSnapshot("doc-commentary"), {
+  activeCandleKey: "2026-07-10",
+  activeEventId: "news:AAPL:2026-07-10",
+  candleSelectionAvailable: true,
+  indicatorStatuses: { "volume-profile": "loading", "rsi:14": "ready" }
+});
+assert.equal(interactionNotifications, 1);
+clearChartCommentaryInteraction("doc-commentary");
+assert.equal(getChartCommentaryInteractionSnapshot("doc-commentary").activeEventId, null);
+stopInteractionSubscription();
 const sharedIndicatorEvidence = structuredClone(commentaryV2Asset);
 sharedIndicatorEvidence.commentary.paragraphs[1]!.segments[2]!.link = {
   kind: "indicator", layer: "rsi:14", referenceIds: ["candle:latest"]
@@ -328,6 +361,7 @@ assert.deepEqual(defaultChartAssetBuildIntervals("1M"), ["1m", "1D"]);
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
 const presentationSource = readFileSync(fileURLToPath(new URL("../src/chart/analysisAssetPresentation.ts", import.meta.url)), "utf-8");
 const globalStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
+const chartFeatureStylesSource = readFileSync(fileURLToPath(new URL("../src/chart-features.css", import.meta.url)), "utf-8");
 const semanticCatalogSource = readFileSync(fileURLToPath(new URL("../../../shared/chart-contract/chart-semantics.ko.json", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.match(opsSource, /\["1m", "1D"\]/);
@@ -362,7 +396,13 @@ assert.match(commentarySource, /asset\.commentary\?\.status === "ready"/);
 assert.match(commentarySource, /dispatchChartCommentaryIndicatorToggle/);
 assert.match(commentarySource, /dispatchChartCommentaryReferenceOpen/);
 assert.match(commentarySource, /chart-commentary-inline-reference/);
+assert.match(commentarySource, /subscribeChartCommentaryInteraction/);
+assert.match(commentarySource, /aria-busy=\{runtimeStatus === "loading"/);
+assert.match(commentarySource, /aria-pressed=\{active\}/);
+assert.match(commentarySource, /data-chart-commentary-event-trigger/);
 assert.doesNotMatch(commentarySource, /chart-commentary-reference-tags|chart-commentary-reference-tag/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference[\s\S]*color: var\(--color-signal\)/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference\[aria-pressed="true"\][\s\S]*text-decoration-thickness: 2px/);
 assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "kis"\)/);
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);

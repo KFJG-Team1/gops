@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { chartExplanationMatchesAsset, chartExplanationMatchesSource, type ChartExplanationAnchor } from "../agent/chartExplanation";
 import {
   normalizeChartCommentaryState,
@@ -24,6 +24,12 @@ import {
   dispatchChartCommentaryIndicatorToggle,
   dispatchChartCommentaryReferenceOpen
 } from "../chart/chartCommentaryReferences";
+import {
+  getChartCommentaryInteractionSnapshot,
+  subscribeChartCommentaryInteraction,
+  type ChartCommentaryIndicatorRuntimeStatus,
+  type ChartCommentaryInteractionSnapshot
+} from "../chart/chartCommentaryInteractionStore";
 import { marketDateForTimestamp } from "../chart/chartEvents";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
@@ -337,6 +343,15 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
   onRestoreFocus: () => void;
 }) {
   const [pinnedDrawingLinkId, setPinnedDrawingLinkId] = useState<string | null>(null);
+  const subscribeInteraction = useCallback(
+    (listener: () => void) => subscribeChartCommentaryInteraction(chartDocumentId, listener),
+    [chartDocumentId]
+  );
+  const interactionSnapshot = useSyncExternalStore(
+    subscribeInteraction,
+    () => getChartCommentaryInteractionSnapshot(chartDocumentId),
+    () => getChartCommentaryInteractionSnapshot(undefined)
+  );
   const references = useMemo(
     () => new Map(commentary.references.map((reference) => [reference.id, reference])),
     [commentary.references]
@@ -404,6 +419,7 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
         interval={interval}
         candles={candles}
         chartLayers={chartLayers}
+        interactionSnapshot={interactionSnapshot}
         drawingIds={drawingLinks.get(segment.id) ?? []}
         drawingPinned={pinnedDrawingLinkId === segment.id}
         onDrawingFocus={focusDrawing}
@@ -416,7 +432,7 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
 
 function CommentaryInlineSegment({
   segmentId, text, link, references, recommendation, chartDocumentId, interval, candles,
-  chartLayers, drawingIds, drawingPinned, onDrawingFocus, onDrawingRestore, onDrawingPin
+  chartLayers, interactionSnapshot, drawingIds, drawingPinned, onDrawingFocus, onDrawingRestore, onDrawingPin
 }: {
   segmentId: string;
   text: string;
@@ -427,6 +443,7 @@ function CommentaryInlineSegment({
   interval: ChartInterval;
   candles: CandleDto[];
   chartLayers: Partial<Record<string, boolean>>;
+  interactionSnapshot: ChartCommentaryInteractionSnapshot;
   drawingIds: string[];
   drawingPinned: boolean;
   onDrawingFocus: (drawingIds: string[], mode: FocusMode) => void;
@@ -452,23 +469,33 @@ function CommentaryInlineSegment({
   }
   if (link.kind === "indicator") {
     const reasonId = `commentary-indicator-${segmentId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    const available = Boolean(chartDocumentId && recommendation);
+    const runtimeStatus = interactionSnapshot.indicatorStatuses[link.layer] ?? "off";
+    const statusMessage = commentaryIndicatorStatusMessage(runtimeStatus);
+    const unavailable = runtimeStatus === "unavailable";
+    const available = Boolean(chartDocumentId && recommendation && !unavailable);
+    const tooltip = [recommendation?.reason, statusMessage].filter(Boolean).join(" ");
     return <span className="chart-commentary-inline-reference-wrap is-indicator">
       <button
         type="button"
-        className="chart-commentary-inline-reference is-indicator"
+        className={`chart-commentary-inline-reference is-indicator ${unavailable ? "is-unavailable" : ""}`}
         aria-pressed={Boolean(chartLayers[link.layer])}
+        aria-busy={runtimeStatus === "loading" || undefined}
+        aria-disabled={unavailable || undefined}
         aria-label={`${text.trim()} 차트 레이어 전환`}
-        aria-describedby={recommendation ? reasonId : undefined}
-        disabled={!available}
-        title={!recommendation ? "이 보조지표의 저장된 추천 근거가 없습니다." : undefined}
-        onClick={() => chartDocumentId && recommendation && dispatchChartCommentaryIndicatorToggle({
+        aria-describedby={tooltip ? reasonId : undefined}
+        disabled={!chartDocumentId || !recommendation}
+        title={!recommendation
+          ? "이 보조지표의 저장된 추천 근거가 없습니다."
+          : runtimeStatus === "unavailable"
+            ? statusMessage
+            : undefined}
+        onClick={() => available && chartDocumentId && recommendation && dispatchChartCommentaryIndicatorToggle({
           chartDocumentId,
           layer: link.layer
         })}
       >{text}</button>
-      {recommendation && <span id={reasonId} className="chart-commentary-indicator-reason" role="tooltip">
-        <GlossaryText text={recommendation.reason} />
+      {tooltip && <span id={reasonId} className="chart-commentary-indicator-reason" role="tooltip">
+        <GlossaryText text={tooltip} />
       </span>}
     </span>;
   }
@@ -476,18 +503,45 @@ function CommentaryInlineSegment({
   if (!reference || reference.type === "drawing" || reference.type !== link.kind) {
     return <span className="chart-commentary-inline-reference is-unavailable" aria-disabled="true">{text}</span>;
   }
-  const available = commentaryReferenceAvailable(reference, candles, interval);
+  const referenceAvailable = commentaryReferenceAvailable(reference, candles, interval);
+  const available = referenceAvailable
+    && (reference.type !== "candle" || interactionSnapshot.candleSelectionAvailable);
+  const active = reference.type === "candle"
+    ? interactionSnapshot.activeCandleKey === commentaryReferenceCandleKey(reference, interval)
+    : interactionSnapshot.activeEventId === reference.eventId;
   return <button
     type="button"
     className={`chart-commentary-inline-reference is-${reference.type}`}
+    data-chart-commentary-event-trigger={reference.type === "news" || reference.type === "earnings" ? "true" : undefined}
     disabled={!chartDocumentId || !available}
-    aria-label={`${text.trim()} 차트에서 열기`}
-    title={!available ? "현재 로드된 차트 범위에서 이 참조 시점을 열 수 없습니다." : undefined}
+    aria-pressed={active}
+    aria-label={`${text.trim()} 차트 ${active ? "연동 해제" : "연동"}`}
+    title={!available
+      ? reference.type === "candle" && !interactionSnapshot.candleSelectionAvailable
+        ? "현재 차트 형식에서는 봉을 선택할 수 없습니다."
+        : "현재 로드된 차트 범위에서 이 참조 시점을 열 수 없습니다."
+      : undefined}
     onClick={() => chartDocumentId && available && dispatchChartCommentaryReferenceOpen({
       chartDocumentId,
       reference
     })}
   >{text}</button>;
+}
+
+function commentaryReferenceCandleKey(
+  reference: Extract<ChartAssetCommentaryReference, { type: "candle" }>,
+  interval: ChartInterval
+): string | null {
+  if (!isAnalysisAssetIntervalValue(interval)) return null;
+  return reference.candleKey ?? candleKeyForTimestamp(reference.timestamp, interval);
+}
+
+function commentaryIndicatorStatusMessage(status: ChartCommentaryIndicatorRuntimeStatus): string {
+  if (status === "loading") return "차트 데이터를 불러오는 중입니다.";
+  if (status === "empty") return "현재 범위에 표시할 데이터가 없습니다.";
+  if (status === "error") return "차트 데이터를 불러오지 못했습니다.";
+  if (status === "unavailable") return "현재 차트 형식 또는 패널 공간에서는 표시할 수 없습니다.";
+  return "";
 }
 
 function commentaryReferenceAvailable(

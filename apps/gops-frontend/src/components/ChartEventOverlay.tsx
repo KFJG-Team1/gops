@@ -18,6 +18,7 @@ type ChartEventOverlayProps = {
   earningsVisible: boolean;
   upcomingStyle?: CSSProperties;
   openRequest?: { eventId: string; revision: number } | null;
+  onSelectedEventChange?: (eventId: string | null) => void;
 };
 
 type SelectedChartEvent = {
@@ -48,7 +49,8 @@ export function ChartEventOverlay({
   response,
   earningsVisible,
   upcomingStyle,
-  openRequest
+  openRequest,
+  onSelectedEventChange
 }: ChartEventOverlayProps) {
   const [selected, setSelected] = useState<SelectedChartEvent | null>(null);
   const [positionRevision, setPositionRevision] = useState(0);
@@ -66,7 +68,7 @@ export function ChartEventOverlay({
     if (!openRequest || handledOpenRevisionRef.current === openRequest.revision) return;
     const marker = markers.find((item) => item.id === openRequest.eventId);
     if (marker) {
-      setSelected({
+      setSelected((current) => current?.event.id === marker.id ? null : {
         event: marker.event,
         anchorX: marker.x,
         anchorTop: marker.top
@@ -80,7 +82,7 @@ export function ChartEventOverlay({
       ? upcomingAsEarningsEvent(response.symbol, upcoming)
       : null;
     if (upcomingEvent?.id === openRequest.eventId && container && earningsVisible) {
-      setSelected({
+      setSelected((current) => current?.event.id === upcomingEvent.id ? null : {
         event: upcomingEvent,
         anchorX: Math.max(40, container.clientWidth - 110),
         anchorTop: Math.max(44, container.clientHeight - 28),
@@ -89,6 +91,10 @@ export function ChartEventOverlay({
       handledOpenRevisionRef.current = openRequest.revision;
     }
   }, [containerRef, earningsVisible, markers, openRequest, response]);
+
+  useEffect(() => {
+    onSelectedEventChange?.(selected?.event.id ?? null);
+  }, [onSelectedEventChange, selected?.event.id]);
 
   useEffect(() => {
     if (selected && !selectedStillVisible) {
@@ -114,7 +120,9 @@ export function ChartEventOverlay({
     };
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      const trigger = target instanceof Element ? target.closest("[data-chart-event-trigger='true']") : null;
+      const trigger = target instanceof Element
+        ? target.closest("[data-chart-event-trigger='true'], [data-chart-commentary-event-trigger='true']")
+        : null;
       if (target && (popoverRef.current?.contains(target) || trigger)) {
         return;
       }
@@ -170,8 +178,9 @@ export function ChartEventOverlay({
     const upcoming = response?.upcomingEarnings;
     const container = containerRef.current;
     if (!upcoming || !container) return;
-    setSelected({
-      event: upcomingAsEarningsEvent(response?.symbol ?? "", upcoming),
+    const event = upcomingAsEarningsEvent(response?.symbol ?? "", upcoming);
+    setSelected((current) => current?.event.id === event.id ? null : {
+      event,
       anchorX: Math.max(40, container.clientWidth - 110),
       anchorTop: Math.max(44, container.clientHeight - 28),
       upcoming

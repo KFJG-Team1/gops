@@ -269,7 +269,7 @@ export type ChartAssetCommentaryV2 = {
   status: "ready";
   generatedAt: string;
   model: string;
-  promptVersion: "chart-commentary.ko.v2";
+  promptVersion: "chart-commentary.ko.v2" | "chart-commentary.ko.v3";
   sourceIdentity: ChartAssetCommentarySourceIdentity;
   paragraphs: Array<{
     id: string;
@@ -541,7 +541,7 @@ function normalizeCommentary(value: unknown, asset: {
 
   if (
     source.version !== "chart-commentary.v2"
-    || source.promptVersion !== "chart-commentary.ko.v2"
+    || (source.promptVersion !== "chart-commentary.ko.v2" && source.promptVersion !== "chart-commentary.ko.v3")
     || !Array.isArray(source.paragraphs)
     || source.paragraphs.length !== 3
   ) return undefined;

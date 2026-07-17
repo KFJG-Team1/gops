@@ -4527,8 +4527,18 @@ assert.match(chartEventOverlaySource, /data-chart-event-id=\{marker\.id\}/);
 assert.match(chartPanelSource, /detail\?\.chartDocumentId !== document\.id/);
 assert.match(chartPanelSource, /chartCommentaryReferenceOpenEventName/);
 assert.match(chartPanelSource, /chartCommentaryIndicatorToggleEventName/);
+assert.match(chartPanelSource, /commentaryIndicatorStatuses\[detail\.layer\] === "unavailable"/);
+assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("loading"\)/);
+assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("ready"\)/);
+assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("empty"\)/);
+assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("error"\)/);
+assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("unavailable"\)/);
+assert.match(chartPanelSource, /expectedCandleKey === selectedCandleKey[\s\S]*setSelectedSemanticNode\(null\)/);
 assert.match(chartPanelSource, /applyViewport\(\{ visibleCount: current\.visibleCount, rightOffset: centeredRightOffset \}, "external"\)/);
 assert.match(chartEventOverlaySource, /markers\.find\(\(item\) => item\.id === openRequest\.eventId\)/);
+assert.match(chartEventOverlaySource, /current\?\.event\.id === marker\.id \? null/);
+assert.match(chartEventOverlaySource, /onSelectedEventChange\?\.\(selected\?\.event\.id \?\? null\)/);
+assert.match(chartEventOverlaySource, /data-chart-commentary-event-trigger/);
 assert.doesNotMatch(chartPanelSource, /querySelector\([^)]*chart-commentary/);
 assert.ok(
   chartPanelSource.indexOf("syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers)")
@@ -4590,6 +4600,10 @@ const chartCanvasLayerSource = chartCanvasSource.slice(
   chartCanvasSource.indexOf("const layers: Array<() => void>"),
   chartCanvasSource.indexOf("layers.forEach((drawLayer)")
 );
+const chartCanvasAnalysisFocusSource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("function analysisFocusDrawingBatch"),
+  chartCanvasSource.indexOf("function drawBaseChart")
+);
 const treeMapCanvasSource = readFileSync(fileURLToPath(new URL("../src/treemap/TreeMapCanvas.tsx", import.meta.url)), "utf-8");
 const orderFlowRenderSource = readFileSync(fileURLToPath(new URL("../src/chart/orderFlowRender.ts", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
@@ -4632,18 +4646,37 @@ assert.match(chartCanvasSource, /fillOpacity: 0/);
 assert.match(chartCanvasSource, /labelPlacement: "none"/);
 assert.match(chartCanvasSource, /function interpretationLineWidth[\s\S]*pattern"\) return 5\.5[\s\S]*levels"\) return 4\.5[\s\S]*return 4/);
 assert.match(chartCanvasSource, /const interpretationLineOpacity = 0\.4/);
-assert.match(chartCanvasSource, /function interpretationFocusedLineWidth[\s\S]*interpretationLineWidth\(category\) \+ \(targeted \? 1 : 0\)/);
-assert.match(chartCanvasSource, /function interpretationStrokeOpacity[\s\S]*if \(!focused\) return interpretationLineOpacity;[\s\S]*return targeted \? 1 : interpretationLineOpacity \* 0\.65/);
+assert.match(chartCanvasSource, /const analysisSpotlightDimMultiplier = 0\.5/);
+assert.match(chartCanvasSource, /const focusedDrawingMaxOuterLineWidth = 6/);
+assert.match(chartCanvasSource, /const focusedDrawingMaxCoreLineWidth = 4\.5/);
+assert.match(chartCanvasSource, /const focusedDrawingMinCoreLineWidth = 2/);
+assert.match(chartCanvasSource, /function interpretationFocusedLineWidth[\s\S]*return targeted \? focusedOuterLineWidth\(baseLineWidth\) : baseLineWidth/);
+assert.match(chartCanvasSource, /function interpretationStrokeOpacity[\s\S]*if \(!focused\) return interpretationLineOpacity;[\s\S]*return targeted \? 1 : interpretationLineOpacity \* analysisSpotlightDimMultiplier/);
 assert.match(chartCanvasSource, /const opacity = interpretationStrokeOpacity\(Boolean\(spotlight\), targeted\)/);
 assert.match(chartCanvasSource, /context\.globalAlpha = interpretationStrokeOpacity\(overlay\.focused, targeted\)/);
 assert.match(chartCanvasSource, /descriptor\.tone === "support"[\s\S]*\? "up"[\s\S]*descriptor\.tone === "resistance"[\s\S]*\? "down"[\s\S]*descriptor\.tone === "pattern" \? "pointPurple" : "signal"/);
 assert.match(chartCanvasSource, /candidate\.role === "resistance" \? colors\.down : colors\.up[\s\S]*candidate\.category === "pattern"\) return colors\.pointPurple;[\s\S]*return colors\.signal/);
+assert.match(chartCanvasAnalysisFocusSource, /token === "evidenceSupport"\) return "up"/);
+assert.match(chartCanvasAnalysisFocusSource, /token === "evidenceResistance"\) return "down"/);
+assert.match(chartCanvasAnalysisFocusSource, /token === "evidenceTrend"\) return "signal"/);
+assert.match(chartCanvasAnalysisFocusSource, /token === "evidencePattern"\) return "pointPurple"/);
+assert.match(chartCanvasAnalysisFocusSource, /pass === "outer" \? outerColorToken : "text"/);
+assert.match(chartCanvasAnalysisFocusSource, /fillOpacity: 0/);
+assert.match(chartCanvasAnalysisFocusSource, /labelPlacement: "none"/);
+assert.match(chartCanvasAnalysisFocusSource, /opacity: 1/);
+assert.doesNotMatch(chartCanvasAnalysisFocusSource, /#[0-9a-f]{3,8}|rgba?\(/i);
+assert.match(chartCanvasSource, /if \(targeted\) \{[\s\S]*context\.strokeStyle = colors\.text;[\s\S]*focusedCoreLineWidth\(interpretationLineWidth\(candidate\.category\)\)/);
+assert.match(chartCanvasSource, /focusedAnalysisLabel[\s\S]*\? colors\.text/);
+assert.match(chartCanvasSource, /return analysis \? analysisSpotlightDimMultiplier : 0\.82/);
 assert.match(chartCanvasSource, /context\.setLineDash\(\[\]\)/);
 assert.ok(chartCanvasLayerSource.indexOf("drawGrid(context, scene)") < chartCanvasLayerSource.indexOf("drawAnalysisTraceLines"));
 assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawDrawingFills"));
 assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawBasePriceLayer"));
 assert.ok(chartCanvasLayerSource.indexOf("drawBasePriceLayer") < chartCanvasLayerSource.indexOf("drawAnalysisTraceMarkers"));
 assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceMarkers") < chartCanvasLayerSource.lastIndexOf("drawDrawings"));
+assert.ok(chartCanvasLayerSource.indexOf("drawingBatch, false, editingDrawingId, spotlight") < chartCanvasLayerSource.indexOf("analysisFocusOuterBatch"));
+assert.ok(chartCanvasLayerSource.indexOf("analysisFocusOuterBatch") < chartCanvasLayerSource.indexOf("analysisFocusCoreBatch"));
+assert.ok(chartCanvasLayerSource.indexOf("analysisFocusCoreBatch") < chartCanvasLayerSource.indexOf("drawDrawings(context, scene, previewDrawingBatch, true)"));
 assert.match(orderFlowRenderSource, /projectOrderFlowChartRows/);
 assert.match(orderFlowRenderSource, /drawChartCandle/);
 assert.doesNotMatch(orderFlowRenderSource, /ChartColumnTier|packedChartPriceMapper|isLive/);
@@ -4716,7 +4749,7 @@ assert.doesNotMatch(chartCanvasSource, /const strokeColor = spotlighted\s*\?\s*c
 assert.match(chartCanvasSource, /const strokeColor = resolveDrawingColor\(style, "colorToken", "color", preview \? "preview" : "drawing"\)/);
 assert.match(chartCanvasSource, /spotlighted\s*\? Math\.min\(4\.5, baseLineWidth \+ 0\.75\)/);
 assert.match(chartCanvasSource, /if \(spotlight\?\.has\(drawing\.id\)\) return 1;/);
-assert.match(chartCanvasSource, /return analysis \? 0\.65 : 0\.82;/);
+assert.match(chartCanvasSource, /return analysis \? analysisSpotlightDimMultiplier : 0\.82;/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 

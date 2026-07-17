@@ -72,7 +72,8 @@ import {
   fetchAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
-  type AnalysisAssetsResponse
+  type AnalysisAssetsResponse,
+  type ChartAssetCommentaryIndicatorLayer
 } from "../chart/analysisAssetsApi";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import {
@@ -81,6 +82,11 @@ import {
   type ChartCommentaryIndicatorToggleRequest,
   type ChartCommentaryReferenceOpenRequest
 } from "../chart/chartCommentaryReferences";
+import {
+  clearChartCommentaryInteraction,
+  updateChartCommentaryInteraction,
+  type ChartCommentaryIndicatorRuntimeStatus
+} from "../chart/chartCommentaryInteractionStore";
 import { buildPatternBadgeLayout, type PatternBadgeLayout } from "../chart/patternBadge";
 import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
@@ -343,6 +349,14 @@ export type ChartHeaderSnapshot = {
   liveQuote: LiveQuote;
 };
 
+const commentaryIndicatorLayers: ChartAssetCommentaryIndicatorLayer[] = [
+  "volume-profile", "volume", "rsi:14", "macd:12:26:9", "bollinger:20:2",
+  "sma:20", "sma:60", "sma:120", "ema:20"
+];
+const commentaryBelowIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>([
+  "volume", "rsi:14", "macd:12:26:9"
+]);
+
 const priceFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2
@@ -480,8 +494,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [transientDrawings, setTransientDrawings] = useState<DrawingEntity[] | null>(null);
   const [transientPaneRatios, setTransientPaneRatios] = useState<Record<string, number> | null>(null);
   const [baseIndicatorSeries, setBaseIndicatorSeries] = useState<IndicatorSeries>({});
+  const [baseIndicatorRequestStatus, setBaseIndicatorRequestStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [expansionIndicatorSeries, setExpansionIndicatorSeries] = useState<IndicatorSeries>({});
   const [volumeProfile, setVolumeProfile] = useState<ChartState["volumeProfile"]>(null);
+  const [volumeProfileRuntimeStatus, setVolumeProfileRuntimeStatus] = useState<ChartCommentaryIndicatorRuntimeStatus>("off");
   const [volumeProfileSceneRange, setVolumeProfileSceneRange] = useState<VolumeProfileSceneRange | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
@@ -645,6 +661,55 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.layers["macd:12:26:9"],
     chart.panes
   ]);
+  const commentaryIndicatorStatuses = useMemo(() => {
+    const statuses: Partial<Record<ChartAssetCommentaryIndicatorLayer, ChartCommentaryIndicatorRuntimeStatus>> = {};
+    const belowCapacity = typeof laneHeight === "number"
+      ? maxBelowPaneCountForHeight(laneHeight)
+      : Number.POSITIVE_INFINITY;
+    commentaryIndicatorLayers.forEach((layer) => {
+      const visible = Boolean(chart.layers[layer]);
+      if (orderFlowActive) {
+        statuses[layer] = "unavailable";
+        return;
+      }
+      if (layer === "volume-profile") {
+        statuses[layer] = volumeProfileRuntimeStatus;
+        return;
+      }
+      if (!visible) {
+        statuses[layer] = commentaryBelowIndicatorLayers.has(layer)
+          && activeBelowPaneOrder.length >= belowCapacity
+          ? "unavailable"
+          : "off";
+        return;
+      }
+      if (layer === "volume") {
+        statuses[layer] = chart.candles.some((candle) => Number.isFinite(candle.volume) && candle.volume > 0)
+          ? "ready"
+          : "empty";
+        return;
+      }
+      if (baseIndicatorRequestStatus === "loading") {
+        statuses[layer] = "loading";
+      } else if (baseIndicatorRequestStatus === "error") {
+        statuses[layer] = "error";
+      } else if (baseIndicatorRequestStatus === "ready") {
+        statuses[layer] = (baseIndicatorSeries[layer]?.length ?? 0) > 0 ? "ready" : "empty";
+      } else {
+        statuses[layer] = "empty";
+      }
+    });
+    return statuses;
+  }, [
+    activeBelowPaneOrder.length,
+    baseIndicatorRequestStatus,
+    baseIndicatorSeries,
+    chart.candles,
+    chart.layers,
+    laneHeight,
+    orderFlowActive,
+    volumeProfileRuntimeStatus
+  ]);
   const chartPanelRef = useRef<HTMLElement | null>(null);
   const holdingPriceTooltipId = useId();
   const chartControlTooltip = useImmediateChartTooltip();
@@ -654,6 +719,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const chartAddMenuRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ChartState>(chart);
+  const selectedSemanticNodeRef = useRef<SemanticSelectionSnapshot | null>(selectedSemanticNode);
   const hoveredSemanticNodeIdRef = useRef<string | undefined>(undefined);
   const activeExpansionsRef = useRef<SemanticExpansion[]>(activeExpansions);
   const olderRangeRequestsRef = useRef<Set<string>>(new Set());
@@ -665,6 +731,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartEventUpcomingStyleKeyRef = useRef("");
   const chartEventsRef = useRef<ChartEventsResponse | null>(null);
   const pendingCommentaryCandleRef = useRef<{ timestamp: string; candleKey?: string } | null>(null);
+  const selectedCommentaryEventIdRef = useRef<string | null>(null);
+  const commentaryInteractionIdentityRef = useRef<string | null>(null);
   const chartEventCoverageRef = useRef<ChartEventCoverage | null>(null);
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
@@ -706,6 +774,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     chartRef.current = chart;
   }, [chart]);
+
+  useEffect(() => {
+    selectedSemanticNodeRef.current = selectedSemanticNode;
+  }, [selectedSemanticNode]);
+
+  useEffect(() => () => {
+    clearChartCommentaryInteraction(document.id);
+  }, [document.id]);
+
+  useEffect(() => {
+    updateChartCommentaryInteraction(document.id, { indicatorStatuses: commentaryIndicatorStatuses });
+  }, [commentaryIndicatorStatuses, document.id]);
 
   useLayoutEffect(() => {
     syncTradePlanOverlayElement(
@@ -899,6 +979,28 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeAnalysisAssetFreshness = useMemo(() => activeAnalysisAsset
     ? analysisAssetFreshness(activeAnalysisAsset, chart.candles)
     : null, [activeAnalysisAsset, chart.candles]);
+  const commentaryInteractionIdentity = [
+    chart.symbol.trim().toUpperCase(),
+    chart.interval,
+    activeAnalysisAsset?.inputDigest ?? "no-asset",
+    activeAnalysisAsset?.commentary?.sourceIdentity.contextDigest ?? "no-commentary",
+    activeAnalysisAsset?.commentary?.promptVersion ?? "rule-based"
+  ].join("|");
+
+  useEffect(() => {
+    const previousIdentity = commentaryInteractionIdentityRef.current;
+    commentaryInteractionIdentityRef.current = commentaryInteractionIdentity;
+    if (previousIdentity === null || previousIdentity === commentaryInteractionIdentity) return;
+    pendingCommentaryCandleRef.current = null;
+    setSelectedSemanticNode(null);
+    const selectedEventId = selectedCommentaryEventIdRef.current;
+    if (selectedEventId) {
+      setCommentaryEventOpenRequest((previous) => ({
+        eventId: selectedEventId,
+        revision: (previous?.revision ?? 0) + 1
+      }));
+    }
+  }, [commentaryInteractionIdentity]);
   const analysisTraceOverlay = useMemo(() => buildAnalysisTraceOverlay(activeAnalysisAsset, {
     visible: analysisLayerVisibility.interpretation,
     candidateIds: spotlightCandidateIds,
@@ -1551,9 +1653,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     if (!baseIndicatorRequest) {
       setBaseIndicatorSeries({});
+      setBaseIndicatorRequestStatus("idle");
       return;
     }
     const controller = new AbortController();
+    setBaseIndicatorRequestStatus("loading");
     fetchIndicators({
       symbol: baseIndicatorRequest.symbol,
       interval: baseIndicatorRequest.interval,
@@ -1566,11 +1670,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         if (chartRef.current.symbol !== baseIndicatorRequest.symbol || chartRef.current.interval !== chart.interval) {
           return;
         }
-        setBaseIndicatorSeries(response.derived?.state === "failed" ? {} : response.series);
+        if (response.derived?.state === "failed") {
+          setBaseIndicatorSeries({});
+          setBaseIndicatorRequestStatus("error");
+          return;
+        }
+        setBaseIndicatorSeries(response.series);
+        setBaseIndicatorRequestStatus("ready");
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setBaseIndicatorSeries({});
+          setBaseIndicatorRequestStatus("error");
         }
       });
     return () => {
@@ -1641,8 +1752,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    if (orderFlowActive || !chart.layers["volume-profile"] || !volumeProfileRequest) {
+    if (orderFlowActive) {
       setVolumeProfile(null);
+      setVolumeProfileRuntimeStatus("unavailable");
+      return;
+    }
+    if (!chart.layers["volume-profile"]) {
+      setVolumeProfile(null);
+      setVolumeProfileRuntimeStatus("off");
+      return;
+    }
+    if (!volumeProfileRequest) {
+      setVolumeProfile(null);
+      setVolumeProfileRuntimeStatus("loading");
       return;
     }
     const controller = new AbortController();
@@ -1661,18 +1783,38 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             const delay = volumeProfilePartialRetryDelaysMs[retryIndex];
             if (delay !== undefined) {
               retryTimer = window.setTimeout(() => requestProfile(retryIndex + 1), delay);
+            } else {
+              setVolumeProfileRuntimeStatus("empty");
             }
             return;
           }
-          setVolumeProfile(volumeProfileResponseMatchesRequest(response, volumeProfileRequest) ? response : null);
+          if (response.dataStatus === "failed") {
+            setVolumeProfile(null);
+            setVolumeProfileRuntimeStatus("error");
+            return;
+          }
+          if (response.dataStatus === "empty" || response.totalVolume <= 0 || !response.bins.length) {
+            setVolumeProfile(null);
+            setVolumeProfileRuntimeStatus("empty");
+            return;
+          }
+          if (!volumeProfileResponseMatchesRequest(response, volumeProfileRequest)) {
+            setVolumeProfile(null);
+            setVolumeProfileRuntimeStatus("error");
+            return;
+          }
+          setVolumeProfile(response);
+          setVolumeProfileRuntimeStatus("ready");
         })
         .catch(() => {
           if (!controller.signal.aborted) {
             setVolumeProfile(null);
+            setVolumeProfileRuntimeStatus("error");
           }
         });
     };
     setVolumeProfile(null);
+    setVolumeProfileRuntimeStatus("loading");
     const timer = window.setTimeout(() => requestProfile(0), 120);
     return () => {
       window.clearTimeout(timer);
@@ -1863,7 +2005,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setDrawingDraftError(null);
     setTransientDrawings(null);
     setBaseIndicatorSeries({});
+    setBaseIndicatorRequestStatus("idle");
     setVolumeProfile(null);
+    setVolumeProfileRuntimeStatus("off");
     setExpansionIndicatorSeries({});
     setComparisonScopeData({});
     clearSemanticState();
@@ -1880,6 +2024,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const semanticSelectionEnabled = chart.chartType !== "line";
   const semanticDigEnabled = semanticSelectionEnabled && chart.chartType !== "bidask";
   const previousChartTypeRef = useRef(chart.chartType);
+
+  useEffect(() => {
+    const activeCandleKey = selectedSemanticNode?.kind === "candle"
+      && selectedSemanticNode.depth === 0
+      && selectedSemanticNode.interval === chart.interval
+      && selectedSemanticNode.timestamp
+      && isAnalysisAssetInterval(chart.interval)
+      ? candleKeyForTimestamp(selectedSemanticNode.timestamp, chart.interval)
+      : null;
+    updateChartCommentaryInteraction(document.id, {
+      activeCandleKey,
+      candleSelectionAvailable: semanticSelectionEnabled
+    });
+  }, [chart.interval, document.id, selectedSemanticNode, semanticSelectionEnabled]);
 
   useEffect(() => {
     const previousChartType = previousChartTypeRef.current;
@@ -1998,6 +2156,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (detail?.chartDocumentId !== document.id) return;
       const current = chartRef.current;
       const visible = !Boolean(current.layers[detail.layer]);
+      if (visible && commentaryIndicatorStatuses[detail.layer] === "unavailable") return;
       dispatchDocumentCommand("chart.layer.visibility.set", { layer: detail.layer, visible });
     };
     const handleReferenceOpen = (event: Event) => {
@@ -2017,8 +2176,22 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
       const index = commentaryReferenceCandleIndex(reference, current.candles, current.interval);
       if (index < 0) return;
-      moveToCandleIndex(index);
       if (reference.type === "candle") {
+        if (!isAnalysisAssetInterval(current.interval)) return;
+        const expectedCandleKey = reference.candleKey ?? candleKeyForTimestamp(reference.timestamp, current.interval);
+        const selected = selectedSemanticNodeRef.current;
+        const selectedCandleKey = selected?.kind === "candle"
+          && selected.depth === 0
+          && selected.interval === current.interval
+          && selected.timestamp
+          ? candleKeyForTimestamp(selected.timestamp, current.interval)
+          : null;
+        if (expectedCandleKey && expectedCandleKey === selectedCandleKey) {
+          pendingCommentaryCandleRef.current = null;
+          setSelectedSemanticNode(null);
+          return;
+        }
+        moveToCandleIndex(index);
         pendingCommentaryCandleRef.current = {
           timestamp: reference.timestamp,
           ...(reference.candleKey ? { candleKey: reference.candleKey } : {})
@@ -2030,6 +2203,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         }
         return;
       }
+      moveToCandleIndex(index);
       const layer: ChartLayerKey = reference.type === "news" ? "events:news" : "events:earnings";
       if (current.layers[layer] === false) {
         dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: true });
@@ -2045,7 +2219,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       window.removeEventListener(chartCommentaryIndicatorToggleEventName, handleIndicatorToggle);
       window.removeEventListener(chartCommentaryReferenceOpenEventName, handleReferenceOpen);
     };
-  }, [applyViewport, dispatchDocumentCommand, document.id]);
+  }, [applyViewport, commentaryIndicatorStatuses, dispatchDocumentCommand, document.id]);
 
   useEffect(() => {
     proposalAutoFrameKeyRef.current = "";
@@ -2062,7 +2236,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     pendingCommentaryCandleRef.current = null;
     setCommentaryEventOpenRequest(null);
+    updateChartCommentaryInteraction(document.id, { activeEventId: null });
   }, [chart.interval, chart.symbol, document.id]);
+
+  const handleCommentaryEventSelectionChange = useCallback((eventId: string | null) => {
+    selectedCommentaryEventIdRef.current = eventId;
+    updateChartCommentaryInteraction(document.id, { activeEventId: eventId });
+  }, [document.id]);
 
   useEffect(() => {
     const proposalDrawing = chartTradeSetupSnapshot
@@ -2932,6 +3112,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       data-bidask-session-date={orderFlowActive ? bidAskSessionDate : undefined}
       data-order-flow-status={orderFlowActive ? orderFlowDataStatus : undefined}
       data-order-flow-minute-count={orderFlowActive ? orderFlowToday.size : undefined}
+      data-commentary-volume-profile-status={volumeProfileRuntimeStatus}
     >
       {hoverSnapshot?.kind === "candle" && (
         <dl
@@ -3068,6 +3249,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           earningsVisible={earningsEventsVisible}
           upcomingStyle={chartEventUpcomingStyle}
           openRequest={commentaryEventOpenRequest}
+          onSelectedEventChange={handleCommentaryEventSelectionChange}
         />
         <ChartTradeOverlay
           markers={chartTradeMarkers}

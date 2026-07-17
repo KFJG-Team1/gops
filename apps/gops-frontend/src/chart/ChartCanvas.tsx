@@ -324,6 +324,18 @@ type DrawingRenderBatch = {
 
 const interpretationUnderlayIdPrefix = "interpretation-underlay:";
 const interpretationLineOpacity = 0.4;
+const analysisSpotlightDimMultiplier = 0.5;
+const focusedDrawingMaxOuterLineWidth = 6;
+const focusedDrawingMaxCoreLineWidth = 4.5;
+const focusedDrawingMinCoreLineWidth = 2;
+const analysisFocusStrokeTypes = new Set<DrawingEntity["type"]>([
+  "horizontalLine",
+  "trendLine",
+  "horizontalParallelLines",
+  "verticalParallelLines",
+  "trendParallelLines",
+  "rangeBox"
+]);
 
 function drawingRenderBatch(
   scene: ChartScene,
@@ -381,6 +393,56 @@ function interpretationFinalDrawingBatch(
   return drawings.length ? drawingRenderBatch(scene, drawings, false) : null;
 }
 
+function analysisFocusDrawingBatch(
+  scene: ChartScene,
+  spotlight: ReadonlySet<string> | null,
+  pass: "outer" | "core"
+): DrawingRenderBatch | null {
+  if (!spotlight?.size) return null;
+  const drawings = scene.chart.drawings.flatMap((drawing) => {
+    const outerColorToken = analysisFocusOuterColorToken(drawing.style?.colorToken);
+    if (!spotlight.has(drawing.id) || !outerColorToken || !analysisFocusStrokeTypes.has(drawing.type)) return [];
+    const baseLineWidth = drawing.style?.lineWidth ?? 1;
+    return [{
+      ...drawing,
+      id: `analysis-focus-${pass}:${drawing.id}`,
+      label: undefined,
+      visible: true,
+      style: {
+        ...drawing.style,
+        colorToken: pass === "outer" ? outerColorToken : "text" as const,
+        color: undefined,
+        fillOpacity: 0,
+        labelPlacement: "none" as const,
+        lineWidth: pass === "outer"
+          ? focusedOuterLineWidth(baseLineWidth)
+          : focusedCoreLineWidth(baseLineWidth),
+        opacity: 1
+      }
+    }];
+  });
+  return drawings.length ? drawingRenderBatch(scene, drawings, false) : null;
+}
+
+function analysisFocusOuterColorToken(token: DrawingEntity["style"]["colorToken"]): ThemeColorToken | null {
+  if (token === "evidenceSupport") return "up";
+  if (token === "evidenceResistance") return "down";
+  if (token === "evidenceTrend") return "signal";
+  if (token === "evidencePattern") return "pointPurple";
+  return null;
+}
+
+function focusedOuterLineWidth(baseLineWidth: number): number {
+  return Math.min(focusedDrawingMaxOuterLineWidth, baseLineWidth + 2);
+}
+
+function focusedCoreLineWidth(baseLineWidth: number): number {
+  return Math.min(
+    focusedDrawingMaxCoreLineWidth,
+    Math.max(focusedDrawingMinCoreLineWidth, baseLineWidth + 0.25)
+  );
+}
+
 function drawBaseChart(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
@@ -412,6 +474,8 @@ function drawBaseChart(
   const interpretationDrawingBatch = analysisTraceOverlay
     ? interpretationFinalDrawingBatch(scene, analysisTraceOverlay, spotlight)
     : null;
+  const analysisFocusOuterBatch = analysisFocusDrawingBatch(scene, spotlight, "outer");
+  const analysisFocusCoreBatch = analysisFocusDrawingBatch(scene, spotlight, "core");
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene),
     () => drawTimeGrid(context, scene),
@@ -446,6 +510,8 @@ function drawBaseChart(
     () => drawPriceAxis(context, scene),
     () => drawOpenedDigMarkers(context, scene),
     () => drawDrawings(context, scene, drawingBatch, false, editingDrawingId, spotlight),
+    () => analysisFocusOuterBatch && drawDrawings(context, scene, analysisFocusOuterBatch, false),
+    () => analysisFocusCoreBatch && drawDrawings(context, scene, analysisFocusCoreBatch, false),
     () => drawDrawings(context, scene, previewDrawingBatch, true),
     () => drawDrawingLabelsOnAxes(context, scene, spotlight),
     () => drawHoldingAveragePriceMarker(context, scene),
@@ -836,42 +902,54 @@ function drawAnalysisTraceLines(
       : null;
     const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
     const targeted = overlay.focused && focusedCandidateIds.has(candidate.id);
+    const drawCandidateGeometry = () => {
+      if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
+        line(context, scene.plot.left, levelY, scene.plot.right, levelY);
+      } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
+        const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
+        line(context, base[0].x, base[0].y, base[1].x, base[1].y);
+        const baseSpanX = points[1].x - points[0].x;
+        const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
+          ? points[0].y
+          : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
+        const offsetY = points[2].y - baseYAtOffset;
+        const parallel = projectTrendLine(
+          { x: points[0].x, y: points[0].y + offsetY },
+          { x: points[1].x, y: points[1].y + offsetY },
+          scene.plot,
+          "ray"
+        );
+        line(context, parallel[0].x, parallel[0].y, parallel[1].x, parallel[1].y);
+      } else if ((candidate.render?.drawingType === "trendLine" || candidate.category === "trend") && points.length >= 2) {
+        const projected = projectTrendLine(points[0], points[1], scene.plot, "ray");
+        line(context, projected[0].x, projected[0].y, projected[1].x, projected[1].y);
+      } else if (candidate.render?.drawingType === "segments" && candidate.render.segments?.length) {
+        candidate.render.segments.forEach(([startIndex, endIndex]) => {
+          const start = points[startIndex], end = points[endIndex];
+          if (start && end) line(context, start.x, start.y, end.x, end.y);
+        });
+      } else {
+        for (let index = 0; index + 1 < points.length; index += 2) {
+          line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
+        }
+      }
+    };
     context.save();
     context.strokeStyle = color;
     context.globalAlpha = interpretationStrokeOpacity(overlay.focused, targeted);
     context.lineWidth = interpretationFocusedLineWidth(candidate.category, targeted);
     context.setLineDash([]);
-    if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
-      line(context, scene.plot.left, levelY, scene.plot.right, levelY);
-    } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
-      const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
-      line(context, base[0].x, base[0].y, base[1].x, base[1].y);
-      const baseSpanX = points[1].x - points[0].x;
-      const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
-        ? points[0].y
-        : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
-      const offsetY = points[2].y - baseYAtOffset;
-      const parallel = projectTrendLine(
-        { x: points[0].x, y: points[0].y + offsetY },
-        { x: points[1].x, y: points[1].y + offsetY },
-        scene.plot,
-        "ray"
-      );
-      line(context, parallel[0].x, parallel[0].y, parallel[1].x, parallel[1].y);
-    } else if ((candidate.render?.drawingType === "trendLine" || candidate.category === "trend") && points.length >= 2) {
-      const projected = projectTrendLine(points[0], points[1], scene.plot, "ray");
-      line(context, projected[0].x, projected[0].y, projected[1].x, projected[1].y);
-    } else if (candidate.render?.drawingType === "segments" && candidate.render.segments?.length) {
-      candidate.render.segments.forEach(([startIndex, endIndex]) => {
-        const start = points[startIndex], end = points[endIndex];
-        if (start && end) line(context, start.x, start.y, end.x, end.y);
-      });
-    } else {
-      for (let index = 0; index + 1 < points.length; index += 2) {
-        line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
-      }
-    }
+    drawCandidateGeometry();
     context.restore();
+    if (targeted) {
+      context.save();
+      context.strokeStyle = colors.text;
+      context.globalAlpha = 1;
+      context.lineWidth = focusedCoreLineWidth(interpretationLineWidth(candidate.category));
+      context.setLineDash([]);
+      drawCandidateGeometry();
+      context.restore();
+    }
   });
 }
 
@@ -885,12 +963,13 @@ function interpretationFocusedLineWidth(
   category: AnalysisTraceOverlayCandidate["category"],
   targeted: boolean
 ): number {
-  return interpretationLineWidth(category) + (targeted ? 1 : 0);
+  const baseLineWidth = interpretationLineWidth(category);
+  return targeted ? focusedOuterLineWidth(baseLineWidth) : baseLineWidth;
 }
 
 function interpretationStrokeOpacity(focused: boolean, targeted: boolean): number {
   if (!focused) return interpretationLineOpacity;
-  return targeted ? 1 : interpretationLineOpacity * 0.65;
+  return targeted ? 1 : interpretationLineOpacity * analysisSpotlightDimMultiplier;
 }
 
 function drawAnalysisTraceMarkers(
@@ -2467,7 +2546,12 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
     if (!anchor) {
       return;
     }
-    const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
+    const focusedAnalysisLabel = Boolean(
+      spotlight?.has(drawing.id) && analysisFocusOuterColorToken(drawing.style?.colorToken)
+    );
+    const axisLabelColor = focusedAnalysisLabel
+      ? colors.text
+      : resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
     const placement = drawing.style?.labelPlacement;
     if (placement === "inline" || placement === "none") {
       return;
@@ -2510,7 +2594,7 @@ function drawingSpotlightOpacity(drawing: Pick<DrawingEntity, "id" | "sourceProp
   if (spotlight.has(drawing.id)) return 1;
   const analysis = drawing.id.startsWith("chart-asset:") || drawing.id.startsWith("chart-plan:")
     || drawing.sourceProposalId?.startsWith("chart-asset:") || drawing.sourceProposalId?.startsWith("chart-plan:");
-  return analysis ? 0.65 : 0.82;
+  return analysis ? analysisSpotlightDimMultiplier : 0.82;
 }
 
 function drawingStrokeOpacity(

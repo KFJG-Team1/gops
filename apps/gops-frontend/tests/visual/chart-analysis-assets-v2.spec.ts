@@ -90,6 +90,14 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "true");
   await indicatorRecommendation.click();
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
+  const volumeProfileRecommendation = commentaryPanel.getByRole("button", { name: "Volume Profile 차트 레이어 전환" });
+  await expect(volumeProfileRecommendation).toHaveAttribute("aria-pressed", "false");
+  await volumeProfileRecommendation.click();
+  await expect(volumeProfileRecommendation).toHaveAttribute("aria-pressed", "true");
+  await expect(chart).toHaveAttribute("data-commentary-volume-profile-status", "ready");
+  await volumeProfileRecommendation.click();
+  await expect(volumeProfileRecommendation).toHaveAttribute("aria-pressed", "false");
+  await expect(chart).toHaveAttribute("data-commentary-volume-profile-status", "off");
   await page.locator(".chart-commentary-source").hover();
   await expect(commentaryPanel.locator(".chart-commentary-price-head").getByRole("columnheader")).toHaveText(["제안", "가격", "현재가 대비"]);
   await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["진입", "목표", "손절"]);
@@ -158,10 +166,25 @@ test("five analysis layers render independently with commentary focus and cards"
   await patternStep.press("Enter");
   await expect(patternStep).toHaveAttribute("aria-pressed", "false");
 
-  const candleReference = commentaryPanel.getByRole("button", { name: "최근 완료 봉 차트에서 열기" });
+  const candleReference = commentaryPanel.locator("button.chart-commentary-inline-reference.is-candle").filter({ hasText: "최근 완료 봉" });
   await expect(candleReference).toBeEnabled();
+  await expect(candleReference).toHaveAttribute("aria-pressed", "false");
   await candleReference.click();
+  await expect(candleReference).toHaveAttribute("aria-pressed", "true");
   await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toBeVisible();
+  await candleReference.click();
+  await expect(candleReference).toHaveAttribute("aria-pressed", "false");
+  await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toHaveCount(0);
+
+  const newsReference = commentaryPanel.locator("button.chart-commentary-inline-reference.is-news").filter({ hasText: "최근 뉴스 맥락" });
+  await expect(newsReference).toHaveAttribute("aria-pressed", "false");
+  await newsReference.click();
+  await expect(newsReference).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".chart-event-popover")).toBeVisible();
+  await newsReference.click();
+  await expect(newsReference).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".chart-event-popover")).toHaveCount(0);
+  await expect(chart.locator("[data-chart-event-id^='news:NVDA:']")).toBeVisible();
 });
 
 test("interpretation alone keeps broad final underlays and shortlisted candidates", async ({ page }) => {
@@ -195,8 +218,18 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
-  await page.locator(".chart-commentary-focus button").first().hover();
+  const focusButtons = page.locator(".chart-commentary-focus button");
+  await expect(focusButtons).toHaveCount(3);
+  await focusButtons.nth(0).hover();
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-underlays.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await focusButtons.nth(1).hover();
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-trend.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await focusButtons.nth(2).hover();
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await focusButtons.nth(2).click();
+  await expect(focusButtons.nth(2)).toHaveAttribute("aria-pressed", "true");
+  await chart.locator(".chart-analysis-layer-controls").hover();
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-pinned-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
 });
 
 test("proposal toggle is disabled when the asset has no proposal drawings", async ({ page }) => {
@@ -575,6 +608,7 @@ async function fulfillApi(route: Route): Promise<void> {
   };
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
+  else if (url.pathname === "/api/charts/events") payload = commentaryChartEventsPayload(url);
   else if (url.pathname === "/api/charts/analysis-assets") {
     if (analysisAssetStorageUnavailable) {
       status = 503;
@@ -636,7 +670,7 @@ async function fulfillApi(route: Route): Promise<void> {
     status = 503;
     payload = { detail: "fixture queue disabled" };
   } else if (url.pathname === "/api/charts/indicators") payload = { symbol: "NVDA", interval: "1D", series: {} };
-  else if (url.pathname === "/api/charts/volume-profile-bins") payload = { bins: [] };
+  else if (url.pathname === "/api/charts/volume-profile-bins") payload = commentaryVolumeProfilePayload(url);
   else if (url.pathname === "/api/market/heatmap") payload = { items: [] };
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
 }
@@ -689,6 +723,76 @@ function candlePayload(symbol: string, interval: string): Record<string, unknown
   return { symbol, interval, request: { limit: candles.length }, status: "ready", dataStatus: "ready", source: "fixture", feed: "sip", candles, indicators: { ma: [5, 20, 60], volume: true }, requestedLimit: candles.length, returnedCount: candles.length, hasMoreBefore: false, hasMoreAfter: false, fill: { status: "not_needed", renderable: true } };
 }
 
+function commentaryVolumeProfilePayload(url: URL): Record<string, unknown> {
+  const priceMin = Number(url.searchParams.get("priceMin") ?? 150);
+  const priceMax = Number(url.searchParams.get("priceMax") ?? 200);
+  const targetBins = Number(url.searchParams.get("targetBins") ?? 10);
+  const candleCount = Number(url.searchParams.get("candleCount") ?? candles.length);
+  const width = (priceMax - priceMin) / targetBins;
+  const bins = Array.from({ length: targetBins }, (_, index) => ({
+    index,
+    priceBin: priceMin + (index + 0.5) * width,
+    priceBinSize: width,
+    priceMin: priceMin + index * width,
+    priceMax: priceMin + (index + 1) * width,
+    priceMid: priceMin + (index + 0.5) * width,
+    volume: 1000 + index * 100,
+    tradeCount: 10 + index,
+    volumePercent: 1 / targetBins,
+    isPoc: index === Math.floor(targetBins / 2),
+    inValueArea: index >= 2 && index <= 7
+  }));
+  const interval = url.searchParams.get("interval") ?? "1D";
+  return {
+    symbol: url.searchParams.get("symbol") ?? "NVDA",
+    interval,
+    sourceInterval: interval,
+    from: url.searchParams.get("from") ?? "",
+    to: url.searchParams.get("to") ?? "",
+    timeBucket: interval,
+    targetBins,
+    bucketCount: bins.length,
+    priceBinSize: width,
+    sourceBinCount: bins.length,
+    sourceCandleCount: candleCount,
+    requestedCandleCount: candleCount,
+    source: "fixture",
+    feed: "sip",
+    calculationVersion: "fixture-v1",
+    sideClassification: "estimated",
+    dataStatus: "ready",
+    priceRange: { min: priceMin, max: priceMax, requestedMin: priceMin, requestedMax: priceMax },
+    totalVolume: bins.reduce((sum, bin) => sum + bin.volume, 0),
+    totalTradeCount: bins.reduce((sum, bin) => sum + bin.tradeCount, 0),
+    bins,
+    derived: { state: "ready", source: "redis", requestHash: "fixture-commentary-vp" }
+  };
+}
+
+function commentaryChartEventsPayload(url: URL): Record<string, unknown> {
+  const symbol = (url.searchParams.get("symbol") ?? "NVDA").toUpperCase();
+  const marketDate = candles.at(-2)?.timestamp.slice(0, 10) ?? "2026-07-08";
+  return {
+    symbol,
+    from: url.searchParams.get("from") ?? candles[0].timestamp,
+    to: url.searchParams.get("to") ?? candles.at(-1)?.timestamp,
+    status: { earnings: "empty", news: "ready" },
+    earnings: [],
+    newsDays: [{
+      id: `news:${symbol}:${marketDate}`,
+      type: "news",
+      date: marketDate,
+      articleCount: 2,
+      summary: "분석 시점의 저장 뉴스 맥락",
+      keyPoints: ["차트 구조와 함께 확인"],
+      impactDirection: "neutral",
+      sentiment: "neutral",
+      sources: []
+    }],
+    upcomingEarnings: null
+  };
+}
+
 function patternCoverageResponse(extraSymbols = 0): Record<string, unknown> {
   const extraItems = Array.from({ length: extraSymbols }, (_, index) => ({
     symbol: `TEST${String(index + 1).padStart(2, "0")}`,
@@ -724,6 +828,7 @@ function drawing(id: string, type: string, anchors: Array<Record<string, unknown
 
 function assetResponse(): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp;
+  const commentaryMarketDate = candles.at(-2)?.timestamp.slice(0, 10) ?? "2026-07-08";
   const hline = drawing("chart-asset:NVDA:1D:support", "horizontalLine", [{ timestamp: candles[50].timestamp, price: 164 }, { timestamp: candles[100].timestamp, price: 164 }], "지지", "#22c55e");
   const upper = drawing("chart-asset:NVDA:1D:triangle-upper", "trendLine", [{ timestamp: candles[40].timestamp, price: 178 }, { timestamp: candles[139].timestamp, price: 178 }], "상승 삼각형 · 형성 중", "#22c55e");
   const lower = drawing("chart-asset:NVDA:1D:triangle-lower", "trendLine", [{ timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 164 }], "상승 삼각형 · 형성 중", "#22c55e");
@@ -841,19 +946,30 @@ function assetResponse(): Record<string, unknown> {
           { id: "confirmation-close", text: "를 함께 보면 경계 시험 과정에서 가격 움직임의 힘이 이어지는지 구분하는 데 도움이 됩니다. 지표는 작도를 대신하지 않고 반응의 질을 확인하는 보조 근거입니다." }
         ] },
         { id: "context", segments: [
-          { id: "context-text", text: "저장된 이벤트가 없는 구간에서는 차트 구조와 완료 봉을 우선합니다. 다음 완료 봉이 패턴 경계 안팎에서 어떻게 마감하는지를 같은 기준으로 이어서 확인합니다." }
+          { id: "context-open", text: "외부 정보는 원인으로 단정하지 않고 " },
+          { id: "context-news", text: "최근 뉴스 맥락", link: { kind: "news", referenceId: "news:latest" } },
+          { id: "context-middle", text: "으로만 참고하며, 차트 구조와 완료 봉을 우선하고 " },
+          { id: "context-volume-profile", text: "Volume Profile", link: { kind: "indicator", layer: "volume-profile", referenceIds: ["candle:previous"] } },
+          { id: "context-close", text: "로 거래가 집중된 가격대를 함께 확인합니다. 다음 완료 봉이 패턴 경계 안팎에서 어떻게 마감하는지를 같은 기준으로 이어서 확인합니다." }
         ] }
       ],
-      indicatorRecommendations: [{
-        layer: "rsi:14", label: "상대강도지수", reason: "패턴 경계 부근에서 가격 움직임의 강도를 함께 확인합니다.",
-        referenceIds: ["candle:previous"]
-      }],
+      indicatorRecommendations: [
+        {
+          layer: "rsi:14", label: "상대강도지수", reason: "패턴 경계 부근에서 가격 움직임의 강도를 함께 확인합니다.",
+          referenceIds: ["candle:previous"]
+        },
+        {
+          layer: "volume-profile", label: "거래량 프로파일", reason: "최근 완료 봉 구간에서 거래가 집중된 가격대를 확인합니다.",
+          referenceIds: ["candle:previous"]
+        }
+      ],
       references: [
         { id: "drawing:pattern", type: "drawing", drawingIds: [upper.id, lower.id] },
         { id: "candle:latest", type: "candle", timestamp: asOf, candleKey: asOf.slice(0, 10) },
-        { id: "candle:previous", type: "candle", timestamp: candles[138].timestamp, candleKey: candles[138].timestamp.slice(0, 10) }
+        { id: "candle:previous", type: "candle", timestamp: candles[138].timestamp, candleKey: candles[138].timestamp.slice(0, 10) },
+        { id: "news:latest", type: "news", eventId: `news:NVDA:${commentaryMarketDate}`, marketDate: commentaryMarketDate }
       ],
-      limitations: ["저장된 최신 뉴스 요약이 없습니다."]
+      limitations: []
     }
   };
   const nearbyAsset = nearbyIntervalFallback ? {

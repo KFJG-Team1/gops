@@ -579,35 +579,31 @@
   border: 0;
   padding: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--color-signal) 72%, var(--color-text));
+  color: var(--color-signal);
   font: inherit;
   line-height: inherit;
   text-align: inherit;
   text-decoration-line: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: color-mix(in srgb, currentColor 62%, transparent);
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   white-space: normal;
   cursor: pointer;
 }
 
-.chart-commentary-inline-reference.is-drawing {
-  color: var(--color-evidence-pattern);
-}
-
-.chart-commentary-inline-reference.is-news,
-.chart-commentary-inline-reference.is-earnings,
-.chart-commentary-inline-reference.is-candle {
-  color: color-mix(in srgb, var(--color-axis) 78%, var(--color-text));
-}
-
 .chart-commentary-inline-reference:hover:not(:disabled),
-.chart-commentary-inline-reference:focus-visible,
-.chart-commentary-inline-reference[aria-pressed="true"] {
-  color: var(--color-text);
+.chart-commentary-inline-reference:focus-visible {
+  color: var(--color-signal);
   text-decoration-style: solid;
   text-decoration-color: currentColor;
+}
+
+.chart-commentary-inline-reference[aria-pressed="true"] {
+  color: var(--color-signal);
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
 }
 
 .chart-commentary-inline-reference:focus-visible {
