@@ -122,6 +122,10 @@ const holdingMarkerSource = chartCanvasSource.slice(
 assert.doesNotMatch(holdingMarkerSource, /paperHoldingOverlayLabel/);
 assert.doesNotMatch(holdingMarkerSource, /drawDarkAxisPill/);
 assert.doesNotMatch(holdingMarkerSource, /scene\.plot\.left \+ 8/);
+assert.match(
+  holdingMarkerSource,
+  /drawAxisPill\(\s*context,\s*holding\.averagePrice\.toFixed\(2\),\s*rightAxisPillX\(scene\),\s*y,\s*"right",\s*"holdingPrice"\s*\)/s
+);
 
 const chartPanelSource = readFileSync(
   resolve(process.cwd(), "src/components/ChartPanel.tsx"),
@@ -133,6 +137,7 @@ assert.match(chartPanelSource, /className="chart-holding-price-tooltip"/);
 assert.match(chartPanelSource, /role="tooltip"/);
 assert.match(chartPanelSource, /ref=\{holdingPriceMarkerRef\}/);
 assert.match(chartPanelSource, /syncPaperHoldingPriceMarkerPosition/);
+assert.doesNotMatch(chartPanelSource, /className="chart-holding-price-pill"/);
 
 const chartFeatureStyles = readFileSync(
   resolve(process.cwd(), "src/chart-features.css"),
@@ -143,3 +148,4 @@ assert.match(chartFeatureStyles, /\.chart-holding-price-marker:focus-visible \.c
 assert.match(chartFeatureStyles, /left: var\(--chart-holding-axis-left\)/);
 assert.match(chartFeatureStyles, /width: var\(--chart-holding-axis-width\)/);
 assert.doesNotMatch(chartFeatureStyles, /\.chart-holding-price-marker\s*\{[^}]*\n\s*right:\s*4px/s);
+assert.doesNotMatch(chartFeatureStyles, /\.chart-holding-price-pill\s*\{/);
