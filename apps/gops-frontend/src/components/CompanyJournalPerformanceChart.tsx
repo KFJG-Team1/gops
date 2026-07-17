@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchCandles } from "../chart/cdcClient";
 import type { CandleDto } from "../chart/types";
 
@@ -17,9 +17,30 @@ type CompanyJournalPerformanceChartProps = {
   storedSeries?: CompanyJournalPerformanceSeries[];
 };
 
-const chartWidth = 760;
-const chartHeight = 320;
-const plot = { left: 54, right: 18, top: 26, priceBottom: 224, volumeTop: 248, bottom: 294 };
+const defaultPerformanceChartSize = { width: 760, height: 320 };
+
+function usePerformanceChartSize() {
+  const [chart, setChart] = useState<SVGSVGElement | null>(null);
+  const [size, setSize] = useState(defaultPerformanceChartSize);
+  const chartRef = useCallback((node: SVGSVGElement | null) => setChart(node), []);
+
+  useEffect(() => {
+    if (!chart) return undefined;
+    const measure = () => {
+      const bounds = chart.getBoundingClientRect();
+      const next = { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+      if (next.width < 240 || next.height < 160) return;
+      setSize((current) => current.width === next.width && current.height === next.height ? current : next);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, [chart]);
+
+  return { chartRef, chartWidth: size.width, chartHeight: size.height };
+}
 
 export function CompanyJournalPerformanceChart({
   symbol,
@@ -28,6 +49,7 @@ export function CompanyJournalPerformanceChart({
   previewEnabled,
   storedSeries = []
 }: CompanyJournalPerformanceChartProps) {
+  const { chartRef, chartWidth, chartHeight } = usePerformanceChartSize();
   const sectorSymbol = companyJournalSectorBenchmarkSymbol(sector, industry);
   const [series, setSeries] = useState<CompanyJournalPerformanceSeries[]>(() => previewEnabled
     ? buildPreviewPerformanceSeries(symbol, sectorSymbol)
@@ -93,10 +115,28 @@ export function CompanyJournalPerformanceChart({
   const padding = Math.max(4, (maxValue - minValue) * 0.12);
   const domain = { min: minValue - padding, max: maxValue + padding };
   const maxVolume = Math.max(1, ...volumePoints.map((candle) => candle.volume));
+  const widthProgress = Math.min(1, Math.max(0, (chartWidth - 320) / 440));
+  const plotLeft = 44 + (54 - 44) * widthProgress;
+  const plotRight = 10 + (18 - 10) * widthProgress;
+  const plotBottom = chartHeight - 26;
+  const volumeHeight = Math.min(54, Math.max(36, chartHeight * 0.16));
+  const plot = {
+    left: plotLeft,
+    right: plotRight,
+    top: chartHeight < 260 ? 20 : 26,
+    priceBottom: plotBottom - volumeHeight - 18,
+    volumeTop: plotBottom - volumeHeight,
+    bottom: plotBottom
+  };
   const yFor = (value: number) => plot.top + ((domain.max - value) / (domain.max - domain.min || 1)) * (plot.priceBottom - plot.top);
   const xFor = (index: number, length: number) => plot.left + (index / Math.max(1, length - 1)) * (chartWidth - plot.left - plot.right);
   const ticks = makeTicks(domain.min, domain.max, 5);
   const periodLabel = normalized.length ? commonCoverageLabel(normalized) : "가격 이력 확인 중";
+  const companyPerformance = normalized.find((value) => value.tone === "company") ?? normalized[0];
+  const companyLatestIndex = Math.max(0, (companyPerformance?.points.length ?? 1) - 1);
+  const companyLatestPoint = companyPerformance?.points[companyLatestIndex];
+  const companyLatestX = companyPerformance ? xFor(companyLatestIndex, companyPerformance.points.length) : chartWidth - plot.right;
+  const companyLatestY = companyLatestPoint ? yFor(companyLatestPoint.value) : plot.top;
 
   return (
     <section className="company-journal-performance" aria-label={`${symbol} 시장 대비 주가와 거래량`}>
@@ -112,7 +152,7 @@ export function CompanyJournalPerformanceChart({
         <span><i className="volume" />거래량</span>
       </div>
       {normalized.length ? (
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${symbol}, S&P 500, 산업 기준 상대수익률과 거래량`}>
+        <svg ref={chartRef} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${symbol}, S&P 500, 산업 기준 상대수익률과 거래량`}>
           {ticks.map((tick) => {
             const y = yFor(tick);
             return <g key={tick}><line className="grid" x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text x={plot.left - 8} y={y + 4}>{formatAxis(tick)}</text></g>;
@@ -132,6 +172,14 @@ export function CompanyJournalPerformanceChart({
               <title>{`${value.label} · ${point.value >= 0 ? "+" : ""}${point.value.toFixed(1)}%`}</title>
             </circle>
           ) : null))}
+          {companyLatestPoint && (
+            <g className="company-journal-chart-annotation" data-journal-annotation="market-latest" aria-hidden="true">
+              <line className="company-journal-chart-annotation-guide" x1={companyLatestX} x2={companyLatestX} y1={plot.top + 28} y2={companyLatestY} />
+              <circle className="company-journal-chart-annotation-anchor" cx={companyLatestX} cy={companyLatestY} r={6} />
+              <rect className="company-journal-chart-annotation-label" x={Math.max(4, companyLatestX - 150)} y={plot.top + 2} width={140} height={25} rx={7} />
+              <text className="company-journal-chart-annotation-text" x={Math.max(13, companyLatestX - 141)} y={plot.top + 19}>시장 대비 상대강도</text>
+            </g>
+          )}
           {dateLabels(companyWindowCandles).map((label) => (
             <text key={label.timestamp} className="date" x={label.ratio * (chartWidth - plot.left - plot.right) + plot.left} y={chartHeight - 7}>{label.label}</text>
           ))}
